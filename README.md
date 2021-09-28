@@ -10,6 +10,7 @@ Currently **Chunklate** is able to provide those features:
 - Repair missplaced chunk (Todo)
 - Replace critical missing chunk (Todo)
 - Save each modifications in a different file
+- User friendly candy eye (Todo)
 - Provide a summary of all modifications (Todo)
 
 ## Usage
