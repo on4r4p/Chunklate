@@ -15,8 +15,8 @@ Currently **Chunklate** is able to provide those features:
 
 ## Usage
 
-`usage: Chunklate.py [-h] [-f FILE]
+>usage: Chunklate.py [-h] [-f FILE]
 
-optional arguments:
+>optional arguments:
   -h, --help            show this help message and exit
   -f FILE, --file FILE  File path.`
