@@ -15,21 +15,81 @@ def ToHistory(chunk):
 
     try:
        chunk=chunk.encode()
-#       print("After encode:",chunk)
     except Exception as e:
-#         print("Error:",e)
          pass
     Chunks_History.append(chunk)
 
-def FindMagic(magic):
+
+def FindMagic():
+     print("\n===========================")
+     print("Looking for magic header:")
+     print("===========================\n")
+
+     magic = "89504e470d0a1a0a"
+     magc= "89504e470a1a0a00"
+
      lenmagic = len(magic)
      pos = DATAX.find(magic)
      if pos != -1:
           ToHistory("PNG")
           print("This File is Magic :",DATAX[:lenmagic])
-          return(ReadPng(pos+lenmagic))
+          print("Found at offset : hex %s bytes %s index %s\n"%(hex(int(pos/2)),int(pos/2),pos))
+          if DATAX.startswith(magic) is False:
+                print("Mkay ...I like where this is going ..\nI will have to cut %s bytes from your file since png header starts at this offset %s .\n"%(int(pos/2),hex(int(pos/2))))
+                Zankentsu = DATAX[pos::]
+                SaveClone(Zankentsu)
+          else:
+              return(ReadPng(pos+lenmagic))
+
      else:
-         print("\n\nDidnt find Any Fucking magic in this file !!\n")
+         print("\n\nThis File isn't magic at all !!\n")
+         print("This better be a real png or else ....")
+
+         pos = DATAX.find(magc)
+         if pos != -1:
+             print("Wait a sec ..Oh!\nOww....This is bad news i m afraid..\nThe file is badly corrupted due to line feed conversion between OS...\nI cannot guarantee any results but i will try my best ...\n")
+             print("TODO")
+             exit()
+
+         print("\nTss..Ok let's dig a little bit deeper..\n")
+         return(FindFuckingMagic())
+
+def FindFuckingMagic():
+     print("\n===========================")
+     print("Looking harder for magic header:")
+     print("===========================\n")
+     print("This gona take me sometimes please wait ..\n")
+     FullMagic="89504e470d0a1a0a0000000d49484452"
+     m_a_g_i_c = [i for i in FullMagic]
+     start= 0
+     end = len(FullMagic)
+     BingoList = []
+     while end <= len(DATAX):
+            Bingo = 0 
+            sample = DATAX[start:end]
+            s_a_m_p_l_e = [i for i in sample]
+            for i,j in zip(m_a_g_i_c,s_a_m_p_l_e):
+                if i == j:
+                    Bingo += 1
+            BingoList.append(str(Bingo)+" "+str(sample))
+            start+=1
+            end+=1
+     BingoList.sort(key=SplitDigits)
+     BingoList = BingoList[::-1]
+     BestBingoScore = BingoList[0].split(" ")[0]
+     BestBingoName = BingoList[0].split(" ")[1]
+     BestBingoCount = len([b.split(" ")[0].count(BestBingoScore) for b in BingoList if int(b.split(" ")[0].count(BestBingoScore)) > 0])
+         
+     if BestBingoCount <= 2:
+         print("\nFewwww ... This is what iv got at offset %s with a score of %s/32 : %s \nI think that a start to work with don't you think ?\nLets fix this corrupted signature and see where it leads us ...\n"%(hex(int(start/2)),BestBingoScore,BestBingoName))
+         Odin = FullMagic + DATAX[start+len(FullMagic)::]
+         SaveClone(Odin)
+
+     else:
+         print("count:",BestBingoCount)
+         print("score:",BestBingoScore)
+         print("\nFewww ...Looks like there are multiple potentials signatures gona have to test them all.\nTODO")
+         [print(BingoList[i]) for i in range(0,20)]
          sys.exit()
 
 def GetInfo(type,data):
@@ -158,9 +218,6 @@ def ReadPng(offset):
      global CrcoffI
 
 
-     print("\n===========================")
-     print("Searching for chunks:")
-     print("===========================")
      while offset < len(DATAX):
      
          Chunk_Length = DATAX[offset:offset+8]
@@ -185,7 +242,7 @@ def ReadPng(offset):
 
          print("\n===========================")
          print("Chunk Infos:")
-         print("===========================")
+         print("===========================\n")
          print("Found at offset : In Hex %s , Bytes %s , Index %s "%(CLoffX,CLoffB,CLoffI))
          print("Chunk Length: %s in Bytes: %s"%(hex(int(Chunk_Length,16)),int(Chunk_Length, 16)))
          print("***************************")
@@ -232,20 +289,31 @@ def NearbyChunk(CType,bytesnbr,LastCType):
        for Chk in CHUNKS:
              if Chk.lower() == scope.lower():
                  print("\nBingo!!!\n\nFound the closest Chunk to our position:%s at offset %s %s"%(Chk,NeedleI,NeedleX))
-                 if Chk in Excluded:
-                        print("\n..But that chunk [%s] is not supposed to be here !\nITS A TRAP!\nRUN!!!!!!!\nRUN TO THE CHOPPER !!!\n")
-                        exit()
+                 if Chk.encode() in Excluded:
+                        print("\n...\n\nBut that chunk [%s] is not supposed to be here !\n\nITS A TRAP!\n\nRUN !!!!!!!\n\nRUN TO THE CHOPPER !!!\n"%Chk)
+                        print("\n\nI seriously doubt that this is a real png ..")
+                        print("If you are sure this file is a png i can try to fill the gap but i cannot guarantee any result..")
+                        if b'IHDR' not in Chunks_History :
+                             print("Especially without IHDR chunk..\nAnyway let me think about it for sec.")
+                             print("TODO")
+                             exit()
                  else:
+
                       print("That chunk length seems legit..\n")
                       LenCalc = Data_End_OffsetI-CDoffB
                       FixedLen= str('0x%08X' % LenCalc)[2::] # str('0x%08X' % LenCalc)[2::].encode().hex()
                       FixShit(FixedLen,CLoffI,CLoffI+8)
                       return()
        Needle += 1
-     print("...??\n\nJust Reach the EOF and found nothing!!\nCan't do much about that sorry ...\n")
+     print("\n...??\n\nJust Reach the EOF and found nothing!!\nCan't do much about that sorry ...\n")
      exit()
 
 def ChunkStory(lastchunk):
+
+  print("\n===========================")
+  print("Checking last chunks:")
+  print("===========================\n")
+
   Before_PLTE= [b'PNG', b'IHDR', b'gAMA', b'cHRM', b'iCCP', b'sRGB', b'sBIT']
   After_PLTE= [b'tRNS', b'hIST', b'bKGD'] #but before idat
   Before_IDAT=[b'sPLT',b'sBIT', b'pHYs', b'tRNS', b'hIST', b'bKGD', b'gAMA', b'cHRM', b'PLTE', b'IHDR', b'bKGD']
@@ -259,7 +327,8 @@ def ChunkStory(lastchunk):
 
   if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
         print("After Png Header always Follow IHDR its quite hard to miss..\nExcluding evrything else")
-        return(exclude for exclude in Chunks_History if exclude != "IHDR")
+        Excluded = [exclude.encode() for exclude in CHUNKS if exclude != "IHDR"]
+        return(Excluded)
 
   Used_Chunks = list(dict.fromkeys(Chunks_History))
 
@@ -268,11 +337,11 @@ def ChunkStory(lastchunk):
 
       if lastchunk in Before_PLTE:
          shutup = [Excluded.append(forbid.encode()) for forbid in CHUNKS if forbid.encode() not in Before_PLTE]
-         print("%s chunk must be placed before any PLTE realted chunks we can forget about thoses:\n%s"%(lastchunk,Excluded))
+         print("%s chunk must be placed before any PLTE realated chunks we can forget about thoses:\n%s"%(lastchunk,Excluded))
 
       if lastchunk in After_PLTE:
         shutup = [Excluded.append(forbid.encode()) for forbid in CHUNKS if forbid.encode() in Before_PLTE]
-        print("%s chunk must be placed after PLTE realted chunks we can forget about thoses:\n%s"%(lastchunk,Excluded))
+        print("%s chunk must be placed after PLTE realated chunks we can forget about thoses:\n%s"%(lastchunk,Excluded))
 
   elif b"IDAT" in Used_Chunks:
           shutup = [Excluded.append(forbid.encode()) for forbid in CHUNKS if forbid.encode() in Before_IDAT]
@@ -290,7 +359,6 @@ def BruteChunk(CType,LastCType,bytesnbr):
    print("\nMaybe the name got corrupted somehow.\nLet's see about that.\n")
 
    Excluded = ChunkStory(LastCType)
-   print(Excluded)
    
    for name in CHUNKS:
        if name.encode() not in Excluded:
@@ -301,7 +369,7 @@ def BruteChunk(CType,LastCType,bytesnbr):
                     Bingo += 1
            BingoLst.append(str(Bingo)+" "+str(name))
 
-   [print(i) for i in BingoLst]
+#   [print(i) for i in BingoLst]
 
    BingoLst.sort(key=SplitDigits)
    BingoLst = BingoLst[::-1]
@@ -311,16 +379,19 @@ def BruteChunk(CType,LastCType,bytesnbr):
 
    BestBingoCount = len([b.count(BestBingoScore) for b in BingoLst if int(b.count(BestBingoScore)) > 0])
 
-   if BestBingoCount < 2:
-
+   if BestBingoCount <= 2:
       print("\nAh looks like we've got a winner! :",BestBingoName)
+
       FixShit(BestBingoName.encode().hex(),CrcoffI+16,CrcoffI+24)
       return()
    else:
-       print("\nAh it seems that i can't make up a decision by myself ...\nI need you to choose something that look like [%s] \nCan you help ?\nOk Please select the right name for the chunk: "%str(CType))
+       print("\n===========================")
+       print("WHO'S THAT POKEMON !?:")
+       print("===========================")
+       print("\nArg its all gibberish ...\nI need you to choose something looking a like [%s] that is actually a real chunk name can you help ?\nOk Please select the right name for the chunk:\n"%str(CType))
        for i,j in enumerate(BingoLst):
            print("Score %s ,if you choose this name enter number: %s"%(j,i))
-       print("If you think this is a length problem type : len")
+       print("\nIf you think this is a length problem type : len")
        print("\nOr Type quit to ...quit.\n")
        Choice = input("WHO'S THAT POKEMON !? :")
        while True:
@@ -329,12 +400,14 @@ def BruteChunk(CType,LastCType,bytesnbr):
                   FixShit(BingoLst[int(Choice)].encode().hex(),CrcoffI+16,CrcoffI+24)
                   return()
           except Exception as e:
-              print("Error: ",e)
+#              print("Error: ",e)
+               pass
+
           if Choice.lower() =="quit":
                     print("Take Care Bye !")
                     exit()
           if Choice.lower() =="len":
-                     print("A length prob ?")
+                     print("\nA length prob you say?")
                      NearbyChunk(CType,bytesnbr,LastCType)
                      return()
           Choice = input("WHO'S THAT POKEMON !? :")
@@ -359,7 +432,12 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType):
 
    print("\nChunk name:FAILED 8(")
    print("That Chunk name is unknown...")
-   LastCType = bytes.fromhex(str(LastCType)).decode()
+   try:
+      LastCType = bytes.fromhex(str(LastCType)).decode()
+   except Exception as e:
+#        print("Error:",e)
+        LastCType = LastCType.decode()
+
    if len(CType) >=4:
            BruteChunk(CType,LastCType,bytesnbr)
            return()
@@ -370,7 +448,7 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType):
    if wow >= 3:
       print("..Hum ..Zlib put a limit on buff size up to 8912 bytes..\n and this one is pretty big :%s which is %s times bigger."%(bytesnbr,wow))
    else:
-      print("..Hum ..Zlib put a limit on buff size up to 8912 bytes..\n and this one is pretty big :%s\nMaybe thats a lenght problem."%bytesnbr)
+      print("..Hum ..Maybe thats a lenght problem.")
    NearbyChunk(CType,bytesnbr,LastCType)
    return()
 #CheckLength(Chunk_Data,Chunk_Length,Chunk_Type,CLoffI,CLoffI+8)
@@ -499,7 +577,6 @@ FILE_Origin = Args.FILENAME
 FILE_DIR = os.path.dirname(os.path.realpath(FILE_Origin))+"/"
 Have_A_KitKat= False
 CHUNKS = ['sBIT', 'IEND', 'sPLT', 'tRNS', 'fRAc', 'hIST', 'dSIG', 'sTER', 'iCCP', 'sRGB', 'zTXt', 'gAMA', 'IDAT', 'sCAL', 'cHRM', 'bKGD', 'tEXt','tIME', 'iTXt', 'IHDR', 'gIFx', 'gIFg', 'oFFs', 'pCAL', 'PLTE', 'gIFt', 'pHYs']
-PNGHEADER ="89504e470d0a1a0a"
 CLoffX=""
 CLoffB=""
 CLoffI=""
@@ -573,13 +650,14 @@ Sample = FILE_Origin
 i = 0
 while True:
      Chunks_History = []
-     print("\n\n")
+     print("\n")
      print("="*(len(Sample)+9))
      print("Opening:",Sample)
      print("="*(len(Sample)+9))
-     print("\n\n")
+     print("\n")
 
      with open(Sample,"rb") as f:
          data = f.read()
      DATAX = data.hex()
-     FindMagic(PNGHEADER)
+     print("Done.")
+     FindMagic()
