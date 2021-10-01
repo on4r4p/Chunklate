@@ -10,12 +10,13 @@ Currently **Chunklate** is able to provide those features:
 - Repair wrong chunk name
 - Repair wrong chunk crc
 - Save each modifications in a different file
+- Provide a summary of all modifications
 - Repair line feed convertion (Todo)
 - Repair wrong image size (Todo)
 - Repair missplaced chunks (Todo)
 - Replace critical missing chunk (Todo)
 - User friendly candy eye (Work in progress)
-- Provide a summary of all modifications (Todo)
+
 
 ## Usage
 

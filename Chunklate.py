@@ -1,8 +1,75 @@
-#!/usr/bin/python3
+#!/usr/bin/python3.6
 from argparse import ArgumentParser
 import sys , os , binascii ,re
 
 
+def Summarise(infos,Summary_Footer=False):
+         global Summary_Header
+
+         folder = FILE_DIR+"Folder_"+ str(os.path.basename(FILE_Origin))
+         folder = os.path.splitext(folder)[0]+"/"
+         header = "▁ ▂ ▄ ▅ ▆ ▇ █ %s █ ▇ ▆ ▅ ▄ ▂ ▁\n\n"%str(os.path.basename(FILE_Origin))
+         footer = "█ ▇ ▆ ▅ ▄ ▂ ▁ EOF ▁ ▂ ▄ ▅ ▆ ▇ █"
+         indentation = int(MAXCHAR/2)
+         space  = " " * (indentation-len(header))
+         title = space+header
+         space  = " " * (indentation-len(header))
+         epilogue ="\n"+str(space)+str(footer)
+#         sep = "\n▌│█║▌║▌║║▌║▌║█│▌"
+         sep =  "▀▄"* int(MAXCHAR/2)
+         sep = "\n"+str(sep)
+         filetitle = "\n-File:"+Sample_Name
+
+         if not os.path.exists(folder):
+            os.mkdir(folder)
+
+         if Summary_Footer is False:
+              if len(SideNote) > 0:
+                  infos = "\n"+SideNote+"\n"+infos +"\n"
+              else:
+                  infos = "\n"+infos+"\n"
+
+         filename = folder+"Summary_Of_"+os.path.splitext(os.path.basename(FILE_Origin))[0]
+         print("Saving Summary : ",filename)
+         with open(filename,'a+') as f:
+
+             if Summary_Footer is True:
+                f.write(epilogue)
+                
+             if Summary_Header is True:
+                f.write(title)
+                Summary_Header = False
+
+             if Summary_Footer is False:
+                f.write(sep)
+                f.write(filetitle)
+                f.write(infos)
+#             f.write(sep)
+
+
+
+def Loadingbar():
+  global CharPos
+  global GoBack
+  global Loading_txt
+  global Loading_sep
+  point="."
+  space=" "
+  lnt = len(Loading_txt)
+  if lnt < MAXCHAR and GoBack is False:
+        Loading_txt = (point * CharPos) + space
+        CharPos += 1
+        print(Loading_txt, end = '\r')
+        lnt = len(Loading_txt)
+  else:
+      if lnt > 2:
+        GoBack = True
+        Loading_txt = (point * CharPos) + space
+        CharPos -= 1
+        print(Loading_txt, end = '\r')
+        lnt = len(Loading_txt)
+      else:
+        GoBack = False
 
 def SplitDigits(lst):
     return([DigDigits(k) for k in re.split(r'(\d+)',lst)])
@@ -19,6 +86,7 @@ def ToHistory(chunk):
          pass
     Chunks_History.append(chunk)
 def TheEnd():
+     Summarise(None,True)
      print("\n===========================")
      print("==========The=End==========")
      print("===========================\n")
@@ -45,6 +113,7 @@ def FindMagic():
           if DATAX.startswith(magic) is False:
                 print("Mkay ...I like where this is going ..\nI will have to cut %s bytes from %s since png header starts at this offset %s .\n"%(Sample_Name,int(pos/2),hex(int(pos/2))))
                 Zankentsu = DATAX[pos::]
+                Summarise("-File does not start with a png signature.\n-Found a png signature at offset: %s\n-Creating starting with the right signature."%hex(int(pos/2))) 
                 SaveClone(Zankentsu)
           else:
               return(ReadPng(pos+lenmagic))
@@ -57,6 +126,7 @@ def FindMagic():
          if pos != -1:
              print("Wait a sec ..Oh!\nOww....This is bad news i m afraid..\n%s is badly corrupted due to line feed conversion between OS...\nI cannot guarantee any results but i will try my best ...\n",Sample_Name)
              print("TODO")
+             
              TheEnd()
 
          print("\nTss..Ok let's dig a little bit deeper..\n")
@@ -73,6 +143,8 @@ def FindFuckingMagic():
      end = len(FullMagic)
      BingoList = []
      while end <= len(DATAX):
+            Loadingbar()
+
             Bingo = 0 
             sample = DATAX[start:end]
             s_a_m_p_l_e = [i for i in sample]
@@ -211,6 +283,11 @@ def GetInfo(type,data):
 def ReadPng(offset):
      global Have_A_KitKat
 
+     global Orig_CL
+     global Orig_CT
+     global Orig_CD
+     global Orig_CRC
+
      global CLoffX
      global CLoffB
      global CLoffI
@@ -231,21 +308,30 @@ def ReadPng(offset):
      while offset < len(DATAX):
      
          Chunk_Length = DATAX[offset:offset+8]
+         Orig_CL = Chunk_Length
          CLoffX = hex(int(offset/2))
          CLoffB = int(offset/2)
          CLoffI = offset
 
          Chunk_Type = DATAX[offset+8:offset+16]
+         try:
+             Orig_CT = bytes.fromhex(Chunk_Type).decode(errors="replace")
+         except Exception as e:
+             print("Error HERE:",e)
+             Orig_CT = Chunk_Type
+
          CToffX = hex(int(offset/2)+4)
          CToffB = int(offset/2)+4
          CToffI = offset + 4
 
          Chunk_Data = DATAX[offset+16:offset+16+(int(Chunk_Length, 16)*2)]
+         Orig_CD = Chunk_Data
          CDoffX = hex(int(offset/2)+8)
          CDoffB =int(offset/2)+8
          CDoffI = offset + 8
 
          Chunk_Crc =  DATAX[offset+16+len(Chunk_Data):offset+16+len(Chunk_Data)+8]
+         Orig_CRC = Chunk_Crc
          CrcoffX = hex(int(offset/2)+int(Chunk_Length,16)+len(Chunk_Type))
          CrcoffB = int(offset/2)+int(Chunk_Length,16)+len(Chunk_Type)
          CrcoffI =(int(offset/2)+int(Chunk_Length,16)+len(Chunk_Type))*2
@@ -349,7 +435,7 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
                          TheEnd()
                       print("That chunk position seems legit..\n")
                       FixedLen= str('0x%08X' % LenCalc)[2::] # str('0x%08X' % LenCalc)[2::].encode().hex()
-                      FixShit(FixedLen,CLoffI,CLoffI+8)
+                      FixShit(FixedLen,CLoffI,CLoffI+8,("-Found Chunk[%s] has Wrong Lenght at offset: %s\n-Found next chunk: %s at: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CLoffX,Chk,NeedleX,FixedLen,Orig_CL)))
                       return()
        Needle += 1
      if DoubleCheck is True:
@@ -363,9 +449,11 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
      return()
 
 def ChunkStory(lastchunk):
+  global Warning
+  global SideNote
 
   print("\n===========================")
-  print("Checking last chunks:")
+  print("Chunklate Rain:")
   print("===========================\n")
 
   Before_PLTE= [b'PNG', b'IHDR', b'gAMA', b'cHRM', b'iCCP', b'sRGB', b'sBIT']
@@ -374,6 +462,7 @@ def ChunkStory(lastchunk):
   OnlyOnce=[b'sBIT', b'IEND', b'tRNS', b'hIST', b'sTER', b'iCCP', b'sRGB', b'gAMA', b'sCAL', b'cHRM', b'bKGD', b'IHDR', b'oFFs', b'pCAL', b'PLTE', b'pHYs', b'IEND']
   Anywhere=[b'tIME', b'tEXt', b'zTXt', b'iTXt', b'fRAc', b'gIFg', b'gIFx', b'gIFt']
   Criticals =[b'PNG',b'IHDR',b'IDAT',b'IEND']
+
   try:
      lastchunk = lastchunk.encode()
   except AttributeError as e:
@@ -400,6 +489,8 @@ def ChunkStory(lastchunk):
         shutup = [Excluded.append(forbid) for forbid in CHUNKS if forbid in Before_PLTE]
         print("%s chunk must be placed after PLTE related chunks we can forget about thoses:\n\n%s"%(lastchunk,[i.decode() for i in Excluded]))
 
+      Excluded.append(b'IEND') 
+
   elif b"IDAT" in Used_Chunks:
           shutup = [Excluded.append(forbid) for forbid in CHUNKS if forbid in Before_IDAT]
 
@@ -407,7 +498,10 @@ def ChunkStory(lastchunk):
                 shutup = [Excluded.append(forbid) for forbid in CHUNKS if forbid not in Before_PLTE]
                 print("\nAH ! I knew this day would come ...\nYou See when Image Header color type is set to 3 (Indexed Colors)..\nPLTE chunk must be placed before any IDAT chunks so that only means one thing ..More code to write for me.\n(TODO)")
                 TheEnd()
-          elif (int(IHDR_Color) == 2) or (int(IHDR_Color) == 6):
+
+          elif (int(IHDR_Color) == 2) or (int(IHDR_Color) == 6) and Warning is False:
+               Warning = True
+               SideNote="-[Sidenote] There is a chance that Critical PLTE chunk is missing."
                print("#################\nWarning:\nJust wanted you to know that if im not able to fix %s for some reason\nor if you can't view %s once my job is done here ...\nThis is maybe due to a PLTE Chunk that is missing between those guys :\n-------------------------------------------------------\n%s\n+++++++++++++++++\n***[PLTECHUNK]***\n+++++++++++++++++\n%s\n\nIn Any cases it's before IDAT. \n#################\n-------------------------------------------------------\n"%(Sample_Name,Sample_Name,[i.decode() for i in Before_PLTE],[i.decode() for i in After_PLTE]))
 
 
@@ -458,7 +552,7 @@ def BruteChunk(CType,LastCType,bytesnbr):
 #      print(BingoLst)
       print("\nAh looks like we've got a winner! :",BestBingoName)
 ##TmpFix##
-      FixShit(BestBingoName.encode().hex(),CrcoffI+16,CrcoffI+24)
+      FixShit(BestBingoName.encode().hex(),CrcoffI+16,CrcoffI+24,"-Found Chunk[%s] has wrong name at offset: %s\n-Chunk was corrupted changing %s bytes turn into a valid Chunk name: %s"%(Orig_CT,CToffX,int(BestBingoScore)-len(Orig_CT),BestBingoName))
       return()
    else:
        print("\n===========================")
@@ -475,7 +569,7 @@ def BruteChunk(CType,LastCType,bytesnbr):
        while True:
           try:
              if (Choice.lower() != "quit" or Choice.lower() != "wtf") and int(Choice) <= len(BingoLst):
-                  FixShit(BingoLst[int(Choice)].encode().hex(),CrcoffI+16,CrcoffI+24)
+                  FixShit(BingoLst[int(Choice)].encode().hex(),CrcoffI+16,CrcoffI+24,"-Found Chunk[%s] has wrong name at offset: %s\n-Chunk seems corrupted user has decided to choose Chunk[%s] as a replacement."%(Orig_CT,CToffX,BingoLst[int(Choice)].encode()))
                   return()
           except Exception as e:
 #              print("Error: ",e)
@@ -483,9 +577,9 @@ def BruteChunk(CType,LastCType,bytesnbr):
 
           if Choice.lower() =="quit":
                     print("Take Care Bye !")
-                    exit()
+                    TheEnd()
           if Choice.lower() =="wtf":
-                     print("\nA length prob you say?")
+                     print("\nFine , time to investigate that length..")
                      NearbyChunk(CType,bytesnbr,LastCType)
                      return()
           Choice = input("WHO'S THAT POKEMON !? :")
@@ -512,7 +606,7 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType):
                       print("\nMonkey wanted Banana :",name)
                       print("Monkey got Pullover :",CType)
                       print()
-                      FixShit(name.hex(),CLoffI,CLoffI+8)
+                      FixShit(name.hex(),CLoffI,CLoffI+8,("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CrcoffX,checksum[2::],Orig_CRC)))
                       return()
 
    print("\nChunk name:FAILED 8(")
@@ -569,10 +663,12 @@ def CheckLength(Cdata,Clen,Ctype):
        if bytes.fromhex(Ctype) == b'IEND' and int(Clen, 16) == 0:
             if DATAX[-len(GoodEnding):].upper() == GoodEnding:
 
-                     print("\nOk it may be related to the fucking fact that this is the end of file !!!")
+                     print("\nOk it may be related to the fact that this is the end of file !!!")
+                     Summarise("-Reach the end of file without error.")
                      print("=====================================")
                      print("All Done here hoped that has worked !")
                      print("=====================================")
+                     
                      exit()
             else:
                 print(DATAX[-len(GoodEnding):])
@@ -602,15 +698,15 @@ def Checksum(Ctype, Cdata, Crc):
         print("\nMonkey wanted Banana :",checksum)
         print("Monkey got Pullover :",Crc)
 #        pause = input("pause")
-        FixShit(checksum[2::],CrcoffI,CrcoffI+8)
+        FixShit(checksum[2::],CrcoffI,CrcoffI+8,("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CrcoffX,checksum[2::],Orig_CRC)))
 
 
-def FixShit(shit,start,end):
+def FixShit(shit,start,end,infos):
          print("\n===========================")
          print("Fixing shit..")
          print("===========================")
          print("Inserting : ",shit)
-
+         Summarise(infos)
          Before = DATAX[:start]
          After = DATAX[end:]
          Fix = Before + shit + After
@@ -665,10 +761,23 @@ if Args.FILENAME is None:
     print("-f,--filename arguments is missing.")
     sys.exit(1)
 
+
 FILE_Origin = Args.FILENAME
 FILE_DIR = os.path.dirname(os.path.realpath(FILE_Origin))+"/"
+Loading_txt = ""
+Loading_sep = ""
+GoBack = False
+MAXCHAR = int(os.get_terminal_size(0)[0])-1
+CharPos =1
 Have_A_KitKat= False
+Warning = False
+SideNote = ""
+Summary_Header= True
 CHUNKS = [b'sBIT', b'IEND', b'sPLT', b'tRNS', b'fRAc', b'hIST', b'dSIG', b'sTER', b'iCCP', b'sRGB', b'zTXt', b'gAMA', b'IDAT', b'sCAL', b'cHRM', b'bKGD', b'tEXt', b'tIME', b'iTXt', b'IHDR', b'gIFx', b'gIFg', b'oFFs', b'pCAL', b'PLTE', b'gIFt', b'pHYs']
+Orig_CL=""
+Orig_CT=""
+Orig_CD=""
+Orig_CRC=""
 CLoffX=""
 CLoffB=""
 CLoffI=""
@@ -743,6 +852,8 @@ i = 0
 while True:
      Chunks_History = []
      Bytes_History = []
+     Loading_txt = ""
+     SideNote = ""
      print("\n")
      print("="*(len(Sample)+9))
      print("Opening:",Sample)
