@@ -3,23 +3,22 @@ from argparse import ArgumentParser
 import sys , os , binascii ,re
 
 
+
+
+def SumTitle(waitforit):
+    sepa ="▁ ▂ ▄ ▅ ▆ ▇ █ "
+    rator=" █ ▇ ▆ ▅ ▄ ▂ ▁"
+    Spaaaaaaaace = " " * int((MAXCHAR/2)-(len(sepa+waitforit+rator)/2))
+    Seperator = "\n"+Spaaaaaaaace+sepa + waitforit +rator+"\n\n"
+    sep = "\n\n▁ ▂ ▄ ▅ ▆ ▇ █ " +Sample_Name+" :\n"
+    return(Seperator,sep)
+
 def Summarise(infos,Summary_Footer=False):
          global Summary_Header
 
          folder = FILE_DIR+"Folder_"+ str(os.path.basename(FILE_Origin))
          folder = os.path.splitext(folder)[0]+"/"
-         header = "▁ ▂ ▄ ▅ ▆ ▇ █ %s █ ▇ ▆ ▅ ▄ ▂ ▁\n\n"%str(os.path.basename(FILE_Origin))
-         footer = "█ ▇ ▆ ▅ ▄ ▂ ▁ EOF ▁ ▂ ▄ ▅ ▆ ▇ █"
-         indentation = int(MAXCHAR/2)
-         space  = " " * (indentation-len(header))
-         title = space+header
-         space  = " " * (indentation-len(header))
-         epilogue ="\n"+str(space)+str(footer)
-#         sep = "\n▌│█║▌║▌║║▌║▌║█│▌"
-         sep =  "▀▄"* int(MAXCHAR/2)
-         sep = "\n"+str(sep)
-         filetitle = "\n-File:"+Sample_Name
-
+         title,sep = SumTitle("|C|h|u|n|k|l|a|t|e| |S|u|m|m|a|r|y|")
          if not os.path.exists(folder):
             os.mkdir(folder)
 
@@ -34,17 +33,14 @@ def Summarise(infos,Summary_Footer=False):
          with open(filename,'a+') as f:
 
              if Summary_Footer is True:
-                f.write(epilogue)
+                f.write(eof)
                 
              if Summary_Header is True:
                 f.write(title)
                 Summary_Header = False
 
-             if Summary_Footer is False:
-                f.write(sep)
-                f.write(filetitle)
-                f.write(infos)
-#             f.write(sep)
+             f.write(sep)
+             f.write(infos)
 
 
 
@@ -246,12 +242,12 @@ def GetInfo(type,data):
              IHDR_Color=str(int.from_bytes(bytes.fromhex(data[18:20]),byteorder='big'))
              IHDR_Method=str(int.from_bytes(bytes.fromhex(data[20:22]),byteorder='big'))
              IHDR_Interlace=str(int.from_bytes(bytes.fromhex(data[22:24]),byteorder='big'))
-             print("Width    :",IHDR_Height)
-             print("Height   :",IHDR_Width)
-             print("Depht    :",IHDR_Depht)
-             print("Color    :",IHDR_Color)
-             print("Method   :",IHDR_Method)
-             print("Interlace:",IHDR_Interlace)
+             print("-Width    :",IHDR_Height)
+             print("-Height   :",IHDR_Width)
+             print("-Depht    :",IHDR_Depht)
+             print("-Color    :",IHDR_Color)
+             print("-Method   :",IHDR_Method)
+             print("-Interlace:",IHDR_Interlace)
         except Exception as e:
            print("Error:",e)
     
@@ -260,7 +256,7 @@ def GetInfo(type,data):
         if IHDR_Color == "0" or IHDR_Color == "2":
              try:
                   bKGD_Gray=str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
-                  print("Gray    :",bKGD_Gray)
+                  print("-Gray    :",bKGD_Gray)
              except Exception as e:
                  print("Error:",e)
         if IHDR_Color == "2" or IHDR_Color == "6":
@@ -268,15 +264,15 @@ def GetInfo(type,data):
                   bKGD_Red=str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
                   bKGD_Green=str(int.from_bytes(bytes.fromhex(data[2:4]),byteorder='big'))
                   bKGD_Blue=str(int.from_bytes(bytes.fromhex(data[4:6]),byteorder='big'))
-                  print("Red    :",bKGD_Red)
-                  print("Green  :",bKGD_Green)
-                  print("Blue   :",bKGD_Blue)
+                  print("-Red    :",bKGD_Red)
+                  print("-Green  :",bKGD_Green)
+                  print("-Blue   :",bKGD_Blue)
            except Exception as e:
               print("Error:",e)
         if IHDR_Color == "3":
             try:
                   bKGD_Index=str(int.from_bytes(bytes.fromhex(data[:1]),byteorder='big'))
-                  print("Palette    :",bKGD_Index)
+                  print("-Palette    :",bKGD_Index)
             except Exception as e:
               print("Error:",e)
   
@@ -339,17 +335,17 @@ def ReadPng(offset):
          print("\n===========================")
          print("Chunk Infos:")
          print("===========================\n")
-         print("Found at offset : In Hex %s , Bytes %s , Index %s "%(CLoffX,CLoffB,CLoffI))
-         print("Chunk Length: %s in Bytes: %s"%(hex(int(Chunk_Length,16)),int(Chunk_Length, 16)))
-         print("***************************")
-         print("Found at offset : In Hex %s , Bytes %s , Index %s "%(CToffX,CToffB,CToffI))
-         print("Chunk Type : %s  In Bytes: %s "%(Chunk_Type,bytes.fromhex(Chunk_Type)))
-         print("***************************")
-         print("Found Chunk Data at offset : In Hex %s , Bytes %s , Index %s "%(CDoffX,CDoffB,CDoffI))
+         print("-Found at offset : In Hex %s , Bytes %s , Index %s "%(CLoffX,CLoffB,CLoffI))
+         print("-Chunk Length: %s in Bytes: %s"%(hex(int(Chunk_Length,16)),int(Chunk_Length, 16)))
+         print("")
+         print("-Found at offset : In Hex %s , Bytes %s , Index %s "%(CToffX,CToffB,CToffI))
+         print("-Chunk Type : %s  In Bytes: %s "%(Chunk_Type,bytes.fromhex(Chunk_Type)))
+         print("")
+         print("-Found Chunk Data at offset : In Hex %s , Bytes %s , Index %s "%(CDoffX,CDoffB,CDoffI))
          #print("Chunk Data len  : In Hex %s , Bytes %s , Index %s "%())
-         print("***************************")
-         print("Found at offset : In Hex %s , Bytes %s , Index %s "%(CrcoffX,CrcoffB,CrcoffI))
-         print("Chunk Crc: %s At offset: %s"%(Chunk_Crc,hex(CrcoffB)))
+         print("")
+         print("-Found at offset : In Hex %s , Bytes %s , Index %s "%(CrcoffX,CrcoffB,CrcoffI))
+         print("-Chunk Crc: %s At offset: %s"%(Chunk_Crc,hex(CrcoffB)))
 ##
          GetInfo(bytes.fromhex(Chunk_Type).decode(),Chunk_Data) 
 ##
@@ -597,19 +593,19 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType):
    for name in CHUNKS:
        if name.lower() == CType.lower():
                if name == CType:
-                      print("\nChunk name:OK     8)")
+                      print("\n-Chunk name:OK     8)")
                       ToHistory(bytes.fromhex(ChunkType))
                       return(None)
 
                else:
-                      print("\nChunk name:FAIL 8(")
+                      print("\n-Chunk name:FAIL 8(")
                       print("\nMonkey wanted Banana :",name)
                       print("Monkey got Pullover :",CType)
                       print()
                       FixShit(name.hex(),CLoffI,CLoffI+8,("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CrcoffX,checksum[2::],Orig_CRC)))
                       return()
 
-   print("\nChunk name:FAILED 8(")
+   print("\n-Chunk name:FAILED 8(")
    try:
       LastCType = bytes.fromhex(str(LastCType)).decode()
    except Exception as e:
@@ -682,10 +678,10 @@ def Checksum(Ctype, Cdata, Crc):
     Crc = hex(int.from_bytes(bytes.fromhex(Crc),byteorder='big'))
     checksum = hex(binascii.crc32(Ctype+Cdata))
     if checksum == Crc:
-        print("Crc Check :OK     8)")
+        print("-Crc Check :OK     8)")
         return(None)
     else:
-        print("Crc Check :FAILED 8(")
+        print("-Crc Check :FAILED 8(")
         if len(Crc) == 0 or len(checksum) == 0:
              print("\nMonkey wanted Banana :",checksum)
              print("Monkey got Pullover :",Crc)
@@ -705,7 +701,7 @@ def FixShit(shit,start,end,infos):
          print("\n===========================")
          print("Fixing shit..")
          print("===========================")
-         print("Inserting : ",shit)
+         print("-Data : ",shit)
          Summarise(infos)
          Before = DATAX[:start]
          After = DATAX[end:]
@@ -720,7 +716,7 @@ def SaveClone(data):
          data = bytes.fromhex(data)
          name,dir = Naming(FILE_Origin)
 
-         print("Saving to : ",dir+"/"+name)
+         print("-Saving to : ",dir+"/"+name)
          with open(dir+"/"+name,"wb") as f:
              f.write(data)
          Sample = dir+"/"+name
@@ -754,6 +750,7 @@ parser = ArgumentParser()
 parser.add_argument("-f","--file",dest="FILENAME",help="File path.",default=None,metavar="FILE")
 Args = parser.parse_args()
 
+
 if len(sys.argv)==1:
     parser.print_help(sys.stderr)
     sys.exit(1)
@@ -765,7 +762,7 @@ if Args.FILENAME is None:
 FILE_Origin = Args.FILENAME
 FILE_DIR = os.path.dirname(os.path.realpath(FILE_Origin))+"/"
 Loading_txt = ""
-Loading_sep = ""
+Switch = False
 GoBack = False
 MAXCHAR = int(os.get_terminal_size(0)[0])-1
 CharPos =1
@@ -855,13 +852,13 @@ while True:
      Loading_txt = ""
      SideNote = ""
      print("\n")
-     print("="*(len(Sample)+9))
-     print("Opening:",Sample)
-     print("="*(len(Sample)+9))
+     print("="*(len(Sample)+29))
+     print("|C|h|u|n|k|l|a|t|e|>Opening:",Sample)
+     print("="*(len(Sample)+29))
      print("\n")
      Sample_Name = os.path.basename(Sample)
      with open(Sample,"rb") as f:
          data = f.read()
      DATAX = data.hex()
-     print("Done.")
+     print("-Done.")
      FindMagic()
