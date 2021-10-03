@@ -1,50 +1,10 @@
 #!/usr/bin/python3.6
 from argparse import ArgumentParser
-import sys , os , binascii ,re
+from threading import Thread
+import sys , os , binascii ,re ,random,time
 
 
-
-
-def SumTitle(waitforit):
-    sepa ="▁ ▂ ▄ ▅ ▆ ▇ █ "
-    rator=" █ ▇ ▆ ▅ ▄ ▂ ▁"
-    Spaaaaaaaace = " " * int((MAXCHAR/2)-(len(sepa+waitforit+rator)/2))
-    Seperator = "\n"+Spaaaaaaaace+sepa + waitforit +rator+"\n\n"
-    sep = "\n\n▁ ▂ ▄ ▅ ▆ ▇ █ " +Sample_Name+" :\n"
-    return(Seperator,sep)
-
-def Summarise(infos,Summary_Footer=False):
-         global Summary_Header
-
-         folder = FILE_DIR+"Folder_"+ str(os.path.basename(FILE_Origin))
-         folder = os.path.splitext(folder)[0]+"/"
-         title,sep = SumTitle("|C|h|u|n|k|l|a|t|e| |S|u|m|m|a|r|y|")
-         if not os.path.exists(folder):
-            os.mkdir(folder)
-
-         if Summary_Footer is False:
-              if len(SideNote) > 0:
-                  infos = "\n"+SideNote+"\n"+infos +"\n"
-              else:
-                  infos = "\n"+infos+"\n"
-
-         filename = folder+"Summary_Of_"+os.path.splitext(os.path.basename(FILE_Origin))[0]
-         print("Saving Summary : ",filename)
-         with open(filename,'a+') as f:
-
-             if Summary_Footer is True:
-                f.write(eof)
-                
-             if Summary_Header is True:
-                f.write(title)
-                Summary_Header = False
-
-             f.write(sep)
-             f.write(infos)
-
-
-
-def Loadingbar():
+def Minibar():
   global CharPos
   global GoBack
   global Loading_txt
@@ -67,6 +27,168 @@ def Loadingbar():
       else:
         GoBack = False
 
+def Loadingbar():
+
+  Loading_txt=""
+  GoBack = False
+  CharPos =0
+  PosLine = 0
+  Tail = 0 
+  MAXCHAR = int(os.get_terminal_size(0)[0])-1
+  Line = "¸.·´¯`·.¸"
+  Linelst=[]
+  FishR = ["><(((º>","⸌<(((º>","><(((º>","⸝<(((º>"]
+  FishL = ["<º)))><","<º)))>⸍","<º)))><","<º)))>⸜"]
+  Trail = 3 * len(Line)
+  TrailEnd = 0
+
+  for i in range(0,MAXCHAR+7):
+    if PosLine <= len(Line)-1:
+         Linelst.append(Line[PosLine])
+    else:
+         PosLine = 0
+         Linelst.append(Line[PosLine])
+    PosLine += 1
+
+  while WORKING == True:
+     time.sleep(0.1)
+     Ln = len(Loading_txt)
+     if Ln < MAXCHAR-7 :
+           if CharPos >=  Trail:
+                Loading_txt = (" "*TrailEnd )+ Loading_txt[TrailEnd:]
+                Loading_txt += Linelst[CharPos]
+                TrailEnd += 1
+           else:
+
+               Loading_txt += Linelst[CharPos]
+
+           if Tail > 3:
+              Tail = 0
+
+           print(Loading_txt+FishR[Tail], end = '\r')
+           CharPos += 1
+           Ln = len(Loading_txt)
+           Tail += 1
+     else:
+
+                fishapear =(MAXCHAR-7) - (CharPos)
+                Loading_txt = (" "*TrailEnd )+ Loading_txt[TrailEnd:]
+                if fishapear >= -7:
+                    Loading_txt += Linelst[CharPos]
+                TrailEnd += 1
+
+                if Tail > 3:
+                   Tail = 0
+
+                print(Loading_txt+FishR[Tail][:fishapear], end = '\r')
+                CharPos += 1
+                Tail += 1
+                if TrailEnd >= MAXCHAR+2:
+
+                    Loading_txt=""
+                    PosLine = 0
+                    Trail = 3 * len(Line)
+                    Tail = 0 
+                    TrailEnd = 0
+                    CharPos =0
+  return
+
+
+def Sumform(waitforit,switch):
+    if switch is True:
+        sepa =" ▁ ▂ ▄ ▅ ▆ ▇ █ "
+        rator=" █ ▇ ▆ ▅ ▄ ▂ ▁ "
+    else:
+        sepa =" ▁ ▂ ▄ ▅ ▆ ▇ █ █ ▇ ▆ ▅ ▄ ▂ ▁"
+        rator  ="▁ ▂ ▄ ▅ ▆ ▇ █ ▇ ▆ ▅ ▄ ▂ ▁"
+
+    Spaaaaaaaace = " " * int((MAXCHAR/2)-(len(sepa+waitforit+rator)/2))
+    Seperator = "\n"+Spaaaaaaaace+sepa + waitforit +rator+"\n\n"
+    sep = "\n\n『" +Sample_Name+" :』\n"
+    return(Seperator,sep)
+
+def Summarise(infos,Summary_Footer=False):
+         global Summary_Header
+
+         folder = FILE_DIR+"Folder_"+ str(os.path.basename(FILE_Origin))
+         folder = os.path.splitext(folder)[0]+"/"
+         title,sep = Sumform("▇ ▆ =|C|h|u|n|k|l|a|t|e| |S|u|m|m|a|r|y|= ▆ ▇",True)
+         eof,sep =Sumform("_,-=|S|u|m|m|a|r|y| |E|n|d|=-,_",False)
+
+         if not os.path.exists(folder):
+            os.mkdir(folder)
+
+         if infos is not None:
+              if len(SideNote) > 0:
+                  infos = "\n"+SideNote+"\n"+infos +"\n" 
+              else:
+                  infos = "\n"+infos+"\n"
+         elif len(SideNote) > 0:
+                  infos = "\n"+SideNote+"\n"
+         
+
+         filename = folder+"Summary_Of_"+os.path.splitext(os.path.basename(FILE_Origin))[0]
+         print("Saving Summary : ",filename)
+         with open(filename,'a+') as f:
+
+             if Summary_Header is True:
+                f.write(title)
+                Summary_Header = False
+
+             if infos is not None:
+                f.write(sep)
+                f.write(infos)
+
+             if Summary_Footer is True:
+                f.write(eof)
+
+
+
+
+def Candy(mode,arg,data=None):
+   if mode == "Emoj":
+         rnd = random.randint(0,10)
+         if arg == "good":
+             good = []
+             return(good[rnd])
+         elif arg == "bad":
+             bad = []
+             return(bad[rnd])
+         elif arg == "happy":
+             happy = []
+             return(happy[rnd])
+         elif arg == "sad":
+             sad = []
+             return(sad[rnd])
+
+   if mode == "Color":
+         if arg == "red":
+            prnt = " %s"%data
+         elif arg == "green":
+            prnt = " %s"%data
+         elif arg == "blue":
+            prnt = " %s"%data
+         elif arg == "orange":
+            prnt = " %s"%data
+         elif arg == "yellow":
+            prnt = " %s"%data
+         return(prnt)
+   if mode == "Title":
+       BotL = "╰─"
+       BotR = "─╯"
+       TopL = "╭─"
+       TopR ="─╮"
+       Sep = "━"*len(arg) if data == None  else "━"*(len(arg+data)+3)
+       Toprnt = TopL+Sep+TopR
+       Botrnp = BotL+Sep+BotR
+       prnt = "  " +arg if data == None else "  " +arg +" "+data
+       Title = """
+%s
+%s
+%s
+"""%(Toprnt,prnt,Botrnp)
+       print(Title)
+
 def SplitDigits(lst):
     return([DigDigits(k) for k in re.split(r'(\d+)',lst)])
 
@@ -83,22 +205,31 @@ def ToHistory(chunk):
     Chunks_History.append(chunk)
 def TheEnd():
      Summarise(None,True)
-     print("\n===========================")
-     print("==========The=End==========")
-     print("===========================\n")
+     Candy("Title","==========The=End==========")
      sys.exit()
 
 def ToBitstory(bytenbr):
     global Bytes_History
     Bytes_History.append(bytenbr)
 
+def ChunkForcer():
+     global WORKING
+     global SideNote
+     Candy("Title","[DEMO]Attempting To Repair Corrupted Chunk Data:[DEMO]")
+     Thread(target = Loadingbar).start()
+     time.sleep(30)
+     print("\n\nDemo ended.\n")
+     SideNote += "\n-Launched Data Chunk Bruteforcer.\n-Demo ended well." 
+     WORKING = False
+
+
 def FindMagic():
-     print("\n===========================")
-     print("Looking for magic header:")
-     print("===========================\n")
+     global SideNote
+
+     Candy("Title","Looking for magic header:")
 
      magic = "89504e470d0a1a0a"
-     magc= "89504e470a1a0a00"
+     magc= ["89504e470a1a0a00000004948445200","89504e470a1a0a0000000d4948445200"]
 
      lenmagic = len(magic)
      pos = DATAX.find(magic)
@@ -115,23 +246,30 @@ def FindMagic():
               return(ReadPng(pos+lenmagic))
 
      else:
-         print("\n\n%s isn't magic at all !!\n"%Sample_Name)
+         print("%s isn't magic at all !!\n"%Sample_Name)
          print("This better be a real png or else ....")
+         for badnews in magc:
+             pos = DATAX.find(badnews)
+             if pos != -1:
+               if badnews == magc[1]:
+                 print("\n...Some byte are missing in Png Signature..\n\n%s seems corrupted due to line feed conversion between OS...\n\nIt doesnt look that bad...But I ll keep that in mind while im on it.."%Sample_Name)
+                 print("\n-Not yet Implemented-\n")
+                 SideNote="-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented."
+                 ChunkForcer()
+                 TheEnd()
 
-         pos = DATAX.find(magc)
-         if pos != -1:
-             print("Wait a sec ..Oh!\nOww....This is bad news i m afraid..\n%s is badly corrupted due to line feed conversion between OS...\nI cannot guarantee any results but i will try my best ...\n",Sample_Name)
-             print("TODO")
-             
-             TheEnd()
+               if badnews == magc[0]: 
+                 print("\nHang on a sec....\nThis is bad news i m afraid..\n%s is badly corrupted ...\nI cannot guarantee any results and it may take forever to find a solution...\n"%Sample_Name)
+                 print("TODO")
+                 SideNote="-Major Corruption due to line feed conversion\n-File may not be recovered.\n-Not yet implemented."
+                 TheEnd()
 
          print("\nTss..Ok let's dig a little bit deeper..\n")
          return(FindFuckingMagic())
 
 def FindFuckingMagic():
-     print("\n===========================")
-     print("Looking harder for magic header:")
-     print("===========================\n")
+
+     Candy("Title","Looking harder for magic header:")
      print("This may take me sometimes please wait ..\n")
      FullMagic="89504e470d0a1a0a0000000d49484452"
      m_a_g_i_c = [i for i in FullMagic]
@@ -139,8 +277,7 @@ def FindFuckingMagic():
      end = len(FullMagic)
      BingoList = []
      while end <= len(DATAX):
-            Loadingbar()
-
+            minibar()
             Bingo = 0 
             sample = DATAX[start:end]
             s_a_m_p_l_e = [i for i in sample]
@@ -229,9 +366,8 @@ def GetInfo(type,data):
     global ZtXt_Meth
     global ZtXt_Text
 
-    print("\n===========================")
-    print("Seeking infos about:",type)
-    print("===========================\n")
+    Candy("Title","Seeking infos about:",str(type))
+
     if type == "PNG":
           print("Well ..That's a start ..At least it looks like a png.")
     if type == "IHDR":
@@ -332,9 +468,8 @@ def ReadPng(offset):
          CrcoffB = int(offset/2)+int(Chunk_Length,16)+len(Chunk_Type)
          CrcoffI =(int(offset/2)+int(Chunk_Length,16)+len(Chunk_Type))*2
 
-         print("\n===========================")
-         print("Chunk Infos:")
-         print("===========================\n")
+         Candy("Title","Chunk Infos:")
+
          print("-Found at offset : In Hex %s , Bytes %s , Index %s "%(CLoffX,CLoffB,CLoffI))
          print("-Chunk Length: %s in Bytes: %s"%(hex(int(Chunk_Length,16)),int(Chunk_Length, 16)))
          print("")
@@ -366,9 +501,8 @@ def ReadPng(offset):
      TheEnd()
 
 def Double_Check(CType,bytesnbr,LastCType):
-     print("\n===========================")
-     print("Double Check:")
-     print("===========================\n")
+
+     Candy("Title","Double Check:")
 
      print("Or maybe am i missing something ?\nJust let me double check again just to be sure...")
 
@@ -382,6 +516,7 @@ def Double_Check(CType,bytesnbr,LastCType):
 
 
 def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
+     Candy("Title","Chunk N Destroy:")
      print("\nLet me check if i can fix that shit..")
 
      if DoubleCheck is None:
@@ -448,9 +583,7 @@ def ChunkStory(lastchunk):
   global Warning
   global SideNote
 
-  print("\n===========================")
-  print("Chunklate Rain:")
-  print("===========================\n")
+  Candy("Title","Chunklate Rain:")
 
   Before_PLTE= [b'PNG', b'IHDR', b'gAMA', b'cHRM', b'iCCP', b'sRGB', b'sBIT']
   After_PLTE= [b'tRNS', b'hIST', b'bKGD'] #but before idat
@@ -509,6 +642,7 @@ def ChunkStory(lastchunk):
 
 
 def BruteChunk(CType,LastCType,bytesnbr):
+   Candy("Title","Chunk Scrabble Solver:")
    ErrorA = False
    BingoLst = []
    try:
@@ -551,9 +685,8 @@ def BruteChunk(CType,LastCType,bytesnbr):
       FixShit(BestBingoName.encode().hex(),CrcoffI+16,CrcoffI+24,"-Found Chunk[%s] has wrong name at offset: %s\n-Chunk was corrupted changing %s bytes turn into a valid Chunk name: %s"%(Orig_CT,CToffX,int(BestBingoScore)-len(Orig_CT),BestBingoName))
       return()
    else:
-       print("\n===========================")
-       print("WHO'S THAT POKEMON !?:")
-       print("===========================")
+
+       Candy("Title","WHO'S THAT POKEMON !?:")
        print("\nArg that's all gibberish ...\nI need you to choose something looking a like [%s] that is actually a real chunk name can you help ?\nOk Please select the right name for the chunk:\n"%str(CType))
 
        for i,j in enumerate(BingoLst):
@@ -589,6 +722,8 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType):
         print("Error:",e)
         print("ctyp ",CType)
         print(type(CType))
+
+   Candy("Title","Checking Chunk Type:",CType)
 
    for name in CHUNKS:
        if name.lower() == CType.lower():
@@ -641,10 +776,8 @@ def CheckLength(Cdata,Clen,Ctype):
        if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
                CheckChunkName(Ctype,int(Clen,16),Chunks_History[0])
 
-       print("\n===========================")
-       print("Checking Data Length:")
-       print("===========================")
-       
+       Candy("Title","Checking Data Length:",str(Clen))
+
        print("So ..The lenght part is saying that data is %s bytes long."%int(Clen, 16))
 
        ToBitstory(int(Clen, 16))
@@ -661,11 +794,10 @@ def CheckLength(Cdata,Clen,Ctype):
 
                      print("\nOk it may be related to the fact that this is the end of file !!!")
                      Summarise("-Reach the end of file without error.")
-                     print("=====================================")
-                     print("All Done here hoped that has worked !")
-                     print("=====================================")
-                     
-                     exit()
+
+                     Candy("Title","All Done here hoped that has worked !")
+
+                     TheEnd()
             else:
                 print(DATAX[-len(GoodEnding):])
                 exit()
@@ -673,6 +805,7 @@ def CheckLength(Cdata,Clen,Ctype):
        CheckChunkName(NextChunk,int(Clen,16),Ctype)
 
 def Checksum(Ctype, Cdata, Crc):
+    Candy("Title","Check Crc Validity:")
     Cdata = bytes.fromhex(Cdata)
     Ctype = bytes.fromhex(Ctype)
     Crc = hex(int.from_bytes(bytes.fromhex(Crc),byteorder='big'))
@@ -698,9 +831,7 @@ def Checksum(Ctype, Cdata, Crc):
 
 
 def FixShit(shit,start,end,infos):
-         print("\n===========================")
-         print("Fixing shit..")
-         print("===========================")
+         Candy("Title","Fixing File")
          print("-Data : ",shit)
          Summarise(infos)
          Before = DATAX[:start]
@@ -764,6 +895,7 @@ FILE_DIR = os.path.dirname(os.path.realpath(FILE_Origin))+"/"
 Loading_txt = ""
 Switch = False
 GoBack = False
+WORKING = True
 MAXCHAR = int(os.get_terminal_size(0)[0])-1
 CharPos =1
 Have_A_KitKat= False
@@ -851,11 +983,7 @@ while True:
      Bytes_History = []
      Loading_txt = ""
      SideNote = ""
-     print("\n")
-     print("="*(len(Sample)+29))
-     print("|C|h|u|n|k|l|a|t|e|>Opening:",Sample)
-     print("="*(len(Sample)+29))
-     print("\n")
+     Candy("Title","|C|h|u|n|k|l|a|t|e|>Opening:",Sample)
      Sample_Name = os.path.basename(Sample)
      with open(Sample,"rb") as f:
          data = f.read()
