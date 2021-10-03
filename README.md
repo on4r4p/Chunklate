@@ -12,11 +12,12 @@ Currently **Chunklate** is able to provide those features:
 - Save each modifications in a different file
 - Provide a summary of all modifications
 - Repair line feed convertion 
+- User friendly human readability
 - Bruteforce corrupted data chunk (Work in progress)
 - Repair wrong image size (Todo)
 - Repair missplaced chunks (Todo)
 - Replace critical missing chunk (Todo)
-- User friendly candy eye (Almost Done)
+
 
 
 ## Usage

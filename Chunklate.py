@@ -147,31 +147,25 @@ def Summarise(infos,Summary_Footer=False):
 
 def Candy(mode,arg,data=None):
    if mode == "Emoj":
-         rnd = random.randint(0,10)
+         rnd = random.randint(0,len(good))
          if arg == "good":
-             good = []
+             good = ["´ ▽ ` )ﾉ","Σ ◕ ◡ ◕","٩(｡͡•‿•｡)۶","ᕕ( ᐛ )ᕗ","☜(⌒▽⌒)☞","(｡◕‿‿◕｡)","(ღ˘⌣˘ღ)","(∪ ◡ ∪)","(▰˘◡˘▰)","(✿ ♥‿♥)","(｡◕ ‿ ◕｡)","( ͡° ͜ʖ ͡°)","(/◔ ◡ ◔)/","(ᵔᴥᵔ)"]
              return(good[rnd])
          elif arg == "bad":
-             bad = []
+             bad = ["(ಥ﹏ಥ)","(►_◄)","(◉ ︵◉)","ヽ(ｏ`皿′ｏ)ﾉ","凸ಠ益ಠ)凸","╯‵Д′)╯彡┻━┻","¯\_(⊙︿⊙)_/¯","ಠ︵ಠ凸","ヽ(`Д´)ﾉ","(╯°□°）╯︵ ┻━┻","(✖╭╮✖)","(︶︹︺)","(╯︵╰,)","ヽ(˚௰˚)づ"]
              return(bad[rnd])
-         elif arg == "happy":
-             happy = []
-             return(happy[rnd])
-         elif arg == "sad":
-             sad = []
-             return(sad[rnd])
 
    if mode == "Color":
          if arg == "red":
-            prnt = " %s"%data
+            prnt = "\033[0;31;49m%s\033[m"%data
          elif arg == "green":
-            prnt = " %s"%data
+            prnt = "\033[0;32;49m%s\033[m"%data
          elif arg == "blue":
-            prnt = " %s"%data
-         elif arg == "orange":
-            prnt = " %s"%data
+            prnt = "\033[0;34;49m%s\033[m"%data
+         elif arg == "purple":
+            prnt = "\033[0;35;49m%s\033[m"%data
          elif arg == "yellow":
-            prnt = " %s"%data
+            prnt = "\033[0;33;49m%s\033[m"%data
          return(prnt)
    if mode == "Title":
        BotL = "╰─"
@@ -252,7 +246,7 @@ def FindMagic():
              pos = DATAX.find(badnews)
              if pos != -1:
                if badnews == magc[1]:
-                 print("\n...Some byte are missing in Png Signature..\n\n%s seems corrupted due to line feed conversion between OS...\n\nIt doesnt look that bad...But I ll keep that in mind while im on it.."%Sample_Name)
+                 print("\n...Some byte are missing in Png Signature..\n\n%s seems corrupted due to line feed conversion between OS...\n\nIt doesnt look that bad...But I ll keep that in mind while im on it.."%Candy("Color","red",Sample_Name))
                  print("\n-Not yet Implemented-\n")
                  SideNote="-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented."
                  ChunkForcer()
