@@ -147,7 +147,7 @@ def Summarise(infos,Summary_Footer=False):
 
 def Candy(mode,arg,data=None):
    if mode == "Emoj":
-         rnd = random.randint(0,len(good))
+         rnd = random.randint(0,len("good"))
          if arg == "good":
              good = ["´ ▽ ` )ﾉ","Σ ◕ ◡ ◕","٩(｡͡•‿•｡)۶","ᕕ( ᐛ )ᕗ","☜(⌒▽⌒)☞","(｡◕‿‿◕｡)","(ღ˘⌣˘ღ)","(∪ ◡ ∪)","(▰˘◡˘▰)","(✿ ♥‿♥)","(｡◕ ‿ ◕｡)","( ͡° ͜ʖ ͡°)","(/◔ ◡ ◔)/","(ᵔᴥᵔ)"]
              return(good[rnd])
@@ -172,10 +172,10 @@ def Candy(mode,arg,data=None):
        BotR = "─╯"
        TopL = "╭─"
        TopR ="─╮"
-       Sep = "━"*len(arg) if data == None  else "━"*(len(arg+data)+3)
+       Sep = "━"*len(arg) if data == None  else "━"*(len(str(arg)+str(data))+3)
        Toprnt = TopL+Sep+TopR
        Botrnp = BotL+Sep+BotR
-       prnt = "  " +arg if data == None else "  " +arg +" "+data
+       prnt = "  " +str(arg) if data == None else "  " +str(arg) +" "+str(data)
        Title = """
 %s
 %s
@@ -289,7 +289,7 @@ def FindFuckingMagic():
          
      if BestBingoCount <= 2 and int(BestBingoScore) >= 14:
          pos = DATAX.find(BestBingoSig)
-         print("\n...And Done!\n\nThis is what iv got at offset %s with a score of %s/32 : %s \nI think that a start to work with don't you think ?\nLets fix this corrupted signature and see where it leads us ...\n"%(hex(int(pos/2)),BestBingoScore,BestBingoSig))
+         print("\n...And Done!\n\nThis is what iv got at offset %s with a score of %s/32 : %s \nI think that a start to work with don't you think ?\nLets fix this corrupted signature and see where it leads us ...\n"%(Candy("Color","blue",hex(int(pos/2))),Candy("Color","green",BestBingoScore),Candy("Color","purple",BestBingoSig)))
 
          Odin = FullMagic + DATAX[pos+len(FullMagic)::]
          SaveClone(Odin)
@@ -360,7 +360,7 @@ def GetInfo(type,data):
     global ZtXt_Meth
     global ZtXt_Text
 
-    Candy("Title","Seeking infos about:",str(type))
+    Candy("Title","Seeking infos about:",Candy("Color","blue",str(type)))
 
     if type == "PNG":
           print("Well ..That's a start ..At least it looks like a png.")
@@ -372,39 +372,39 @@ def GetInfo(type,data):
              IHDR_Color=str(int.from_bytes(bytes.fromhex(data[18:20]),byteorder='big'))
              IHDR_Method=str(int.from_bytes(bytes.fromhex(data[20:22]),byteorder='big'))
              IHDR_Interlace=str(int.from_bytes(bytes.fromhex(data[22:24]),byteorder='big'))
-             print("-Width    :",IHDR_Height)
-             print("-Height   :",IHDR_Width)
-             print("-Depht    :",IHDR_Depht)
-             print("-Color    :",IHDR_Color)
-             print("-Method   :",IHDR_Method)
-             print("-Interlace:",IHDR_Interlace)
+             print("-Width    :",Candy("Color","yellow",IHDR_Height))
+             print("-Height   :",Candy("Color","yellow",IHDR_Width))
+             print("-Depht    :",Candy("Color","yellow",IHDR_Depht))
+             print("-Color    :",Candy("Color","yellow",IHDR_Color))
+             print("-Method   :",Candy("Color","yellow",IHDR_Method))
+             print("-Interlace:",Candy("Color","yellow",IHDR_Interlace))
         except Exception as e:
-           print("Error:",e)
+           print(Candy("Color","red","Error:"),candy("Color","yellow",e))
     
     if type == "bKGD":
 
         if IHDR_Color == "0" or IHDR_Color == "2":
              try:
                   bKGD_Gray=str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
-                  print("-Gray    :",bKGD_Gray)
+                  print("-Gray    :",Candy("Color","yellow",bKGD_Gray))
              except Exception as e:
-                 print("Error:",e)
+                 print(Candy("Color","red","Error:"),candy("Color","yellow",e))
         if IHDR_Color == "2" or IHDR_Color == "6":
            try:
                   bKGD_Red=str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
                   bKGD_Green=str(int.from_bytes(bytes.fromhex(data[2:4]),byteorder='big'))
                   bKGD_Blue=str(int.from_bytes(bytes.fromhex(data[4:6]),byteorder='big'))
-                  print("-Red    :",bKGD_Red)
-                  print("-Green  :",bKGD_Green)
-                  print("-Blue   :",bKGD_Blue)
+                  print("-Red    :",Candy("Color","red",bKGD_Red))
+                  print("-Green  :",Candy("Color","green",bKGD_Green))
+                  print("-Blue   :",Candy("Color","blue",bKGD_Blue))
            except Exception as e:
-              print("Error:",e)
+              print(Candy("Color","red","Error:"),candy("Color","yellow",e))
         if IHDR_Color == "3":
             try:
                   bKGD_Index=str(int.from_bytes(bytes.fromhex(data[:1]),byteorder='big'))
-                  print("-Palette    :",bKGD_Index)
+                  print("-Palette    :",Candy("Color","yellow",bKGD_Index))
             except Exception as e:
-              print("Error:",e)
+              print(Candy("Color","red","Error:"),candy("Color","yellow",e))
   
 def ReadPng(offset):
      global Have_A_KitKat
@@ -443,7 +443,7 @@ def ReadPng(offset):
          try:
              Orig_CT = bytes.fromhex(Chunk_Type).decode(errors="replace")
          except Exception as e:
-             print("Error HERE:",e)
+             print(Candy("Color","red","Error:"),candy("Color","yellow",e))
              Orig_CT = Chunk_Type
 
          CToffX = hex(int(offset/2)+4)
@@ -464,17 +464,17 @@ def ReadPng(offset):
 
          Candy("Title","Chunk Infos:")
 
-         print("-Found at offset : In Hex %s , Bytes %s , Index %s "%(CLoffX,CLoffB,CLoffI))
-         print("-Chunk Length: %s in Bytes: %s"%(hex(int(Chunk_Length,16)),int(Chunk_Length, 16)))
+         print("-Found at offset : In Hex %s , Bytes %s , Index %s "%(Candy("Color","yellow",CLoffX),Candy("Color","blue",CLoffB),Candy("Color","purple",CLoffI)))
+         print("-Chunk Length: %s in Bytes: %s"%( Candy("Color","green",hex(int(Chunk_Length,16)) ) ,Candy("Color","blue",int(Chunk_Length, 16)) ) )
          print("")
-         print("-Found at offset : In Hex %s , Bytes %s , Index %s "%(CToffX,CToffB,CToffI))
-         print("-Chunk Type : %s  In Bytes: %s "%(Chunk_Type,bytes.fromhex(Chunk_Type)))
+         print("-Found at offset : In Hex %s , Bytes %s , Index %s "%(Candy("Color","yellow",CToffX),Candy("Color","blue",CToffB),Candy("Color","purple",CToffI)))
+         print("-Chunk Type : %s  In Bytes: %s "%(Candy("Color","green",Chunk_Type),Candy("Color","blue",bytes.fromhex(Chunk_Type))))
          print("")
-         print("-Found Chunk Data at offset : In Hex %s , Bytes %s , Index %s "%(CDoffX,CDoffB,CDoffI))
+         print("-Found Chunk Data at offset : In Hex %s , Bytes %s , Index %s "%(Candy("Color","yellow",CDoffX),Candy("Color","blue",CDoffB),Candy("Color","purple",CDoffI)))
          #print("Chunk Data len  : In Hex %s , Bytes %s , Index %s "%())
          print("")
-         print("-Found at offset : In Hex %s , Bytes %s , Index %s "%(CrcoffX,CrcoffB,CrcoffI))
-         print("-Chunk Crc: %s At offset: %s"%(Chunk_Crc,hex(CrcoffB)))
+         print("-Found at offset : In Hex %s , Bytes %s , Index %s "%(Candy("Color","yellow",CrcoffX),Candy("Color","blue",CrcoffB),Candy("Color","purple",CrcoffI)))
+         print("-Chunk Crc: %s At offset: %s"%(Candy("Color","green",Chunk_Crc),Candy("Color","blue",hex(CrcoffB))))
 ##
          GetInfo(bytes.fromhex(Chunk_Type).decode(),Chunk_Data) 
 ##
@@ -501,7 +501,7 @@ def Double_Check(CType,bytesnbr,LastCType):
      print("Or maybe am i missing something ?\nJust let me double check again just to be sure...")
 
      if len(DATAX)/2 < 67 :
-        print("\n...\n\nERrr...\nThere are not enough bytes in %s to be a valid png.\n%s is %s bytes long and the very minimum size for a png is 67 bytes so...\ni can't help you much further sorry.\n"%(Sample_Name,Sample_Name,int(len(DATAX)/2)))
+        print("\n...\n\nERrr...\nThere are not enough bytes in %s to be a valid png.\n%s is %s bytes long and the very minimum size for a png is 67 bytes so...\ni can't help you much further sorry.\n"%(Candy("Color","red",Sample_Name),Candy("Color","red",Sample_Name),Candy("Color","red",int(len(DATAX)/2))))
         TheEnd()
 
      print("But this time let's forget about the usual specifications of png format\nThis way i will be able to know if a chunk is missing somewhere.\n")
@@ -529,8 +529,8 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
 #         print(scope)
 #         print(len(scope))
        except Exception as e:
-         print("Error:",e)
-         print("Scopex",scopex)
+         print(Candy("Color","red","Error:"),candy("Color","yellow",e))
+         print(Candy("Color","red","Scopex:"),candy("Color","yellow",scopex))
          sys.exit()
        NeedleI = int(Needle/2)
        NeedleX = hex(int(Needle/2))
@@ -541,11 +541,11 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
 #             print("scope.lower ",scope)
 #             print(Chk.lower() == scope)
              if Chk.lower() == scope:
-                 print("\nBingo!!!\n\nFound the closest Chunk to our position:%s at offset %s %s"%(Chk,NeedleX,NeedleI))
+                 print("\nBingo!!!\n\nFound the closest Chunk to our position:%s at offset %s %s"%(Candy("Color","green",Chk),Candy("Color","blue",NeedleX),Candy("Color","yellow",NeedleI)))
                  if Chk in Excluded:
-                        print("\n...\n\nBut that chunk [%s] is not supposed to be here !\n\nITS A TRAP!\n\nRUN !!!!!!!\n\nRUN TO THE CHOPPER !!!\n"%Chk)
+                        print("\n...\n\nBut that chunk [%s] is not supposed to be here !\n\nITS A TRAP!\n\nRUN !!!!!!!\n\nRUN TO THE CHOPPER !!!\n"%Candy("Color","red",Chk))
                         print("\n\nI seriously doubt i coud be of any use with this one ..")
-                        print("If you are sure %s is a png i can try to fill the gap but i cannot guarantee any result.."%Sample_Name)
+                        print("If you are sure %s is a png i can try to fill the gap but i cannot guarantee any result.."%Candy("Color","red",Sample_Name))
                         if b'IHDR' not in Chunks_History :
                              print("Especially without IHDR chunk..\n")
                         print("TODO")
@@ -553,7 +553,7 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
                  else:
                       LenCalc = Data_End_OffsetI-CDoffB
                       if "-" in str(LenCalc):
-                         print("\nAnother one byte the dust ...\nGot Wrong Result for lenght...:",LenCalc)
+                         print("\nAnother one byte the dust ...\nGot Wrong Result for lenght...:",Candy("Color","red",LenCalc))
                          print("dataendofI:",Data_End_OffsetI)
                          print("CDoffb:",CDoffB)
                          print("TODO")
@@ -605,7 +605,7 @@ def ChunkStory(lastchunk):
 
       if lastchunk in Before_PLTE and b'IHDR' not in Used_Chunks:
          shutup = [Excluded.append(forbid) for forbid in CHUNKS if forbid not in Before_PLTE]
-         print("%s chunk must be placed before any PLTE related chunks we can forget about thoses:\n\n%s"%(lastchunk.decode(),[i.decode() for i in Excluded]))
+         print("%s chunk must be placed before any PLTE related chunks we can forget about thoses:\n\n%s"%(Candy("Color","green",lastchunk.decode()),[i.decode() for i in Excluded]))
 
 
       if lastchunk in After_PLTE:
@@ -625,7 +625,7 @@ def ChunkStory(lastchunk):
           elif (int(IHDR_Color) == 2) or (int(IHDR_Color) == 6) and Warning is False:
                Warning = True
                SideNote="-[Sidenote] There is a chance that Critical PLTE chunk is missing."
-               print("#################\nWarning:\nJust wanted you to know that if im not able to fix %s for some reason\nor if you can't view %s once my job is done here ...\nThis is maybe due to a PLTE Chunk that is missing between those guys :\n-------------------------------------------------------\n%s\n+++++++++++++++++\n***[PLTECHUNK]***\n+++++++++++++++++\n%s\n\nIn Any cases it's before IDAT. \n#################\n-------------------------------------------------------\n"%(Sample_Name,Sample_Name,[i.decode() for i in Before_PLTE],[i.decode() for i in After_PLTE]))
+               print(Candy("Color","yellow","#################")+"\nWarning:\nJust wanted you to know that if im not able to fix %s for some reason\nor if you can't view %s once my job is done here ...\nThis is maybe due to a PLTE Chunk that is missing between those guys :\n-------------------------------------------------------\n%s\n+++++++++++++++++\n***[PLTECHUNK]***\n+++++++++++++++++\n%s\n\nIn Any cases it's before IDAT. \n"+Candy("Color","yellow","#################")+"\n-------------------------------------------------------\n"%(Candy("Color","red",Sample_Name),Candy("Color","red",Sample_Name),[i.decode() for i in Before_PLTE],[i.decode() for i in After_PLTE]))
 
 
           if lastchunk == b"IDAT":
@@ -642,7 +642,7 @@ def BruteChunk(CType,LastCType,bytesnbr):
    try:
       CTypeLst = [i.lower() for i in CType]
    except AttributeError as a:
-      print("Error:",a)
+      print(Candy("Color","red","Error:"),candy("Color","yellow",a))
       CTypeLst = [i for i in CType]
       ErrorA = True
 
@@ -674,17 +674,17 @@ def BruteChunk(CType,LastCType,bytesnbr):
 
    if BestBingoCount <= 2 and int(BestBingoScore) >=2:
 #      print(BingoLst)
-      print("\nAh looks like we've got a winner! :",BestBingoName)
+      print("\nAh looks like we've got a winner! :",Candy("Color","green",BestBingoName))
 ##TmpFix##
       FixShit(BestBingoName.encode().hex(),CrcoffI+16,CrcoffI+24,"-Found Chunk[%s] has wrong name at offset: %s\n-Chunk was corrupted changing %s bytes turn into a valid Chunk name: %s"%(Orig_CT,CToffX,int(BestBingoScore)-len(Orig_CT),BestBingoName))
       return()
    else:
 
        Candy("Title","WHO'S THAT POKEMON !?:")
-       print("\nArg that's all gibberish ...\nI need you to choose something looking a like [%s] that is actually a real chunk name can you help ?\nOk Please select the right name for the chunk:\n"%str(CType))
+       print("\nArg that's all gibberish ...\nI need you to choose something looking a like [%s] that is actually a real chunk name can you help ?\nOk Please select the right name for the chunk:\n"%Candy("Color","purple",str(CType)))
 
        for i,j in enumerate(BingoLst):
-           print("Score %s ,if you choose this name enter number: %s"%(j,i))
+           print("Score %s ,if you choose this name enter number: %s"%(Candy("Color","green",j),Candy("Color","yellow",i)))
 
        print("\nIf you as lost as me then this might be a Length Problem type : wtf")
        print("\nOr Type quit to ...quit.\n")
@@ -722,19 +722,19 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType):
    for name in CHUNKS:
        if name.lower() == CType.lower():
                if name == CType:
-                      print("\n-Chunk name:OK     8)")
+                      print("\n-Chunk name:"+Candy("Color","green","OK ")+Candy("Emoj","good"))
                       ToHistory(bytes.fromhex(ChunkType))
                       return(None)
 
                else:
-                      print("\n-Chunk name:FAIL 8(")
-                      print("\nMonkey wanted Banana :",name)
-                      print("Monkey got Pullover :",CType)
+                      print("\n-Chunk name:"+Candy("Color","red","FAIL ")+Candy("Emoj","bad"))
+                      print("\nMonkey wanted Banana :",Candy("Color","green",name))
+                      print("Monkey got Pullover :",Candy("Color","red",CType))
                       print()
                       FixShit(name.hex(),CLoffI,CLoffI+8,("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CrcoffX,checksum[2::],Orig_CRC)))
                       return()
 
-   print("\n-Chunk name:FAILED 8(")
+   print("\n-Chunk name:"+Candy("Color","red","FAILED ")+Candy("Emoj","bad"))
    try:
       LastCType = bytes.fromhex(str(LastCType)).decode()
    except Exception as e:
@@ -749,14 +749,14 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType):
         
    wow = int(bytesnbr/8912)
    if wow >= 3:
-      print("..Hum ..Zlib put a limit on buff size up to 8912 bytes..\n and this one is pretty big :%s which is %s times bigger.."%(bytesnbr,wow))
+      print("..Hum ..Zlib put a limit on buff size up to 8912 bytes..\n and this one is pretty big :%s which is %s times bigger.."%(Candy("Color","yellow",bytesnbr),Candy("Color","red",wow)))
 #      print(Bytes_History)
 #      print(Bytes_History.count(Bytes_History[0])-1 == len(Bytes_History)-1)
 #      print(Bytes_History.count(Bytes_History[0]) != len(Bytes_History))
       if len(Bytes_History) >0: ##ToFIx##
         if Bytes_History.count(Bytes_History[0])-1 == len(Bytes_History)-1:
             if Bytes_History.count(Bytes_History[0]) != len(Bytes_History):
-                print("That doesnt mean there cannot be an IDAT chunk bigger than 8912Bytes!\nbut since all previous IDAT chunks were %s bytes long , it seems to me that's a little odd that this very one in particular is different from the others...\nUnless this is the Last IDAT.\nAnyway that is just a thought let's find it out .")
+                print("That doesnt mean there cannot be an IDAT chunk bigger than 8912Bytes!\nbut since all previous IDAT chunks had the same length , it seems to me that's a little odd that this very one in particular is different from the others...\nUnless this is the Last IDAT.\nAnyway that is just a thought let's find it out .")
    else:
       print("..Hum ..Maybe thats a lenght problem.")
    NearbyChunk(CType,bytesnbr,LastCType)
@@ -772,16 +772,16 @@ def CheckLength(Cdata,Clen,Ctype):
 
        Candy("Title","Checking Data Length:",str(Clen))
 
-       print("So ..The lenght part is saying that data is %s bytes long."%int(Clen, 16))
+       print("So ..The lenght part is saying that data is %s bytes long."%Candy("Color","yellow",int(Clen, 16)))
 
        ToBitstory(int(Clen, 16))
 
        if int(Clen,16)>26736:
            print("Really!? That much ?")
        if len(bytes.fromhex(NextChunk).decode(errors="replace")) == 0:
-            print("..And this is what iv found there: [NOTHING]")
+            print("..And this is what iv found there: "+Candy("Color","red","[NOTHING]"))
        else:
-            print("..And this is what iv found there: ",bytes.fromhex(NextChunk).decode(errors="replace"))
+            print("..And this is what iv found there: ",Candy("Color","yellow",bytes.fromhex(NextChunk).decode(errors="replace")))
 
        if bytes.fromhex(Ctype) == b'IEND' and int(Clen, 16) == 0:
             if DATAX[-len(GoodEnding):].upper() == GoodEnding:
@@ -805,23 +805,25 @@ def Checksum(Ctype, Cdata, Crc):
     Crc = hex(int.from_bytes(bytes.fromhex(Crc),byteorder='big'))
     checksum = hex(binascii.crc32(Ctype+Cdata))
     if checksum == Crc:
-        print("-Crc Check :OK     8)")
+        print("-Crc Check :"+Candy("Color","green","OK ")+Candy("Emoj","good"))
         return(None)
     else:
-        print("-Crc Check :FAILED 8(")
+        print("-Crc Check :"+Candy("Color","red","FAILED ")+Candy("Emoj","bad"))
         if len(Crc) == 0 or len(checksum) == 0:
-             print("\nMonkey wanted Banana :",checksum)
-             print("Monkey got Pullover :",Crc)
+             print("\nMonkey wanted Banana :",Candy("Color","green",checksum))
+             print("Monkey got Pullover :",Candy("Color","red",Crc))
              print("Hold on a sec ... Must have missed something...")
              print()
              exit()
 
         if len(checksum) < 10:
              checksum = "0x"+(checksum[2::].zfill(8))
-        print("\nMonkey wanted Banana :",checksum)
-        print("Monkey got Pullover :",Crc)
+        print("\nMonkey wanted Banana :",Candy("Color","green",checksum))
+        print("Monkey got Pullover :",Candy("Color","red",Crc))
+
 #        pause = input("pause")
         FixShit(checksum[2::],CrcoffI,CrcoffI+8,("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CrcoffX,checksum[2::],Orig_CRC)))
+
 
 
 def FixShit(shit,start,end,infos):
@@ -841,7 +843,7 @@ def SaveClone(data):
          data = bytes.fromhex(data)
          name,dir = Naming(FILE_Origin)
 
-         print("-Saving to : ",dir+"/"+name)
+         print(Candy("Color","green","-Saving to : "),dir+"/"+name)
          with open(dir+"/"+name,"wb") as f:
              f.write(data)
          Sample = dir+"/"+name
