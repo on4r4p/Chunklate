@@ -128,7 +128,7 @@ def Summarise(infos,Summary_Footer=False):
          
 
          filename = folder+"Summary_Of_"+os.path.splitext(os.path.basename(FILE_Origin))[0]
-         print("Saving Summary : ",filename)
+         print(Candy("Color","green","-Saving Summary : "),filename)
          with open(filename,'a+') as f:
 
              if Summary_Header is True:
@@ -157,22 +157,22 @@ def Candy(mode,arg,data=None):
 
    if mode == "Color":
          if arg == "red":
-            prnt = "\033[0;31;49m%s\033[m"%data
+            prnt = "\033[1;31;49m%s\033[m"%data
          elif arg == "green":
-            prnt = "\033[0;32;49m%s\033[m"%data
+            prnt = "\033[1;32;49m%s\033[m"%data
          elif arg == "blue":
-            prnt = "\033[0;34;49m%s\033[m"%data
+            prnt = "\033[1;34;49m%s\033[m"%data
          elif arg == "purple":
-            prnt = "\033[0;35;49m%s\033[m"%data
+            prnt = "\033[1;35;49m%s\033[m"%data
          elif arg == "yellow":
-            prnt = "\033[0;33;49m%s\033[m"%data
+            prnt = "\033[1;33;49m%s\033[m"%data
          return(prnt)
    if mode == "Title":
        BotL = "╰─"
        BotR = "─╯"
        TopL = "╭─"
        TopR ="─╮"
-       Sep = "━"*len(arg) if data == None  else "━"*(len(str(arg)+str(data))+3)
+       Sep = "━"*len(str(arg)) if data == None  else "━"*(len(str(arg)+str(data))+3) if "\x1b[m" not in data else "━"*(len(str(arg)+str(data))-12)
        Toprnt = TopL+Sep+TopR
        Botrnp = BotL+Sep+BotR
        prnt = "  " +str(arg) if data == None else "  " +str(arg) +" "+str(data)
@@ -195,7 +195,8 @@ def ToHistory(chunk):
     try:
        chunk=chunk.encode()
     except AttributeError as e:
-         pass
+#       print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+        pass
     Chunks_History.append(chunk)
 def TheEnd():
      Summarise(None,True)
@@ -229,10 +230,10 @@ def FindMagic():
      pos = DATAX.find(magic)
      if pos != -1:
           ToHistory("PNG")
-          print("%s is Magic : %s"%(Sample_Name,DATAX[:lenmagic]))
-          print("Found Png Signature at offset : hex %s bytes %s index %s\n"%(hex(int(pos/2)),int(pos/2),pos))
+          print("-%s is Magic : %s\n"%(Candy("Color","red",Sample_Name),Candy("Color","green",DATAX[:lenmagic])))
+          print("-Found Png Signature at offset : hex %s bytes %s index %s\n"%(Candy("Color","yellow",hex(int(pos/2))),Candy("Color","blue",int(pos/2)),Candy("Color","purple",pos)))
           if DATAX.startswith(magic) is False:
-                print("Mkay ...I like where this is going ..\nI will have to cut %s bytes from %s since png header starts at this offset %s .\n"%(Sample_Name,int(pos/2),hex(int(pos/2))))
+                print("-File does not start with a png signature.\n\nMkay ...I like where this is going ..\nI will have to cut %s bytes from %s since png header starts at this offset %s .\n"%(Candy("Color","red",Sample_Name),Candy("Color","blue",int(pos/2)),Candy("Color","red",Sample_Name),Candy("Color","blue",hex(int(pos/2)))))
                 Zankentsu = DATAX[pos::]
                 Summarise("-File does not start with a png signature.\n-Found a png signature at offset: %s\n-Creating starting with the right signature."%hex(int(pos/2))) 
                 SaveClone(Zankentsu)
@@ -240,7 +241,7 @@ def FindMagic():
               return(ReadPng(pos+lenmagic))
 
      else:
-         print("%s isn't magic at all !!\n"%Sample_Name)
+         print("-File does not start with valid png signature .\n\n%s isn't magic at all !!\n"%Sample_Name)
          print("This better be a real png or else ....")
          for badnews in magc:
              pos = DATAX.find(badnews)
@@ -379,7 +380,7 @@ def GetInfo(type,data):
              print("-Method   :",Candy("Color","yellow",IHDR_Method))
              print("-Interlace:",Candy("Color","yellow",IHDR_Interlace))
         except Exception as e:
-           print(Candy("Color","red","Error:"),candy("Color","yellow",e))
+           print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
     
     if type == "bKGD":
 
@@ -388,7 +389,7 @@ def GetInfo(type,data):
                   bKGD_Gray=str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
                   print("-Gray    :",Candy("Color","yellow",bKGD_Gray))
              except Exception as e:
-                 print(Candy("Color","red","Error:"),candy("Color","yellow",e))
+                 print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
         if IHDR_Color == "2" or IHDR_Color == "6":
            try:
                   bKGD_Red=str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
@@ -398,13 +399,13 @@ def GetInfo(type,data):
                   print("-Green  :",Candy("Color","green",bKGD_Green))
                   print("-Blue   :",Candy("Color","blue",bKGD_Blue))
            except Exception as e:
-              print(Candy("Color","red","Error:"),candy("Color","yellow",e))
+              print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
         if IHDR_Color == "3":
             try:
                   bKGD_Index=str(int.from_bytes(bytes.fromhex(data[:1]),byteorder='big'))
                   print("-Palette    :",Candy("Color","yellow",bKGD_Index))
             except Exception as e:
-              print(Candy("Color","red","Error:"),candy("Color","yellow",e))
+              print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
   
 def ReadPng(offset):
      global Have_A_KitKat
@@ -443,7 +444,7 @@ def ReadPng(offset):
          try:
              Orig_CT = bytes.fromhex(Chunk_Type).decode(errors="replace")
          except Exception as e:
-             print(Candy("Color","red","Error:"),candy("Color","yellow",e))
+             print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
              Orig_CT = Chunk_Type
 
          CToffX = hex(int(offset/2)+4)
@@ -476,8 +477,6 @@ def ReadPng(offset):
          print("-Found at offset : In Hex %s , Bytes %s , Index %s "%(Candy("Color","yellow",CrcoffX),Candy("Color","blue",CrcoffB),Candy("Color","purple",CrcoffI)))
          print("-Chunk Crc: %s At offset: %s"%(Candy("Color","green",Chunk_Crc),Candy("Color","blue",hex(CrcoffB))))
 ##
-         GetInfo(bytes.fromhex(Chunk_Type).decode(),Chunk_Data) 
-##
          CheckLength(Chunk_Data,Chunk_Length,Chunk_Type)
 ##
          if Have_A_KitKat == True:
@@ -501,7 +500,7 @@ def Double_Check(CType,bytesnbr,LastCType):
      print("Or maybe am i missing something ?\nJust let me double check again just to be sure...")
 
      if len(DATAX)/2 < 67 :
-        print("\n...\n\nERrr...\nThere are not enough bytes in %s to be a valid png.\n%s is %s bytes long and the very minimum size for a png is 67 bytes so...\ni can't help you much further sorry.\n"%(Candy("Color","red",Sample_Name),Candy("Color","red",Sample_Name),Candy("Color","red",int(len(DATAX)/2))))
+        print("-Wrong File Length.\n\n...\n\nERrr...\nThere are not enough bytes in %s to be a valid png.\n%s is %s bytes long and the very minimum size for a png is 67 bytes so...\ni can't help you much further sorry.\n"%(Candy("Color","red",Sample_Name),Candy("Color","red",Sample_Name),Candy("Color","red",int(len(DATAX)/2))))
         TheEnd()
 
      print("But this time let's forget about the usual specifications of png format\nThis way i will be able to know if a chunk is missing somewhere.\n")
@@ -529,8 +528,8 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
 #         print(scope)
 #         print(len(scope))
        except Exception as e:
-         print(Candy("Color","red","Error:"),candy("Color","yellow",e))
-         print(Candy("Color","red","Scopex:"),candy("Color","yellow",scopex))
+         print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+         print(Candy("Color","red","Scopex:"),Candy("Color","yellow",scopex))
          sys.exit()
        NeedleI = int(Needle/2)
        NeedleX = hex(int(Needle/2))
@@ -541,8 +540,9 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
 #             print("scope.lower ",scope)
 #             print(Chk.lower() == scope)
              if Chk.lower() == scope:
-                 print("\nBingo!!!\n\nFound the closest Chunk to our position:%s at offset %s %s"%(Candy("Color","green",Chk),Candy("Color","blue",NeedleX),Candy("Color","yellow",NeedleI)))
+                 print("\nBingo!!!\n\n-Found the closest Chunk to our position:%s at offset %s %s"%(Candy("Color","green",Chk),Candy("Color","blue",NeedleX),Candy("Color","yellow",NeedleI)))
                  if Chk in Excluded:
+                        print("\n-Chunk position is %s %s\n"%Candy("Color","red","Not Valid "),Candy("Emoj","bad"))
                         print("\n...\n\nBut that chunk [%s] is not supposed to be here !\n\nITS A TRAP!\n\nRUN !!!!!!!\n\nRUN TO THE CHOPPER !!!\n"%Candy("Color","red",Chk))
                         print("\n\nI seriously doubt i coud be of any use with this one ..")
                         print("If you are sure %s is a png i can try to fill the gap but i cannot guarantee any result.."%Candy("Color","red",Sample_Name))
@@ -553,19 +553,21 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
                  else:
                       LenCalc = Data_End_OffsetI-CDoffB
                       if "-" in str(LenCalc):
-                         print("\nAnother one byte the dust ...\nGot Wrong Result for lenght...:",Candy("Color","red",LenCalc))
+                         print("-Chunk position is %s %s\n"%Candy("Color","red","Not Valid "),Candy("Emoj","bad"))
+                         print("-Got Wrong Result for lenght...:",Candy("Color","red",LenCalc))
+                         print("\nAnother one byte the dust ...\n")
                          print("dataendofI:",Data_End_OffsetI)
                          print("CDoffb:",CDoffB)
                          print("TODO")
                          TheEnd()
-                      print("That chunk position seems legit..\n")
+                      print("-Chunk position is %s %s\n"%(Candy("Color","green","Valid "),Candy("Emoj","good")))
                       FixedLen= str('0x%08X' % LenCalc)[2::] # str('0x%08X' % LenCalc)[2::].encode().hex()
                       FixShit(FixedLen,CLoffI,CLoffI+8,("-Found Chunk[%s] has Wrong Lenght at offset: %s\n-Found next chunk: %s at: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CLoffX,Chk,NeedleX,FixedLen,Orig_CL)))
                       return()
        Needle += 1
      if DoubleCheck is True:
         print("...??\n\nNOTHING AGAIN!?!?!?!?\n")
-        print("\n\nTHEY PLAYED US LIKE A DAMN FIDDLE !!!\n\nAMa Outta Here !\n\nDo It YourSelf FFS!")
+        print("\n\nTHEY PLAYED US LIKE A DAMN FIDDLE !!!\n\nAMa Outta Here !\n\nDo It YourSelf FFS! "+Candy("Emoj","bad"))
         TheEnd()
      else:
          print("\n...??\n\nJust Reach the EOF and found nothing!!\nCan't do much about that sorry ...\n")
@@ -589,7 +591,7 @@ def ChunkStory(lastchunk):
   try:
      lastchunk = lastchunk.encode()
   except AttributeError as e:
-     print("Error:",e)
+      print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
 
   if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
         print("After Png Header always Follow IHDR this is quite hard to miss..\nExcluding evrything else")
@@ -625,7 +627,7 @@ def ChunkStory(lastchunk):
           elif (int(IHDR_Color) == 2) or (int(IHDR_Color) == 6) and Warning is False:
                Warning = True
                SideNote="-[Sidenote] There is a chance that Critical PLTE chunk is missing."
-               print(Candy("Color","yellow","#################")+"\nWarning:\nJust wanted you to know that if im not able to fix %s for some reason\nor if you can't view %s once my job is done here ...\nThis is maybe due to a PLTE Chunk that is missing between those guys :\n-------------------------------------------------------\n%s\n+++++++++++++++++\n***[PLTECHUNK]***\n+++++++++++++++++\n%s\n\nIn Any cases it's before IDAT. \n"+Candy("Color","yellow","#################")+"\n-------------------------------------------------------\n"%(Candy("Color","red",Sample_Name),Candy("Color","red",Sample_Name),[i.decode() for i in Before_PLTE],[i.decode() for i in After_PLTE]))
+               print("%s\n\nJust wanted you to know that if im not able to fix %s for some reason\nor if you can't view %s once my job is done here ...\nThis is maybe due to a PLTE Chunk that is missing between those guys :\n-------------------------------------------------------\n%s\n+++++++++++++++++\n***[PLTECHUNK]***\n+++++++++++++++++\n%s\n-------------------------------------------------------\nIn Any cases it's before IDAT. \n%s"%(Candy("Color","yellow","################# Warning #################"),Candy("Color","red",Sample_Name),Candy("Color","red",Sample_Name),[i.decode() for i in Before_PLTE],[i.decode() for i in After_PLTE],Candy("Color","yellow","###########################################\n")))
 
 
           if lastchunk == b"IDAT":
@@ -642,7 +644,7 @@ def BruteChunk(CType,LastCType,bytesnbr):
    try:
       CTypeLst = [i.lower() for i in CType]
    except AttributeError as a:
-      print(Candy("Color","red","Error:"),candy("Color","yellow",a))
+      print(Candy("Color","red","Error:"),Candy("Color","yellow",a))
       CTypeLst = [i for i in CType]
       ErrorA = True
 
@@ -674,7 +676,7 @@ def BruteChunk(CType,LastCType,bytesnbr):
 
    if BestBingoCount <= 2 and int(BestBingoScore) >=2:
 #      print(BingoLst)
-      print("\nAh looks like we've got a winner! :",Candy("Color","green",BestBingoName))
+      print("\n\n-Solved Chunk name.\n\nAh looks like we've got a winner! :",Candy("Color","green",BestBingoName))
 ##TmpFix##
       FixShit(BestBingoName.encode().hex(),CrcoffI+16,CrcoffI+24,"-Found Chunk[%s] has wrong name at offset: %s\n-Chunk was corrupted changing %s bytes turn into a valid Chunk name: %s"%(Orig_CT,CToffX,int(BestBingoScore)-len(Orig_CT),BestBingoName))
       return()
@@ -713,32 +715,34 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType):
        CType = bytes.fromhex(CType)
 #       CType = bytes.fromhex(CType).decode(errors="replace")
    except Exception as e:
-        print("Error:",e)
+        print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
         print("ctyp ",CType)
         print(type(CType))
 
-   Candy("Title","Checking Chunk Type:",CType)
+   Candy("Title","Checking Chunk Type:",Candy("Color","blue",CType))
 
    for name in CHUNKS:
        if name.lower() == CType.lower():
                if name == CType:
-                      print("\n-Chunk name:"+Candy("Color","green","OK ")+Candy("Emoj","good"))
+                      print("\n-Chunk name:"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
                       ToHistory(bytes.fromhex(ChunkType))
+                      if name != b'IDAT':
+                         GetInfo(bytes.fromhex(ChunkType).decode(),Orig_CD)
                       return(None)
 
                else:
-                      print("\n-Chunk name:"+Candy("Color","red","FAIL ")+Candy("Emoj","bad"))
+                      print("\n-Chunk name:"+Candy("Color","red"," FAIL ")+Candy("Emoj","bad"))
                       print("\nMonkey wanted Banana :",Candy("Color","green",name))
                       print("Monkey got Pullover :",Candy("Color","red",CType))
                       print()
                       FixShit(name.hex(),CLoffI,CLoffI+8,("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CrcoffX,checksum[2::],Orig_CRC)))
                       return()
 
-   print("\n-Chunk name:"+Candy("Color","red","FAILED ")+Candy("Emoj","bad"))
+   print("\n-Chunk name:"+Candy("Color","red"," FAILED ")+Candy("Emoj","bad"))
    try:
       LastCType = bytes.fromhex(str(LastCType)).decode()
    except Exception as e:
-        print("Error:",e)
+        print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
         LastCType = LastCType.decode()
 
    if len(CType) >=4:
@@ -770,7 +774,7 @@ def CheckLength(Cdata,Clen,Ctype):
        if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
                CheckChunkName(Ctype,int(Clen,16),Chunks_History[0])
 
-       Candy("Title","Checking Data Length:",str(Clen))
+       Candy("Title","Checking Data Length:",Candy("Color","blue",str(Clen)))
 
        print("So ..The lenght part is saying that data is %s bytes long."%Candy("Color","yellow",int(Clen, 16)))
 
@@ -805,10 +809,10 @@ def Checksum(Ctype, Cdata, Crc):
     Crc = hex(int.from_bytes(bytes.fromhex(Crc),byteorder='big'))
     checksum = hex(binascii.crc32(Ctype+Cdata))
     if checksum == Crc:
-        print("-Crc Check :"+Candy("Color","green","OK ")+Candy("Emoj","good"))
+        print("-Crc Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
         return(None)
     else:
-        print("-Crc Check :"+Candy("Color","red","FAILED ")+Candy("Emoj","bad"))
+        print("-Crc Check :"+Candy("Color","red"," FAILED ")+Candy("Emoj","bad"))
         if len(Crc) == 0 or len(checksum) == 0:
              print("\nMonkey wanted Banana :",Candy("Color","green",checksum))
              print("Monkey got Pullover :",Candy("Color","red",Crc))
@@ -979,8 +983,9 @@ while True:
      Bytes_History = []
      Loading_txt = ""
      SideNote = ""
-     Candy("Title","|C|h|u|n|k|l|a|t|e|>Opening:",Sample)
+     Candy("Title","<|C|h|u|n|k|l|a|t|e|>")
      Sample_Name = os.path.basename(Sample)
+     print("-Opening: ",Candy("Color","red",Sample_Name))
      with open(Sample,"rb") as f:
          data = f.read()
      DATAX = data.hex()
