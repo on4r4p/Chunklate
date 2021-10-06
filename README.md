@@ -9,9 +9,9 @@ Currently **Chunklate** is in beta and able to provide those features:
 - Repair wrong chunk length  
 - Repair wrong chunk name
 - Repair wrong chunk crc
+- Repair line feed conversion
 - Save each modifications in a different file
-- Provide a summary of all modifications
-- Repair line feed conversion 
+- Provide a summary of all modifications 
 - User friendly human readability
 - Bruteforce corrupted data chunk (Work in progress)
 - Repair wrong image size (Todo)

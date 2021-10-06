@@ -1,7 +1,7 @@
 #!/usr/bin/python3.6
 from argparse import ArgumentParser
 from threading import Thread
-import sys , os , binascii ,re ,random,time
+import sys , os , binascii ,re ,random ,time , zlib
 
 
 def Minibar():
@@ -104,16 +104,16 @@ def Sumform(waitforit,switch):
 
     Spaaaaaaaace = " " * int((MAXCHAR/2)-(len(sepa+waitforit+rator)/2))
     Seperator = "\n"+Spaaaaaaaace+sepa + waitforit +rator+"\n\n"
-    sep = "\n\n『" +Sample_Name+" :』\n"
-    return(Seperator,sep)
+    return(Seperator)
 
 def Summarise(infos,Summary_Footer=False):
          global Summary_Header
 
          folder = FILE_DIR+"Folder_"+ str(os.path.basename(FILE_Origin))
          folder = os.path.splitext(folder)[0]+"/"
-         title,sep = Sumform("▇ ▆ =|C|h|u|n|k|l|a|t|e| |S|u|m|m|a|r|y|= ▆ ▇",True)
-         eof,sep =Sumform("_,-=|S|u|m|m|a|r|y| |E|n|d|=-,_",False)
+         sep = "\n\n『" +Sample_Name+" :』\n"
+         title = Sumform("▇ ▆ =|C|h|u|n|k|l|a|t|e| |S|u|m|m|a|r|y|= ▆ ▇",True)
+         eof =Sumform("_,-=|S|u|m|m|a|r|y| |E|n|d|=-,_",False)
 
          if not os.path.exists(folder):
             os.mkdir(folder)
@@ -140,6 +140,156 @@ def Summarise(infos,Summary_Footer=False):
                 f.write(infos)
 
              if Summary_Footer is True:
+                f.write("\n\n『File Informations: 』\n")
+
+
+                if len(IHDR_Height) >0:
+                   f.write("\n")
+                   f.write("\n-IHDR Width    :"+IHDR_Height)
+                if len(IHDR_Height) >0:
+                   f.write("\n-IHDR Height   :"+IHDR_Width)
+                if len(IHDR_Depht) >0:
+                   f.write("\n-IHDR Depht    :"+IHDR_Depht)
+                if len(IHDR_Color) >0:
+                   f.write("\n-IHDR Color    :"+IHDR_Color)
+                if len(IHDR_Method) >0:
+                   f.write("\n-IHDR Method   :"+IHDR_Method)
+                if len(IHDR_Interlace) >0:
+                   f.write("\n-IHDR Interlace:"+IHDR_Interlace)
+                if len(pHYs_X) > 0:
+                   f.write("\n-pHYs Pixels per unit, X axis: "+pHYs_X)
+                if len(pHYs_Y) > 0:
+                   f.write("\n-pHYs Pixels per unit, Y axis: "+pHYs_Y)
+                if len(pHYs_Unit) > 0:
+                   f.write("\n-pHYs Unit specifier         :"+pHYs_Unit)
+
+                if len(bKGD_Gray) > 0:
+                  f.write("\n")
+                  f.write("\n-bKGD Gray   :"+bKGD_Gray)
+                if len(bKGD_Red) > 0:
+                  f.write("\n-bKGD Red    :"+bKGD_Red)
+                if len(bKGD_Green) > 0:
+                  f.write("\n-bKGD Green  :"+bKGD_Green)
+                if len(bKGD_Blue) > 0:
+                  f.write("\n-bKGD Blue   :"+bKGD_Blue)
+                if len(bKGD_Index) > 0:
+                  f.write("\n-bKGD Palette:"+bKGD_Index)
+
+                if len(gAMA) > 0:
+                  f.write("\n")
+                  f.write("\n-Gama   :"+gAMA)
+
+                if len(PLTE_R) > 0:
+                  f.write("\n")
+                  f.write("\n-PLTE Red Palettes    :"+len(PLTE_R))
+                if len(PLTE_G) > 0:
+                  f.write("\n-PLTE Green Palettes   :"+len(PLTE_G))
+                if len(PLTE_B) > 0:
+                  f.write("\n-PLTE Blue Palettes    :"+len(PLTE_B))
+
+                if len(sPLT_Red) >0:
+                  f.write("\n")
+                  f.write("\n-sPLT Suggested Red palette stored:"+len(sPLT_Red))
+                if len(sPLT_Green) >0: 
+                  f.write("\n-sPLT Suggested Green palettes stored:"+len(sPLT_Green))
+                if len(sPLT_Blue) >0: 
+                  f.write("\n-sPLT Suggested Blue palettes stored:"+len(sPLT_Blue))
+                if len(sPLT_Alpha) >0: 
+                  f.write("\n-sPLT Suggested Alpha palettes stored:"+len(sPLT_Alpha))
+                if len(sPLT_Freq) >0: 
+                  f.write("\n-sPLT Suggested Frequencies palettes stored:"+len(sPLT_Freq))
+
+                  f.write("\n-Histogram frequencies stored:"+len(hIST))
+
+                if len(tRNS_Gray) >0:
+                   f.write("\n") 
+                   f.write("\n-tRNS Transparency Gray     :"+tRNS_Gray)
+                if len(tRNS_TrueR) >0: 
+                   f.write("\n-tRNS Transparency Red      :"+tRNS_TrueR)
+                if len(tRNS_TrueG) >0: 
+                   f.write("\n-tRNS Transparency Green    :"+tRNS_TrueG)
+                if len(tRNS_TrueB) >0: 
+                   f.write("\n-tRNS Transparency Blue     :"+tRNS_TrueB)
+                if len(tRNS_Index) >0:
+                   f.write("\n-tRNS Alpha indexes stored:"+len(tRNS_Index))
+
+                if len(cHRM_WhiteX) >0:
+                   f.write("\n")
+                   f.write("\n-cHRM chromaticities WhiteX   :"+cHRM_WhiteX)
+                if len(cHRM_WhiteY) >0:
+                   f.write("\n-cHRM chromaticities WhiteY   :"+cHRM_WhiteY)
+                if len(cHRM_Redx) >0:
+                   f.write("\n-cHRM chromaticities RedX     :"+cHRM_Redx)
+                if len(cHRM_Redy) >0:
+                   f.write("\n-cHRM chromaticities RedY     :"+cHRM_Redy)
+                if len(cHRM_Greenx) >0:
+                   f.write("\n-cHRM chromaticities GreenX   :"+cHRM_Greenx)
+                if len(cHRM_Greeny) >0:
+                   f.write("\n-cHRM chromaticities GreenY   :"+cHRM_Greeny)
+                if len(cHRM_Bluex) >0:
+                   f.write("\n-cHRM chromaticities BlueX   :"+cHRM_Bluex)
+                if len(cHRM_Bluey) >0:
+                   f.write("\n-cHRM chromaticities BlueY   :"+cHRM_Bluey)
+
+                if len(sBIT_Gray) >0:
+                   f.write("\n")
+                   f.write("\n-sBIT Significant greyscale bits    :"+sBIT_Gray)
+                if len(sBIT_TrueR) >0:
+                   f.write("\n-sBIT significant bits Red    :"+sBIT_TrueR)
+                if len(sBIT_TrueG) >0:
+                   f.write("\n-sBIT significant bits Green  :"+sBIT_TrueG)
+                if len(sBIT_TrueB) >0:
+                   f.write("\n-sBIT significant bits Blue   :"+sBIT_TrueB)
+                if len(sBIT_GrayScale) >0:
+                   f.write("\n-sBIT Gray scale significant bit:"+sBIT_GrayScale)
+                if len(sBIT_GrayAlpha) >0:
+                   f.write("\n-sBIT Gray alpha significant bit:"+sBIT_GrayAlpha)
+                if len(sBIT_TrueAlphaR) >0:
+                   f.write("\n-sBIT significant bits Alpha Red    :"+sBIT_TrueAlphaR)
+                if len(sBIT_TrueAlphaG) >0:
+                   f.write("\n-sBIT significant bits Alpha Green  :"+sBIT_TrueAlphaG)
+                if len(sBIT_TrueAlphaB) >0:
+                   f.write("\n-sBIT significant bits Alpha Blue   :"+sBIT_TrueAlphaB)
+                if len(sBIT_TrueAlpha) >0:
+                   f.write("\n-sBIT significant bits Alpha        :"+sBIT_TrueAlpha)
+
+                if len(iCCP_Name) >0:
+                  f.write("\n")
+                  f.write("\n-iCCP Profile Name :"+iCCP_Name)
+                if len(iCCP_Method) >0:
+                  f.write("\n-iCCP Profile Method :"+iCCP_Method)
+
+                if len(sRGB)>0:
+                  f.write("\n")
+                  f.write("\n-sRGB Rendering    :"+sRGB)
+
+                if len(tIME_Yr)>0:
+                  f.write("\n")
+                  f.write("\n-Year     :"+tIME_Yr)
+                if len(tIME_Mth)>0:
+                  f.write("\n-Month    :"+tIME_Mth)
+                if len(tIME_Day)>0:
+                  f.write("\n-Day      :"+tIME_Day)
+                if len(tIME_Hr)>0:
+                  f.write("\n-Hour     :"+tIME_Hr)
+                if len(tIME_Min)>0:
+                  f.write("\n-Minute   :"+tIME_Min)
+                if len(tIME_Sec)>0:
+                  f.write("\n-Seconde  :"+tIME_Sec)
+
+
+                if len(tEXt_Key_List) > 0 and len(tEXt_Key_List) == len(tEXt_Str_List):
+                    f.write("\n")
+                    for s,k in zip(tEXt_Str_List,tEXt_Key_List):
+                        txt = "\n-tEXt %s :\n%s\n"%(k,s)
+                        f.write(txt)
+
+                if len(zTXt_Key_List) > 0 and len(zTXt_Key_List) == len(zTXt_Str_List):
+                    f.write("\n")
+                    for s,k in zip(zTXt_Str_List,zTXt_Key_List):
+                        txt = "\n-zTXt %s :\n%s\n"%(k,s)
+                        f.write(txt)
+
                 f.write(eof)
 
 
@@ -337,12 +487,25 @@ def GetInfo(type,data):
     global cHRM_Bluey
     global gAMA
     global hIST
+    global gIFID
+    global gIFCD
+    global gIFDT
+    global gIFDT
+    global gIFgM
+    global gIFgU
+    global gIFgT
     global iCCP_Name
     global iCCP_Method
     global iCCP_Profile
     global pHYs_Y
     global pHYs_X
     global pHYs_Unit
+    global pCAL_Param
+    global pCAL_Key
+    global pCAL_Zero
+    global pCAL_Max
+    global pCAL_Eq
+    global pCAL_PNBR
     global sBIT_Gray
     global sBIT_TrueR
     global sBIT_TrueG
@@ -353,8 +516,14 @@ def GetInfo(type,data):
     global sBIT_TrueAlphaG
     global sBIT_TrueAlphaB
     global sBIT_TrueAlpha
+    global iTXt_String_List
+    global iTXt_Key_List
+    global iTXt_String
+    global iTXt_Key
+    global ster
+    global tEXt_Key_List
+    global tEXt_Str_List
     global tEXt_Key
-    global tEXt_sep
     global tEXt_Text
     global tIME_Yr
     global tIME_Mth
@@ -367,12 +536,24 @@ def GetInfo(type,data):
     global tRNS_TrueG
     global tRNS_TrueB
     global tRNS_Index
-    global ZtXt_Key
-    global ZtXt_sep
-    global ZtXt_Meth
-    global ZtXt_Text
+    global zTXt_Key_List
+    global zTXt_Str_List
+    global zTXt_Key
+    global zTXt_sep
+    global zTXt_Meth
+    global zTXt_Text
 
-    Candy("Title","Getting infos about:",Candy("Color","blue",str(type)))
+
+    iCCP_Name = ""
+    iTXt_String=""
+    iTXt_Key=""
+    zTXt_String=""
+    zTXt_Key=""
+    tEXt_Text=""
+    tEXt_Key=""
+    sPLT_Name =""
+
+    Candy("Title","Getting infos about:",Candy("Color","white",str(type)))
 
     if type == "PNG":
           print("Well ..That's a start ..At least it looks like a png.")
@@ -490,6 +671,11 @@ def GetInfo(type,data):
                  tRNS_Index.append(str(int.from_bytes(bytes.fromhex(data[:pos]),byteorder='big')))
                  pos += 2
              print("-%s Alpha indexes are stored."%Candy("Color","yellow",len(tRNS_Index)))
+
+    if type == "sRGB":
+         sRGB =str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
+         print("-Rendering    :",Candy("Color","yellow",sRGB))
+
     if type == "cHRM":
 
              cHRM_WhiteX=str(int.from_bytes(bytes.fromhex(data[:8]),byteorder='big'))
@@ -527,7 +713,7 @@ def GetInfo(type,data):
                  else:
                        print("-Length of iCCP Profile name is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)))
                  break
-          if (nint not in range(32,127)) or (nint not in range(161,255)):
+          if (int(nint) not in range(32,127)) or (int(nint) not in range(161,255)):
                   print("-Character %s at index %s in iCCP_Name\n-Replaced by [€]"%(Candy("Color","red","not allowed ["+nchar+"]"),Candy("Color","red",i)))
                   iCCP_Name += "€"
           else:
@@ -545,10 +731,14 @@ def GetInfo(type,data):
         else:
             print("-iCCP Profile length is %s"%Candy("Color","red","not Valid"))
 
+        print("-iCCP Profile Name :",Candy("Color","yellow",iCCP_Name))
+        print("-iCCP Profile Method :",Candy("Color","yellow",iCCP_Method))
+
+
     if type == "sBIT":
          if IHDR_Color == "0":
                 sBIT_Gray = str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
-                print("-Significant greyscale bits    :",Candy("Color","yellow",tRNS_Gray))
+                print("-Significant greyscale bits    :",Candy("Color","yellow",sBIT_Gray))
          if IHDR_Color == "2" or  IHDR_Color == "3" :
                 sBIT_TrueR = str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
                 sBIT_TrueG = str(int.from_bytes(bytes.fromhex(data[2:4]),byteorder='big'))
@@ -567,9 +757,82 @@ def GetInfo(type,data):
                 sBIT_TrueAlphaB = str(int.from_bytes(bytes.fromhex(data[4:6]),byteorder='big'))
                 sBIT_TrueAlpha = str(int.from_bytes(bytes.fromhex(data[6:8]),byteorder='big'))
                 print("-significant bits Alpha Red    :",Candy("Color","red",sBIT_TrueAlphaR))
-                print("-significant bits Alpha Green  :",Candy("Color","green",sBIT_TrueALphaG))
+                print("-significant bits Alpha Green  :",Candy("Color","green",sBIT_TrueAlphaG))
                 print("-significant bits Alpha Blue   :",Candy("Color","blue",sBIT_TrueAlphaB))
                 print("-significant bits Alpha        :",Candy("Color","white",sBIT_TrueAlpha))
+
+    if type == "oFFS":
+                oFFSX = str(int.from_bytes(bytes.fromhex(data[:8]),byteorder='big'))
+                oFFSY = str(int.from_bytes(bytes.fromhex(data[8:16]),byteorder='big'))
+                oFFSU = str(int.from_bytes(bytes.fromhex(data[16:18]),byteorder='big'))
+                print("-Offset position X    :",Candy("Color","blue",oFFSX))
+                print("-Offset position Y  :",Candy("Color","purple",oFFSY))
+                print("-Offset Unit   :",Candy("Color","white",oFFSU))
+
+    if type == "pCAL": ##TOFIX##
+      try:
+           pCAL_Key = data.split("00")[0]
+           for i in range(0,len(pCAL_Key),2):
+             if int(pCAL_Key[i:i+2],16) not in range(32,127) and int(pCAL_Key[i:i+2],16) not in range(161,256):
+               if pCAL_Key[i:i+2] != "00" and pCAL_Key[i:i+2] != "0a": 
+                  print("-Character %s at index %s in pCAL Keyword (must be between 32-126 and 161-255 but is %s)"%(Candy("Color","red","not allowed ["+pCAL_Key[i:i+2]+"]"),Candy("Color","red",i),Candy("Color","red",int(pCAL_Key[i:i+2],16))))
+
+           if len(pCAL_Key) >=79:
+                      print("-pCAL Keyword length is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)))
+
+           pCAL_Zero = str(int.from_bytes(bytes.fromhex(data[:8]),byteorder='big'))
+           pCAL_Max = str(int.from_bytes(bytes.fromhex(data[8:16]),byteorder='big'))
+           pCAL_Eq = str(int.from_bytes(bytes.fromhex(data[16:18]),byteorder='big'))
+           pCAL_PNBR = str(int.from_bytes(bytes.fromhex(data[18:20]),byteorder='big'))
+           if pCAL_PNBR == "0":
+                 pCAL_Unit = ""
+           else:
+              pCAL_Unit = bytes.fromhex(data[20:].split("00")[0])
+           newlength = 20
+           print("-Number of parameters    :",Candy("Color","yellow",pCAL_PNBR))
+           for i in range(0,int(str(pCAL_Param), 16)):
+              try:
+                 pCAL_Param.append(data[newlength+len(pCAL_Unit):].split("00")[0])
+                 newlength += len(pCAL_Param)[i]
+              except Exception as e:
+                 pCAL_Param.append(data[newlength+len(pCAL_Unit):])
+                 print(Candy("Color","red","Error pCAL:"),Candy("Color","yellow",e))
+
+           print("-Calibration name    :",Candy("Color","yellow",pCAL_Key))
+           print("-Original zero       :",Candy("Color","yellow",pCAL_Zero))
+           print("-Original max        :",Candy("Color","yellow",pCAL_Max))
+           print("-Equation type       :",Candy("Color","yellow",pCAL_Eq))
+           print("-Number of parameters    :",Candy("Color","yellow",pCAL_PNBR))
+      except Exception as e:
+                 print(Candy("Color","red","Error pCAL2:"),Candy("Color","yellow",e))
+
+
+    if type == "gIFg":
+
+                gIFgM = str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
+                gIFgU = str(int.from_bytes(bytes.fromhex(data[2:4]),byteorder='big'))
+                gIFgT = str(int.from_bytes(bytes.fromhex(data[4:6]),byteorder='big'))
+
+                print("-Disposal Method    :",Candy("Color","yellow",gIFgM))
+                print("-User Input Flag    :",Candy("Color","yellow",gIFgT))
+                print("-Delay Time    :",Candy("Color","yellow",gIFgT))
+
+    if type == "gIFx":
+                gIFID = str(int.from_bytes(bytes.fromhex(data[:16]),byteorder='big'))
+                gIFCD = str(int.from_bytes(bytes.fromhex(data[16:22]),byteorder='big'))
+                gIFDT = str(int.from_bytes(bytes.fromhex(data[22:]),byteorder='big'))
+
+                print("-Application Identifier    :",Candy("Color","yellow",gIFID))
+                print("-Authentication Code    :",Candy("Color","yellow",gIFCD))
+                print("-Application Data    :",Candy("Color","yellow",gIFDT))
+
+    if type == "sTER":
+
+                sTER = str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
+
+                print("-Subimage mode    :",Candy("Color","yellow",sTER))
+
+
 
     if type == "sPLT":
 
@@ -589,7 +852,7 @@ def GetInfo(type,data):
                       print("-Length of sPLT name is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)
 ))
                  break
-          if (nint not in range(32,127)) or (nint not in range(161,256)):
+          if (nint not in range(32,127)) and (nint not in range(161,256)):
                   print("-Character %s at index %s in sPLT_Name\n-Replaced by [€]"%(Candy("Color","red","not allowed ["+nchar+
 "]"),Candy("Color","red",i)))
                   sPLT_Name += "€"
@@ -629,86 +892,106 @@ def GetInfo(type,data):
                  else: 
                     print("-Error2:TODO")
 
-#             if sPLT_Freq != str(freq):
-#                   print("-sPLT frequency %s hold the correct value %s according to Sample_Depht %s bits"%(Candy("Color","red","does not"),Candy("Color","red",sPLT_Freq),Candy("Color","red",sPLT_Depht)))
-
         print("-%s Suggested palette are stored."%Candy("Color","yellow",len(sPLT_Red)))
 
-    if type == "tEXt": #TOFIX
+    if type == "tEXt": 
 
-        tEXt_Ln = int(Orig_CL, 16)
-        null="00"
-        null_pos=0
+        try:
+           tEXt_Key = data.split("00")[0]
+           tEXt_Text = data.split("00")[1]
+           for i in range(0,len(data),2):
+             if int(data[i:i+2],16) not in range(32,127) and int(data[i:i+2],16) not in range(161,256):
+               if data[i:i+2] != "00" and data[i:i+2] != "0a": 
+                  print("-Character %s at index %s in tEXt Keyword (must be between 32-126 and 161-255 but is %s)"%(Candy("Color","red","not allowed ["+data[i:i+2]+"]"),Candy("Color","red",i),Candy("Color","red",int(data[i:i+2],16))))
 
-        for i in range(0,len(data)+1,2):
-          nint = int(data[i:i+2],16)
-          nchar = chr(nint)
+           if len(tEXt_Key) >=79:
+                      print("-tEXt Keyword length is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)))
 
-          if data[i:i+2] == "00":
-                 null_pos = i
-                 if i <=79:
-                      print("-Length of tEXt Keyword is %s"%Candy("Color","green","Valid"))
-                 else:
-                      print("-Length of tEXt Keyword is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)))
-                 break
-          if (nint not in range(32,127)) or (nint not in range(161,256)):
-                  print("-Character %s at index %s in tEXt Keyword\n-Replaced by [€]"%(Candy("Color","red","not allowed ["+nchar+"]"),Candy("Color","red",i)))
-                  tEXt_Key += "€"
-          else:
-               tEXt_Key += nchar
+           tEXt_Key_List.append(bytes.fromhex(tEXt_Key).decode(errors="replace"))
+           tEXt_Str_List.append(bytes.fromhex(tEXt_Text).decode(errors="ignore"))
+ 
+           print("-Keyword : ",Candy("Color","green",bytes.fromhex(tEXt_Key).decode(errors="replace")))
+           print("-String  : ",Candy("Color","green",bytes.fromhex(tEXt_Text).decode(errors="replace")))
 
-        tEXt_String = data[null_pos+2:]
+        except Exception as e:
+           print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+
+        return
+
+    if type == "zTXt": 
+
+        try:
+           zTXt_Key = data.split("0000")[0]
+           zTXt_Text = zlib.decompress(bytes.fromhex(data.split("0000")[1]))
+           for i in range(0,len(zTXt_Key),2):
+             if int(zTXt_Key[i:i+2],16) not in range(32,127) and int(zTXt_Key[i:i+2],16) not in range(161,256):
+               if zTXt_Key[i:i+2] != "00" and zTXt_Key[i:i+2] != "0a": 
+                  print("-Character %s at index %s in zTXt Keyword (must be between 32-126 and 161-255 but is %s)"%(Candy("Color","red","not allowed ["+zTXt_Key[i:i+2]+"]"),Candy("Color","red",i),Candy("Color","red",int(zTXt_Key[i:i+2],16))))
+
+           if len(zTXt_Key) >=79:
+                      print("-zTXt Keyword length is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)))
+
+           zTXt_Key_List.append(bytes.fromhex(zTXt_Key).decode(errors="replace"))
+           zTXt_Str_List.append(zTXt_Text.decode(errors="ignore"))
+ 
+           print("-Keyword : ",Candy("Color","green",bytes.fromhex(zTXt_Key).decode(errors="replace")))
+           print("-String  : ",Candy("Color","green",zTXt_Text.decode(errors="ignore")))
+
+        except Exception as e:
+           print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+
+        return
+
+    if type == "iTXt": 
+
+#        try:
+           iTXt_Key = data.split("00")[0]
+           for i in range(0,len(iTXt_Key),2):
+             if int(iTXt_Key[i:i+2],16) not in range(32,127) and int(iTXt_Key[i:i+2],16) not in range(161,256):
+               if iTXt_Key[i:i+2] != "00" and iTXt_Key[i:i+2] != "0a": 
+                  print("-Character %s at index %s in iTXt Keyword (must be between 32-126 and 161-255 but is %s)"%(Candy("Color","red","not allowed ["+iTXt_Key[i:i+2]+"]"),Candy("Color","red",i),Candy("Color","red",int(iTXt_Key[i:i+2],16))))
+           if len(iTXt_Key) >=79:
+                      print("-iTXt Keyword length is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)))
+
+           iTXt_Flag = data[len(iTXt_Key)+2:len(iTXt_Key)+4]
+           
+           newpos = len(iTXt_Key)+6
+
+           if data[newpos:newpos+2] == "00":
+               iTXt_Lang = "00"
+           else:
+               iTXt_Lang = data[newpos:].split("00")[0] 
+           newpos = newpos+len(iTXt_Lang)
+
+           if iTXt_Lang == "00":
+               iTXt_Key_Trad = ""
+           else:
+               iTXt_Key_Trad = data[newpos:].split("00")[1] 
+
+           newpos = newpos+len(iTXt_Key_Trad)+4
+
+           iTXt_String = data[newpos:]
+
+           if iTXt_Flag == "01":
+               iTXt_String = zlib.decompress(bytes.fromhex(iTXt_String)).decode()
+           elif iTXt_Flag == "00":
+               iTXt_String = bytes.fromhex(iTXt_String).decode(errors="replace")
+
+           iTXt_Key_List.append(bytes.fromhex(iTXt_Key).decode(errors="replace"))
+           iTXt_String_List.append(iTXt_String)
+
+           print("-Keyword : ",Candy("Color","green",bytes.fromhex(iTXt_Key).decode(errors="replace")))
+           print("-Flag  : ",Candy("Color","green",iTXt_Flag))
+           print("-Language  : ",Candy("Color","green",bytes.fromhex(iTXt_Lang).decode(errors="replace")))
+           print("-Keyword Traduction  : ",Candy("Color","green",bytes.fromhex(iTXt_Key_Trad).decode(errors="replace")))
+           print("-String  : ",Candy("Color","green",iTXt_String))
+
+#        except Exception as e:
+#           print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+#        return
 
 
-    if type == "zTXt": #TOFIX
 
-        zTXt_Ln = int(Orig_CL, 16)
-        null="00"
-        null_pos=0
-
-        for i in range(0,len(data)+1,2):
-          nint = int(data[i:i+2],16)
-          nchar = chr(nint)
-
-          if data[i:i+2] == "00":
-                 null_pos = i
-                 if i <=79:
-                      print("-Length of zTXt Keyword is %s"%Candy("Color","green","Valid"))
-                 else:
-                      print("-Length of zTXt Keyword is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)))
-                 break
-          if (nint not in range(32,127)) or (nint not in range(161,256)):
-                  print("-Character %s at index %s in zTXt Keyword\n-Replaced by [€]"%(Candy("Color","red","not allowed ["+nchar+"]"),Candy("Color","red",i)))
-                  zTXt_Key += "€"
-          else:
-               zTXt_Key += nchar
-
-        zTXt_String = data[null_pos+2:]
-
-    if type == "iTXt": #TOFIX
-
-        iTXt_Ln = int(Orig_CL, 16)
-        null="00"
-        null_pos=0
-
-        for i in range(0,len(data)+1,2):
-          nint = int(data[i:i+2],16)
-          nchar = chr(nint)
-
-          if data[i:i+2] == "00":
-                 null_pos = i
-                 if i <=79:
-                      print("-Length of iTXt Keyword is %s"%Candy("Color","green","Valid"))
-                 else:
-                      print("-Length of iTXt Keyword is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)))
-                 break
-          if (nint not in range(32,127)) or (nint not in range(161,256)):
-                  print("-Character %s at index %s in iTXt Keyword\n-Replaced by [€]"%(Candy("Color","red","not allowed ["+nchar+"]"),Candy("Color","red",i)))
-                  iTXt_Key += "€"
-          else:
-               iTXt_Key += nchar
-
-        iTXt_String = data[null_pos+2:]
 
 def ReadPng(offset):
      global Have_A_KitKat
@@ -1025,7 +1308,7 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType):
         print("ctyp ",CType)
         print(type(CType))
 
-   Candy("Title","Checking Chunk Type:",Candy("Color","blue",CType))
+   Candy("Title","Checking Chunk Type:",Candy("Color","white",CType))
 
    for name in CHUNKS:
        if name.lower() == CType.lower():
@@ -1078,7 +1361,7 @@ def CheckLength(Cdata,Clen,Ctype):
        if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
                CheckChunkName(Ctype,int(Clen,16),Chunks_History[0])
 
-       Candy("Title","Checking Data Length:",Candy("Color","blue",str(Clen)))
+       Candy("Title","Checking Data Length:",Candy("Color","white",str(Clen)))
 
        print("So ..The length part is saying that data is %s bytes long."%Candy("Color","yellow",int(Clen, 16)))
 
@@ -1094,8 +1377,8 @@ def CheckLength(Cdata,Clen,Ctype):
        if bytes.fromhex(Ctype) == b'IEND' and int(Clen, 16) == 0:
             if DATAX[-len(GoodEnding):].upper() == GoodEnding:
 
-                     print("\nOk it may be related to the fact that this is the end of file !!!")
-                     Summarise("-Reach the end of file without error.")
+                     print("\nBut thats only because this is the end of file. ",Candy("Emoj","good"))
+                     SideNote="-Reach the end of file without error."
 
                      Candy("Title","All Done here hoped that has worked !")
 
@@ -1223,6 +1506,9 @@ CDoffI=""
 CrcoffX=""
 CrcoffB=""
 CrcoffI=""
+iCCP_Name = ""
+iCCP_Method =""
+iCCP_Profile =""
 IHDR_Height= ""
 IHDR_Width= ""
 IHDR_Depht= ""
@@ -1234,6 +1520,13 @@ bKGD_Red= ""
 bKGD_Green= ""
 bKGD_Blue= ""
 bKGD_Index= ""
+sRGB = ""
+pCAL_Param=[]
+pCAL_Key=""
+pCAL_Zero=""
+pCAL_Max=""
+pCAL_Eq=""
+pCAL_PNBR=""
 PLTE_R=[]
 PLTE_G=[]
 PLTE_B=[]
@@ -1257,6 +1550,13 @@ hIST = []
 pHYs_Y=""
 pHYs_X=""
 pHYs_Unit=""
+sTER= ""
+gIFID=""
+gIFCD=""
+gIFDT=""
+gIFgM=""
+gIFgU = ""
+gIFgT =""
 sBIT_Gray=""
 sBIT_TrueR=""
 sBIT_TrueG=""
@@ -1267,9 +1567,14 @@ sBIT_TrueAlphaR=""
 sBIT_TrueAlphaG=""
 sBIT_TrueAlphaB=""
 sBIT_TrueAlpha=""
+tEXt_Key_List = []
+tEXt_Str_List =[]
 tEXt_Key=""
-tEXt_sep=""
 tEXt_Text=""
+iTXt_String_List = []
+iTXt_Key_List = []
+iTXt_String = ""
+iTXt_Key = ""
 tIME_Yr=""
 tIME_Mth=""
 tIME_Day=""
@@ -1281,10 +1586,11 @@ tRNS_TrueR=""
 tRNS_TrueG=""
 tRNS_TrueB=""
 tRNS_Index=[]
-ZtXt_Key=""
-ZtXt_sep=""
-ZtXt_Meth=""
-ZtXt_Text=""
+zTXt_Key_List = []
+zTXt_Str_List = []
+zTXt_Key=""
+zTXt_Meth=""
+zTXt_Text=""
 Sample = FILE_Origin
 i = 0
 while True:
