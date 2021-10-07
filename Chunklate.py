@@ -128,7 +128,7 @@ def Summarise(infos,Summary_Footer=False):
          
 
          filename = folder+"Summary_Of_"+os.path.splitext(os.path.basename(FILE_Origin))[0]
-         print(Candy("Color","green","-Saving Summary : "),filename)
+         #print(Candy("Color","green","-Saving Summary : "),filename)
          with open(filename,'a+') as f:
 
              if Summary_Header is True:
@@ -213,6 +213,10 @@ def Summarise(infos,Summary_Footer=False):
                 if len(tRNS_Index) >0:
                    f.write("\n-tRNS Alpha indexes stored:"+len(tRNS_Index))
 
+
+                if len(sTER) >0:
+                   f.write("\n-Subimage mode    :",sTER)
+
                 if len(cHRM_WhiteX) >0:
                    f.write("\n")
                    f.write("\n-cHRM chromaticities WhiteX   :"+cHRM_WhiteX)
@@ -253,6 +257,19 @@ def Summarise(infos,Summary_Footer=False):
                 if len(sBIT_TrueAlpha) >0:
                    f.write("\n-sBIT significant bits Alpha        :"+sBIT_TrueAlpha)
 
+                if len(pCAL_Key) >0:
+                   f.write("\n")
+                   f.write("-pCAL Calibration name    :"+bytes.fromhex(pCAL_Key).decode(errors="replace"))
+                if len(pCAL_Zero) >0:
+                   f.write("-pCAL Original zero       :"+pCAL_Zero)
+                if len(pCAL_Max) >0:
+                   f.write("-pCAL Original max        :"+pCAL_Max)
+                if len(pCAL_Eq) >0:
+                   f.write("-pCAL Equation type       :"+pCAL_Eq)
+                if len(pCAL_PNBR) >0:
+                   f.write("-pCAL Number of parameters:"+pCAL_PNBR)
+
+
                 if len(iCCP_Name) >0:
                   f.write("\n")
                   f.write("\n-iCCP Profile Name :"+iCCP_Name)
@@ -282,6 +299,11 @@ def Summarise(infos,Summary_Footer=False):
                     f.write("\n")
                     for s,k in zip(tEXt_Str_List,tEXt_Key_List):
                         txt = "\n-tEXt %s :\n%s\n"%(k,s)
+                        f.write(txt)
+                if len(iTXt_Key_List) > 0 and len(iTXt_Key_List) == len(iTXt_String_List):
+                    f.write("\n")
+                    for s,k in zip(iTXt_String_List,iTXt_Key_List):
+                        txt = "\n-iTXt %s :\n%s\n"%(k,s)
                         f.write(txt)
 
                 if len(zTXt_Key_List) > 0 and len(zTXt_Key_List) == len(zTXt_Str_List):
@@ -520,7 +542,7 @@ def GetInfo(type,data):
     global iTXt_Key_List
     global iTXt_String
     global iTXt_Key
-    global ster
+    global sTER
     global tEXt_Key_List
     global tEXt_Str_List
     global tEXt_Key
@@ -779,30 +801,40 @@ def GetInfo(type,data):
 
            if len(pCAL_Key) >=79:
                       print("-pCAL Keyword length is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)))
+           Keypos =len(pCAL_Key) + 2
+           pCAL_Zero = str(int.from_bytes(bytes.fromhex(data[Keypos:Keypos+8]),byteorder='big'))
+           pCAL_Max = str(int.from_bytes(bytes.fromhex(data[Keypos+8:Keypos+16]),byteorder='big'))
+           pCAL_Eq = str(int.from_bytes(bytes.fromhex(data[Keypos+16:Keypos+18]),byteorder='big'))
+           pCAL_PNBR = str(int.from_bytes(bytes.fromhex(data[Keypos+18:Keypos+20]),byteorder='big'))
 
-           pCAL_Zero = str(int.from_bytes(bytes.fromhex(data[:8]),byteorder='big'))
-           pCAL_Max = str(int.from_bytes(bytes.fromhex(data[8:16]),byteorder='big'))
-           pCAL_Eq = str(int.from_bytes(bytes.fromhex(data[16:18]),byteorder='big'))
-           pCAL_PNBR = str(int.from_bytes(bytes.fromhex(data[18:20]),byteorder='big'))
            if pCAL_PNBR == "0":
                  pCAL_Unit = ""
            else:
               pCAL_Unit = bytes.fromhex(data[20:].split("00")[0])
-           newlength = 20
-           print("-Number of parameters    :",Candy("Color","yellow",pCAL_PNBR))
-           for i in range(0,int(str(pCAL_Param), 16)):
-              try:
-                 pCAL_Param.append(data[newlength+len(pCAL_Unit):].split("00")[0])
-                 newlength += len(pCAL_Param)[i]
-              except Exception as e:
-                 pCAL_Param.append(data[newlength+len(pCAL_Unit):])
-                 print(Candy("Color","red","Error pCAL:"),Candy("Color","yellow",e))
 
-           print("-Calibration name    :",Candy("Color","yellow",pCAL_Key))
+           newlength = Keypos + 20
+
+           for i in range(0,int(pCAL_PNBR)):
+              param = ""
+              try:
+                 for j in range(0,len(data[newlength:]),2):
+                       hx = data[newlength+j:newlength+j+2]
+                       if hx != "00":
+                          param += str(hx)
+                       else:
+                         break
+                 pCAL_Param.append(param)
+                 newlength += len(param)+2
+              except Exception as e:
+                 print(Candy("Color","red","Error pCAL:"),Candy("Color","yellow",e))
+                 sys.exit()
+
+           print("-Calibration name    :",Candy("Color","yellow",bytes.fromhex(pCAL_Key).decode(errors="replace")))
            print("-Original zero       :",Candy("Color","yellow",pCAL_Zero))
            print("-Original max        :",Candy("Color","yellow",pCAL_Max))
            print("-Equation type       :",Candy("Color","yellow",pCAL_Eq))
-           print("-Number of parameters    :",Candy("Color","yellow",pCAL_PNBR))
+           print("-Number of parameters:",Candy("Color","yellow",pCAL_PNBR))
+
       except Exception as e:
                  print(Candy("Color","red","Error pCAL2:"),Candy("Color","yellow",e))
 

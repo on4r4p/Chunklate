@@ -1,3 +1,5 @@
+![Alt Text](https://github.com/on4r4p/Chunklate/blob/ctf/chunklate.gif)
+
 ## Description
 
 **Chunklate** checks png images for file format corruption and fix them .
