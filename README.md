@@ -1,4 +1,4 @@
- ![ Alt text](https://github.com/on4r4p/Chunklate/blob/ctf/Chunklate.gif / ! [](https://github.com/on4r4p/Chunklate/blob/ctf/Chunklate.gif)
+![Alt Text](https://github.com/on4r4p/Chunklate/blob/ctf/Chunklate.gif)
 
 ## Description
 
