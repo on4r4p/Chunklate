@@ -156,7 +156,9 @@ def Summarise(infos,Summary_Footer=False):
                    f.write("\n-IHDR Method   :"+IHDR_Method)
                 if len(IHDR_Interlace) >0:
                    f.write("\n-IHDR Interlace:"+IHDR_Interlace)
+
                 if len(pHYs_X) > 0:
+                   f.write("\n")
                    f.write("\n-pHYs Pixels per unit, X axis: "+pHYs_X)
                 if len(pHYs_Y) > 0:
                    f.write("\n-pHYs Pixels per unit, Y axis: "+pHYs_Y)
@@ -167,6 +169,7 @@ def Summarise(infos,Summary_Footer=False):
                   f.write("\n")
                   f.write("\n-bKGD Gray   :"+bKGD_Gray)
                 if len(bKGD_Red) > 0:
+                  f.write("\n")
                   f.write("\n-bKGD Red    :"+bKGD_Red)
                 if len(bKGD_Green) > 0:
                   f.write("\n-bKGD Green  :"+bKGD_Green)
@@ -259,15 +262,15 @@ def Summarise(infos,Summary_Footer=False):
 
                 if len(pCAL_Key) >0:
                    f.write("\n")
-                   f.write("-pCAL Calibration name    :"+bytes.fromhex(pCAL_Key).decode(errors="replace"))
+                   f.write("\n-pCAL Calibration name    :"+bytes.fromhex(pCAL_Key).decode(errors="replace"))
                 if len(pCAL_Zero) >0:
-                   f.write("-pCAL Original zero       :"+pCAL_Zero)
+                   f.write("\n-pCAL Original zero       :"+pCAL_Zero)
                 if len(pCAL_Max) >0:
-                   f.write("-pCAL Original max        :"+pCAL_Max)
+                   f.write("\n-pCAL Original max        :"+pCAL_Max)
                 if len(pCAL_Eq) >0:
-                   f.write("-pCAL Equation type       :"+pCAL_Eq)
+                   f.write("\n-pCAL Equation type       :"+pCAL_Eq)
                 if len(pCAL_PNBR) >0:
-                   f.write("-pCAL Number of parameters:"+pCAL_PNBR)
+                   f.write("\n-pCAL Number of parameters:"+pCAL_PNBR)
 
 
                 if len(iCCP_Name) >0:
