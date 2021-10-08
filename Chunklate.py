@@ -120,12 +120,16 @@ def Summarise(infos,Summary_Footer=False):
 
          if infos is not None:
               if len(SideNote) > 0:
-                  infos = "\n"+SideNote+"\n"+infos +"\n" 
+                  tmp = ""
+                  for note in SideNote:
+                       tmp += "\n"+str(note)+"\n"
+                  infos = tmp+infos +"\n"
               else:
                   infos = "\n"+infos+"\n"
          elif len(SideNote) > 0:
-                  infos = "\n"+SideNote+"\n"
-         
+                  for note in SideNote:
+                       tmp += "\n"+str(note)+"\n"
+                  infos = tmp
 
          filename = folder+"Summary_Of_"+os.path.splitext(os.path.basename(FILE_Origin))[0]
          print(Candy("Color","green","-Saving Summary : "),filename)
@@ -202,7 +206,8 @@ def Summarise(infos,Summary_Footer=False):
                 if len(sPLT_Freq) >0: 
                   f.write("\n-sPLT Suggested Frequencies palettes stored:"+len(sPLT_Freq))
 
-                  f.write("\n-Histogram frequencies stored:"+len(hIST))
+                if len(hIST) >0:
+                   f.write("\n-Histogram frequencies stored:"+len(hIST))
 
                 if len(tRNS_Gray) >0:
                    f.write("\n") 
@@ -391,7 +396,7 @@ def ChunkForcer():
      Thread(target = Loadingbar).start()
      time.sleep(30)
      print("\n\nDemo ended.\n")
-     SideNote += "\n-Launched Data Chunk Bruteforcer.\n-Demo ended well." 
+     SideNote.append( "\n-Launched Data Chunk Bruteforcer.\n-Demo ended well.")
      WORKING = False
 
 
@@ -426,14 +431,14 @@ def FindMagic():
                if badnews == magc[1]:
                  print("\n-Some bytes are %s from Png Signature..\n\n%s seems corrupted due to line feed conversion between OS...\n\nIt doesnt look that bad...But I ll keep that in mind while im on it.."%(Candy("Color","red","missing"),Candy("Color","red",Sample_Name)))
                  print("\n-Not yet Implemented-\n")
-                 SideNote="-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented."
+                 SideNote.append("-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented.")
                  ChunkForcer()
                  TheEnd()
 
                if badnews == magc[0]: 
                  print("\nHang on a sec....\nThis is bad news i m afraid..\n%s is badly corrupted ...\nI cannot guarantee any results and it may take forever to find a solution...\n"%Sample_Name)
                  print("TODO")
-                 SideNote="-Major Corruption due to line feed conversion\n-File may not be recovered.\n-Not yet implemented."
+                 SideNote.append("-Major Corruption due to line feed conversion\n-File may not be recovered.\n-Not yet implemented.")
                  TheEnd()
 
          print("\nTss..Ok let's dig a little bit deeper..\n")
@@ -479,13 +484,36 @@ def FindFuckingMagic():
          [print(BingoList[i]) for i in range(0,20)]
          TheEnd()
 
+def FixIHDR(*args):
+   global SideNote
+   print(Candy("Color","purple","-ToDo Not Implemented yet"))
+
+   if "Width" in args:
+       SideNote.append("-Width : Wrong size Must be between 1 to 2147483647.")
+   if "Height" in args:
+       SideNote.append("-Height : Wrong size Must be between 1 to 2147483647.")
+   if "Bytes" in args:
+       SideNote.append("-Bytes number :IHDR have to always be 13 bytes.")
+   if "Depht" in args:
+      SideNote.append("-Bit depht :Wrong bit value Must be 1,2,4,8 or 16")
+   if "Filter" in args:
+      SideNote.append("-Filter Method :Wrong value must be 0.")
+   if "Compression" in args:
+      SideNote.append("-Compression Algorithms : Wrong value must be 0.")
+   if "Interlace" in args:
+      SideNote.append("-Interlace Method : Wrong value must be 0 (no interlace) or 1 (Adam7 interlace).")
+
+#   TheEnd()
+
 
 def GetInfo(type,data):
+    global SideNote
     global IHDR_Height
     global IHDR_Width
     global IHDR_Depht
     global IHDR_Color
     global IHDR_Method
+    global IHDR_Filter
     global IHDR_Interlace
     global bKGD_Gray
     global bKGD_Red
@@ -578,6 +606,8 @@ def GetInfo(type,data):
     tEXt_Key=""
     sPLT_Name =""
 
+    ToFix = []
+
     Candy("Title","Getting infos about:",Candy("Color","white",str(type)))
 
     if type == "PNG":
@@ -589,15 +619,72 @@ def GetInfo(type,data):
              IHDR_Depht=str(int.from_bytes(bytes.fromhex(data[16:18]),byteorder='big'))
              IHDR_Color=str(int.from_bytes(bytes.fromhex(data[18:20]),byteorder='big'))
              IHDR_Method=str(int.from_bytes(bytes.fromhex(data[20:22]),byteorder='big'))
-             IHDR_Interlace=str(int.from_bytes(bytes.fromhex(data[22:24]),byteorder='big'))
+             IHDR_Filter=str(int.from_bytes(bytes.fromhex(data[22:24]),byteorder='big'))
+             IHDR_Interlace=str(int.from_bytes(bytes.fromhex(data[24:26]),byteorder='big'))
+
              print("-Width    :",Candy("Color","yellow",IHDR_Height))
              print("-Height   :",Candy("Color","yellow",IHDR_Width))
              print("-Depht    :",Candy("Color","yellow",IHDR_Depht))
              print("-Color    :",Candy("Color","yellow",IHDR_Color))
              print("-Method   :",Candy("Color","yellow",IHDR_Method))
+             print("-Filter   :",Candy("Color","yellow",IHDR_Filter))
              print("-Interlace:",Candy("Color","yellow",IHDR_Interlace))
-          
+
+             if len(data) != 26:
+                   print("-Bytes number :"+Candy("Color","red"," Wrong size")+"IHDR size have to always be 13 bytes.")
+                   ToFix.append("Bytes")
+
+             if len(IHDR_Height) >0:
+                    if int(IHDR_Height) > 2147483647:
+                          print("-Height :"+Candy("Color","red"," Wrong size (Too high)")+" Must be between 1 to 2147483647.")
+                          ToFix.append("Height")
+             else:
+                          print("-Height :"+Candy("Color","red"," Wrong size (Too low)")+" Must be between 1 to 2147483647.")
+                          ToFix.append("Height")
+
+             if len(IHDR_Width) >0:
+                    if int(IHDR_Width) > 2147483647:
+                          print("-Width :"+Candy("Color","red"," Wrong size (Too high)")+" Must be between 1 to 2147483647.")
+                          ToFix.append("Width")
+             else:
+                          print("-Width :"+Candy("Color","red"," Wrong size (Too low)")+" Must be between 1 to 2147483647.")
+                          ToFix.append("Width")
+
+             if len(IHDR_Depht) > 0:
+                     if IHDR_Depht not in ["1","2","4","8","16"]:
+                         print("-Bit depht :"+Candy("Color","red"," Wrong bit value")+" Must be 1,2,4,8 or 16")
+                         ToFix.append("Depht")
+
+             if len(IHDR_Color) > 0:
+                 if IHDR_Color not in ["0","2","3","4","6"]:
+                         print("-Color Type :"+Candy("Color","red"," Wrong bit value")+" Must be 0,2,3,4 or 6")
+                         ToFix.append("Color")
+                 if IHDR_Color == "2" or IHDR_Color == "4" or IHDR_Color == "6":
+                     if IHDR_Depht not in ["8","16"]:
+                         print("-Color Type :"+Candy("Color","red"," Wrong bit depht ")+"for color type %s must be 8 or 16"%IHDR_Color)
+                         ToFix.append("Color")
+                 if IHDR_Color == "3":
+                     if IHDR_Depht not in ["1","2","4","8"]:
+                         print("-Color Type :"+Candy("Color","red"," Wrong bit depht ")+"for color type 3 must be 1,2,4 or 8")
+                         ToFix.append("Color")
+
+             if len(IHDR_Filter) > 0 and IHDR_Filter != "0":
+                   print("-Filter Method :"+Candy("Color","red"," Wrong value")+" must be 0.")
+                   ToFix.append("Filter")
+
+             if len(IHDR_Method) > 0 and IHDR_Method != "0":
+                   print("-Compression Algorithms :"+Candy("Color","red"," Wrong value")+" must be 0.")
+                   ToFix.append("Compression")
+
+             if len(IHDR_Interlace) > 0 and (IHDR_Interlace != "0" and IHDR_Interlace != "1"):
+                   print("-Interlace Method :"+Candy("Color","red"," Wrong value")+" must be 0 (no interlace) or 1 (Adam7 interlace).")
+                   ToFix.append("Interlace")
+
+             if len(ToFix) > 0:
+                  FixIHDR(ToFix)
+
         except Exception as e:
+           SideNote.append("Error:"+str(e))
            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
 
     if type == "pHYs":
@@ -1250,7 +1337,7 @@ def ChunkStory(lastchunk):
 
           elif (int(IHDR_Color) == 2) or (int(IHDR_Color) == 6) and Warning is False:
                Warning = True
-               SideNote="-[Sidenote] There is a chance that Critical PLTE chunk is missing."
+               SideNote.append("-[Sidenote] There is a chance that Critical PLTE chunk is missing.")
                print("%s\n\nJust wanted you to know that if im not able to fix %s for some reason\nor if you can't view %s once my job is done here ...\nThis is maybe due to a PLTE Chunk that is missing between those guys :\n-------------------------------------------------------\n%s\n+++++++++++++++++\n***[PLTECHUNK]***\n+++++++++++++++++\n%s\n-------------------------------------------------------\nIn Any cases it's before IDAT. \n%s"%(Candy("Color","yellow","################# Warning #################"),Candy("Color","red",Sample_Name),Candy("Color","red",Sample_Name),[i.decode() for i in Before_PLTE],[i.decode() for i in After_PLTE],Candy("Color","yellow","###########################################\n")))
 
 
@@ -1413,7 +1500,7 @@ def CheckLength(Cdata,Clen,Ctype):
             if DATAX[-len(GoodEnding):].upper() == GoodEnding:
 
                      print("\nBut thats only because this is the end of file. ",Candy("Emoj","good"))
-                     SideNote="-Reach the end of file without error."
+                     SideNote.append("-Reach the end of file without error.")
 
                      Candy("Title","All Done here hoped that has worked !")
 
@@ -1501,6 +1588,7 @@ def Naming(filename):
 
 parser = ArgumentParser()
 parser.add_argument("-f","--file",dest="FILENAME",help="File path.",default=None,metavar="FILE")
+parser.add_argument("-c","--clear",dest="CLEAR",help="Clear screen at each save.",action="store_true")
 Args = parser.parse_args()
 
 
@@ -1513,6 +1601,7 @@ if Args.FILENAME is None:
 
 
 FILE_Origin = Args.FILENAME
+Clear = Args.CLEAR
 FILE_DIR = os.path.dirname(os.path.realpath(FILE_Origin))+"/"
 Loading_txt = ""
 Switch = False
@@ -1522,7 +1611,7 @@ MAXCHAR = int(os.get_terminal_size(0)[0])-1
 CharPos =1
 Have_A_KitKat= False
 Warning = False
-SideNote = ""
+SideNote = []
 Summary_Header= True
 CHUNKS = [b'sBIT', b'IEND', b'sPLT', b'tRNS', b'fRAc', b'hIST', b'dSIG', b'sTER', b'iCCP', b'sRGB', b'zTXt', b'gAMA', b'IDAT', b'sCAL', b'cHRM', b'bKGD', b'tEXt', b'tIME', b'iTXt', b'IHDR', b'gIFx', b'gIFg', b'oFFs', b'pCAL', b'PLTE', b'gIFt', b'pHYs']
 Orig_CL=""
@@ -1549,6 +1638,7 @@ IHDR_Width= ""
 IHDR_Depht= ""
 IHDR_Color= ""
 IHDR_Method= ""
+IHDR_Filter = ""
 IHDR_Interlace= ""
 bKGD_Gray= ""
 bKGD_Red= ""
@@ -1627,12 +1717,11 @@ zTXt_Key=""
 zTXt_Meth=""
 zTXt_Text=""
 Sample = FILE_Origin
-i = 0
 while True:
      Chunks_History = []
      Bytes_History = []
      Loading_txt = ""
-     SideNote = ""
+     SideNote = []
      Candy("Title","<|C|h|u|n|k|l|a|t|e|>")
      Sample_Name = os.path.basename(Sample)
      print("-Opening: ",Candy("Color","red",Sample_Name))
@@ -1641,3 +1730,8 @@ while True:
      DATAX = data.hex()
      print("-Done.")
      FindMagic()
+     if Clear is True:
+         if os.name == "posix":
+             sys.stdout.write('\033c')
+         elif os.name == "nt":
+               os.system("cls")
