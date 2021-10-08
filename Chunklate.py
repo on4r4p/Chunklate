@@ -484,7 +484,7 @@ def FindFuckingMagic():
          [print(BingoList[i]) for i in range(0,20)]
          TheEnd()
 
-def FixIHDR(*args):
+def FixError(*args):#TODO
    global SideNote
    print(Candy("Color","purple","-ToDo Not Implemented yet"))
 
@@ -502,6 +502,30 @@ def FixIHDR(*args):
       SideNote.append("-Compression Algorithms : Wrong value must be 0.")
    if "Interlace" in args:
       SideNote.append("-Interlace Method : Wrong value must be 0 (no interlace) or 1 (Adam7 interlace).")
+   if "pHYs_Y" in args:
+      SideNote.append("-Pixels per unit, Y axis : Wrong size Must be between 1 to 2147483647.")
+   if "pHYs_X" in args:
+      SideNote.append("-Pixels per unit, X axis : Wrong size Must be between 1 to 2147483647.")
+   if "pHYs_Unit" in args:
+       SideNote="-Unit specifier : Must be between 0 (unknown) or 1(meter)."
+   if "bKGD_Gray" in args:
+       SideNote="-Gray level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1)
+   if "bKGD_Red" in args:
+       SideNote="-Red level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1)
+   if "bKGD_Green" in args:
+       SideNote="-Green level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1)
+   if "bKGD_Blue" in args:
+       SideNote="-Blue level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1)
+   if "PLT3" in args:
+       SideNote="-PLTE Total palettes number must be divisible by 3"
+   if "PLT>" in args:
+       SideNote="-PLTE palettes must not be more than 256"
+   if "PLT<" in args:
+       SideNote="-PLTE palettes must not be less than 1"
+   if "PLTDepht" in args:
+       SideNote="PLTE palettes numbers must not be > 2 power of image Depht"
+
+
 
 #   TheEnd()
 
@@ -681,13 +705,14 @@ def GetInfo(type,data):
                    ToFix.append("Interlace")
 
              if len(ToFix) > 0:
-                  FixIHDR(ToFix)
+                  FixError(ToFix)
 
         except Exception as e:
-           SideNote.append("Error:"+str(e))
+           SideNote.append("Error IHDR:"+str(e))
            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
 
     if type == "pHYs":
+        try:
              pHYs_Y=str(int.from_bytes(bytes.fromhex(data[:8]),byteorder='big'))
              pHYs_X=str(int.from_bytes(bytes.fromhex(data[8:16]),byteorder='big'))
              pHYs_Unit=str(int.from_bytes(bytes.fromhex(data[16:18]),byteorder='big'))
@@ -696,14 +721,45 @@ def GetInfo(type,data):
              print("-Unit specifier         :",Candy("Color","yellow",pHYs_Unit))
 
 
-    if type == "bKGD":
 
+
+             if len(pHYs_Y) >0:
+                    if int(pHYs_Y) > 2147483647:
+                          print("-Pixels per unit, Y axis:"+Candy("Color","red"," Wrong size (Too high)")+" Must be between 1 to 2147483647.")
+
+                          ToFix.append("pHYs_Y")
+             else:
+                          print("-Pixels per unit, Y axis :"+Candy("Color","red"," Wrong size (Too low)")+" Must be between 1 to 2147483647.")
+                          ToFix.append("pHYs_Y")
+
+             if len(pHYs_X) >0:
+                    if int(pHYs_X) > 2147483647:
+                          print("Pixels per unit, X axis"+Candy("Color","red"," Wrong size (Too high)")+" Must be between 1 to 2147483647.")
+                          ToFix.append("pHYs_X")
+             else:
+                          print("-Pixels per unit, X axis"+Candy("Color","red"," Wrong size (Too low)")+" Must be between 1 to 2147483647.")
+                          ToFix.append("pHYs_X")
+
+             if len(pHYs_Unit) >0:
+                    if int(pHYs_Unit) != "0" and int(pHYs_Unit) != "1":
+                          print("-Unit specifier :"+Candy("Color","red"," Wrong value")+" Must be between 0 (unknown) or 1(meter).")
+
+                          ToFix.append("pHYs_Unit")
+             FixError(ToFix)
+        except Exception as e:
+           SideNote.append("Error pHys:"+str(e))
+           print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+    if type == "bKGD":
         if IHDR_Color == "0" or IHDR_Color == "4":
              try:
                   bKGD_Gray=str(int.from_bytes(bytes.fromhex(data[:4]),byteorder='big'))
                   print("-Gray    :",Candy("Color","yellow",bKGD_Gray))
              except Exception as e:
                  print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+
+             if int(bKGD_Gray) > (2**int(IHDR_Depht))-1:
+                 print("-Gray level :"+Candy("Color","red"," Wrong value")+" Must be less than ",(2**int(IHDR_Depht))-1)
+                 ToFix.append("Bkgd_Gray")
         if IHDR_Color == "2" or IHDR_Color == "6":
            try:
                   bKGD_Red=str(int.from_bytes(bytes.fromhex(data[:4]),byteorder='big'))
@@ -712,34 +768,48 @@ def GetInfo(type,data):
                   print("-Red    :",Candy("Color","red",bKGD_Red))
                   print("-Green  :",Candy("Color","green",bKGD_Green))
                   print("-Blue   :",Candy("Color","blue",bKGD_Blue))
+                  if int(bKGD_Red) > (2**int(IHDR_Depht))-1:
+                      print("-Red level :"+Candy("Color","red"," Wrong value")+" Must be less than ",(2**int(IHDR_Depht))-1)
+                      ToFix.append("Bkgd_Red")
+                  if int(bKGD_Green) > (2**int(IHDR_Depht))-1:
+                      print("-Green level :"+Candy("Color","red"," Wrong value")+" Must be less than ",(2**int(IHDR_Depht))-1)
+                      ToFix.append("Bkgd_Green")
+                  if int(bKGD_Blue) > (2**int(IHDR_Depht))-1:
+                      print("-Blue level :"+Candy("Color","red"," Wrong value")+" Must be less than ",(2**int(IHDR_Depht))-1)
+                      ToFix.append("Bkgd_Blue")
            except Exception as e:
-              print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+              print(Candy("Color","red","Error bKGD:"),Candy("Color","yellow",e))
         if IHDR_Color == "3":
             try:
                   bKGD_Index=str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
                   print("-Palette    :",Candy("Color","yellow",bKGD_Index))
             except Exception as e:
               print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+        FixError(ToFix)
 
     if type == "PLTE":
           pos = 2
           PLTNbr = int(Orig_CL, 16)
           if type(int(Orig_CL, 16) /3) == float:
              print("-%s PLTE length: %s/3= %s (not divisible by 3)."%(Candy("Color","red","Wrong"),int(Orig_CL, 16),Candy("Color","red",PLTNbr)))
-
+             ToFix.append("PLT3")
           if PLTNbr > 256:
              print("-%s PLTE palettes numbers: %s (must not be superior to 256)."%(Candy("Color","red","Wrong"),PLTNbr))
+             ToFix.append("PLT>")
           if PLTNbr < 1:
              print("-%s PLTE palettes numbers: %s (must be superior to 1)."%(Candy("Color","red","Wrong"),PLTNbr))
+             ToFix.append("PLT<")
           if PLTNbr > 2 ** int(IHDR_Depht):
                print("-%s PLTE palettes numbers: %s (must not be > 2 power of image Depht)."%(Candy("Color","red","Wrong"),PLTNbr))
+
+               ToFix.append("PLTDepht")
           for i in range(PLTNbr+1):
              PLTE_R.append(str(int.from_bytes(bytes.fromhex(data[:pos]),byteorder='big')))
              PLTE_G.append(str(int.from_bytes(bytes.fromhex(data[pos:pos+2]),byteorder='big')))
              PLTE_B.append(str(int.from_bytes(bytes.fromhex(data[pos+2:pos+4]),byteorder='big')))
              pos += 2
           print("-%s RGB palettes are stored."%Candy("Color","yellow",len(PLTE_R)))
-
+          FixError(ToFix)
     if type == "hIST":
         try:
             pos = 0
