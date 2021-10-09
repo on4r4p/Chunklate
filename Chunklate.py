@@ -1,6 +1,7 @@
 #!/usr/bin/python3.6
 from argparse import ArgumentParser
 from threading import Thread
+from datetime import datetime
 import sys , os , binascii ,re ,random ,time , zlib
 
 
@@ -114,13 +115,12 @@ def Summarise(infos,Summary_Footer=False):
          sep = "\n\n『" +Sample_Name+" :』\n"
          title = Sumform("▇ ▆ =|C|h|u|n|k|l|a|t|e| |S|u|m|m|a|r|y|= ▆ ▇",True)
          eof =Sumform("_,-=|S|u|m|m|a|r|y| |E|n|d|=-,_",False)
-
+         tmp = ""
          if not os.path.exists(folder):
             os.mkdir(folder)
 
          if infos is not None:
               if len(SideNote) > 0:
-                  tmp = ""
                   for note in SideNote:
                        tmp += "\n"+str(note)+"\n"
                   infos = tmp+infos +"\n"
@@ -188,26 +188,26 @@ def Summarise(infos,Summary_Footer=False):
 
                 if len(PLTE_R) > 0:
                   f.write("\n")
-                  f.write("\n-PLTE Red Palettes    :"+len(PLTE_R))
+                  f.write("\n-PLTE Red Palettes    :"+str(len(PLTE_R)))
                 if len(PLTE_G) > 0:
-                  f.write("\n-PLTE Green Palettes   :"+len(PLTE_G))
+                  f.write("\n-PLTE Green Palettes   :"+str(len(PLTE_G)))
                 if len(PLTE_B) > 0:
-                  f.write("\n-PLTE Blue Palettes    :"+len(PLTE_B))
+                  f.write("\n-PLTE Blue Palettes    :"+str(len(PLTE_B)))
 
                 if len(sPLT_Red) >0:
                   f.write("\n")
-                  f.write("\n-sPLT Suggested Red palette stored:"+len(sPLT_Red))
+                  f.write("\n-sPLT Suggested Red palette stored:"+str(len(sPLT_Red)))
                 if len(sPLT_Green) >0: 
-                  f.write("\n-sPLT Suggested Green palettes stored:"+len(sPLT_Green))
+                  f.write("\n-sPLT Suggested Green palettes stored:"+str(len(sPLT_Green)))
                 if len(sPLT_Blue) >0: 
-                  f.write("\n-sPLT Suggested Blue palettes stored:"+len(sPLT_Blue))
+                  f.write("\n-sPLT Suggested Blue palettes stored:"+str(len(sPLT_Blue)))
                 if len(sPLT_Alpha) >0: 
-                  f.write("\n-sPLT Suggested Alpha palettes stored:"+len(sPLT_Alpha))
+                  f.write("\n-sPLT Suggested Alpha palettes stored:"+str(len(sPLT_Alpha)))
                 if len(sPLT_Freq) >0: 
-                  f.write("\n-sPLT Suggested Frequencies palettes stored:"+len(sPLT_Freq))
+                  f.write("\n-sPLT Suggested Frequencies palettes stored:"+str(len(sPLT_Freq)))
 
                 if len(hIST) >0:
-                   f.write("\n-Histogram frequencies stored:"+len(hIST))
+                   f.write("\n-Histogram frequencies stored:"+str(len(hIST)))
 
                 if len(tRNS_Gray) >0:
                    f.write("\n") 
@@ -219,7 +219,7 @@ def Summarise(infos,Summary_Footer=False):
                 if len(tRNS_TrueB) >0: 
                    f.write("\n-tRNS Transparency Blue     :"+tRNS_TrueB)
                 if len(tRNS_Index) >0:
-                   f.write("\n-tRNS Alpha indexes stored:"+len(tRNS_Index))
+                   f.write("\n-tRNS Alpha indexes stored:"+str(len(tRNS_Index)))
 
 
                 if len(sTER) >0:
@@ -484,53 +484,93 @@ def FindFuckingMagic():
          [print(BingoList[i]) for i in range(0,20)]
          TheEnd()
 
-def FixError(*args):#TODO
+def ListErrors(Chunk,Err,Data=None):#TODO
    global SideNote
-   print(Candy("Color","purple","-ToDo Not Implemented yet"))
+   global ErrorsFlag
+   global ErrorsList
 
-   if "Width" in args:
-       SideNote.append("-Width : Wrong size Must be between 1 to 2147483647.")
-   if "Height" in args:
-       SideNote.append("-Height : Wrong size Must be between 1 to 2147483647.")
-   if "Bytes" in args:
-       SideNote.append("-Bytes number :IHDR have to always be 13 bytes.")
-   if "Depht" in args:
-      SideNote.append("-Bit depht :Wrong bit value Must be 1,2,4,8 or 16")
-   if "Filter" in args:
-      SideNote.append("-Filter Method :Wrong value must be 0.")
-   if "Compression" in args:
-      SideNote.append("-Compression Algorithms : Wrong value must be 0.")
-   if "Interlace" in args:
-      SideNote.append("-Interlace Method : Wrong value must be 0 (no interlace) or 1 (Adam7 interlace).")
-   if "pHYs_Y" in args:
-      SideNote.append("-Pixels per unit, Y axis : Wrong size Must be between 1 to 2147483647.")
-   if "pHYs_X" in args:
-      SideNote.append("-Pixels per unit, X axis : Wrong size Must be between 1 to 2147483647.")
-   if "pHYs_Unit" in args:
-       SideNote="-Unit specifier : Must be between 0 (unknown) or 1(meter)."
-   if "bKGD_Gray" in args:
-       SideNote="-Gray level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1)
-   if "bKGD_Red" in args:
-       SideNote="-Red level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1)
-   if "bKGD_Green" in args:
-       SideNote="-Green level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1)
-   if "bKGD_Blue" in args:
-       SideNote="-Blue level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1)
-   if "PLT3" in args:
-       SideNote="-PLTE Total palettes number must be divisible by 3"
-   if "PLT>" in args:
-       SideNote="-PLTE palettes must not be more than 256"
-   if "PLT<" in args:
-       SideNote="-PLTE palettes must not be less than 1"
-   if "PLTDepht" in args:
-       SideNote="PLTE palettes numbers must not be > 2 power of image Depht"
+   print(Candy("Color","purple","-ToDo -Fix crc based on errors found\n-Not Implemented yet\n"))
+
+   if Chunk not in ErrorsFlag: ErrorsFlag.append(Chunk)
+   #[ErrorsList.append(Chunk+":"+e) for e in Err] 
+
+   if Chunk == "IHDR":
+      if "Width" in Err:
+          SideNote.append("-Width : Wrong size Must be between 1 to 2147483647.")
+      if "Height" in Err:
+          SideNote.append("-Height : Wrong size Must be between 1 to 2147483647.")
+      if "Bytes" in Err:
+          SideNote.append("-Bytes number :IHDR have to always be 13 bytes.")
+      if "Depht" in Err:
+         SideNote.append("-Bit depht :Wrong bit value Must be 1,2,4,8 or 16")
+      if "Filter" in Err:
+         SideNote.append("-Filter Method :Wrong value must be 0.")
+      if "Compression" in Err:
+         SideNote.append("-Compression Algorithms : Wrong value must be 0.")
+      if "Interlace" in Err:
+         SideNote.append("-Interlace Method : Wrong value must be 0 (no interlace) or 1 (Adam7 interlace).")
+
+   if Chunk == "pHYs":
+      if "Y" in Err:
+         SideNote.append("-Pixels per unit, Y axis : Wrong size Must be between 1 to 2147483647.")
+      if "X" in Err:
+         SideNote.append("-Pixels per unit, X axis : Wrong size Must be between 1 to 2147483647.")
+      if "Unit" in Err:
+          SideNote.append("-Unit specifier : Must be between 0 (unknown) or 1(meter).")
+
+   if Chunk == "bKGD":
+      if "Gray" in Err:
+          SideNote.append("-Gray level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1))
+      if "Red" in Err:
+          SideNote.append("-Red level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1))
+      if "Green" in Err:
+          SideNote.append("-Green level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1))
+      if "Blue" in Err:
+          SideNote.append("-Blue level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1))
+
+   if Chunk == "PLTE":
+
+      if "div" in Err:
+          SideNote.append("-PLTE Total palettes number must be divisible by 3")
+     
+      if "Depht" in Err:
+          SideNote.append("PLTE palettes numbers must not be > 2 power of image Depht")
+
+          SideNote.append("Todo")
+
+      if "badpltr" in Err:
+          SideNote.append("PLTE Wrong Red palettes range must not be > 2 power of image Depht")
+          
+      if "badpltg" in Err:
+          SideNote.append("PLTE Wrong Green palettes range must not be > 2 power of image Depht")
+
+      if "badpltb" in Err:
+          SideNote.append("PLTE Wrong Blue palettes range must not be > 2 power of image Depht")
+
+
+
+
+   if Chunk =="tIME":
+
+      if "Year" in Err:
+          SideNote.append("-tIME Year is > than the current year")
+      if "Month" in Err:
+          SideNote.append("-tIME Month value is not valid")
+      if "Day" in Err:
+          SideNote.append("-tIME Day value is not valid")
+      if "Hour" in Err:
+          SideNote.append("-tIME Hour value is not valid")
+      if "Minute" in Err:
+          SideNote.append("-tIME Minute value is not valid")
+      if "Second" in Err:
+          SideNote.append("-tIME Second value is not valid")
 
 
 
 #   TheEnd()
 
 
-def GetInfo(type,data):
+def GetInfo(Chunk,data):
     global SideNote
     global IHDR_Height
     global IHDR_Width
@@ -632,11 +672,11 @@ def GetInfo(type,data):
 
     ToFix = []
 
-    Candy("Title","Getting infos about:",Candy("Color","white",str(type)))
+    Candy("Title","Getting infos about:",Candy("Color","white",str(Chunk)))
 
-    if type == "PNG":
+    if Chunk == "PNG":
           print("Well ..That's a start ..At least it looks like a png.")
-    if type == "IHDR":
+    if Chunk == "IHDR":
         try:
              IHDR_Height=str(int.from_bytes(bytes.fromhex(data[:8]),byteorder='big'))
              IHDR_Width=str(int.from_bytes(bytes.fromhex(data[8:16]),byteorder='big'))
@@ -681,15 +721,15 @@ def GetInfo(type,data):
 
              if len(IHDR_Color) > 0:
                  if IHDR_Color not in ["0","2","3","4","6"]:
-                         print("-Color Type :"+Candy("Color","red"," Wrong bit value")+" Must be 0,2,3,4 or 6")
+                         print("-Color Chunk :"+Candy("Color","red"," Wrong bit value")+" Must be 0,2,3,4 or 6")
                          ToFix.append("Color")
                  if IHDR_Color == "2" or IHDR_Color == "4" or IHDR_Color == "6":
                      if IHDR_Depht not in ["8","16"]:
-                         print("-Color Type :"+Candy("Color","red"," Wrong bit depht ")+"for color type %s must be 8 or 16"%IHDR_Color)
+                         print("-Color Chunk :"+Candy("Color","red"," Wrong bit depht ")+"for color Chunk %s must be 8 or 16"%IHDR_Color)
                          ToFix.append("Color")
                  if IHDR_Color == "3":
                      if IHDR_Depht not in ["1","2","4","8"]:
-                         print("-Color Type :"+Candy("Color","red"," Wrong bit depht ")+"for color type 3 must be 1,2,4 or 8")
+                         print("-Color Chunk :"+Candy("Color","red"," Wrong bit depht ")+"for color Chunk 3 must be 1,2,4 or 8")
                          ToFix.append("Color")
 
              if len(IHDR_Filter) > 0 and IHDR_Filter != "0":
@@ -705,13 +745,13 @@ def GetInfo(type,data):
                    ToFix.append("Interlace")
 
              if len(ToFix) > 0:
-                  FixError(ToFix)
+                  ListErrors(Chunk,ToFix)
 
         except Exception as e:
            SideNote.append("Error IHDR:"+str(e))
            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
 
-    if type == "pHYs":
+    if Chunk == "pHYs":
         try:
              pHYs_Y=str(int.from_bytes(bytes.fromhex(data[:8]),byteorder='big'))
              pHYs_X=str(int.from_bytes(bytes.fromhex(data[8:16]),byteorder='big'))
@@ -745,11 +785,11 @@ def GetInfo(type,data):
                           print("-Unit specifier :"+Candy("Color","red"," Wrong value")+" Must be between 0 (unknown) or 1(meter).")
 
                           ToFix.append("pHYs_Unit")
-             FixError(ToFix)
+             ListErrors(ToFix)
         except Exception as e:
            SideNote.append("Error pHys:"+str(e))
            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
-    if type == "bKGD":
+    if Chunk == "bKGD":
         if IHDR_Color == "0" or IHDR_Color == "4":
              try:
                   bKGD_Gray=str(int.from_bytes(bytes.fromhex(data[:4]),byteorder='big'))
@@ -785,57 +825,86 @@ def GetInfo(type,data):
                   print("-Palette    :",Candy("Color","yellow",bKGD_Index))
             except Exception as e:
               print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
-        FixError(ToFix)
+        ListErrors(Chunk,ToFix)
 
-    if type == "PLTE":
-          pos = 2
+    if Chunk == "PLTE":
+          badpltr=["badpltr"]
+          badpltg=["badpltg"]
+          badpltb=["badpltb"]
+
+          pos = 0
           PLTNbr = int(Orig_CL, 16)
-          if type(int(Orig_CL, 16) /3) == float:
-             print("-%s PLTE length: %s/3= %s (not divisible by 3)."%(Candy("Color","red","Wrong"),int(Orig_CL, 16),Candy("Color","red",PLTNbr)))
-             ToFix.append("PLT3")
-          if PLTNbr > 256:
-             print("-%s PLTE palettes numbers: %s (must not be superior to 256)."%(Candy("Color","red","Wrong"),PLTNbr))
-             ToFix.append("PLT>")
-          if PLTNbr < 1:
-             print("-%s PLTE palettes numbers: %s (must be superior to 1)."%(Candy("Color","red","Wrong"),PLTNbr))
-             ToFix.append("PLT<")
-          if PLTNbr > 2 ** int(IHDR_Depht):
-               print("-%s PLTE palettes numbers: %s (must not be > 2 power of image Depht)."%(Candy("Color","red","Wrong"),PLTNbr))
 
-               ToFix.append("PLTDepht")
-          for i in range(PLTNbr+1):
-             PLTE_R.append(str(int.from_bytes(bytes.fromhex(data[:pos]),byteorder='big')))
-             PLTE_G.append(str(int.from_bytes(bytes.fromhex(data[pos:pos+2]),byteorder='big')))
-             PLTE_B.append(str(int.from_bytes(bytes.fromhex(data[pos+2:pos+4]),byteorder='big')))
+          if str(int(PLTNbr)/3).endswith(".0"):
+             print("-%s PLTE length: %s/3= %s (not divisible by 3)."%(Candy("Color","red","Wrong"),PLTNbr,Candy("Color","red",PLTNbr)))
+             ToFix.append("div")
+
+          for i in range(PLTNbr-2):
+             pltr = data[pos:pos+2]
+             pltg = data[pos+2:pos+4]
+             pltb = data[pos+4:pos+6]
+
+             if int(str(pltr),16) > 2 ** int(IHDR_Depht):
+                   badpltr.append(str(pos))
+             if int(str(pltg),16) > 2 ** int(IHDR_Depht):
+                   badpltg.append(str(pos+2))
+             if int(str(pltb),16) > 2 ** int(IHDR_Depht):
+                   badpltb.append(str(pos+4))
+
+             PLTE_R.append(str(pltr))
+             PLTE_G.append(str(pltg))
+             PLTE_B.append(str(pltb))
              pos += 2
-          print("-%s RGB palettes are stored."%Candy("Color","yellow",len(PLTE_R)))
-          FixError(ToFix)
-    if type == "hIST":
-        try:
-            pos = 0
-            for plt in len(PLTE_R):
-                 hIST.append(str(int.from_bytes(bytes.fromhex(data[pos:pos+2]),byteorder='big')))
-                 pos += 2
-            print("-%s Histogram frequencies are stored."%Candy("Color","yellow",len(hIST)))
-        except Exception as e:
-            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
 
-    if type == "tIME":
+          if len(badpltr) > 0:
+               print("-%s %s PLTE Red palettes range: (must not be > 2 power of image Depht)."%(len(pltr),Candy("Color","red","Wrong")))
+               ToFix.append(badpltr)
+          if len(badpltg) > 0:
+               print("-%s %s PLTE Green palettes range: (must not be > 2 power of image Depht)."%(len(pltg),Candy("Color","red","Wrong")))
+               ToFix.append(badpltg)
+          if len(badpltb) > 0:
+               print("-%s %s PLTE Blue palettes range: (must not be > 2 power of image Depht)."%(len(pltb),Candy("Color","red","Wrong")))
+               ToFix.append(badpltb)
+
+          print("-%s Red palettes are stored."%Candy("Color","yellow",len(PLTE_R)))
+          print("-%s Green palettes are stored."%Candy("Color","yellow",len(PLTE_G)))
+          print("-%s Blue palettes are stored."%Candy("Color","yellow",len(PLTE_B)))
+          print("-%s RGB palettes are stored."%Candy("Color","yellow",len(PLTE_R)+len(PLTE_G)+len(PLTE_B)))
+
+          ListErrors(Chunk,ToFix)
+
+
+    if Chunk == "tIME":
              tIME_Yr=str(int.from_bytes(bytes.fromhex(data[:4]),byteorder='big'))
              tIME_Mth=str(int.from_bytes(bytes.fromhex(data[4:6]),byteorder='big'))
              tIME_Day=str(int.from_bytes(bytes.fromhex(data[6:8]),byteorder='big'))
              tIME_Hr=str(int.from_bytes(bytes.fromhex(data[8:10]),byteorder='big'))
              tIME_Min=str(int.from_bytes(bytes.fromhex(data[10:12]),byteorder='big'))
              tIME_Sec=str(int.from_bytes(bytes.fromhex(data[12:14]),byteorder='big'))
-             print("-Year     :",Candy("Color","yellow",tIME_Yr))
-             print("-Month    :",Candy("Color","yellow",tIME_Mth))
-             print("-Day      :",Candy("Color","yellow",tIME_Day))
-             print("-Hour     :",Candy("Color","yellow",tIME_Hr))
-             print("-Minute   :",Candy("Color","yellow",tIME_Min))
-             print("-Seconde  :",Candy("Color","yellow",tIME_Sec))
 
+             print("-Last Modified: %s/%s/%s %s:%s:%s:%s"%(Candy("Color","white",tIME_Day),Candy("Color","white",tIME_Mth),Candy("Color","white",tIME_Yr),Candy("Color","white",tIME_Hr),Candy("Color","white",tIME_Min),Candy("Color","white",tIME_Sec)))
 
-    if type == "tRNS":
+             if int(tIME_Yr) > datetime.now().year:
+                 print("-Year is > than current year    :",Candy("Color","red",tIME_Yr))
+                 ToFix.append("Year")
+             if int(tIME_Mth) not in range(1,13):
+                 print("-Month value is not valid   :",Candy("Color","red",tIME_Mth))
+                 ToFix.append("Month")
+             if int(tIME_Day) not in range(1,32):
+                 print("-Day value is not valid     :",Candy("Color","red",tIME_Day))
+                 ToFix.append("Day")
+             if int(tIME_HR) not in range(0,24):
+                 print("-Hour value is not valid     :",Candy("Color","red",tIME_Hr))
+                 ToFix.append("Hour")
+             if int(tIME_Min) not in range(0,60):
+                  print("-Minute   :",Candy("Color","red",tIME_Min))
+                  ToFix.append("Minute")
+             if int(tIME_Sec) not in range(0,61):
+                  print("-Second  :",Candy("Color","red",tIME_Sec))
+                  ToFix.append("Second")
+             ListErrors(Chunk,ToFix)
+
+    if Chunk == "tRNS":
          TRNSNBR = int(Orig_CL, 16)
          if IHDR_Color == "0":
                 tRNS_Gray = str(int.from_bytes(bytes.fromhex(data[:4]),byteorder='big'))
@@ -854,11 +923,11 @@ def GetInfo(type,data):
                  pos += 2
              print("-%s Alpha indexes are stored."%Candy("Color","yellow",len(tRNS_Index)))
 
-    if type == "sRGB":
+    if Chunk == "sRGB":
          sRGB =str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
          print("-Rendering    :",Candy("Color","yellow",sRGB))
 
-    if type == "cHRM":
+    if Chunk == "cHRM":
 
              cHRM_WhiteX=str(int.from_bytes(bytes.fromhex(data[:8]),byteorder='big'))
              cHRM_WhiteY=str(int.from_bytes(bytes.fromhex(data[8:16]),byteorder='big'))
@@ -877,11 +946,11 @@ def GetInfo(type,data):
              print("-BlueX   :",Candy("Color","blue",cHRM_Bluex))
              print("-BlueY   :",Candy("Color","blue",cHRM_Bluey))
 
-    if type == "gAMA":
+    if Chunk == "gAMA":
              gAMA=str(int.from_bytes(bytes.fromhex(data[:8]),byteorder='big'))
              print("-Gama   :",Candy("Color","white",gAMA))
 
-    if type == "iCCP":
+    if Chunk == "iCCP":
         null="00"
         null_pos=0
         for i in range(0,len(data)+1,2):
@@ -917,7 +986,7 @@ def GetInfo(type,data):
         print("-iCCP Profile Method :",Candy("Color","yellow",iCCP_Method))
 
 
-    if type == "sBIT":
+    if Chunk == "sBIT":
          if IHDR_Color == "0":
                 sBIT_Gray = str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
                 print("-Significant greyscale bits    :",Candy("Color","yellow",sBIT_Gray))
@@ -943,7 +1012,8 @@ def GetInfo(type,data):
                 print("-significant bits Alpha Blue   :",Candy("Color","blue",sBIT_TrueAlphaB))
                 print("-significant bits Alpha        :",Candy("Color","white",sBIT_TrueAlpha))
 
-    if type == "oFFS":
+
+    if Chunk == "oFFS":
                 oFFSX = str(int.from_bytes(bytes.fromhex(data[:8]),byteorder='big'))
                 oFFSY = str(int.from_bytes(bytes.fromhex(data[8:16]),byteorder='big'))
                 oFFSU = str(int.from_bytes(bytes.fromhex(data[16:18]),byteorder='big'))
@@ -951,7 +1021,7 @@ def GetInfo(type,data):
                 print("-Offset position Y  :",Candy("Color","purple",oFFSY))
                 print("-Offset Unit   :",Candy("Color","white",oFFSU))
 
-    if type == "pCAL": ##TOFIX##
+    if Chunk == "pCAL": 
       try:
            pCAL_Key = data.split("00")[0]
            for i in range(0,len(pCAL_Key),2):
@@ -999,7 +1069,7 @@ def GetInfo(type,data):
                  print(Candy("Color","red","Error pCAL2:"),Candy("Color","yellow",e))
 
 
-    if type == "gIFg":
+    if Chunk == "gIFg":
 
                 gIFgM = str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
                 gIFgU = str(int.from_bytes(bytes.fromhex(data[2:4]),byteorder='big'))
@@ -1009,7 +1079,7 @@ def GetInfo(type,data):
                 print("-User Input Flag    :",Candy("Color","yellow",gIFgT))
                 print("-Delay Time    :",Candy("Color","yellow",gIFgT))
 
-    if type == "gIFx":
+    if Chunk == "gIFx":
                 gIFID = str(int.from_bytes(bytes.fromhex(data[:16]),byteorder='big'))
                 gIFCD = str(int.from_bytes(bytes.fromhex(data[16:22]),byteorder='big'))
                 gIFDT = str(int.from_bytes(bytes.fromhex(data[22:]),byteorder='big'))
@@ -1018,7 +1088,7 @@ def GetInfo(type,data):
                 print("-Authentication Code    :",Candy("Color","yellow",gIFCD))
                 print("-Application Data    :",Candy("Color","yellow",gIFDT))
 
-    if type == "sTER":
+    if Chunk == "sTER":
 
                 sTER = str(int.from_bytes(bytes.fromhex(data[:2]),byteorder='big'))
 
@@ -1026,7 +1096,7 @@ def GetInfo(type,data):
 
 
 
-    if type == "sPLT":
+    if Chunk == "sPLT":
 
         sPLT_Ln = int(Orig_CL, 16)
         null="00"
@@ -1086,10 +1156,33 @@ def GetInfo(type,data):
 
         print("-%s Suggested palette are stored."%Candy("Color","yellow",len(sPLT_Red)))
 
-    if type == "tEXt": 
+
+    if Chunk == "hIST":
+        if b"PLTE" not in Chunks_History and b"sPLT" not in Chunks_History:
+              print("-%s Chunk or %s is missing.(hIST must be used after one of them)"%(Candy("Color","red","PLTE"),Candy("Color","red","sPLT")))
+              ToFix.append(Chunk,"missing",data)
+        try:
+            pos = 0
+            for plt in PLTE_R:
+                 hIST.append(str(int.from_bytes(bytes.fromhex(data[pos:pos+2]),byteorder='big')))
+                 pos += 2
+            print("-%s Histogram frequencies are stored."%Candy("Color","yellow",len(hIST)))
+
+            if b"PLTE" in Chunks_History:
+                if len(hIST) != len(PLTE_R):
+                       sys.exit()
+            else:
+                 print("plte not in hist")
+                 sys.exit()
+
+        except Exception as e:
+            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+
+
+    if Chunk == "tEXt": 
 
         try:
-           tEXt_Key = data.split("00")[0]
+           tEXt_K1ey = data.split("00")[0]
            tEXt_Text = data.split("00")[1]
            for i in range(0,len(data),2):
              if int(data[i:i+2],16) not in range(32,127) and int(data[i:i+2],16) not in range(161,256):
@@ -1110,7 +1203,7 @@ def GetInfo(type,data):
 
         return
 
-    if type == "zTXt": 
+    if Chunk == "zTXt": 
 
         try:
            zTXt_Key = data.split("0000")[0]
@@ -1134,7 +1227,7 @@ def GetInfo(type,data):
 
         return
 
-    if type == "iTXt": 
+    if Chunk == "iTXt": 
 
 #        try:
            iTXt_Key = data.split("00")[0]
@@ -1631,7 +1724,10 @@ def SaveClone(data):
              f.write(data)
          Sample = dir+"/"+name
          Have_A_KitKat = True
-         pause =input("pause:")
+
+         if PAUSE is True:
+             pause =input("Press Return to continue:")
+
          return(None)
 
 def Naming(filename):
@@ -1658,7 +1754,8 @@ def Naming(filename):
 
 parser = ArgumentParser()
 parser.add_argument("-f","--file",dest="FILENAME",help="File path.",default=None,metavar="FILE")
-parser.add_argument("-c","--clear",dest="CLEAR",help="Clear screen at each save.",action="store_true")
+parser.add_argument("-c","--clear",dest="CLEAR",help="Clear screen at each saves.",action="store_true")
+parser.add_argument("-p","--pause",dest="PAUSE",help="Pause at each saves.",action="store_true")
 Args = parser.parse_args()
 
 
@@ -1672,6 +1769,7 @@ if Args.FILENAME is None:
 
 FILE_Origin = Args.FILENAME
 Clear = Args.CLEAR
+PAUSE = Args.PAUSE
 FILE_DIR = os.path.dirname(os.path.realpath(FILE_Origin))+"/"
 Loading_txt = ""
 Switch = False
@@ -1681,8 +1779,10 @@ MAXCHAR = int(os.get_terminal_size(0)[0])-1
 CharPos =1
 Have_A_KitKat= False
 Warning = False
-SideNote = []
 Summary_Header= True
+SideNote = []
+ErrorsFlag = []
+ErrorsList = []
 CHUNKS = [b'sBIT', b'IEND', b'sPLT', b'tRNS', b'fRAc', b'hIST', b'dSIG', b'sTER', b'iCCP', b'sRGB', b'zTXt', b'gAMA', b'IDAT', b'sCAL', b'cHRM', b'bKGD', b'tEXt', b'tIME', b'iTXt', b'IHDR', b'gIFx', b'gIFg', b'oFFs', b'pCAL', b'PLTE', b'gIFt', b'pHYs']
 Orig_CL=""
 Orig_CT=""

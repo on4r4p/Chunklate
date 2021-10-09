@@ -15,7 +15,8 @@ Currently **Chunklate** is in beta and able to provide those features:
 - Save each modifications in a different file
 - Provide a summary of all modifications 
 - User friendly human readability
-- Bruteforce corrupted data chunk (Work in progress)
+- Smart crc fixer based on errors found(Work in progress)
+- Bruteforce corrupted data chunk (Todo)
 - Repair wrong image size (Todo)
 - Repair missplaced chunks (Todo)
 - Replace critical missing chunk (Todo)
