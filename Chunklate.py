@@ -484,12 +484,12 @@ def FindFuckingMagic():
          [print(BingoList[i]) for i in range(0,20)]
          TheEnd()
 
-def ListErrors(Chunk,Err,Data=None):#TODO
+def SaveErrors(Chunk,Err,Data=None):#TODO#TOFIX
    global SideNote
    global ErrorsFlag
    global ErrorsList
 
-   Candy("Title","List Errors")
+   Candy("Title","Keeping Tracks of Errors:")
    print(Candy("Color","purple","-ToDo -Fix crc based on errors found\n-Not Implemented yet\n"))
 
    if Chunk not in ErrorsFlag: ErrorsFlag.append(Chunk)
@@ -746,9 +746,9 @@ def GetInfo(Chunk,data):
                    ToFix.append("Interlace")
 
              if len(ToFix) > 0:
-                  ListErrors(Chunk,ToFix)
+                  SaveErrors(Chunk,ToFix)
              else:
-                print("-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+                print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
 
         except Exception as e:
            SideNote.append("Error IHDR:"+str(e))
@@ -783,14 +783,14 @@ def GetInfo(Chunk,data):
                           ToFix.append("pHYs_X")
 
              if len(pHYs_Unit) >0:
-                    if pHYs_Unit != "0" and int(pHYs_Unit) != "1":
+                    if pHYs_Unit != "0" and pHYs_Unit != "1":
                           print("-Unit specifier :"+Candy("Color","red"," Wrong value")+" Must be between 0 (unknown) or 1(meter).")
 
                           ToFix.append("pHYs_Unit")
              if len(ToFix)>0:
-                ListErrors(Chunk,ToFix)
+                SaveErrors(Chunk,ToFix)
              else:
-                print("-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+                print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
 
         except Exception as e:
            SideNote.append("Error pHys:"+str(e))
@@ -839,9 +839,9 @@ def GetInfo(Chunk,data):
               print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
 
         if len(ToFix) >0:
-           ListErrors(Chunk,ToFix)
+           SaveErrors(Chunk,ToFix)
         else:
-                print("-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+                print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
         return
 
     if Chunk == "PLTE":
@@ -889,9 +889,9 @@ def GetInfo(Chunk,data):
           print("-%s RGB palettes are stored."%Candy("Color","yellow",len(PLTE_R)+len(PLTE_G)+len(PLTE_B)))
 
           if len(ToFix) >0:
-             ListErrors(Chunk,ToFix)
+             SaveErrors(Chunk,ToFix)
           else:
-                print("-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+                print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
           return
 
     if Chunk == "sPLT":
@@ -1009,9 +1009,9 @@ def GetInfo(Chunk,data):
                   ToFix.append("Second")
 
              if len(ToFix) >0:
-                 ListErrors(Chunk,ToFix)
+                 SaveErrors(Chunk,ToFix)
              else:
-                print("-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+                print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
 
              return
 
