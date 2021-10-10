@@ -281,8 +281,9 @@ def Summarise(infos,Summary_Footer=False):
                 if len(iCCP_Name) >0:
                   f.write("\n")
                   f.write("\n-iCCP Profile Name :"+iCCP_Name)
-                if len(iCCP_Method) >0:
-                  f.write("\n-iCCP Profile Method :"+iCCP_Method)
+
+                if len(str(iCCP_Method)) >0:
+                  f.write("\n-iCCP Profile Method :"+str(iCCP_Method))
 
                 if len(sRGB)>0:
                   f.write("\n")
@@ -548,8 +549,18 @@ def SaveErrors(Chunk,Err,Data=None):#TODO#TOFIX
       if "badpltb" in Err:
           SideNote.append("PLTE Wrong Blue palettes range must not be > 2 power of image Depht")
 
+   if Chunk =="iCCP":
+      if "name" in Err:
+         SideNote.append("-Length of iCCP Profile name is not valid")
 
+      if "badchar" in Err:
+         SideNote.append("-Wrong Character in iCCP Profile name")
 
+      if "method" in Err:
+         SideNote.append("-Wrong Compression Method value")
+
+      if "lenght" in Err:
+         SideNote.append("-iCCP Profile length is not valid")
 
    if Chunk =="tIME":
 
@@ -1066,37 +1077,45 @@ def GetInfo(Chunk,data):
     if Chunk == "iCCP":
         null="00"
         null_pos=0
-        for i in range(0,len(data)+1,2):
+        badchar=["badchar"]
+        for i in range(0,len(data),2):
           nint = int(data[i:i+2],16)
           nchar = chr(nint)
 
           if data[i:i+2] == "00":
                  null_pos = i
-                 if i <=79:
-                      print("-Length of iCCP Profile name is %s"%Candy("Color","green","Valid"))
-                 else:
+                 if i >79:
                        print("-Length of iCCP Profile name is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)))
+                       ToFix.append("name")
                  break
-          if (int(nint) not in range(32,127)) or (int(nint) not in range(161,255)):
+          if (int(nint) not in range(32,127)) and (int(nint) not in range(161,255)):
                   print("-Character %s at index %s in iCCP_Name\n-Replaced by [€]"%(Candy("Color","red","not allowed ["+nchar+"]"),Candy("Color","red",i)))
+                  badchar.append(i)
                   iCCP_Name += "€"
           else:
                iCCP_Name += nchar
+        if len(badchar) >1:
+            ToFix.append(badchar)
 
         iCCP_Method = int(data[null_pos+2:null_pos+4],16)
 
         if iCCP_Method > 0:
              print("-Compression method is supposed to be %s but is %s instead ."%(Candy("Color","green","0"),Candy("Color","red",method)))
+             ToFix.append("method")
 
         iCCP_Profile = data[null_pos+4:]
 
-        if str(int(Orig_CL,16)) == len(iCCP_Profile):
-             print("-iCCP Profile length is %s"%Candy("Color","green","Valid"))
-        else:
+        if int(int(Orig_CL,16))-(int(null_pos/2)+2) != int(len(iCCP_Profile)/2):
             print("-iCCP Profile length is %s"%Candy("Color","red","not Valid"))
+            ToFix.append("lenght")
 
         print("-iCCP Profile Name :",Candy("Color","yellow",iCCP_Name))
         print("-iCCP Profile Method :",Candy("Color","yellow",iCCP_Method))
+
+        if len(ToFix) >0:
+             SaveErrors(Chunk,ToFix)
+        else:
+                print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
         return
 
     if Chunk == "sBIT":
@@ -1603,7 +1622,7 @@ def BruteChunk(CType,LastCType,bytesnbr):
        for i,j in enumerate(BingoLst):
            print("Score %s ,if you choose this name enter number: %s"%(Candy("Color","green",j),Candy("Color","yellow",i)))
 
-       print("\nIf you as lost as me then this might be a Length Problem type : wtf")
+       print("\nIf you feel as lost as me then this might be a Length Problem type : wtf")
        print("\nOr Type quit to ...quit.\n")
        Choice = input("WHO'S THAT POKEMON !? :")
        while True:
@@ -1624,7 +1643,7 @@ def BruteChunk(CType,LastCType,bytesnbr):
                      return()
           Choice = input("WHO'S THAT POKEMON !? :")
 
-def CheckChunkName(ChunkType,bytesnbr,LastCType):
+def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
    CType = ChunkType
    try:
        CType = bytes.fromhex(CType)
@@ -1634,7 +1653,10 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType):
         print("ctyp ",CType)
         print(type(CType))
 
-   Candy("Title","Checking Chunk Type:",Candy("Color","white",CType))
+   if next != None:
+        Candy("Title","Checking Next Chunk Type:",Candy("Color","white",CType))
+   else:
+        Candy("Title","Checking Chunk Type:",Candy("Color","white",CType))
 
    for name in CHUNKS:
        if name.lower() == CType.lower():
@@ -1723,14 +1745,14 @@ def CheckLength(Cdata,Clen,Ctype):
                      print("\nBut thats only because this is the end of file. ",Candy("Emoj","good"))
                      SideNote.append("-Reach the end of file without error.")
 
-                     Candy("Title","All Done here hoped that has worked !")
+                     Candy("Title","All Done here hoped that did the job !")
 
                      TheEnd()
             else:
                 print(DATAX[-len(GoodEnding):])
                 exit()
 
-       CheckChunkName(NextChunk,int(Clen,16),Ctype)
+       CheckChunkName(NextChunk,int(Clen,16),Ctype,True)
 
 def Checksum(Ctype, Cdata, Crc):
     Candy("Title","Check Crc Validity:")
