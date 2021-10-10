@@ -987,7 +987,7 @@ def GetInfo(Chunk,data):
              tIME_Min=str(int.from_bytes(bytes.fromhex(data[10:12]),byteorder='big'))
              tIME_Sec=str(int.from_bytes(bytes.fromhex(data[12:14]),byteorder='big'))
 
-             print("-Last Modified: %s/%s/%s %s:%s:%s:%s"%(Candy("Color","white",tIME_Day),Candy("Color","white",tIME_Mth),Candy("Color","white",tIME_Yr),Candy("Color","white",tIME_Hr),Candy("Color","white",tIME_Min),Candy("Color","white",tIME_Sec)))
+             print("-Last Modified: %s/%s/%s %s:%s:%s"%(Candy("Color","white",tIME_Day),Candy("Color","white",tIME_Mth),Candy("Color","white",tIME_Yr),Candy("Color","white",tIME_Hr),Candy("Color","white",tIME_Min),Candy("Color","white",tIME_Sec)))
 
              if int(tIME_Yr) > datetime.now().year:
                  print("-Year is > than current year    :",Candy("Color","red",tIME_Yr))
@@ -998,7 +998,7 @@ def GetInfo(Chunk,data):
              if int(tIME_Day) not in range(1,32):
                  print("-Day value is not valid     :",Candy("Color","red",tIME_Day))
                  ToFix.append("Day")
-             if int(tIME_HR) not in range(0,24):
+             if int(tIME_Hr) not in range(0,24):
                  print("-Hour value is not valid     :",Candy("Color","red",tIME_Hr))
                  ToFix.append("Hour")
              if int(tIME_Min) not in range(0,60):
