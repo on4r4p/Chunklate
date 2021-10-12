@@ -413,10 +413,10 @@ def FindMagic():
      pos = DATAX.find(magic)
      if pos != -1:
           ToHistory("PNG")
-          print("-%s is Magic : %s\n"%(Candy("Color","red",Sample_Name),Candy("Color","green",DATAX[:lenmagic])))
+          print("-%s is Magic : %s\n"%(Candy("Color","white",Sample_Name),Candy("Color","green",DATAX[:lenmagic])))
           print("-Found Png Signature at offset : hex %s bytes %s index %s\n"%(Candy("Color","yellow",hex(int(pos/2))),Candy("Color","blue",int(pos/2)),Candy("Color","purple",pos)))
           if DATAX.startswith(magic) is False:
-                print("-File does not start with a png signature.\n\nMkay ...I like where this is going ..\nI will have to cut %s bytes from %s since png header starts at this offset %s .\n"%(Candy("Color","red",Sample_Name),Candy("Color","blue",int(pos/2)),Candy("Color","red",Sample_Name),Candy("Color","blue",hex(int(pos/2)))))
+                print("-File does not start with a png signature.\n\nMkay ...I like where this is going ..\nI will have to cut %s bytes from %s since png header starts at this offset %s .\n"%(Candy("Color","white",Sample_Name),Candy("Color","blue",int(pos/2)),Candy("Color","white",Sample_Name),Candy("Color","blue",hex(int(pos/2)))))
                 Zankentsu = DATAX[pos::]
                 Summarise("-File does not start with a png signature.\n-Found a png signature at offset: %s\n-Creating starting with the right signature."%hex(int(pos/2))) 
                 SaveClone(Zankentsu)
@@ -430,7 +430,7 @@ def FindMagic():
              pos = DATAX.find(badnews)
              if pos != -1:
                if badnews == magc[1]:
-                 print("\n-Some bytes are %s from Png Signature..\n\n%s seems corrupted due to line feed conversion between OS...\n\nIt doesnt look that bad...But I ll keep that in mind while im on it.."%(Candy("Color","red","missing"),Candy("Color","red",Sample_Name)))
+                 print("\n-Some bytes are %s from Png Signature..\n\n%s seems corrupted due to line feed conversion between OS...\n\nIt doesnt look that bad...But I ll keep that in mind while im on it.."%(Candy("Color","red","missing"),Candy("Color","white",Sample_Name)))
                  print("\n-Not yet Implemented-\n")
                  SideNote.append("-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented.")
                  ChunkForcer()
@@ -438,14 +438,15 @@ def FindMagic():
 
                if badnews == magc[0]: 
                  print("\nHang on a sec....\nThis is bad news i m afraid..\n%s is badly corrupted ...\nI cannot guarantee any results and it may take forever to find a solution...\n"%Sample_Name)
-                 print("TODO")
+                 print(Candy("Color","yellow","\n-ToDo"))
                  SideNote.append("-Major Corruption due to line feed conversion\n-File may not be recovered.\n-Not yet implemented.")
                  TheEnd()
 
-         print("\nTss..Ok let's dig a little bit deeper..\n")
+         print("\nOk let's dig a little bit deeper..\n")
          return(FindFuckingMagic())
 
 def FindFuckingMagic():
+     global SideNote
 
      Candy("Title","Looking harder for magic header:")
      print("This may take me sometimes please wait ..\n")
@@ -455,7 +456,7 @@ def FindFuckingMagic():
      end = len(FullMagic)
      BingoList = []
      while end <= len(DATAX):
-            minibar()
+            Minibar()
             Bingo = 0 
             sample = DATAX[start:end]
             s_a_m_p_l_e = [i for i in sample]
@@ -478,11 +479,23 @@ def FindFuckingMagic():
          Odin = FullMagic + DATAX[pos+len(FullMagic)::]
          SaveClone(Odin)
 
-     else:
-         print("count:",BestBingoCount)
-         print("score:",BestBingoScore)
-         print("\nFewww ...Looks like there are multiple potentials signatures gona have to test them all.\nTODO")
+     elif int(BestBingoScore) >= 14:
+         #print("count:",BestBingoCount)
+         #print("score:",BestBingoScore)
+         print("\n\n")
          [print(BingoList[i]) for i in range(0,20)]
+         print("\n\n-Found multiple %s png signatures"%Candy("Color","yellow","potentials"))
+         print("\n\nFewww ...\nLooks like i gonna have to test them all.")
+         print(Candy("Color","yellow","\n-ToDo"))
+         SideNote.append("-Found multiple potentials png signatures\n-Not Implemented yet")
+         TheEnd()
+     else:
+         print("\n\n")
+         [print(BingoList[i]) for i in range(0,20)]
+         print("\n\n-Matching score :",Candy("Color","red","too low"))
+         print("\nFewww ...\nIm afraid i wasn't able to find anything that looks like a png signature.\nMaybe i could try to find if there any Known Chunks names in this file ?")
+         print(Candy("Color","yellow","\n-ToDo"))
+         SideNote.append("-Png signatures matching score are too low\n-Not Implemented yet")
          TheEnd()
 
 def SaveErrors(Chunk,Err,Data=None):#TODO#TOFIX
@@ -562,6 +575,61 @@ def SaveErrors(Chunk,Err,Data=None):#TODO#TOFIX
       if "lenght" in Err:
          SideNote.append("-iCCP Profile length is not valid")
 
+
+   if Chunk =="sPLT":
+
+      if "badchar" in Err:
+         SideNote.append("-Wrong Character in sPLT name")
+ 
+      if "depht" in Err:
+         SideNote.append("-Sample depth have to be either 8 or 16")
+
+      if "name" in Err:
+         SideNote.append("-sPLT name is too long")
+
+      if "div8r" in Err:
+         SideNote.append("-Red sPLT length is not divisible by 6")
+
+      if "div16r" in Err:
+         SideNote.append("-Red sPLT length is not divisible by 10")
+
+      if "div8g" in Err:
+         SideNote.append("-Green sPLT length is not divisible by 6")
+
+      if "div16g" in Err:
+         SideNote.append("-Green sPLT length is not divisible by 10")
+
+      if "div8b" in Err:
+         SideNote.append("-Blue sPLT length is not divisible by 6")
+
+      if "div16b" in Err:
+         SideNote.append("-Blue sPLT length is not divisible by 10")
+
+      if "div8a" in Err:
+         SideNote.append("-Alpha sPLT length is not divisible by 6")
+
+      if "div16a" in Err:
+         SideNote.append("-Alpha sPLT length is not divisible by 10")
+
+      if "div8f" in Err:
+         SideNote.append("-Frequency sPLT length is not divisible by 6")
+
+      if "div16f" in Err:
+         SideNote.append("-Frequency sPLT length is not divisible by 10")
+
+
+   if Chunk == "hIST":
+
+      if "missing" in Err:
+         SideNote.append("-sPLT or PLTE have are missing and must be place before hIST")
+      if "pnbr" in Err:
+         SideNote.append("-Histogram frequencies entries must match PLTE entries number")
+      if "snbr" in Err:
+         SideNote.append("-Histogram frequencies entries must match sPLT entries number")
+      if "plt" in Err:
+         SideNote.append("-Histogram chunk must be use with PLTE chunk")
+
+
    if Chunk =="tIME":
 
       if "Year" in Err:
@@ -581,6 +649,15 @@ def SaveErrors(Chunk,Err,Data=None):#TODO#TOFIX
 
 #   TheEnd()
 
+def NullFind(data,search4=None):
+    null_pos = ''
+    if search4 == None:
+         search4 = "00"
+    for i in range(0,len(data),len(search4)):
+         if data[i:i+len(search4)] == search4:
+              null_pos = i
+              break
+    return(null_pos)
 
 def GetInfo(Chunk,data):
     global SideNote
@@ -908,63 +985,131 @@ def GetInfo(Chunk,data):
     if Chunk == "sPLT":
 
         sPLT_Ln = int(Orig_CL, 16)
-        null="00"
-        null_pos=0
+        null_pos=NullFind(data)
+        sPLT_Name = data[:null_pos]
+        badchar=["badchar"]
 
-        for i in range(0,len(data)+1,2):
+        for i in sPLT_Name:
           nint = int(data[i:i+2],16)
           nchar = chr(nint)
 
-          if data[i:i+2] == "00":
-                 null_pos = i
-                 if i <=79:
-                      print("-Length of sPLT name is %s"%Candy("Color","green","Valid"))
-                 else:
-                      print("-Length of sPLT name is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)
-))
-                 break
           if (nint not in range(32,127)) and (nint not in range(161,256)):
                   print("-Character %s at index %s in sPLT_Name\n-Replaced by [€]"%(Candy("Color","red","not allowed ["+nchar+
 "]"),Candy("Color","red",i)))
                   sPLT_Name += "€"
+                  badchar.append(i)
           else:
                sPLT_Name += nchar
+
+        if len(badchar) > 1:
+             ToFix.append(badchar)
 
         sPLT_Depht = int(data[null_pos+2:null_pos+4],16)
         if sPLT_Depht != 8 or sPLT_Depht != 16:
             print("-Sample depth is %s it must be 8 or 16 :%s "%(Candy("Color","red","not correct"),Candy("Color","red",sPLT_Depht)))
+            ToFix.append("depth")
         pos = 0
-        Freq = sPLT_Depht
         for i in range(sPLT_Ln+1):
-             if Freq == 8:
-                 sPLT_Red.append(str(int(data[:pos],16)))
-                 sPLT_Green.append(str(int(data[pos:pos+2],16)))
-                 sPLT_Blue.append(str(int(data[pos+2:pos+4],16)))
-                 sPLT_Alpha.append(str(int(data[pos+4:pos+6],16)))
-                 sPLT_Freq.append(str(int(data[pos+6:pos+8],16)))
-                 Freq = str(int(data[pos+6:pos+8],16))
-                 if sPLT_Freq == "8":
-                    pos += 8
-                 elif sPLT_Freq == "16":
-                    pos += 16
-                 else:
-                    print("-Error:TODO")
+             if sPLT_Depht == 8:
+                 sPLT_Red.append(data[:pos])
+                 sPLT_Green.append(data[pos:pos+2])
+                 sPLT_Blue.append(data[pos+2:pos+4])
+                 sPLT_Alpha.append(data[pos+4:pos+6])
+                 sPLT_Freq.append(data[pos+6:pos+8])
+                 pos += 8
 
-             if Freq == 16:
-                 sPLT_Red.append(str(int(data[:pos],16)))
-                 sPLT_Green.append(str(int(data[pos:pos+4],16)))
-                 sPLT_Blue.append(str(int(data[pos+4:pos+8],16)))
-                 sPLT_Alpha.append(str(int(data[pos+8:pos+16],16)))
-                 sPLT_Freq.append(str(int(data[pos+16:pos+24],16)))
-                 Freq = str(int(data[pos+16:pos+24],16))
-                 if Freq == "8":
-                    pos += 8
-                 elif Freq == "16":
-                    pos += 16
-                 else: 
-                    print("-Error2:TODO")
+             if sPLT_Depht == 16:
+                 sPLT_Red.append(data[:pos])
+                 sPLT_Green.append(data[pos:pos+4])
+                 sPLT_Blue.append(data[pos+4:pos+8])
+                 sPLT_Alpha.append(data[pos+8:pos+16])
+                 sPLT_Freq.append(data[pos+16:pos+24])
+                 pos += 24
+             else:
+                  break
 
-        print("-%s Suggested palette are stored."%Candy("Color","yellow",len(sPLT_Red)))
+
+        if sPLT_Name >79:
+               print("-Length of sPLT name is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)))
+               ToFix.append("name")
+
+
+        print("-%s Suggested Red palettes are stored."%Candy("Color","yellow",len(sPLT_Red)))
+
+        if sPLT_Depht == 8:
+          if not str(int(sPLT_Red)/6).endswith(".0"):
+             print("-%s Red sPLT length: %s(not divisible by 6)."%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Red))))
+             ToFix.append("div8r")
+
+        elif sPLT_Depht == 16:
+          if not str(int(sPLT_Red)/10).endswith(".0"):
+             print("-%s Red sPLT length: %s (not divisible by 10)."%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Red))))
+             ToFix.append("div16r")
+        
+        print("-%s Suggested Green palettes are stored."%Candy("Color","yellow",len(sPLT_Green)))
+
+
+        if sPLT_Depht == 8:
+          if not str(int(sPLT_Green)/6).endswith(".0"):
+             print("-%s Green sPLT length: %s (not divisible by 3)."%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Green))))
+             ToFix.append("div8g")
+
+        elif sPLT_Depht == 16:
+          if not str(int(sPLT_Green)/10).endswith(".0"):
+             print("-%s Green sPLT length: %s/10= %s (not divisible by 10)."%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Green))))
+             ToFix.append("div16g")
+
+        print("-%s Suggested Blue palettes are stored."%Candy("Color","yellow",len(sPLT_Blue)))
+
+
+        if sPLT_Depht == 8:
+          if not str(int(sPLT_Blue)/6).endswith(".0"):
+             print("-%s Blue sPLT length: %s (not divisible by 6)."%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Blue))))
+             ToFix.append("div8b")
+
+        elif sPLT_Depht == 16:
+          if not str(int(sPLT_Blue)/10).endswith(".0"):
+             print("-%s Blue sPLT length:%s (not divisible by 10)."%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Blue))))
+             ToFix.append("div16b")
+
+
+
+
+        print("-%s Suggested Alpha palettes are stored."%Candy("Color","yellow",len(sPLT_Alpha)))
+
+        if sPLT_Depht == 8:
+          if not str(int(sPLT_Alpha)/6).endswith(".0"):
+             print("-%s Aplha sPLT length: %s (not divisible by 6)."%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Alpha))))
+             ToFix.append("div8a")
+
+        elif sPLT_Depht == 16:
+          if not str(int(sPLT_Alpha)/10).endswith(".0"):
+             print("-%s Aplha sPLT length:%s (not divisible by 10)."%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Alpha))))
+             ToFix.append("div16a")
+
+
+
+        print("-%s Suggested Frequency values are stored."%Candy("Color","yellow",len(sPLT_Freq)))
+
+        if sPLT_Depht == 8:
+          if not str(int(sPLT_Freq)/6).endswith(".0"):
+             print("-%s Frequency sPLT length: %s (not divisible by 6)."%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Freq))))
+             ToFix.append("div8f")
+
+        elif sPLT_Depht == 16:
+          if not str(int(sPLT_Freq)/10).endswith(".0"):
+             print("-%s Frequency sPLT length:%s (not divisible by 10)."%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Freq))))
+             ToFix.append("div16f")
+
+
+
+        if len(ToFix) >0:
+              if len(badchar) >1:
+                 SaveErrors(Chunk,ToFix,data)
+              else:
+                 SaveErrors(Chunk,ToFix)
+        else:
+               print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
         return
 
     if Chunk == "hIST":
@@ -974,16 +1119,34 @@ def GetInfo(Chunk,data):
         try:
             pos = 0
             for plt in PLTE_R:
-                 hIST.append(str(int.from_bytes(bytes.fromhex(data[pos:pos+2]),byteorder='big')))
+                 hIST.append(data[pos:pos+2])
                  pos += 2
             print("-%s Histogram frequencies are stored."%Candy("Color","yellow",len(hIST)))
 
             if b"PLTE" in Chunks_History:
                 if len(hIST) != len(PLTE_R):
-                       sys.exit()
+                       print("-Histogram frequencies entries must match PLTE entries number")
+                       ToFix.append("pnbr")
+
             else:
-                 print("plte not in hist")
-                 sys.exit()
+                 print("-Histogram chunk must be use with PLTE chunk")
+                 ToFix.append("plt")
+
+
+            if b"sPLT" in Chunks_History:
+                if len(hIST) != len(PLTE_R):
+                       print("-Histogram frequencies entries must match sPLT entries number")
+                       ToFix.append("snbr")
+
+            else:
+                 print("-Histogram chunk must be use with sPLT chunk")
+                 ToFix.append("splt")
+
+
+            if len(ToFix) >0:
+                 SaveErrors(Chunk,ToFix)
+            else:
+                print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
 
         except Exception as e:
             print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
@@ -1236,8 +1399,10 @@ def GetInfo(Chunk,data):
     if Chunk == "tEXt": 
 
         try:
-           tEXt_K1ey = data.split("00")[0]
-           tEXt_Text = data.split("00")[1]
+           null_pos = NullFind(data)
+           tEXt_Key = data[:null_pos]
+           tEXt_Text = data[null_pos+2:]
+
            for i in range(0,len(data),2):
              if int(data[i:i+2],16) not in range(32,127) and int(data[i:i+2],16) not in range(161,256):
                if data[i:i+2] != "00" and data[i:i+2] != "0a": 
@@ -1255,13 +1420,14 @@ def GetInfo(Chunk,data):
         except Exception as e:
            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
 
-        return
+           return
 
     if Chunk == "zTXt": 
 
         try:
-           zTXt_Key = data.split("0000")[0]
-           zTXt_Text = zlib.decompress(bytes.fromhex(data.split("0000")[1]))
+           null_pos = NullFind(data)
+           zTXt_Key = data[:null_pos]
+           zTXt_Text = zlib.decompress(bytes.fromhex(data[null_pos+4:]))
            for i in range(0,len(zTXt_Key),2):
              if int(zTXt_Key[i:i+2],16) not in range(32,127) and int(zTXt_Key[i:i+2],16) not in range(161,256):
                if zTXt_Key[i:i+2] != "00" and zTXt_Key[i:i+2] != "0a": 
@@ -1282,33 +1448,39 @@ def GetInfo(Chunk,data):
         return
 
     if Chunk == "iTXt": 
-
         try:
-           iTXt_Key = data.split("00")[0]
+           null_pos = NullFind(data)
+           iTXt_Key = data[:null_pos]
+
            for i in range(0,len(iTXt_Key),2):
              if int(iTXt_Key[i:i+2],16) not in range(32,127) and int(iTXt_Key[i:i+2],16) not in range(161,256):
                if iTXt_Key[i:i+2] != "00" and iTXt_Key[i:i+2] != "0a": 
                   print("-Character %s at index %s in iTXt Keyword (must be between 32-126 and 161-255 but is %s)"%(Candy("Color","red","not allowed ["+iTXt_Key[i:i+2]+"]"),Candy("Color","red",i),Candy("Color","red",int(iTXt_Key[i:i+2],16))))
+
            if len(iTXt_Key) >=79:
                       print("-iTXt Keyword length is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)))
 
+
            iTXt_Flag = data[len(iTXt_Key)+2:len(iTXt_Key)+4]
-           
-           newpos = len(iTXt_Key)+6
+           iTXt_Compression = data[len(iTXt_Key)+4:len(iTXt_Key)+6]
+
+           newpos = len(iTXt_Key)+len(iTXt_Flag)+len(iTXt_Compression)+2
 
            if data[newpos:newpos+2] == "00":
-               iTXt_Lang = "00"
+               iTXt_Lang = ""
            else:
-               iTXt_Lang = data[newpos:].split("00")[0] 
-           newpos = newpos+len(iTXt_Lang)
+               null_pos = NullFind(data[newpos:])
+               iTXt_Lang = data[newpos:newpos+null_pos] 
+
+           newpos = newpos+len(iTXt_Lang)+2
 
            if iTXt_Lang == "00":
                iTXt_Key_Trad = ""
            else:
-               iTXt_Key_Trad = data[newpos:].split("00")[1] 
-
-           newpos = newpos+len(iTXt_Key_Trad)+4
-
+               null_pos = NullFind(data[newpos:])
+               iTXt_Key_Trad = data[newpos:+newpos+null_pos] 
+            
+           newpos = newpos+len(iTXt_Key_Trad)+2
            iTXt_String = data[newpos:]
 
            if iTXt_Flag == "01":
@@ -1319,11 +1491,12 @@ def GetInfo(Chunk,data):
            iTXt_Key_List.append(bytes.fromhex(iTXt_Key).decode(errors="replace"))
            iTXt_String_List.append(iTXt_String)
 
-           print("-Keyword : ",Candy("Color","green",bytes.fromhex(iTXt_Key).decode(errors="replace")))
-           print("-Flag  : ",Candy("Color","green",iTXt_Flag))
-           print("-Language  : ",Candy("Color","green",bytes.fromhex(iTXt_Lang).decode(errors="replace")))
+           print("-Keyword             : ",Candy("Color","green",bytes.fromhex(iTXt_Key).decode(errors="replace")))
+           print("-Compression Flag    : ",Candy("Color","green",iTXt_Flag))
+           print("-Compression Method  : ",Candy("Color","green",iTXt_Compression))
+           print("-Language            : ",Candy("Color","green",bytes.fromhex(iTXt_Lang).decode(errors="replace")))
            print("-Keyword Traduction  : ",Candy("Color","green",bytes.fromhex(iTXt_Key_Trad).decode(errors="replace")))
-           print("-String  : ",Candy("Color","green",iTXt_String))
+           print("-String              : ",Candy("Color","green",iTXt_String))
 
         except Exception as e:
            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
@@ -1433,7 +1606,7 @@ def Double_Check(CType,bytesnbr,LastCType):
      print("Or maybe am i missing something ?\nJust let me double check again just to be sure...")
 
      if len(DATAX)/2 < 67 :
-        print("-Wrong File Length.\n\n...\n\nERrr...\nThere are not enough bytes in %s to be a valid png.\n%s is %s bytes long and the very minimum size for a png is 67 bytes so...\ni can't help you much further sorry.\n"%(Candy("Color","red",Sample_Name),Candy("Color","red",Sample_Name),Candy("Color","red",int(len(DATAX)/2))))
+        print("-Wrong File Length.\n\n...\n\nERrr...\nThere are not enough bytes in %s to be a valid png.\n%s is %s bytes long and the very minimum size for a png is 67 bytes so...\ni can't help you much further sorry.\n"%(Candy("Color","white",Sample_Name),Candy("Color","white",Sample_Name),Candy("Color","red",int(len(DATAX)/2))))
         TheEnd()
 
      print("But this time let's forget about the usual specifications of png format\nThis way i will be able to know if a chunk is missing somewhere.\n")
@@ -1478,10 +1651,10 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
                         print("\n-Chunk position is %s %s\n"%(Candy("Color","red","Not Valid "),Candy("Emoj","bad")))
                         print("\n...\n\nBut that chunk [%s] is not supposed to be here !\n\nITS A TRAP!\n\nRUN !!!!!!!\n\nRUN TO THE CHOPPER !!!\n"%Candy("Color","red",Chk))
                         print("\n\nI seriously doubt that i could be of any uses with this one ..")
-                        print("If you are sure %s is a png i can try to fill the gap but i cannot guarantee any result.."%Candy("Color","red",Sample_Name))
+                        print("If you are sure %s is a png i can try to fill the gap but i cannot guarantee any result.."%Candy("Color","white",Sample_Name))
                         if b'IHDR' not in Chunks_History :
                              print("Especially without IHDR chunk..\n")
-                        print("TODO")
+                        print(Candy("Color","yellow","\n-ToDo"))
                         SideNote.append("-Missplaced Chunk")
                         TheEnd()
                  else:
@@ -1492,7 +1665,7 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
                          print("\nAnother one byte the dust ...\n")
                          print("dataendofI:",Data_End_OffsetI)
                          print("CDoffb:",CDoffB)
-                         print("TODO")
+                         print(Candy("Color","yellow","\n-ToDo"))
                          TheEnd()
                       print("-Chunk position is %s %s\n"%(Candy("Color","green","Valid "),Candy("Emoj","good")))
                       FixedLen= str('0x%08X' % LenCalc)[2::] # str('0x%08X' % LenCalc)[2::].encode().hex()
@@ -1555,7 +1728,8 @@ def ChunkStory(lastchunk):
 
           if int(IHDR_Color) == 3:
                 shutup = [Excluded.append(forbid) for forbid in CHUNKS if forbid not in Before_PLTE]
-                print("\nAH ! I knew this day would come ...\nYou See when Image Header color type is set to 3 (Indexed Colors)..\nPLTE chunk must be placed before any IDAT chunks so that only means one thing ..More code to write for me.\n(TODO)")
+                print("\nAH ! I knew this day would come ...\nYou See when Image Header color type is set to 3 (Indexed Colors)..\nPLTE chunk must be placed before any IDAT chunks so that only means one thing ..More code to write for me.")
+                print(Candy("Color","yellow","\n-ToDo"))
                 TheEnd()
 
           elif (int(IHDR_Color) == 2) or (int(IHDR_Color) == 6) and Warning is False:
@@ -1975,7 +2149,7 @@ while True:
      SideNote = []
      Candy("Title","<|C|h|u|n|k|l|a|t|e|>")
      Sample_Name = os.path.basename(Sample)
-     print("-Opening: ",Candy("Color","red",Sample_Name))
+     print("-Opening: ",Candy("Color","white",Sample_Name))
      with open(Sample,"rb") as f:
          data = f.read()
      DATAX = data.hex()
