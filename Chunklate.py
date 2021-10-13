@@ -148,7 +148,7 @@ def Summarise(infos,Summary_Footer=False):
                   infos = tmp
 
          filename = folder+"Summary_Of_"+os.path.splitext(os.path.basename(FILE_Origin))[0]
-         print(Candy("Color","green","-Saving Summary : "),"**hided**")
+         print(Candy("Color","green","-Saving Summary : "),filename)
          with open(filename,'a+') as f:
 
              if Summary_Header is True:
