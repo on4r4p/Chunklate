@@ -5,21 +5,68 @@ from datetime import datetime
 import sys , os , binascii ,re ,random ,time , zlib
 
 
-def Chunklate():
+def Chunklate(sec):
+
+   if os.name == "nt":
+       print("""
+╭─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╮
+  <[0x00000016]>[C|H|U|N|K|L|A|T|E]<[0x98bd5cb8]>
+╰─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╯
+""")
+       if PAUSE is True:
+            time.sleep(sec)
+
+       return
 
    color=["\033[1;31;49m","\033[1;32;49m","\033[1;34;49m","\033[1;35;49m","\033[1;33;49m","\033[1;37;49m"]
 
-   title = "<[0x00000010]>[C.H.U.N.K..L.A.T.E]<[0x76658469]>"
-   t_i_t_l_e = [i for i in title]
-   colored = ""
-   for i in t_i_t_l_e:
+   lenght = "<[0x00000016]>"
+   crc = "<[0x98bd5cb8]>"
+
+   title = "\033[1;37;49m[\033[mC\033[1;37;49m|\033[mH\033[1;37;49m|\033[mU\033[1;37;49m|\033[mN\033[1;37;49m|\033[mK\033[1;37;49m|\033[mL\033[1;37;49m|\033[mA\033[1;37;49m|\033[mT\033[1;37;49m|\033[mE\033[1;37;49m]\033[m"
+
+   top = "\n╭─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╮"
+   bot = "╰─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╯\n"
+
+   t_o_p = [i for i in top]
+   b_o_t = [i for i in bot]
+
+   l_e_n = [i for i in lenght]
+   c_r_c = [i for i in crc]
+
+   colored_len = ""
+   colored_crc = ""
+   toped = ""
+   boted = ""
+   
+   for i,j in zip(l_e_n,c_r_c):
+
         rnd = random.randint(0,len(color)-1)
         tmp = str(color[rnd])+str(i)+str("\033[m")
-        colored += tmp
-   print("\n╭─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╮")
-   print(" "+colored)
-   print("╰─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╯\n")
 
+        rnd2 = random.randint(0,len(color)-1)
+        tmp2 = str(color[rnd])+str(j)+str("\033[m")
+
+        colored_len += tmp
+        colored_crc += tmp2
+
+   for i,j in zip(t_o_p,b_o_t):
+
+        rnd2 = random.randint(0,len(color)-1)
+        rnd3 = random.randint(0,len(color)-1)
+
+        tmp2 = str(color[rnd2])+str(i)+str("\033[m")
+        tmp3 = str(color[rnd3])+str(j)+str("\033[m")
+
+        toped += tmp2
+        boted += tmp3
+
+   print(toped)
+   print("  "+colored_len+title+colored_crc)
+   print(boted)
+
+   if PAUSE is True:
+      time.sleep(sec)
 
 def Minibar():
   global CharPos
@@ -148,7 +195,7 @@ def Summarise(infos,Summary_Footer=False):
                   infos = tmp
 
          filename = folder+"Summary_Of_"+os.path.splitext(os.path.basename(FILE_Origin))[0]
-         print(Candy("Color","green","-Saving Summary : "),filename)
+         print(Candy("Color","green","-Saving Summary : Somewhere/over/the/rainbow/blue/birds/are/flying "))
          with open(filename,'a+') as f:
 
              if Summary_Header is True:
@@ -352,7 +399,7 @@ def Candy(mode,arg,data=None):
              bad = ["(ಥ﹏ಥ)","(►_◄)","(◉ ︵◉)","ヽ(ｏ`皿′ｏ)ﾉ","凸ಠ益ಠ)凸","╯‵Д′)╯彡┻━┻","¯\_(⊙︿⊙)_/¯","ಠ︵ಠ凸","ヽ(`Д´)ﾉ","(╯°□°）╯︵ ┻━┻","(✖╭╮✖)","(︶︹︺)","(╯︵╰,)","ヽ(˚௰˚)づ"]
              return(bad[rnd])
 
-   if mode == "Color":
+   if mode == "Color" and os.name != "nt":
          if arg == "red":
             prnt = "\033[1;31;49m%s\033[m"%data
          elif arg == "green":
@@ -366,6 +413,9 @@ def Candy(mode,arg,data=None):
          elif arg == "white":
             prnt = "\033[1;37;49m%s\033[m"%data
          return(prnt)
+   elif mode == "Color" and os.name == "nt":
+            prnt = data
+
    if mode == "Title":
        BotL = "╰─"
        BotR = "─╯"
@@ -399,8 +449,8 @@ def ToHistory(chunk):
     Chunks_History.append(chunk)
 def TheEnd():
      Summarise(None,True)
-     Candy("Title","==========The=End==========")
-     sys.exit()
+     Chunklate(0)
+     sys.exit(0)
 
 def ToBitstory(bytenbr):
     global Bytes_History
@@ -430,7 +480,7 @@ def FindMagic():
      if pos != -1:
           ToHistory("PNG")
           print("-%s is Magic : %s\n"%(Candy("Color","white",Sample_Name),Candy("Color","green",DATAX[:lenmagic])))
-          print("-Found Png Signature at offset : hex %s bytes %s index %s\n"%(Candy("Color","yellow",hex(int(pos/2))),Candy("Color","blue",int(pos/2)),Candy("Color","purple",pos)))
+          print("-Found Png Signature at offset (%s/%s/%s): (%s/%s/%s)\n"%(Candy("Color","yellow","Hex"),Candy("Color","blue","Bytes"),Candy("Color","purple","Index"),Candy("Color","yellow",hex(int(pos/2))),Candy("Color","blue",int(pos/2)),Candy("Color","purple",pos)))
           if DATAX.startswith(magic) is False:
                 print("-File does not start with a png signature.\n\nMkay ...I like where this is going ..\nI will have to cut %s bytes from %s since png header starts at this offset %s .\n"%(Candy("Color","white",Sample_Name),Candy("Color","blue",int(pos/2)),Candy("Color","white",Sample_Name),Candy("Color","blue",hex(int(pos/2)))))
                 Zankentsu = DATAX[pos::]
@@ -747,7 +797,9 @@ def SaveErrors(Chunk,Err,Data=None):#TODO#TOFIX
       if "Second" in Err:
           SideNote.append("-tIME Second value is not valid")
 
-
+   if Chunk == "Critical":
+       for chnk in Err:
+          SideNote.append("-Critical Chunk %s is missing"%chnk)
 
 #   TheEnd()
 
@@ -1035,11 +1087,7 @@ def GetInfo(Chunk,data):
         return
 
     if Chunk == "PLTE":
-          badpltr=["badpltr"]
-          badpltg=["badpltg"]
-          badpltb=["badpltb"]
-
-          PLTNbr = int(Orig_CL, 16)
+          PLTNbr = len(data)
 
           if not str(int(PLTNbr)/3).endswith(".0"):
              print("-%s PLTE length: %s/3= %s (not divisible by 3). %s"%(Candy("Color","red","Wrong"),PLTNbr,Candy("Color","red",PLTNbr),Candy("Emoj","bad")))
@@ -1050,33 +1098,27 @@ def GetInfo(Chunk,data):
              pltg = data[i+2:i+4]
              pltb = data[i+4:i+6]
 
-             if int(str(pltr),16) > 2 ** int(IHDR_Depht):
-                   badpltr.append(i)
-             if int(str(pltg),16) > 2 ** int(IHDR_Depht):
-                   badpltg.append(i+2)
-             if int(str(pltb),16) > 2 ** int(IHDR_Depht):
-                   badpltb.append(i+4)
-
              PLTE_R.append(str(pltr))
              PLTE_G.append(str(pltg))
              PLTE_B.append(str(pltb))
-
-          if len(badpltr) > 1:
-               print("-PLTE %s Red palettes not in bitdepht range: (must not be > 2 power of image Depht:%s).%s"%(Candy("Color","red",str(len(pltb))+" Wrong"),Candy("Color","yellow",2 ** int(IHDR_Depht)),Candy("Emoj","bad")))
-               ToFix.append(badpltr)
-
-          if len(badpltg) > 1:
-               print("-PLTE %s  Green palettes not in bitdepht range: (must not be > 2 power of image Depht:%s).%s"%(Candy("Color","red",str(len(pltb))+" Wrong"),Candy("Color","yellow",2 ** int(IHDR_Depht)),Candy("Emoj","bad")))
-               ToFix.append(badpltg)
-
-          if len(badpltb) > 1:
-               print("-PLTE %s Blue palettes not in bitdepht range: (must not be > 2 power of image Depht:%s). %s"%(Candy("Color","red",str(len(pltb))+"Wrong"),Candy("Color","yellow",2 ** int(IHDR_Depht)),Candy("Emoj","bad")))
-               ToFix.append(badpltb)
 
           print("-%s Red palettes are stored."%Candy("Color","yellow",len(PLTE_R)))
           print("-%s Green palettes are stored."%Candy("Color","yellow",len(PLTE_G)))
           print("-%s Blue palettes are stored."%Candy("Color","yellow",len(PLTE_B)))
           print("-%s RGB palettes are stored."%Candy("Color","yellow",len(PLTE_R)+len(PLTE_G)+len(PLTE_B)))
+
+          if len(PLTE_R) > 2 ** int(IHDR_Depht):
+               print("-PLTE %s Red palettes not in bitdepht range: (must not be > 2 power of image Depht:%s).%s"%(Candy("Color","red",str(len(pltb)-1)+" Wrong"),Candy("Color","yellow",2 ** int(IHDR_Depht)),Candy("Emoj","bad")))
+               ToFix.append(badpltr)
+
+          if len(PLTE_G) > 2 ** int(IHDR_Depht):
+               print("-PLTE %s  Green palettes not in bitdepht range: (must not be > 2 power of image Depht:%s).%s"%(Candy("Color","red",str(len(pltb))+" Wrong"),Candy("Color","yellow",2 ** int(IHDR_Depht)),Candy("Emoj","bad")))
+               ToFix.append(badpltg)
+
+          if len(PLTE_B) > 2 ** int(IHDR_Depht):
+               print("-PLTE %s Blue palettes not in bitdepht range: (must not be > 2 power of image Depht:%s). %s"%(Candy("Color","red",str(len(pltb))+" Wrong"),Candy("Color","yellow",2 ** int(IHDR_Depht)),Candy("Emoj","bad")))
+               ToFix.append(badpltb)
+
 
           if len(ToFix) >0:
              SaveErrors(Chunk,ToFix)
@@ -1086,7 +1128,7 @@ def GetInfo(Chunk,data):
 
     if Chunk == "sPLT":
 
-        sPLT_Ln = int(Orig_CL, 16)
+        sPLT_Ln = len(data)
         null_pos=NullFind(data)
         sPLT_Name = data[:null_pos]
         badchar=["badchar"]
@@ -1217,9 +1259,9 @@ def GetInfo(Chunk,data):
               ToFix.append(Chunk,"missing",data)
         try:
             pos = 0
-            for plt in PLTE_R:
-                 hIST.append(data[pos:pos+2])
-                 pos += 2
+            for plt in range(0,len(data),2):
+                 hIST.append(data[plt:plt+2])
+                 pos = plt
             print("-%s Histogram frequencies are stored."%Candy("Color","yellow",len(hIST)))
 
             if b"PLTE" in Chunks_History:
@@ -1280,7 +1322,7 @@ def GetInfo(Chunk,data):
              return
 
     if Chunk == "tRNS":
-         TRNSNBR = int(Orig_CL, 16)
+         TRNSNBR = len(data)
          if IHDR_Color == "0":
                 tRNS_Gray = str(int(data[:4],16))
                 print("-Gray    :",Candy("Color","yellow",tRNS_Gray))
@@ -1302,13 +1344,13 @@ def GetInfo(Chunk,data):
 
 
              if b"PLTE" in Chunks_History:
-                if len(tRNS_Index) != len(PLTE_R)+len(PLTE_G)+len(PLTE_B):
-                       print("-tRNS Alpha indexes palettes entries %s PLTE entries number %s"%(Candy("Color","red","must match"),Candy("Emoj","bad")))
+                if len(tRNS_Index) > len(PLTE_R)+len(PLTE_G)+len(PLTE_B):
+                       print("-tRNS Alpha indexes palettes entries %s PLTE entries number %s"%(Candy("Color","red","must not be superior to"),Candy("Emoj","bad")))
                        ToFix.append("pnbr")
 
              if b"sPLT" in Chunks_History:
-                if len(hIST) != len(sPLT_Red)+len(sPLT_Green)+len(sPLT_Blue)+len(sPLT_Aplha):
-                       print("-tRNS Alpha indexes palettes entries %s sPLT entries number %s"%(Candy("Color","red","must match"),Candy("Emoj","bad")))
+                if len(hIST) > len(sPLT_Red)+len(sPLT_Green)+len(sPLT_Blue)+len(sPLT_Aplha):
+                       print("-tRNS Alpha indexes palettes entries %s sPLT entries number %s"%(Candy("Color","red","must not be superior to"),Candy("Emoj","bad")))
                        ToFix.append("snbr")
 
          if len(ToFix) >0:
@@ -1332,6 +1374,11 @@ def GetInfo(Chunk,data):
            print("-%s sRGB value must be between 0 to 3. %s"%(Candy("Color","red","Wrong"),Candy("Emoj","bad")))
            ToFix.append("value")
 
+         if "cHRM".encode() in Chunks_History:
+                 print("-%s already present cHRM will be %s if reconized by decoders %s"%(Candy("Color","red","cHRM"),Candy("Color","red","overide"),Candy("Emoj","bad")))
+                 ToFix.append("overide")
+
+
          if len(ToFix) >0:
                 SaveErrors(Chunk,ToFix)
          else:
@@ -1354,11 +1401,11 @@ def GetInfo(Chunk,data):
              print("-RedY     :",Candy("Color","red",cHRM_Redy))
              print("-GreenX   :",Candy("Color","green",cHRM_Greenx))
              print("-GreenY   :",Candy("Color","green",cHRM_Greeny))
-             print("-BlueX   :",Candy("Color","blue",cHRM_Bluex))
-             print("-BlueY   :",Candy("Color","blue",cHRM_Bluey))
+             print("-BlueX    :",Candy("Color","blue",cHRM_Bluex))
+             print("-BlueY    :",Candy("Color","blue",cHRM_Bluey))
 
              if "sRGB".encode() in Chunks_History or "iCCP".encode() in Chunks_History:
-                 print("-%s or %s already present cHRM has no reason to be here %s"%(Candy("Color","red","sRGB"),Candy("Color","red","iCCP"),Candy("Emoj","bad")))
+                 print("-%s or %s already present cHRM will be overide if reconized by decoders %s"%(Candy("Color","red","sRGB"),Candy("Color","red","iCCP"),Candy("Emoj","bad")))
                  ToFix.append("overide")
 
              if len(ToFix) >0:
@@ -1408,8 +1455,13 @@ def GetInfo(Chunk,data):
             print("-iCCP Profile length is %s"%Candy("Color","red","not Valid"))
             ToFix.append("lenght")
 
+        if "cHRM".encode() in Chunks_History:
+                 print("-%s already present cHRM will be %s if reconized by decoders %s"%(Candy("Color","red","cHRM"),Candy("Color","red","overide"),Candy("Emoj","bad")))
+                 ToFix.append("overide")
+
         print("-iCCP Profile Name :",Candy("Color","yellow",iCCP_Name))
         print("-iCCP Profile Method :",Candy("Color","yellow",iCCP_Method))
+
 
         if len(ToFix) >0:
              SaveErrors(Chunk,ToFix)
@@ -1743,6 +1795,34 @@ def GetInfo(Chunk,data):
            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
         return
 
+    if Chunk == "eXIf":
+      eXIf_raw = []
+      raw = ""
+      sepcounter = 0
+      eXIf_endian = bytes.fromhex(data[:4]).decode()
+
+      if eXIf_endian == "II":
+         print("-eXif endianess is little-endian : ",eXIf_endian)
+      elif eXIf_endian == "MM":
+        print("-eXif endianess is big-endian : ",eXIf_endian)
+
+      print("\nRaw values from eXIf data :\n\n")
+      for i in range(0,len(data),2):
+           raw += data[i:i+2]
+           if data[i:i+2] == "00":
+               sepcounter +=1
+               if sepcounter >=3:
+                    eXIf_raw.append(raw)
+                    raw = ""
+                    sepcounter = 0
+      for raw in eXIf_raw:
+           if len(raw) < 150:
+              print("- "+bytes.fromhex(raw).decode(errors="ignore"))
+           else:
+              print("-Raw data is too long to be displayed")
+      return
+
+
     if Chunk == "spAL":
       print("-intermediate sPLT test version")
       return
@@ -1808,18 +1888,17 @@ def ReadPng(offset):
          CrcoffI =(int(offset/2)+int(Chunk_Length,16)+len(Chunk_Type))*2
 
          Candy("Title","Chunk Infos:")
-
-         print("-Found at offset : In Hex %s , Bytes %s , Index %s "%(Candy("Color","yellow",CLoffX),Candy("Color","blue",CLoffB),Candy("Color","purple",CLoffI)))
-         print("-Chunk Length: %s in Bytes: %s"%( Candy("Color","green",hex(int(Chunk_Length,16)) ) ,Candy("Color","blue",int(Chunk_Length, 16)) ) )
+         print("-Found at offset            (%s/%s/%s): (%s/%s/%s) "%(Candy("Color","yellow","Hex"),Candy("Color","blue","Bytes"),Candy("Color","purple","Index"),Candy("Color","yellow",CLoffX),Candy("Color","blue",CLoffB),Candy("Color","purple",CLoffI)))
+         print("-Chunk Length:              (%s/%s)"%( Candy("Color","yellow",hex(int(Chunk_Length,16)) ) ,Candy("Color","blue",int(Chunk_Length, 16)) ) )
          print("")
-         print("-Found at offset : In Hex %s , Bytes %s , Index %s "%(Candy("Color","yellow",CToffX),Candy("Color","blue",CToffB),Candy("Color","purple",CToffI)))
-         print("-Chunk Type : %s  In Bytes: %s "%(Candy("Color","green",Chunk_Type),Candy("Color","blue",bytes.fromhex(Chunk_Type))))
+         print("-Found at offset            (%s/%s/%s): (%s/%s/%s) "%(Candy("Color","yellow","Hex"),Candy("Color","blue","Bytes"),Candy("Color","purple","Index"),Candy("Color","yellow",CToffX),Candy("Color","blue",CToffB),Candy("Color","purple",CToffI)))
+         print("-Chunk Type :               (%s/%s)"%(Candy("Color","yellow",Chunk_Type),Candy("Color","blue",bytes.fromhex(Chunk_Type))))
          print("")
-         print("-Found Chunk Data at offset : In Hex %s , Bytes %s , Index %s "%(Candy("Color","yellow",CDoffX),Candy("Color","blue",CDoffB),Candy("Color","purple",CDoffI)))
-         #print("Chunk Data len  : In Hex %s , Bytes %s , Index %s "%())
+         print("-Found Chunk Data at offset (%s/%s/%s): (%s/%s/%s) "%(Candy("Color","yellow","Hex"),Candy("Color","blue","Bytes"),Candy("Color","purple","Index"),Candy("Color","yellow",CDoffX),Candy("Color","blue",CDoffB),Candy("Color","purple",CDoffI)))
+         #print("Chunk Data len  : (%s/%s/%s) "%())
          print("")
-         print("-Found at offset : In Hex %s , Bytes %s , Index %s "%(Candy("Color","yellow",CrcoffX),Candy("Color","blue",CrcoffB),Candy("Color","purple",CrcoffI)))
-         print("-Chunk Crc: %s At offset: %s"%(Candy("Color","green",Chunk_Crc),Candy("Color","blue",hex(CrcoffB))))
+         print("-Found at offset            (%s/%s/%s): (%s/%s/%s) "%(Candy("Color","yellow","Hex"),Candy("Color","blue","Bytes"),Candy("Color","purple","Index"),Candy("Color","yellow",CrcoffX),Candy("Color","blue",CrcoffB),Candy("Color","purple",CrcoffI)))
+         print("-Chunk Crc:                 (%s/offset :  %s)"%(Candy("Color","yellow",Chunk_Crc),Candy("Color","yellow",hex(CrcoffB))))
 ##
          CheckLength(Chunk_Data,Chunk_Length,Chunk_Type)
 ##
@@ -1837,7 +1916,8 @@ def ReadPng(offset):
             Have_A_KitKat = False
             return
 
-     print("Reached End of %s",Sample_Name)
+     print("Reached End of %s\n",Sample_Name)
+     Critical()
      TheEnd()
 
 def Double_Check(CType,bytesnbr,LastCType):
@@ -1901,7 +1981,7 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
                  else:
                       LenCalc = Data_End_OffsetI-CDoffB
                       if "-" in str(LenCalc):
-                         print("-Chunk position is %s %s\n"%Candy("Color","red","Not Valid "),Candy("Emoj","bad"))
+                         print("-Chunk position is %s %s\n"%(Candy("Color","red","Not Valid "),Candy("Emoj","bad")))
                          print("-Got Wrong Result for length...:",Candy("Color","red",LenCalc))
                          print("\nAnother one byte the dust ...\n")
                          print("dataendofI:",Data_End_OffsetI)
@@ -1923,6 +2003,22 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
 
      return()
 
+def Critical():
+    Candy("Title","Critical Chunks Check :")
+    Criticals =[b'PNG',b'IHDR',b'IDAT',b'IEND']
+    ToFix = []
+    for chnk in Criticals:
+         if chnk not in Chunks_History:
+             print("-Critical Chunk %s is %s !"%(chnk,Candy("Color","red","Missing")))
+             ToFix.append("chunk")
+    if len(ToFix) >0:
+             SaveErrors("Critical",ToFix)
+             TheEnd()
+    else:
+          print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+    return
+
+
 def ChunkStory(lastchunk):
   global Warning
   global SideNote
@@ -1932,7 +2028,7 @@ def ChunkStory(lastchunk):
   Before_PLTE= [b'PNG', b'IHDR', b'gAMA', b'cHRM', b'iCCP', b'sRGB', b'sBIT']
   After_PLTE= [b'tRNS', b'hIST', b'bKGD'] #but before idat
   Before_IDAT=[b'sPLT',b'sBIT', b'pHYs', b'tRNS', b'hIST', b'bKGD', b'gAMA', b'cHRM', b'PLTE', b'IHDR', b'bKGD']
-  OnlyOnce=[b'sBIT', b'IEND', b'tRNS', b'hIST', b'sTER', b'iCCP', b'sRGB', b'gAMA', b'sCAL', b'cHRM', b'bKGD', b'IHDR', b'oFFs', b'pCAL', b'PLTE', b'pHYs', b'IEND']
+  OnlyOnce=[b'sBIT', b'IEND', b'tRNS', b'hIST', b'sTER', b'iCCP', b'sRGB', b'gAMA', b'sCAL', b'cHRM', b'bKGD', b'IHDR', b'oFFs', b'pCAL', b'PLTE', b'pHYs', b'IEND',b'eXIf']
   Anywhere=[b'tIME', b'tEXt', b'zTXt', b'iTXt', b'fRAc', b'gIFg', b'gIFx', b'gIFt']
   Criticals =[b'PNG',b'IHDR',b'IDAT',b'IEND']
 
@@ -2077,6 +2173,7 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
        if name.lower() == CType.lower():
                if name == CType:
                       print("\n-Chunk name:"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+                      #if next == None:
                       ToHistory(bytes.fromhex(ChunkType))
                       return(None)
 
@@ -2155,8 +2252,9 @@ def CheckLength(Cdata,Clen,Ctype):
             print("..And this is what iv found there: ",Candy("Color","yellow",bytes.fromhex(NextChunk).decode(errors="replace")))
 
        if bytes.fromhex(Ctype) == b'IEND' and int(Clen, 16) == 0:
-            if DATAX[-len(GoodEnding):].upper() == GoodEnding:
 
+            if DATAX[-len(GoodEnding):].upper() == GoodEnding:
+                     Critical()
                      print("\nBut thats only because this is the end of file. ",Candy("Emoj","good"))
                      SideNote.append("-Reach the end of file without error.")
 
@@ -2199,7 +2297,7 @@ def Checksum(Ctype, Cdata, Crc):
 
 def FixShit(shit,start,end,infos):
          Candy("Title","Fixing File")
-         print("-Data : ",shit)
+         print("-Data : %s\n"%shit)
          Summarise(infos)
          Before = DATAX[:start]
          After = DATAX[end:]
@@ -2278,7 +2376,7 @@ Summary_Header= True
 SideNote = []
 ErrorsFlag = []
 ErrorsList = []
-CHUNKS = [b'sBIT', b'IEND', b'sPLT', b'tRNS', b'fRAc', b'hIST', b'dSIG', b'sTER', b'iCCP', b'sRGB', b'zTXt', b'gAMA', b'IDAT', b'sCAL', b'cHRM', b'bKGD', b'tEXt', b'tIME', b'iTXt', b'IHDR', b'gIFx', b'gIFg', b'oFFs', b'pCAL', b'PLTE', b'gIFt', b'pHYs']
+CHUNKS = [b'sBIT', b'IEND', b'sPLT', b'tRNS', b'fRAc', b'hIST', b'dSIG', b'sTER', b'iCCP', b'sRGB', b'zTXt', b'gAMA', b'IDAT', b'sCAL', b'cHRM', b'bKGD', b'tEXt', b'tIME', b'iTXt', b'IHDR', b'gIFx', b'gIFg', b'oFFs', b'pCAL', b'PLTE', b'gIFt', b'pHYs',b'eXIf']
 PRIVATE_CHUNKS = [b'cmOD',b'cmPP',b'cpIp',b'mkBF',b'mkBS',b'mkBT',b'mkTS',b'spAL',b'pcLb',b'prVW',b'JDAT',b'JSEP',b'DHDR',b'FRAM',b'SAVE',b'SEEK',b'nEED',b'DEFI',b'BACK',b'MOVE',b'CLON',b'SHOW',b'CLIP',b'LOOP',b'ENDL',b'PROM',b'fPRI',b'eXPI',b'BASI',b'IPNG',b'PPLT',b'PAST',b'TERM',b'DISC',b'pHYg',b'DROP',b'DBYK',b'ORDR',b'MAGN',b'MEND']
 Orig_CL=""
 Orig_CT=""
@@ -2388,11 +2486,16 @@ while True:
      Bytes_History = []
      Loading_txt = ""
      SideNote = []
-     Chunklate()
+     Chunklate(1)
      Sample_Name = os.path.basename(Sample)
      print("-Opening: ",Candy("Color","white",Sample_Name))
-     with open(Sample,"rb") as f:
-         data = f.read()
+     try:
+       with open(Sample,"rb") as f:
+          data = f.read()
+     except Exception as e:
+         print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+         sys.exit(1)
+
      DATAX = data.hex()
      print("-Done.")
      FindMagic()

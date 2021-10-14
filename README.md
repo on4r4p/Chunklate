@@ -24,9 +24,12 @@ Currently **Chunklate** is in beta and able to provide those features:
 
 
 ## Usage
-
->usage: Chunklate.py [-h] [-f FILE]
->
->optional arguments:
->  -h, --help            show this help message and exit
->  -f FILE, --file FILE  File path.
+> 
+> usage: Chunklate.py [-h] [-f FILE] [-c] [-p]
+> 
+> optional arguments:
+>   -h, --help            show this help message and exit
+>   -f FILE, --file FILE  File path.
+>   -c, --clear           Clear screen at each saves.
+>   -p, --pause           Pause at each saves.
+> 
