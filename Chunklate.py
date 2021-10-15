@@ -1194,7 +1194,7 @@ def GetInfo(Chunk,data):
 
         if sPLT_Depht == "8":
           if not str(int(len(sPLT_Green))/6).endswith(".0"):
-             print("-%s Green sPLT length: %s /6= %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Green)),str(len(sPLT_Green)/8),Candy("Emoj","bad")))
+             print("-%s Green sPLT length: %s /6= %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Green)),str(len(sPLT_Green)/6),Candy("Emoj","bad")))
              ToFix.append("div8g")
 
         elif sPLT_Depht == "16":
@@ -1207,7 +1207,7 @@ def GetInfo(Chunk,data):
 
         if sPLT_Depht == "8":
           if not str(int(len(sPLT_Blue))/6).endswith(".0"):
-             print("-%s Blue sPLT length: %s /6= %s (not divisible by 6). %s "%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Blue)),str(len(sPLT_Blue)/8),Candy("Emoj","bad")))
+             print("-%s Blue sPLT length: %s /6= %s (not divisible by 6). %s "%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Blue)),str(len(sPLT_Blue)/6),Candy("Emoj","bad")))
              ToFix.append("div8b")
 
         elif sPLT_Depht == "16":
@@ -1222,7 +1222,7 @@ def GetInfo(Chunk,data):
 
         if sPLT_Depht == "8":
           if not str(int(len(sPLT_Alpha))/6).endswith(".0"):
-             print("-%s Alpha sPLT length: %s /6= %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Alpha)),str(len(sPLT_Aplha)/8),Candy("Emoj","bad")))
+             print("-%s Alpha sPLT length: %s /6= %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Alpha)),str(len(sPLT_Alpha)/6),Candy("Emoj","bad")))
              ToFix.append("div8a")
 
         elif sPLT_Depht == "16":
@@ -1236,7 +1236,7 @@ def GetInfo(Chunk,data):
 
         if sPLT_Depht == "8":
           if not str(int(len(sPLT_Freq))/6).endswith(".0"):
-             print("-%s Frequency sPLT length: %s /6= %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Freq)),str(len(sPLT_Freq)/8),Candy("Emoj","bad")))
+             print("-%s Frequency sPLT length: %s /6= %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Freq)),str(len(sPLT_Freq)/6),Candy("Emoj","bad")))
              ToFix.append("div8f")
 
         elif sPLT_Depht == "16":
