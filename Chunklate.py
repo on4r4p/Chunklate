@@ -995,7 +995,7 @@ def GetInfo(Chunk,data):
         except Exception as e:
            SideNote.append("Error IHDR:"+str(e))
            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
-        return 
+         
 
 
     if Chunk == "pHYs":
@@ -1037,7 +1037,7 @@ def GetInfo(Chunk,data):
         except Exception as e:
            SideNote.append("Error pHys:"+str(e))
            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
-        return
+        
 
     if Chunk == "bKGD":
         if IHDR_Color == "0" or IHDR_Color == "4":
@@ -1084,7 +1084,7 @@ def GetInfo(Chunk,data):
            SaveErrors(Chunk,ToFix)
         else:
                 print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
-        return
+        
 
     if Chunk == "PLTE":
           PLTNbr = len(data)
@@ -1124,7 +1124,7 @@ def GetInfo(Chunk,data):
              SaveErrors(Chunk,ToFix)
           else:
                 print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
-          return
+          
 
     if Chunk == "sPLT":
 
@@ -1133,7 +1133,7 @@ def GetInfo(Chunk,data):
         sPLT_Name = data[:null_pos]
         badchar=["badchar"]
 
-        for i in sPLT_Name:
+        for i in range(0,len(sPLT_Name),2):
           nint = int(data[i:i+2],16)
           nchar = chr(nint)
 
@@ -1147,13 +1147,13 @@ def GetInfo(Chunk,data):
         if len(badchar) > 1:
              ToFix.append(badchar)
 
-        sPLT_Depht = int(data[null_pos+2:null_pos+4],16)
-        if sPLT_Depht != 8 or sPLT_Depht != 16:
+        sPLT_Depht = str(int(data[null_pos+2:null_pos+4],16))
+        if sPLT_Depht != "8" and sPLT_Depht != "16":
             print("-Sample depth is %s it must be 8 or 16 :%s %s"%(Candy("Color","red","not correct"),Candy("Color","red",sPLT_Depht),Candy("Emoj","bad")))
             ToFix.append("depth")
         pos = 0
-        for i in range(sPLT_Ln+1):
-             if sPLT_Depht == 8:
+        for i in range(sPLT_Ln):
+             if sPLT_Depht == "8":
                  sPLT_Red.append(data[:pos])
                  sPLT_Green.append(data[pos:pos+2])
                  sPLT_Blue.append(data[pos+2:pos+4])
@@ -1161,7 +1161,7 @@ def GetInfo(Chunk,data):
                  sPLT_Freq.append(data[pos+6:pos+8])
                  pos += 8
 
-             if sPLT_Depht == 16:
+             if sPLT_Depht == "16":
                  sPLT_Red.append(data[:pos])
                  sPLT_Green.append(data[pos:pos+4])
                  sPLT_Blue.append(data[pos+4:pos+8])
@@ -1172,47 +1172,47 @@ def GetInfo(Chunk,data):
                   break
 
 
-        if sPLT_Name >79:
+        if len(sPLT_Name) >79:
                print("-Length of sPLT name is %s :%s %s"%(Candy("Color","red","not Valid (Too long >79)"),Candy("Color","red",i),Candy("Emoj","bad")))
                ToFix.append("name")
 
 
         print("-%s Suggested Red palettes are stored."%Candy("Color","yellow",len(sPLT_Red)))
 
-        if sPLT_Depht == 8:
-          if not str(int(sPLT_Red)/6).endswith(".0"):
-             print("-%s Red sPLT length: %s(not divisible by 6).%s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Red)),Candy("Emoj","bad")))
+        if sPLT_Depht == "8":
+          if not str(int(len(sPLT_Red))/6).endswith(".0"):
+             print("-%s Red sPLT length: %s /6= %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Red)),str(len(sPLT_Red)/6),Candy("Emoj","bad"))) 
              ToFix.append("div8r")
 
-        elif sPLT_Depht == 16:
-          if not str(int(sPLT_Red)/10).endswith(".0"):
-             print("-%s Red sPLT length: %s (not divisible by 10).%s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Red)),Candy("Emoj","bad")))
+        elif sPLT_Depht == "16":
+          if not str(int(len(sPLT_Red))/10).endswith(".0"):
+             print("-%s Red sPLT length: %s/10= %s (not divisible by 10). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Red)),str(len(sPLT_Red)/10),Candy("Emoj","bad")))
              ToFix.append("div16r")
         
         print("-%s Suggested Green palettes are stored."%Candy("Color","yellow",len(sPLT_Green)))
 
 
-        if sPLT_Depht == 8:
-          if not str(int(sPLT_Green)/6).endswith(".0"):
-             print("-%s Green sPLT length: %s (not divisible by 3). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Green)),Candy("Emoj","bad")))
+        if sPLT_Depht == "8":
+          if not str(int(len(sPLT_Green))/6).endswith(".0"):
+             print("-%s Green sPLT length: %s /6= %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Green)),str(len(sPLT_Green)/8),Candy("Emoj","bad")))
              ToFix.append("div8g")
 
-        elif sPLT_Depht == 16:
-          if not str(int(sPLT_Green)/10).endswith(".0"):
-             print("-%s Green sPLT length: %s/10= %s (not divisible by 10). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Green)),Candy("Emoj","bad")))
+        elif sPLT_Depht == "16":
+          if not str(int(len(sPLT_Green))/10).endswith(".0"):
+             print("-%s Green sPLT length: %s/10= %s (not divisible by 10). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Green)),Candy("Color","red",str(len(sPLT_Green)/10)),Candy("Emoj","bad")))
              ToFix.append("div16g")
 
         print("-%s Suggested Blue palettes are stored."%Candy("Color","yellow",len(sPLT_Blue)))
 
 
-        if sPLT_Depht == 8:
-          if not str(int(sPLT_Blue)/6).endswith(".0"):
-             print("-%s Blue sPLT length: %s (not divisible by 6). %s "%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Blue)),Candy("Emoj","bad")))
+        if sPLT_Depht == "8":
+          if not str(int(len(sPLT_Blue))/6).endswith(".0"):
+             print("-%s Blue sPLT length: %s /6= %s (not divisible by 6). %s "%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Blue)),str(len(sPLT_Blue)/8),Candy("Emoj","bad")))
              ToFix.append("div8b")
 
-        elif sPLT_Depht == 16:
-          if not str(int(sPLT_Blue)/10).endswith(".0"):
-             print("-%s Blue sPLT length:%s (not divisible by 10). %s "%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Blue)),Candy("Emoj","bad")))
+        elif sPLT_Depht == "16":
+          if not str(int(len(sPLT_Blue))/10).endswith(".0"):
+             print("-%s Blue sPLT length:%s /10= %s (not divisible by 10). %s "%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Blue)),str(len(sPLT_Blue)/10),Candy("Emoj","bad")))
              ToFix.append("div16b")
 
 
@@ -1220,28 +1220,28 @@ def GetInfo(Chunk,data):
 
         print("-%s Suggested Alpha palettes are stored."%Candy("Color","yellow",len(sPLT_Alpha)))
 
-        if sPLT_Depht == 8:
-          if not str(int(sPLT_Alpha)/6).endswith(".0"):
-             print("-%s Aplha sPLT length: %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Alpha)),Candy("Emoj","bad")))
+        if sPLT_Depht == "8":
+          if not str(int(len(sPLT_Alpha))/6).endswith(".0"):
+             print("-%s Alpha sPLT length: %s /6= %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Alpha)),str(len(sPLT_Aplha)/8),Candy("Emoj","bad")))
              ToFix.append("div8a")
 
-        elif sPLT_Depht == 16:
-          if not str(int(sPLT_Alpha)/10).endswith(".0"):
-             print("-%s Aplha sPLT length:%s (not divisible by 10). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Alpha)),Candy("Emoj","bad")))
+        elif sPLT_Depht == "16":
+          if not str(int(len(sPLT_Alpha))/10).endswith(".0"):
+             print("-%s Aplha sPLT length:%s /10= %s (not divisible by 10). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Alpha)),str(len(sPLT_Alpha)/10),Candy("Emoj","bad")))
              ToFix.append("div16a")
 
 
 
         print("-%s Suggested Frequency values are stored."%Candy("Color","yellow",len(sPLT_Freq)))
 
-        if sPLT_Depht == 8:
-          if not str(int(sPLT_Freq)/6).endswith(".0"):
-             print("-%s Frequency sPLT length: %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Freq)),Candy("Emoj","bad")))
+        if sPLT_Depht == "8":
+          if not str(int(len(sPLT_Freq))/6).endswith(".0"):
+             print("-%s Frequency sPLT length: %s /6= %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Freq)),str(len(sPLT_Freq)/8),Candy("Emoj","bad")))
              ToFix.append("div8f")
 
-        elif sPLT_Depht == 16:
-          if not str(int(sPLT_Freq)/10).endswith(".0"):
-             print("-%s Frequency sPLT length:%s (not divisible by 10). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Freq)),Candy("Emoj","bad")))
+        elif sPLT_Depht == "16":
+          if not str(int(len(sPLT_Freq))/10).endswith(".0"):
+             print("-%s Frequency sPLT length:%s /10= %s (not divisible by 10). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Freq)),str(len(sPLT_Freq)/10),Candy("Emoj","bad")))
              ToFix.append("div16f")
 
         if len(ToFix) >0:
@@ -1251,7 +1251,7 @@ def GetInfo(Chunk,data):
                  SaveErrors(Chunk,ToFix)
         else:
                print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
-        return
+        
 
     if Chunk == "hIST":
         if b"PLTE" not in Chunks_History and b"sPLT" not in Chunks_History:
@@ -1283,7 +1283,7 @@ def GetInfo(Chunk,data):
         except Exception as e:
             print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
 
-        return
+        
 
     if Chunk == "tIME":
              tIME_Yr=str(int(data[:4],16))
@@ -1319,7 +1319,7 @@ def GetInfo(Chunk,data):
              else:
                 print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
 
-             return
+             
 
     if Chunk == "tRNS":
          TRNSNBR = len(data)
@@ -1358,7 +1358,7 @@ def GetInfo(Chunk,data):
          else:
                 print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
 
-         return
+         
 
     if Chunk == "sRGB":
          sRGB =str(int(data[:2],16))
@@ -1383,7 +1383,7 @@ def GetInfo(Chunk,data):
                 SaveErrors(Chunk,ToFix)
          else:
                 print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
-         return
+         
 
     if Chunk == "cHRM":
 
@@ -1413,12 +1413,12 @@ def GetInfo(Chunk,data):
              else:
                 print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
 
-             return
+             
 
     if Chunk == "gAMA":
              gAMA=str(int(data[:8],16))
              print("-Gama   :",Candy("Color","white",gAMA))
-             return
+             
 
     if Chunk == "iCCP":
         null="00"
@@ -1467,7 +1467,7 @@ def GetInfo(Chunk,data):
              SaveErrors(Chunk,ToFix)
         else:
                 print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
-        return
+        
 
     if Chunk == "sBIT":
          if IHDR_Color == "0":
@@ -1589,7 +1589,7 @@ def GetInfo(Chunk,data):
              SaveErrors(Chunk,ToFix)
          else:
                 print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
-         return
+         
 
 
     if Chunk == "oFFs":
@@ -1613,7 +1613,7 @@ def GetInfo(Chunk,data):
                 else:
                     print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
 
-                return
+                
 
     if Chunk == "pCAL": 
       try:
@@ -1661,7 +1661,7 @@ def GetInfo(Chunk,data):
 
       except Exception as e:
                  print(Candy("Color","red","Error pCAL2:"),Candy("Color","yellow",e))
-      return
+      
 
     if Chunk == "gIFg":
 
@@ -1672,7 +1672,7 @@ def GetInfo(Chunk,data):
                 print("-Disposal Method    :",Candy("Color","yellow",gIFgM))
                 print("-User Input Flag    :",Candy("Color","yellow",gIFgT))
                 print("-Delay Time    :",Candy("Color","yellow",gIFgT))
-                return
+                
     if Chunk == "gIFx":
                 gIFID = str(int(data[:16],16))
                 gIFCD = str(int(data[16:22],16))
@@ -1681,13 +1681,13 @@ def GetInfo(Chunk,data):
                 print("-Application Identifier    :",Candy("Color","yellow",gIFID))
                 print("-Authentication Code    :",Candy("Color","yellow",gIFCD))
                 print("-Application Data    :",Candy("Color","yellow",gIFDT))
-                return
+                
     if Chunk == "sTER":
 
                 sTER = str(int(data[:2],16))
 
                 print("-Subimage mode    :",Candy("Color","yellow",sTER))
-                return
+                
 
     if Chunk == "tEXt": 
 
@@ -1713,7 +1713,7 @@ def GetInfo(Chunk,data):
         except Exception as e:
            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
 
-           return
+           
 
     if Chunk == "zTXt": 
 
@@ -1738,7 +1738,7 @@ def GetInfo(Chunk,data):
         except Exception as e:
            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
 
-        return
+        
 
     if Chunk == "iTXt": 
         try:
@@ -1793,7 +1793,7 @@ def GetInfo(Chunk,data):
 
         except Exception as e:
            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
-        return
+        
 
     if Chunk == "eXIf":
       eXIf_raw = []
@@ -1820,16 +1820,20 @@ def GetInfo(Chunk,data):
               print("- "+bytes.fromhex(raw).decode(errors="ignore"))
            else:
               print("-Raw data is too long to be displayed")
-      return
+      
 
 
     if Chunk == "spAL":
       print("-intermediate sPLT test version")
-      return
+      
 
     if Chunk.encode() in PRIVATE_CHUNKS:
       print("-Private Chunk")
-      return
+      
+
+    ChunkStory(Chunk,"TheGoodPlace")
+    return
+
 
 def ReadPng(offset):
      global Have_A_KitKat
@@ -1917,7 +1921,7 @@ def ReadPng(offset):
             return
 
      print("Reached End of %s\n",Sample_Name)
-     Critical()
+     ChunkStory(b'IEND',"Critical")
      TheEnd()
 
 def Double_Check(CType,bytesnbr,LastCType):
@@ -1940,7 +1944,7 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
      print("\nLet me check if i can fix that shit..")
 
      if DoubleCheck is None:
-         Excluded = ChunkStory(LastCType)
+         Excluded = ChunkStory(LastCType,"Fix")
      else:
          print("\n==Safety Off==\n")
          Excluded = []
@@ -2019,15 +2023,16 @@ def Critical():
     return
 
 
-def ChunkStory(lastchunk):
+def ChunkStory(lastchunk,mode):
   global Warning
   global SideNote
 
-  Candy("Title","Chunklate Rain:")
 
+  ToFix = []
   Before_PLTE= [b'PNG', b'IHDR', b'gAMA', b'cHRM', b'iCCP', b'sRGB', b'sBIT']
   After_PLTE= [b'tRNS', b'hIST', b'bKGD'] #but before idat
   Before_IDAT=[b'sPLT',b'sBIT', b'pHYs', b'tRNS', b'hIST', b'bKGD', b'gAMA', b'cHRM', b'PLTE', b'IHDR', b'bKGD']
+#  Before_IDAT=[b'sPLT', b'pHYs', b'tRNS', b'hIST', b'bKGD', b'PLTE']
   OnlyOnce=[b'sBIT', b'IEND', b'tRNS', b'hIST', b'sTER', b'iCCP', b'sRGB', b'gAMA', b'sCAL', b'cHRM', b'bKGD', b'IHDR', b'oFFs', b'pCAL', b'PLTE', b'pHYs', b'IEND',b'eXIf']
   Anywhere=[b'tIME', b'tEXt', b'zTXt', b'iTXt', b'fRAc', b'gIFg', b'gIFx', b'gIFt']
   Criticals =[b'PNG',b'IHDR',b'IDAT',b'IEND']
@@ -2035,19 +2040,58 @@ def ChunkStory(lastchunk):
   try:
      lastchunk = lastchunk.encode()
   except AttributeError as e:
-      print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+#      print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+       pass
 
-  if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
+  if mode == "Critical":
+
+    Candy("Title","Critical Chunks Check :")
+    for chnk in Criticals:
+         if chnk not in Chunks_History:
+             print("-Critical Chunk %s is %s !"%(chnk,Candy("Color","red","Missing")))
+             ToFix.append("chunk")
+    if len(ToFix) >0:
+             SaveErrors("Critical",ToFix)
+             TheEnd()
+    else:
+          print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+    return
+
+  if mode == "TheGoodPlace":
+    Candy("Title","Missplaced Chunks Check:")
+
+    Used_Chunks = list(dict.fromkeys(Chunks_History))
+    Excluded = [used for used in Used_Chunks if used in OnlyOnce]
+#    print(Excluded)
+    print("So far we came across those chunks in %s :\n\n%s\n"%(Sample_Name,[i.decode() for i in Used_Chunks]))
+
+    if b"IDAT" in Used_Chunks:
+         shutup = [Excluded.append(forbid) for forbid in CHUNKS if forbid in Before_IDAT]
+         if lastchunk in Excluded:
+              print("-%s  %s must be before IDAT Chunk. %s"%(Candy("Color","red",lastchunk.decode()+" is missplaced"),lastchunk.decode(),Candy("Emoj","bad")))
+              #print(Excluded)
+              ToFix.append("Missplaced")
+
+    if len(ToFix) >0:
+             SaveErrors(lastchunk,ToFix)
+    else:
+          print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+    return
+
+  if mode == "Fix":
+
+    Candy("Title","Checking Already Used Chunks :")
+    if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
         print("After Png Header always Follow IHDR this is quite hard to miss..\nExcluding evrything else")
         Excluded = [exclude for exclude in CHUNKS if exclude != b"IHDR"]
         return(Excluded)
   
-  Used_Chunks = list(dict.fromkeys(Chunks_History))
-  Excluded = [used for used in Used_Chunks if used in OnlyOnce]
+    Used_Chunks = list(dict.fromkeys(Chunks_History))
+    Excluded = [used for used in Used_Chunks if used in OnlyOnce]
 
-  print("So far we came across those chunks in %s :\n\n%s\n"%(Sample_Name,[i.decode() for i in Used_Chunks]))
+    print("So far we came across those chunks in %s :\n\n%s\n"%(Sample_Name,[i.decode() for i in Used_Chunks]))
 
-  if b"IDAT" not in Used_Chunks:
+    if b"IDAT" not in Used_Chunks:
 
       if lastchunk in Before_PLTE and b'IHDR' not in Used_Chunks:
          shutup = [Excluded.append(forbid) for forbid in CHUNKS if forbid not in Before_PLTE]
@@ -2060,7 +2104,7 @@ def ChunkStory(lastchunk):
 
       Excluded.append(b'IEND') 
 
-  elif b"IDAT" in Used_Chunks:
+    elif b"IDAT" in Used_Chunks:
           shutup = [Excluded.append(forbid) for forbid in CHUNKS if forbid in Before_IDAT]
 
           if int(IHDR_Color) == 3:
@@ -2069,16 +2113,17 @@ def ChunkStory(lastchunk):
                 print(Candy("Color","yellow","\n-ToDo"))
                 TheEnd()
 
-          elif (int(IHDR_Color) == 2) or (int(IHDR_Color) == 6) and Warning is False:
-               Warning = True
-               SideNote.append("-[Sidenote] There is a chance that Critical PLTE chunk is missing.")
-               print("%s\n\nJust wanted you to know that if im not able to fix %s for some reason\nor if you can't view %s once my job is done here ...\nThis is maybe due to a PLTE Chunk that is missing between those guys :\n-------------------------------------------------------\n%s\n+++++++++++++++++\n***[PLTECHUNK]***\n+++++++++++++++++\n%s\n-------------------------------------------------------\nIn Any cases it's before IDAT. \n%s"%(Candy("Color","yellow","################# Warning #################"),Candy("Color","red",Sample_Name),Candy("Color","red",Sample_Name),[i.decode() for i in Before_PLTE],[i.decode() for i in After_PLTE],Candy("Color","yellow","###########################################\n")))
+          elif (int(IHDR_Color) == 2) or (int(IHDR_Color) == 6) and ("PLTE".encode() not in Chunks_History and "sPLT".encode not in Chunks_History):
+               if Warning is False:
+                 Warning = True
+                 SideNote.append("-[Sidenote] There is a chance that Critical PLTE chunk is missing.")
+                 print("%s\n\nJust wanted you to know that if im not able to fix %s for some reason\nor if you can't view %s once my job is done here ...\nThis is maybe due to a PLTE Chunk that is missing between those guys :\n-------------------------------------------------------\n%s\n+++++++++++++++++\n***[PLTECHUNK]***\n+++++++++++++++++\n%s\n-------------------------------------------------------\nIn Any cases it's before IDAT. \n%s"%(Candy("Color","yellow","################# Warning #################"),Candy("Color","red",Sample_Name),Candy("Color","red",Sample_Name),[i.decode() for i in Before_PLTE],[i.decode() for i in After_PLTE],Candy("Color","yellow","###########################################\n")))
 
 
           if lastchunk == b"IDAT":
              print("So ..the last Chunk Type was IDAT so we either looking for another IDAT,IEND or one of them:\n\n%s"%[i.decode() for i in Anywhere])
 
-  return(Excluded)
+    return(Excluded)
 
 
 
@@ -2095,7 +2140,7 @@ def BruteChunk(CType,LastCType,bytesnbr):
 
    print("\nMaybe it's name got corrupted somehow.\nLet's see about that.\n")
 
-   Excluded = ChunkStory(LastCType)
+   Excluded = ChunkStory(LastCType,"Fix")
    
    for name in CHUNKS:
        if name not in Excluded:
@@ -2173,8 +2218,7 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
        if name.lower() == CType.lower():
                if name == CType:
                       print("\n-Chunk name:"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
-                      #if next == None:
-                      ToHistory(bytes.fromhex(ChunkType))
+                      #ToHistory(bytes.fromhex(ChunkType))
                       return(None)
 
                else:
@@ -2190,7 +2234,7 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
        if name.lower() == CType.lower():
                if name == CType:
                       print("\n-Private Chunk name:"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
-                      ToHistory(bytes.fromhex(ChunkType))
+                      #ToHistory(bytes.fromhex(ChunkType))
                       return(None)
 
                else:
@@ -2252,9 +2296,9 @@ def CheckLength(Cdata,Clen,Ctype):
             print("..And this is what iv found there: ",Candy("Color","yellow",bytes.fromhex(NextChunk).decode(errors="replace")))
 
        if bytes.fromhex(Ctype) == b'IEND' and int(Clen, 16) == 0:
-
+            ToHistory(b'IEND')
             if DATAX[-len(GoodEnding):].upper() == GoodEnding:
-                     Critical()
+                     ChunkStory(b'IEND',"Critical")
                      print("\nBut thats only because this is the end of file. ",Candy("Emoj","good"))
                      SideNote.append("-Reach the end of file without error.")
 
@@ -2267,7 +2311,7 @@ def CheckLength(Cdata,Clen,Ctype):
 
        CheckChunkName(NextChunk,int(Clen,16),Ctype,True)
 
-def Checksum(Ctype, Cdata, Crc):
+def Checksum(Ctype, Cdata, Crc,next=None):
     Candy("Title","Check Crc Validity:")
     Cdata = bytes.fromhex(Cdata)
     Ctype = bytes.fromhex(Ctype)
@@ -2275,6 +2319,8 @@ def Checksum(Ctype, Cdata, Crc):
     checksum = hex(binascii.crc32(Ctype+Cdata))
     if checksum == Crc:
         print("-Crc Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+        if next == None:
+             ToHistory(Ctype)
         return(None)
     else:
         print("-Crc Check :"+Candy("Color","red"," FAILED ")+Candy("Emoj","bad"))
