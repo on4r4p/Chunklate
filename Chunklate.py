@@ -911,7 +911,8 @@ def GetInfo(Chunk,data):
     zTXt_Key=""
     tEXt_Text=""
     tEXt_Key=""
-    sPLT_Name =""
+    Name =""
+    lastnm = ""
 
     ToFix = []
 
@@ -1130,30 +1131,31 @@ def GetInfo(Chunk,data):
 
         sPLT_Ln = len(data)
         null_pos=NullFind(data)
-        sPLT_Name = data[:null_pos]
+        Name = data[:null_pos]
+        ChrName = ""
         badchar=["badchar"]
 
-        for i in range(0,len(sPLT_Name),2):
+        for i in range(0,len(Name),2):
           nint = int(data[i:i+2],16)
           nchar = chr(nint)
 
           if (nint not in range(32,127)) and (nint not in range(161,256)):
                   print("-Character %s at index %s in sPLT_Name\n-Replaced by [€] %s"%(Candy("Color","red","not allowed ["+nchar+"]"),Candy("Color","red",i),Candy("Emoj","bad")))
-                  sPLT_Name += "€"
+                  ChrName += "€"
                   badchar.append(i)
           else:
-               sPLT_Name += nchar
+               ChrName += nchar
 
         if len(badchar) > 1:
              ToFix.append(badchar)
-
-        sPLT_Depht = str(int(data[null_pos+2:null_pos+4],16))
-        if sPLT_Depht != "8" and sPLT_Depht != "16":
-            print("-Sample depth is %s it must be 8 or 16 :%s %s"%(Candy("Color","red","not correct"),Candy("Color","red",sPLT_Depht),Candy("Emoj","bad")))
+        
+        Depht = str(int(data[null_pos+2:null_pos+4],16))
+        if Depht != "8" and Depht != "16":
+            print("-Sample depth is %s it must be 8 or 16 :%s %s"%(Candy("Color","red","not correct"),Candy("Color","red",Depht),Candy("Emoj","bad")))
             ToFix.append("depth")
         pos = 0
         for i in range(sPLT_Ln):
-             if sPLT_Depht == "8":
+             if Depht == "8":
                  sPLT_Red.append(data[:pos])
                  sPLT_Green.append(data[pos:pos+2])
                  sPLT_Blue.append(data[pos+2:pos+4])
@@ -1161,7 +1163,7 @@ def GetInfo(Chunk,data):
                  sPLT_Freq.append(data[pos+6:pos+8])
                  pos += 8
 
-             if sPLT_Depht == "16":
+             if Depht == "16":
                  sPLT_Red.append(data[:pos])
                  sPLT_Green.append(data[pos:pos+4])
                  sPLT_Blue.append(data[pos+4:pos+8])
@@ -1172,19 +1174,20 @@ def GetInfo(Chunk,data):
                   break
 
 
-        if len(sPLT_Name) >79:
+        if len(Name) >79:
                print("-Length of sPLT name is %s :%s %s"%(Candy("Color","red","not Valid (Too long >79)"),Candy("Color","red",i),Candy("Emoj","bad")))
                ToFix.append("name")
 
+        print("-sPLT name : ",Candy("Color","white",ChrName))
 
         print("-%s Suggested Red palettes are stored."%Candy("Color","yellow",len(sPLT_Red)))
 
-        if sPLT_Depht == "8":
+        if Depht == "8":
           if not str(int(len(sPLT_Red))/6).endswith(".0"):
              print("-%s Red sPLT length: %s /6= %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Red)),str(len(sPLT_Red)/6),Candy("Emoj","bad"))) 
              ToFix.append("div8r")
 
-        elif sPLT_Depht == "16":
+        elif Depht == "16":
           if not str(int(len(sPLT_Red))/10).endswith(".0"):
              print("-%s Red sPLT length: %s/10= %s (not divisible by 10). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Red)),str(len(sPLT_Red)/10),Candy("Emoj","bad")))
              ToFix.append("div16r")
@@ -1192,25 +1195,25 @@ def GetInfo(Chunk,data):
         print("-%s Suggested Green palettes are stored."%Candy("Color","yellow",len(sPLT_Green)))
 
 
-        if sPLT_Depht == "8":
+        if Depht == "8":
           if not str(int(len(sPLT_Green))/6).endswith(".0"):
              print("-%s Green sPLT length: %s /6= %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Green)),str(len(sPLT_Green)/6),Candy("Emoj","bad")))
              ToFix.append("div8g")
 
-        elif sPLT_Depht == "16":
+        elif Depht == "16":
           if not str(int(len(sPLT_Green))/10).endswith(".0"):
-             print("-%s Green sPLT length: %s/10= %s (not divisible by 10). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Green)),Candy("Color","red",str(len(sPLT_Green)/10)),Candy("Emoj","bad")))
+             print("-%s Green sPLT length: %s/10= %s (not divisible by 10). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Green)),str(len(sPLT_Green)/10),Candy("Emoj","bad")))
              ToFix.append("div16g")
 
         print("-%s Suggested Blue palettes are stored."%Candy("Color","yellow",len(sPLT_Blue)))
 
 
-        if sPLT_Depht == "8":
+        if Depht == "8":
           if not str(int(len(sPLT_Blue))/6).endswith(".0"):
              print("-%s Blue sPLT length: %s /6= %s (not divisible by 6). %s "%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Blue)),str(len(sPLT_Blue)/6),Candy("Emoj","bad")))
              ToFix.append("div8b")
 
-        elif sPLT_Depht == "16":
+        elif Depht == "16":
           if not str(int(len(sPLT_Blue))/10).endswith(".0"):
              print("-%s Blue sPLT length:%s /10= %s (not divisible by 10). %s "%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Blue)),str(len(sPLT_Blue)/10),Candy("Emoj","bad")))
              ToFix.append("div16b")
@@ -1220,12 +1223,12 @@ def GetInfo(Chunk,data):
 
         print("-%s Suggested Alpha palettes are stored."%Candy("Color","yellow",len(sPLT_Alpha)))
 
-        if sPLT_Depht == "8":
+        if Depht == "8":
           if not str(int(len(sPLT_Alpha))/6).endswith(".0"):
              print("-%s Alpha sPLT length: %s /6= %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Alpha)),str(len(sPLT_Alpha)/6),Candy("Emoj","bad")))
              ToFix.append("div8a")
 
-        elif sPLT_Depht == "16":
+        elif Depht == "16":
           if not str(int(len(sPLT_Alpha))/10).endswith(".0"):
              print("-%s Aplha sPLT length:%s /10= %s (not divisible by 10). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Alpha)),str(len(sPLT_Alpha)/10),Candy("Emoj","bad")))
              ToFix.append("div16a")
@@ -1234,15 +1237,24 @@ def GetInfo(Chunk,data):
 
         print("-%s Suggested Frequency values are stored."%Candy("Color","yellow",len(sPLT_Freq)))
 
-        if sPLT_Depht == "8":
+        if Depht == "8":
           if not str(int(len(sPLT_Freq))/6).endswith(".0"):
              print("-%s Frequency sPLT length: %s /6= %s (not divisible by 6). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Freq)),str(len(sPLT_Freq)/6),Candy("Emoj","bad")))
              ToFix.append("div8f")
 
-        elif sPLT_Depht == "16":
+        elif Depht == "16":
           if not str(int(len(sPLT_Freq))/10).endswith(".0"):
              print("-%s Frequency sPLT length:%s /10= %s (not divisible by 10). %s"%(Candy("Color","red","Wrong"),Candy("Color","red",len(sPLT_Freq)),str(len(sPLT_Freq)/10),Candy("Emoj","bad")))
              ToFix.append("div16f")
+
+        sPLT_Depht.append(Depht)
+        sPLT_Name.append(Name)
+
+        for nm in sPLT_Name:
+            if sPLT_Name.count(nm) >1 and nm != lastnm:
+                print("-sPLT can be used multiple times %s share the same name. %s "%(Candy("Color","red","but cannot"),Candy("Emoj","bad")))
+                lastnm = nm
+                ToFix.append("name")
 
         if len(ToFix) >0:
               if len(badchar) >1:
@@ -2065,6 +2077,13 @@ def ChunkStory(lastchunk,mode):
 #    print(Excluded)
     print("So far we came across those chunks in %s :\n\n%s\n"%(Sample_Name,[i.decode() for i in Used_Chunks]))
 
+    if lastchunk in OnlyOnce:
+         if Chunks_History.count(lastchunk) > 1:
+               print("-%s chunk %s be used multiple times."%(Candy("Color","red",lastchunk.decode()),Candy("Color","red","cannot")))
+               ToFix.append("Multiple")
+
+
+
     if b"IDAT" in Used_Chunks:
          shutup = [Excluded.append(forbid) for forbid in CHUNKS if forbid in Before_IDAT]
          if lastchunk in Excluded:
@@ -2465,8 +2484,8 @@ pCAL_PNBR=""
 PLTE_R=[]
 PLTE_G=[]
 PLTE_B=[]
-sPLT_Name = ""
-sPLT_Depht = ""
+sPLT_Name = []
+sPLT_Depht = []
 sPLT_Red=[]
 sPLT_Green=[]
 sPLT_Blue=[]
