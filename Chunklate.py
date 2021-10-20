@@ -572,306 +572,286 @@ def SaveErrors(Chunk,Err,Data=None):#TODO#TOFIX
 
    Candy("Title","Keeping Tracks of Errors:")
    print(Candy("Color","purple","-ToDo -Fix crc based on errors found\n-Not Implemented yet\n"))
-
    if Chunk not in ErrorsFlag: ErrorsFlag.append(Chunk)
-   #[ErrorsList.append(Chunk+":"+e) for e in Err] 
-
-
-
-   if Chunk == "IHDR":
-     for e in Err:
-       if "-IHDR Width : Wrong size Must be between 1 to 2147483647." == str(e):
-          SideNote.append(str(e))
-       elif "-IHDR Height : Wrong size Must be between 1 to 2147483647." == str(e):
-          SideNote.append(str(e))
-       elif "IHDR size have to always be 13 bytes" == str(e):
-          SideNote.append(str(e))
-       elif "-IHDR Depht: Wrong bit depht with IHDR Color type 3 (depht must be 1,2,4 or 8)" == str(e):
-          SideNote.append(str(e))
-       elif "-IHDR Bit depht :Wrong bit value Must be 1,2,4,8 or 16" == str(e):
-         SideNote.append(str(e))
-       elif "-IHDR Filter Method :Wrong value must be 0." == str(e):
-         SideNote.append(str(e))
-       elif "-IHDR Compression Algorithms : Wrong value must be 0." == str(e):
-         SideNote.append(str(e))
-       elif "-IHDR Interlace Method : Wrong value must be 0 (no interlace) or 1 (Adam7 interlace)." == str(e):
-         SideNote.append(str(e))
-       else:
-         SideNote.append("-"+str(Chunk)+" :"+str(e))
-
-
-   if Chunk == "pHYs":
-     for e in Err:
-       if "-pHYs Pixels per unit, Y axis : Wrong size Must be between 1 to 2147483647." == str(e):
-         SideNote.append(str(e))
-       elif "-pHYs Pixels per unit, X axis : Wrong size Must be between 1 to 2147483647." == str(e):
-         SideNote.append(str(e))
-       elif "-pHYs Unit specifier : Must be between 0 (unknown) or 1(meter)." == str(e):
-          SideNote.append(str(e))
-
-       else:
-         SideNote.append("-"+str(Chunk)+" :"+str(e))
-
-   if Chunk == "bKGD":
-     for e in Err:
-       if "-bKGD Gray level :Wrong value Must be less than" in str(e):
-          SideNote.append(str(e))
-       elif "-bKGD Red level :Wrong value Must be less than" in str(e):
-          SideNote.append(str(e))
-       elif "-bKGD Green level :Wrong value Must be less than" in str(e):
-          SideNote.append(str(e))
-       elif "-bKGD Blue level :Wrong value Must be less than" in str(e):
-          SideNote.append(str(e))
-       else:
-         SideNote.append("-"+str(Chunk)+" :"+str(e))
-
-   if Chunk == "PLTE":
-     for e in Err:
-       if "-PLTE Total palettes number must be divisible by 3" == str(e):
-          SideNote.append(str(e))
-       elif "PLTE Red palettes entry must Not be empty" == str(e):
-           SideNote.append(str(e))
-       elif "PLTE Green palettes entry must Not be empty" == str(e):
-           SideNote.append(str(e))
-       elif "PLTE Blue palettes entry must Not be empty" == str(e):
-           SideNote.append(str(e))
-       elif "-PLTE Green palettes not in bitdepht range" == str(e):
-          SideNote.append(str(e))
-       elif "-PLTE Red palettes not in bitdepht range" == str(e):
-          SideNote.append(str(e))
-       elif "-PLTE Blue palettes not in bitdepht range" == str(e):
-          SideNote.append(str(e))
-       elif "Error PLTER wrong value at" in str(e):
-          SideNote.append(str(e))
-          
-       elif "Error PLTEG wrong value at" in str(e):
-          SideNote.append(str(e))
-
-       elif "Error PLTEB wrong value at" in str(e):
-          SideNote.append(str(e))
-       else:
-         SideNote.append("-"+str(Chunk)+" :"+str(e))
-
-   if Chunk =="iCCP":
-     for e in Err:
-       if "-Length of iCCP Profile name is not valid" == str(e):
-         SideNote.append(str(e))
-
-       elif "badchar" == str(e):
-
-         for bad in e[1:]:
-             SideNote.append("-iCCP name Wrong Character at:"+str(bad))
-
-       elif "-iCCP Wrong Compression Method value" == str(e):
-         SideNote.append(str(e))
-
-       elif "-iCCP Profile length is not valid" == str(e):
-         SideNote.append(str(e))
-
-       else:
-         SideNote.append("-"+str(Chunk)+" :"+str(e))
-
-   if Chunk =="sPLT":
-     for e in Err:
-       if "badchar" in str(e):
-         for bad in e[1:]:
-             SideNote.append("-sPLT name Wrong Character at:"+str(bad))
- 
-       elif "-sPLT Sample depth have to be either 8 or 16" == str(e):
-         SideNote.append(str(e))
-
-       elif "-sPLT name is too long" == str(e):
-         SideNote.append(str(e))
-
-       elif "-Red sPLT length is not divisible by 6" == str(e):
-         SideNote.append(str(e))
-
-       elif "-Red sPLT length is not divisible by 10" == str(e):
-         SideNote.append(str(e))
-
-       elif "-Green sPLT length is not divisible by 6" == str(e):
-         SideNote.append(str(e))
-
-       elif "-Green sPLT length is not divisible by 10" == str(e):
-         SideNote.append(str(e))
-
-       elif "-Blue sPLT length is not divisible by 6" == str(e):
-         SideNote.append(str(e))
-
-       elif "-Blue sPLT length is not divisible by 10" == str(e):
-         SideNote.append(str(e))
-
-       elif "-Alpha sPLT length is not divisible by 6" == str(e):
-         SideNote.append(str(e))
-
-       elif "-Alpha sPLT length is not divisible by 10" == str(e):
-         SideNote.append(str(e))
-
-       elif "-Frequency sPLT length is not divisible by 6" == str(e):
-         SideNote.append(str(e))
-
-       elif "-Frequency sPLT length is not divisible by 10" == str(e):
-         SideNote.append(str(e))
-
-       else:
-         SideNote.append("-"+str(Chunk)+" :"+str(e))
-
-   if Chunk == "hIST":
-
-     for e in Err:
-       if "-Histogram sPLT or PLTE have are missing and must be place before hIST" == str(e):
-         SideNote.append(str(e))
-       elif "Histogram frequencies entries must match PLTE entries number" == str(e):
-         SideNote.append(str(e))
-       elif "-Histogram frequencies entries must match sPLT entries number" == str(e):
-         SideNote.append(str(e))
-
-       else:
-         SideNote.append("-"+str(Chunk)+" :"+str(e))
-
-   if Chunk == "tRNS":
-     for e in Err: 
-       print(e)
-       if "-tRNS:sPLT or PLTE have are missing and must be place before tRNS" == str(e):
-         SideNote.append(str(e))
-       elif "-tRNS Alpha palettes indexes entries must match PLTE entries number" == str(e):
-         SideNote.append(str(e))
-       elif "IHDR Color Have to be either 0,2 or 3 when used with tRNS" == str(e):
-         SideNote.append(str(e))
-       elif "-tRNS Chunk Must not be empty" == str(e):
-         SideNote.append(str(e))
-       elif "-Error tRNS_Gray:" in str(e):
-         SideNote.append(str(e))
-       elif "-Error tRNS_TrueR:" in str(e):
-         SideNote.append(str(e))
-       elif "-Error tRNS_TrueG:" in str(e):
-         SideNote.append(str(e))
-       elif "-Error tRNS_TrueB:" in str(e):
-         SideNote.append(str(e))
-       elif "-tRNS Alpha indexes palettes entries must not be superior to sPLT entries" in str(e):
-         SideNote.append(str(e))
-       elif "-tRNS Alpha indexes palettes entries must not be superior to PLTE entries" in str(e):
-         SideNote.append(str(e))
-       elif "-Error tRNS_Index:" in str(e):
-         SideNote.append(str(e))
-
-
-       else:
-         SideNote.append("-"+str(Chunk)+" :"+str(e))
-
-   if Chunk == "sRGB":
-     for e in Err:
-       if "-sRGB value must be between 0 to 3." == str(e):
-         SideNote.append(str(e))
-
-       elif "-cHRM is overided by sRGB chunk" in str(e):
-          SideNote.append(str(e))
-       else:
-         SideNote.append("-"+str(Chunk)+" :"+str(e))
-
-
-   if Chunk == "cHRM":
-     for e in Err:
-       if "-cHRM is overided by sRGB chunk and iCCP" == str(e):
-         SideNote.append(str(e))
-       else:
-         SideNote.append("-"+str(Chunk)+" :"+str(e))
-
-   if Chunk == "sBIT":
-     for e in Err:
-       if "-sBit gray value must be greater than 0" == str(e):
-          SideNote.append(str(e))
-
-       elif "-sBit True Red value must be greater than 0" == str(e):
-          SideNote.append(str(e))
-
-
-       elif "-sBit True Green value must be greater than 0" == str(e):
-          SideNote.append(str(e))
-
-
-       elif "-sBit True Blue value must be greater than 0" == str(e):
-          SideNote.append(str(e))
-
-       elif "-sBit Grayscale value must be greater than 0" == str(e):
-          SideNote.append(str(e))
-
-       elif "-sBit Grayscale Alpha value must be greater than 0" == str(e):
-          SideNote.append(str(e))
-
-       elif "-sBit True Alpha Red value must be greater than 0" == str(e):
-         SideNote.append(str(e))
-
-       elif "-sBit True Alpha Green value must be greater than 0" == str(e):
-         SideNote.append(str(e))
- 
-       elif "-sBit True Alpha Blue value must be greater than 0" == str(e):
-          SideNote.append(str(e))
-
-       elif "-sBit True Alpha value must be greater than 0" == str(e):
-          SideNote.append(str(e))
-
-       elif "-sBit True red value must not be greater than 8" == str(e):
-          SideNote.append(str(e))
-
-       elif "-sBit True green value must not be greater than 8" == str(e):
-          SideNote.append(str(e))
-
-       elif "-sBit True blue value must not be greater than 8" == str(e):
-          SideNote.append(str(e))
-
-       elif "-sBit True red value must not be greater than " in str(e):
-          SideNote.append(str(e))
-       elif "-sBit True green value must not be greater than " in str(e):
-          SideNote.append(str(e))
-
-       elif "-sBit True blue value must not be greater than " in str(e):
-          SideNote.append(str(e))
-
-       elif "-sBit Grayscale value must not be greater than " in str(e):
-          SideNote.append(str(e))
-
-       elif "-sBit Grayscale Alpha value must not be greater than " in str(e):
-          SideNote.append(str(e))
-
-       elif "-sBit True Alpha value must not be greater than " in str(e):
-          SideNote.append(str(e))
-       else:
-         SideNote.append("-"+str(Chunk)+" :"+str(e))
-
-   if Chunk == "oFFs":
-     for e in Err:
-       if "-oFFs position Y must be between -2,147,483,647 to +2,147,483,647" == str(e):
-          SideNote.append(str(e))
-       elif "-oFFs position Y must be between -2,147,483,647 to +2,147,483,647" == str(e):
-          SideNote.append(str(e))
-       elif "-oFFs unit value must be between 0 or 1" == str(e):
-          SideNote.append(str(e))
-       else:
-         SideNote.append("-"+str(Chunk)+" :"+str(e))
-
-
-   if Chunk == "tIME":
-     for e in Err:
-        if "-tIME Year is > than the current year" == str(e):
-            SideNote.append(str(e))
-        elif "-tIME Month value is not valid" == str(e):
-            SideNote.append(str(e))
-        elif "-tIME Day value is not valid" == str(e):
-            SideNote.append(str(e))
-        elif "-tIME Hour value is not valid" == str(e):
-            SideNote.append(str(e))
-        elif "-tIME Minute value is not valid" == str(e):
-            SideNote.append(str(e))
-        elif "-tIME Second value is not valid" == str(e):
-            SideNote.append(str(e))
-        else:
-          SideNote.append("-"+str(Chunk)+" :"+str(e))
-
+#   print("Chnk:",Chunk)
+#   print("Err:",Err)
    if Chunk == "Critical":
        for chnk in Err:
+          print("-CriticalHit!:",chnk)
           SideNote.append("-Critical Chunk %s is missing"%chnk)
-
+   elif type(Err) == list:
+       for e in Err:
+           if "cHRM is missplaced must appears before PLTE Chunk" in str(e):
+               print("-CriticalMiss!:",e)
+               SideNote.append(str(e))
+           elif "badchar" == str(e):
+               print("-CriticalMiss!:",e)
+               for bad in e[1:]:
+                   SideNote.append("-iCCP name Wrong Character at:"+str(bad))
+           elif "-IHDR Width : Wrong size Must be between 1 to 2147483647." == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-IHDR Height : Wrong size Must be between 1 to 2147483647." == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "IHDR size have to always be 13 bytes" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-IHDR Color 3: Wrong bit depht with IHDR Color type 3 (depht must be 1,2,4 or 8)":
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-IHDR Depht: Wrong bit depht with IHDR Color type 3 (depht must be 1,2,4 or 8)" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-IHDR Bit depht :Wrong bit value Must be 1,2,4,8 or 16" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-IHDR Filter Method :Wrong value must be 0." == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-IHDR Compression Algorithms : Wrong value must be 0." == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-IHDR Interlace Method : Wrong value must be 0 (no interlace) or 1 (Adam7 interlace)." == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-pHYs Pixels per unit, Y axis : Wrong size Must be between 1 to 2147483647." == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-pHYs Pixels per unit, X axis : Wrong size Must be between 1 to 2147483647." == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-pHYs Unit specifier : Must be between 0 (unknown) or 1(meter)." == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-bKGD Gray level :Wrong value Must be less than" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-bKGD Red level :Wrong value Must be less than" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-bKGD Green level :Wrong value Must be less than" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-bKGD Blue level :Wrong value Must be less than" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-PLTE Total palettes number must be divisible by 3" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "PLTE Red palettes entry must Not be empty" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "PLTE Green palettes entry must Not be empty" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "PLTE Blue palettes entry must Not be empty" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-PLTE Green palettes not in bitdepht range" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-PLTE Red palettes not in bitdepht range" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-PLTE Blue palettes not in bitdepht range" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "Error PLTER wrong value at" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "Error PLTEG wrong value at" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "Error PLTEB wrong value at" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Length of iCCP Profile name is not valid" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-iCCP Wrong Compression Method value" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-iCCP Profile length is not valid" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sPLT Sample depth have to be either 8 or 16" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sPLT name is too long" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Red sPLT length is not divisible by 6" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Red sPLT length is not divisible by 10" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Green sPLT length is not divisible by 6" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Green sPLT length is not divisible by 10" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Blue sPLT length is not divisible by 6" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Blue sPLT length is not divisible by 10" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Alpha sPLT length is not divisible by 6" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Alpha sPLT length is not divisible by 10" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Frequency sPLT length is not divisible by 6" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Frequency sPLT length is not divisible by 10" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Histogram sPLT or PLTE have are missing and must be place before hIST" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "Histogram frequencies entries must match PLTE entries number" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Histogram frequencies entries must match sPLT entries number" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-tRNS:sPLT or PLTE have are missing and must be place before tRNS" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-tRNS Alpha palettes indexes entries must match PLTE entries number" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "IHDR Color Have to be either 0,2 or 3 when used with tRNS" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-tRNS Chunk Must not be empty" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Error tRNS_Gray:" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Error tRNS_TrueR:" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Error tRNS_TrueG:" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Error tRNS_TrueB:" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-tRNS Alpha indexes palettes entries must not be superior to sPLT entries" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-tRNS Alpha indexes palettes entries must not be superior to PLTE entries" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-Error tRNS_Index:" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sRGB value must be between 0 to 3." == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-cHRM is overided by sRGB chunk" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-cHRM is overided by sRGB chunk and iCCP" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "is missplaced must appears before PLTE Chunk" in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit gray value must be greater than 0" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit True Red value must be greater than 0" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit True Green value must be greater than 0" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit True Blue value must be greater than 0" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit Grayscale value must be greater than 0" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit Grayscale Alpha value must be greater than 0" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit True Alpha Red value must be greater than 0" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit True Alpha Green value must be greater than 0" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit True Alpha Blue value must be greater than 0" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit True Alpha value must be greater than 0" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit True red value must not be greater than 8" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit True green value must not be greater than 8" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit True blue value must not be greater than 8" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit True red value must not be greater than " in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit True green value must not be greater than " in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit True blue value must not be greater than " in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit Grayscale value must not be greater than " in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit Grayscale Alpha value must not be greater than " in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-sBit True Alpha value must not be greater than " in str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-oFFs position Y must be between -2,147,483,647 to +2,147,483,647" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-oFFs position Y must be between -2,147,483,647 to +2,147,483,647" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-oFFs unit value must be between 0 or 1" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-tIME Year is > than the current year" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-tIME Month value is not valid" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-tIME Day value is not valid" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-tIME Hour value is not valid" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-tIME Minute value is not valid" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           elif "-tIME Second value is not valid" == str(e):
+              print("-CriticalMiss!:",e)
+              SideNote.append(str(e))
+           else:
+              print("-Unkown Error"+str(Chunk)+" :"+str(e))
+              SideNote.append("-Unkown Error "+str(Chunk)+" :"+str(e))
 #   TheEnd()
 
 def NullFind(data,search4=None):
@@ -1663,27 +1643,64 @@ def GetInfo(Chunk,data):
          
 
     if Chunk == "cHRM":
+             try:
+                cHRM_WhiteX=str(int.from_bytes(bytes.fromhex(data[:8]),byteorder='big',signed=False))
+                print("-WhiteX   :",Candy("Color","white",cHRM_WhiteX))
+             except Exception as e:
+                print(Candy("Color","red","-cHRM WhiteX Error::"),Candy("Color","yellow",e))
+                ToFix.append("-cHRM WhiteX Error:"+str(e))
+             try:
+                cHRM_WhiteY=str(int.from_bytes(bytes.fromhex(data[8:16]),byteorder='big',signed=False))
+                print("-WhiteY   :",Candy("Color","white",cHRM_WhiteY))
+             except Exception as e:
+                print(Candy("Color","red","-cHRM WhiteY Error:"),Candy("Color","yellow",e))
+                ToFix.append("-cHRM WhiteY Error:"+str(e))
 
-             cHRM_WhiteX=str(int(data[:8],16))
-             cHRM_WhiteY=str(int(data[8:16],16))
-             cHRM_Redx=str(int(data[16:24],16))
-             cHRM_Redy=str(int(data[24:32],16))
-             cHRM_Greenx=str(int(data[32:40],16))
-             cHRM_Greeny=str(int(data[40:48],16))
-             cHRM_Bluex=str(int(data[48:56],16))
-             cHRM_Bluey=str(int(data[56:64],16))
-             print("-WhiteX   :",Candy("Color","white",cHRM_WhiteX))
-             print("-WhiteY   :",Candy("Color","white",cHRM_WhiteY))
-             print("-RedX     :",Candy("Color","red",cHRM_Redx))
-             print("-RedY     :",Candy("Color","red",cHRM_Redy))
-             print("-GreenX   :",Candy("Color","green",cHRM_Greenx))
-             print("-GreenY   :",Candy("Color","green",cHRM_Greeny))
-             print("-BlueX    :",Candy("Color","blue",cHRM_Bluex))
-             print("-BlueY    :",Candy("Color","blue",cHRM_Bluey))
+             try:
+                cHRM_Redx=str(int.from_bytes(bytes.fromhex(data[16:24]),byteorder='big',signed=False))
+                print("-RedX     :",Candy("Color","red",cHRM_Redx))
+             except Exception as e:
+                print(Candy("Color","red","-cHRM RedX Error:"),Candy("Color","yellow",e))
+                ToFix.append("-cHRM RedX Error:"+str(e))
+
+             try:
+                cHRM_Redy=str(int.from_bytes(bytes.fromhex(data[24:32]),byteorder='big',signed=False))
+                print("-RedY     :",Candy("Color","red",cHRM_Redy))
+             except Exception as e:
+                print(Candy("Color","red","-cHRM RedY Error:"),Candy("Color","yellow",e))
+                ToFix.append("-cHRM RedY Error:"+str(e))
+
+             try:
+                cHRM_Greenx=str(int.from_bytes(bytes.fromhex(data[32:40]),byteorder='big',signed=False))
+                print("-GreenX   :",Candy("Color","green",cHRM_Greenx))
+             except Exception as e:
+                print(Candy("Color","red","-cHRM GreenX Error:"),Candy("Color","yellow",e))
+  #              ToFix.append("-cHRM GreenX Error:"+str(e))
+#
+             try:
+                cHRM_Greeny=str(int.from_bytes(bytes.fromhex(data[40:48]),byteorder='big',signed=False))
+                print("-GreenY   :",Candy("Color","green",cHRM_Greeny))
+             except Exception as e:
+                print(Candy("Color","red","-cHRM GreenY Error:"),Candy("Color","yellow",e))
+                ToFix.append("-cHRM GreenY Error:"+str(e))
+
+             try:
+                cHRM_Bluex=str(int.from_bytes(bytes.fromhex(data[48:56]),byteorder='big',signed=False))
+                print("-BlueX    :",Candy("Color","blue",cHRM_Bluex))
+             except Exception as e:
+                print(Candy("Color","red","-cHRM BlueX Error:"),Candy("Color","yellow",e))
+                ToFix.append("-cHRM BlueX Error:"+str(e))
+
+             try:
+                cHRM_Bluey=str(int.from_bytes(bytes.fromhex(data[56:64]),byteorder='big',signed=False))
+                print("-BlueY    :",Candy("Color","blue",cHRM_Bluey))
+             except Exception as e:
+                print(Candy("Color","red","-cHRM BluY Error:"),Candy("Color","yellow",e))
+                ToFix.append("-cHRM BlueY Error:"+str(e))
 
              if "sRGB".encode() in Chunks_History or "iCCP".encode() in Chunks_History:
                  print("-%s or %s already present cHRM will be overide if reconized by decoders %s"%(Candy("Color","red","sRGB"),Candy("Color","red","iCCP"),Candy("Emoj","bad")))
-                 ToFix.append("overide")
+                 ToFix.append("-cHRM is overided by sRGB chunk and iCCP")
 
              if len(ToFix) >0:
                  SaveErrors(Chunk,ToFix)
@@ -1693,9 +1710,11 @@ def GetInfo(Chunk,data):
              
 
     if Chunk == "gAMA":
+           try:
              gAMA=str(int(data[:8],16))
              print("-Gama   :",Candy("Color","white",gAMA))
-             
+           except Exception as e:
+             ToFix.append("-Gama value error"+str(e))
 
     if Chunk == "iCCP":
         null="00"
@@ -2318,10 +2337,15 @@ def ChunkStory(lastchunk,mode):
   ToFix = []
   Before_PLTE= [b'PNG', b'IHDR', b'gAMA', b'cHRM', b'iCCP', b'sRGB', b'sBIT']
   After_PLTE= [b'tRNS', b'hIST', b'bKGD'] #but before idat
+
   Before_IDAT=[b'PNG',b'sPLT',b'sBIT', b'pHYs', b'tRNS', b'hIST', b'bKGD', b'gAMA',b'iCCP',b'sRGB', b'cHRM', b'PLTE', b'IHDR', b'bKGD']
+
   Before_IDAT2=[b'IHDR',b'sPLT',b'sBIT', b'pHYs', b'tRNS', b'hIST', b'bKGD', b'gAMA',b'iCCP',b'sRGB', b'cHRM', b'PLTE', b'IHDR', b'bKGD']
-  OnlyOnce=[b'sBIT', b'IEND', b'tRNS', b'hIST', b'sTER', b'iCCP', b'sRGB', b'gAMA', b'sCAL', b'cHRM', b'bKGD', b'IHDR', b'oFFs', b'pCAL', b'PLTE', b'pHYs', b'IEND',b'eXIf']
+
+  OnlyOnce=[b'PNG',b'sBIT', b'IEND', b'tRNS', b'hIST', b'sTER', b'iCCP', b'sRGB', b'gAMA', b'sCAL', b'cHRM', b'bKGD', b'IHDR', b'oFFs', b'pCAL', b'PLTE', b'pHYs', b'IEND',b'eXIf']
+
   Anywhere=[b'tIME', b'tEXt', b'zTXt', b'iTXt', b'fRAc', b'gIFg', b'gIFx', b'gIFt']
+
   Criticals =[b'PNG',b'IHDR',b'IDAT',b'IEND']
 
   try:
@@ -2366,6 +2390,13 @@ def ChunkStory(lastchunk,mode):
           print("-IHDR Chunk have to be placed %s and after Png Signature. %s"%(Candy("Color","red","Befor all the other chunks"),Candy("Emoj","bad")))
           ToFix.append("Missplaced")
 
+    if b"PLTE" in Used_Chunks:
+          if lastchunk in Before_PLTE:
+            shutup = [Excluded.append(forbid) for forbid in CHUNKS if forbid in Before_PLTE]
+            if lastchunk in Excluded:
+                   print("-%s  %s must appears before PLTE Chunk. %s"%(Candy("Color","red",lastchunk.decode()+" is missplaced"),lastchunk.decode(),Candy("Emoj","bad")))
+              #print(Excluded)
+                   ToFix.append(lastchunk.decode()+" is missplaced must appears before PLTE Chunk")
 
     if b"IDAT" not in Used_Chunks:
           pass

@@ -4,7 +4,7 @@
 
 **Chunklate** checks png images for file format corruption and fix them .
 
-Currently **Chunklate** is in beta and able to provide those features:
+Currently **Chunklate** is in beta and it's aim is to be able to provide those features:
 
 - Provide all informations it could get from a png file
 - Repair Magic Header and Footer
@@ -24,12 +24,12 @@ Currently **Chunklate** is in beta and able to provide those features:
 
 
 ## Usage
-> 
-> usage: Chunklate.py [-h] [-f FILE] [-c] [-p]
-> 
-> optional arguments:
->   -h, --help            show this help message and exit
->   -f FILE, --file FILE  File path.
->   -c, --clear           Clear screen at each saves.
->   -p, --pause           Pause at each saves.
-> 
+
+`usage: Chunklate.py [-h] [-f FILE] [-c] [-p]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -f FILE, --file FILE  File path.
+  -c, --clear           Clear screen at each saves.
+  -p, --pause           Pause at each saves.
+` 
