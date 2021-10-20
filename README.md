@@ -25,11 +25,10 @@ Currently **Chunklate** is in beta and it's aim is to be able to provide those f
 
 ## Usage
 
-`usage: Chunklate.py [-h] [-f FILE] [-c] [-p]
-
-optional arguments:
-  -h, --help            show this help message and exit
-  -f FILE, --file FILE  File path.
-  -c, --clear           Clear screen at each saves.
-  -p, --pause           Pause at each saves.
-` 
+    usage: Chunklate.py [-h] [-f FILE] [-c] [-p]
+    
+    optional arguments:
+      -h, --help            show this help message and exit
+      -f FILE, --file FILE  File path.
+      -c, --clear           Clear screen at each saves.
+      -p, --pause           Pause at each saves.
