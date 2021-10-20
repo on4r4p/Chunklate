@@ -399,6 +399,10 @@ def Candy(mode,arg,data=None):
              bad = ["(ಥ﹏ಥ)","(►_◄)","(◉ ︵◉)","ヽ(ｏ`皿′ｏ)ﾉ","凸ಠ益ಠ)凸","╯‵Д′)╯彡┻━┻","¯\_(⊙︿⊙)_/¯","ಠ︵ಠ凸","ヽ(`Д´)ﾉ","(╯°□°）╯︵ ┻━┻","(✖╭╮✖)","(︶︹︺)","(╯︵╰,)","ヽ(˚௰˚)づ","凸(⊙▂⊙✖ )","ᕕ༼ ͠ຈ Ĺ̯ ͠ຈ ༽┌∩┐","凸(>皿<)凸","ʕథ౪థʔ","༼ ༎ຶ ᆺ ༎ຶ༽","( ◥◣_◢◤ )","(━┳━ _ ━┳━)","┐(￣ヘ￣)┌","༼☯﹏☯༽","(° -°） ︵ ┻━┻ ","┻━┻︵ \(°□°)/ ︵ ┻━┻ ","◕︵◕","(◡︵◡)","(；⌣̀_⌣́)","( ´〒^〒`)","(；￣Д￣)","ʕTᴥT ʔ ","ヽ(๏ ∀๏ )ﾉ","┗(･ω･;)┛","(*￣o￣)","ヽ(O_O )ﾉ"]
              rnd = random.randint(0,len(bad)-1)
              return(bad[rnd])
+         if arg == "com":
+             com = ["´ ▽ ` )ﾉ","Σ ◕ ◡ ◕","٩(｡͡•‿•｡)۶","ᕕ( ᐛ )ᕗ","☜(⌒▽⌒)☞","(｡◕‿‿◕｡)","(ღ˘⌣˘ღ)","(∪ ◡ ∪)","(▰˘◡˘▰)","(✿ ♥‿♥)","(｡◕ ‿ ◕｡)","( ͡° ͜ʖ ͡°)","(/◔ ◡ ◔)/","(ᵔᴥᵔ)","ʕつ ͡◔ ᴥ ͡◔ʔつ","彡໒(⊙ᴗ⊙)७彡","(´◡`)","(✯◡✯)","(๑˘︶˘๑)","｡^‿^｡","ヽ(ヅ)ノ","(^人^)","(°◡°♡)","(♥ω♥*)","❀◕ ‿ ◕❀","(⁀ᗢ⁀)","ミ=͟͟͞͞(✿ʘ ᴗʘ)っ","ଘ(੭*ˊᵕˋ)੭* ̀ˋ","─=≡Σ((( つ•̀ω•́)つ ","~( ˘▾˘~)","(=^･ω･^=)"," ＼ʕ •ᴥ•ʔ／","ヽ(•‿•)ノ","ヾ(☆▽☆)","(ツ)","◝(^⌣^)◜","ʕ◉ᴥ◉ʔ"]
+             rnd = random.randint(0,len(com)-1)
+             return(com[rnd])
 
    if mode == "Color" and os.name != "nt":
          if arg == "red":
@@ -416,6 +420,58 @@ def Candy(mode,arg,data=None):
          return(prnt)
    elif mode == "Color" and os.name == "nt":
             prnt = data
+
+
+   if mode == "Cowsay":
+       BotL = "╰─"
+       BotR = "─╯"
+       mult = 0
+#       print("arg:",arg)
+#       print("barg:",arg.encode(errors='ignore'))
+       for chr in arg:
+                mult += 1
+       
+       if b"\x1b[1;31;49m" in arg.encode(errors='ignore'):
+           mult = mult - (len(b"\x1b[1;31;49m")*arg.encode(errors='ignore').count(b"\x1b[1;31;49m"))
+       if b"\x1b[1;32;49m" in arg.encode(errors='ignore'):
+           mult = mult - (len(b"\x1b[1;32;49m")*arg.encode(errors='ignore').count(b"\x1b[1;32;49m"))
+       if b"\x1b[1;33;49m" in arg.encode(errors='ignore'):
+           mult = mult - (len(b"\x1b[1;33;49m")*arg.encode(errors='ignore').count(b"\x1b[1;33;49m"))
+       if b"\x1b[1;34;49m" in arg.encode(errors='ignore'):
+           mult = mult - (len(b"\x1b[1;34;49m")*arg.encode(errors='ignore').count(b"\x1b[1;34;49m"))
+       if b"\x1b[1;35;49m" in arg.encode(errors='ignore'):
+           mult = mult - (len(b"\x1b[1;35;49m")*arg.encode(errors='ignore').count(b"\x1b[1;35;49m"))
+       if b"\x1b[1;37;49m" in arg.encode(errors='ignore'):
+           mult = mult - (len(b"\x1b[1;37;49m")*arg.encode(errors='ignore').count(b"\x1b[1;37;49m"))
+       if b"\x1b[m" in arg.encode(errors='ignore'):
+           mult = mult - (len(b"\x1b[m")*arg.encode(errors='ignore').count(b"\x1b[m"))
+       if b"\x0A" in arg.encode(errors='ignore'):
+           mult = mult - (len(b"\x0A")*arg.encode(errors='ignore').count(b"\x0A"))
+       Sep = "━"*mult 
+       Moj = Candy("Emoj","com")
+       CowSep = " "*len(Moj)
+       CowSep += "/\n"
+       CowSep += str(Moj)
+       Botrnp = BotL+Sep+BotR
+       prnt = "  " +str(arg)
+       if len(prnt) >= MAXCHAR:
+          fullprnt = prnt
+          prnt = "  "
+          mult = int(mult/2)+5
+          Sep = "━"*mult 
+          Botrnp = BotL+Sep+BotR
+          for i in range(0,len(fullprnt),mult):
+            if len(arg[i:]) > mult :
+              prnt += "  " +str(arg[i:i+mult])+"\n"
+            else:
+              prnt += "  " +str(arg[i:])
+       Cowsay = """
+%s
+%s
+%s
+"""%(prnt,Botrnp,CowSep)
+       print(Cowsay)
+
 
    if mode == "Title":
        BotL = "╰─"
@@ -2247,7 +2303,7 @@ def Double_Check(CType,bytesnbr,LastCType):
 
 def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
      Candy("Title","Chunk N Destroy:")
-     print("\nLet me check if i can fix that shit..")
+     Candy("Cowsay","Let me check if i can fix that shit..")
 
      if DoubleCheck is None:
          Excluded = ChunkStory(LastCType,"Fix")
@@ -2277,10 +2333,11 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
 #             print("scope.lower ",scope)
 #             print(Chk.lower() == scope)
              if Chk.lower() == scope:
-                 print("\nBingo!!!\n\n-Found the closest Chunk to our position:%s at offset %s %s"%(Candy("Color","green",Chk),Candy("Color","blue",NeedleX),Candy("Color","yellow",NeedleI)))
+                 Candy("Cowsay","Bingo!!!")
+                 print("-Found the closest Chunk to our position:%s at offset %s %s"%(Candy("Color","green",Chk),Candy("Color","blue",NeedleX),Candy("Color","yellow",NeedleI)))
                  if Chk in Excluded:
                         print("\n-Chunk position is %s %s\n"%(Candy("Color","red","Not Valid "),Candy("Emoj","bad")))
-                        print("\n...\n\nBut that chunk [%s] is not supposed to be here !\n\nITS A TRAP!\n\nRUN !!!!!!!\n\nRUN TO THE CHOPPER !!!\n"%Candy("Color","red",Chk))
+                        Candy("Cowsay","But that chunk [%s] is not supposed to be here !\n\nITS A TRAP!\n\nRUN !!!!!!!\n\nRUN TO THE CHOPPER !!!\n"%Candy("Color","red",Chk))
                         print("\n\nI seriously doubt that i could be of any uses with this one ..")
                         print("If you are sure %s is a png i can try to fill the gap but i cannot guarantee any result.."%Candy("Color","white",Sample_Name))
                         if b'IHDR' not in Chunks_History :
@@ -2374,7 +2431,7 @@ def ChunkStory(lastchunk,mode):
     Used_Chunks = list(dict.fromkeys(Chunks_History))
     Excluded = [used for used in Used_Chunks if used in OnlyOnce]
 #    print(Excluded)
-    print("So far we came across those chunks in %s :\n\n%s\n"%(Sample_Name,[i.decode() for i in Used_Chunks]))
+    Candy("Cowsay","So far we came across those chunks in "+Sample_Name + str([i.decode() for i in Used_Chunks]))
 
     if lastchunk in OnlyOnce:
          if lastchunk in Excluded:
@@ -2424,8 +2481,7 @@ def ChunkStory(lastchunk,mode):
   
     Used_Chunks = list(dict.fromkeys(Chunks_History))
     Excluded = [used for used in Used_Chunks if used in OnlyOnce]
-
-    print("So far we came across those chunks in %s :\n\n%s\n"%(Sample_Name,[i.decode() for i in Used_Chunks]))
+    Candy("Cowsay","So far we came across those chunks in "+Sample_Name + str([i.decode() for i in Used_Chunks]))
 
     if b"IDAT" not in Used_Chunks:
 
@@ -2445,19 +2501,17 @@ def ChunkStory(lastchunk,mode):
 
           if int(IHDR_Color) == 3:
                 shutup = [Excluded.append(forbid) for forbid in CHUNKS if forbid not in Before_PLTE]
-                print("\nAH ! I knew this day would come ...\nYou See when Image Header color type is set to 3 (Indexed Colors)..\nPLTE chunk must be placed before any IDAT chunks so that only means one thing ..More code to write for me.")
+                Candy("Cowsay","\nAH ! I knew this day would come ...\nYou See when Image Header color type is set to 3 (Indexed Colors)..\nPLTE chunk must be placed before any IDAT chunks so that only means one thing ..More code to write for me.")
                 print(Candy("Color","yellow","\n-ToDo"))
                 TheEnd()
 
           elif (int(IHDR_Color) == 2) or (int(IHDR_Color) == 6) and ("PLTE".encode() not in Chunks_History and "sPLT".encode not in Chunks_History):
                if Warning is False:
                  Warning = True
-                 SideNote.append("-[Sidenote] There is a chance that Critical PLTE chunk is missing.")
-                 print("%s\n\nJust wanted you to know that if im not able to fix %s for some reason\nor if you can't view %s once my job is done here ...\nThis is maybe due to a PLTE Chunk that is missing between those guys :\n-------------------------------------------------------\n%s\n+++++++++++++++++\n***[PLTECHUNK]***\n+++++++++++++++++\n%s\n-------------------------------------------------------\nIn Any cases it's before IDAT. \n%s"%(Candy("Color","yellow","################# Warning #################"),Candy("Color","red",Sample_Name),Candy("Color","red",Sample_Name),[i.decode() for i in Before_PLTE],[i.decode() for i in After_PLTE],Candy("Color","yellow","###########################################\n")))
-
-
+                 ToFix.append("-There is a chance that some Critical Palette chunks are missing.")
+                 Candy("Cowsay","There is a chance that some %s chunks are %s."%(Candy("Color","red","Critical Palette"),Candy("Color","red","Missing")))
           if lastchunk == b"IDAT":
-             print("So ..the last Chunk Type was IDAT so we either looking for another IDAT,IEND or one of them:\n\n%s"%[i.decode() for i in Anywhere])
+             Candy("Cowsay","So ..the last Chunk Type was IDAT so we either looking for another IDAT,IEND or one of them:%s"%[i.decode() for i in Anywhere])
 
     return(Excluded)
 
@@ -2502,7 +2556,8 @@ def BruteChunk(CType,LastCType,bytesnbr):
 
    if BestBingoCount <= 2 and int(BestBingoScore) >=2:
 #      print(BingoLst)
-      print("\n\n-Solved Chunk name.\n\nAh looks like we've got a winner! :",Candy("Color","green",BestBingoName))
+      print("-"+str(Candy("Color","green","Solved"))+str(Candy("Emoj","good")))
+      Candy("Cowsay","Ah looks like we've got a winner! :",Candy("Color","green",BestBingoName))
 ##TmpFix##
       FixShit(BestBingoName.encode().hex(),CrcoffI+16,CrcoffI+24,"-Found Chunk[%s] has wrong name at offset: %s\n-Chunk was corrupted changing %s bytes turn into a valid Chunk name: %s"%(Orig_CT,CToffX,int(BestBingoScore)-len(Orig_CT),BestBingoName))
       return()
@@ -2591,20 +2646,18 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
            BruteChunk(CType,LastCType,bytesnbr)
            return()
    else:
-        print("\nOf course it has failed! There's nothing at this offset.....\n")
+        Candy("Cowsay","\nOf course it has failed! There's nothing at this offset.....\n")
         
    wow = int(bytesnbr/8912)
    if wow >= 3:
-      print("..Hum ..Zlib put a limit on buff size up to 8912 bytes..\n and this one is pretty big :%s which is %s times bigger.."%(Candy("Color","yellow",bytesnbr),Candy("Color","red",wow)))
-#      print(Bytes_History)
-#      print(Bytes_History.count(Bytes_History[0])-1 == len(Bytes_History)-1)
-#      print(Bytes_History.count(Bytes_History[0]) != len(Bytes_History))
+      Candy("Cowsay","Zlib put a limit on buff size up to 8912 bytesand this one is pretty big :\n%s\nwhich is %s times bigger.."%(Candy("Color","yellow",bytesnbr),Candy("Color","red",wow)))
+
       if len(Bytes_History) >0: ##ToFIx##
         if Bytes_History.count(Bytes_History[0])-1 == len(Bytes_History)-1:
             if Bytes_History.count(Bytes_History[0]) != len(Bytes_History):
-                print("That doesnt mean there cannot be an IDAT chunk bigger than 8912Bytes!\nbut since all previous IDAT chunks had the same length , it seems to me that's a little odd that this very one in particular is different from the others...\nUnless this is the Last IDAT.\nAnyway that is just a thought let's find it out .")
+                Candy("Cowsay","That doesnt mean there cannot be an IDAT chunk bigger than 8912Bytes!but since all previous IDAT chunks had the same length , it seems to me that's a little odd that this very one in particular is different from the others...Unless this is the Last IDAT.Anyway that is just a thought let's find it out .")
    else:
-      print("..Hum ..Maybe thats a length problem.")
+      Candy("Cowsay","..Hum ..Maybe thats a length problem.")
    NearbyChunk(CType,bytesnbr,LastCType)
    return()
 
@@ -2617,27 +2670,27 @@ def CheckLength(Cdata,Clen,Ctype):
                CheckChunkName(Ctype,int(Clen,16),Chunks_History[0])
 
        Candy("Title","Checking Data Length:",Candy("Color","white",str(Clen)))
-
-       print("So ..The length part is saying that data is %s bytes long."%Candy("Color","yellow",int(Clen, 16)))
+       Candy("Cowsay","So ..The length part is saying that data is %s bytes long."%Candy("Color","yellow",int(Clen, 16)))
+#       print("So ..The length part is saying that data is %s bytes long."%Candy("Color","yellow",int(Clen, 16)))
 
        ToBitstory(int(Clen, 16))
 
        if int(Clen,16)>26736:
-           print("Really!? That much ?")
+           Candy("Cowsay","Really!? That much ?")
 
        if len(bytes.fromhex(NextChunk).decode(errors="replace")) == 0:
-            print("..And this is what iv found there: "+Candy("Color","red","[NOTHING]"))
+            Candy("Cowsay","..And this is what iv found there: "+Candy("Color","red","[NOTHING]"))
        else:
-            print("..And this is what iv found there: ",Candy("Color","yellow",bytes.fromhex(NextChunk).decode(errors="replace")))
+            Candy("Cowsay","..And this is what iv found there: "+Candy("Color","yellow",bytes.fromhex(NextChunk).decode(errors="replace")))
 
        if bytes.fromhex(Ctype) == b'IEND' and int(Clen, 16) == 0:
             ToHistory(b'IEND')
             if DATAX[-len(GoodEnding):].upper() == GoodEnding:
                      ChunkStory(b'IEND',"Critical")
-                     print("\nWe have reached the end of file. ",Candy("Emoj","good"))
+                     Candy("Cowsay","We have reached the end of file.")
                      SideNote.append("-Reached the end of file.")
 
-                     Candy("Title","All Done here hoped that did the job !")
+                     Candy("Cowsay","All Done here hoped that did the job !")
 
                      TheEnd()
             else:
