@@ -286,7 +286,7 @@ def Summarise(infos,Summary_Footer=False):
 
 
                 if len(sTER) >0:
-                   f.write("\n-Subimage mode    :",sTER)
+                   f.write("\n-Subimage mode    :"+str(sTER))
 
                 if len(cHRM_WhiteX) >0:
                    f.write("\n")
@@ -391,12 +391,13 @@ def Summarise(infos,Summary_Footer=False):
 
 def Candy(mode,arg,data=None):
    if mode == "Emoj":
-         rnd = random.randint(0,len("good"))
          if arg == "good":
-             good = ["´ ▽ ` )ﾉ","Σ ◕ ◡ ◕","٩(｡͡•‿•｡)۶","ᕕ( ᐛ )ᕗ","☜(⌒▽⌒)☞","(｡◕‿‿◕｡)","(ღ˘⌣˘ღ)","(∪ ◡ ∪)","(▰˘◡˘▰)","(✿ ♥‿♥)","(｡◕ ‿ ◕｡)","( ͡° ͜ʖ ͡°)","(/◔ ◡ ◔)/","(ᵔᴥᵔ)"]
+             good = ["´ ▽ ` )ﾉ","Σ ◕ ◡ ◕","٩(｡͡•‿•｡)۶","ᕕ( ᐛ )ᕗ","☜(⌒▽⌒)☞","(｡◕‿‿◕｡)","(ღ˘⌣˘ღ)","(∪ ◡ ∪)","(▰˘◡˘▰)","(✿ ♥‿♥)","(｡◕ ‿ ◕｡)","( ͡° ͜ʖ ͡°)","(/◔ ◡ ◔)/","(ᵔᴥᵔ)","ʕつ ͡◔ ᴥ ͡◔ʔつ","彡໒(⊙ᴗ⊙)७彡","(´◡`)","(✯◡✯)","(๑˘︶˘๑)","｡^‿^｡","ヽ(ヅ)ノ","(^人^)","(°◡°♡)","(♥ω♥*)","❀◕ ‿ ◕❀","(⁀ᗢ⁀)","ミ=͟͟͞͞(✿ʘ ᴗʘ)っ","ଘ(੭*ˊᵕˋ)੭* ̀ˋ","─=≡Σ((( つ•̀ω•́)つ ","~( ˘▾˘~)","(=^･ω･^=)"," ＼ʕ •ᴥ•ʔ／","ヽ(•‿•)ノ","ヾ(☆▽☆)","(ツ)","◝(^⌣^)◜","ʕ◉ᴥ◉ʔ"]
+             rnd = random.randint(0,len(good)-1)
              return(good[rnd])
          elif arg == "bad":
-             bad = ["(ಥ﹏ಥ)","(►_◄)","(◉ ︵◉)","ヽ(ｏ`皿′ｏ)ﾉ","凸ಠ益ಠ)凸","╯‵Д′)╯彡┻━┻","¯\_(⊙︿⊙)_/¯","ಠ︵ಠ凸","ヽ(`Д´)ﾉ","(╯°□°）╯︵ ┻━┻","(✖╭╮✖)","(︶︹︺)","(╯︵╰,)","ヽ(˚௰˚)づ"]
+             bad = ["(ಥ﹏ಥ)","(►_◄)","(◉ ︵◉)","ヽ(ｏ`皿′ｏ)ﾉ","凸ಠ益ಠ)凸","╯‵Д′)╯彡┻━┻","¯\_(⊙︿⊙)_/¯","ಠ︵ಠ凸","ヽ(`Д´)ﾉ","(╯°□°）╯︵ ┻━┻","(✖╭╮✖)","(︶︹︺)","(╯︵╰,)","ヽ(˚௰˚)づ","凸(⊙▂⊙✖ )","ᕕ༼ ͠ຈ Ĺ̯ ͠ຈ ༽┌∩┐","凸(>皿<)凸","ʕథ౪థʔ","༼ ༎ຶ ᆺ ༎ຶ༽","( ◥◣_◢◤ )","(━┳━ _ ━┳━)","┐(￣ヘ￣)┌","༼☯﹏☯༽","(° -°） ︵ ┻━┻ ","┻━┻︵ \(°□°)/ ︵ ┻━┻ ","◕︵◕","(◡︵◡)","(；⌣̀_⌣́)","( ´〒^〒`)","(；￣Д￣)","ʕTᴥT ʔ ","ヽ(๏ ∀๏ )ﾉ","┗(･ω･;)┛","(*￣o￣)","ヽ(O_O )ﾉ"]
+             rnd = random.randint(0,len(bad)-1)
              return(bad[rnd])
 
    if mode == "Color" and os.name != "nt":
@@ -575,227 +576,297 @@ def SaveErrors(Chunk,Err,Data=None):#TODO#TOFIX
    if Chunk not in ErrorsFlag: ErrorsFlag.append(Chunk)
    #[ErrorsList.append(Chunk+":"+e) for e in Err] 
 
+
+
    if Chunk == "IHDR":
-      if "Width" in Err:
-          SideNote.append("-Width : Wrong size Must be between 1 to 2147483647.")
-      if "Height" in Err:
-          SideNote.append("-Height : Wrong size Must be between 1 to 2147483647.")
-      if "Bytes" in Err:
-          SideNote.append("-Bytes number :IHDR have to always be 13 bytes.")
-      if "Depht" in Err:
-         SideNote.append("-Bit depht :Wrong bit value Must be 1,2,4,8 or 16")
-      if "Filter" in Err:
-         SideNote.append("-Filter Method :Wrong value must be 0.")
-      if "Compression" in Err:
-         SideNote.append("-Compression Algorithms : Wrong value must be 0.")
-      if "Interlace" in Err:
-         SideNote.append("-Interlace Method : Wrong value must be 0 (no interlace) or 1 (Adam7 interlace).")
+     for e in Err:
+       if "-IHDR Width : Wrong size Must be between 1 to 2147483647." == str(e):
+          SideNote.append(str(e))
+       elif "-IHDR Height : Wrong size Must be between 1 to 2147483647." == str(e):
+          SideNote.append(str(e))
+       elif "IHDR size have to always be 13 bytes" == str(e):
+          SideNote.append(str(e))
+       elif "-IHDR Depht: Wrong bit depht with IHDR Color type 3 (depht must be 1,2,4 or 8)" == str(e):
+          SideNote.append(str(e))
+       elif "-IHDR Bit depht :Wrong bit value Must be 1,2,4,8 or 16" == str(e):
+         SideNote.append(str(e))
+       elif "-IHDR Filter Method :Wrong value must be 0." == str(e):
+         SideNote.append(str(e))
+       elif "-IHDR Compression Algorithms : Wrong value must be 0." == str(e):
+         SideNote.append(str(e))
+       elif "-IHDR Interlace Method : Wrong value must be 0 (no interlace) or 1 (Adam7 interlace)." == str(e):
+         SideNote.append(str(e))
+       else:
+         SideNote.append("-"+str(Chunk)+" :"+str(e))
+
 
    if Chunk == "pHYs":
-      if "Y" in Err:
-         SideNote.append("-Pixels per unit, Y axis : Wrong size Must be between 1 to 2147483647.")
-      if "X" in Err:
-         SideNote.append("-Pixels per unit, X axis : Wrong size Must be between 1 to 2147483647.")
-      if "Unit" in Err:
-          SideNote.append("-Unit specifier : Must be between 0 (unknown) or 1(meter).")
+     for e in Err:
+       if "-pHYs Pixels per unit, Y axis : Wrong size Must be between 1 to 2147483647." == str(e):
+         SideNote.append(str(e))
+       elif "-pHYs Pixels per unit, X axis : Wrong size Must be between 1 to 2147483647." == str(e):
+         SideNote.append(str(e))
+       elif "-pHYs Unit specifier : Must be between 0 (unknown) or 1(meter)." == str(e):
+          SideNote.append(str(e))
+
+       else:
+         SideNote.append("-"+str(Chunk)+" :"+str(e))
 
    if Chunk == "bKGD":
-      if "Gray" in Err:
-          SideNote.append("-Gray level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1))
-      if "Red" in Err:
-          SideNote.append("-Red level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1))
-      if "Green" in Err:
-          SideNote.append("-Green level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1))
-      if "Blue" in Err:
-          SideNote.append("-Blue level :Wrong value Must be less than "+str((2**int(IHDR_Depht))-1))
+     for e in Err:
+       if "-bKGD Gray level :Wrong value Must be less than" in str(e):
+          SideNote.append(str(e))
+       elif "-bKGD Red level :Wrong value Must be less than" in str(e):
+          SideNote.append(str(e))
+       elif "-bKGD Green level :Wrong value Must be less than" in str(e):
+          SideNote.append(str(e))
+       elif "-bKGD Blue level :Wrong value Must be less than" in str(e):
+          SideNote.append(str(e))
+       else:
+         SideNote.append("-"+str(Chunk)+" :"+str(e))
 
    if Chunk == "PLTE":
-
-      if "div" in Err:
-          SideNote.append("-PLTE Total palettes number must be divisible by 3")
-     
-      if "Depht" in Err:
-          SideNote.append("PLTE palettes numbers must not be > 2 power of image Depht")
-
-          SideNote.append("Todo")
-
-      if "badpltr" in Err:
-          SideNote.append("PLTE Wrong Red palettes range must not be > 2 power of image Depht")
+     for e in Err:
+       if "-PLTE Total palettes number must be divisible by 3" == str(e):
+          SideNote.append(str(e))
+       elif "PLTE Red palettes entry must Not be empty" == str(e):
+           SideNote.append(str(e))
+       elif "PLTE Green palettes entry must Not be empty" == str(e):
+           SideNote.append(str(e))
+       elif "PLTE Blue palettes entry must Not be empty" == str(e):
+           SideNote.append(str(e))
+       elif "-PLTE Green palettes not in bitdepht range" == str(e):
+          SideNote.append(str(e))
+       elif "-PLTE Red palettes not in bitdepht range" == str(e):
+          SideNote.append(str(e))
+       elif "-PLTE Blue palettes not in bitdepht range" == str(e):
+          SideNote.append(str(e))
+       elif "Error PLTER wrong value at" in str(e):
+          SideNote.append(str(e))
           
-      if "badpltg" in Err:
-          SideNote.append("PLTE Wrong Green palettes range must not be > 2 power of image Depht")
+       elif "Error PLTEG wrong value at" in str(e):
+          SideNote.append(str(e))
 
-      if "badpltb" in Err:
-          SideNote.append("PLTE Wrong Blue palettes range must not be > 2 power of image Depht")
+       elif "Error PLTEB wrong value at" in str(e):
+          SideNote.append(str(e))
+       else:
+         SideNote.append("-"+str(Chunk)+" :"+str(e))
 
    if Chunk =="iCCP":
-      if "name" in Err:
-         SideNote.append("-Length of iCCP Profile name is not valid")
+     for e in Err:
+       if "-Length of iCCP Profile name is not valid" == str(e):
+         SideNote.append(str(e))
 
-      if "badchar" in Err:
-         SideNote.append("-Wrong Character in iCCP Profile name")
+       elif "badchar" == str(e):
 
-      if "method" in Err:
-         SideNote.append("-Wrong Compression Method value")
+         for bad in e[1:]:
+             SideNote.append("-iCCP name Wrong Character at:"+str(bad))
 
-      if "lenght" in Err:
-         SideNote.append("-iCCP Profile length is not valid")
+       elif "-iCCP Wrong Compression Method value" == str(e):
+         SideNote.append(str(e))
 
+       elif "-iCCP Profile length is not valid" == str(e):
+         SideNote.append(str(e))
+
+       else:
+         SideNote.append("-"+str(Chunk)+" :"+str(e))
 
    if Chunk =="sPLT":
-
-      if "badchar" in Err:
-         SideNote.append("-Wrong Character in sPLT name")
+     for e in Err:
+       if "badchar" in str(e):
+         for bad in e[1:]:
+             SideNote.append("-sPLT name Wrong Character at:"+str(bad))
  
-      if "depht" in Err:
-         SideNote.append("-Sample depth have to be either 8 or 16")
+       elif "-sPLT Sample depth have to be either 8 or 16" == str(e):
+         SideNote.append(str(e))
 
-      if "name" in Err:
-         SideNote.append("-sPLT name is too long")
+       elif "-sPLT name is too long" == str(e):
+         SideNote.append(str(e))
 
-      if "div8r" in Err:
-         SideNote.append("-Red sPLT length is not divisible by 6")
+       elif "-Red sPLT length is not divisible by 6" == str(e):
+         SideNote.append(str(e))
 
-      if "div16r" in Err:
-         SideNote.append("-Red sPLT length is not divisible by 10")
+       elif "-Red sPLT length is not divisible by 10" == str(e):
+         SideNote.append(str(e))
 
-      if "div8g" in Err:
-         SideNote.append("-Green sPLT length is not divisible by 6")
+       elif "-Green sPLT length is not divisible by 6" == str(e):
+         SideNote.append(str(e))
 
-      if "div16g" in Err:
-         SideNote.append("-Green sPLT length is not divisible by 10")
+       elif "-Green sPLT length is not divisible by 10" == str(e):
+         SideNote.append(str(e))
 
-      if "div8b" in Err:
-         SideNote.append("-Blue sPLT length is not divisible by 6")
+       elif "-Blue sPLT length is not divisible by 6" == str(e):
+         SideNote.append(str(e))
 
-      if "div16b" in Err:
-         SideNote.append("-Blue sPLT length is not divisible by 10")
+       elif "-Blue sPLT length is not divisible by 10" == str(e):
+         SideNote.append(str(e))
 
-      if "div8a" in Err:
-         SideNote.append("-Alpha sPLT length is not divisible by 6")
+       elif "-Alpha sPLT length is not divisible by 6" == str(e):
+         SideNote.append(str(e))
 
-      if "div16a" in Err:
-         SideNote.append("-Alpha sPLT length is not divisible by 10")
+       elif "-Alpha sPLT length is not divisible by 10" == str(e):
+         SideNote.append(str(e))
 
-      if "div8f" in Err:
-         SideNote.append("-Frequency sPLT length is not divisible by 6")
+       elif "-Frequency sPLT length is not divisible by 6" == str(e):
+         SideNote.append(str(e))
 
-      if "div16f" in Err:
-         SideNote.append("-Frequency sPLT length is not divisible by 10")
+       elif "-Frequency sPLT length is not divisible by 10" == str(e):
+         SideNote.append(str(e))
 
+       else:
+         SideNote.append("-"+str(Chunk)+" :"+str(e))
 
    if Chunk == "hIST":
 
-      if "missing" in Err:
-         SideNote.append("-sPLT or PLTE have are missing and must be place before hIST")
-      if "pnbr" in Err:
-         SideNote.append("-Histogram frequencies entries must match PLTE entries number")
-      if "snbr" in Err:
-         SideNote.append("-Histogram frequencies entries must match sPLT entries number")
+     for e in Err:
+       if "-Histogram sPLT or PLTE have are missing and must be place before hIST" == str(e):
+         SideNote.append(str(e))
+       elif "Histogram frequencies entries must match PLTE entries number" == str(e):
+         SideNote.append(str(e))
+       elif "-Histogram frequencies entries must match sPLT entries number" == str(e):
+         SideNote.append(str(e))
+
+       else:
+         SideNote.append("-"+str(Chunk)+" :"+str(e))
 
    if Chunk == "tRNS":
+     for e in Err: 
+       print(e)
+       if "-tRNS:sPLT or PLTE have are missing and must be place before tRNS" == str(e):
+         SideNote.append(str(e))
+       elif "-tRNS Alpha palettes indexes entries must match PLTE entries number" == str(e):
+         SideNote.append(str(e))
+       elif "IHDR Color Have to be either 0,2 or 3 when used with tRNS" == str(e):
+         SideNote.append(str(e))
+       elif "-tRNS Chunk Must not be empty" == str(e):
+         SideNote.append(str(e))
+       elif "-Error tRNS_Gray:" in str(e):
+         SideNote.append(str(e))
+       elif "-Error tRNS_TrueR:" in str(e):
+         SideNote.append(str(e))
+       elif "-Error tRNS_TrueG:" in str(e):
+         SideNote.append(str(e))
+       elif "-Error tRNS_TrueB:" in str(e):
+         SideNote.append(str(e))
+       elif "-tRNS Alpha indexes palettes entries must not be superior to sPLT entries" in str(e):
+         SideNote.append(str(e))
+       elif "-tRNS Alpha indexes palettes entries must not be superior to PLTE entries" in str(e):
+         SideNote.append(str(e))
+       elif "-Error tRNS_Index:" in str(e):
+         SideNote.append(str(e))
 
-      if "missing" in Err:
-         SideNote.append("-sPLT or PLTE have are missing and must be place before tRNS")
-      if "pnbr" in Err:
-         SideNote.append("-tRNS Alpha palettes indexes entries must match PLTE entries number")
-      if "snbr" in Err:
-         SideNote.append("-tRNS Alpha palettes indexes entries must match sPLT entries number")
+
+       else:
+         SideNote.append("-"+str(Chunk)+" :"+str(e))
 
    if Chunk == "sRGB":
-      if "value" in Err:
-         SideNote.append("-sRGB value must be between 0 to 3.")
+     for e in Err:
+       if "-sRGB value must be between 0 to 3." == str(e):
+         SideNote.append(str(e))
+
+       elif "-cHRM is overided by sRGB chunk" in str(e):
+          SideNote.append(str(e))
+       else:
+         SideNote.append("-"+str(Chunk)+" :"+str(e))
+
 
    if Chunk == "cHRM":
-      if "overide" in Err:
-         SideNote.append("-cHRM is overide by sRGB chunk and iCCP")
-
+     for e in Err:
+       if "-cHRM is overided by sRGB chunk and iCCP" == str(e):
+         SideNote.append(str(e))
+       else:
+         SideNote.append("-"+str(Chunk)+" :"+str(e))
 
    if Chunk == "sBIT":
-     if "grayO" in Err:
-        SideNote.append("-sBit gray value must be greater than 0")
+     for e in Err:
+       if "-sBit gray value must be greater than 0" == str(e):
+          SideNote.append(str(e))
 
-     if "tredO" in Err:
-        SideNote.append("-sBit True Red value must be greater than 0")
-
-
-     if "tgreenO" in Err:
-        SideNote.append("-sBit True Green value must be greater than 0")
+       elif "-sBit True Red value must be greater than 0" == str(e):
+          SideNote.append(str(e))
 
 
-     if "tblueO" in Err:
-        SideNote.append("-sBit True Blue value must be greater than 0")
+       elif "-sBit True Green value must be greater than 0" == str(e):
+          SideNote.append(str(e))
 
-     if "grascalO" in Err:
-        SideNote.append("-sBit Grayscale value must be greater than 0")
 
-     if "grascalaO" in Err:
-        SideNote.append("-sBit Grayscale Alpha value must be greater than 0")
+       elif "-sBit True Blue value must be greater than 0" == str(e):
+          SideNote.append(str(e))
 
-     if "talpharO" in Err:
-        SideNote.append("-sBit True Alpha Red value must be greater than 0")
+       elif "-sBit Grayscale value must be greater than 0" == str(e):
+          SideNote.append(str(e))
 
-     if "talphagO" in Err:
-        SideNote.append("-sBit True Alpha Green value must be greater than 0")
+       elif "-sBit Grayscale Alpha value must be greater than 0" == str(e):
+          SideNote.append(str(e))
 
-     if "talphabO" in Err:
-        SideNote.append("-sBit True Alpha Blue value must be greater than 0")
+       elif "-sBit True Alpha Red value must be greater than 0" == str(e):
+         SideNote.append(str(e))
 
-     if "talphaO" in Err:
-        SideNote.append("-sBit True Alpha value must be greater than 0")
+       elif "-sBit True Alpha Green value must be greater than 0" == str(e):
+         SideNote.append(str(e))
+ 
+       elif "-sBit True Alpha Blue value must be greater than 0" == str(e):
+          SideNote.append(str(e))
 
-     if "red8depht" in Err:
-        SideNote.append("-sBit True red value must not be greater than 8")
+       elif "-sBit True Alpha value must be greater than 0" == str(e):
+          SideNote.append(str(e))
 
-     if "green8depht" in Err:
-        SideNote.append("-sBit True green value must not be greater than 8")
+       elif "-sBit True red value must not be greater than 8" == str(e):
+          SideNote.append(str(e))
 
-     if "blue8depht" in Err:
-        SideNote.append("-sBit True blue value must not be greater than 8")
+       elif "-sBit True green value must not be greater than 8" == str(e):
+          SideNote.append(str(e))
 
-     if "reddepht" in Err:
-        SideNote.append("-sBit True red value must not be greater than ",IDHR_Color)
+       elif "-sBit True blue value must not be greater than 8" == str(e):
+          SideNote.append(str(e))
 
-     if "greendepht" in Err:
-        SideNote.append("-sBit True green value must not be greater than ",IDHR_Color)
+       elif "-sBit True red value must not be greater than " in str(e):
+          SideNote.append(str(e))
+       elif "-sBit True green value must not be greater than " in str(e):
+          SideNote.append(str(e))
 
-     if "bluedepht" in Err:
-        SideNote.append("-sBit True blue value must not be greater than ",IDHR_Color)
+       elif "-sBit True blue value must not be greater than " in str(e):
+          SideNote.append(str(e))
 
-     if "grascaldepth" in Err:
-        SideNote.append("-sBit Grayscale value must not be greater than ",IDHR_Color)
+       elif "-sBit Grayscale value must not be greater than " in str(e):
+          SideNote.append(str(e))
 
-     if "grascaladepth" in Err:
-        SideNote.append("-sBit Grayscale Alpha value must not be greater than ",IDHR_Color)
+       elif "-sBit Grayscale Alpha value must not be greater than " in str(e):
+          SideNote.append(str(e))
 
-     if "talphardepth" in Err:
-        SideNote.append("-sBit True Alpha value must not be greater than ",IDHR_Color)
+       elif "-sBit True Alpha value must not be greater than " in str(e):
+          SideNote.append(str(e))
+       else:
+         SideNote.append("-"+str(Chunk)+" :"+str(e))
 
    if Chunk == "oFFs":
-
-     if "xout" in Err:
-        SideNode.append("-oFFs position Y must be between -2,147,483,647 to +2,147,483,647")
-     if "yout" in Err:
-        SideNode.append("-oFFs position Y must be between -2,147,483,647 to +2,147,483,647")
-     if "uout" in Err:
-        SideNode.append("-oFFs unit value must be between 0 or 1")
-
+     for e in Err:
+       if "-oFFs position Y must be between -2,147,483,647 to +2,147,483,647" == str(e):
+          SideNote.append(str(e))
+       elif "-oFFs position Y must be between -2,147,483,647 to +2,147,483,647" == str(e):
+          SideNote.append(str(e))
+       elif "-oFFs unit value must be between 0 or 1" == str(e):
+          SideNote.append(str(e))
+       else:
+         SideNote.append("-"+str(Chunk)+" :"+str(e))
 
 
    if Chunk == "tIME":
-
-      if "Year" in Err:
-          SideNote.append("-tIME Year is > than the current year")
-      if "Month" in Err:
-          SideNote.append("-tIME Month value is not valid")
-      if "Day" in Err:
-          SideNote.append("-tIME Day value is not valid")
-      if "Hour" in Err:
-          SideNote.append("-tIME Hour value is not valid")
-      if "Minute" in Err:
-          SideNote.append("-tIME Minute value is not valid")
-      if "Second" in Err:
-          SideNote.append("-tIME Second value is not valid")
+     for e in Err:
+        if "-tIME Year is > than the current year" == str(e):
+            SideNote.append(str(e))
+        elif "-tIME Month value is not valid" == str(e):
+            SideNote.append(str(e))
+        elif "-tIME Day value is not valid" == str(e):
+            SideNote.append(str(e))
+        elif "-tIME Hour value is not valid" == str(e):
+            SideNote.append(str(e))
+        elif "-tIME Minute value is not valid" == str(e):
+            SideNote.append(str(e))
+        elif "-tIME Second value is not valid" == str(e):
+            SideNote.append(str(e))
+        else:
+          SideNote.append("-"+str(Chunk)+" :"+str(e))
 
    if Chunk == "Critical":
        for chnk in Err:
@@ -811,7 +882,10 @@ def NullFind(data,search4=None):
          if data[i:i+len(search4)] == search4:
               null_pos = i
               break
-    return(null_pos)
+    if len(str(null_pos)) >0:
+       return(null_pos)
+    else:
+       return(False)
 
 def GetInfo(Chunk,data):
     global SideNote
@@ -923,13 +997,42 @@ def GetInfo(Chunk,data):
     if Chunk == "IHDR":
         try:
              IHDR_Height=str(int(data[:8],16))
+        except (NameError,ValueError) as e:
+             print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+             ToFix.append("Error IHDR Height:"+e)
+        try:
              IHDR_Width=str(int(data[8:16],16))
+        except (NameError,ValueError) as e:
+             print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+             ToFix.append("Error IHDR Width:"+e)
+        try:
              IHDR_Depht=str(int(data[16:18],16))
-             IHDR_Color=str(int(data[18:20],16))
-             IHDR_Method=str(int(data[20:22],16))
-             IHDR_Filter=str(int(data[22:24],16))
-             IHDR_Interlace=str(int(data[24:26],16))
+        except (NameError,ValueError) as e:
+             print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+             ToFix.append("Error IHDR Depht:"+e)
 
+        try:
+             IHDR_Color=str(int(data[18:20],16))
+        except (NameError,ValueError) as e:
+             print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+             ToFix.append("Error IHDR Color:"+e)
+        try:
+             IHDR_Method=str(int(data[20:22],16))
+        except (NameError,ValueError) as e:
+             print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+             ToFix.append("Error IHDR Method:"+e)
+
+        try:
+             IHDR_Filter=str(int(data[22:24],16))
+        except (NameError,ValueError) as e:
+             print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+             ToFix.append("Error IHDR Filter:"+e)
+        try:
+             IHDR_Interlace=str(int(data[24:26],16))
+        except (NameError,ValueError) as e:
+             print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+             ToFix.append("Error IHDR Interlace:"+e)
+        try:
              print("-Width    :",Candy("Color","yellow",IHDR_Height))
              print("-Height   :",Candy("Color","yellow",IHDR_Width))
              print("-Depht    :",Candy("Color","yellow",IHDR_Depht))
@@ -940,53 +1043,65 @@ def GetInfo(Chunk,data):
 
              if len(data) != 26:
                    print("-Bytes number :"+Candy("Color","red"," Wrong size")+"IHDR size have to always be 13 bytes."+Candy("Emoj","bad"))
-                   ToFix.append("Bytes")
+                   ToFix.append("IHDR size have to always be 13 bytes")
 
              if len(IHDR_Height) >0:
                     if int(IHDR_Height) > 2147483647:
                           print("-Height :"+Candy("Color","red"," Wrong size (Too high)")+" Must be between 1 to 2147483647."+Candy("Emoj","bad"))
-                          ToFix.append("Height")
+                          ToFix.append("-Height Must be between 1 to 2147483647.")
              else:
                           print("-Height :"+Candy("Color","red"," Wrong size (Too low)")+" Must be between 1 to 2147483647."+Candy("Emoj","bad"))
-                          ToFix.append("Height")
+                          ToFix.append("-Height Must be between 1 to 2147483647.")
 
              if len(IHDR_Width) >0:
                     if int(IHDR_Width) > 2147483647:
                           print("-Width :"+Candy("Color","red"," Wrong size (Too high)")+" Must be between 1 to 2147483647."+Candy("Emoj","bad"))
-                          ToFix.append("Width")
+                          ToFix.append("-Width Must be between 1 to 2147483647.")
              else:
                           print("-Width :"+Candy("Color","red"," Wrong size (Too low)")+" Must be between 1 to 2147483647."+Candy("Emoj","bad"))
-                          ToFix.append("Width")
+                          ToFix.append("-Width Must be between 1 to 2147483647.")
 
              if len(IHDR_Depht) > 0:
                      if IHDR_Depht not in ["1","2","4","8","16"]:
                          print("-Bit depht :"+Candy("Color","red"," Wrong bit value")+" Must be 1,2,4,8 or 16 "+Candy("Emoj","bad"))
-                         ToFix.append("Depht")
+                         ToFix.append("-IHDR Depht: Wrong bit depht (depht must be 1,2,4,8 or 16)")
+             else:
+                         print("-Bit depht :"+Candy("Color","red"," Wrong bit value")+" Must not be empty "+Candy("Emoj","bad"))
+                         ToFix.append("-IHDR Depht Must not be empty")
 
              if len(IHDR_Color) > 0:
                  if IHDR_Color not in ["0","2","3","4","6"]:
-                         print("-Color Chunk :"+Candy("Color","red"," Wrong bit value")+" Must be 0,2,3,4 or 6 "+Candy("Emoj","bad"))
-                         ToFix.append("Color")
+                         print("-IHDR Color :"+Candy("Color","red"," Wrong bit value")+" Must be 0,2,3,4 or 6 "+Candy("Emoj","bad"))
+                         ToFix.append("-IHDR Color Must be 0,2,3,4 or 6.")
                  if IHDR_Color == "2" or IHDR_Color == "4" or IHDR_Color == "6":
                      if IHDR_Depht not in ["8","16"]:
-                         print("-Color Chunk :"+Candy("Color","red"," Wrong bit depht ")+"for color Chunk "+IHDR_Color+" must be 8 or 16 "+Candy("Emoj","bad"))
+                         print("-IHDR Color :"+Candy("Color","red"," Wrong bit depht ")+"for IHDR Color "+IHDR_Color+" must be 8 or 16 "+Candy("Emoj","bad"))
                          ToFix.append("Color")
                  if IHDR_Color == "3":
                      if IHDR_Depht not in ["1","2","4","8"]:
-                         print("-Color Chunk :"+Candy("Color","red"," Wrong bit depht ")+"for color Chunk 3 must be 1,2,4 or 8"+Candy("Emoj","bad"))
-                         ToFix.append("Color")
+                         print("-IHDR Color :"+Candy("Color","red"," Wrong bit depht ")+"for IHDR Color 3 must be 1,2,4 or 8"+Candy("Emoj","bad"))
+                         ToFix.append("-IHDR Color 3: Wrong bit depht with IHDR Color type 3 (depht must be 1,2,4 or 8)")
+             else:
+                         print("-IHDR Color %s "%(Candy("Color","red","Must not be empty"),Candy("Emoj","bad")))
+                         ToFix.append("-IHDR Color Must not be empty")
 
              if len(IHDR_Filter) > 0 and IHDR_Filter != "0":
                    print("-Filter Method :"+Candy("Color","red"," Wrong value")+" must be 0."+Candy("Emoj","bad"))
                    ToFix.append("Filter")
-
+             elif len(IHDR_Filter) == 0 :
+                  print("-Filter Method %s %s "%(Candy("Color","red","Must not be empty"),Candy("Emoj","bad")))
+                  ToFix.append("Filter")
              if len(IHDR_Method) > 0 and IHDR_Method != "0":
                    print("-Compression Algorithms :"+Candy("Color","red"," Wrong value")+" must be 0."+Candy("Emoj","bad"))
                    ToFix.append("Compression")
-
+             elif len(IHDR_Method) == 0 :
+                  print("-Compression Algorithms must not be empty %s %s "%(Candy("Color","red","Must not be empty"),Candy("Emoj","bad")))
+                  ToFix.append("Compression")
              if len(IHDR_Interlace) > 0 and (IHDR_Interlace != "0" and IHDR_Interlace != "1"):
                    print("-Interlace Method :"+Candy("Color","red"," Wrong value")+" must be 0 (no interlace) or 1 (Adam7 interlace)."+Candy("Emoj","bad"))
                    ToFix.append("Interlace")
+             elif len(IHDR_Interlace) == 0:
+                 print("-Interlace %s %s "%(Candy("Color","red","Must not be empty"),Candy("Emoj","bad")))
 
              if len(ToFix) > 0:
                   SaveErrors(Chunk,ToFix)
@@ -994,20 +1109,29 @@ def GetInfo(Chunk,data):
                 print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
 
         except Exception as e:
-           SideNote.append("Error IHDR:"+str(e))
            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+           ToFix.append("Error IHDR:"+str(e))
+           SaveErrors(Chunk,ToFix)
          
 
 
     if Chunk == "pHYs":
         try:
              pHYs_Y=str(int(data[:8],16))
-             pHYs_X=str(int(data[8:16],16))
-             pHYs_Unit=str(int(data[16:18],16))
-             print("-Pixels per unit, X axis: ",Candy("Color","yellow",pHYs_X))
              print("-Pixels per unit, Y axis: ",Candy("Color","yellow",pHYs_Y))
+        except (NameError,ValueError) as e:
+             ToFix.append("Error pHYs Y:"+e)
+        try:
+             pHYs_X=str(int(data[8:16],16))
+             print("-Pixels per unit, X axis: ",Candy("Color","yellow",pHYs_X))
+        except (NameError,ValueError) as e:
+             ToFix.append("Error pHYs X:"+e)
+        try:
+             pHYs_Unit=str(int(data[16:18],16))
              print("-Unit specifier         :",Candy("Color","yellow",pHYs_Unit))
-
+        except (NameError,ValueError) as e:
+             ToFix.append("Error pHYs U:"+e)
+        try:
              if len(pHYs_Y) >0:
                     if int(pHYs_Y) > 2147483647:
                           print("-Pixels per unit, Y axis:"+Candy("Color","red"," Wrong size (Too high)")+" Must be between 1 to 2147483647."+Candy("Emoj","bad"))
@@ -1036,8 +1160,9 @@ def GetInfo(Chunk,data):
                 print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
 
         except Exception as e:
-           SideNote.append("Error pHys:"+str(e))
            print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+           ToFix.append("Error pHys:"+str(e))
+           SaveErrors(Chunk,ToFix)
         
 
     if Chunk == "bKGD":
@@ -1046,32 +1171,52 @@ def GetInfo(Chunk,data):
                   bKGD_Gray=str(int(data[:4],16))
                   print("-Gray    :",Candy("Color","yellow",bKGD_Gray))
              except Exception as e:
+                 ToFix.append("Error bKGD Gray:"+str(e))
                  print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
 
-             if int(bKGD_Gray) > (2**int(IHDR_Depht))-1:
-                 print("-Gray level :"+Candy("Color","red"," Wrong value")+" Must be less than "+str((2**int(IHDR_Depht))-1))+Candy("Emoj","bad")
-                 ToFix.append("Bkgd_Gray")
+             if len(bKGD_Gray) >0:
+                  if int(bKGD_Gray) > (2**int(IHDR_Depht))-1:
+                    print("-Gray level :"+Candy("Color","red"," Wrong value")+" Must be less than "+str((2**int(IHDR_Depht))-1))+Candy("Emoj","bad")
+                    ToFix.append("Bkgd_Gray")
+
         if IHDR_Color == "2" or IHDR_Color == "6":
            try:
-                  bKGD_Red=str(int(data[:4],16))
+                try:
+                   bKGD_Red=str(int(data[:4],16))
+                   print("-Red    :",Candy("Color","red",bKGD_Red))
+                except Exception as e:
+                   ToFix.append("Error bKGD Red:"+str(e))
+                   print(Candy("Color","red","Error bKGD Red:"),Candy("Color","yellow",e))
+
+                try:
                   bKGD_Green=str(int(data[4:8],16))
-                  bKGD_Blue=str(int(data[8:12],16))
-
-                  print("-Red    :",Candy("Color","red",bKGD_Red))
                   print("-Green  :",Candy("Color","green",bKGD_Green))
+                except Exception as e:
+                   ToFix.append("Error bKGD Green:"+str(e))
+                   print(Candy("Color","red","Error bKGD Green:"),Candy("Color","yellow",e))
+                try:
+                  bKGD_Blue=str(int(data[8:12],16))
                   print("-Blue   :",Candy("Color","blue",bKGD_Blue))
+                except Exception as e:
+                   ToFix.append("Error bKGD Blue:"+str(e))
+                   print(Candy("Color","red","Error bKGD Blue:"),Candy("Color","yellow",e))
 
+                if len(bKGD_Red) > 0:
                   if int(bKGD_Red) > (2**int(IHDR_Depht))-1:
                       print("-Red level :"+Candy("Color","red"," Wrong value")+" Must be less than "+str((2**int(IHDR_Depht))-1))+Candy("Emoj","bad")
                       ToFix.append("Bkgd_Red")
+                if len(bKGD_Green) > 0:
                   if int(bKGD_Green) > (2**int(IHDR_Depht))-1:
                       print("-Green level :"+Candy("Color","red"," Wrong value")+" Must be less than "+str((2**int(IHDR_Depht))-1))+Candy("Emoj","bad")
                       ToFix.append("Bkgd_Green")
+                if len(bKGD_Blue) > 0:
                   if int(bKGD_Blue) > (2**int(IHDR_Depht))-1:
                       print("-Blue level :"+Candy("Color","red"," Wrong value")+" Must be less than "+str((2**int(IHDR_Depht))-1))+Candy("Emoj","bad")
                       ToFix.append("Bkgd_Blue")
 
            except Exception as e:
+              ToFix.append("Error Bkgd:"+str(e))
+              SaveErrors(Chunk,ToFix)
               print(Candy("Color","red","Error bKGD:"),Candy("Color","yellow",e))
 
         if IHDR_Color == "3":
@@ -1090,14 +1235,33 @@ def GetInfo(Chunk,data):
     if Chunk == "PLTE":
           PLTNbr = len(data)
 
+
           if not str(int(PLTNbr)/3).endswith(".0"):
              print("-%s PLTE length: %s/3= %s (not divisible by 3). %s"%(Candy("Color","red","Wrong"),PLTNbr,Candy("Color","red",PLTNbr),Candy("Emoj","bad")))
-             ToFix.append("div")
+             ToFix.append("-PLTE Total palettes number must be divisible by 3")
 
           for i in range(0,PLTNbr,6):
              pltr = data[i:i+2]
+             try:
+                int(pltr,16)
+             except Exception as e:
+                print(Candy("Color","red","Error palettes red number "+str(i)+":"),Candy("Color","yellow",e))
+                ToFix.append("Error PLTER wrong value at"+str(i)+":"+e)
+
              pltg = data[i+2:i+4]
+             try:
+                int(pltg,16)
+             except Exception as e:
+                print(Candy("Color","red","Error palettes green number "+str(i+2)+":"),Candy("Color","yellow",e))
+                ToFix.append("Error PLTEG wrong value at "+str(i+2)+":"+e)
+
              pltb = data[i+4:i+6]
+
+             try:
+                int(pltb,16)
+             except Exception as e:
+                print(Candy("Color","red","Error palettes blue number "+str(i+4)+":"),Candy("Color","yellow",e))
+                ToFix.append("Error PLTEB wrong value at "+str(i+4)+":"+e)
 
              PLTE_R.append(str(pltr))
              PLTE_G.append(str(pltg))
@@ -1108,18 +1272,30 @@ def GetInfo(Chunk,data):
           print("-%s Blue palettes are stored."%Candy("Color","yellow",len(PLTE_B)))
           print("-%s RGB palettes are stored."%Candy("Color","yellow",len(PLTE_R)+len(PLTE_G)+len(PLTE_B)))
 
-          if len(PLTE_R) > 2 ** int(IHDR_Depht):
+          if len(IHDR_Depht) > 0:
+            if len(PLTE_R) > 2 ** int(IHDR_Depht):
                print("-PLTE %s Red palettes not in bitdepht range: (must not be > 2 power of image Depht:%s).%s"%(Candy("Color","red",str(len(pltb)-1)+" Wrong"),Candy("Color","yellow",2 ** int(IHDR_Depht)),Candy("Emoj","bad")))
-               ToFix.append(badpltr)
+               ToFix.append("-PLTE RED palettes not in bitdepht range")
+            elif len(PLTE_R) == 0:
+                 print("-PLTE RED palettes entry must %s . %s"%(Candy("Color","red","Not be empty"),Candy("Emoj","bad")))
+                 ToFix.append("-PLTE RED palettes entry must Not be empty")
 
-          if len(PLTE_G) > 2 ** int(IHDR_Depht):
+            if len(PLTE_G) > 2 ** int(IHDR_Depht):
                print("-PLTE %s  Green palettes not in bitdepht range: (must not be > 2 power of image Depht:%s).%s"%(Candy("Color","red",str(len(pltb))+" Wrong"),Candy("Color","yellow",2 ** int(IHDR_Depht)),Candy("Emoj","bad")))
-               ToFix.append(badpltg)
+               ToFix.append("-PLTE Green palettes not in bitdepht range")
+            elif len(PLTE_G) == 0:
+                 print("-PLTE Green palettes entry must %s . %s"%(Candy("Color","red","Not be empty"),Candy("Emoj","bad"))) 
+                 ToFix.append("-PLTE Green palettes entry must Not be empty")
 
-          if len(PLTE_B) > 2 ** int(IHDR_Depht):
+            if len(PLTE_B) > 2 ** int(IHDR_Depht):
                print("-PLTE %s Blue palettes not in bitdepht range: (must not be > 2 power of image Depht:%s). %s"%(Candy("Color","red",str(len(pltb))+" Wrong"),Candy("Color","yellow",2 ** int(IHDR_Depht)),Candy("Emoj","bad")))
-               ToFix.append(badpltb)
-
+               ToFix.append("-PLTE Blue palettes not in bitdepht range")
+            elif len(PLTE_G) == 0:
+                 print("-PLTE Blue palettes entry must %s . %s"%(Candy("Color","red","Not be empty"),Candy("Emoj","bad")))
+                 ToFix.append("-PLTE Blue palettes entry must Not be empty")
+          else:
+              print("-IHDR Depht value %s first.%s"%(Candy("Color","red","have to be fixed"),Candy("Emoj","bad")))
+              ToFix.append("-IHDR Depht value have to be fixed first")
 
           if len(ToFix) >0:
              SaveErrors(Chunk,ToFix)
@@ -1129,15 +1305,28 @@ def GetInfo(Chunk,data):
 
     if Chunk == "sPLT":
 
-        sPLT_Ln = len(data)
+      sPLT_Ln = len(data)
+      if sPLT_Ln <= 0:
+             print("-sPLT entries must %s . %s"%(Candy("Color","red","Not be empty"),Candy("Emoj","bad")))
+             ToFix.append("Empty")
+
+      elif NullFind(data) is False:
+             print("-sPLT %s any Null Bytes !%s . %s"%(Candy("Color","red","haven't found"),Candy("Emoj","bad")))
+             ToFix.append("noNull")
+      elif sPLT_Ln > 0 and NullFind(data) is not False:
         null_pos=NullFind(data)
         Name = data[:null_pos]
         ChrName = ""
         badchar=["badchar"]
 
         for i in range(0,len(Name),2):
-          nint = int(data[i:i+2],16)
-          nchar = chr(nint)
+          try:
+             nint = int(data[i:i+2],16)
+             nchar = chr(nint)
+          except Exception as e:
+             print(Candy("Color","red","Error sPLt Name :"),Candy("Color","yellow",e))
+             nint = 258
+             nchar = chr(nint)
 
           if (nint not in range(32,127)) and (nint not in range(161,256)):
                   print("-Character %s at index %s in sPLT_Name\n-Replaced by [€] %s"%(Candy("Color","red","not allowed ["+nchar+"]"),Candy("Color","red",i),Candy("Emoj","bad")))
@@ -1256,19 +1445,25 @@ def GetInfo(Chunk,data):
                 lastnm = nm
                 ToFix.append("name")
 
-        if len(ToFix) >0:
+      if len(ToFix) >0:
               if len(badchar) >1:
                  SaveErrors(Chunk,ToFix,data)
               else:
                  SaveErrors(Chunk,ToFix)
-        else:
+      else:
                print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
         
 
     if Chunk == "hIST":
+      if len(data) <= 0:
+              print("-hIST must %s . %s"%(Candy("Color","red","Not be empty"),Candy("Emoj","bad")))
+              ToFix.append("Empty")
+    
+      elif len(data) > 0:
+        
         if b"PLTE" not in Chunks_History and b"sPLT" not in Chunks_History:
               print("-%s Chunk or %s is missing.(hIST must be used after one of them)"%(Candy("Color","red","PLTE"),Candy("Color","red","sPLT")))
-              ToFix.append(Chunk,"missing",data)
+              ToFix.append("missing")
         try:
             pos = 0
             for plt in range(0,len(data),2):
@@ -1287,88 +1482,158 @@ def GetInfo(Chunk,data):
                        print("-Histogram frequencies entries %s sPLT entries number %s"%(Candy("Color","red","must match"),Candy("Emoj","bad")))
                        ToFix.append("snbr")
 
-            if len(ToFix) >0:
-                 SaveErrors(Chunk,ToFix)
-            else:
-                print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
-
         except Exception as e:
             print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+
+      if len(ToFix) >0:
+                 SaveErrors(Chunk,ToFix,data)
+      else:
+                print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+
 
         
 
     if Chunk == "tIME":
+       if len(data) < 14:
+          print("-tIME %s inside tIME data.%s"%(Candy("Color","red","Not enough bytes"),Candy("Emoj","bad")))
+          ToFix.append("Empty")
+
+       else:
+         try:
              tIME_Yr=str(int(data[:4],16))
+         except Exception as e:
+             print(Candy("Color","red","Error tIME Years:"),Candy("Color","yellow",e))
+             ToFix.append("-tIME Year is > than the current year")
+         try:
              tIME_Mth=str(int(data[4:6],16))
+         except Exception as e:
+             print(Candy("Color","red","Error tIME Months:"),Candy("Color","yellow",e))
+             ToFix.append("-tIME Month value is not valid")
+         try:
              tIME_Day=str(int(data[6:8],16))
+         except Exception as e:
+             print(Candy("Color","red","Error tIME Days:"),Candy("Color","yellow",e))
+             ToFix.append("-tIME Day value is not valid")
+         try:
              tIME_Hr=str(int(data[8:10],16))
+         except Exception as e:
+             print(Candy("Color","red","Error tIME Hours:"),Candy("Color","yellow",e))
+             ToFix.append("-tIME Hour value is not valid")
+         try:
              tIME_Min=str(int(data[10:12],16))
+         except Exception as e:
+             print(Candy("Color","red","Error tIME Minutes:"),Candy("Color","yellow",e))
+             ToFix.append("-tIME Minute value is not valid")
+         try:
              tIME_Sec=str(int(data[12:14],16))
+         except Exception as e:
+             print(Candy("Color","red","Error tIME Seconds:"),Candy("Color","yellow",e))
+             ToFix.append("-tIME Second value is not valid")
 
+         if len(ToFix) == 0:
              print("-Last Modified: %s/%s/%s %s:%s:%s"%(Candy("Color","white",tIME_Day),Candy("Color","white",tIME_Mth),Candy("Color","white",tIME_Yr),Candy("Color","white",tIME_Hr),Candy("Color","white",tIME_Min),Candy("Color","white",tIME_Sec)))
-
+         if len(str(tIME_Yr)) > 0:
              if int(tIME_Yr) > datetime.now().year:
                  print("-Year is > than current year    : %s %s"%(Candy("Color","red",tIME_Yr),Candy("Emoj","bad")))
                  ToFix.append("Year")
+         if len(str(tIME_Mth)) > 0:
              if int(tIME_Mth) not in range(1,13):
                  print("-Month value is not valid   : %s %s"%(Candy("Color","red",tIME_Mth),Candy("Emoj","bad")))
                  ToFix.append("Month")
+         if len(str(tIME_Day)) > 0:
              if int(tIME_Day) not in range(1,32):
                  print("-Day value is not valid      : %s %s"%(Candy("Color","red",tIME_Day),Candy("Emoj","bad")))
                  ToFix.append("Day")
+         if len(str(tIME_Hr)) > 0:
              if int(tIME_Hr) not in range(0,24):
                  print("-Hour value is not valid     : %s %s"%(Candy("Color","red",tIME_Hr),Candy("Emoj","bad")))
                  ToFix.append("Hour")
+         if len(str(tIME_Min)) > 0:
              if int(tIME_Min) not in range(0,60):
                   print("-Minute value is not valid  : %s %s"%(Candy("Color","red",tIME_Min),Candy("Emoj","bad")))
                   ToFix.append("Minute")
+         if len(str(tIME_Sec)) > 0:
              if int(tIME_Sec) not in range(0,61):
                   print("-Second  value is not valid : %s %s"%(Candy("Color","red",tIME_Sec),Candy("Emoj","bad")))
                   ToFix.append("Second")
-
-             if len(ToFix) >0:
-                 SaveErrors(Chunk,ToFix)
-             else:
-                print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
-
-             
-
-    if Chunk == "tRNS":
-         TRNSNBR = len(data)
-         if IHDR_Color == "0":
-                tRNS_Gray = str(int(data[:4],16))
-                print("-Gray    :",Candy("Color","yellow",tRNS_Gray))
-         if IHDR_Color == "2":
-                tRNS_TrueR = str(int(data[:4],16))
-                tRNS_TrueG =str(int(data[4:8],16))
-                tRNS_TrueB =str(int(data[8:16],16))
-                print("-Red    :",Candy("Color","red",tRNS_TrueR))
-                print("-Green  :",Candy("Color","green",tRNS_TrueG))
-                print("-Blue   :",Candy("Color","blue",tRNS_TrueB))
-         if IHDR_Color == "3":
-             if b"PLTE" not in Chunks_History and b"sPLT" not in Chunks_History:
-              print("-%s Chunk or %s is missing.(tRNS must be used after one of them) %s"%(Candy("Color","red","PLTE"),Candy("Color","red","sPLT"),Candy("Emoj","bad")))
-              ToFix.append(Chunk,"missing",data)
-
-             for i in range(0,TRNSNBR,2):
-                 tRNS_Index.append(str(int(data[i:i+2],16)))
-             print("-%s Alpha indexes are stored."%Candy("Color","yellow",len(tRNS_Index)))
-
-
-             if b"PLTE" in Chunks_History:
-                if len(tRNS_Index) > len(PLTE_R)+len(PLTE_G)+len(PLTE_B):
-                       print("-tRNS Alpha indexes palettes entries %s PLTE entries number %s"%(Candy("Color","red","must not be superior to"),Candy("Emoj","bad")))
-                       ToFix.append("pnbr")
-
-             if b"sPLT" in Chunks_History:
-                if len(hIST) > len(sPLT_Red)+len(sPLT_Green)+len(sPLT_Blue)+len(sPLT_Aplha):
-                       print("-tRNS Alpha indexes palettes entries %s sPLT entries number %s"%(Candy("Color","red","must not be superior to"),Candy("Emoj","bad")))
-                       ToFix.append("snbr")
 
          if len(ToFix) >0:
                  SaveErrors(Chunk,ToFix)
          else:
                 print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+
+             
+
+    if Chunk == "tRNS":
+      TRNSNBR = len(data)
+      if len(IHDR_Color) == 0:
+              print("-IHDR Color value %s first.%s"%(Candy("Color","red","have to be fixed"),Candy("Emoj","bad")))
+              ToFix.append("IHDR Color Have to be either 0,2 or 3 when used with tRNS")
+      elif len(data) == 0:
+              print("-tRNS Chunk %s "%(Candy("Color","red","Must not be empty"),Candy("Emoj","bad")))
+              ToFix.append("-tRNS Chunk Must not be empty")
+      elif str(IHDR_Color) not in ["0","2","3"]:
+              print("-IHDR Color %s either 0,2 or 3 when used with tRNS %s"%(Candy("Color","red","Have to be"),Candy("Emoj","bad")))
+              print("-IHDR Color value %s first.%s"%(Candy("Color","red","have to be fixed"),Candy("Emoj","bad")))
+              ToFix.append("IHDR Color IHDR Color Have to be either 0,2 or 3 when used with tRNS")
+      elif len(data) > 0 and str(IHDR_Color) in ["0","2","3"]:
+         if IHDR_Color == "0":
+             try:
+                tRNS_Gray = str(int(data[:4],16))
+                print("-Gray    :",Candy("Color","yellow",tRNS_Gray))
+             except Exception as e:
+                    print(Candy("Color","red","Error tRNS gray:"),Candy("Color","yellow",e))
+                    ToFix.append("Error tRNS_Gray:"+str(e))
+
+         if IHDR_Color == "2":
+           try:
+                tRNS_TrueR = str(int(data[:4],16))
+                print("-Red    :",Candy("Color","red",tRNS_TrueR))
+           except Exception as e:
+             print(Candy("Color","red","Error tRNS_TrueR:"),Candy("Color","yellow",e))
+             ToFix.append("Error tRNS_TrueR:"+str(e))
+           try:
+                tRNS_TrueG =str(int(data[4:8],16))
+                print("-Green  :",Candy("Color","green",tRNS_TrueG))
+           except Exception as e:
+             print(Candy("Color","red","Error tRNS_TrueG:"),Candy("Color","yellow",e))
+             ToFix.append("Error tRNS_TrueG:"+str(e))
+           try:
+                tRNS_TrueB =str(int(data[8:16],16))
+                print("-Blue   :",Candy("Color","blue",tRNS_TrueB))
+           except Exception as e:
+             print(Candy("Color","red","Error tRNS_TrueB:"),Candy("Color","yellow",e))
+             ToFix.append("Error tRNS_TrueB:"+str(e))
+
+         if IHDR_Color == "3":
+             if b"PLTE" not in Chunks_History and b"sPLT" not in Chunks_History:
+                print("-%s Chunk or %s is missing.(tRNS must be used after one of them) %s"%(Candy("Color","red","PLTE"),Candy("Color","red","sPLT"),Candy("Emoj","bad")))
+                ToFix.append("-PLTE Chunk or sPLT is missing.(tRNS must be used after one of them)")
+
+             for i in range(0,TRNSNBR,2):
+                 try:
+                    tRNS_Index.append(str(int(data[i:i+2],16)))
+                 except Exception as e:
+                    print(Candy("Color","red","Error tRNS_Index:"),Candy("Color","yellow",e))
+                    ToFix.append("Error tRNS_Index:"+str(e))
+
+             print("-%s Alpha indexes are stored."%Candy("Color","yellow",len(tRNS_Index)))
+
+
+             if b"PLTE" in Chunks_History:
+                if (len(tRNS_Index) > len(PLTE_R)) or (len(tRNS_Index) > len(PLTE_G)) or (len(tRNS_Index) > len(PLTE_B)):
+                       print("-tRNS Alpha indexes palettes entries %s PLTE entries number %s"%(Candy("Color","red","must not be superior to"),Candy("Emoj","bad")))
+                       ToFix.append("-tRNS Alpha indexes palettes entries must not be superior to PLTE entries")
+
+             if b"sPLT" in Chunks_History:
+                if (len(hIST) > len(sPLT_Red)) or (len(hIST) > len(sPLT_Green)) or (len(hIST) > len(sPLT_Blue)) or (len(hIST) > len(sPLT_Aplha)):
+                       print("-tRNS Alpha indexes palettes entries %s sPLT entries number %s"%(Candy("Color","red","must not be superior to"),Candy("Emoj","bad")))
+                       ToFix.append("-tRNS Alpha indexes palettes entries must not be superior to sPLT entries")
+
+      if len(ToFix) >0:
+           SaveErrors(Chunk,ToFix)
+      else:
+           print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
 
          
 
@@ -1384,11 +1649,11 @@ def GetInfo(Chunk,data):
            print("-Rendering Absolute colorimetric :",Candy("Color","yellow",sRGB))
          else:
            print("-%s sRGB value must be between 0 to 3. %s"%(Candy("Color","red","Wrong"),Candy("Emoj","bad")))
-           ToFix.append("value")
+           ToFix.append("sRGB value must be between 0 to 3.")
 
          if "cHRM".encode() in Chunks_History:
                  print("-%s already present cHRM will be %s if reconized by decoders %s"%(Candy("Color","red","cHRM"),Candy("Color","red","overide"),Candy("Emoj","bad")))
-                 ToFix.append("overide")
+                 ToFix.append("-cHRM is overided by sRGB chunk")
 
 
          if len(ToFix) >0:
@@ -1444,7 +1709,7 @@ def GetInfo(Chunk,data):
                  null_pos = i
                  if i >79:
                        print("-Length of iCCP Profile name is %s :%s"%(Candy("Color","red","not Valid"),Candy("Color","red",i)))
-                       ToFix.append("name")
+                       ToFix.append("-Length of iCCP Profile name is not valid")
                  break
           if (int(nint) not in range(32,127)) and (int(nint) not in range(161,255)):
                   print("-Character %s at index %s in iCCP_Name\n-Replaced by [€]"%(Candy("Color","red","not allowed ["+nchar+"]"),Candy("Color","red",i)))
@@ -1605,9 +1870,19 @@ def GetInfo(Chunk,data):
 
 
     if Chunk == "oFFs":
+           try:
                 oFFSX = str(int.from_bytes(bytes.fromhex(data[:8]),byteorder='big',signed=True))
+           except Exception as e:
+                oFFSX = ""
+           try:
                 oFFSY = str(int.from_bytes(bytes.fromhex(data[8:16]),byteorder='big',signed=True))
+           except Exception as e:
+                oFFSY = ""
+           try:
                 oFFSU = str(int(data[16:18],16))
+           except:
+                oFFSU = ""
+
                 print("-Offset position X    :",Candy("Color","blue",oFFSX))
                 print("-Offset position Y  :",Candy("Color","purple",oFFSY))
                 print("-Offset Unit   :",Candy("Color","white",oFFSU))
@@ -2043,8 +2318,8 @@ def ChunkStory(lastchunk,mode):
   ToFix = []
   Before_PLTE= [b'PNG', b'IHDR', b'gAMA', b'cHRM', b'iCCP', b'sRGB', b'sBIT']
   After_PLTE= [b'tRNS', b'hIST', b'bKGD'] #but before idat
-  Before_IDAT=[b'sPLT',b'sBIT', b'pHYs', b'tRNS', b'hIST', b'bKGD', b'gAMA', b'cHRM', b'PLTE', b'IHDR', b'bKGD']
-#  Before_IDAT=[b'sPLT', b'pHYs', b'tRNS', b'hIST', b'bKGD', b'PLTE']
+  Before_IDAT=[b'PNG',b'sPLT',b'sBIT', b'pHYs', b'tRNS', b'hIST', b'bKGD', b'gAMA',b'iCCP',b'sRGB', b'cHRM', b'PLTE', b'IHDR', b'bKGD']
+  Before_IDAT2=[b'IHDR',b'sPLT',b'sBIT', b'pHYs', b'tRNS', b'hIST', b'bKGD', b'gAMA',b'iCCP',b'sRGB', b'cHRM', b'PLTE', b'IHDR', b'bKGD']
   OnlyOnce=[b'sBIT', b'IEND', b'tRNS', b'hIST', b'sTER', b'iCCP', b'sRGB', b'gAMA', b'sCAL', b'cHRM', b'bKGD', b'IHDR', b'oFFs', b'pCAL', b'PLTE', b'pHYs', b'IEND',b'eXIf']
   Anywhere=[b'tIME', b'tEXt', b'zTXt', b'iTXt', b'fRAc', b'gIFg', b'gIFx', b'gIFt']
   Criticals =[b'PNG',b'IHDR',b'IDAT',b'IEND']
@@ -2078,14 +2353,25 @@ def ChunkStory(lastchunk,mode):
     print("So far we came across those chunks in %s :\n\n%s\n"%(Sample_Name,[i.decode() for i in Used_Chunks]))
 
     if lastchunk in OnlyOnce:
-         if Chunks_History.count(lastchunk) > 1:
+         if lastchunk in Excluded:
                print("-%s chunk %s be used multiple times."%(Candy("Color","red",lastchunk.decode()),Candy("Color","red","cannot")))
                ToFix.append("Multiple")
 
+    if len(Chunks_History) >0:
+        if Chunks_History[0] != b"PNG":
+           print("-PNG signature have to be placed %s all the other chunks. %s"%(Candy("Color","red","Befor"),Candy("Emoj","bad")))
+           ToFix.append("Missplaced")
+    if len(Chunks_History) >1:
+       if Chunks_History[1] != b"IHDR":
+          print("-IHDR Chunk have to be placed %s and after Png Signature. %s"%(Candy("Color","red","Befor all the other chunks"),Candy("Emoj","bad")))
+          ToFix.append("Missplaced")
 
+
+    if b"IDAT" not in Used_Chunks:
+          pass
 
     if b"IDAT" in Used_Chunks:
-         shutup = [Excluded.append(forbid) for forbid in CHUNKS if forbid in Before_IDAT]
+         shutup = [Excluded.append(forbid) for forbid in CHUNKS if forbid in Before_IDAT2]
          if lastchunk in Excluded:
               print("-%s  %s must be before IDAT Chunk. %s"%(Candy("Color","red",lastchunk.decode()+" is missplaced"),lastchunk.decode(),Candy("Emoj","bad")))
               #print(Excluded)
@@ -2245,9 +2531,8 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
                       print("\nMonkey wanted Banana :",Candy("Color","green",name))
                       print("Monkey got Pullover :",Candy("Color","red",CType))
                       print()
-                      FixShit(name.hex(),CLoffI,CLoffI+8,("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CrcoffX,checksum[2::],Orig_CRC)))
+                      FixShit(name.hex(),CToffI,CToffI+8,("-Found Chunk[%s] has Wrong Chunk name at offset: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CToffX,name,Orig_CT)))
                       return()
-
 
    for name in PRIVATE_CHUNKS:
        if name.lower() == CType.lower():
@@ -2261,7 +2546,7 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
                       print("\nMonkey wanted Banana :",Candy("Color","green",name))
                       print("Monkey got Pullover :",Candy("Color","red",CType))
                       print()
-                      FixShit(name.hex(),CLoffI,CLoffI+8,("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CrcoffX,checksum[2::],Orig_CRC)))
+                      FixShit(name.hex(),CToffI,CToffI+8,("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CToffX,name,Orig_CT)))
                       return()
 
    print("\n-Chunk name:"+Candy("Color","red"," FAILED ")+Candy("Emoj","bad"))
@@ -2318,8 +2603,8 @@ def CheckLength(Cdata,Clen,Ctype):
             ToHistory(b'IEND')
             if DATAX[-len(GoodEnding):].upper() == GoodEnding:
                      ChunkStory(b'IEND',"Critical")
-                     print("\nBut thats only because this is the end of file. ",Candy("Emoj","good"))
-                     SideNote.append("-Reach the end of file without error.")
+                     print("\nWe have reached the end of file. ",Candy("Emoj","good"))
+                     SideNote.append("-Reached the end of file.")
 
                      Candy("Title","All Done here hoped that did the job !")
 
