@@ -475,24 +475,31 @@ def Candy(mode,arg,data=None):
               prnt += "  " +str(arg[i:i+mult])+"\n"
             else:
               prnt += "  " +str(arg[i:])
-       if data == "com":
+       if data == "com" and os.name != "nt":
            Cowsay = """
 %s
 \033[1;33;49m%s
 %s
 \033[m"""%(prnt,Botrnp,CowSep)
-       elif data =="good":
+       elif data =="good" and os.name != "nt":
            Cowsay = """
 %s
 \033[1;32;49m%s
 %s
 \033[m"""%(prnt,Botrnp,CowSep)
-       else:
+       elif data =="bad" and os.name != "nt":
            Cowsay = """
 %s
 \033[1;31;49m%s
 %s
 \033[m"""%(prnt,Botrnp,CowSep)
+       elif s.name == "nt":
+            Cowsay = """
+%s
+%s
+%s
+"""%(Toprnt,prnt,Botrnp)
+
 
        print(Cowsay)
 
@@ -506,11 +513,17 @@ def Candy(mode,arg,data=None):
        Toprnt = TopL+Sep+TopR
        Botrnp = BotL+Sep+BotR
        prnt = "  " +str(arg) if data == None else "  " +str(arg) +" "+str(data)
-
-       Title = """
+       if os.name == "nt":
+           Title = """
 %s
 %s
 %s
+"""%(Toprnt,prnt,Botrnp)
+       elif os.name != "nt":
+           Title = """
+\033[1;37;49m%s\033[m
+%s
+\033[1;37;49m%s\033[m
 """%(Toprnt,prnt,Botrnp)
        print(Title)
 
