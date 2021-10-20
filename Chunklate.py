@@ -396,11 +396,11 @@ def Candy(mode,arg,data=None):
              rnd = random.randint(0,len(good)-1)
              return(good[rnd])
          elif arg == "bad":
-             bad = ["(ಥ﹏ಥ)","(►_◄)","(◉ ︵◉)","ヽ(ｏ`皿′ｏ)ﾉ","凸ಠ益ಠ)凸","╯‵Д′)╯彡┻━┻","¯\_(⊙︿⊙)_/¯","ಠ︵ಠ 凸","ヽ(`Д´)ﾉ","(╯°□°）╯︵ ┻━┻","(✖╭╮✖)","(︶︹︺)","(╯︵╰,)","ヽ(˚௰˚)づ","凸(⊙ ▂⊙ ✖ )","ᕕ༼ ͠ຈ Ĺ̯ ͠ຈ ༽┌∩┐","凸(>皿<)凸","ʕ థ ౪ థ ʔ","༼ ༎ຶ ᆺ ༎ຶ༽","( ◥◣ _◢◤ )","(━┳━ _ ━┳━)","┐(￣ヘ￣)┌","༼☯﹏☯༽","(° -°） ︵ ┻━┻ ","┻━┻︵ \(°□°)/ ︵ ┻━┻ ","◕ ︵◕ ","( ◡ ︵◡ )","(；⌣̀_⌣́)","( ´〒^〒`)","(；￣Д￣)","ʕ TᴥT ʔ ","ヽ(๏ ∀ ๏ )ﾉ","┗(･ω･;)┛","(*￣o￣)","ヽ(O_O )ﾉ","ƪ( ` ▿▿▿▿ ´ ƪ) ","（ΦωΦ）"]
+             bad = ["(ಥ﹏ಥ)","(►_◄)","(◉ ︵◉)","ヽ(ｏ`皿′ｏ)ﾉ","凸ಠ益ಠ)凸","╯‵Д′)╯彡┻━┻","¯\_(⊙︿⊙)_/¯","ಠ︵ಠ 凸","ヽ(`Д´)ﾉ","(╯°□°）╯︵ ┻━┻","(✖╭╮✖)","(︶︹︺)","(╯︵╰,)","ヽ(˚௰˚)づ","凸(⊙ ▂⊙ ✖ )","ᕕ༼ ͠ຈ Ĺ̯ ͠ຈ ༽┌∩┐","凸(>皿<)凸","ʕ థ ౪ థ ʔ","༼ ༎ຶ ᆺ ༎ຶ༽","( ◥◣ _◢◤ )","(━┳━ _ ━┳━)","┐(￣ヘ￣)┌","༼☯﹏☯༽","(° -°） ︵ ┻━┻ ","┻━┻︵ \(°□°)/ ︵ ┻━┻ ","◕ ︵◕ ","( ◡ ︵◡ )","(；⌣̀_⌣́)","( ´〒^〒`)","(；￣Д￣)","ʕ TᴥT ʔ ","ヽ(๏ ∀ ๏ )ﾉ","┗(･ω･;)┛","(*￣o￣)","ヽ(O_O )ﾉ","ƪ( ` ▿▿▿▿ ´ ƪ) ","（ΦωΦ）","(x_x)⌒☆"]
              rnd = random.randint(0,len(bad)-1)
              return(bad[rnd])
          if arg == "com":
-             com = ["~' ▽ '~ )ﾉ","⁀⊙ ෴ ☉⁀","(๏ᆺ   ๏ υ)","─=≡Σ((( つ•̀ω•́)つ ","⌗(́◉◞౪◟◉‵⌗)","(∩｀-´)⊃━☆ﾟ.*･｡ﾟ ","(〓￣(∵エ∵)￣〓)","┬┴┬┴┤ᵒᵏ (･_├┬┴┬┴ ","((유∀유|||))","ε=ε=(っ* ´□` )っ","（・⊝・∞）","(●´⌓`●)","(╯•﹏•╰)","˛˛ƪ(⌾⃝ ౪ ⌾⃝ ๑)و ̉ ̉ ","( ؕؔʘ̥̥̥̥ ه ؔؕʘ̥̥̥̥ )? ","(´⊙ω⊙`)！","ლ(́◉◞౪◟◉‵ლ)","(*′☉.̫☉)","=͟͟͞͞ =͟͟͞͞ ﾍ ( ´ Д `)ﾉ ","  (⁄ ⁄•⁄ω⁄•⁄ ⁄)","(〃＞＿＜;〃)","<(￣ ﹌ ￣)>","(￣ ￣|||)","(￢_￢;)","(x_x)⌒☆","＼(〇_ｏ)／","(／。＼)","〜(＞＜)〜","(/ω＼)","┐(￣～￣)┌","┐(︶▽︶)┌","ヽ(ˇヘˇ)ノ"]
+             com = ["~' ▽ '~ )ﾉ","⁀⊙ ෴ ☉⁀","(๏ᆺ   ๏ υ)","─=≡Σ((( つ•̀ω•́)つ ","⌗(́◉◞౪◟◉‵⌗)","(∩｀-´)⊃━☆ﾟ.*･｡ﾟ ","(〓￣(∵エ∵)￣〓)","┬┴┬┴┤ᵒᵏ (･_├┬┴┬┴ ","((유∀유|||))","ε=ε=(っ* ´□` )っ","（・⊝・∞）","(●´⌓`●)","(╯•﹏•╰)","˛˛ƪ(⌾⃝ ౪ ⌾⃝ ๑)و ̉ ̉ ","( ؕؔʘ̥̥̥̥ ه ؔؕʘ̥̥̥̥ )? ","(´⊙ω⊙`)！","ლ(́◉◞౪◟◉‵ლ)","(*′☉.̫☉)","=͟͟͞͞ =͟͟͞͞ ﾍ ( ´ Д `)ﾉ ","  (⁄ ⁄•⁄ω⁄•⁄ ⁄)","(〃＞＿＜;〃)","<(￣ ﹌ ￣)>","(￣ ￣|||)","(￢_￢;)","＼(〇_ｏ)／","(／。＼)","〜(＞＜)〜","(/ω＼)","┐(￣～￣)┌","┐(︶▽︶)┌","ヽ(ˇヘˇ)ノ"]
              rnd = random.randint(0,len(com)-1)
              return(com[rnd])
 
@@ -433,6 +433,7 @@ def Candy(mode,arg,data=None):
        
        if b"\x1b[1;31;49m" in arg.encode(errors='ignore'):
            mult = mult - (len(b"\x1b[1;31;49m")*arg.encode(errors='ignore').count(b"\x1b[1;31;49m"))
+           Moj = str(Candy("Emoj","com"))
        if b"\x1b[1;32;49m" in arg.encode(errors='ignore'):
            mult = mult - (len(b"\x1b[1;32;49m")*arg.encode(errors='ignore').count(b"\x1b[1;32;49m"))
        if b"\x1b[1;33;49m" in arg.encode(errors='ignore'):
@@ -449,14 +450,18 @@ def Candy(mode,arg,data=None):
            mult = mult - (len(b"\x0A")*arg.encode(errors='ignore').count(b"\x0A"))
        Sep = "━"*mult 
        if data == "com":
-           Moj = Candy("Emoj","com")
+           Moj = str(Candy("Emoj","com"))
+           lnMoj = len(Moj)
        elif data =="good":
-           Moj = Candy("Emoj","good")
+           Moj = str(Candy("Emoj","good"))
+           lnMoj = len(Moj)
        else:
-           Moj = Candy("Emoj","bad")
-       CowSep = " "*len(Moj)
+           Moj = str(Candy("Emoj","bad"))
+           lnMoj = len(Moj)
+       CowSep = " "*lnMoj
        CowSep += "/\n"
        CowSep += str(Moj)
+
        Botrnp = BotL+Sep+BotR
        prnt = " "+str(arg)
        if len(prnt) >= MAXCHAR:
@@ -470,11 +475,25 @@ def Candy(mode,arg,data=None):
               prnt += "  " +str(arg[i:i+mult])+"\n"
             else:
               prnt += "  " +str(arg[i:])
-       Cowsay = """
+       if data == "com":
+           Cowsay = """
 %s
+\033[1;33;49m%s
 %s
+\033[m"""%(prnt,Botrnp,CowSep)
+       elif data =="good":
+           Cowsay = """
 %s
-"""%(prnt,Botrnp,CowSep)
+\033[1;32;49m%s
+%s
+\033[m"""%(prnt,Botrnp,CowSep)
+       else:
+           Cowsay = """
+%s
+\033[1;31;49m%s
+%s
+\033[m"""%(prnt,Botrnp,CowSep)
+
        print(Cowsay)
 
 
@@ -487,6 +506,7 @@ def Candy(mode,arg,data=None):
        Toprnt = TopL+Sep+TopR
        Botrnp = BotL+Sep+BotR
        prnt = "  " +str(arg) if data == None else "  " +str(arg) +" "+str(data)
+
        Title = """
 %s
 %s
@@ -2567,8 +2587,8 @@ def BruteChunk(CType,LastCType,bytesnbr):
 
    if BestBingoCount <= 2 and int(BestBingoScore) >=2:
 #      print(BingoLst)
-      print("-"+str(Candy("Color","green","Solved"))+str(Candy("Emoj","good")))
-      Candy("Cowsay"," Ah looks like we've got a winner! :",Candy("Color","green",BestBingoName),"good")
+      print("-"+str(Candy("Color","green","Scrabble Solved Found one potential valid Chunk name."))+str(Candy("Emoj","good")))
+      Candy("Cowsay"," Ah looks like we've got a winner! :%s"%Candy("Color","green",BestBingoName),"good")
 ##TmpFix##
       FixShit(BestBingoName.encode().hex(),CrcoffI+16,CrcoffI+24,"-Found Chunk[%s] has wrong name at offset: %s\n-Chunk was corrupted changing %s bytes turn into a valid Chunk name: %s"%(Orig_CT,CToffX,int(BestBingoScore)-len(Orig_CT),BestBingoName))
       return()
