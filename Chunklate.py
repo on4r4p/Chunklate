@@ -2826,8 +2826,8 @@ def CheckLength(Cdata,Clen,Ctype):
        Candy("Cowsay"," So ..The length part is saying that data is %s bytes long."%Candy("Color","yellow",int(Clen, 16)),"com")
        if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
                CheckChunkName(Ctype,int(Clen,16),Chunks_History[-1])
-       else:
-               CheckChunkName(NextChunk,int(Clen,16),Ctype)
+#       else:
+#               CheckChunkName(NextChunk,int(Clen,16),Ctype)
 
        ToBitstory(int(Clen, 16))
 
@@ -2838,9 +2838,12 @@ def CheckLength(Cdata,Clen,Ctype):
             Candy("Cowsay"," ..And this is what iv found there: "+Candy("Color","red","[NOTHING]"),"com")
        else:
             Candy("Cowsay"," ..And this is what iv found there: "+Candy("Color","yellow",bytes.fromhex(NextChunk).decode(errors="replace")),"com")
-
+#       if bytes.fromhex(Ctype) == b'IEND':
+#               pause= input("iend")
        if bytes.fromhex(Ctype) == b'IEND' and int(Clen, 16) == 0:
             ToHistory(b'IEND')
+#            print("here!")
+#            pause= input("pauise")
             if DATAX[-len(GoodEnding):].upper() == GoodEnding:
                      ChunkStory(b'IEND',"Critical")
                      Candy("Cowsay"," We have reached the end of file.","good")
