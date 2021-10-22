@@ -183,14 +183,14 @@ def Summarise(infos,Summary_Footer=False):
             os.mkdir(folder)
 
          if infos is not None:
-              if len(SideNote) > 0:
-                  for note in SideNote:
+              if len(SideNotes) > 0:
+                  for note in SideNotes:
                        tmp += "\n"+str(note)+"\n"
                   infos = tmp+infos +"\n"
               else:
                   infos = "\n"+infos+"\n"
-         elif len(SideNote) > 0:
-                  for note in SideNote:
+         elif len(SideNotes) > 0:
+                  for note in SideNotes:
                        tmp += "\n"+str(note)+"\n"
                   infos = tmp
 
@@ -448,6 +448,7 @@ def Candy(mode,arg,data=None):
            mult = mult - (len(b"\x1b[m")*arg.encode(errors='ignore').count(b"\x1b[m"))
        if b"\x0A" in arg.encode(errors='ignore'):
            mult = mult - (len(b"\x0A")*arg.encode(errors='ignore').count(b"\x0A"))
+
        Sep = "━"*mult 
        if data == "com":
            Moj = str(Candy("Emoj","com"))
@@ -493,16 +494,14 @@ def Candy(mode,arg,data=None):
 \033[1;31;49m%s
 %s
 \033[m"""%(prnt,Botrnp,CowSep)
-       elif s.name == "nt":
+       elif os.name == "nt":
             Cowsay = """
 %s
 %s
 %s
 """%(Toprnt,prnt,Botrnp)
 
-
        print(Cowsay)
-
 
    if mode == "Title":
        BotL = "╰─"
@@ -553,17 +552,17 @@ def ToBitstory(bytenbr):
 
 def ChunkForcer():
      global WORKING
-     global SideNote
+     global SideNotes
      Candy("Title","[DEMO]Attempting To Repair Corrupted Chunk Data:[DEMO]")
      Thread(target = Loadingbar).start()
      time.sleep(30)
      print("\n\nDemo ended.\n")
-     SideNote.append( "\n-Launched Data Chunk Bruteforcer.\n-Demo ended well.")
+     SideNotes.append( "\n-Launched Data Chunk Bruteforcer.\n-Demo ended well.")
      WORKING = False
 
 
 def FindMagic():
-     global SideNote
+     global SideNotes
 
      Candy("Title","Looking for magic header:")
 
@@ -578,7 +577,7 @@ def FindMagic():
           print("-Found Png Signature at offset (%s/%s/%s): (%s/%s/%s)\n"%(Candy("Color","yellow","Hex"),Candy("Color","blue","Bytes"),Candy("Color","purple","Index"),Candy("Color","yellow",hex(int(pos/2))),Candy("Color","blue",int(pos/2)),Candy("Color","purple",pos)))
           if DATAX.startswith(magic) is False:
                 print("-File does not start with a png signature.")
-                Candy("Cowsay"," Mkay ...I like where this is going ..","bad")
+                Candy("Cowsay"," Mkay ...Things just keeps better and better ..","bad")
                 print("-Cutting %s bytes from %s since png header starts at offset %s ."%(Candy("Color","white",Sample_Name),Candy("Color","blue",int(pos/2)),Candy("Color","white",Sample_Name),Candy("Color","blue",hex(int(pos/2)))))
 
                 Zankentsu = DATAX[pos::]
@@ -596,7 +595,7 @@ def FindMagic():
                if badnews == magc[1]:
                  print("-Some bytes are %s from Png Signature.."%Candy("Color","red","missing"))
                  Candy("Cowsay"," %s seems corrupted due to line feed conversion...It doesnt look that bad...But I ll keep that in mind while im on it.."%(Candy("Color","white",Sample_Name,"bad")))
-                 SideNote.append("-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented.")
+                 SideNotes.append("-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented.")
                  ChunkForcer()
                  TheEnd()
 
@@ -604,14 +603,14 @@ def FindMagic():
                  Candy("Cowsay"," Hang on a sec....This is bad news i m afraid..","com")
                  Candy("Cowsay"," %s is badly corrupted ...I cannot guarantee any results and it may take forever to find a solution..."%Sample_Name,"com")
                  print(Candy("Color","yellow","\n-ToDo"))
-                 SideNote.append("-Major Corruption due to line feed conversion\n-File may not be recovered.\n-Not yet implemented.")
+                 SideNotes.append("-Major Corruption due to line feed conversion\n-File may not be recovered.\n-Not yet implemented.")
                  TheEnd()
 
          Candy("Cowsay"," Ok let's dig a little bit deeper..","bad")
          return(FindFuckingMagic())
 
 def FindFuckingMagic():
-     global SideNote
+     global SideNotes
 
      Candy("Title","Looking harder for magic header:")
      Candy("Cowsay"," This may take me sometimes please wait ..","com")
@@ -656,7 +655,7 @@ def FindFuckingMagic():
          print("\n\n-Found multiple %s png signatures"%Candy("Color","yellow","potentials"))
          Candy("Cowsay"," Looks like i gonna have to test them all.","bad")
          print(Candy("Color","yellow","\n-ToDo"))
-         SideNote.append("-Found multiple potentials png signatures\n-Not Implemented yet")
+         SideNotes.append("-Found multiple potentials png signatures\n-Not Implemented yet")
          TheEnd()
      else:
          print("\n\n")
@@ -665,296 +664,386 @@ def FindFuckingMagic():
          print("\n...\n-Done\n")
          Candy("Cowsay"," Im afraid i wasn't able to find anything that looks like a png signature.Maybe i could try to find if there any Known Chunks names in this file ?","com")
          print(Candy("Color","yellow","\n-ToDo"))
-         SideNote.append("-Png signatures matching score are too low\n-Not Implemented yet")
+         SideNotes.append("-Png signatures matching score are too low\n-Not Implemented yet")
          TheEnd()
 
-def SaveErrors(Chunk,Err,Data=None):#TODO#TOFIX
-   global SideNote
-   global ErrorsFlag
-   global ErrorsList
+def Ancillary(Chunk):
+   Candy("Title","Ancillary Check:",Candy("Color","white",Chunk))
+   Charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+   Semantics = []
+   try:
+      Chunk = Chunk.decode(errors='ignore')
+   except:
+      pass
+
+   for i in Chunk:
+     if i in Charset:
+        if i == i.upper():
+           Semantics.append(i)
+        elif i == i.lower():
+           Semantics.append(i)
+     else:
+         break
+   if len(Semantics) != 4:
+        print("-[%s] is %s Chunks's naming conventions"%(Chunk,Candy("Color","red","Not Following")))
+        Candy("Cowsay","Meaning that could be an unknown private chunk that got corrupt .....Or a Known chunk that got corrupt ...","com")
+        Candy("Cowsay","..Or Not even a chunk's name at all ...","bad") 
+        return(False)
+   elif len(Semantics) == 4:
+        print("-[%s] %s Chunks's naming conventions"%(Chunk,Candy("Color","green","Seems to be Following")))
+        Candy("Cowsay","If this is a real Chunk this means that %s is :"%Chunk,"good")
+        if Semantics[0] == Semantics[0].upper():
+             print("-"+Candy("Color","green",Semantics[0])+":"+Candy("Color","yellow","Critical"))
+        else :
+             print("-"+Candy("Color","green",Semantics[0])+":"+Candy("Color","yellow","Not Critical"))
+        if Semantics[1] == Semantics[1].upper():
+             print("-"+Candy("Color","green",Semantics[1])+":"+Candy("Color","yellow","Private"))
+        else :
+             print("-"+Candy("Color","green",Semantics[1])+":"+Candy("Color","yellow","Not Private"))
+        if Semantics[2] == Semantics[2].upper():
+             print("-"+Candy("Color","green",Semantics[2])+":"+Candy("Color","yellow","Conform to PNG specifications"))
+        else :
+             print("-"+Candy("Color","green",Semantics[2])+":"+Candy("Color","yellow","Not Conform to PNG specifications"))
+        if Semantics[3] == Semantics[3].upper():
+             print("-"+Candy("Color","green",Semantics[3])+":"+Candy("Color","yellow","Unsafe to Copy"))
+        else :
+             print("-"+Candy("Color","green",Semantics[3])+":"+Candy("Color","yellow","Safe to Copy"))
+        return(True)
+
+
+
+def FixItFelix(Chunk):
+    Candy("Title","Fix It Felix: ",Candy("Color","white",Chunk))
+    chkd = Chunk.decode(errors="ignore")+"_Tool_"
+    for nb,key in enumerate(PandoraBox):
+        print("-Currently Fixing",key)
+
+        if "Wrong Chunk name at offset:" in str(key):
+#              print("len:",len(PandoraBox[key].items()))
+#              for toolkey,keyvalue in PandoraBox[key].items():
+#                        print("toolkey:",toolkey)
+#                        print("keyvalue:",keyvalue)
+
+              if len(PandoraBox[key].items()) == 5:
+#                    print(PandoraBox[key][chkd+"0"])
+#                    print(PandoraBox[key][chkd+"1"])
+#                    print(PandoraBox[key][chkd+"2"])
+#                    print(PandoraBox[key][chkd+"3"])
+#                    print(PandoraBox[key][chkd+"4"])
+
+                    FixShit(PandoraBox[key][chkd+"4"].hex(),PandoraBox[key][chkd+"1"],PandoraBox[key][chkd+"2"],("-Replacing %s with %s at %s"%(PandoraBox[key][chkd+"3"],PandoraBox[key][chkd+"4"],PandoraBox[key][chkd+"0"])))
+
+              else:
+                    print("Anotherway")
+                    sys.exit()
+              return()
+
+def SaveErrors(Chunk,Err,*ToolKit):
+   global SideNotes
+   global ERRORSFLAG
+   global PandoraBox
+   global TOOLS
 
    Candy("Title","Keeping Tracks of Errors:")
    print(Candy("Color","purple","-ToDo -Fix crc based on errors found\n-Not Implemented yet\n"))
-   if Chunk not in ErrorsFlag: ErrorsFlag.append(Chunk)
+#   if Chunk not in ERRORSFLAG: ERRORSFLAG.append(Chunk)
 #   print("Chnk:",Chunk)
 #   print("Err:",Err)
+#   print("ErroFlag:\n",ERRORSFLAG)
+
+   ERRORSFLAG.append(Chunk)
+
    if Chunk == "Critical":
        for chnk in Err:
           print("-CriticalHit:",chnk)
-          SideNote.append("-Critical Chunk %s is missing"%chnk)
+          SideNotes.append("-Critical Chunk %s is missing"%chnk)
    elif type(Err) == list:
        for e in Err:
-           if "cHRM is missplaced must appears before PLTE Chunk" in str(e):
-               print("-CriticalMiss:",e)
-               SideNote.append(str(e))
+#FixShit(name.hex(),CToffI,CToffI+8,("-Found Chunk[%s] has Wrong Chunk name at offset: %s\n-Replacedwith: %s old value was: %s"%(Orig_CT,CToffX,name,Orig_CT)))
+#           print(e)
+           if "Wrong Chunk name at offset:" in str(e):
+               print("-\033[1;31;49mCriticalHit\033[m:",e)
+               SideNotes.append(str(e))
+
+               for Fnum,Flag in enumerate(ERRORSFLAG):
+                     for Tnum,tool in enumerate(ToolKit):
+                         TOOLS[Chunk.decode(errors="ignore")+"_Tool_"+str(Tnum)] = tool
+                     PandoraBox[Chunk.decode(errors="ignore")+"_Error_"+str(Fnum)+":"+str(e)] = TOOLS
+
+           elif "cHRM is missplaced must appears before PLTE Chunk" in str(e):
+               print("-\033[1;31;49mCriticalHit\033[m:",e)
+               SideNotes.append(str(e))
            elif "badchar" == str(e):
-               print("-CriticalMiss:",e)
+               print("-\033[1;31;49mCriticalHit\033[m:",e)
                for bad in e[1:]:
-                   SideNote.append("-iCCP name Wrong Character at:"+str(bad))
+                   SideNotes.append("-iCCP name Wrong Character at:"+str(bad))
            elif "-IHDR Width : Wrong size Must be between 1 to 2147483647." == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-IHDR Height : Wrong size Must be between 1 to 2147483647." == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "IHDR size have to always be 13 bytes" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-IHDR Color 3: Wrong bit depht with IHDR Color type 3 (depht must be 1,2,4 or 8)":
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-IHDR Depht: Wrong bit depht with IHDR Color type 3 (depht must be 1,2,4 or 8)" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-IHDR Bit depht :Wrong bit value Must be 1,2,4,8 or 16" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-IHDR Filter Method :Wrong value must be 0." == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-IHDR Compression Algorithms : Wrong value must be 0." == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-IHDR Interlace Method : Wrong value must be 0 (no interlace) or 1 (Adam7 interlace)." == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-pHYs Pixels per unit, Y axis : Wrong size Must be between 1 to 2147483647." == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-pHYs Pixels per unit, X axis : Wrong size Must be between 1 to 2147483647." == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-pHYs Unit specifier : Must be between 0 (unknown) or 1(meter)." == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-bKGD Gray level :Wrong value Must be less than" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-bKGD Red level :Wrong value Must be less than" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-bKGD Green level :Wrong value Must be less than" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-bKGD Blue level :Wrong value Must be less than" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-PLTE Total palettes number must be divisible by 3" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "PLTE Red palettes entry must Not be empty" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "PLTE Green palettes entry must Not be empty" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "PLTE Blue palettes entry must Not be empty" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-PLTE Green palettes not in bitdepht range" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-PLTE Red palettes not in bitdepht range" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-PLTE Blue palettes not in bitdepht range" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "Error PLTER wrong value at" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "Error PLTEG wrong value at" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "Error PLTEB wrong value at" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Length of iCCP Profile name is not valid" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-iCCP Wrong Compression Method value" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-iCCP Profile length is not valid" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sPLT Sample depth have to be either 8 or 16" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sPLT name is too long" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Red sPLT length is not divisible by 6" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Red sPLT length is not divisible by 10" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Green sPLT length is not divisible by 6" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Green sPLT length is not divisible by 10" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Blue sPLT length is not divisible by 6" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Blue sPLT length is not divisible by 10" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Alpha sPLT length is not divisible by 6" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Alpha sPLT length is not divisible by 10" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Frequency sPLT length is not divisible by 6" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Frequency sPLT length is not divisible by 10" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Histogram sPLT or PLTE have are missing and must be place before hIST" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "Histogram frequencies entries must match PLTE entries number" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Histogram frequencies entries must match sPLT entries number" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-tRNS:sPLT or PLTE have are missing and must be place before tRNS" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-tRNS Alpha palettes indexes entries must match PLTE entries number" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "IHDR Color Have to be either 0,2 or 3 when used with tRNS" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-tRNS Chunk Must not be empty" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Error tRNS_Gray:" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Error tRNS_TrueR:" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Error tRNS_TrueG:" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Error tRNS_TrueB:" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-tRNS Alpha indexes palettes entries must not be superior to sPLT entries" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-tRNS Alpha indexes palettes entries must not be superior to PLTE entries" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-Error tRNS_Index:" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sRGB value must be between 0 to 3." == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-cHRM is overided by sRGB chunk" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-cHRM is overided by sRGB chunk and iCCP" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "is missplaced must appears before PLTE Chunk" in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit gray value must be greater than 0" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit True Red value must be greater than 0" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit True Green value must be greater than 0" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit True Blue value must be greater than 0" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit Grayscale value must be greater than 0" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit Grayscale Alpha value must be greater than 0" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit True Alpha Red value must be greater than 0" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit True Alpha Green value must be greater than 0" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit True Alpha Blue value must be greater than 0" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit True Alpha value must be greater than 0" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit True red value must not be greater than 8" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit True green value must not be greater than 8" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit True blue value must not be greater than 8" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit True red value must not be greater than " in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit True green value must not be greater than " in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit True blue value must not be greater than " in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit Grayscale value must not be greater than " in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit Grayscale Alpha value must not be greater than " in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-sBit True Alpha value must not be greater than " in str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-oFFs position Y must be between -2,147,483,647 to +2,147,483,647" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-oFFs position Y must be between -2,147,483,647 to +2,147,483,647" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-oFFs unit value must be between 0 or 1" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-tIME Year is > than the current year" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-tIME Month value is not valid" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-tIME Day value is not valid" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-tIME Hour value is not valid" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-tIME Minute value is not valid" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            elif "-tIME Second value is not valid" == str(e):
-              print("-CriticalMiss:",e)
-              SideNote.append(str(e))
+              print("-\033[1;31;49mCriticalHit\033[m:",e)
+              SideNotes.append(str(e))
            else:
               print("-Unkown Error"+str(Chunk)+" :"+str(e))
-              SideNote.append("-Unkown Error "+str(Chunk)+" :"+str(e))
+              SideNotes.append("-Unkown Error "+str(Chunk)+" :"+str(e))
+   else:
+           print("Param is not a list")
+           sys.exit()
 #   TheEnd()
 
 def NullFind(data,search4=None):
@@ -971,7 +1060,7 @@ def NullFind(data,search4=None):
        return(False)
 
 def GetInfo(Chunk,data):
-    global SideNote
+    global SideNotes
     global IHDR_Height
     global IHDR_Width
     global IHDR_Depht
@@ -1060,7 +1149,7 @@ def GetInfo(Chunk,data):
     global zTXt_Meth
     global zTXt_Text
 
-
+    ToFix = []
     iCCP_Name = ""
     iTXt_String=""
     iTXt_Key=""
@@ -1071,12 +1160,11 @@ def GetInfo(Chunk,data):
     Name =""
     lastnm = ""
 
-    ToFix = []
 
     Candy("Title","Getting infos about:",Candy("Color","white",str(Chunk)))
 
     if Chunk == "PNG":
-          Candy("Cowsay"," Well ..That's a start ..At least it looks like a png.","com")
+          Candy("Cowsay"," Well ..That's a start ..At least it looks like a png.","good")
     if Chunk == "IHDR":
         try:
              IHDR_Height=str(int(data[:8],16))
@@ -2238,7 +2326,10 @@ def GetInfo(Chunk,data):
 
     if Chunk.encode() in PRIVATE_CHUNKS:
       print("-Private Chunk")
-      
+
+    if Chunk.encode() not in ALLCHUNKS:
+
+      print("-%s"%Candy("Color","red","Unknown Chunk."))
 
     ChunkStory(Chunk,"TheGoodPlace")
     return
@@ -2249,6 +2340,7 @@ def ReadPng(offset):
 
      global Orig_CL
      global Orig_CT
+     global Orig_NC
      global Orig_CD
      global Orig_CRC
 
@@ -2259,6 +2351,10 @@ def ReadPng(offset):
      global CToffX
      global CToffB
      global CToffI
+
+     global NCoffX
+     global NCoffB
+     global NCoffI
 
      global CDoffX
      global CDoffB
@@ -2300,6 +2396,17 @@ def ReadPng(offset):
          CrcoffB = int(offset/2)+int(Chunk_Length,16)+len(Chunk_Type)
          CrcoffI =(int(offset/2)+int(Chunk_Length,16)+len(Chunk_Type))*2
 
+         NextChunk = DATAX[CLoffI+32+len(Chunk_Data):CLoffI+32+len(Chunk_Data)+8]
+         Orig_NC = NextChunk
+         NCoffX = hex(int(len(NextChunk)/2)+4)
+         NCoffB = int(len(NextChunk)/2)+4
+         NCoffI = len(NextChunk)+4
+#         print("len:",len(NextChunk))
+#         print("NCoffX:",NCoffX)
+#         print("NCoffB:",NCoffB)
+#         print("NCoffI:",NCoffI)
+#         print("next:",bytes.fromhex(NextChunk))
+
          Candy("Title","Chunk Infos:")
          print("-Found at offset            (%s/%s/%s): (%s/%s/%s) "%(Candy("Color","yellow","Hex"),Candy("Color","blue","Bytes"),Candy("Color","purple","Index"),Candy("Color","yellow",CLoffX),Candy("Color","blue",CLoffB),Candy("Color","purple",CLoffI)))
          print("-Chunk Length:              (%s/%s)"%( Candy("Color","yellow",hex(int(Chunk_Length,16)) ) ,Candy("Color","blue",int(Chunk_Length, 16)) ) )
@@ -2312,9 +2419,16 @@ def ReadPng(offset):
          print("")
          print("-Found at offset            (%s/%s/%s): (%s/%s/%s) "%(Candy("Color","yellow","Hex"),Candy("Color","blue","Bytes"),Candy("Color","purple","Index"),Candy("Color","yellow",CrcoffX),Candy("Color","blue",CrcoffB),Candy("Color","purple",CrcoffI)))
          print("-Chunk Crc:                 (%s/offset :  %s)"%(Candy("Color","yellow",Chunk_Crc),Candy("Color","yellow",hex(CrcoffB))))
+
+
+
 ##
          CheckLength(Chunk_Data,Chunk_Length,Chunk_Type)
 ##
+
+         CheckChunkName(Chunk_Type,Chunk_Length,Chunks_History[-1])
+
+#
          if bytes.fromhex(Chunk_Type) != b'IDAT':
                GetInfo(bytes.fromhex(Chunk_Type).decode(),Chunk_Data)
 
@@ -2379,14 +2493,14 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
                  print("-Found the closest Chunk to our position:%s at offset %s %s"%(Candy("Color","green",Chk),Candy("Color","blue",NeedleX),Candy("Color","yellow",NeedleI)))
                  if Chk in Excluded:
                         print("\n-Chunk position is %s %s\n"%(Candy("Color","red","Not Valid "),Candy("Emoj","bad")))
-                        Candy("Cowsay"," But that chunk [%s] is not supposed to be here .."%Candy("Color","red",Chk),"om")
+                        Candy("Cowsay"," But that chunk [%s] is not supposed to be here .."%Candy("Color","red",Chk),"com")
                         Candy("Cowsay"," ITS A TRAP !! RUN !!!!!!!","bad")
                         Candy("Cowsay"," I seriously doubt that i could be of any uses with this one ..","com")
                         Candy("Cowsay"," If you are sure %s is a png i can try to fill the gap but i cannot guarantee any result.."%Candy("Color","white",Sample_Name),"com")
                         if b'IHDR' not in Chunks_History :
                              Candy("Cowsay"," Especially without IHDR chunk..","bad")
                         print(Candy("Color","yellow","\n-ToDo"))
-                        SideNote.append("-Missplaced Chunk")
+                        SideNotes.append("-Missplaced Chunk")
                         TheEnd()
                  else:
                       LenCalc = Data_End_OffsetI-CDoffB
@@ -2432,7 +2546,7 @@ def Critical():
 
 def ChunkStory(lastchunk,mode):
   global Warning
-  global SideNote
+  global SideNotes
 
 
   ToFix = []
@@ -2475,7 +2589,7 @@ def ChunkStory(lastchunk,mode):
     Used_Chunks = list(dict.fromkeys(Chunks_History))
     Excluded = [used for used in Used_Chunks if used in OnlyOnce]
 #    print(Excluded)
-    Candy("Cowsay"," So far we came across those chunks in "+Sample_Name + str([i.decode() for i in Used_Chunks]),"good")
+    Candy("Cowsay"," So far we came across those chunks in "+Sample_Name +"\n "+ str([i.decode() for i in Used_Chunks]),"good")
 
     if lastchunk in OnlyOnce:
          if lastchunk in Excluded:
@@ -2512,7 +2626,7 @@ def ChunkStory(lastchunk,mode):
     if len(ToFix) >0:
              SaveErrors(lastchunk,ToFix)
     else:
-          print("\n-Errors Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+          print("\n-Missplaced Chunk Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
     return
 
   if mode == "Fix":
@@ -2600,7 +2714,7 @@ def BruteChunk(CType,LastCType,bytesnbr):
 
    if BestBingoCount <= 2 and int(BestBingoScore) >=2:
 #      print(BingoLst)
-      print("-"+str(Candy("Color","green","Scrabble Solved Found one potential valid Chunk name."))+str(Candy("Emoj","good")))
+      print("-"+str(Candy("Color","green","Scrabble Solved."))+str(Candy("Emoj","good")))
       Candy("Cowsay"," Ah looks like we've got a winner! :%s"%Candy("Color","green",BestBingoName),"good")
 ##TmpFix##
       FixShit(BestBingoName.encode().hex(),CrcoffI+16,CrcoffI+24,"-Found Chunk[%s] has wrong name at offset: %s\n-Chunk was corrupted changing %s bytes turn into a valid Chunk name: %s"%(Orig_CT,CToffX,int(BestBingoScore)-len(Orig_CT),BestBingoName))
@@ -2642,15 +2756,13 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
 #       CType = bytes.fromhex(CType).decode(errors="replace")
    except Exception as e:
         print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
-        print("ctyp ",CType)
-        print(type(CType))
 
    if next != None:
         Candy("Title","Checking Next Chunk Type:",Candy("Color","white",CType))
    else:
         Candy("Title","Checking Chunk Type:",Candy("Color","white",CType))
 
-   for name in CHUNKS:
+   for name in ALLCHUNKS:
        if name.lower() == CType.lower():
                if name == CType:
                       print("\n-Chunk name:"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
@@ -2662,25 +2774,14 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
                       print("\nMonkey wanted Banana :",Candy("Color","green",name))
                       print("Monkey got Pullover :",Candy("Color","red",CType))
                       print()
-                      FixShit(name.hex(),CToffI,CToffI+8,("-Found Chunk[%s] has Wrong Chunk name at offset: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CToffX,name,Orig_CT)))
+                      Ancillary(CType)
+                      if next == None:
+                          SaveErrors(CType,["-Found Chunk[%s] Wrong Chunk name at offset: %s"%(Orig_CT,CToffX)],CToffX,CToffI+4,CToffI+12,Orig_CT,name)
                       return()
 
-   for name in PRIVATE_CHUNKS:
-       if name.lower() == CType.lower():
-               if name == CType:
-                      print("\n-Private Chunk name:"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
-                      #ToHistory(bytes.fromhex(ChunkType))
-                      return(None)
-
-               else:
-                      print("\n-Private Chunk name:"+Candy("Color","red"," FAIL ")+Candy("Emoj","bad"))
-                      print("\nMonkey wanted Banana :",Candy("Color","green",name))
-                      print("Monkey got Pullover :",Candy("Color","red",CType))
-                      print()
-                      FixShit(name.hex(),CToffI,CToffI+8,("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CToffX,name,Orig_CT)))
-                      return()
 
    print("\n-Chunk name:"+Candy("Color","red"," FAILED ")+Candy("Emoj","bad"))
+   Ancillary(CType)
    try:
       LastCType = bytes.fromhex(str(LastCType)).decode()
    except Exception as e:
@@ -2711,13 +2812,12 @@ def CheckLength(Cdata,Clen,Ctype):
        GoodEnding = "0000000049454E44AE426082"
        NextChunk = DATAX[CLoffI+32+len(Cdata):CLoffI+32+len(Cdata)+8]
 
-       if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
-               CheckChunkName(Ctype,int(Clen,16),Chunks_History[0])
-
        Candy("Title","Checking Data Length:",Candy("Color","white",str(Clen)))
        Candy("Cowsay"," So ..The length part is saying that data is %s bytes long."%Candy("Color","yellow",int(Clen, 16)),"com")
-#       print("So ..The length part is saying that data is %s bytes long."%Candy("Color","yellow",int(Clen, 16)))
-
+#       if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
+#               CheckChunkName(Ctype,int(Clen,16),Chunks_History[0])
+#       else:
+#               CheckChunkName(NextChunk,int(Clen,16),Ctype)
        ToBitstory(int(Clen, 16))
 
        if int(Clen,16)>26736:
@@ -2733,16 +2833,33 @@ def CheckLength(Cdata,Clen,Ctype):
             if DATAX[-len(GoodEnding):].upper() == GoodEnding:
                      ChunkStory(b'IEND',"Critical")
                      Candy("Cowsay"," We have reached the end of file.","good")
-                     SideNote.append("-Reached the end of file.")
+                     SideNotes.append("-Reached the end of file.")
 
-                     Candy("Cowsay"," All Done here hoped that did the job !","good")
+                     Candy("Cowsay"," All Done here Later !","good")
 
                      TheEnd()
             else:
                 print(DATAX[-len(GoodEnding):])
                 exit()
+    #   return
+#       CheckChunkName(NextChunk,int(Clen,16),Ctype,True)
 
-       CheckChunkName(NextChunk,int(Clen,16),Ctype,True)
+def Question(Chunk):
+
+     Candy("Title","QUESTION!")
+     print("Errors List:\n")
+     for key in PandoraBox:print("\033[1;31;49m%s\033[m"%key)
+     Candy("Cowsay","Hum errors has been detected but the CRC is still Valid !!! Usually this means that it has been made on purpose by someone...","bad")
+     Candy("Cowsay","Do you wish to try to fix this regardless of CRC's validity ?","com")
+     Answer = input("Answer(yes/no):").lower()
+     while Answer != "yes" and Answer != "no" :
+           Answer = input("Answer(yes/no):").lower()
+     if Answer == "yes":
+            Candy("Cowsay","Fine , let me see what i can do .","good")
+            FixItFelix(Chunk)
+     else:
+            Candy("Cowsay","Ok ,just do not make eye contact !","com")
+            return
 
 def Checksum(Ctype, Cdata, Crc,next=None):
     Candy("Title","Check Crc Validity:")
@@ -2751,9 +2868,13 @@ def Checksum(Ctype, Cdata, Crc,next=None):
     Crc = hex(int.from_bytes(bytes.fromhex(Crc),byteorder='big'))
     checksum = hex(binascii.crc32(Ctype+Cdata))
     if checksum == Crc:
-        print("-Crc Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+        print("-Crc Check :"+Candy("Color","green"," OK ")+Candy("Emoj","good")+"\n")
         if next == None:
              ToHistory(Ctype)
+        if Ctype in ERRORSFLAG:
+             print("-%s Chunks Errors left to be fixed. %s\n"%(Candy("Color","red",len(ERRORSFLAG)),Candy("Emoj","bad")))
+             Question(Ctype)
+
         return(None)
     else:
         print("-Crc Check :"+Candy("Color","red"," FAILED ")+Candy("Emoj","bad"))
@@ -2776,7 +2897,18 @@ def Checksum(Ctype, Cdata, Crc,next=None):
 
 def FixShit(shit,start,end,infos):
          Candy("Title","Fixing File")
-         print("-Data : %s\n"%shit)
+         try:
+            print("-Data : %s\n"%bytes.fromhex(shit))
+         except:
+            print("-Data : %s\n"%shit)
+
+#         print("start:",start)
+#         print("end:",end)
+
+#         print("Data portion:",DATAX[start:end])
+#         print("Data portion bytes:",bytes.fromhex(DATAX[start:end]))
+
+#         print("Wanted:",bytes.fromhex(DATAX[74:82]))
          Summarise(infos)
          Before = DATAX[:start]
          After = DATAX[end:]
@@ -2852,13 +2984,16 @@ CharPos =1
 Have_A_KitKat= False
 Warning = False
 Summary_Header= True
-SideNote = []
-ErrorsFlag = []
-ErrorsList = []
+SideNotes = []
+ERRORSFLAG = []
+PandoraBox = {}
+TOOLS = {}
 CHUNKS = [b'sBIT', b'IEND', b'sPLT', b'tRNS', b'fRAc', b'hIST', b'dSIG', b'sTER', b'iCCP', b'sRGB', b'zTXt', b'gAMA', b'IDAT', b'sCAL', b'cHRM', b'bKGD', b'tEXt', b'tIME', b'iTXt', b'IHDR', b'gIFx', b'gIFg', b'oFFs', b'pCAL', b'PLTE', b'gIFt', b'pHYs',b'eXIf']
 PRIVATE_CHUNKS = [b'cmOD',b'cmPP',b'cpIp',b'mkBF',b'mkBS',b'mkBT',b'mkTS',b'spAL',b'pcLb',b'prVW',b'JDAT',b'JSEP',b'DHDR',b'FRAM',b'SAVE',b'SEEK',b'nEED',b'DEFI',b'BACK',b'MOVE',b'CLON',b'SHOW',b'CLIP',b'LOOP',b'ENDL',b'PROM',b'fPRI',b'eXPI',b'BASI',b'IPNG',b'PPLT',b'PAST',b'TERM',b'DISC',b'pHYg',b'DROP',b'DBYK',b'ORDR',b'MAGN',b'MEND']
+ALLCHUNKS = [b'sBIT', b'IEND', b'sPLT', b'tRNS', b'fRAc', b'hIST', b'dSIG', b'sTER', b'iCCP', b'sRGB', b'zTXt', b'gAMA', b'IDAT',b'sCAL', b'cHRM', b'bKGD', b'tEXt', b'tIME', b'iTXt', b'IHDR', b'gIFx', b'gIFg', b'oFFs', b'pCAL', b'PLTE', b'gIFt', b'pHYs',b'eXIf',b'cmOD',b'cmPP',b'cpIp',b'mkBF',b'mkBS',b'mkBT',b'mkTS',b'spAL',b'pcLb',b'prVW',b'JDAT',b'JSEP',b'DHDR',b'FRAM',b'SAVE',b'SEEK',b'nEED',b'DEFI',b'BACK',b'MOVE',b'CLON',b'SHOW',b'CLIP',b'LOOP',b'ENDL',b'PROM',b'fPRI',b'eXPI',b'BASI',b'IPNG',b'PPLT',b'PAST',b'TERM',b'DISC',b'pHYg',b'DROP',b'DBYK',b'ORDR',b'MAGN',b'MEND']
 Orig_CL=""
 Orig_CT=""
+Orig_NC=""
 Orig_CD=""
 Orig_CRC=""
 CLoffX=""
@@ -2867,6 +3002,10 @@ CLoffI=""
 CToffX=""
 CToffB=""
 CToffI=""
+NCoffX=""
+NCoffB=""
+NCoffI=""
+NCoff_CRC=""
 CDoffX=""
 CDoffB=""
 CDoffI=""
@@ -2964,7 +3103,7 @@ while True:
      Chunks_History = []
      Bytes_History = []
      Loading_txt = ""
-     SideNote = []
+     SideNotes = []
      Chunklate(1)
      Sample_Name = os.path.basename(Sample)
      print("-Proceeding with: ",Candy("Color","white",Sample_Name))
