@@ -499,7 +499,14 @@ def Candy(mode,arg,data=None):
 %s
 %s
 %s
-"""%(Toprnt,prnt,Botrnp)
+"""%(prnt,Botrnp,CowSep)
+
+       else:
+            Cowsay = """
+%s
+%s
+%s
+"""%(prnt,Botrnp,CowSep)
 
        print(Cowsay)
 
@@ -2426,7 +2433,7 @@ def ReadPng(offset):
          CheckLength(Chunk_Data,Chunk_Length,Chunk_Type)
 ##
 
-         CheckChunkName(Chunk_Type,Chunk_Length,Chunks_History[-1])
+         #CheckChunkName(Chunk_Type,Chunk_Length,Chunks_History[-1])
 
 #
          if bytes.fromhex(Chunk_Type) != b'IDAT':
@@ -2669,7 +2676,7 @@ def ChunkStory(lastchunk,mode):
                  ToFix.append("-There is a chance that some Critical Palette chunks are missing.")
                  Candy("Cowsay"," There is a chance that some %s chunks are %s."%(Candy("Color","red","Critical Palette"),Candy("Color","red","Missing")),"bad")
           if lastchunk == b"IDAT":
-             Candy("Cowsay"," So ..the last Chunk Type was IDAT so we either looking for another IDAT,IEND or one of them:%s"%[i.decode() for i in Anywhere])
+             Candy("Cowsay"," So ..the last Chunk Type was IDAT so we either looking for another IDAT,IEND or one of them:%s"%[i.decode() for i in Anywhere],"com")
 
     return(Excluded)
 
@@ -2753,7 +2760,6 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
    CType = ChunkType
    try:
        CType = bytes.fromhex(CType)
-#       CType = bytes.fromhex(CType).decode(errors="replace")
    except Exception as e:
         print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
 
@@ -2774,14 +2780,16 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
                       print("\nMonkey wanted Banana :",Candy("Color","green",name))
                       print("Monkey got Pullover :",Candy("Color","red",CType))
                       print()
-                      Ancillary(CType)
                       if next == None:
-                          SaveErrors(CType,["-Found Chunk[%s] Wrong Chunk name at offset: %s"%(Orig_CT,CToffX)],CToffX,CToffI+4,CToffI+12,Orig_CT,name)
+                          if len(CType) > 3:
+                              Ancillary(CType)
+                          SaveErrors(CType,["-Found Chunk[%s] Wrong Chunk name at offset: %s"%(Orig_CT,CToffX)],CToffX,CToffI,CToffI+8,Orig_CT,name)
                       return()
 
 
    print("\n-Chunk name:"+Candy("Color","red"," FAILED ")+Candy("Emoj","bad"))
-   Ancillary(CType)
+   if len(CType) > 3:
+       Ancillary(CType)
    try:
       LastCType = bytes.fromhex(str(LastCType)).decode()
    except Exception as e:
@@ -2792,11 +2800,13 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
            BruteChunk(CType,LastCType,bytesnbr)
            return()
    else:
-        Candy("Cowsay"," Of course it has failed! There's nothing at this offset.....","bad")
+        Candy("Cowsay"," WTF!? There's nothing at this offset!!","com")
         
    wow = int(bytesnbr/8912)
    if wow >= 3:
-      Candy("Cowsay"," Zlib put a limit on buff size up to 8912 bytesand this one is pretty big :\n %s\n which is %s times bigger.."%(Candy("Color","yellow",bytesnbr),Candy("Color","red",wow)),"bad")
+      Candy("Cowsay"," Zlib put a conventional limit on buff size up to 8912 bytes and this one is pretty big :","com")
+      print("- %s bytes"%Candy("Color","yellow",str(bytesnbr)))
+      Candy("Cowsay"," Which is %s times bigger.."%(wow),"bad")
 
       if len(Bytes_History) >0: ##ToFIx##
         if Bytes_History.count(Bytes_History[0])-1 == len(Bytes_History)-1:
@@ -2814,10 +2824,11 @@ def CheckLength(Cdata,Clen,Ctype):
 
        Candy("Title","Checking Data Length:",Candy("Color","white",str(Clen)))
        Candy("Cowsay"," So ..The length part is saying that data is %s bytes long."%Candy("Color","yellow",int(Clen, 16)),"com")
-#       if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
-#               CheckChunkName(Ctype,int(Clen,16),Chunks_History[0])
-#       else:
-#               CheckChunkName(NextChunk,int(Clen,16),Ctype)
+       if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
+               CheckChunkName(Ctype,int(Clen,16),Chunks_History[-1])
+       else:
+               CheckChunkName(NextChunk,int(Clen,16),Ctype)
+
        ToBitstory(int(Clen, 16))
 
        if int(Clen,16)>26736:
@@ -2842,7 +2853,7 @@ def CheckLength(Cdata,Clen,Ctype):
                 print(DATAX[-len(GoodEnding):])
                 exit()
     #   return
-#       CheckChunkName(NextChunk,int(Clen,16),Ctype,True)
+       CheckChunkName(NextChunk,int(Clen,16),Ctype,True)
 
 def Question(Chunk):
 
