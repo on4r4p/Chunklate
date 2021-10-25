@@ -4,7 +4,9 @@
 
 **Chunklate** checks png images for file format corruption and fix them .
 
-Currently **Chunklate** is in beta and it's aim is to be able to provide those features:
+##### Recoding in progress - Not currently working
+
+**Chunklate** is in beta and it's aim is to be able to provide those features:
 
 - Provide all informations it could get from a png file
 - Repair Magic Header and Footer

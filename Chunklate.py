@@ -586,12 +586,11 @@ def FindMagic():
                 print("-File does not start with a png signature.")
                 Candy("Cowsay"," Mkay ...Things just keeps better and better ..","bad")
                 print("-Cutting %s bytes from %s since png header starts at offset %s ."%(Candy("Color","white",Sample_Name),Candy("Color","blue",int(pos/2)),Candy("Color","white",Sample_Name),Candy("Color","blue",hex(int(pos/2)))))
-
                 Zankentsu = DATAX[pos::]
-                Summarise("-File does not start with a png signature.\n-Found a png signature at offset: %s\n-Creating starting with the right signature."%hex(int(pos/2))) 
-                SaveClone(Zankentsu)
+                return(CheckPoint("FindMagic","Cutting at Magic",Zankentsu,hex(int(pos/2))))
+                
           else:
-              return(ReadPng(pos+lenmagic))
+              return(CheckPoint("FindMagic","Found Magic",pos+lenmagic))
 
      else:
          print("-File %s start with valid png signature .%s\n"%(Candy("Color","red","does not"),Candy("Emoj","bad")))
@@ -614,7 +613,8 @@ def FindMagic():
                  TheEnd()
 
          Candy("Cowsay"," Ok let's dig a little bit deeper..","bad")
-         return(FindFuckingMagic())
+         return(CheckPoint("FindMagic","dig a little bit deeper"))
+
 
 def FindFuckingMagic():
      global SideNotes
@@ -649,9 +649,10 @@ def FindFuckingMagic():
          print("-Done! %s\n"%Candy("Emoj","good"))
          print("-Found at offset %s with a score of %s/32 :\n %s\n"%(Candy("Color","blue",hex(int(pos/2))),Candy("Color","green",BestBingoScore),Candy("Color","purple",BestBingoSig)))
          Candy("Cowsay"," I think this is a good start to work with.Lets fix this corrupted signature and see where it leads us...","good")
-
+         
          Odin = FullMagic + DATAX[pos+len(FullMagic)::]
-         SaveClone(Odin)
+         return(CheckPoint("FindFuckingMagic","Cutting at Magic",Odin,hex(int(pos/2))))
+
 
      elif int(BestBingoScore) >= 14:
          #print("count:",BestBingoCount)
@@ -2342,7 +2343,7 @@ def GetInfo(Chunk,data):
     return
 
 
-def ReadPng(offset):
+def ChunkbyChunk(offset):
      global Have_A_KitKat
 
      global Orig_CL
@@ -2403,16 +2404,12 @@ def ReadPng(offset):
          CrcoffB = int(offset/2)+int(Chunk_Length,16)+len(Chunk_Type)
          CrcoffI =(int(offset/2)+int(Chunk_Length,16)+len(Chunk_Type))*2
 
-         NextChunk = DATAX[CLoffI+32+len(Chunk_Data):CLoffI+32+len(Chunk_Data)+8]
+         NextChunk = DATAX[offset+32+len(Chunk_Data):offset+32+len(Chunk_Data)+8]
          Orig_NC = NextChunk
-         NCoffX = hex(int(len(NextChunk)/2)+4)
-         NCoffB = int(len(NextChunk)/2)+4
-         NCoffI = len(NextChunk)+4
-#         print("len:",len(NextChunk))
-#         print("NCoffX:",NCoffX)
-#         print("NCoffB:",NCoffB)
-#         print("NCoffI:",NCoffI)
-#         print("next:",bytes.fromhex(NextChunk))
+         NCoffX = hex(int(offset/2)+int(Chunk_Length,16)+len(Chunk_Type)+len(Chunk_Data))
+         NCoffB = int(offset/2)+int(Chunk_Length,16)+len(Chunk_Type)+16
+         NCoffI = (int(offset/2)+int(Chunk_Length,16)+len(Chunk_Type)+16)*2
+
 
          Candy("Title","Chunk Infos:")
          print("-Found at offset            (%s/%s/%s): (%s/%s/%s) "%(Candy("Color","yellow","Hex"),Candy("Color","blue","Bytes"),Candy("Color","purple","Index"),Candy("Color","yellow",CLoffX),Candy("Color","blue",CLoffB),Candy("Color","purple",CLoffI)))
@@ -2427,32 +2424,18 @@ def ReadPng(offset):
          print("-Found at offset            (%s/%s/%s): (%s/%s/%s) "%(Candy("Color","yellow","Hex"),Candy("Color","blue","Bytes"),Candy("Color","purple","Index"),Candy("Color","yellow",CrcoffX),Candy("Color","blue",CrcoffB),Candy("Color","purple",CrcoffI)))
          print("-Chunk Crc:                 (%s/offset :  %s)"%(Candy("Color","yellow",Chunk_Crc),Candy("Color","yellow",hex(CrcoffB))))
 
+         print("")
+         print("-Found at offset            (%s/%s/%s): (%s/%s/%s) "%(Candy("Color","yellow","Hex"),Candy("Color","blue","Bytes"),Candy("Color","purple","Index"),Candy("Color","yellow",NCoffX),Candy("Color","blue",NCoffB),Candy("Color","purple",NCoffI)))
+         print("-NextChunk Type :           (%s/%s)"%(Candy("Color","yellow",NextChunk),Candy("Color","blue",bytes.fromhex(NextChunk))))
 
 
-##
-         CheckLength(Chunk_Data,Chunk_Length,Chunk_Type)
-##
 
-         #CheckChunkName(Chunk_Type,Chunk_Length,Chunks_History[-1])
-
-#
-         if bytes.fromhex(Chunk_Type) != b'IDAT':
-               GetInfo(bytes.fromhex(Chunk_Type).decode(),Chunk_Data)
-
-         if Have_A_KitKat == True:
-            Have_A_KitKat = False
-            return
-##
-         Checksum(Chunk_Type,Chunk_Data,Chunk_Crc)
-##
-         offset= offset + len(Chunk_Length)+len(Chunk_Type)+len(Chunk_Data)+len(Chunk_Crc)
-         if Have_A_KitKat == True:
-            Have_A_KitKat = False
-            return
 
      print("Reached End of %s\n",Sample_Name)
      ChunkStory(b'IEND',"Critical")
      TheEnd()
+
+
 
 def Double_Check(CType,bytesnbr,LastCType):
 
@@ -2824,8 +2807,8 @@ def CheckLength(Cdata,Clen,Ctype):
 
        Candy("Title","Checking Data Length:",Candy("Color","white",str(Clen)))
        Candy("Cowsay"," So ..The length part is saying that data is %s bytes long."%Candy("Color","yellow",int(Clen, 16)),"com")
-       if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
-               CheckChunkName(Ctype,int(Clen,16),Chunks_History[-1])
+#       if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
+#               CheckChunkName(Ctype,int(Clen,16),Chunks_History[-1])
 #       else:
 #               CheckChunkName(NextChunk,int(Clen,16),Ctype)
 
@@ -2856,6 +2839,7 @@ def CheckLength(Cdata,Clen,Ctype):
                 print(DATAX[-len(GoodEnding):])
                 exit()
     #   return
+
        CheckChunkName(NextChunk,int(Clen,16),Ctype,True)
 
 def Question(Chunk):
@@ -2905,6 +2889,9 @@ def Checksum(Ctype, Cdata, Crc,next=None):
         print("Monkey got Pullover :",Candy("Color","red",Crc))
 
 #        pause = input("pause")
+
+        SaveErrors(CType,["-Found Chunk[%s] has Wrong Wrong Crc offset: %s"%(Orig_CT,CToffX)],CToffX,CToffI,
+CToffI+8,Orig_CT,name)
         FixShit(checksum[2::],CrcoffI,CrcoffI+8,("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CrcoffX,checksum[2::],Orig_CRC)))
 
 
@@ -2968,28 +2955,164 @@ def Naming(filename):
 
     return(filename,newdir)
 
+def CheckPoint(function_name,action,*args):
+    global SideNotes
+    print("function_name:",function_name)
+    print("action:",action)
+
+    if function_name == "FindMagic":
+        if action == "Found Magic":
+            offset = args[0]
+            SideNotes.append("-CheckPoint: Returning next position based on Magic Offset %s"%args[0])
+            pause = input("Check point")
+            return(offset)
+        if action == "Cutting at Magic":
+                Summarise("-File does not start with a png signature.\n-Found a png signature at offset: %s\n-Creating starting with the right signature."%args[1])
+                pause = input("Check point")
+                return(SaveClone(args[0]))
+        if action == "dig a little bit deeper":
+                SideNotes.append("-CheckPoint: Finding Harder Magic Header")
+                pause = input("Check point")
+                return(FindFuckingMagic())
+
+    if function_name =="FindFuckingMagic":
+         
+        if action == "Cutting at Magic":
+                Summarise("-File does not start with a png signature.\n-Found a png signature at offset: %s\n-Creating starting with the right signature."%args[1])
+                pause = input("Check point")
+                return(SaveClone(args[0]))
+
+    print("Not recognized")
+    for i,a in enumerate(args):
+        print("Arg%s:%s"%(i,a))
+    sys.exit(0)                          
+
+def main():
+    global FirStart
+    global FILE_Origin
+    global Clear
+    global PAUSE
+    global FILE_DIR
+    global DATAX
+    global Chunks_History
+    global Bytes_History
+    global Loading_txt
+    global SideNotes
+    global Sample
+    global Sample_Name
+
+    parser = ArgumentParser()
+    parser.add_argument("-f","--file",dest="FILENAME",help="File path.",default=None,metavar="FILE")
+    parser.add_argument("-c","--clear",dest="CLEAR",help="Clear screen at each saves.",action="store_true")
+    parser.add_argument("-p","--pause",dest="PAUSE",help="Pause at each saves.",action="store_true")
+    Args = parser.parse_args()
 
 
-parser = ArgumentParser()
-parser.add_argument("-f","--file",dest="FILENAME",help="File path.",default=None,metavar="FILE")
-parser.add_argument("-c","--clear",dest="CLEAR",help="Clear screen at each saves.",action="store_true")
-parser.add_argument("-p","--pause",dest="PAUSE",help="Pause at each saves.",action="store_true")
-Args = parser.parse_args()
+    if len(sys.argv)==1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+    if Args.FILENAME is None:
+        print("-f,--filename arguments is missing.")
+        sys.exit(1)
+    
+    FILE_Origin = Args.FILENAME
+    Clear = Args.CLEAR
+    PAUSE = Args.PAUSE
+
+    Sample = FILE_Origin
+    while True:
+         if Clear is True :
+            if FirStart is False:
+               if os.name == "posix":
+                  sys.stdout.write('\033c')
+               elif os.name == "nt":
+                  os.system("cls")
+            else:
+                 FirStart = False
+
+         Chunks_History = []
+         Bytes_History = []
+         Loading_txt = ""
+         SideNotes = []
+         Chunklate(1)
+         Sample_Name = os.path.basename(Sample)
+
+         print("-Proceeding with: ",Candy("Color","white",Sample_Name))
+         try:
+           with open(Sample,"rb") as f:
+              data = f.read()
+         except Exception as e:
+             print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
+             sys.exit(1)
+
+         DATAX = data.hex()
 
 
-if len(sys.argv)==1:
-    parser.print_help(sys.stderr)
-    sys.exit(1)
-if Args.FILENAME is None:
-    print("-f,--filename arguments is missing.")
-    sys.exit(1)
+         Candy("Cowsay"," %s us loaded!"%Candy("Color","green",Sample_Name),"good")
+         start_offset = FindMagic()
+         if start_offset != None:
+
+             print("start:",start_offset)
+
+             ChunkbyChunk(start_offset)
+    ##
+             CheckLength(Orig_CD,Orig_CL,Orig_CT)
+    ##
+
+             CheckChunkName(Orig_CT,Orig_CL,Chunks_History[-1])
+
+    #
+             if bytes.fromhex(Chunk_Type) != b'IDAT':
+                   GetInfo(bytes.fromhex(Chunk_Type).decode(),Chunk_Data)
+
+             if Have_A_KitKat == True:
+                Have_A_KitKat = False
+                return
+    ##
+             Checksum(Chunk_Type,Chunk_Data,Chunk_Crc)
+    ##
+             offset= offset + len(Chunk_Length)+len(Chunk_Type)+len(Chunk_Data)+len(Chunk_Crc)
+             if Have_A_KitKat == True:
+                Have_A_KitKat = False
+                return
+
+###
 
 
-FILE_Origin = Args.FILENAME
-Clear = Args.CLEAR
-PAUSE = Args.PAUSE
-FILE_DIR = os.path.dirname(os.path.realpath(FILE_Origin))+"/"
-Loading_txt = ""
+###
+
+CHUNKS = [b'sBIT', b'IEND', b'sPLT', b'tRNS', b'fRAc', b'hIST', b'dSIG', b'sTER', b'iCCP', b'sRGB', b'zTXt', b'gAMA', b'IDAT', b'sCAL', b'cHRM', b'bKGD', b'tEXt', b'tIME', b'iTXt', b'IHDR', b'gIFx', b'gIFg', b'oFFs', b'pCAL', b'PLTE', b'gIFt', b'pHYs',b'eXIf']
+PRIVATE_CHUNKS = [b'cmOD',b'cmPP',b'cpIp',b'mkBF',b'mkBS',b'mkBT',b'mkTS',b'spAL',b'pcLb',b'prVW',b'JDAT',b'JSEP',b'DHDR',b'FRAM',b'SAVE',b'SEEK',b'nEED',b'DEFI',b'BACK',b'MOVE',b'CLON',b'SHOW',b'CLIP',b'LOOP',b'ENDL',b'PROM',b'fPRI',b'eXPI',b'BASI',b'IPNG',b'PPLT',b'PAST',b'TERM',b'DISC',b'pHYg',b'DROP',b'DBYK',b'ORDR',b'MAGN',b'MEND']
+ALLCHUNKS = [b'sBIT', b'IEND', b'sPLT', b'tRNS', b'fRAc', b'hIST', b'dSIG', b'sTER', b'iCCP', b'sRGB', b'zTXt', b'gAMA', b'IDAT',b'sCAL', b'cHRM', b'bKGD', b'tEXt', b'tIME', b'iTXt', b'IHDR', b'gIFx', b'gIFg', b'oFFs', b'pCAL', b'PLTE', b'gIFt', b'pHYs',b'eXIf',b'cmOD',b'cmPP',b'cpIp',b'mkBF',b'mkBS',b'mkBT',b'mkTS',b'spAL',b'pcLb',b'prVW',b'JDAT',b'JSEP',b'DHDR',b'FRAM',b'SAVE',b'SEEK',b'nEED',b'DEFI',b'BACK',b'MOVE',b'CLON',b'SHOW',b'CLIP',b'LOOP',b'ENDL',b'PROM',b'fPRI',b'eXPI',b'BASI',b'IPNG',b'PPLT',b'PAST',b'TERM',b'DISC',b'pHYg',b'DROP',b'DBYK',b'ORDR',b'MAGN',b'MEND']
+
+pCAL_Param=[]
+PLTE_R=[]
+PLTE_G=[]
+PLTE_B=[]
+sPLT_Name = []
+sPLT_Depht = []
+sPLT_Red=[]
+sPLT_Green=[]
+sPLT_Blue=[]
+sPLT_Alpha=[]
+sPLT_Freq= []
+hIST = []
+tEXt_Key_List = []
+tEXt_Str_List =[]
+iTXt_String_List = []
+iTXt_Key_List = []
+tRNS_Index=[]
+zTXt_Key_List = []
+zTXt_Str_List = []
+
+SideNotes = []
+ERRORSFLAG = []
+
+PandoraBox = {}
+TOOLS = {}
+
+
+FirStart= True
 Switch = False
 GoBack = False
 WORKING = True
@@ -2998,13 +3121,16 @@ CharPos =1
 Have_A_KitKat= False
 Warning = False
 Summary_Header= True
-SideNotes = []
-ERRORSFLAG = []
-PandoraBox = {}
-TOOLS = {}
-CHUNKS = [b'sBIT', b'IEND', b'sPLT', b'tRNS', b'fRAc', b'hIST', b'dSIG', b'sTER', b'iCCP', b'sRGB', b'zTXt', b'gAMA', b'IDAT', b'sCAL', b'cHRM', b'bKGD', b'tEXt', b'tIME', b'iTXt', b'IHDR', b'gIFx', b'gIFg', b'oFFs', b'pCAL', b'PLTE', b'gIFt', b'pHYs',b'eXIf']
-PRIVATE_CHUNKS = [b'cmOD',b'cmPP',b'cpIp',b'mkBF',b'mkBS',b'mkBT',b'mkTS',b'spAL',b'pcLb',b'prVW',b'JDAT',b'JSEP',b'DHDR',b'FRAM',b'SAVE',b'SEEK',b'nEED',b'DEFI',b'BACK',b'MOVE',b'CLON',b'SHOW',b'CLIP',b'LOOP',b'ENDL',b'PROM',b'fPRI',b'eXPI',b'BASI',b'IPNG',b'PPLT',b'PAST',b'TERM',b'DISC',b'pHYg',b'DROP',b'DBYK',b'ORDR',b'MAGN',b'MEND']
-ALLCHUNKS = [b'sBIT', b'IEND', b'sPLT', b'tRNS', b'fRAc', b'hIST', b'dSIG', b'sTER', b'iCCP', b'sRGB', b'zTXt', b'gAMA', b'IDAT',b'sCAL', b'cHRM', b'bKGD', b'tEXt', b'tIME', b'iTXt', b'IHDR', b'gIFx', b'gIFg', b'oFFs', b'pCAL', b'PLTE', b'gIFt', b'pHYs',b'eXIf',b'cmOD',b'cmPP',b'cpIp',b'mkBF',b'mkBS',b'mkBT',b'mkTS',b'spAL',b'pcLb',b'prVW',b'JDAT',b'JSEP',b'DHDR',b'FRAM',b'SAVE',b'SEEK',b'nEED',b'DEFI',b'BACK',b'MOVE',b'CLON',b'SHOW',b'CLIP',b'LOOP',b'ENDL',b'PROM',b'fPRI',b'eXPI',b'BASI',b'IPNG',b'PPLT',b'PAST',b'TERM',b'DISC',b'pHYg',b'DROP',b'DBYK',b'ORDR',b'MAGN',b'MEND']
+
+FILE_Origin = ""
+Clear = ""
+PAUSE = ""
+FILE_DIR = ""
+Loading_txt = ""
+DATAX = ""
+Sample_Name = ""
+Sample = ""
+
 Orig_CL=""
 Orig_CT=""
 Orig_NC=""
@@ -3042,22 +3168,13 @@ bKGD_Green= ""
 bKGD_Blue= ""
 bKGD_Index= ""
 sRGB = ""
-pCAL_Param=[]
+
 pCAL_Key=""
 pCAL_Zero=""
 pCAL_Max=""
 pCAL_Eq=""
 pCAL_PNBR=""
-PLTE_R=[]
-PLTE_G=[]
-PLTE_B=[]
-sPLT_Name = []
-sPLT_Depht = []
-sPLT_Red=[]
-sPLT_Green=[]
-sPLT_Blue=[]
-sPLT_Alpha=[]
-sPLT_Freq= []
+
 cHRM_WhiteX= ""
 cHRM_WhiteY= ""
 cHRM_Redx= ""
@@ -3066,8 +3183,9 @@ cHRM_Greenx= ""
 cHRM_Greeny= ""
 cHRM_Bluex= ""
 cHRM_Bluey= ""
+
 gAMA= ""
-hIST = []
+
 pHYs_Y=""
 pHYs_X=""
 pHYs_Unit=""
@@ -3078,6 +3196,7 @@ gIFDT=""
 gIFgM=""
 gIFgU = ""
 gIFgT =""
+
 sBIT_Gray=""
 sBIT_TrueR=""
 sBIT_TrueG=""
@@ -3088,12 +3207,10 @@ sBIT_TrueAlphaR=""
 sBIT_TrueAlphaG=""
 sBIT_TrueAlphaB=""
 sBIT_TrueAlpha=""
-tEXt_Key_List = []
-tEXt_Str_List =[]
+
 tEXt_Key=""
 tEXt_Text=""
-iTXt_String_List = []
-iTXt_Key_List = []
+
 iTXt_String = ""
 iTXt_Key = ""
 tIME_Yr=""
@@ -3106,33 +3223,11 @@ tRNS_Gray=""
 tRNS_TrueR=""
 tRNS_TrueG=""
 tRNS_TrueB=""
-tRNS_Index=[]
-zTXt_Key_List = []
-zTXt_Str_List = []
+
 zTXt_Key=""
 zTXt_Meth=""
 zTXt_Text=""
-Sample = FILE_Origin
-while True:
-     Chunks_History = []
-     Bytes_History = []
-     Loading_txt = ""
-     SideNotes = []
-     Chunklate(1)
-     Sample_Name = os.path.basename(Sample)
-     print("-Proceeding with: ",Candy("Color","white",Sample_Name))
-     try:
-       with open(Sample,"rb") as f:
-          data = f.read()
-     except Exception as e:
-         print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
-         sys.exit(1)
 
-     DATAX = data.hex()
-     Candy("Cowsay"," Opening %s !"%Candy("Color","green",Sample_Name),"good")
-     FindMagic()
-     if Clear is True:
-         if os.name == "posix":
-             sys.stdout.write('\033c')
-         elif os.name == "nt":
-               os.system("cls")
+
+if __name__ == "__main__":
+    main()
