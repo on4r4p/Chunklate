@@ -4,7 +4,7 @@
 
 **Chunklate** checks png images for file format corruption and fix them .
 
-##### Recoding in progress - Not currently working
+##### Work in progress - Not fully working(especially with multiple errors)
 
 **Chunklate** is in beta and it's aim is to be able to provide those features:
 
@@ -27,10 +27,12 @@
 
 ## Usage
 
-    usage: Chunklate.py [-h] [-f FILE] [-c] [-p]
+    usage: Chunklate.py [-h] [-f FILE] [-c] [-p] [-d] [-a]
     
     optional arguments:
       -h, --help            show this help message and exit
       -f FILE, --file FILE  File path.
       -c, --clear           Clear screen at each saves.
       -p, --pause           Pause at each saves.
+	  -d, --debug           Debug stuffs.
+	  -a, --auto            Auto Choose action.
