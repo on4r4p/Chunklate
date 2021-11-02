@@ -763,14 +763,10 @@ def SaveErrors(Chunk,Err,*ToolKit):
    global SideNotes
    global ERRORSFLAG
    global PandoraBox
-   global TOOLS
-
+   
    Candy("Title","Keeping Tracks of Errors:")
    print(Candy("Color","purple","-Beta Testing-\n"))
-#   if Chunk not in ERRORSFLAG: ERRORSFLAG.append(Chunk)
-#   print("Chnk:",Chunk)
-#   print("Err:",Err)
-#   print("ErroFlag:\n",ERRORSFLAG)
+
    if type(Chunk) != bytes:
       try:
          ERRORSFLAG.append(Chunk.encode(errors='ignore'))
@@ -784,33 +780,48 @@ def SaveErrors(Chunk,Err,*ToolKit):
        for chnk in Err:
           print("-CriticalHit:",chnk)
           SideNotes.append("-Critical Chunk %s is missing"%chnk)
+
    elif type(Err) == list:
        for e in Err:
 
            if "] has wrong name at offset:" in str(e):
                print("-\033[1;31;49mCriticalHit\033[m:",e)
                SideNotes.append(str(e))
-               for Fnum,Flag in enumerate(ERRORSFLAG):
-                     for Tnum,tool in enumerate(ToolKit):
+               TOOLS = {}
+               Fnum = 0
+               for key in PandoraBox:
+                   while key.startswith(Chunk+"_Error_"+str(Fnum)):
+                       Fnum += 1
+               for Tnum,tool in enumerate(ToolKit):
                          TOOLS[Chunk+"_Tool_"+str(Tnum)] = tool
-                     PandoraBox[Chunk+"_Error_"+str(Fnum)+":"+str(e)] = TOOLS
+#               print(Chunk+"_Error_"+str(Fnum)+":"+str(e)+"= TOOLS")
+               PandoraBox[Chunk+"_Error_"+str(Fnum)+":"+str(e)] = TOOLS
 
            elif "Wrong Crc at offset:" in str(e):
                print("-\033[1;31;49mCriticalHit\033[m:",e)
                SideNotes.append(str(e))
-               for Fnum,Flag in enumerate(ERRORSFLAG):
-                     for Tnum,tool in enumerate(ToolKit):
+               TOOLS = {}
+               Fnum = 0
+               for key in PandoraBox:
+                   while key.startswith(Chunk+"_Error_"+str(Fnum)):
+                       Fnum += 1
+               for Tnum,tool in enumerate(ToolKit):
                          TOOLS[Chunk+"_Tool_"+str(Tnum)] = tool
-                     PandoraBox[Chunk+"_Error_"+str(Fnum)+":"+str(e)] = TOOLS
+               PandoraBox[Chunk+"_Error_"+str(Fnum)+":"+str(e)] = TOOLS
+
 
            elif "Wrong Chunk name at offset:" in str(e):
                print("-\033[1;31;49mCriticalHit\033[m:",e)
                SideNotes.append(str(e))
+               Fnum = 0
+               TOOLS = {}
+               for key in PandoraBox:
+                   while key.startswith(Chunk+"_Error_"+str(Fnum)):
+                       Fnum += 1
+               for Tnum,tool in enumerate(ToolKit):
+                         TOOLS[Chunk+"_Tool_"+str(Tnum)] = tool
+               PandoraBox[Chunk+"_Error_"+str(Fnum)+":"+str(e)] = TOOLS
 
-               for Fnum,Flag in enumerate(ERRORSFLAG):
-                     for Tnum,tool in enumerate(ToolKit):
-                         TOOLS[Chunk.decode(errors="ignore")+"_Tool_"+str(Tnum)] = tool
-                     PandoraBox[Chunk.decode(errors="ignore")+"_Error_"+str(Fnum)+":"+str(e)] = TOOLS
 
            elif "cHRM is missplaced must appears before PLTE Chunk" in str(e):
                print("-\033[1;31;49mCriticalHit\033[m:",e)
@@ -2733,7 +2744,7 @@ def BruteChunk(CType,LastCType,bytesnbr):
       print("-"+str(Candy("Color","green","Scrabble Solved."))+str(Candy("Emoj","good")))
       Candy("Cowsay"," Ah looks like we've got a winner! :%s"%Candy("Color","green",BestBingoName),"good")
 
-      SaveErrors(Orig_CT,["-Found Chunk[%s] has wrong name at offset: %s\n-Chunk was corrupted changing %s bytes turn into a valid Chunk name: %s"%(Orig_CT,CToffX,int(BestBingoScore)-len(Orig_CT),BestBingoName)],BestBingoName.encode().hex(),CToffI,CToffI+8)
+      SaveErrors(Orig_CT,["-Found Chunk[%s] has wrong name at offset: %s but changing %s bytes turn it into a valid Chunk name: %s"%(Orig_CT,CToffX,int(BestBingoScore)-len(Orig_CT),BestBingoName)],BestBingoName.encode().hex(),CToffI,CToffI+8)
 
 
       return()
@@ -2884,7 +2895,7 @@ def Question(Chunk,Valid):
          Candy("Cowsay","This looks like an easy fix since there is no other errors beside the Crc issue.Do you wish to try to fix it ?","com")
 
      else:
-         Candy("Cowsay","Crc checksum is not valid and there are %s errors !!!"%(len(PandoraBox)),"bad")
+         Candy("Cowsay","Crc checksum is not valid and there are %s other errors !"%(len(PandoraBox)-1),"bad")
          Candy("Cowsay","I can try to handle those errors.Do you wish to try to fix them ?","com")
      if AUTO == False or AnciCheck is True:
 
@@ -2898,6 +2909,7 @@ def Question(Chunk,Valid):
                 Candy("Cowsay","Ok ,just do not make eye contact !","com")
                 return
      else: 
+                print("-%s\n"%Candy("Color","green","Auto Answer Mode"))
                 FixItFelix(Chunk)
 
 def Checksum(Ctype, Cdata, Crc,next=None):
@@ -3094,7 +3106,6 @@ def main():
     global DATAX
     global ERRORSFLAG
     global PandoraBox
-    global TOOLS
     global Chunks_History
     global Bytes_History
     global Loading_txt
@@ -3124,7 +3135,6 @@ def main():
     PAUSE = Args.PAUSE
     DEBUG = Args.DEBUG
     AUTO = Args.AUTO
-    AnciCheck = ""
     Sample = FILE_Origin
     while True:
 
@@ -3137,12 +3147,12 @@ def main():
             else:
                  FirStart = False
 
+         AnciCheck = False
          Chunks_History = []
          Bytes_History = []
          Loading_txt = ""
          ERRORSFLAG = []
          PandoraBox = {}
-         TOOLS = {}
          SideNotes = []
          Chunklate(1)
          Sample_Name = os.path.basename(Sample)
@@ -3223,8 +3233,6 @@ SideNotes = []
 ERRORSFLAG = []
 
 PandoraBox = {}
-TOOLS = {}
-
 
 FirStart= True
 Switch = False

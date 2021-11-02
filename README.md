@@ -4,11 +4,11 @@
 
 **Chunklate** checks png images for file format corruption and fix them .
 
-##### Work in progress - Not fully working(especially with multiple errors)
+##### Work in progress - Not fully working
 
-**Chunklate** is in beta and it's aim is to be able to provide those features:
+**Chunklate**'s aim is to be able to provide those features:
 
-- Provide all informations it could get from a png file
+- Get all informations it could find from a png file
 - Repair Magic Header and Footer
 - Repair wrong chunk length  
 - Repair wrong chunk name
