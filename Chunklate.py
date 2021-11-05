@@ -2,7 +2,7 @@
 from argparse import ArgumentParser
 from threading import Thread
 from datetime import datetime
-import sys , os , binascii ,re ,random ,time , zlib
+import sys , os , binascii ,re ,random ,time , zlib ,cv2
 
 
 def Chunklate(sec):
@@ -1113,6 +1113,11 @@ def NullFind(data,search4=None):
     else:
        return(False)
 
+def OpeningCheck(file):
+    #TODO
+    img = cv2.imread(file)
+    
+
 def GetInfo(Chunk,data):
     global SideNotes
     global IHDR_Height
@@ -1222,6 +1227,8 @@ def GetInfo(Chunk,data):
     if Chunk == "IHDR":
         try:
              IHDR_Height=str(int(data[:8],16))
+#             print(data[:8])
+#             pause = input("pause")
         except (NameError,ValueError) as e:
              print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
              ToFix.append("Error IHDR Height:"+e)
