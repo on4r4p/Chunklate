@@ -2,7 +2,9 @@
 from argparse import ArgumentParser
 from threading import Thread
 from datetime import datetime
-import sys , os , binascii ,re ,random ,time , zlib ,cv2
+from contextlib import contextmanager
+import sys , os , binascii ,re ,random ,time , zlib ,cv2 , ctypes ,io ,tempfile
+
 
 
 def Chunklate(sec):
@@ -559,6 +561,29 @@ def ToBitstory(bytenbr):
     global Bytes_History
     Bytes_History.append(bytenbr)
 
+@contextmanager
+def stderr_redirector(stream):
+    original_stderr_fd = sys.stderr.fileno()
+
+    def _redirect_stderr(to_fd):
+        """Redirect stderr to the given file descriptor."""
+        libc.fflush(c_stderr)
+        sys.stderr.close()
+        os.dup2(to_fd, original_stderr_fd)
+        sys.stderr = io.TextIOWrapper(os.fdopen(original_stderr_fd, 'wb'))
+    saved_stderr_fd = os.dup(original_stderr_fd)
+    try:
+        tfile = tempfile.TemporaryFile(mode='w+b')
+        _redirect_stderr(tfile.fileno())
+        yield
+        _redirect_stderr(saved_stderr_fd)
+        tfile.flush()
+        tfile.seek(0, io.SEEK_SET)
+        stream.write(tfile.read())
+    finally:
+        tfile.close()
+        os.close(saved_stderr_fd)
+
 def ChunkForcer():
      global WORKING
      global SideNotes
@@ -1113,11 +1138,20 @@ def NullFind(data,search4=None):
     else:
        return(False)
 
-def OpeningCheck(file):
-    #TODO
-    img = cv2.imread(file)
-    
-
+def LibpngCheck(file):
+    Candy("Title","Libpng is reading :%s"%(Candy("Color","white",Sample_Name)))
+    f = io.BytesIO()
+    with stderr_redirector(f):
+        cv2.imread(file)
+    result = "{0}".format(f.getvalue().decode('utf-8'))
+    if len(result) > 0:
+        
+        print("-Libpng Check: %s %s"%(Candy("Color","red","Fail"),Candy("Emoj","bad")))
+        return(CheckPoint("LibpngCheck",result))
+    else:
+        print("-Libpng Check: %s %s"%(Candy("Color","red","Ok"),Candy("Emoj","good")))
+        return(CheckPoint("LibpngCheck","Oasis is good"))
+        
 def GetInfo(Chunk,data):
     global SideNotes
     global IHDR_Height
@@ -2569,12 +2603,10 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
 
      return()
 
-def ChunklateHistory(oldata,newdata,start,end):
-    #global ChangesHistory
-    Candy("Title","Keeping Tracks of changes made:")
-    #TODO
-
-    
+def History(Filename,Error):
+    global Actions_History
+    Actions_History[Filename] = Error
+    print("-History Saved.")
 
 def ChunkStory(lastchunk,mode):
   global Warning
@@ -2966,13 +2998,8 @@ def FixShit(shit,start,end,infos):
          except:
             print("-Data : %s\n"%shit)
 
-#         print("start:",start)
-#         print("end:",end)
+         History(Sample,infos)
 
-#         print("Data portion:",DATAX[start:end])
-#         print("Data portion bytes:",bytes.fromhex(DATAX[start:end]))
-
-#         print("Wanted:",bytes.fromhex(DATAX[74:82]))
          Summarise(infos)
          Before = DATAX[:start]
          After = DATAX[end:]
@@ -2997,6 +3024,45 @@ def SaveClone(data):
              pause =input("Press Return to continue:")
         
          return(None)
+
+def LoadClone():
+
+    Candy("Cowsay","Damned!! We were so close !","bad")
+    Candy("Cowsay","We should go some step back before and see if we can do something else..","com")
+    Candy("Title","Loading Clone :")
+
+    TmpFix = False
+
+    if len(Actions_History) >=1:
+        Candy("Cowsay","This is a quick summary of what we have done :","good")
+ 
+        if len(Actions_History) >1:
+            for nb,key in enumerate(Actions_History):
+                      print("(Choice %s)-Errors fixed in File %s :"%(nb,key))
+                      print("(Choice %s)-Error fixed: %s"%(nb,Actions_History.get(key)))
+            print("TODO")
+            TheEnd()
+        elif len(Actions_History) == 1:
+            for key in Actions_History:
+                      print("-Errors fixed in File %s :"%key)
+                      print(Actions_History.get(key))
+                      if "Chunk[IHDR] has Wrong Crc at offset" in Actions_History.get(key):
+                            TmpFix = True       
+            Candy("Cowsay","That was short indeed ..","com")
+            if TmpFix == True:
+              Candy("Cowsay","Maybe it wasn't a Crc problem..","com")
+              Candy("Cowsay","Maybe that was IHDR Data in Fact!","bad")
+              Candy("Cowsay","How about taking a coffee break while im taking care of something?","good")
+              ChunkForcer()
+              TheEnd()
+              
+
+    else:
+        print("-%s has been Fixed yet. %s"%(Candy("Color","red","No Error"),Candy("Emoj","bad")))
+        Candy("Cowsay","What!? im out of idea atm...","bad")
+        TheEnd()
+        
+               
 
 def Naming(filename):
 
@@ -3039,6 +3105,18 @@ def CheckPoint(function_name,action,*args):
 
         pause = input("Check point")
 
+    if function_name == "LibpngCheck":
+        if "libpng error:" in action:
+            if "bad adaptive filter value" in action:
+                SideNotes.append("-CheckPoint: %s"%action)
+                SaveErrors("Libpng",["libpng error: bad adaptive filter value"])
+            return(LoadClone())
+                
+        else:
+             SideNotes.append("-CheckPoint: No more errors found")
+             Candy("Cowsay","Good ! Libpng is happy everything is done here Later then!","good")
+             TheEnd()
+
     if function_name == "FindMagic":
         if action == "Found Magic":
             offset = args[0]
@@ -3067,10 +3145,9 @@ def CheckPoint(function_name,action,*args):
                          ChunkStory(b'IEND',"Critical")
                          Candy("Cowsay"," We have reached the end of file.","good")
                          SideNotes.append("-Reached the end of file.")
-
-                         Candy("Cowsay"," All Done here Later !","good")
-
-                         TheEnd()
+                         Candy("Cowsay","Ok let's feed the Kraken now..","com")
+                         LibpngCheck(Sample)
+                         
                 else:
                     print(DATAX[-len(GoodEnding):])
                     SaveErrors(args[0],["-Not ending with regular IEND Chunk"])
@@ -3235,11 +3312,14 @@ iTXt_Key_List = []
 tRNS_Index=[]
 zTXt_Key_List = []
 zTXt_Str_List = []
-
 SideNotes = []
 ERRORSFLAG = []
 
 PandoraBox = {}
+Actions_History = {}
+
+libc = ctypes.CDLL(None)
+c_stderr = ctypes.c_void_p.in_dll(libc, 'stderr')
 
 FirStart= True
 Switch = False
