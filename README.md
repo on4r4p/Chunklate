@@ -18,7 +18,7 @@
 - Provide a summary of all modifications 
 - User friendly human readability
 - Smart crc fixer based on errors found(Work in progress)
-- Bruteforce corrupted data chunk (Todo)
+- Bruteforce corrupted data chunk except for idat (Todo)
 - Repair wrong image size (Todo)
 - Repair missplaced chunks (Todo)
 - Replace critical missing chunk (Todo)
