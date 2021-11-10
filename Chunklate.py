@@ -2731,36 +2731,23 @@ def Relics():
     Candy("Title","Opening the Ark Of The Covenant :")
 
     TmpFix = False
-#ArkOfCovenant[Sample] = PandoraBox
-
-    if DEBUG is True:
-         for nb,key in enumerate(ArkOfCovenant):
-              print("sample:",Sample)
-              print("len:",len(ArkOfCovenant[key].items()))
-              for toolkey,keyvalue in ArkOfCovenant[key].items():
-                        print("toolkey:",toolkey)
-                        print("keyvalue:",keyvalue)
 
     if len(ArkOfCovenant) >=1:
-        Candy("Cowsay","This is a quick summary of what we have done :","good")
- 
-        if len(ArkOfCovenant) >1:
-            for nb,key in enumerate(ArkOfCovenant):
-                      print("(Choice %s)-Errors fixed in File %s :"%(nb,key))
-                      print("(Choice %s)-Error fixed: %s"%(nb,ArkOfCovenant.get(key)))
-            print("TODO")
-            TheEnd()
-        elif len(ArkOfCovenant) == 1:
-            for key in ArkOfCovenant:
-                      print("-Errors fixed in File %s :"%key)
-                      print(ArkOfCovenant.get(key))
-                      if "Chunk[IHDR] has Wrong Crc at offset" in ArkOfCovenant.get(key):
-                            TmpFix = True       
-            Candy("Cowsay","That was short indeed ..","com")
-            TheEnd()
+            Candy("Cowsay","This is a quick summary of what we have done :","good")
+
+            for nb1,(k1,v1) in enumerate(ArkOfCovenant.items()):
+                print("%s:-Errors fixed in File %s :"%(Candy("Color","white","[File:%s]"%nb1),k1))
+                for nb2,(k2,v2) in enumerate(v1.items()):
+                   print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),k2))
+                   for nb3,(k3,v3) in enumerate(v2.items()):
+                       print("%s:%s:%s"%(Candy("Color","yellow","        [Tool:%s]"%nb3),k3,v3))
+
+            if len(ArkOfCovenant) ==1:
+                 Candy("Cowsay","That was short indeed ..","com")
+            TheEnd()#TODO
             if TmpFix == True:
               Candy("Cowsay","Perhaps that wasn't a Crc problem..","com")
-              Candy("Cowsay","Maybe that was IHDR Data in Fact!","bad")
+              Candy("Cowsay","Maybe the culprit was in fact IHDR Data it self!","bad")
               Candy("Cowsay","How about taking a coffee break while im taking care of something?","good")
               ChunkForcer()
               TheEnd()
