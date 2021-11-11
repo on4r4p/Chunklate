@@ -846,11 +846,11 @@ def LibpngCheck(file):
     result = "{0}".format(f.getvalue().decode('utf-8'))
     if len(result) > 0:
         
-        print("-Libpng Check: %s %s"%(Candy("Color","red","Failed"),Candy("Emoj","bad")))
+        print("-Libpng Check: %s %s"%(Candy("Color","red","FAILED!"),Candy("Emoj","bad")))
         SaveErrors("Libpng",[result])
         return(CheckPoint("LibpngCheck",result))
     else:
-        print("-Libpng Check: %s %s"%(Candy("Color","red","Ok"),Candy("Emoj","good")))
+        print("-Libpng Check: %s %s"%(Candy("Color","green","Ok!"),Candy("Emoj","good")))
         return(CheckPoint("LibpngCheck","Oasis is good"))
         
 def GetInfo(Chunk,data):
@@ -2539,12 +2539,12 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
    for name in ALLCHUNKS:
        if name.lower() == CType.lower():
                if name == CType:
-                      print("\n-Chunk name:"+Candy("Color","green"," OK ")+Candy("Emoj","good"))
+                      print("\n-Chunk name:"+Candy("Color","green"," OK! ")+Candy("Emoj","good"))
                       #ToHistory(bytes.fromhex(ChunkType))
                       return(None)
 
                else:
-                      print("\n-Chunk name:"+Candy("Color","red"," FAIL ")+Candy("Emoj","bad"))
+                      print("\n-Chunk name:"+Candy("Color","red"," FAILED! ")+Candy("Emoj","bad"))
                       print("\nMonkey wanted Banana :",Candy("Color","green",name))
                       print("Monkey got Pullover :",Candy("Color","red",CType))
                       print()
@@ -2555,7 +2555,7 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
                       return()
 
    if next == None:
-       print("\n-Chunk name:"+Candy("Color","red"," FAILED ")+Candy("Emoj","bad"))
+       print("\n-Chunk name:"+Candy("Color","red"," FAILED! ")+Candy("Emoj","bad"))
        if len(CType) > 3:
            Ancillary(CType)
        try:
@@ -2585,7 +2585,7 @@ def CheckChunkName(ChunkType,bytesnbr,LastCType,next=None):
           Candy("Cowsay"," ..Hum ..Maybe thats a length problem.","com")
        NearbyChunk(CType,bytesnbr,LastCType)
    else:
-       print("\n-Chunk name:"+Candy("Color","red"," FAILED ")+Candy("Emoj","bad"))
+       print("\n-Chunk name:"+Candy("Color","red"," FAILED! ")+Candy("Emoj","bad"))
        Candy("Cowsay","But let's ignore it for now we will see about that later ...","bad")
    return()
 
@@ -2620,7 +2620,30 @@ def Question(Chunk,Valid):
      Candy("Title","QUESTION!")
      print("Errors List:\n")
      for key in PandoraBox:print("\033[1;31;49m%s\033[m"%key)
-     if Valid is True:
+     if Chunk == "LibpngCheck":
+        if Valid is True:
+             print("#TODO")
+             TheEnd()
+        else:
+            Candy("Cowsay","Damned!! We were so close !","bad")
+            Candy("Cowsay","We should go some step back before to see if we can do something else..","com")
+            Candy("Cowsay","Are you agree ? Otherwise Chunklate is going to exit.","com")
+        if AUTO == False:
+
+            Answer = input("Answer(yes/no):").lower()
+            while Answer != "yes" and Answer != "no" :
+                  Answer = input("Answer(yes/no):").lower()
+            if Answer == "yes":
+                   Candy("Cowsay","Fine , let me see what i can do .","good")
+                   Relics()
+            else:
+                   Candy("Cowsay","Ok ,Good Luck outhere bye !","com")
+                   TheEnd()
+        else: 
+                print("-%s\n"%Candy("Color","green","Auto Answer Mode"))
+                Relics()
+
+     if Valid is True and Chunk:
         if AnciCheck is True:
              Candy("Cowsay","I don't know that chunk but it has passed Ancillary nomenclature check and since Crc is valid too this may be a legit private chunk..","com")
         else:
@@ -2670,7 +2693,7 @@ def Checksum(Ctype, Cdata, Crc,next=None):
 
         return(None)
     else:
-        print("-Crc Check :"+Candy("Color","red"," FAILED ")+Candy("Emoj","bad"))
+        print("-Crc Check :"+Candy("Color","red"," FAILED! ")+Candy("Emoj","bad"))
         if len(Crc) == 0 or len(checksum) == 0:
              print("\nMonkey wanted Banana :",Candy("Color","green",checksum))
              print("Monkey got Pullover :",Candy("Color","red",Crc))
@@ -2725,32 +2748,41 @@ def SaveClone(data):
          return(None)
 
 def Relics():
-
-    Candy("Cowsay","Damned!! We were so close !","bad")
-    Candy("Cowsay","We should go some step back before and see if we can do something else..","com")
     Candy("Title","Opening the Ark Of The Covenant :")
 
-    TmpFix = False
 
     if len(ArkOfCovenant) >=1:
-            Candy("Cowsay","This is a quick summary of what we have done :","good")
+            Candy("Cowsay","This is a short summary of what we have done :","good")
 
-            for nb1,(k1,v1) in enumerate(ArkOfCovenant.items()):
-                print("%s:-Errors fixed in File %s :"%(Candy("Color","white","[File:%s]"%nb1),k1))
-                for nb2,(k2,v2) in enumerate(v1.items()):
-                   print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),k2))
-                   for nb3,(k3,v3) in enumerate(v2.items()):
-                       print("%s:%s:%s"%(Candy("Color","yellow","        [Tool:%s]"%nb3),k3,v3))
+            for nb1,(file,file_value) in enumerate(ArkOfCovenant.items()):
+                print("%s:-Errors fixed in File %s :"%(Candy("Color","white","[File:%s]"%nb1),file))
+                for nb2,(errors,errors_values) in enumerate(file_value.items()):
+                   print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),errors))
+                   for nb3,(tools,tools_values) in enumerate(errors_values.items()):
+                       print("%s:%s:%s"%(Candy("Color","yellow","        [Tool:%s]"%nb3),tools,tools_values))
 
             if len(ArkOfCovenant) ==1:
-                 Candy("Cowsay","That was short indeed ..","com")
-            TheEnd()#TODO
-            if TmpFix == True:
-              Candy("Cowsay","Perhaps that wasn't a Crc problem..","com")
-              Candy("Cowsay","Maybe the culprit was in fact IHDR Data it self!","bad")
-              Candy("Cowsay","How about taking a coffee break while im taking care of something?","good")
-              ChunkForcer()
-              TheEnd()
+                Candy("Cowsay","Only one Error,That is short indeed ..","com")
+
+                for nb1,(file,file_value) in enumerate(ArkOfCovenant.items()):
+#                    print("%s:-Errors fixed in File %s :"%(Candy("Color","white","[File:%s]"%nb1),file))
+                    for nb2,(errors,errors_values) in enumerate(file_value.items()):
+                       if "Chunk[IHDR] has Wrong Crc at offset" in errors:
+                          Candy("Cowsay","Perhaps that wasn't a Crc problem..","com")
+                          Candy("Cowsay","Maybe the culprit was in fact IHDR Data it self!","bad")
+                          Candy("Cowsay","How about taking a coffee break while im taking care of something?","good")
+                          ChunkForcer()
+                          TheEnd()
+                       print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),errors))
+                       for nb3,(tools,tools_values) in enumerate(errors_values.items()):
+                           print("%s:%s:%s"%(Candy("Color","yellow","        [Tool:%s]"%nb3),tools,tools_values))
+                
+#                     if "Chunk[IHDR] has Wrong Crc at offset" in ArkOfCovenant.get(file):
+#                          Candy("Cowsay","Perhaps that wasn't a Crc problem..","com")
+#                          Candy("Cowsay","Maybe the culprit was in fact IHDR Data it self!","bad")
+#                          Candy("Cowsay","How about taking a coffee break while im taking care of something?","good")
+#                          ChunkForcer()
+                TheEnd()
               
 
     else:
@@ -2805,7 +2837,7 @@ def CheckPoint(function_name,action,*args):
         if "libpng error:" in action:
             if "bad adaptive filter value" in action:
                 SideNotes.append("-CheckPoint: %s"%action)
-            return(Relics())
+            return(Question("LibpngCheck",False))
                 
         else:
              SideNotes.append("-CheckPoint: No more errors found")
@@ -2866,7 +2898,16 @@ def CheckPoint(function_name,action,*args):
             SaveErrors(args[3],["-Found Chunk[%s] has Wrong Crc at offset: %s"%(args[3],args[4])],args[0],args[4],args[1],args[2],args[3],args[5])
             return(Question(args[3],False))
 
+#[File:0]:-Errors fixed in File 477px-PNG_Test-Wrong-Width.png :
+#    [Error:0]:IHDR_Error_0:-Found Chunk[IHDR] has Wrong Crc at offset: 0x1d
+#        [Tool:0]:IHDR_Tool_0:1234caf7
+#        [Tool:1]:IHDR_Tool_1:0x1d
+#        [Tool:2]:IHDR_Tool_2:58
+#        [Tool:3]:IHDR_Tool_3:66
+#        [Tool:4]:IHDR_Tool_4:IHDR
+#        [Tool:5]:IHDR_Tool_5:599c191a
 
+#FixShit(PandoraBox[key][chkd+"0"],PandoraBox[key][chkd+"2"],PandoraBox[key][chkd+"3"],("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(PandoraBox[key][chkd+"4"],PandoraBox[key][chkd+"1"],PandoraBox[key][chkd+"0"],PandoraBox[key][chkd+"5"])))
 
     print("Not recognized")
     for i,a in enumerate(args):
