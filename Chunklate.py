@@ -1,13 +1,23 @@
 #!/usr/bin/python3.6
-from argparse import ArgumentParser
+from argparse import ArgumentParser,SUPPRESS
 from threading import Thread
 from datetime import datetime
 from contextlib import contextmanager
-import sys , os , binascii ,re ,random ,time , zlib ,cv2 , ctypes ,io ,tempfile
+import sys , os , binascii ,re ,random ,time , zlib ,cv2 , ctypes ,io ,tempfile ,difflib
 
 
+def GroundhogDay(NewDay):
+    print("argv was ",sys.argv)
+    print("sys.executable was ", sys.executable)
+    sys.argv.append("--CLONE "+NewDay)
+    
+    strargs = "-cmd "+" ".join([i for i in sys.argv])
+    print("argv is ",strargs)
+    pause=input("pause")
+    os.execv(sys.executable,["-cmd "]+sys.argv)
 
 def Chunklate(sec):
+   
 
    if os.name == "nt":
        print("""
@@ -584,15 +594,64 @@ def stderr_redirector(stream):
         tfile.close()
         os.close(saved_stderr_fd)
 
-def ChunkForcer():
+def ChunkForcer(File,Chunk,OldCrc,DataOffset,ChunkLenght):
      global WORKING
+     global PandoraBox
      global SideNotes
-     Candy("Title","[DEMO]Attempting To Repair Corrupted Chunk Data:[DEMO]")
+     Candy("Title","Attempting To Repair Corrupted Chunk Data:")
+     Chunk = Chunk.encode()
+     try:
+           with open(Sample,"rb") as f:
+              data = f.read()
+     except Exception as e:
+             print(Candy("Color","red","Error:"),Candy("Color","yellow",e))	
+             TheEnd()
      Thread(target = Loadingbar).start()
-     time.sleep(30)
-     print("\n\nDemo ended.\n")
-     SideNotes.append( "\n-Launched Data Chunk Bruteforcer.\n-Demo ended well.")
+     datax = data.hex()[DataOffset:DataOffset+(ChunkLenght*2)]
+     Bingo = False
+     needle = 0
+     while needle < len(datax)-1 and Bingo is False:
+        for hexa in range(0,256):
+              newbyte = (hex(hexa).replace("0x","")).zfill(2)
+              newdatax_copy = datax[:needle]+ newbyte + datax[needle+2:]
+              newdatax = bytes.fromhex(datax[:needle]+ newbyte + datax[needle+2:])
+              checksum = hex(binascii.crc32(Chunk+newdatax)).replace("0x","").zfill(8)
+
+              if checksum == OldCrc:
+                    diffobj = difflib.SequenceMatcher(None, datax, newdatax_copy)
+                    good = ""
+                    bad = ""
+                    for block in diffobj.get_opcodes():
+                        if block[0] != "equal":
+                            good += "\033[1;32;49m%s\033[m"%newdatax_copy[block[1]:block[2]]
+                            bad += "\033[1;31;49m%s\033[m"%datax[block[1]:block[2]]
+                        else:
+                           good += newdatax_copy[block[1]:block[2]]
+                           bad += datax[block[1]:block[2]]
+                    Bingo = True
+                    break
+              #else:
+                   #print("data:%s Oldcrc:%s != checksum:%s"%(copy,OldCrc,checksum))
+        needle += 1
+
      WORKING = False
+     if Bingo is True:
+         print("-Bruteforce was %s %s"%(Candy("Color","green","Successfull!"),Candy("Emoj","good")))
+         print("-Previous Crc %s has been found by changing those bytes:\n"%Candy("Color","green",OldCrc))
+         print(bad)
+         print("\n-With those bytes:\n")
+         print(good)
+         Candy("Cowsay","Wow ...I wasn't sure this would work to be honest !","good")
+         SideNotes.append( "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Previous Crc %s has been found by changing those bytes:\n%s\n-with bytes:\n%s"%(OldCrc,datax,newdatax_copy))
+         PandoraBox = {}
+         SaveErrors(Chunk,["IDHR Data is corrupted"],newdatax_copy,DataOffset,DataOffset+(ChunkLenght*2),"-Replacing Corrupted %s Data:\n%s\n-With:\n%s"%(Chunk.decode(),datax,newdatax_copy))
+         return(CheckPoint("ChunkForcer","Replacing Corrupted Data",Chunk.decode()))
+     else: 
+          print("-Bruteforce has %s %s"%(Candy("Color","red","Failed!"),Candy("Emoj","bad")))
+          Candy("Cowsay","I was afraid of this ..Looks like we r stuck..","bad")
+          SideNotes.append( "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
+          return(CheckPoint("ChunkForcer","Bruteforcer has Failed"))
+
 
 
 def FindMagic():
@@ -629,7 +688,7 @@ def FindMagic():
                  print("-Some bytes are %s from Png Signature.."%Candy("Color","red","missing"))
                  Candy("Cowsay"," %s seems corrupted due to line feed conversion...It doesnt look that bad...But I ll keep that in mind while im on it.."%(Candy("Color","white",Sample_Name,"bad")))
                  SideNotes.append("-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented.")
-                 ChunkForcer()
+                 #ChunkForcer()
                  TheEnd()
 
                if badnews == magc[0]: 
@@ -767,21 +826,24 @@ def FixItFelix(Chunk):
                         print("keyvalue:",keyvalue)
 
 
+        if "Data is corrupted" in str(key):
+            SaveClone(PandoraBox[key][chkd+"0"],PandoraBox[key][chkd+"1"],PandoraBox[key][chkd+"2"],PandoraBox[key][chkd+"3"])
+            return(GroundhogDay(Sample))
+             
+
         if "] has wrong name at offset:" in str(key):
 
-#      FixShit(BestBingoName.encode().hex(),CToffI,CToffI+8,"-Found Chunk[%s] has wrong name at offset: %s\n-Chunk was corrupted changing %s bytes turn into a valid Chunk name: %s"%(Orig_CT,CToffX,int(BestBingoScore)-len(Orig_CT),BestBingoName))
-          return(FixShit(PandoraBox[key][chkd+"0"],PandoraBox[key][chkd+"1"],PandoraBox[key][chkd+"2"],str(key)))
+          return(SaveClone(PandoraBox[key][chkd+"0"],PandoraBox[key][chkd+"1"],PandoraBox[key][chkd+"2"],str(key)))
           
-
         if "Wrong Chunk name at offset:" in str(key):
                 if AnciCheck is not True:
-                    return(FixShit(PandoraBox[key][chkd+"4"].hex(),PandoraBox[key][chkd+"1"],PandoraBox[key][chkd+"2"],("-Replacing %s with %s at %s"%(PandoraBox[key][chkd+"3"],PandoraBox[key][chkd+"4"],PandoraBox[key][chkd+"0"]))))
+                    return(SaveClone(PandoraBox[key][chkd+"4"].hex(),PandoraBox[key][chkd+"1"],PandoraBox[key][chkd+"2"],("-Replacing %s with %s at %s"%(PandoraBox[key][chkd+"3"],PandoraBox[key][chkd+"4"],PandoraBox[key][chkd+"0"]))))
                 if AnciCheck is True:
                    pause = input("pause")
 
         if "Wrong Crc at offset:" in str(key):
 
-            FixShit(PandoraBox[key][chkd+"0"],PandoraBox[key][chkd+"2"],PandoraBox[key][chkd+"3"],("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(PandoraBox[key][chkd+"4"],PandoraBox[key][chkd+"1"],PandoraBox[key][chkd+"0"],PandoraBox[key][chkd+"5"])))
+            SaveClone(PandoraBox[key][chkd+"0"],PandoraBox[key][chkd+"2"],PandoraBox[key][chkd+"3"],("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(PandoraBox[key][chkd+"4"],PandoraBox[key][chkd+"1"],PandoraBox[key][chkd+"0"],PandoraBox[key][chkd+"5"])))
 
 
 def SaveErrors(Chunk,Err,*ToolKit):
@@ -798,8 +860,10 @@ def SaveErrors(Chunk,Err,*ToolKit):
       except Exception as e:
          print(Candy("Color","red","Error:"),Candy("Color","yellow",e))
          ERRORSFLAG.append(Chunk)
+      
    else:
         ERRORSFLAG.append(Chunk)
+        Chunk = Chunk.decode()
 
    if Chunk == "Critical":
        for chnk in Err:
@@ -822,7 +886,7 @@ def SaveErrors(Chunk,Err,*ToolKit):
 
    else:
            print("Param is not a list")
-           sys.exit()
+           TheEnd()
 #   TheEnd()
 
 def NullFind(data,search4=None):
@@ -2184,7 +2248,7 @@ def ChunkbyChunk(offset):
          Orig_CD = Raw_Data
          CDoffX = hex(int(offset/2)+8)
          CDoffB =int(offset/2)+8
-         CDoffI = offset + 8
+         CDoffI = offset + 16
 
          Raw_Crc =  DATAX[offset+16+len(Raw_Data):offset+16+len(Raw_Data)+8]
          Orig_CRC = Raw_Crc
@@ -2290,7 +2354,7 @@ def NearbyChunk(CType,bytesnbr,LastCType,DoubleCheck=None):
                          TheEnd()
                       print("-Chunk position is %s %s\n"%(Candy("Color","green","Valid "),Candy("Emoj","good")))
                       FixedLen= str('0x%08X' % LenCalc)[2::] # str('0x%08X' % LenCalc)[2::].encode().hex()
-                      FixShit(FixedLen,CLoffI,CLoffI+8,("-Found Chunk[%s] has Wrong length at offset: %s\n-Found next chunk: %s at: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CLoffX,Chk,NeedleX,FixedLen,Orig_CL)))
+                      SaveClone(FixedLen,CLoffI,CLoffI+8,("-Found Chunk[%s] has Wrong length at offset: %s\n-Found next chunk: %s at: %s\n-Replaced with: %s old value was: %s"%(Orig_CT,CLoffX,Chk,NeedleX,FixedLen,Orig_CL)))
                       return()
        Needle += 1
      if DoubleCheck is True:
@@ -2317,7 +2381,7 @@ def ChunkStory(lastchunk,mode):
 
   Before_IDAT=[b'PNG',b'sPLT',b'sBIT', b'pHYs', b'tRNS', b'hIST', b'bKGD', b'gAMA',b'iCCP',b'sRGB', b'cHRM', b'PLTE', b'IHDR', b'bKGD']
 
-  Before_IDAT2=[b'IHDR',b'sPLT',b'sBIT', b'pHYs', b'tRNS', b'hIST', b'bKGD', b'gAMA',b'iCCP',b'sRGB', b'cHRM', b'PLTE', b'IHDR', b'bKGD']
+  Before_IDAT2=[b'IHDR',b'sPLT',b'sBIT', b'pHYs', b'tRNS', b'hIST', b'bKGD', b'gAMA',b'iCCP',b'sRGB', b'cHRM', b'PLTE', b'bKGD']
 
   OnlyOnce=[b'PNG',b'sBIT', b'IEND', b'tRNS', b'hIST', b'sTER', b'iCCP', b'sRGB', b'gAMA', b'sCAL', b'cHRM', b'bKGD', b'IHDR', b'oFFs', b'pCAL', b'PLTE', b'pHYs', b'IEND',b'eXIf']
 
@@ -2500,7 +2564,7 @@ def BruteChunk(CType,LastCType,bytesnbr):
        while True:
           try:
              if (Choice.lower() != "quit" or Choice.lower() != "wtf") and int(Choice) <= len(BingoLst):
-                  FixShit(BingoLst[int(Choice)].encode().hex(),CrcoffI+16,CrcoffI+24,"-Found Chunk[%s] has wrong name at offset: %s\n-Chunk seems corrupted user has decided to choose Chunk[%s] as a replacement."%(Orig_CT,CToffX,BingoLst[int(Choice)].encode()))
+                  SaveClone(BingoLst[int(Choice)].encode().hex(),CrcoffI+16,CrcoffI+24,"-Found Chunk[%s] has wrong name at offset: %s\n-Chunk seems corrupted user has decided to choose Chunk[%s] as a replacement."%(Orig_CT,CToffX,BingoLst[int(Choice)].encode()))
                   return()
           except Exception as e:
 #              print("Error: ",e)
@@ -2635,13 +2699,13 @@ def Question(Chunk,Valid):
                   Answer = input("Answer(yes/no):").lower()
             if Answer == "yes":
                    Candy("Cowsay","Fine , let me see what i can do .","good")
-                   Relics()
+                   return(Relics())
             else:
                    Candy("Cowsay","Ok ,Good Luck outhere bye !","com")
                    TheEnd()
         else: 
                 print("-%s\n"%Candy("Color","green","Auto Answer Mode"))
-                Relics()
+                return(Relics())
 
      if Valid is True and Chunk:
         if AnciCheck is True:
@@ -2674,8 +2738,10 @@ def Question(Chunk,Valid):
 
 def Checksum(Ctype, Cdata, Crc,next=None):
     Candy("Title","Check Crc Validity:")
-    Cdata = bytes.fromhex(Cdata)
     Ctype = bytes.fromhex(Ctype)
+    if Ctype == b"IHDR":
+        print("data:",Cdata)
+    Cdata = bytes.fromhex(Cdata)
     Crc = hex(int.from_bytes(bytes.fromhex(Crc),byteorder='big'))
     checksum = hex(binascii.crc32(Ctype+Cdata))
     if checksum == Crc:
@@ -2712,21 +2778,21 @@ def Checksum(Ctype, Cdata, Crc,next=None):
 
 
 
-def FixShit(shit,start,end,infos):
+def SaveClone(DataFix,start,end,infos):
          Candy("Title","Fixing File")
          try:
-            print("-Data : %s\n"%bytes.fromhex(shit))
+            print("-Data : %s\n"%bytes.fromhex(DataFix))
          except:
-            print("-Data : %s\n"%shit)
+            print("-Data : %s\n"%DataFix)
 
          Summarise(infos)
          Before = DATAX[:start]
          After = DATAX[end:]
-         Fix = Before + shit + After
-         SaveClone(Fix)
+         Fix = Before + DataFix + After
+         WriteClone(Fix)
 
 
-def SaveClone(data):
+def WriteClone(data):
          global Sample
          global Have_A_KitKat   
          global ArkOfCovenant
@@ -2765,24 +2831,30 @@ def Relics():
                 Candy("Cowsay","Only one Error,That is short indeed ..","com")
 
                 for nb1,(file,file_value) in enumerate(ArkOfCovenant.items()):
-#                    print("%s:-Errors fixed in File %s :"%(Candy("Color","white","[File:%s]"%nb1),file))
+
                     for nb2,(errors,errors_values) in enumerate(file_value.items()):
                        if "Chunk[IHDR] has Wrong Crc at offset" in errors:
                           Candy("Cowsay","Perhaps that wasn't a Crc problem..","com")
                           Candy("Cowsay","Maybe the culprit was in fact IHDR Data it self!","bad")
                           Candy("Cowsay","How about taking a coffee break while im taking care of something?","good")
-                          ChunkForcer()
-                          TheEnd()
-                       print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),errors))
-                       for nb3,(tools,tools_values) in enumerate(errors_values.items()):
-                           print("%s:%s:%s"%(Candy("Color","yellow","        [Tool:%s]"%nb3),tools,tools_values))
+                          #def Checksum(Ctype, Cdata, Crc,next=None):
+                          Chunk = ArkOfCovenant[file][errors]["IHDR_Tool_4"]
+                          OldCrc = ArkOfCovenant[file][errors]["IHDR_Tool_5"]
+                          ChunkLenght = ArkOfCovenant[file][errors]["IHDR_Tool_6"]
+                          DataOffset = ArkOfCovenant[file][errors]["IHDR_Tool_7"]
+                          if nb1 == 0 :
+                              ChunkForcer(FILE_Origin,Chunk,OldCrc,DataOffset,ChunkLenght)
+                              return()
+                          else:
+                              
+                              ChunkForcer(os.path.dirname(Sample)+"/"+file,Chunk,OldCrc,DataOffset,ChunkLenght)
+                              
+                       #print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),errors))
+                       #for nb3,(tools,tools_values) in enumerate(errors_values.items()):
+                       #    print("%s:%s:%s"%(Candy("Color","yellow","        [Tool:%s]"%nb3),tools,tools_values))
                 
-#                     if "Chunk[IHDR] has Wrong Crc at offset" in ArkOfCovenant.get(file):
-#                          Candy("Cowsay","Perhaps that wasn't a Crc problem..","com")
-#                          Candy("Cowsay","Maybe the culprit was in fact IHDR Data it self!","bad")
-#                          Candy("Cowsay","How about taking a coffee break while im taking care of something?","good")
-#                          ChunkForcer()
-                TheEnd()
+
+                return()
               
 
     else:
@@ -2833,6 +2905,16 @@ def CheckPoint(function_name,action,*args):
         if PAUSE is True:
             pause = input("Check point")
 
+
+
+    if function_name == "ChunkForcer":
+        if "Replacing Corrupted Data" in action:
+              SideNotes.append("-CheckPoint: %s"%action)
+              return(FixItFelix(args[0]))
+        else:
+              SideNotes.append("-CheckPoint: %s"%action)
+              TheEnd()           
+
     if function_name == "LibpngCheck":
         if "libpng error:" in action:
             if "bad adaptive filter value" in action:
@@ -2852,7 +2934,7 @@ def CheckPoint(function_name,action,*args):
 
         if action == "Cutting at Magic":
                 Summarise("-File does not start with a png signature.\n-Found a png signature at offset: %s\n-Creating starting with the right signature."%args[1])
-                return(SaveClone(args[0]))
+                return(WriteClone(args[0]))
 
         if action == "dig a little bit deeper":
                 SideNotes.append("-CheckPoint: Finding Harder Magic Header")
@@ -2861,7 +2943,7 @@ def CheckPoint(function_name,action,*args):
     if function_name =="FindFuckingMagic":
         if action == "Cutting at Magic":
                 Summarise("-File does not start with a png signature.\n-Found a png signature at offset: %s\n-Creating starting with the right signature."%args[1])
-                return(SaveClone(args[0]))
+                return(WriteClone(args[0]))
 
     if function_name == "CheckLength":
        GoodEnding = "0000000049454E44AE426082"
@@ -2873,19 +2955,19 @@ def CheckPoint(function_name,action,*args):
                          Candy("Cowsay"," We have reached the end of file.","good")
                          SideNotes.append("-Reached the end of file.")
                          Candy("Cowsay","Ok let's feed the Kraken now..","com")
-                         LibpngCheck(Sample)
+                         return(LibpngCheck(Sample))
                          
                 else:
                     print(DATAX[-len(GoodEnding):])
                     SaveErrors(args[0],["-Not ending with regular IEND Chunk"])
-                    sys.exit(0)
+                    TheEnd()
            elif args[0] == 'IEND':
                     SaveErrors(args[0],["-Wrong length for IEND"])
-                    sys.exit(0)
+                    TheEnd()
            else:
 
                     SaveErrors(b'IEND',["-End of File Reached but IEND Chunk is missing"])
-                    sys.exit(0)
+                    TheEnd()
 
 
        if action == "Found NextChunk":
@@ -2895,24 +2977,14 @@ def CheckPoint(function_name,action,*args):
 
     if function_name == "Checksum":
        if action == "Wrong Crc":
-            SaveErrors(args[3],["-Found Chunk[%s] has Wrong Crc at offset: %s"%(args[3],args[4])],args[0],args[4],args[1],args[2],args[3],args[5])
+            SaveErrors(args[3],["-Found Chunk[%s] has Wrong Crc at offset: %s"%(args[3],args[4])],args[0],args[4],args[1],args[2],args[3],args[5],int(Orig_CL,16),CDoffI)
             return(Question(args[3],False))
 
-#[File:0]:-Errors fixed in File 477px-PNG_Test-Wrong-Width.png :
-#    [Error:0]:IHDR_Error_0:-Found Chunk[IHDR] has Wrong Crc at offset: 0x1d
-#        [Tool:0]:IHDR_Tool_0:1234caf7
-#        [Tool:1]:IHDR_Tool_1:0x1d
-#        [Tool:2]:IHDR_Tool_2:58
-#        [Tool:3]:IHDR_Tool_3:66
-#        [Tool:4]:IHDR_Tool_4:IHDR
-#        [Tool:5]:IHDR_Tool_5:599c191a
-
-#FixShit(PandoraBox[key][chkd+"0"],PandoraBox[key][chkd+"2"],PandoraBox[key][chkd+"3"],("-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"%(PandoraBox[key][chkd+"4"],PandoraBox[key][chkd+"1"],PandoraBox[key][chkd+"0"],PandoraBox[key][chkd+"5"])))
 
     print("Not recognized")
     for i,a in enumerate(args):
         print("Arg%s:%s"%(i,a))	
-    sys.exit(0)                          
+    return()                          
 
 def main():
     global FirStart
@@ -2921,6 +2993,7 @@ def main():
     global PAUSE
     global DEBUG
     global AUTO
+    global CLONESWAR
     global AnciCheck
     global FILE_DIR
     global DATAX
@@ -2940,8 +3013,12 @@ def main():
     parser.add_argument("-p","--pause",dest="PAUSE",help="Pause at each saves.",action="store_true")
     parser.add_argument("-d","--debug",dest="DEBUG",help="Debug stuffs.",action="store_true")
     parser.add_argument("-a","--auto",dest="AUTO",help="Auto Choose action.",action="store_true")
-    Args = parser.parse_args()
+    
 
+    Args, unknown = parser.parse_known_args()
+    unknown = " ".join([i for i in unknown])
+    if "--CLONE" in unknown:
+         CLONESWAR = unknown.split("--CLONE ")[1]
 
     if len(sys.argv)==1:
         parser.print_help(sys.stderr)
@@ -2975,7 +3052,13 @@ def main():
          PandoraBox = {}
          SideNotes = []
          Chunklate(1)
-         Sample_Name = os.path.basename(Sample)
+
+         if CLONESWAR is False:
+            Sample_Name = os.path.basename(Sample)
+         else:
+            Sample = CLONESWAR
+            Sample_Name = os.path.basename(CLONESWAR)
+            CLONESWAR = False
 
          print("-Proceeding with: ",Candy("Color","white",Sample_Name))
          try:
@@ -2989,7 +3072,7 @@ def main():
          DATAX = data.hex()
 
 
-         Candy("Cowsay"," %s us loaded!"%Candy("Color","green",Sample_Name),"good")
+         Candy("Cowsay"," %s is loaded!"%Candy("Color","green",Sample_Name),"good")
          Offset = FindMagic()
          if Offset != None:
 
@@ -3006,7 +3089,7 @@ def main():
                  Checksum(Raw_Type,Raw_Data,Raw_Crc)
 
                  Offset= Offset + len(Raw_Length)+len(Raw_Type)+len(Raw_Data)+len(Raw_Crc)
-
+                 print("bla")
                  if Have_A_KitKat == True:
                     Have_A_KitKat = False
                     break
@@ -3070,6 +3153,7 @@ CLEAR = False
 PAUSE = False
 DEBUG = False
 AUTO = False
+CLONESWAR = False
 FILE_DIR = ""
 Loading_txt = ""
 DATAX = ""

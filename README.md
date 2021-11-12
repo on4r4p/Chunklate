@@ -13,14 +13,14 @@
 - Repair wrong chunk length  
 - Repair wrong chunk name
 - Repair wrong chunk crc
+- Repair wrong image size
 - Repair line feed conversion
+- Smart crc fixer based on errors found (Work in progress)
 - Save each modifications in a different file
 - Provide a summary of all modifications 
 - User friendly human readability
-- Smart crc fixer based on errors found(Work in progress)
-- Bruteforce corrupted data chunk except for idat (Todo)
-- Repair wrong image size (Todo)
-- Repair missplaced chunks (Todo)
+- Bruteforce corrupted data chunk (Just IHDR for now)
+- Repair missplaced chunks (Work in progress)
 - Replace critical missing chunk (Todo)
 
 
