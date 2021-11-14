@@ -2025,7 +2025,7 @@ def ChunkForcer(File,Chunk,OldCrc,DataOffset,ChunkLenght):
          Candy("Cowsay","Wow ...I wasn't sure this would work to be honest !","good")
          SideNotes.append( "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Previous Crc %s has been found by changing those bytes:\n%s\n-with bytes:\n%s"%(OldCrc,datax,newdatax_copy))
          PandoraBox = {}
-         return(CheckPoint("ChunkForcer",["Error:Data was corrupted"],newdatax_copy,DataOffset,DataOffset+(ChunkLenght*2),"-Replacing Corrupted %s Data:\n%s\n-With:\n%s"%(Chunk.decode(),datax,newdatax_copy),Chunk.decode()))
+         return(CheckPoint("ChunkForcer",["Error:Data has been corrupted"],newdatax_copy,DataOffset,DataOffset+(ChunkLenght*2),"-Replacing Corrupted %s Data:\n%s\n-With:\n%s"%(Chunk.decode(),datax,newdatax_copy),Chunk.decode()))
 
      else: 
           print("-Bruteforce has %s %s"%(Candy("Color","red","Failed!"),Candy("Emoj","bad")))
@@ -2842,7 +2842,7 @@ def FixItFelix(Chunk):
 
 
 
-        if "Data was corrupted" in str(key):
+        if "Data has been corrupted" in str(key):
             SaveClone(PandoraBox[key][chkd+"0"],PandoraBox[key][chkd+"1"],PandoraBox[key][chkd+"2"],PandoraBox[key][chkd+"3"])
             return(GroundhogDay(Sample))
              
@@ -2930,7 +2930,7 @@ def CheckPoint(mod_name,infos,*ToolKit):
             TheEnd()
 
         if mod_name == "ChunkForcer":
-            if "Data was corrupted" in info:
+            if "Data has been corrupted" in info:
                   SideNotes.append("-CheckPoint: %s"%info)
                   return(FixItFelix("ChunkForcer"))
             else:
