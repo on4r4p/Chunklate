@@ -8,6 +8,7 @@ import sys, os, binascii, re, random, time, zlib, cv2, ctypes, io, tempfile, dif
 
 def GetInfo(Chunk, data):
     global SideNotes
+    global Bad_Infos
     global IHDR_Height
     global IHDR_Width
     global IHDR_Depht
@@ -118,39 +119,46 @@ def GetInfo(Chunk, data):
             IHDR_Height = str(int(data[:8], 16))
 
         except (NameError, ValueError) as e:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+            if DEBUG is True:
+               print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
             ToFix.append("Error:Error IHDR Height:" + str(e))
         try:
             IHDR_Width = str(int(data[8:16], 16))
         except (NameError, ValueError) as e:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+            if DEBUG is True:
+                print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
             ToFix.append("Error:Error IHDR Width:" + str(e))
         try:
             IHDR_Depht = str(int(data[16:18], 16))
         except (NameError, ValueError) as e:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+            if DEBUG is True:
+               print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
             ToFix.append("Error:Error IHDR Depht:" + str(e))
 
         try:
             IHDR_Color = str(int(data[18:20], 16))
         except (NameError, ValueError) as e:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+            if DEBUG is True:
+                print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
             ToFix.append("Error:Error IHDR Color:" + str(e))
         try:
             IHDR_Method = str(int(data[20:22], 16))
         except (NameError, ValueError) as e:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+            if DEBUG is True:
+               print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
             ToFix.append("Error:Error IHDR Method:" + str(e))
 
         try:
             IHDR_Filter = str(int(data[22:24], 16))
         except (NameError, ValueError) as e:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+            if DEBUG is True:
+               print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
             ToFix.append("Error:Error IHDR Filter:" + str(e))
         try:
             IHDR_Interlace = str(int(data[24:26], 16))
         except (NameError, ValueError) as e:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+            if DEBUG is True:
+               print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
             ToFix.append("Error:Error IHDR Interlace:" + str(e))
         try:
             print("-Width    :", Candy("Color", "yellow", IHDR_Height))
@@ -310,6 +318,7 @@ def GetInfo(Chunk, data):
                 )
 
             if len(ToFix) > 0:
+                Bad_Infos = True
                 CheckPoint(Chunk, ToFix)
             else:
                 print(
@@ -319,8 +328,10 @@ def GetInfo(Chunk, data):
                 )
 
         except Exception as e:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+            if DEBUG is True:
+                print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
             ToFix.append("Error:Error IHDR:" + str(e))
+            Bad_Infos = True
             CheckPoint(Chunk, ToFix)
 
     if Chunk == "IDAT":
@@ -391,6 +402,7 @@ def GetInfo(Chunk, data):
 
                     ToFix.append("Error:pHYs_Unit")
             if len(ToFix) > 0:
+                Bad_Infos
                 CheckPoint(Chunk, ToFix)
             else:
                 print(
@@ -400,7 +412,8 @@ def GetInfo(Chunk, data):
                 )
 
         except Exception as e:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+            if DEBUG is True:
+                print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
             ToFix.append("Error:Error pHys:" + str(e))
             CheckPoint(Chunk, ToFix)
 
@@ -411,7 +424,8 @@ def GetInfo(Chunk, data):
                 print("-Gray    :", Candy("Color", "yellow", bKGD_Gray))
             except Exception as e:
                 ToFix.append("Error:Error bKGD Gray:" + str(e))
-                print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+                if DEBUG is True:
+                    print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
 
             if len(bKGD_Gray) > 0:
                 if int(bKGD_Gray) > (2 ** int(IHDR_Depht)) - 1:
@@ -430,7 +444,8 @@ def GetInfo(Chunk, data):
                     print("-Red    :", Candy("Color", "red", bKGD_Red))
                 except Exception as e:
                     ToFix.append("Error:Error bKGD Red:" + str(e))
-                    print(
+                    if DEBUG is True:
+                       print(
                         Candy("Color", "red", "Error bKGD Red:"),
                         Candy("Color", "yellow", e),
                     )
@@ -449,7 +464,8 @@ def GetInfo(Chunk, data):
                     print("-Blue   :", Candy("Color", "blue", bKGD_Blue))
                 except Exception as e:
                     ToFix.append("Error:Error bKGD Blue:" + str(e))
-                    print(
+                    if DEBUG is True:
+                       print(
                         Candy("Color", "red", "Error bKGD Blue:"),
                         Candy("Color", "yellow", e),
                     )
@@ -483,18 +499,22 @@ def GetInfo(Chunk, data):
                         ToFix.append("Error:Bkgd_Blue")
 
             except Exception as e:
+     
                 ToFix.append("Error:Error Bkgd:" + str(e))
                 CheckPoint(Chunk, ToFix)
-                print(Candy("Color", "red", "Error bKGD:"), Candy("Color", "yellow", e))
+                if DEBUG is True:
+                    print(Candy("Color", "red", "Error bKGD:"), Candy("Color", "yellow", e))
 
         if IHDR_Color == "3":
             try:
                 bKGD_Index = str(int(data[:2], 16))
                 print("-Palette    :", Candy("Color", "yellow", bKGD_Index))
             except Exception as e:
-                print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+                if DEBUG is True:
+                   print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
 
         if len(ToFix) > 0:
+            Bad_Infos = True
             CheckPoint(Chunk, ToFix)
         else:
             print(
@@ -523,7 +543,8 @@ def GetInfo(Chunk, data):
             try:
                 int(pltr, 16)
             except Exception as e:
-                print(
+                if DEBUG is True:
+                    print(
                     Candy("Color", "red", "Error palettes red number " + str(i) + ":"),
                     Candy("Color", "yellow", e),
                 )
@@ -533,7 +554,8 @@ def GetInfo(Chunk, data):
             try:
                 int(pltg, 16)
             except Exception as e:
-                print(
+                if DEBUG is True:
+                   print(
                     Candy(
                         "Color",
                         "red",
@@ -550,7 +572,8 @@ def GetInfo(Chunk, data):
             try:
                 int(pltb, 16)
             except Exception as e:
-                print(
+                if DEBUG is True:
+                   print(
                     Candy(
                         "Color", "red", "Error palettes blue number " + str(i + 4) + ":"
                     ),
@@ -631,6 +654,7 @@ def GetInfo(Chunk, data):
             ToFix.append("Error:-IHDR Depht value have to be fixed first")
 
         if len(ToFix) > 0:
+            Bad_Infos = True
             CheckPoint(Chunk, ToFix)
         else:
             print(
@@ -666,7 +690,8 @@ def GetInfo(Chunk, data):
                     nint = int(data[i : i + 2], 16)
                     nchar = chr(nint)
                 except Exception as e:
-                    print(
+                    if DEBUG is True:
+                       print(
                         Candy("Color", "red", "Error sPLt Name :"),
                         Candy("Color", "yellow", e),
                     )
@@ -902,6 +927,7 @@ def GetInfo(Chunk, data):
                     ToFix.append("Error:name")
 
         if len(ToFix) > 0:
+            Bad_Infos = True
             if len(badchar) > 1:
                 CheckPoint(Chunk, ToFix, data)
             else:
@@ -964,9 +990,11 @@ def GetInfo(Chunk, data):
                         ToFix.append("Error:snbr")
 
             except Exception as e:
-                print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+                if DEBUG is True:
+                    print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
 
         if len(ToFix) > 0:
+            Bad_Infos = True
             CheckPoint(Chunk, ToFix, data)
         else:
             print(
@@ -987,7 +1015,8 @@ def GetInfo(Chunk, data):
             try:
                 tIME_Yr = str(int(data[:4], 16))
             except Exception as e:
-                print(
+                if DEBUG is True:
+                    print(
                     Candy("Color", "red", "Error tIME Years:"),
                     Candy("Color", "yellow", e),
                 )
@@ -995,7 +1024,8 @@ def GetInfo(Chunk, data):
             try:
                 tIME_Mth = str(int(data[4:6], 16))
             except Exception as e:
-                print(
+                if DEBUG is True:
+                    print(
                     Candy("Color", "red", "Error tIME Months:"),
                     Candy("Color", "yellow", e),
                 )
@@ -1003,7 +1033,8 @@ def GetInfo(Chunk, data):
             try:
                 tIME_Day = str(int(data[6:8], 16))
             except Exception as e:
-                print(
+                if DEBUG is True:
+                   print(
                     Candy("Color", "red", "Error tIME Days:"),
                     Candy("Color", "yellow", e),
                 )
@@ -1011,7 +1042,8 @@ def GetInfo(Chunk, data):
             try:
                 tIME_Hr = str(int(data[8:10], 16))
             except Exception as e:
-                print(
+                if DEBUG is True:
+                    print(
                     Candy("Color", "red", "Error tIME Hours:"),
                     Candy("Color", "yellow", e),
                 )
@@ -1019,7 +1051,8 @@ def GetInfo(Chunk, data):
             try:
                 tIME_Min = str(int(data[10:12], 16))
             except Exception as e:
-                print(
+                if DEBUG is True:
+                   print(
                     Candy("Color", "red", "Error tIME Minutes:"),
                     Candy("Color", "yellow", e),
                 )
@@ -1027,7 +1060,8 @@ def GetInfo(Chunk, data):
             try:
                 tIME_Sec = str(int(data[12:14], 16))
             except Exception as e:
-                print(
+                if DEBUG is True:
+                   print(
                     Candy("Color", "red", "Error tIME Seconds:"),
                     Candy("Color", "yellow", e),
                 )
@@ -1089,6 +1123,7 @@ def GetInfo(Chunk, data):
                     ToFix.append("Error:Second")
 
             if len(ToFix) > 0:
+                Bad_Infos = True
                 CheckPoint(Chunk, ToFix)
             else:
                 print(
@@ -1131,7 +1166,8 @@ def GetInfo(Chunk, data):
                     tRNS_Gray = str(int(data[:4], 16))
                     print("-Gray    :", Candy("Color", "yellow", tRNS_Gray))
                 except Exception as e:
-                    print(
+                    if DEBUG is True:
+                       print(
                         Candy("Color", "red", "Error tRNS gray:"),
                         Candy("Color", "yellow", e),
                     )
@@ -1142,7 +1178,8 @@ def GetInfo(Chunk, data):
                     tRNS_TrueR = str(int(data[:4], 16))
                     print("-Red    :", Candy("Color", "red", tRNS_TrueR))
                 except Exception as e:
-                    print(
+                    if DEBUG is True:
+                       print(
                         Candy("Color", "red", "Error tRNS_TrueR:"),
                         Candy("Color", "yellow", e),
                     )
@@ -1151,7 +1188,8 @@ def GetInfo(Chunk, data):
                     tRNS_TrueG = str(int(data[4:8], 16))
                     print("-Green  :", Candy("Color", "green", tRNS_TrueG))
                 except Exception as e:
-                    print(
+                    if DEBUG is True:
+                       print(
                         Candy("Color", "red", "Error tRNS_TrueG:"),
                         Candy("Color", "yellow", e),
                     )
@@ -1160,7 +1198,8 @@ def GetInfo(Chunk, data):
                     tRNS_TrueB = str(int(data[8:16], 16))
                     print("-Blue   :", Candy("Color", "blue", tRNS_TrueB))
                 except Exception as e:
-                    print(
+                    if DEBUG is True:
+                       print(
                         Candy("Color", "red", "Error tRNS_TrueB:"),
                         Candy("Color", "yellow", e),
                     )
@@ -1184,7 +1223,8 @@ def GetInfo(Chunk, data):
                     try:
                         tRNS_Index.append(str(int(data[i : i + 2], 16)))
                     except Exception as e:
-                        print(
+                        if DEBUG is True:
+                           print(
                             Candy("Color", "red", "Error tRNS_Index:"),
                             Candy("Color", "yellow", e),
                         )
@@ -1231,6 +1271,7 @@ def GetInfo(Chunk, data):
                         )
 
         if len(ToFix) > 0:
+            Bad_Infos = True
             CheckPoint(Chunk, ToFix)
         else:
             print(
@@ -1268,6 +1309,7 @@ def GetInfo(Chunk, data):
             ToFix.append("Error:-cHRM is overided by sRGB chunk")
 
         if len(ToFix) > 0:
+            Bad_Infos = True
             CheckPoint(Chunk, ToFix)
         else:
             print(
@@ -1283,7 +1325,8 @@ def GetInfo(Chunk, data):
             )
             print("-WhiteX   :", Candy("Color", "white", cHRM_WhiteX))
         except Exception as e:
-            print(
+            if DEBUG is True:
+               print(
                 Candy("Color", "red", "-cHRM WhiteX Error::"),
                 Candy("Color", "yellow", e),
             )
@@ -1294,7 +1337,8 @@ def GetInfo(Chunk, data):
             )
             print("-WhiteY   :", Candy("Color", "white", cHRM_WhiteY))
         except Exception as e:
-            print(
+            if DEBUG is True:
+               print(
                 Candy("Color", "red", "-cHRM WhiteY Error:"),
                 Candy("Color", "yellow", e),
             )
@@ -1308,7 +1352,8 @@ def GetInfo(Chunk, data):
             )
             print("-RedX     :", Candy("Color", "red", cHRM_Redx))
         except Exception as e:
-            print(
+            if DEBUG is True:
+                print(
                 Candy("Color", "red", "-cHRM RedX Error:"), Candy("Color", "yellow", e)
             )
             ToFix.append("Error:-cHRM RedX Error:" + str(e))
@@ -1321,7 +1366,8 @@ def GetInfo(Chunk, data):
             )
             print("-RedY     :", Candy("Color", "red", cHRM_Redy))
         except Exception as e:
-            print(
+            if DEBUG is True:
+               print(
                 Candy("Color", "red", "-cHRM RedY Error:"), Candy("Color", "yellow", e)
             )
             ToFix.append("Error:-cHRM RedY Error:" + str(e))
@@ -1334,7 +1380,8 @@ def GetInfo(Chunk, data):
             )
             print("-GreenX   :", Candy("Color", "green", cHRM_Greenx))
         except Exception as e:
-            print(
+            if DEBUG is True:
+               print(
                 Candy("Color", "red", "-cHRM GreenX Error:"),
                 Candy("Color", "yellow", e),
             )
@@ -1348,7 +1395,8 @@ def GetInfo(Chunk, data):
             )
             print("-GreenY   :", Candy("Color", "green", cHRM_Greeny))
         except Exception as e:
-            print(
+            if DEBUG is True:
+                print(
                 Candy("Color", "red", "-cHRM GreenY Error:"),
                 Candy("Color", "yellow", e),
             )
@@ -1362,7 +1410,8 @@ def GetInfo(Chunk, data):
             )
             print("-BlueX    :", Candy("Color", "blue", cHRM_Bluex))
         except Exception as e:
-            print(
+            if DEBUG is True:
+               print(
                 Candy("Color", "red", "-cHRM BlueX Error:"), Candy("Color", "yellow", e)
             )
             ToFix.append("Error:-cHRM BlueX Error:" + str(e))
@@ -1375,7 +1424,8 @@ def GetInfo(Chunk, data):
             )
             print("-BlueY    :", Candy("Color", "blue", cHRM_Bluey))
         except Exception as e:
-            print(
+            if DEBUG is True:
+               print(
                 Candy("Color", "red", "-cHRM BluY Error:"), Candy("Color", "yellow", e)
             )
             ToFix.append("Error:-cHRM BlueY Error:" + str(e))
@@ -1392,6 +1442,7 @@ def GetInfo(Chunk, data):
             ToFix.append("Error:-cHRM is overided by sRGB chunk and iCCP")
 
         if len(ToFix) > 0:
+            Bad_Infos = True
             CheckPoint(Chunk, ToFix)
         else:
             print(
@@ -1471,6 +1522,7 @@ def GetInfo(Chunk, data):
         print("-iCCP Profile Method :", Candy("Color", "yellow", iCCP_Method))
 
         if len(ToFix) > 0:
+            Bad_Infos = True
             CheckPoint(Chunk, ToFix)
         else:
             print(
@@ -1777,6 +1829,7 @@ def GetInfo(Chunk, data):
                 ToFix.append("Error:talphadepth")
 
         if len(ToFix) > 0:
+            Bad_Infos = True
             CheckPoint(Chunk, ToFix)
         else:
             print(
@@ -1825,6 +1878,7 @@ def GetInfo(Chunk, data):
                 )
                 ToFix.append("Error:uout")
             if len(ToFix) > 0:
+                Bad_Infos = True
                 CheckPoint(Chunk, ToFix)
             else:
                 print(
@@ -1884,6 +1938,7 @@ def GetInfo(Chunk, data):
                     pCAL_Param.append(param)
                     newlength += len(param) + 2
                 except Exception as e:
+                  if DEBUG is True:
                     print(
                         Candy("Color", "red", "Error pCAL:"),
                         Candy("Color", "yellow", e),
@@ -1902,6 +1957,7 @@ def GetInfo(Chunk, data):
             print("-Number of parameters:", Candy("Color", "yellow", pCAL_PNBR))
 
         except Exception as e:
+          if DEBUG is True:
             print(Candy("Color", "red", "Error pCAL2:"), Candy("Color", "yellow", e))
 
     if Chunk == "gIFg":
@@ -1977,7 +2033,8 @@ def GetInfo(Chunk, data):
             )
 
         except Exception as e:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+            if DEBUG is True:
+                print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
 
     if Chunk == "zTXt":
 
@@ -2024,7 +2081,8 @@ def GetInfo(Chunk, data):
             )
 
         except Exception as e:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+           if DEBUG is True:
+              print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
 
     if Chunk == "iTXt":
         try:
@@ -2110,7 +2168,8 @@ def GetInfo(Chunk, data):
             print("-String              : ", Candy("Color", "green", iTXt_String))
 
         except Exception as e:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+            if DEBUG is True:
+                 print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
 
     if Chunk == "eXIf":
         eXIf_raw = []
@@ -2310,7 +2369,8 @@ def GroundhogDay(NewDay):
         print("sys.executable was ", sys.executable)
         print("argv is ", strargs)
         print("rebooting chunklate")
-    #    pause=input("pause")
+        if PAUSE is True:
+               Pause("Pause:Reboot")
     os.execv(sys.executable, ["-cmd "] + sys.argv)
 
 
@@ -3166,7 +3226,8 @@ def ChunkStory(action, chunk):
         try:
             del Chunks_History[Chunks_History.index(chunk)]
         except Except as e:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+           if DEBUG is True:
+              print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
 
 
 def TheEnd():
@@ -3218,7 +3279,7 @@ def ChunkForcer(File, Chunk, OldCrc, DataOffset, ChunkLenght):
         print("offd:", DataOffset)
         print("cl:", ChunkLenght)
         if PAUSE is True:
-            pause = input("pause")
+            Pause("Debug Pause:")
 
     try:
         with open(Sample, "rb") as f:
@@ -3663,8 +3724,9 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck=None):
         try:
             scope = bytes.fromhex(scopex).lower()
         except Exception as e:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
-            print(Candy("Color", "red", "Scopex:"), Candy("Color", "yellow", scopex))
+            if DEBUG is True:
+               print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+               print(Candy("Color", "red", "Scopex:"), Candy("Color", "yellow", scopex))
             sys.exit()
         NeedleI = int(Needle / 2)
         NeedleX = hex(int(Needle / 2))
@@ -4177,22 +4239,19 @@ def BruteChunk(CType, LastCType, ChunkLen):
             Choice = input("WHO'S THAT POKEMON !? :")
 
 
-def CheckChunkName(ChunkType, ChunkLen, LastCType, next=None):
+def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
 
     if type(ChunkType) == bytes:
         CType = ChunkType
-        # print("ctype is bytes")
     elif type(ChunkType) != bytes:
         try:
             CType = bytes.fromhex(ChunkType)
-        except:
+        except Exception as e:
             CType = ChunkType.encode(errors="ignore")
-    else:
-        print(type(CType))
-        print(CType)
-        sys.exit()
+            if DEBUG is True:
+                print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
 
-    if next != None:
+    if Next != None:
         Candy("Title", "Checking Next Chunk Type:", Candy("Color", "white", CType))
     else:
         Candy("Title", "Checking Current Chunk Type:", Candy("Color", "white", CType))
@@ -4205,8 +4264,28 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, next=None):
                     + Candy("Color", "green", " OK! ")
                     + Candy("Emoj", "good")
                 )
-                # ChunkStory(bytes.fromhex(ChunkType))
-                return None
+                if Next == None:
+                    return(
+                        CheckPoint(
+                            "CheckChunkName",
+                            [
+                                "-Name is valid for Chunk[%s]."%
+                                CType,
+                            ],
+                            Next,
+                        )
+                    )
+                else:
+                    return(
+                        CheckPoint(
+                            "CheckChunkName",
+                            [
+                                "-Name is valid for next Chunk[%s]."%
+                                CType,
+                            ],
+                            Next,
+                        )
+                    )
 
             else:
                 print(
@@ -4217,86 +4296,74 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, next=None):
                 print("\nMonkey wanted Banana :", Candy("Color", "green", name))
                 print("Monkey got Pullover :", Candy("Color", "red", CType))
                 print()
-                if next == None:
-                    if len(CType) > 3:
-                        Ancillary(CType)
-                    CheckPoint(
-                        CType,
-                        [
-                            "Error:Found Chunk[%s] Wrong Chunk name at offset: %s"
-                            % (Orig_CT, CToffX)
-                        ],
-                        CToffX,
-                        CToffI,
-                        CToffI + 8,
-                        Orig_CT,
-                        name,
-                    )
-                return ()
-
-    if next == None:
-        print(
-            "\n-Chunk name:" + Candy("Color", "red", " FAILED! ") + Candy("Emoj", "bad")
-        )
-        if len(CType) > 3:
-            Ancillary(CType)
-        try:
-            LastCType = bytes.fromhex(str(LastCType)).decode()
-        except Exception as e:
-            if DEBUG is True:
-                print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
-            pass
-
-        if len(CType) >= 4:
-            BruteChunk(CType, LastCType, ChunkLen)
-            return ()
-        else:
-            Candy("Cowsay", " WTF!? There's nothing at this offset!!", "com")
-
-        wow = int(ChunkLen / 8912)
-        if wow >= 3:
-            Candy(
-                "Cowsay",
-                " Zlib put a conventional limit on buff size up to 8912 bytes and this one is pretty big :",
-                "com",
-            )
-            print("- %s bytes" % Candy("Color", "yellow", str(ChunkLen)))
-            Candy("Cowsay", " Which is %s times bigger.." % (wow), "bad")
-
-            if len(Bytes_History) > 0:  ##ToFIx##
-                if Bytes_History.count(Bytes_History[0]) - 1 == len(Bytes_History) - 1:
-                    if Bytes_History.count(Bytes_History[0]) != len(Bytes_History):
-                        Candy(
-                            "Cowsay",
-                            " That doesnt mean there cannot be an IDAT chunk bigger than 8912Bytes!but since all previous IDAT chunks had the same length , it seems to me that's a little odd that this very one in particular is different from the others...Unless this is the Last IDAT.Anyway that is just a thought let's find it out .",
-                            "com",
+                if Next == None:
+                    return(
+                        CheckPoint(
+                            CType,
+                            [
+                                "Error:Found Chunk[%s] Wrong Ancillary in known Chunk name at offset: %s"
+                                % (Orig_CT, CToffX)
+                            ],
+                            CToffX,
+                            CToffI,
+                            CToffI + 8,
+                            Orig_CT,
+                            name,
+                            Next,
                         )
-        else:
-            Candy("Cowsay", " ..Hum ..Maybe thats a length problem.", "com")
-        NearbyChunk(CType, ChunkLen, LastCType)
-    else:
-        print(
+                    )
+                else:
+
+                    return(
+                        CheckPoint(
+                            CType,
+                            [
+                                "Error:Found Next Chunk[%s] Wrong Ancillary in known Chunk name at offset: %s"
+                                % (Orig_CT, CToffX)
+                            ],
+                            CToffX,
+                            CToffI,
+                            CToffI + 8,
+                            Orig_CT,
+                            name,
+                            Next,
+                        )
+                    )
+
+    print(
             "\n-Chunk name:" + Candy("Color", "red", " FAILED! ") + Candy("Emoj", "bad")
         )
-        #       Ancillary(CType)
-        #       NearbyChunk(CType,ChunkLen,LastCType)
-        CheckPoint(
-            "CheckChunkName",
-            [
-                "Error:Found Chunk[%s] has Wrong Chunk name after Chunk[%s] at offset: %s"
-                % (Orig_NC, LastCType, NCoffX)
-            ],
-            Orig_NC,
-            ChunkLen,
-            LastCType,
+    if Next == None:
+        return(
+                CheckPoint(
+                "CheckChunkName",
+                [
+                    "Error:Found Chunk[%s] has Wrong Chunk name at offset: %s"
+                    % (Orig_CT, CToffX)
+                ],
+                Orig_CT,
+                ChunkLen,
+                CToffI,
+                LastCType,
+                Next,
+            )
         )
-        Candy(
-            "Cowsay",
-            "But let's ignore it for now we will see about that later ...",
-            "bad",
-        )
-    return ()
+    else:
 
+        return(
+                CheckPoint(
+                "CheckChunkName",
+                [
+                    "Error:Found Next Chunk[%s] has Wrong Chunk name after Chunk[%s] at offset: %s"
+                    % (Orig_NC, LastCType, NCoffX)
+                ],
+                Orig_NC,
+                ChunkLen,
+                NCoffI,
+                LastCType,
+                Next,
+            )
+        )
 
 def CheckLength(Cdata, Clen, Ctype):
 
@@ -4308,11 +4375,6 @@ def CheckLength(Cdata, Clen, Ctype):
         % Candy("Color", "yellow", int(Clen, 16)),
         "com",
     )
-
-    #       if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
-    #               CheckChunkName(Ctype,int(Clen,16),Chunks_History[-1])
-    #       else:
-    #               CheckChunkName(Raw_NextChunk,int(Clen,16),Ctype)
 
     ToBitstory(int(Clen, 16))
 
@@ -4337,8 +4399,11 @@ def CheckLength(Cdata, Clen, Ctype):
 
 def Question(Chunk, ValidCrc):
 
+    
+
     Candy("Title", "QUESTION!")
     print("Errors List:\n")
+    TmpFixMulti = False
     for key in PandoraBox:
         print("\033[1;31;49m%s\033[m" % key)
 
@@ -4387,7 +4452,7 @@ def Question(Chunk, ValidCrc):
 
         Candy(
             "Cowsay",
-            "Do you wish to try to fix this regardless of CRC's validity ?",
+            "Do you want me to try to fix this regardless of CRC's validity ?",
             "com",
         )
     elif ValidCrc is False and len(PandoraBox) <= 1:
@@ -4399,6 +4464,7 @@ def Question(Chunk, ValidCrc):
         )
 
     else:
+        ExtraBall = True
         Candy(
             "Cowsay",
             "Crc checksum is not valid and there are %s other errors !"
@@ -4407,23 +4473,30 @@ def Question(Chunk, ValidCrc):
         )
         Candy(
             "Cowsay",
-            "I can try to handle those errors.Do you wish to try to fix them ?",
+            "I can try to handle those errors.Do you want me to try to fix them ?",
             "com",
         )
-    if AUTO == False or AnciCheck is True:
+
+    if AUTO == False :#or AnciCheck is True:
 
         Answer = input("Answer(yes/no):").lower()
         while Answer != "yes" and Answer != "no":
             Answer = input("Answer(yes/no):").lower()
         if Answer == "yes":
             Candy("Cowsay", "Fine , let me see what i can do .", "good")
-            FixItFelix(Chunk)
-        else:
+            if ExtraBall is False:
+                 return(FixItFelix(Chunk))
+            else:
+                 return(MultiBalls())
+        elif Answer =="no":
             Candy("Cowsay", "Ok ,just do not make eye contact !", "com")
             return
     else:
         print("-%s\n" % Candy("Color", "green", "Auto Answer Mode"))
-        FixItFelix(Chunk)
+        if ExtraBall is False:
+           return(FixItFelix(Chunk))
+        else:
+           return(MultiBalls())
 
 
 def Checksum(Ctype, Cdata, Crc, next=None):
@@ -4443,19 +4516,12 @@ def Checksum(Ctype, Cdata, Crc, next=None):
         )
         if next == None:
             ChunkStory("add", Ctype)
-        if Ctype in ERRORSFLAG:
-            print(
-                "-%s Chunks Errors left to be fixed. %s\n"
-                % (Candy("Color", "red", len(ERRORSFLAG)), Candy("Emoj", "bad"))
-            )
-            Question(Ctype, True)
-        #        else:
-        #            for i in ERRORSFLAG:
-        #                print(i)
-        #                print(type(i))
-        #            pause = input("pause")
 
-        return None
+        return CheckPoint(
+            "Checksum",
+            ["Crc is correct"],
+            Ctype,
+        )
     else:
         print(
             "-Crc Check :" + Candy("Color", "red", " FAILED! ") + Candy("Emoj", "bad")
@@ -4465,7 +4531,7 @@ def Checksum(Ctype, Cdata, Crc, next=None):
             print("Monkey got Pullover :", Candy("Color", "red", Crc))
             Candy("Cowsay", " Hold on a sec ... Must have missed something...", "com")
             print()
-            exit()
+            TheEnd()
 
         if len(checksum) < 10:
             checksum = "0x" + (checksum[2::].zfill(8))
@@ -4517,7 +4583,7 @@ def WriteClone(data):
     Have_A_KitKat = True
 
     if PAUSE is True:
-        pause = input("Press Return to continue:")
+        Pause("-Saved Press Return to continue:")
 
     return None
 
@@ -4638,7 +4704,7 @@ def FixItFelix(Chunk):
                 print("toolkey:", toolkey)
                 print("keyvalue:", keyvalue)
             if PAUSE is True:
-                pause = input("pause")
+                Pause("Debug Pause:")
 
         if "Data has been corrupted" in str(key):
             SaveClone(
@@ -4658,7 +4724,7 @@ def FixItFelix(Chunk):
                 str(key),
             )
 
-        elif "Wrong Chunk name at offset:" in str(key):
+        elif "has Wrong Chunk name at offset:" in str(key):
             if AnciCheck is not True:
                 return SaveClone(
                     PandoraBox[key][chkd + "4"].hex(),
@@ -4697,10 +4763,17 @@ def FixItFelix(Chunk):
             if DEBUG is True:
                 print("-Not implemented yet")
                 if PAUSE is True:
-                    pause = input("pause")
+                    Pause("Debug Pause:")
 
 
 def CheckPoint(mod_name, infos, *ToolKit):
+    global Bad_Current_Name
+    global Bad_Ancillary
+    global Bad_Next_Name
+    global Bad_Next_Ancillary
+    global Bad_Lenght
+    global Bad_Crc
+#    global Bad_Missplaced
     global SideNotes
     global ERRORSFLAG
     global PandoraBox
@@ -4721,15 +4794,24 @@ def CheckPoint(mod_name, infos, *ToolKit):
         print("infos:", infos)
         for i, a in enumerate(ToolKit):
             print("Arg%s:%s type:%s" % (i, a, type(a)))
-        if PAUSE is True:
-            pause = input("Check point")
+    if DEBUG is True:
+        print("len Pandorabox:", len(PandoraBox))
+        for nb, key in enumerate(PandoraBox):
+                            print("-Debug:", key.replace(":Error:", ":"))
+                            
+                            for toolkey, keyvalue in PandoraBox[key].items():
+                                print("toolkey:", toolkey)
+                                print("keyvalue:", keyvalue)
+                            if PAUSE is True:
+                                Pause("Debug Pause:")
 
     if type(mod_name) != bytes:
         try:
             ERRORSFLAG.append(mod_name.encode(errors="ignore"))
         except Exception as e:
+          if DEBUG is True:
             print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
-            ERRORSFLAG.append(mod_name)
+          ERRORSFLAG.append(mod_name)
         mod_name_str = mod_name
 
     else:
@@ -4859,15 +4941,110 @@ def CheckPoint(mod_name, infos, *ToolKit):
                 )
 
         if mod_name == "Checksum":
+            SideNotes.append(info)
+            if DEBUG is True:
+                for i in ERRORSFLAG:
+                    print(i)
+                    print(type(i))
+                if PAUSE is True:
+                    Pause("Pause")
+
+            if "Crc is correct" in info:
+                if ToolKit[0] in ERRORSFLAG:
+                        print(
+                            "-%s Chunks Errors left to be fixed. %s\n"
+                            % (Candy("Color", "red", len(ERRORSFLAG)), Candy("Emoj", "bad"))
+                        )
+                        Question(ToolKit[0], True)
+
+
+                else:
+                    Candy("Cowsay","Great !!","good")
+                    return(None)
+
+
+
             if "Error:Wrong Crc" in info:
+                Bad_Crc = True
                 return Question(ToolKit[3], False)
 
-    print("Not recognized:", mod_name)
-    for i, a in enumerate(ToolKit):
-        print("Arg%s:%s" % (i, a))
-        TheEnd()
+        if mod_name == "CheckChunkName":
+            SideNotes.append(info)
+            if "-Name is valid for" in info:
+                #PandoraBox[key][mod_name + "_Tool_"]
+                return(None)
+
+            if "Wrong Ancillary in known Chunk name at offset" in info:
+                  if ToolKit[5] != None:
+                       Bad_Next_Ancillary = True
+                  else:
+                       Bad_Ancillary = True
+                  
+
+            if "has Wrong Chunk name at offset:" in info:
+                Bad_Current_Name = True
+
+
+            if "has Wrong Chunk name after Chunk[" in info:
+                Bad_Next_Name = True
+                if len(PandoraBox) == 1:
+
+                        Candy(
+                            "Cowsay",
+                            "But let's ignore it for now we will see about that later ...",
+                            "com",
+                        )
+                elif len(PandoraBox) > 1:
+
+                    Candy(
+                            "Cowsay",
+                            "Mokay That could explain all this mess...",
+                            "com",
+                    )
+
+                
+                    return
+
+
+    if DEBUG is True:
+        print("Not implemented yet:", mod_name)
+        for i, a in enumerate(ToolKit):
+            print("Arg%s:%s" % (i, a))
+        if PAUSE is True:
+              Pause("Debug Pause")
+        #TheEnd()
     return ()
 
+def MultiBalls():#mustrewritethis
+
+    Candy("Title", "Smart Solver:")
+
+   
+    if (Bad_Infos and Bad_Next_Name and Bad_Crc) is True:
+
+        Candy("Cowsay","My best guess is that this part has been corrupted somehow ..","com")
+        Candy("Cowsay","Maybe some bytes are missing")
+              
+    else:
+
+            print("Bad_Current_Name:",Bad_Current_Name)
+            print("Bad_Ancillary:",Bad_Ancillary)
+            print("Bad_Next_Name:",Bad_Next_Name)
+            print("Bad_Next_Ancillary:",Bad_Next_Ancillary)
+            print("Bad_Lenght:",Bad_Lenght)
+            print("Bad_Infos:",Bad_Infos)
+            print("Bad_Crc):",Bad_Crc)
+            print("Bad_Missplaced:",Bad_Missplaced)
+
+    Pause("Debug Pause:")
+
+
+
+
+
+def Pause(msg):
+        pause = input(msg)
+        return()
 
 def main():
     global FirStart
@@ -4941,6 +5118,14 @@ def main():
                 FirStart = False
 
         AnciCheck = False
+        Bad_Current_Name = False
+        Bad_Ancillary = False
+        Bad_Next_Name = False
+        Bad_Next_Ancillary = False
+        Bad_Lenght = False
+        Bad_Infos = False
+        Bad_Crc = False
+        Bad_Missplaced = False
         TmpFixIHDR = False
         Chunks_History = []
         Bytes_History = []
@@ -4962,9 +5147,9 @@ def main():
             with open(Sample, "rb") as f:
                 data = f.read()
         except Exception as e:
-
+          if DEBUG is True:
             print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
-            sys.exit(1)
+          sys.exit(1)
 
         DATAX = data.hex()
 
@@ -5190,13 +5375,20 @@ Have_A_KitKat = False
 TmpFixIHDR = False
 Warning = False
 Summary_Header = True
-
-FILE_Origin = ""
+Bad_Current_Name = False
+Bad_Ancillary = False
+Bad_Next_Name = False
+Bad_Next_Ancillary = False
+Bad_Lenght = False
+Bad_Infos = False
+Bad_Crc = False
+Bad_Missplaced = False
 CLEAR = False
 PAUSE = False
 DEBUG = False
 AUTO = False
 CLONESWAR = False
+FILE_Origin = ""
 FILE_DIR = ""
 Loading_txt = ""
 DATAX = ""
