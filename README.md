@@ -4,7 +4,7 @@
 
 **Chunklate** checks png images for file format corruption and fix them .
 
-##### Work in progress - Not fully working
+##### Work in progress
 
 **Chunklate**'s aim is to be able to provide those features:
 
