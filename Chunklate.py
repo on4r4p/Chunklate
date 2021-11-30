@@ -317,7 +317,7 @@ def GetInfo(Chunk, data):
                 )
 
             if len(ToFix) > 0:
-                CheckPoint(True,"GetInfo",Chunk, ToFix)
+                CheckPoint(True,False,"GetInfo",Chunk, ToFix)
             else:
                 print(
                     "\n-Errors Check :"
@@ -329,7 +329,7 @@ def GetInfo(Chunk, data):
             if DEBUG is True:
                 print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
             ToFix.append("Error IHDR:" + str(e))
-            CheckPoint(True,"GetInfo",Chunk, ToFix)
+            CheckPoint(True,False,"GetInfo",Chunk, ToFix)
 
     if Chunk == "IDAT":
         print("-Image Datastream.")
@@ -400,7 +400,7 @@ def GetInfo(Chunk, data):
                     ToFix.append("pHYs_Unit")
             if len(ToFix) > 0:
                 Bad_Infos
-                CheckPoint(True,"GetInfo",Chunk, ToFix)
+                CheckPoint(True,False,"GetInfo",Chunk, ToFix)
             else:
                 print(
                     "\n-Errors Check :"
@@ -412,7 +412,7 @@ def GetInfo(Chunk, data):
             if DEBUG is True:
                 print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
             ToFix.append("Error pHys:" + str(e))
-            CheckPoint(True,"GetInfo",Chunk, ToFix)
+            CheckPoint(True,False,"GetInfo",Chunk, ToFix)
 
     if Chunk == "bKGD":
         if IHDR_Color == "0" or IHDR_Color == "4":
@@ -498,7 +498,7 @@ def GetInfo(Chunk, data):
             except Exception as e:
      
                 ToFix.append("Error Bkgd:" + str(e))
-                CheckPoint(True,"GetInfo",Chunk, ToFix)
+                CheckPoint(True,False,"GetInfo",Chunk, ToFix)
                 if DEBUG is True:
                     print(Candy("Color", "red", "Error bKGD:"), Candy("Color", "yellow", e))
 
@@ -511,7 +511,7 @@ def GetInfo(Chunk, data):
                    print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
 
         if len(ToFix) > 0:
-            CheckPoint(True,"GetInfo",Chunk, ToFix)
+            CheckPoint(True,False,"GetInfo",Chunk, ToFix)
         else:
             print(
                 "\n-Errors Check :"
@@ -650,7 +650,7 @@ def GetInfo(Chunk, data):
             ToFix.append("-IHDR Depht value have to be fixed first")
 
         if len(ToFix) > 0:
-            CheckPoint(True,"GetInfo",Chunk, ToFix)
+            CheckPoint(True,False,"GetInfo",Chunk, ToFix)
         else:
             print(
                 "\n-Errors Check :"
@@ -923,9 +923,9 @@ def GetInfo(Chunk, data):
 
         if len(ToFix) > 0:
             if len(badchar) > 1:
-                CheckPoint(True,"GetInfo",Chunk, ToFix, data)
+                CheckPoint(True,False,"GetInfo",Chunk, ToFix, data)
             else:
-                CheckPoint(True,"GetInfo",Chunk, ToFix)
+                CheckPoint(True,False,"GetInfo",Chunk, ToFix)
         else:
             print(
                 "\n-Errors Check :"
@@ -988,7 +988,7 @@ def GetInfo(Chunk, data):
                     print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
 
         if len(ToFix) > 0:
-            CheckPoint(True,"GetInfo",Chunk, ToFix, data)
+            CheckPoint(True,False,"GetInfo",Chunk, ToFix, data)
         else:
             print(
                 "\n-Errors Check :"
@@ -1116,7 +1116,7 @@ def GetInfo(Chunk, data):
                     ToFix.append("Second")
 
             if len(ToFix) > 0:
-                CheckPoint(True,"GetInfo",Chunk, ToFix)
+                CheckPoint(True,False,"GetInfo",Chunk, ToFix)
             else:
                 print(
                     "\n-Errors Check :"
@@ -1263,7 +1263,7 @@ def GetInfo(Chunk, data):
                         )
 
         if len(ToFix) > 0:
-            CheckPoint(True,"GetInfo",Chunk, ToFix)
+            CheckPoint(True,False,"GetInfo",Chunk, ToFix)
         else:
             print(
                 "\n-Errors Check :"
@@ -1300,7 +1300,7 @@ def GetInfo(Chunk, data):
             ToFix.append("-cHRM is overided by sRGB chunk")
 
         if len(ToFix) > 0:
-            CheckPoint(True,"GetInfo",Chunk, ToFix)
+            CheckPoint(True,False,"GetInfo",Chunk, ToFix)
         else:
             print(
                 "\n-Errors Check :"
@@ -1432,7 +1432,7 @@ def GetInfo(Chunk, data):
             ToFix.append("-cHRM is overided by sRGB chunk and iCCP")
 
         if len(ToFix) > 0:
-            CheckPoint(True,"GetInfo",Chunk, ToFix)
+            CheckPoint(True,False,"GetInfo",Chunk, ToFix)
         else:
             print(
                 "\n-Errors Check :"
@@ -1511,7 +1511,7 @@ def GetInfo(Chunk, data):
         print("-iCCP Profile Method :", Candy("Color", "yellow", iCCP_Method))
 
         if len(ToFix) > 0:
-            CheckPoint(True,"GetInfo",Chunk, ToFix)
+            CheckPoint(True,False,"GetInfo",Chunk, ToFix)
         else:
             print(
                 "\n-Errors Check :"
@@ -1817,7 +1817,7 @@ def GetInfo(Chunk, data):
                 ToFix.append("talphadepth")
 
         if len(ToFix) > 0:
-            CheckPoint(True,"GetInfo",Chunk, ToFix)
+            CheckPoint(True,False,"GetInfo",Chunk, ToFix)
         else:
             print(
                 "\n-Errors Check :"
@@ -1865,7 +1865,7 @@ def GetInfo(Chunk, data):
                 )
                 ToFix.append("uout")
             if len(ToFix) > 0:
-                CheckPoint(True,"GetInfo",Chunk, ToFix)
+                CheckPoint(True,False,"GetInfo",Chunk, ToFix)
             else:
                 print(
                     "\n-Errors Check :"
@@ -2122,7 +2122,7 @@ def GetInfo(Chunk, data):
             iTXt_String = data[newpos:]
 
             if iTXt_Flag == "01":
-                iTXt_String = zlib.decompress(bytes.fromhex(iTXt_String)).decode()
+                iTXt_String = zlib.decompress(bytes.fromhex(iTXt_String)).decode(errors="ignore")
             elif iTXt_Flag == "00":
                 iTXt_String = bytes.fromhex(iTXt_String).decode(errors="replace")
 
@@ -2161,7 +2161,7 @@ def GetInfo(Chunk, data):
         eXIf_raw = []
         raw = ""
         sepcounter = 0
-        eXIf_endian = bytes.fromhex(data[:4]).decode()
+        eXIf_endian = bytes.fromhex(data[:4]).decode(errors="ignore")
 
         if eXIf_endian == "II":
             print("-eXif endianess is little-endian : ", eXIf_endian)
@@ -3252,9 +3252,8 @@ def stderr_redirector(stream):
         os.close(saved_stderr_fd)
 
 
-def ChunkForcer(File, Chunk, OldCrc, DataOffset, ChunkLenght):
+def ChunkForcer(File, Chunk, OldCrc, DataOffset, ChunkLenght,FromError):
     global WORKING
-    global PandoraBox
     global SideNotes
     Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
     Chunk = Chunk.encode()
@@ -3322,17 +3321,18 @@ def ChunkForcer(File, Chunk, OldCrc, DataOffset, ChunkLenght):
             "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Previous Crc %s has been found by changing those bytes:\n%s\n-with bytes:\n%s"
             % (OldCrc, datax, newdatax_copy)
         )
-        PandoraBox = {}
-        return CheckPoint(True,
+
+        return CheckPoint(True,True,
             "ChunkForcer",
-            Chunk.decode(),
+            Chunk.decode(errors="ignore"),
             ["-Data has been corrupted"],
             newdatax_copy,
             DataOffset,
             DataOffset + (ChunkLenght * 2),
             "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
-            % (Chunk.decode(), datax, newdatax_copy),
-            Chunk.decode(),
+            % (Chunk.decode(errors="ignore"), datax, newdatax_copy),
+            Chunk.decode(errors="ignore"),
+            FromError,
         )
 
     else:
@@ -3342,7 +3342,7 @@ def ChunkForcer(File, Chunk, OldCrc, DataOffset, ChunkLenght):
         )
         Candy("Cowsay", "I was afraid of this ..Looks like we r stuck..", "bad")
         SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
-        return CheckPoint(True,"ChunkForcer",Chunk.decode(), ["-Bruteforcer has Failed"])
+        return CheckPoint(True,False,"ChunkForcer",Chunk.decode(errors="ignore"), ["-Bruteforcer has Failed"],FromError)
 
 
 def FindMagic():
@@ -3388,12 +3388,12 @@ def FindMagic():
                 )
             )
             Zankentsu = DATAX[pos::]
-            return CheckPoint(False,
+            return CheckPoint(False,False,
                 "FindMagic","PngSig", ["Cutting at Magic"], Zankentsu, hex(int(pos / 2))
             )
 
         else:
-            return CheckPoint(False,"FindMagic","PngSig", ["Found Magic"], pos + lenmagic)
+            return CheckPoint(False,False,"FindMagic","PngSig", ["Found Magic"], pos + lenmagic)
 
     else:
         print(
@@ -3439,7 +3439,7 @@ def FindMagic():
                     TheEnd()
 
         Candy("Cowsay", " Ok let's dig a little bit deeper..", "bad")
-        return CheckPoint(False,"FindMagic","PngSig", ["dig a little bit deeper"])
+        return CheckPoint(False,False,"FindMagic","PngSig", ["dig a little bit deeper"])
 
 
 def FindFuckingMagic():
@@ -3494,7 +3494,7 @@ def FindFuckingMagic():
         )
 
         Odin = FullMagic + DATAX[pos + len(FullMagic) : :]
-        return CheckPoint(False,
+        return CheckPoint(False,False,
             "FindFuckingMagic", "PngSig",["Cutting at Magic"], Odin, hex(int(pos / 2))
         )
 
@@ -3645,7 +3645,7 @@ def NullFind(data, search4=None):
 
 
 def LibpngCheck(file):
-    Candy("Title", "Libpng is reading :%s" % (Candy("Color", "white", Sample_Name)))
+    Candy("Title", "Libpng Returned :%s" % (Candy("Color", "white", Sample_Name)))
     f = io.BytesIO()
     with stderr_redirector(f):
         cv2.imread(file)
@@ -3656,13 +3656,20 @@ def LibpngCheck(file):
             "-Libpng Check: %s %s"
             % (Candy("Color", "red", "FAILED!"), Candy("Emoj", "bad"))
         )
-        return CheckPoint(True,"LibpngCheck",file, [result])
+
+        return CheckPoint(True,False,"LibpngCheck",file, [result])
     else:
         print(
             "-Libpng Check: %s %s"
             % (Candy("Color", "green", "Ok!"), Candy("Emoj", "good"))
         )
-        return CheckPoint(True,"LibpngCheck",file, ["Oasis is good"])
+                
+        Candy(
+                    "Cowsay",
+                    "Good ! The AllMighty Libpng is happy !",
+                    "good",
+                )
+        return CheckPoint(False,False,"LibpngCheck",file, ["-Libpng has not found any error"])
 
 
 def Double_Check(CType, ChunkLen, LastCType):
@@ -3895,7 +3902,7 @@ def CheckChunkOrder(lastchunk, mode):
                 )
                 ToFix.append("-Critical Chunk %s is Missing"%chunk)
         if len(ToFix) > 0:
-            CheckPoint(True,"CheckChunkOrder","Critical", ToFix)
+            CheckPoint(True,False,"CheckChunkOrder","Critical", ToFix)
             TheEnd()
         else:
             print(
@@ -3916,7 +3923,7 @@ def CheckChunkOrder(lastchunk, mode):
             " So far we came across those chunks in "
             + Sample_Name
             + "\n "
-            + str([i.decode() for i in Used_Chunks]),
+            + str([i.decode(errors="ignore") for i in Used_Chunks]),
             "good",
         )
 
@@ -3925,7 +3932,7 @@ def CheckChunkOrder(lastchunk, mode):
                 print(
                     "-%s chunk %s be used multiple times."
                     % (
-                        Candy("Color", "red", lastchunk.decode()),
+                        Candy("Color", "red", lastchunk.decode(errors="ignore")),
                         Candy("Color", "red", "cannot"),
                     )
                 )
@@ -3961,15 +3968,15 @@ def CheckChunkOrder(lastchunk, mode):
                         "-%s  %s must appears before PLTE Chunk. %s"
                         % (
                             Candy(
-                                "Color", "red", lastchunk.decode() + " is missplaced"
+                                "Color", "red", lastchunk.decode(errors="ignore") + " is missplaced"
                             ),
-                            lastchunk.decode(),
+                            lastchunk.decode(errors="ignore"),
                             Candy("Emoj", "bad"),
                         )
                     )
                     # print(Excluded)
                     ToFix.append(
-                        lastchunk.decode()
+                        lastchunk.decode(errors="ignore")
                         + " is missplaced must appears before PLTE Chunk"
                     )
 
@@ -3984,8 +3991,8 @@ def CheckChunkOrder(lastchunk, mode):
                 print(
                     "-%s  %s must be before IDAT Chunk. %s"
                     % (
-                        Candy("Color", "red", lastchunk.decode() + " is missplaced"),
-                        lastchunk.decode(),
+                        Candy("Color", "red", lastchunk.decode(errors="ignore") + " is missplaced"),
+                        lastchunk.decode(errors="ignore"),
                         Candy("Emoj", "bad"),
                     )
                 )
@@ -3993,7 +4000,7 @@ def CheckChunkOrder(lastchunk, mode):
                 ToFix.append("Missplaced")
 
         if len(ToFix) > 0:
-            CheckPoint(True,"CheckChunkOrder","Missplaced", ToFix)
+            CheckPoint(True,False,"CheckChunkOrder","Missplaced", ToFix)
         else:
             print(
                 "\n-Missplaced Chunk Check :"
@@ -4021,7 +4028,7 @@ def CheckChunkOrder(lastchunk, mode):
             "Cowsay",
             " So far we came across those chunks in "
             + Sample_Name
-            + str([i.decode() for i in Used_Chunks]),
+            + str([i.decode(errors="ignore") for i in Used_Chunks]),
             "good",
         )
 
@@ -4037,8 +4044,8 @@ def CheckChunkOrder(lastchunk, mode):
                     "Cowsay",
                     " %s chunk must be placed before any PLTE related chunks we can forget about thoses:\n%s"
                     % (
-                        Candy("Color", "green", lastchunk.decode()),
-                        [i.decode() for i in Excluded],
+                        Candy("Color", "green", lastchunk.decode(errors="ignore")),
+                        [i.decode(errors="ignore") for i in Excluded],
                     ),
                     "bad",
                 )
@@ -4052,7 +4059,7 @@ def CheckChunkOrder(lastchunk, mode):
                 Candy(
                     "Cowsay",
                     " %s chunk must be placed after PLTE related chunks we can forget about thoses:\n%s"
-                    % (lastchunk, [i.decode() for i in Excluded]),
+                    % (lastchunk, [i.decode(errors="ignore") for i in Excluded]),
                     "bad",
                 )
 
@@ -4103,45 +4110,41 @@ def CheckChunkOrder(lastchunk, mode):
                 Candy(
                     "Cowsay",
                     " So ..the last Chunk Type was IDAT so we either looking for another IDAT,IEND or one of them:%s"
-                    % [i.decode() for i in Anywhere],
+                    % [i.decode(errors="ignore") for i in Anywhere],
                     "com",
                 )
 
         return Excluded
 
 
-def BruteChunk(CType, LastCType, ChunkLen):
+def BruteChunk(CType, LastCType, ChunkLen,FromError):
     Candy("Title", "Chunk Scrabble Solver:")
     ErrorA = False
     BingoLst = []
     ToFix = []
-    try:
-        CTypeLst = [i.lower() for i in CType]
-    except AttributeError as a:
-        if DEBUG is True:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", a))
-        CTypeLst = [i for i in CType]
-        ErrorA = True
+
+
+    if type(CType) == bytes:
+           CTypeLst = [i.lower() for i in CType.decode(errors="ignore")]
+    else:
+           CTypeLst = [i.lower() for i in CType]
 
     Candy(
         "Cowsay", " Maybe it's name got corrupted somehow. Let's see about that.", "com"
     )
 
     Excluded = CheckChunkOrder(LastCType, "Fix")
-
     for name in CHUNKS:
         if name not in Excluded:
             Bingo = 0
-            if ErrorA is True:
-                ChkLst = [i for i in name]
-            else:
-                ChkLst = [str(i).lower() for i in name]
+            ChkLst = [i.lower() for i in name.decode(errors="ignore")]
+
             for i, j in zip(CTypeLst, ChkLst):
                 if i == j:
                     Bingo += 1
-            BingoLst.append(str(Bingo) + " " + name.decode())
-
-    #   [print(i) for i in BingoLst]
+            BingoLst.append(str(Bingo) + " " + name.decode(errors="ignore"))
+     
+    #[print(i) for i in BingoLst]
 
     BingoLst.sort(key=SplitDigits)
     BingoLst = BingoLst[::-1]
@@ -4154,7 +4157,7 @@ def BruteChunk(CType, LastCType, ChunkLen):
     )
 
     if BestBingoCount <= 2 and int(BestBingoScore) >= 2:
-        #      print(BingoLst)
+
         print(
             "-"
             + str(Candy("Color", "green", "Scrabble Solved."))
@@ -4166,19 +4169,20 @@ def BruteChunk(CType, LastCType, ChunkLen):
             % Candy("Color", "green", BestBingoName),
             "good",
         )
+        
+        Bchanged = str(len(CType) - int(BestBingoScore))
+        SolvedMsg = "-Found Chunk[%s] has wrong name at offset: %s but BruteChunk changed %s bytes turning it into a valid Chunk name: %s"% (Orig_CT, CToffX, Bchanged, BestBingoName)
 
-        CheckPoint(True,"BruteChunk",
+        return(CheckPoint(True,True,"CheckChunkName",
             Orig_CT,
-            [
-                "-Found Chunk[%s] has wrong name at offset: %s but changing %s bytes turn it into a valid Chunk name: %s"
-                % (Orig_CT, CToffX, int(BestBingoScore) - len(Orig_CT), BestBingoName)
-            ],
+            [SolvedMsg],
             BestBingoName.encode().hex(),
             CToffI,
             CToffI + 8,
-        )
-
-        return ()
+            Orig_CT,
+            SolvedMsg,
+            FromError,
+        ))
     else:
 
         Candy("Title", "WHO'S THAT POKEMON !?:")
@@ -4253,7 +4257,7 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
                 )
                 if Next == None:
                     return(
-                        CheckPoint(False,
+                        CheckPoint(False,False,
                             "CheckChunkName",
                             CType,
                             [
@@ -4265,7 +4269,7 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
                     )
                 else:
                     return(
-                        CheckPoint(False,
+                        CheckPoint(False,False,
                             "CheckChunkName",
                              CType,
                             [
@@ -4287,7 +4291,7 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
                 print()
                 if Next == None:
                     return(
-                        CheckPoint(True,
+                        CheckPoint(True,False,
                             "CheckChunkName",
                             CType,
                             [
@@ -4305,7 +4309,7 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
                 else:
 
                     return(
-                        CheckPoint(True,
+                        CheckPoint(True,False,
                             "CheckChunkName",
                             CType,
                             [
@@ -4325,8 +4329,14 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
             "\n-Chunk name:" + Candy("Color", "red", " FAILED! ") + Candy("Emoj", "bad")
         )
     if Next == None:
+        Candy(
+                            "Cowsay",
+                            "Mokay That could explain all this mess...",
+                            "com",
+                    )
+
         return(
-                CheckPoint(True,
+                CheckPoint(True,False,
                 "CheckChunkName",
                 CType,
                 [
@@ -4342,31 +4352,21 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
         )
     else:
 
-
-
-                if len(PandoraBox) == 1:
-
-                        Candy(
+                Candy(
                             "Cowsay",
                             "But let's ignore it for now we will see about that later ...",
                             "com",
                         )
-                elif len(PandoraBox) > 1:
 
-                    Candy(
-                            "Cowsay",
-                            "Mokay That could explain all this mess...",
-                            "com",
-                    )
 
 
                 return(
-                        CheckPoint(True,
+                        CheckPoint(True,False,
                         "CheckChunkName",
                         CType,
                         [
-                            "-Found Next Chunk[%s] has Wrong Chunk name after Chunk[%s] at offset: %s"
-                            % (Orig_NC, LastCType, NCoffX)
+                            "-Found Next Chunk[%s] has Wrong Chunk name after Chunk[%s]"
+                            % (Orig_NC, LastCType)
                         ],
                         Orig_NC,
                         ChunkLen,
@@ -4398,92 +4398,25 @@ def CheckLength(Cdata, Clen, Ctype):
             " ..And this is what iv found there: " + Candy("Color", "red", "[NOTHING]"),
             "com",
         )
-        return CheckPoint(True,"CheckLength",Ctype, ["-No NextChunk"], Clen)
+        return CheckPoint(True,False,"CheckLength",Ctype, ["-No NextChunk"], Clen)
     else:
         Candy(
             "Cowsay",
             " ..And this is what iv found there: " + Candy("Color", "yellow", Orig_NC),
             "com",
         )
-        return CheckPoint(False,"CheckLength",Ctype, ["Found NextChunk"], Clen)
+        return CheckPoint(False,False,"CheckLength",Ctype, ["Found NextChunk"], Clen)
 
 
-def Question(mod):
 
-    
+
+def Question():
+
 
     Candy("Title", "QUESTION!")
-    print("Errors List:\n")
 
-    for key in PandoraBox:
-        print("\033[1;31;49m%s\033[m" % key)
 
-    if mod == "LibpngCheck":
-        Candy("Cowsay", "Damned!! We were so close !", "bad")
-        Candy(
-                "Cowsay",
-                "We should go some step back before to see if we can do something else..",
-                "com",
-            )
-        Candy(
-                "Cowsay", "Are you agree ? Otherwise Chunklate is going to exit.", "com"
-            )
-        if AUTO == False:
-
-            Answer = input("Answer(yes/no):").lower()
-            while Answer != "yes" and Answer != "no":
-                Answer = input("Answer(yes/no):").lower()
-            if Answer == "yes":
-                Candy("Cowsay", "Fine , let me see what i can do .", "good")
-                return Relics()
-            else:
-                Candy("Cowsay", "Ok ,Good Luck outhere bye !", "com")
-                TheEnd()
-        else:
-            print("-%s\n" % Candy("Color", "green", "Auto Answer Mode"))
-            return Relics()
-
-    if Bad_Crc is False:
-        if AnciCheck is True:
-            Candy(
-                "Cowsay",
-                "I don't know that chunk but it has passed Ancillary nomenclature check and since Crc is valid too this may be a legit private chunk..",
-                "com",
-            )
-        else:
-            Candy(
-                "Cowsay",
-                "Hum errors has been detected but the CRC is still Valid !!! Usually this means that it has been made on purpose by someone...",
-                "bad",
-            )
-
-        Candy(
-            "Cowsay",
-            "Do you want me to try to fix this regardless of CRC's validity ?",
-            "com",
-        )
-    elif Bad_Crc is True and len(PandoraBox) <= 1:
-        Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
-        Candy(
-            "Cowsay",
-            "This looks like an easy fix since there is no other errors beside the Crc issue.Do you wish to try to fix it ?",
-            "com",
-        )
-
-    else:
-        Candy(
-            "Cowsay",
-            "Crc checksum is not valid and there are %s other errors !"
-            % (len(PandoraBox) - 1),
-            "bad",
-        )
-        Candy(
-            "Cowsay",
-            "I can try to handle those errors.Do you want me to try to fix them ?",
-            "com",
-        )
-
-    if AUTO == False :#or AnciCheck is True:
+    if AUTO is False :
 
         Answer = input("Answer(yes/no):").lower()
         while Answer != "yes" and Answer != "no":
@@ -4516,9 +4449,12 @@ def Checksum(Ctype, Cdata, Crc, next=None):
             + "\n"
         )
         if next == None:
-            ChunkStory("add", Ctype)
 
-        return CheckPoint(False,
+           # if Bad_Ancillary is False:
+                ChunkStory("add", Ctype)
+            
+
+        return CheckPoint(False,False,
             "Checksum",
             Ctype,
             ["Crc is correct"],
@@ -4539,7 +4475,8 @@ def Checksum(Ctype, Cdata, Crc, next=None):
         print("\nMonkey wanted Banana :", Candy("Color", "green", checksum))
         print("Monkey got Pullover :", Candy("Color", "red", Crc))
 
-        return CheckPoint(True,
+
+        return CheckPoint(True,False,
             "Checksum",
             Ctype,
             ["-Wrong Crc"],
@@ -4555,7 +4492,10 @@ def Checksum(Ctype, Cdata, Crc, next=None):
 
 
 def SaveClone(DataFix, start, end, infos):
-    Candy("Title", "Fixing File")
+    global Show_Must_Go_On
+    Show_Must_Go_On = True
+
+    Candy("Title", "Saving Clone")
     try:
         print("-Data : %s\n" % bytes.fromhex(DataFix))
     except:
@@ -4590,7 +4530,7 @@ def WriteClone(data):
     return None
 
 
-def Relics():
+def Relics(FromError):
     Candy("Title", "Opening the Ark Of The Covenant :")
 
     if len(ArkOfCovenant) >= 1:
@@ -4618,11 +4558,12 @@ def Relics():
 
             for nb1, (file, file_value) in enumerate(ArkOfCovenant.items()):
                 Chunkname = "".join(
-                    [chnk.decode() for chnk in ALLCHUNKS if chnk.decode() in errors]
-                )
+                            [chnk.decode(errors="ignore") for chnk in ALLCHUNKS if chnk.decode(errors="ignore") in file]
+                        )
                 for nb2, (errors, errors_values) in enumerate(file_value.items()):
                     if "Wrong Crc" in errors:
-                        Candy("Cowsay", "Perhaps that wasn't a Crc problem..", "com")
+
+                        Candy("Cowsay", "Perhaps that wasn't a Crc problem after all..", "com")
                         Candy(
                             "Cowsay",
                             "Maybe the culprit was in fact the %s Data itself!"
@@ -4634,6 +4575,8 @@ def Relics():
                             "How about taking a coffee break while im taking care of something?",
                             "good",
                         )
+ 
+                       
                         # def Checksum(Ctype, Cdata, Crc,next=None):
                         Chunk = ArkOfCovenant[file][errors][Chunkname + "_Tool_3"]
                         OldCrc = ArkOfCovenant[file][errors][Chunkname + "_Tool_5"]
@@ -4641,7 +4584,7 @@ def Relics():
                         DataOffset = ArkOfCovenant[file][errors][Chunkname + "_Tool_7"]
                         if nb1 == 0:
                             ChunkForcer(
-                                FILE_Origin, Chunk, OldCrc, DataOffset, ChunkLenght
+                                FILE_Origin, Chunk, OldCrc, DataOffset, ChunkLenght,FromError,
                             )
                             return ()
                         else:
@@ -4652,11 +4595,17 @@ def Relics():
                                 OldCrc,
                                 DataOffset,
                                 ChunkLenght,
+                                FromError,
                             )
 
                     # print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),errors))
                     # for nb3,(tools,tools_values) in enumerate(errors_values.items()):
                     #    print("%s:%s:%s"%(Candy("Color","yellow","        [Tool:%s]"%nb3),tools,tools_values))
+                    else:
+                         if DEBUG is True:
+                              print("-Not implemented yet:",errors)
+                              if PAUSE is True:
+                                     Pause("Pause ArkOfCovenant Debug")
 
             return ()
 
@@ -4690,21 +4639,38 @@ def Naming(filename):
     return (filename, newdir)
 
 
-def FixItFelix(Chunk):
+def FixItFelix(Chunk=None):
     Candy("Title", "Fix It Felix: ", Candy("Color", "white", Chunk))
+
+    global Skip_Bad_Current_Name
+    global Skip_Bad_Ancillary
+    global Skip_Bad_Next_Name
+    global Skip_Bad_Next_Ancillary
+    global Skip_Bad_Infos
+    global Skip_Bad_Lenght
+    global Skip_Bad_Crc
+    global Skip_Bad_Missplaced
+    global Skip_Bad_Critical
+    global Skip_Bad_Libpng
+    global Show_Must_Go_On
+
     try:
         chkd = Chunk.decode(errors="ignore") + "_Tool_"
     except AttributeError:
         chkd = Chunk + "_Tool_"
 
 
-    if (Bad_Infos and Bad_Next_Name and Bad_Crc) is True:
+    
+#    if (Bad_Infos and Bad_Next_Name and Bad_Crc) is True:
 
-        Candy("Cowsay","My best guess is that this part has been corrupted somehow ..","com")
-        Candy("Cowsay","Maybe some bytes are missing")
+#        Candy("Cowsay","My best guess is that this part has been corrupted somehow ..","com")
+#        Candy("Cowsay","Maybe some bytes are missing")
+#    print("Errors List:\n")
+
+#    for key in PandoraBox:
+#        print("\033[1;31;49m%s\033[m" % key)
               
-    elif DEBUG is True:
-            
+    if DEBUG is True :
             print("Bad_Current_Name:",Bad_Current_Name)
             print("Bad_Ancillary:",Bad_Ancillary)
             print("Bad_Next_Name:",Bad_Next_Name)
@@ -4714,88 +4680,209 @@ def FixItFelix(Chunk):
             print("Bad_Crc:",Bad_Crc)
             print("Bad_Critical:",Bad_Critical)
             print("Bad_Missplaced:",Bad_Missplaced)
+            print("Bad_Libpng:",Bad_Libpng)
+            print("Skip_Bad_Current_Name:",Skip_Bad_Current_Name)
+            print("Skip_Bad_Ancillary:",Skip_Bad_Ancillary)
+            print("Skip_Bad_Next_Name:",Skip_Bad_Next_Name)
+            print("Skip_Bad_Next_Ancillary:",Skip_Bad_Next_Ancillary)
+            print("Skip_Bad_Lenght:",Skip_Bad_Lenght)
+            print("Skip_Bad_Infos:",Skip_Bad_Infos)
+            print("Skip_Bad_Crc:",Skip_Bad_Crc)
+            print("Skip_Bad_Critical:",Skip_Bad_Critical)
+            print("Skip_Bad_Missplaced:",Skip_Bad_Missplaced)
+            print("Skip_Bad_Libpng:",Skip_Bad_Libpng)
+            print()
+            print("PandoraBox:")
+            print(PandoraBox)
+
+            for nb, key in enumerate(PandoraBox):
+                     
+                    print("Len PandoraBox:", len(PandoraBox))
+                    for toolkey, keyvalue in PandoraBox[key].items():
+                        print("PandoraBox toolkey:", toolkey)
+                        print("PandoraBox keyvalue:", keyvalue)
+
+            print()
+            print("Cornucopia:")
+            for nb, key in enumerate(Cornucopia):
+                    print("Len Cornucopia:", len(Cornucopia))
+                    for toolkey, keyvalue in Cornucopia[key].items():
+                        print("Cornucopia toolkey:", toolkey)
+                        print("Cornucopia keyvalue:", keyvalue)
+
             if PAUSE is True:
-                 Pause("Debug Pause:")
+                        Pause("FixItFelix Debug Pause:")
+
 
     for nb, key in enumerate(PandoraBox):
-        print("-Currently Fixing", key)
 
-        if DEBUG is True:
-            print("len:", len(PandoraBox[key].items()))
-            for toolkey, keyvalue in PandoraBox[key].items():
-                print("toolkey:", toolkey)
-                print("keyvalue:", keyvalue)
-            if PAUSE is True:
-                Pause("Debug Pause:")
+        if "Wrong Crc" in str(key) and Skip_Bad_Crc is False:
 
-        if "Data has been corrupted" in str(key):
-            SaveClone(
-                PandoraBox[key][chkd + "0"],
-                PandoraBox[key][chkd + "1"],
-                PandoraBox[key][chkd + "2"],
-                PandoraBox[key][chkd + "3"],
-            )
-            return GroundhogDay(Sample)
+            if str(key) not in Cornucopia:
+                print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
+                if len(PandoraBox) <= 1:
+                    Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
+                    Candy(
+                        "Cowsay",
+                        "This looks like an easy fix since there is no other errors beside the Crc issue.Do you wish to try to fix it ?",
+                        "com",
+                    )
+                    Answer = Question()
+                    if Answer is True:
+                        return(SaveClone(
+                            PandoraBox[key][chkd + "0"],
+                            PandoraBox[key][chkd + "1"],
+                            PandoraBox[key][chkd + "2"],
+                            (
+                                "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
+                                % (
+                                    PandoraBox[key][chkd + "3"],
+                                    PandoraBox[key][chkd + "4"],
+                                    PandoraBox[key][chkd + "0"],
+                                    PandoraBox[key][chkd + "5"],
+                                )
+                            ),
+                        ))
+                    else:
+                            Skip_Bad_Crc = None
+                else:
+                    Candy(
+                        "Cowsay",
+                        "Crc checksum is not valid and there are %s other errors !"
+                        % (len(PandoraBox) - 1),
+                        "bad",
+                    )
+                    Candy(
+                        "Cowsay",
+                        "We may want to fix them first before jumping on that Crc what do you think ?",
+                        "com",
+                    )
+                Answer = Question()
+                if Answer is True:
+                    return(SaveClone(
+                        PandoraBox[key][chkd + "0"],
+                        PandoraBox[key][chkd + "1"],
+                        PandoraBox[key][chkd + "2"],
+                        (
+                            "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
+                            % (
+                                PandoraBox[key][chkd + "3"],
+                                PandoraBox[key][chkd + "4"],
+                                PandoraBox[key][chkd + "0"],
+                                PandoraBox[key][chkd + "5"],
+                            )
+                        ),
+                    ))
+                else:
+                       Skip_Bad_Crc = True
 
-        elif "] has wrong name at offset:" in str(key):
+            else:
+                  if DEBUG is True:
+                      print("-Cornucopia is True")
+                  pass
 
-            return SaveClone(
-                PandoraBox[key][chkd + "0"],
-                PandoraBox[key][chkd + "1"],
-                PandoraBox[key][chkd + "2"],
-                str(key),
-            )
+
+        elif "libpng error:" in str(key):
+            if str(key) not in Cornucopia:
+                print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
+                if Skip_Bad_Libpng is False:
+                    Candy(
+                            "Cowsay",
+                            "The All Mighty Libpng has spoken ...",
+                            "com",
+                        ) 
+                    Candy("Cowsay", "Damned!! We were so close !", "bad")
+           
+                    Candy(
+                            "Cowsay",
+                            "We should go some step back before to see if we can do something else..",
+                            "com",
+                        )
+                    Candy(
+                            "Cowsay","Are you agree ? Otherwise Chunklate is going to exit", "com"
+                        )
+
+                    Answer = Question()
+                    if Answer is True:
+                        Skip_Bad_Libpng = True
+                        return Relics(str(key))
+                    else:
+
+                        Candy(
+                            "Cowsay","See You Space Cowboy....", "good"
+                        )
+                        TheEnd()
+
+
+
+            else:
+                    print("\n-\033[1;32;49mSolved\033[m: ", Cornucopia[key][chkd + "3"])
+                    SaveClone(
+                        Cornucopia[key][chkd + "0"],
+                        Cornucopia[key][chkd + "1"],
+                        Cornucopia[key][chkd + "2"],
+                        Cornucopia[key][chkd + "3"],
+                    )
+
+                    return GroundhogDay(Sample)
+
 
         elif "has Wrong Chunk name at offset:" in str(key):
-            if AnciCheck is not True:
-                return SaveClone(
-                    PandoraBox[key][chkd + "4"].hex(),
-                    PandoraBox[key][chkd + "1"],
-                    PandoraBox[key][chkd + "2"],
-                    (
-                        "-Replacing %s with %s at %s"
-                        % (
-                            PandoraBox[key][chkd + "3"],
-                            PandoraBox[key][chkd + "4"],
-                            PandoraBox[key][chkd + "0"],
+
+            if Skip_Bad_Current_Name is False:
+
+                if str(key) not in Cornucopia:
+                    print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
+                    Ancillary(PandoraBox[key][chkd + "0"])
+                    if Bad_Ancillary is True:
+                        Candy(
+                            "Cowsay",
+                            "I don't know that chunk but it has passed Ancillary nomenclature check and since Crc is valid too this may be a legit private chunk..",
+                            "com",
                         )
-                    ),
-                )
-            if AnciCheck is True:
-                pass  # TODO
-
-        elif "Wrong Crc" in str(key):
-            Answer = Question(ToolKit[3])
-            if Answer is True:
-                SaveClone(
-                    PandoraBox[key][chkd + "0"],
-                    PandoraBox[key][chkd + "1"],
-                    PandoraBox[key][chkd + "2"],
-                    (
-                        "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
-                        % (
-                            PandoraBox[key][chkd + "3"],
-                            PandoraBox[key][chkd + "4"],
-                            PandoraBox[key][chkd + "0"],
-                            PandoraBox[key][chkd + "5"],
+                    else:
+                        Candy(
+                            "Cowsay",
+                            "Hum errors has been detected but the CRC is still Valid !!! Usually this means that it has been made on purpose by someone...",
+                            "bad",
                         )
-                    ),
-                )
 
-
+                    Candy(
+                        "Cowsay",
+                        "Do you want me to try to fix this regardless of CRC's validity ?",
+                        "com",
+                    )
+                    
+                    Answer = Question()
+                    if Answer is True:
+                        return(BruteChunk(PandoraBox[key][chkd + "0"],PandoraBox[key][chkd + "3"],PandoraBox[key][chkd + "1"],str(key)))
+                        
+                    else:
+                        Skip_Bad_Current_Name = True
+                else:
+                  print("\n-\033[1;32;49mSolved\033[m: ", Cornucopia[key][chkd + "4"])
+                  return(SaveClone(
+                    Cornucopia[key][chkd + "0"],
+                    Cornucopia[key][chkd + "1"],
+                    Cornucopia[key][chkd + "2"],
+                    Cornucopia[key][chkd + "3"],
+                  ))
+                  pass
+                  
         elif "No NextChunk" in str(key):
+                print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
                 GoodEnding = "0000000049454E44AE426082"
-                if ToolKit[0] == "IEND" and int(ToolKit[1]) == 0:
+                if Chunk == "IEND" and int(PandoraBox[key][chkd + "0"]) == 0:
                     for key in PandoraBox:
                         if "No NextChunk" in str(key):
                             Candy(
                                 "Cowsay",
-                                "Ah this one is a false positive im removing it ..",
+                                "That one is a false positive im removing it ..",
                                 "good",
                             )
                             PandoraBox.pop(key, "key_not_found")
+                            SideNotes.append("-Found False-Positive :[Error:-No NextChunk].")
                             break
-
                     ChunkStory("add", b"IEND")
 
                     if DATAX[-len(GoodEnding) :].upper() == GoodEnding:
@@ -4816,37 +4903,23 @@ def FixItFelix(Chunk):
                     SideNotes.append("-End of File Reached but IEND Chunk is missing")#TODO
                     TheEnd()
 
-#        elif "Crc is correct" in str(key):
-#                if ToolKit[0] in ERRORSFLAG:
-#                        print(
-#                            "-%s Chunks Errors left to be fixed. %s\n"
-#                            % (Candy("Color", "red", len(ERRORSFLAG)), Candy("Emoj", "bad"))
-#                        )
-#                        Question(ToolKit[0], True)
-
-
-#                else:
-#                    Candy("Cowsay","Great !!","good")
-#                    return(None)
-
-
-
-
-
 
         else:
             if DEBUG is True:
-                print("-Not implemented yet")
+                print("\n-\033[1;31;49mCriticalMiss\033[m: ", key)
                 if PAUSE is True:
                     Pause("Debug Pause:")
+            #sys.exit()
+
+    Show_Must_Go_On = True
 
 
 
+        
 
 
 
-
-def CheckPoint(error,function,chunk, infos, *ToolKit):
+def CheckPoint(error,fixed,function,chunk, infos, *ToolKit):
     global Bad_Current_Name
     global Bad_Ancillary
     global Bad_Next_Name
@@ -4856,8 +4929,10 @@ def CheckPoint(error,function,chunk, infos, *ToolKit):
     global Bad_Crc
     global Bad_Missplaced
     global Bad_Critical
+    global Bad_Libpng
     global SideNotes
     global ERRORSFLAG
+    global Cornucopia
     global PandoraBox
 
     Candy("Title", "CheckPoint")
@@ -4881,61 +4956,46 @@ def CheckPoint(error,function,chunk, infos, *ToolKit):
                 chunkstr = chunk
     else:
                 try:
-                    chunkstr = chunk.decode()
+                    chunkstr = chunk.decode(errors="ignore")
                 except Exception as e:
                   if DEBUG is True:
                       print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
-                  chunkstr = "johnnybyteme" 
+                  chunkstr = "johnnybytesme" 
 
     
     for info in infos:
-        if error is True:
-            TOOLS = {}
-            Fnum = 0
+        if error is True: 
+                TOOLS = {}
+                Fnum = 0
+                
+                if fixed is False:
+                    for key in PandoraBox:
+                       while key.startswith(str(function) + "_Error_" + str(Fnum)):
+                            Fnum += 1
+                    #ToolKit =ToolKit + (Fnum,)
+                 
+                for Tnum, tool in enumerate(ToolKit):
+                    TOOLS[str(chunkstr)+ "_Tool_" + str(Tnum)] = tool
 
-            if function == "Checksum":
-                chunkstr = ToolKit[3]
+                if fixed is False:
+                    SideNotes.append("Error:"+str(info))
+                    PandoraBox[
+                        str(function)+ "_Error_" + str(Fnum) + ":" + str(info)
+                    ] = TOOLS
 
-            if DEBUG is True:
-                 print("-\033[1;31;49mCriticalHit\033[m:", info)
-
-            SideNotes.append("Error:"+str(info))
-
-            for key in PandoraBox:
-                while key.startswith(str(function) + "_Error_" + str(Fnum)):
-                    Fnum += 1
-            for Tnum, tool in enumerate(ToolKit):
-                TOOLS[str(chunkstr)+ "_Tool_" + str(Tnum)] = tool
-
-            PandoraBox[
-                str(function)+ "_Error_" + str(Fnum) + ":" + str(info)
-            ] = TOOLS
-
-         
+                else:
+                    SideNotes.append("Error Fixed:"+str(info))
+                    Cornucopia[ToolKit[-1]] = TOOLS
 
 
+                
         if function == "ChunkForcer":
             if "Data has been corrupted" in info:
                 SideNotes.append("-CheckPoint: %s" % info)
-                return FixItFelix("ChunkForcer")
+                FixItFelix(ToolKit[4])
             else:
 
                 SideNotes.append("-CheckPoint: %s" % info)
-                TheEnd()
-
-        if function == "LibpngCheck":
-            if "libpng error:" in info:
-                if "bad adaptive filter value" in info:
-                    SideNotes.append("-CheckPoint: %s" % info)
-                    return Question("LibpngCheck")
-
-            elif "Oasis is good" in info:
-                SideNotes.append("-CheckPoint: No more errors found")
-                Candy(
-                    "Cowsay",
-                    "Good ! Libpng is happy everything is done here Later then!",
-                    "good",
-                )
                 TheEnd()
 
         if function == "FindMagic":
@@ -4990,7 +5050,20 @@ def CheckPoint(error,function,chunk, infos, *ToolKit):
             if "Wrong Crc" in info:
                 Bad_Crc = error
 
+        if function == "LibpngCheck":
+            if "libpng error:" in info:
+                Bad_Libpng = error
+                FixItFelix("LibpngCheck")
+                
+            else:
+                TheEnd()
+
         if function == "CheckChunkName":
+
+            if "turning it into a valid Chunk name" in info:
+                
+                SideNotes.append("-%s: %s"%(function,info))
+                FixItFelix(ToolKit[3])
 
             if "Wrong Ancillary in known Chunk name at offset" in info:
                   if ToolKit[5] != None:
@@ -5029,9 +5102,31 @@ def main():
     global DATAX
     global ERRORSFLAG
     global PandoraBox
+    global Cornucopia
     global Chunks_History
     global Bytes_History
     global Loading_txt
+    global Bad_Current_Name
+    global Bad_Ancillary
+    global Bad_Next_Name
+    global Bad_Next_Ancillary
+    global Bad_Infos
+    global Bad_Lenght
+    global Bad_Crc
+    global Bad_Missplaced
+    global Bad_Critical
+    global Bad_Libpng
+    global Skip_Bad_Current_Name
+    global Skip_Bad_Ancillary
+    global Skip_Bad_Next_Name
+    global Skip_Bad_Next_Ancillary
+    global Skip_Bad_Infos
+    global Skip_Bad_Lenght
+    global Skip_Bad_Crc
+    global Skip_Bad_Missplaced
+    global Skip_Bad_Critical
+    global Skip_Bad_Libpng
+    global Show_Must_Go_On
     global SideNotes
     global Sample
     global Sample_Name
@@ -5097,12 +5192,24 @@ def main():
         Bad_Crc = False
         Bad_Critical = False
         Bad_Missplaced = False
+        Skip_Bad_Current_Name = False
+        Skip_Bad_Ancillary = False
+        Skip_Bad_Next_Name = False
+        Skip_Bad_Next_Ancillary = False
+        Skip_Bad_Lenght = False
+        Skip_Bad_Infos = False
+        Skip_Bad_Crc = False
+        Skip_Bad_Critical = False
+        Skip_Bad_Missplaced = False
+        Skip_Bad_Libpng = False
+        Show_Must_Go_On = False
         TmpFixIHDR = False
         Chunks_History = []
         Bytes_History = []
         Loading_txt = ""
         ERRORSFLAG = []
         PandoraBox = {}
+        Cornucopia = {}
         SideNotes = []
         Chunklate(1)
 
@@ -5118,8 +5225,7 @@ def main():
             with open(Sample, "rb") as f:
                 data = f.read()
         except Exception as e:
-          if DEBUG is True:
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+          print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
           sys.exit(1)
 
         DATAX = data.hex()
@@ -5140,7 +5246,10 @@ def main():
 
                 Checksum(Raw_Type, Raw_Data, Raw_Crc)
 
-                FixItFelix(Orig_CT)
+                while True:
+                      FixItFelix(Orig_CT)
+                      if Show_Must_Go_On is True:
+                         break
 
                 Offset = (
                     Offset
@@ -5332,6 +5441,7 @@ SideNotes = []
 ERRORSFLAG = []
 
 PandoraBox = {}
+Cornucopia = {}
 ArkOfCovenant = {}
 
 
@@ -5357,6 +5467,18 @@ Bad_Infos = False
 Bad_Crc = False
 Bad_Critical = False
 Bad_Missplaced = False
+Bad_Libpng = False
+Skip_Bad_Current_Name = False
+Skip_Bad_Ancillary = False
+Skip_Bad_Next_Name = False
+Skip_Bad_Next_Ancillary = False
+Skip_Bad_Lenght = False
+Skip_Bad_Infos = False
+Skip_Bad_Crc = False
+Skip_Bad_Critical = False
+Skip_Bad_Missplaced = False
+Skip_Bad_Libpng = False
+Show_Must_Go_On = False
 CLEAR = False
 PAUSE = False
 DEBUG = False
