@@ -3281,7 +3281,7 @@ def ChunkForcer(File, Chunk, OldCrc, DataOffset, ChunkLenght, FromError):
     except Exception as e:
         print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
         TheEnd()
-    #     Thread(target = Loadingbar).start()
+        Thread(target = Loadingbar).start()
     datax = data.hex()[DataOffset : DataOffset + (ChunkLenght * 2)]
     Bingo = False
     needle = 0
