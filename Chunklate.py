@@ -175,7 +175,7 @@ def GetInfo(Chunk, data):
                     + "IHDR size have to always be 13 bytes."
                     + Candy("Emoj", "bad")
                 )
-                print(data)
+            #    print(data)
                 ToFix.append("IHDR size have to always be 13 bytes")
 
             if len(IHDR_Height) > 0:
