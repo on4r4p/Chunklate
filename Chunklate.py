@@ -3257,8 +3257,9 @@ def DigDigits(dig):
     return int(dig) if dig.isdigit() else dig
 
 
-def ChunkStory(action, Chunk):
+def ChunkStory(action, Chunk ,start,end):
     global Chunks_History
+    global Chunks_History_Index
 
     try:
         Chunk = Chunk.encode(errors="ignore")
@@ -3268,13 +3269,16 @@ def ChunkStory(action, Chunk):
         pass
     if action == "add":
         Chunks_History.append(Chunk)
+        Chunks_History_Index.append(str(len(Chunks_History)-1)+":"+str(start)+":"+str(end))
     elif action == "del":
         try:
             del Chunks_History[Chunks_History.index(Chunk)]
+            del Chunks_History_Index[Chunks_History.index(Chunk)]
         except Except as e:
             if DEBUG is True:
                 print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
-
+                if PAUSE is True:
+                   Pause("Pause Chunkstory")
 
 def TheEnd():
     Summarise(None, True)
@@ -3425,7 +3429,7 @@ def FindMagic():
     lenmagic = len(magic)
     pos = DATAX.find(magic)
     if pos != -1:
-        ChunkStory("add", "PNG")
+        ChunkStory("add", "PNG", pos,pos+lenmagic)
         print(
             "-%s is Magic : %s\n"
             % (
@@ -3908,6 +3912,30 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck=None):
 
     return ()
 
+def TheGoodPlace(Missplaced_Chunkname,Chunkpos,ToFix_Chunkname):
+
+    Candy("Cowsay", "Mkay, now where did i put those errors ..", "com")
+
+    for nb, key in enumerate(PandoraBox):
+        if "Missplaced" in str(key):
+            print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
+
+    print("Missplaced_Chunkname",Chunks_History[Chunkpos])
+    print("Chunkpos",Chunks_History_Index[Chunkpos])
+
+    for chnk,index in zip(Chunks_History,Chunks_History_Index):
+         if ToFix_Chunkname == chnk:
+            print("data to move:%s at:%s"%(chnk,index))
+
+
+    if DEBUG is True:
+        for a,b in zip(Chunks_History,Chunks_History_Index):
+                  print("a:",a)
+                  print("b",b)
+
+
+    Candy("Cowsay", "Not yet implemented", "bad")
+    TheEnd()
 
 def CheckChunkOrder(lastchunk, mode):
     global Warning
@@ -4006,6 +4034,7 @@ def CheckChunkOrder(lastchunk, mode):
     if mode == "TheGoodPlace":
         Candy("Title", "Missplaced Chunks Check:")
 
+        Done = False
         Used_Chunks = list(dict.fromkeys(Chunks_History))
         Excluded = [used for used in Used_Chunks if used in OnlyOnce]
         print(Excluded)
@@ -4033,19 +4062,30 @@ def CheckChunkOrder(lastchunk, mode):
             if Chunks_History[0] != b"PNG":
                 print(
                     "-PNG signature have to be placed %s all the other chunks. %s"
-                    % (Candy("Color", "red", "Befor"), Candy("Emoj", "bad"))
+                    % (Candy("Color", "red", "Before"), Candy("Emoj", "bad"))
                 )
                 ToFix.append("Missplaced")
         if len(Chunks_History) > 1:
             if Chunks_History[1] != b"IHDR":
-                print(
-                    "-IHDR Chunk have to be placed %s and after Png Signature. %s"
-                    % (
-                        Candy("Color", "red", "Before all the other chunks"),
-                        Candy("Emoj", "bad"),
+                for nb, key in enumerate(PandoraBox):
+                    if "Should be IHDR Instead At Chunk Number:" in str(key):
+                          Done = True
+                          break
+
+                if Done is False :  
+                    print(
+                        "-IHDR Chunk have to be placed %s and after Png Signature. %s"
+                        % (
+                            Candy("Color", "red", "Before all the other chunks"),
+                            Candy("Emoj", "bad"),
+                        )
                     )
-                )
-                ToFix.append("Missplaced")
+
+                    return(CheckPoint(True, False, "CheckChunkOrder",Chunks_History[-1] ,["Missplaced [%s] Should be IHDR Instead At Chunk Number:%s"%(Chunks_History[-1],str(len(Chunks_History)-1))], Chunks_History[-1],len(Chunks_History)-1,b'IHDR'))
+
+                elif DEBUG is True:
+                     print("-Already Saved : Missplaced [%s]:Should be IHDR Instead At Chunk Number:%s"%(Chunks_History[-1],str(len(Chunks_History)-1)))
+
 
         if b"PLTE" in Used_Chunks:
             if lastchunk in Before_PLTE:
@@ -4098,6 +4138,11 @@ def CheckChunkOrder(lastchunk, mode):
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "CheckChunkOrder", "Missplaced", ToFix)
+            print(
+                "\n-Missplaced Chunk Check :"
+                + Candy("Color", "red", " FAILED ")
+                + Candy("Emoj", "bad")
+            )
         else:
             print(
                 "\n-Missplaced Chunk Check :"
@@ -4526,8 +4571,9 @@ def Question():
 def Checksum(Ctype, Cdata, Crc, next=None):
     Candy("Title", "Check Crc Validity:")
     Ctype = bytes.fromhex(Ctype)
-    if Ctype == b"IHDR" and DEBUG is True:
-        print("data:", Cdata)
+    #if Ctype == b"IHDR" and DEBUG is True:
+        #print("data:", Cdata)
+    #    pass
     Cdata = bytes.fromhex(Cdata)
     Crc = hex(int.from_bytes(bytes.fromhex(Crc), byteorder="big"))
     checksum = hex(binascii.crc32(Ctype + Cdata))
@@ -4541,7 +4587,7 @@ def Checksum(Ctype, Cdata, Crc, next=None):
         if next == None:
 
             # if Bad_Ancillary is False:
-            ChunkStory("add", Ctype)
+            ChunkStory("add", Ctype,CLoffI,NCoffI)
 
         return CheckPoint(
             False,
@@ -4748,6 +4794,7 @@ def FixItFelix(Chunk=None):
 
     global Skip_Bad_Current_Name
     global Skip_Bad_Ancillary
+    global Skip_Bad_No_Next_Chunk
     global Skip_Bad_Next_Name
     global Skip_Bad_Next_Ancillary
     global Skip_Bad_Infos
@@ -4774,8 +4821,10 @@ def FixItFelix(Chunk=None):
     #        print("\033[1;31;49m%s\033[m" % key)
 
     if DEBUG is True:
+        print("EOF:",EOF)
         print("Bad_Current_Name:", Bad_Current_Name)
         print("Bad_Ancillary:", Bad_Ancillary)
+        print("Bad_No_Next_Chunk:", Bad_No_Next_Chunk)
         print("Bad_Next_Name:", Bad_Next_Name)
         print("Bad_Next_Ancillary:", Bad_Next_Ancillary)
         print("Bad_Lenght:", Bad_Lenght)
@@ -4786,6 +4835,7 @@ def FixItFelix(Chunk=None):
         print("Bad_Libpng:", Bad_Libpng)
         print("Skip_Bad_Current_Name:", Skip_Bad_Current_Name)
         print("Skip_Bad_Ancillary:", Skip_Bad_Ancillary)
+        print("Skip_Bad_No_Next_Chunk:", Skip_Bad_No_Next_Chunk)
         print("Skip_Bad_Next_Name:", Skip_Bad_Next_Name)
         print("Skip_Bad_Next_Ancillary:", Skip_Bad_Next_Ancillary)
         print("Skip_Bad_Lenght:", Skip_Bad_Lenght)
@@ -4976,43 +5026,52 @@ def FixItFelix(Chunk=None):
                     pass
 
         elif "No NextChunk" in str(key):
-            print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
-            GoodEnding = "0000000049454E44AE426082"
-            if Chunk == "IEND" and int(PandoraBox[key][chkd + "0"]) == 0:
-                for key in PandoraBox:
-                    if "No NextChunk" in str(key):
-                        Candy(
-                            "Cowsay",
-                            "That one is a false positive im removing it ..",
-                            "good",
-                        )
-                        PandoraBox.pop(key, "key_not_found")
-                        SideNotes.append(
-                            "-Found False-Positive :[Error:-No NextChunk]."
-                        )
-                        break
-                ChunkStory("add", b"IEND")
+            if Skip_Bad_No_Next_Chunk is False:
+                print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
+                GoodEnding = "0000000049454E44AE426082"
+                if Chunk == "IEND" and int(PandoraBox[key][chkd + "0"]) == 0:
+                    for key in PandoraBox:
+                        if "No NextChunk" in str(key):
+                            Candy(
+                                "Cowsay",
+                                "That one is a false positive im removing it ..",
+                                "good",
+                            )
+                            PandoraBox.pop(key, "key_not_found")
+                            SideNotes.append(
+                                "-Found False-Positive :[Error:-No NextChunk]."
+                            )
+                            break
+                    ChunkStory("add", b"IEND",CLoffI,NCoffI)
 
-                if DATAX[-len(GoodEnding) :].upper() == GoodEnding:
-                    CheckChunkOrder(b"IEND", "Critical")
-                    Candy("Cowsay", " We have reached the end of file.", "good")
-                    EOF = True
-                    SideNotes.append("-Reached the end of file.")
-                    Candy("Cowsay", "Ok let's feed the Kraken now..", "com")
-                    return LibpngCheck(Sample)
+                    if DATAX[-len(GoodEnding) :].upper() == GoodEnding:
+                        CheckChunkOrder(b"IEND", "Critical")
+                        Candy("Cowsay", " We have reached the end of file.", "good")
+                        EOF = True
+                        SideNotes.append("-Reached the end of file.")
 
-                else:
-                    print(DATAX[-len(GoodEnding) :])
-                    SideNotes.append("-Not ending with regular IEND Chunk")
+                        if Bad_Missplaced is False:
+                            Candy("Cowsay", "Ok let's feed the Kraken now..", "com")
+                            return LibpngCheck(Sample)
+                        else:
+                            for nb, key in enumerate(PandoraBox):
+                                if "Missplaced" in str(key) and EOF is True:
+                                    rustine=[]
+                                    for toolkey, keyvalue in PandoraBox[key].items():
+                                          rustine.append(keyvalue)
+                                    return(TheGoodPlace(rustine[0],rustine[1],rustine[2]))
+                    else:
+                        print(DATAX[-len(GoodEnding) :])
+                        SideNotes.append("-Not ending with regular IEND Chunk")
+                        TheEnd()
+                elif ToolKit[0] == "IEND":
+                    SideNotes.append("-Wrong length for IEND")  # TODO
                     TheEnd()
-            elif ToolKit[0] == "IEND":
-                SideNotes.append("-Wrong length for IEND")  # TODO
-                TheEnd()
-            else:
-                SideNotes.append(
-                    "-End of File Reached but IEND Chunk is missing"
-                )  # TODO
-                TheEnd()
+                else:
+                    SideNotes.append(
+                        "-End of File Reached but IEND Chunk is missing"
+                    )  # TODO
+                    TheEnd()
         elif "gAMA Chunk of 0 is Useless" in str(key):
                         Candy("Cowsay", "Bah that's that's just a warning who cares ?! !", "good")
                         PandoraBox.pop(key, "key_not_found")
@@ -5034,6 +5093,7 @@ def FixItFelix(Chunk=None):
 def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
     global Bad_Current_Name
     global Bad_Ancillary
+    global Bad_No_Next_Chunk
     global Bad_Next_Name
     global Bad_Next_Ancillary
     global Bad_Infos
@@ -5059,10 +5119,19 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
     )
 
     if DEBUG is True:
-        print("function:", function)
-        print("infos:", infos)
-        for i, a in enumerate(ToolKit):
-            print("Arg%s:%s type:%s" % (i, a, type(a)))
+                print("error:", error)
+                print("fixed:",fixed)
+                print("function:", function)
+                print("infos:", infos)
+                print("chunk:",chunk)
+                print("ToolKit:")
+                for i, a in enumerate(ToolKit):
+                    print("Arg%s:%s type:%s" % (i, a, type(a)))
+                print("Pandora:")
+                for nb, key in enumerate(PandoraBox):
+                    print("key:",str(key))
+                if PAUSE is True:
+                      Pause("Checkpoint pause")
 
     if type(chunk) != bytes:
         chunkstr = chunk
@@ -5145,11 +5214,13 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                 #                for i in ToolKit :
                 #                    print("Tool:",i)
                 return CheckChunkName(Raw_NextChunk, int(ToolKit[0], 16), chunk, True)
+            else:
+                Bad_No_Next_Chunk = error
 
         if function == "CheckChunkOrder":
             if chunk == "Critical":
                 Bad_Critical = error
-            if chunk == "Missplaced":
+            if "Missplaced" in info:
                 Bad_Missplaced = error
 
         if function == "Checksum":
@@ -5230,8 +5301,10 @@ def main():
     global PandoraBox
     global Cornucopia
     global Chunks_History
+    global Chunks_History_Index
     global Bytes_History
     global Loading_txt
+    global Bad_No_Next_Chunk
     global Bad_Current_Name
     global Bad_Ancillary
     global Bad_Next_Name
@@ -5244,6 +5317,7 @@ def main():
     global Bad_Libpng
     global Skip_Bad_Current_Name
     global Skip_Bad_Ancillary
+    global Skip_Bad_No_Next_Chunk
     global Skip_Bad_Next_Name
     global Skip_Bad_Next_Ancillary
     global Skip_Bad_Infos
@@ -5312,6 +5386,7 @@ def main():
         AnciCheck = False  # tmpfix
         Bad_Current_Name = False
         Bad_Ancillary = False
+        Bad_No_Next_Chunk = False
         Bad_Next_Name = False
         Bad_Next_Ancillary = False
         Bad_Lenght = False
@@ -5321,6 +5396,7 @@ def main():
         Bad_Missplaced = False
         Skip_Bad_Current_Name = False
         Skip_Bad_Ancillary = False
+        Skip_Bad_No_Next_Chunk = False
         Skip_Bad_Next_Name = False
         Skip_Bad_Next_Ancillary = False
         Skip_Bad_Lenght = False
@@ -5333,6 +5409,7 @@ def main():
         Show_Must_Go_On = False
         TmpFixIHDR = False
         Chunks_History = []
+        Chunks_History_Index = []
         Bytes_History = []
         Loading_txt = ""
         ERRORSFLAG = []
@@ -5546,6 +5623,7 @@ ALLCHUNKS = [
 
 
 Chunks_History = []
+Chunks_History_Index = []
 pCAL_Param = []
 PLTE_R = []
 PLTE_G = []
@@ -5588,6 +5666,7 @@ Warning = False
 Summary_Header = True
 Bad_Current_Name = False
 Bad_Ancillary = False
+Bad_No_Next_Chunk = False
 Bad_Next_Name = False
 Bad_Next_Ancillary = False
 Bad_Lenght = False
@@ -5598,6 +5677,7 @@ Bad_Missplaced = False
 Bad_Libpng = False
 Skip_Bad_Current_Name = False
 Skip_Bad_Ancillary = False
+Skip_Bad_No_Next_Chunk = False
 Skip_Bad_Next_Name = False
 Skip_Bad_Next_Ancillary = False
 Skip_Bad_Lenght = False
