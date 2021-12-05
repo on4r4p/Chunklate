@@ -3912,29 +3912,72 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck=None):
 
     return ()
 
-def TheGoodPlace(Missplaced_Chunkname,Chunkpos,ToFix_Chunkname):
+def TheGoodPlace(Missplaced_Chunkname,Missplaced_Chunkpos,ToFix_Chunkname):
+    Candy("Title", "TheGoodPlace :")
+    Candy("Cowsay", "Mkay, so what do we have here ..", "com")
 
-    Candy("Cowsay", "Mkay, now where did i put those errors ..", "com")
+    bad_pos   = int(Chunks_History_Index[Missplaced_Chunkpos].split(":")[0].replace(" ",""))
+    bad_start = int(Chunks_History_Index[Missplaced_Chunkpos].split(":")[1].replace(" ",""))
+    bad_end   = int(Chunks_History_Index[Missplaced_Chunkpos].split(":")[2].replace(" ",""))
+    start,end = None,None
 
     for nb, key in enumerate(PandoraBox):
         if "Missplaced" in str(key):
             print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
 
-    print("Missplaced_Chunkname",Chunks_History[Chunkpos])
-    print("Chunkpos",Chunks_History_Index[Chunkpos])
+
 
     for chnk,index in zip(Chunks_History,Chunks_History_Index):
          if ToFix_Chunkname == chnk:
-            print("data to move:%s at:%s"%(chnk,index))
+            pos = int(index.split(":")[0].replace(" ",""))
+            start = int(index.split(":")[1].replace(" ",""))
+            end = int(index.split(":")[2].replace(" ",""))
+            break#Temp Break
+
+    if start and end == None:
+
+       print("-Missing Data %s %s"%(Candy("Color","red","Has Not Been Found"),Candy("emoj","bad")))    
+       Candy("Cowsay", "This is not good..", "bad")
+       Candy("Cowsay", "Not yet implemented", "bad")
+       TheEnd()
+    else:
+        print("\n-Found %s:[%s] at Chunk Position:%s Starting at:%s Ending at:%s %s"%(Candy("Color","green","Missing Data"),ToFix_Chunkname,pos,start,end,Candy("Emoj","good")))
+        Candy("Cowsay", "Sounds good to me , where's my rubber tape already ?", "good")
+        Rubber = DATAX[start:end]
+        Tape = DATAX[:start] + DATAX[end:]
+        Rubber_Tape = Tape[:bad_start]+Rubber+Tape[bad_start:]
+        return CheckPoint(
+                True,
+                True,
+                "TheGoodPlace",
+                ToFix_Chunkname,
+                ["-Found Missing Data:[%s] at Chunk Position:%s Starting at:%s Ending at:%s"%(ToFix_Chunkname,pos,start,end)],
+                Rubber_Tape,
+            )
 
 
+
+    print()
     if DEBUG is True:
+        print("Missplaced_Chunkname:",Chunks_History[Missplaced_Chunkpos])
+        print("Chunks_History_Index[Missplaced_Chunkpos]:",Chunks_History_Index[Missplaced_Chunkpos])
+        print("ToFix_Chunkname:",ToFix_Chunkname)
+        print("Chunk_History and Infos :")
         for a,b in zip(Chunks_History,Chunks_History_Index):
-                  print("a:",a)
-                  print("b",b)
+                  print("Chunk:",a)
+                  print("Index Infos",b)
+#        print(Rubber in DATAX)
+#        print(Rubber in Tape)
+#        print(DATAX[:start])
+#        print()
+#        print(Rubber)
+#        print()
+#        print(DATAX[end:])
+#        sys.exit()
 
 
-    Candy("Cowsay", "Not yet implemented", "bad")
+
+
     TheEnd()
 
 def CheckChunkOrder(lastchunk, mode):
@@ -4587,7 +4630,7 @@ def Checksum(Ctype, Cdata, Crc, next=None):
         if next == None:
 
             # if Bad_Ancillary is False:
-            ChunkStory("add", Ctype,CLoffI,NCoffI)
+            ChunkStory("add", Ctype,CLoffI,CrcoffI+8)
 
         return CheckPoint(
             False,
@@ -4649,9 +4692,11 @@ def SaveClone(DataFix, start, end, infos):
 def WriteClone(data):
     global Sample
     global Have_A_KitKat
+    global Pandemonium
     global ArkOfCovenant
 
-    ArkOfCovenant[Sample] = PandoraBox
+    Pandemonium[Sample] = PandoraBox
+    ArkOfCovenant[Sample] = Cornucopia
 
     data = bytes.fromhex(data)
     name, dir = Naming(FILE_Origin)
@@ -4671,10 +4716,10 @@ def WriteClone(data):
 def Relics(FromError):
     Candy("Title", "Opening the Ark Of The Covenant :")
 
-    if len(ArkOfCovenant) >= 1:
+    if len(Pandemonium) >= 1:
         Candy("Cowsay", "This is a short summary of what we have done :", "good")
 
-        for nb1, (file, file_value) in enumerate(ArkOfCovenant.items()):
+        for nb1, (file, file_value) in enumerate(Pandemonium.items()):
             print(
                 "%s:-Errors fixed in File %s :"
                 % (Candy("Color", "white", "[File:%s]" % nb1), file)
@@ -4691,10 +4736,10 @@ def Relics(FromError):
                         )
                     )
 
-        if len(ArkOfCovenant) == 1:
+        if len(Pandemonium) == 1:
             Candy("Cowsay", "Only one Error,That is short indeed ..", "com")
 
-            for nb1, (file, file_value) in enumerate(ArkOfCovenant.items()):
+            for nb1, (file, file_value) in enumerate(Pandemonium.items()):
                 Chunkname = "".join(
                     [
                         chnk.decode(errors="ignore")
@@ -4723,10 +4768,10 @@ def Relics(FromError):
                         )
 
                         # def Checksum(Ctype, Cdata, Crc,next=None):
-                        Chunk = ArkOfCovenant[file][errors][Chunkname + "_Tool_3"]
-                        OldCrc = ArkOfCovenant[file][errors][Chunkname + "_Tool_5"]
-                        ChunkLenght = ArkOfCovenant[file][errors][Chunkname + "_Tool_6"]
-                        DataOffset = ArkOfCovenant[file][errors][Chunkname + "_Tool_7"]
+                        Chunk = Pandemonium[file][errors][Chunkname + "_Tool_3"]
+                        OldCrc = Pandemonium[file][errors][Chunkname + "_Tool_5"]
+                        ChunkLenght = Pandemonium[file][errors][Chunkname + "_Tool_6"]
+                        DataOffset = Pandemonium[file][errors][Chunkname + "_Tool_7"]
                         if nb1 == 0:
                             ChunkForcer(
                                 FILE_Origin,
@@ -4755,7 +4800,7 @@ def Relics(FromError):
                         if DEBUG is True:
                             print("-Not implemented yet:", errors)
                             if PAUSE is True:
-                                Pause("Pause ArkOfCovenant Debug")
+                                Pause("Pause Pandemonium Debug")
 
             return ()
 
@@ -5042,11 +5087,11 @@ def FixItFelix(Chunk=None):
                                 "-Found False-Positive :[Error:-No NextChunk]."
                             )
                             break
-                    ChunkStory("add", b"IEND",CLoffI,NCoffI)
+                    ChunkStory("add", b"IEND",CLoffI,CrcoffI+8)
 
                     if DATAX[-len(GoodEnding) :].upper() == GoodEnding:
                         CheckChunkOrder(b"IEND", "Critical")
-                        Candy("Cowsay", " We have reached the end of file.", "good")
+                        Candy("Cowsay", "We have reached the end of file.", "good")
                         EOF = True
                         SideNotes.append("-Reached the end of file.")
 
@@ -5059,6 +5104,7 @@ def FixItFelix(Chunk=None):
                                     rustine=[]
                                     for toolkey, keyvalue in PandoraBox[key].items():
                                           rustine.append(keyvalue)
+                                    Candy("Cowsay", "But the fun isnt over yet..", "com")
                                     return(TheGoodPlace(rustine[0],rustine[1],rustine[2]))
                     else:
                         print(DATAX[-len(GoodEnding) :])
@@ -5167,6 +5213,11 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                 SideNotes.append("Error Fixed:" + str(info))
                 Cornucopia[ToolKit[-1]] = TOOLS
 
+  
+        if function == "TheGoodPlace":
+            if "Found Missing Data" in info:
+                return WriteClone(ToolKit[0])
+
         if function == "ChunkForcer":
             if "Data has been corrupted" in info:
                 SideNotes.append("-CheckPoint: %s" % info)
@@ -5255,7 +5306,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                             TheEnd()
 
             else:
-                Candy("Cowsay", "Well maybe i am missing something but as for me m my abilities my job is done here!", "good")
+                Candy("Cowsay", "Well maybe i am missing something but as far as my current abilities goes the job is done for me here!", "good")
                 Candy("Cowsay", "See you Space Cowboy...", "good")
                 TheEnd()
 
@@ -5649,6 +5700,7 @@ ERRORSFLAG = []
 PandoraBox = {}
 Cornucopia = {}
 ArkOfCovenant = {}
+Pandemonium = {}
 
 
 libc = ctypes.CDLL(None)
