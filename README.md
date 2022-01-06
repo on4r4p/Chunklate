@@ -19,8 +19,8 @@
 - Save each modifications in a different file
 - Provide a summary of all modifications 
 - User friendly human readability
-- Bruteforce corrupted data chunk (Just IHDR for now)
-- Repair missplaced chunks (Work in progress)
+- Bruteforce corrupted data chunk (With good crc for now)
+- Repair missplaced chunks (Just IHDR for now)
 - Replace critical missing chunk (Todo)
 
 

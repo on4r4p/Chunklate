@@ -3,6 +3,7 @@ from argparse import ArgumentParser, SUPPRESS
 from threading import Thread
 from datetime import datetime
 from contextlib import contextmanager
+import numpy as np
 import sys, os, binascii, re, random, time, zlib, cv2, ctypes, io, tempfile, difflib
 
 
@@ -186,7 +187,7 @@ def GetInfo(Chunk, data):
                         + " Must be between 1 to 2147483647."
                         + Candy("Emoj", "bad")
                     )
-                    ToFix.append("-Height Must be between 1 to 2147483647.")
+                    ToFix.append("-IHDR Height Must be between 1 to 2147483647.")
             else:
                 print(
                     "-Height :"
@@ -194,7 +195,7 @@ def GetInfo(Chunk, data):
                     + " Must be between 1 to 2147483647."
                     + Candy("Emoj", "bad")
                 )
-                ToFix.append("-Height Must be between 1 to 2147483647.")
+                ToFix.append("-IHDR Height Must be between 1 to 2147483647.")
 
             if len(IHDR_Width) > 0:
                 if int(IHDR_Width) > 2147483647:
@@ -204,7 +205,7 @@ def GetInfo(Chunk, data):
                         + " Must be between 1 to 2147483647."
                         + Candy("Emoj", "bad")
                     )
-                    ToFix.append("-Width Must be between 1 to 2147483647.")
+                    ToFix.append("-IHDR Width Must be between 1 to 2147483647.")
             else:
                 print(
                     "-Width :"
@@ -212,7 +213,7 @@ def GetInfo(Chunk, data):
                     + " Must be between 1 to 2147483647."
                     + Candy("Emoj", "bad")
                 )
-                ToFix.append("-Width Must be between 1 to 2147483647.")
+                ToFix.append("-IHDR Width Must be between 1 to 2147483647.")
 
             if len(IHDR_Depht) > 0:
                 if IHDR_Depht not in ["1", "2", "4", "8", "16"]:
@@ -279,13 +280,13 @@ def GetInfo(Chunk, data):
                     + " must be 0."
                     + Candy("Emoj", "bad")
                 )
-                ToFix.append("-Filter Method Wrong value must be 0")
+                ToFix.append("-IHDR Filter Method Wrong value must be 0")
             elif len(IHDR_Filter) == 0:
                 print(
                     "-Filter Method %s %s "
                     % (Candy("Color", "red", "Must not be empty"), Candy("Emoj", "bad"))
                 )
-                ToFix.append("Filter Method Must not be empty")
+                ToFix.append("IHDR Filter Method Must not be empty")
             if len(IHDR_Method) > 0 and IHDR_Method != "0":
                 print(
                     "-Compression Algorithms :"
@@ -293,13 +294,13 @@ def GetInfo(Chunk, data):
                     + " must be 0."
                     + Candy("Emoj", "bad")
                 )
-                ToFix.append("-Compression Algorithms : Wrong value must be 0.")
+                ToFix.append("-IHDR Compression Algorithms : Wrong value must be 0.")
             elif len(IHDR_Method) == 0:
                 print(
                     "-Compression Algorithms must not be empty %s %s "
                     % (Candy("Color", "red", "Must not be empty"), Candy("Emoj", "bad"))
                 )
-                ToFix.append("-Compression Algorithms must not be empty")
+                ToFix.append("-IHDR Compression Algorithms must not be empty")
             if len(IHDR_Interlace) > 0 and (
                 IHDR_Interlace != "0" and IHDR_Interlace != "1"
             ):
@@ -309,13 +310,13 @@ def GetInfo(Chunk, data):
                     + " must be 0 (no interlace) or 1 (Adam7 interlace)."
                     + Candy("Emoj", "bad")
                 )
-                ToFix.append("-Interlace Method :Wrong value must be 0 (no interlace) or 1 (Adam7 interlace).")
+                ToFix.append("-IHDR Interlace Method :Wrong value must be 0 (no interlace) or 1 (Adam7 interlace).")
             elif len(IHDR_Interlace) == 0:
                 print(
                     "-Interlace %s %s "
                     % (Candy("Color", "red", "Must not be empty"), Candy("Emoj", "bad"))
                 )
-                ToFix.append("-Interlace Must not be empty")
+                ToFix.append("-IHDR Interlace Must not be empty")
 
             if len(ToFix) > 0:
                 CheckPoint(True, False, "GetInfo", Chunk, ToFix)
@@ -3257,7 +3258,7 @@ def DigDigits(dig):
     return int(dig) if dig.isdigit() else dig
 
 
-def ChunkStory(action, Chunk ,start,end):
+def ChunkStory(action, Chunk ,start,end,chuck_lenght):
     global Chunks_History
     global Chunks_History_Index
 
@@ -3269,7 +3270,7 @@ def ChunkStory(action, Chunk ,start,end):
         pass
     if action == "add":
         Chunks_History.append(Chunk)
-        Chunks_History_Index.append(str(len(Chunks_History)-1)+":"+str(start)+":"+str(end))
+        Chunks_History_Index.append(str(len(Chunks_History)-1)+":"+str(start)+":"+str(end)+":"+str(chuck_lenght))
     elif action == "del":
         try:
             del Chunks_History[Chunks_History.index(Chunk)]
@@ -3315,8 +3316,122 @@ def stderr_redirector(stream):
         tfile.close()
         os.close(saved_stderr_fd)
 
+def ChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError):
+    global WORKING
+    global SideNotes
+    Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
+    Chunk = Chunk.encode(errors="ignore")
+    Candy("Cowsay", "Not yet working yet", "bad")
+    TheEnd()
+    if DEBUG is True:
+        print("file:", File)
+        print("chunk:", Chunk)
+        print("offd:", DataOffset)
+        print("cl:", ChunkLenght)
+        if PAUSE is True:
+            Pause("Debug Pause:")
 
-def ChunkForcer(File, Chunk, OldCrc, DataOffset, ChunkLenght, FromError):
+    try:
+        with open(Sample, "rb") as f:
+            data = f.read()
+    except Exception as e:
+        print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+        TheEnd()
+    Thread(target = Loadingbar).start()
+    #time.sleep(30)
+    datax = data.hex()[DataOffset : DataOffset + ChunkLenght]
+    Bingo = False
+    needle = 0
+    result = "result is empty"
+    while needle < len(datax) - 1 and Bingo is False:
+        for hexa in range(0, 256):
+            newbyte = (hex(hexa).replace("0x", "")).zfill(2)
+            newdatax_copy = datax[:needle] + newbyte + datax[needle + 2 :]
+            newdatax = bytes.fromhex(datax[:needle] + newbyte + datax[needle + 2 :])
+            checksum = hex(binascii.crc32(Chunk + newdatax)).replace("0x", "").zfill(8)
+
+            try:
+               newfilewanabe = DATAX[:DataOffset] + newdatax_copy + DATAX[DataOffset + ChunkLenght:]
+               newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
+               newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_COLOR)
+               with stderr_redirector(f):
+                    cv2.imread(newfile)
+               result = "{0}".format(f.getvalue().decode("utf-8"))
+            except Exception as e:
+#               if DEBUG is True:
+                   print(Candy("Color", "red", "ChunkForcerNoCrc Error:"), Candy("Color", "yellow", e))
+                   print("Result:",result)
+
+            if "libpng error" not in result and result != "result is empty":
+                diffobj = difflib.SequenceMatcher(None, datax, newdatax_copy)
+                good = ""
+                bad = ""
+                for block in diffobj.get_opcodes():
+                    if block[0] != "equal":
+                        good += (
+                            "\033[1;32;49m%s\033[m" % newdatax_copy[block[1] : block[2]]
+                        )
+                        bad += "\033[1;31;49m%s\033[m" % datax[block[1] : block[2]]
+                    else:
+                        good += newdatax_copy[block[1] : block[2]]
+                        bad += datax[block[1] : block[2]]
+                Bingo = True
+                break
+            # elif DEBUG is True:
+            #     pass
+            # print("data:%s Oldcrc:%s != checksum:%s"%(newdatax_copy,OldCrc,checksum))
+        needle += 1
+    WORKING = False
+    if Bingo is True:
+        print(
+            "-Bruteforce was %s %s"
+            % (Candy("Color", "green", "Successfull!"), Candy("Emoj", "good"))
+        )
+        print(
+            "-Chunk %s has been repaired by changing those bytes:\n"
+            % Candy("Color", "green", Chunk)
+        )
+        print(bad)
+        print("\n-With those bytes:\n")
+        print(good)
+        Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
+        SideNotes.append(
+            "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s\n-with bytes:\n%s"
+            % (Chunk, datax, newdatax_copy)
+        )
+
+        return CheckPoint(
+            True,
+            True,
+            "ChunkForcerNoCrc",
+            Chunk.decode(errors="ignore"),
+            ["-Data has been corrupted"],
+            newdatax_copy,
+            DataOffset,
+            DataOffset + ChunkLenght,
+            "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
+            % (Chunk.decode(errors="ignore"), datax, newdatax_copy),
+            Chunk.decode(errors="ignore"),
+            FromError,
+        )
+
+    else:
+        print(
+            "-Bruteforce has %s %s"
+            % (Candy("Color", "red", "Failed!"), Candy("Emoj", "bad"))
+        )
+        Candy("Cowsay", "I was afraid of this ..Looks like we r stuck..", "bad")
+        SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
+        return CheckPoint(
+            True,
+            False,
+            "ChunkForcerNoCrc",
+            Chunk.decode(errors="ignore"),
+            ["-Bruteforcer has Failed"],
+            FromError,
+        )
+
+def ChunkForcerWithCrc(File, Chunk, OldCrc, DataOffset, ChunkLenght, FromError):
     global WORKING
     global SideNotes
     Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
@@ -3368,6 +3483,7 @@ def ChunkForcer(File, Chunk, OldCrc, DataOffset, ChunkLenght, FromError):
             # print("data:%s Oldcrc:%s != checksum:%s"%(newdatax_copy,OldCrc,checksum))
         needle += 1
     WORKING = False
+
     if Bingo is True:
         print(
             "-Bruteforce was %s %s"
@@ -3389,7 +3505,7 @@ def ChunkForcer(File, Chunk, OldCrc, DataOffset, ChunkLenght, FromError):
         return CheckPoint(
             True,
             True,
-            "ChunkForcer",
+            "ChunkForcerWithCrc",
             Chunk.decode(errors="ignore"),
             ["-Data has been corrupted"],
             newdatax_copy,
@@ -3411,7 +3527,7 @@ def ChunkForcer(File, Chunk, OldCrc, DataOffset, ChunkLenght, FromError):
         return CheckPoint(
             True,
             False,
-            "ChunkForcer",
+            "ChunkForcerWithCrc",
             Chunk.decode(errors="ignore"),
             ["-Bruteforcer has Failed"],
             FromError,
@@ -3429,7 +3545,7 @@ def FindMagic():
     lenmagic = len(magic)
     pos = DATAX.find(magic)
     if pos != -1:
-        ChunkStory("add", "PNG", pos,pos+lenmagic)
+        ChunkStory("add", "PNG", pos,pos+lenmagic,int(pos /2))
         print(
             "-%s is Magic : %s\n"
             % (
@@ -3498,7 +3614,7 @@ def FindMagic():
                     SideNotes.append(
                         "-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented."
                     )
-                    # ChunkForcer()
+                    # ChunkForcerWithCrc()
                     TheEnd()
 
                 if badnews == magc[0]:
@@ -4630,7 +4746,7 @@ def Checksum(Ctype, Cdata, Crc, next=None):
         if next == None:
 
             # if Bad_Ancillary is False:
-            ChunkStory("add", Ctype,CLoffI,CrcoffI+8)
+            ChunkStory("add", Ctype,CLoffI,CrcoffI+8,int(Orig_CL, 16))
 
         return CheckPoint(
             False,
@@ -4716,6 +4832,18 @@ def WriteClone(data):
 def Relics(FromError):
     Candy("Title", "Opening the Ark Of The Covenant :")
 
+    if DEBUG is True:
+            for nb, key in enumerate(PandoraBox):
+                                     print("Pandorbox Key:",str(key))
+                                     for toolkey, keyvalue in PandoraBox[key].items():
+                                             print("PandoraBox toolkey:", toolkey)
+                                             print("PandoraBox keyvalue:", keyvalue)
+            for c,i in zip(Chunks_History,Chunks_History_Index):
+                                        print("\nCame accross that chunk: ",c)
+                                        print("With those index: ",i)
+            if PAUSE is True:
+                 Pause("-Debug Pause Press Return to continue:")
+
     if len(Pandemonium) >= 1:
         Candy("Cowsay", "This is a short summary of what we have done :", "good")
 
@@ -4735,6 +4863,9 @@ def Relics(FromError):
                             tools_values,
                         )
                     )
+            Candy("Cowsay", "Not yet implemented", "bad")
+            TheEnd()
+
 
         if len(Pandemonium) == 1:
             Candy("Cowsay", "Only one Error,That is short indeed ..", "com")
@@ -4773,7 +4904,7 @@ def Relics(FromError):
                         ChunkLenght = Pandemonium[file][errors][Chunkname + "_Tool_6"]
                         DataOffset = Pandemonium[file][errors][Chunkname + "_Tool_7"]
                         if nb1 == 0:
-                            ChunkForcer(
+                            ChunkForcerWithCrc(
                                 FILE_Origin,
                                 Chunk,
                                 OldCrc,
@@ -4784,7 +4915,7 @@ def Relics(FromError):
                             return ()
                         else:
                             pass
-                            ChunkForcer(
+                            ChunkForcerWithCrc(
                                 os.path.dirname(Sample) + "/" + file,
                                 Chunk,
                                 OldCrc,
@@ -4792,7 +4923,7 @@ def Relics(FromError):
                                 ChunkLenght,
                                 FromError,
                             )
-
+                            return ()
                     # print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),errors))
                     # for nb3,(tools,tools_values) in enumerate(errors_values.items()):
                     #    print("%s:%s:%s"%(Candy("Color","yellow","        [Tool:%s]"%nb3),tools,tools_values))
@@ -4801,7 +4932,7 @@ def Relics(FromError):
                             print("-Not implemented yet:", errors)
                             if PAUSE is True:
                                 Pause("Pause Pandemonium Debug")
-
+                        TheEnd()
             return ()
 
     else:
@@ -4809,7 +4940,52 @@ def Relics(FromError):
             "-%s has been Fixed yet. %s"
             % (Candy("Color", "red", "No Error"), Candy("Emoj", "bad"))
         )
-        Candy("Cowsay", "Erf this case is not implemented yet ...", "bad")
+        Candy("Cowsay", "Erf...Kay let me check if iv forgot any error somewhere ..", "com")
+
+        if len(PandoraBox) > 0:
+            for nb, key in enumerate(PandoraBox):
+                 if "GetInfo" in str(key):
+                      if "IHDR" in str(key):
+
+                             print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
+                             Candy(
+                                "Cowsay",
+                                "Hm yeah that could be problematic indeed..",
+                                "com",
+                                 )
+                             Candy(
+                                "Cowsay",
+                                "And of course Crc is valid ...This must be a joke..",
+                                "bad",
+                                 )
+                             Candy(
+                                "Cowsay",
+                                "We can't just let this thing like that The allmighty libpng will yell at us for sure!",
+                                "bad",
+                                 )
+                             Candy(
+                                "Cowsay",
+                                "So what do you want to do ? Shall we try to fix it ?",
+                                "com",
+                                 )
+                             Answer = Question()
+                             if Answer is True:
+                                 for c,i in zip(Chunks_History,Chunks_History_Index):
+                                     if c == b'IHDR':
+#def ChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError):
+#int(Chunks_History_Index[Missplaced_Chunkpos].split(":")[0].replace(" ","")
+                                         ChunkForcerNoCrc(
+                                              Sample_Name,
+                                              "IHDR",
+                                              int(i.split(":")[1]),
+                                              int(i.split(":")[2]),
+                                              FromError,
+                                              )
+
+                                 return()
+
+        Candy("Cowsay", "Couldn't find anything in all those lines of codes which could handle this..", "bad")
+        Candy("Cowsay", "We r out of luck for now sorry..", "bad")
         TheEnd()
 
 
@@ -5070,6 +5246,7 @@ def FixItFelix(Chunk=None):
                     )
                     pass
 
+
         elif "No NextChunk" in str(key):
             if Skip_Bad_No_Next_Chunk is False:
                 print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
@@ -5087,7 +5264,7 @@ def FixItFelix(Chunk=None):
                                 "-Found False-Positive :[Error:-No NextChunk]."
                             )
                             break
-                    ChunkStory("add", b"IEND",CLoffI,CrcoffI+8)
+                    ChunkStory("add", b"IEND",CLoffI,CrcoffI+8,int(Orig_CL, 16))
 
                     if DATAX[-len(GoodEnding) :].upper() == GoodEnding:
                         CheckChunkOrder(b"IEND", "Critical")
@@ -5218,7 +5395,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
             if "Found Missing Data" in info:
                 return WriteClone(ToolKit[0])
 
-        if function == "ChunkForcer":
+        if function == "ChunkForcerWithCrc":
             if "Data has been corrupted" in info:
                 SideNotes.append("-CheckPoint: %s" % info)
                 FixItFelix(ToolKit[4])
