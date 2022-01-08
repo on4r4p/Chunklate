@@ -3321,8 +3321,7 @@ def ChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError):
     global SideNotes
     Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
     Chunk = Chunk.encode(errors="ignore")
-    Candy("Cowsay", "Not yet working yet", "bad")
-    TheEnd()
+    Checklist =[]
     if DEBUG is True:
         print("file:", File)
         print("chunk:", Chunk)
@@ -3337,50 +3336,48 @@ def ChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError):
     except Exception as e:
         print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
         TheEnd()
-    Thread(target = Loadingbar).start()
-    #time.sleep(30)
-    datax = data.hex()[DataOffset : DataOffset + ChunkLenght]
+
+    if DEBUG is False:
+         Thread(target = Loadingbar).start()
+    datax = data.hex()[DataOffset : ChunkLenght]
     Bingo = False
-    needle = 0
     result = "result is empty"
-    while needle < len(datax) - 1 and Bingo is False:
-        for hexa in range(0, 256):
-            newbyte = (hex(hexa).replace("0x", "")).zfill(2)
-            newdatax_copy = datax[:needle] + newbyte + datax[needle + 2 :]
-            newdatax = bytes.fromhex(datax[:needle] + newbyte + datax[needle + 2 :])
-            checksum = hex(binascii.crc32(Chunk + newdatax)).replace("0x", "").zfill(8)
+    haystack = len(datax[16:-8])
+    needle = 0
+    while needle < 16**haystack:
+        newdatax = hex(needle).replace("0x", "").zfill(haystack)
+        newbytes = bytes.fromhex(newdatax)
+        checksum = hex(binascii.crc32(Chunk + newbytes)).replace("0x", "").zfill(8)
+        fullnewdatax = datax[:16]+newdatax+checksum
+        newfilewanabe = DATAX[:DataOffset] + fullnewdatax + DATAX[ChunkLenght:]
+        try:
+            with stderr_redirector(f):
+                newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
+                newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_COLOR)
+                cv2.imread(newfile)
+            result = "{0}".format(f.getvalue().decode("utf-8"))
+        except Exception as e:
+                if DEBUG is True:
+                    print(Candy("Color", "red", "ChunkForcerNoCrc Error:"), Candy("Color", "yellow", e))
+                    print("fullnewdatax:",fullnewdatax)
+        if "libpng error" not in result and result != "result is empty":
+           diffobj = difflib.SequenceMatcher(None, datax, newdatax_copy)
+           good = ""
+           bad = ""
+           for block in diffobj.get_opcodes():
+               if block[0] != "equal":
+                    good += (
+                             "\033[1;32;49m%s\033[m" % newdatax_copy[block[1] : block[2]]
+                                )
+                    bad += "\033[1;31;49m%s\033[m" % datax[block[1] : block[2]]
+               else:
+                    good += newdatax_copy[block[1] : block[2]]
+                    bad += datax[block[1] : block[2]]
+           Bingo = True
+           break
 
-            try:
-               newfilewanabe = DATAX[:DataOffset] + newdatax_copy + DATAX[DataOffset + ChunkLenght:]
-               newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
-               newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_COLOR)
-               with stderr_redirector(f):
-                    cv2.imread(newfile)
-               result = "{0}".format(f.getvalue().decode("utf-8"))
-            except Exception as e:
-#               if DEBUG is True:
-                   print(Candy("Color", "red", "ChunkForcerNoCrc Error:"), Candy("Color", "yellow", e))
-                   print("Result:",result)
 
-            if "libpng error" not in result and result != "result is empty":
-                diffobj = difflib.SequenceMatcher(None, datax, newdatax_copy)
-                good = ""
-                bad = ""
-                for block in diffobj.get_opcodes():
-                    if block[0] != "equal":
-                        good += (
-                            "\033[1;32;49m%s\033[m" % newdatax_copy[block[1] : block[2]]
-                        )
-                        bad += "\033[1;31;49m%s\033[m" % datax[block[1] : block[2]]
-                    else:
-                        good += newdatax_copy[block[1] : block[2]]
-                        bad += datax[block[1] : block[2]]
-                Bingo = True
-                break
-            # elif DEBUG is True:
-            #     pass
-            # print("data:%s Oldcrc:%s != checksum:%s"%(newdatax_copy,OldCrc,checksum))
-        needle += 1
+        needle = needle + 1
     WORKING = False
     if Bingo is True:
         print(
@@ -3399,7 +3396,7 @@ def ChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError):
             "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s\n-with bytes:\n%s"
             % (Chunk, datax, newdatax_copy)
         )
-
+        TheEnd()
         return CheckPoint(
             True,
             True,
@@ -3422,6 +3419,7 @@ def ChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError):
         )
         Candy("Cowsay", "I was afraid of this ..Looks like we r stuck..", "bad")
         SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
+        TheEnd()
         return CheckPoint(
             True,
             False,
@@ -4966,6 +4964,11 @@ def Relics(FromError):
                              Candy(
                                 "Cowsay",
                                 "So what do you want to do ? Shall we try to fix it ?",
+                                "com",
+                                 )
+                             Candy(
+                                "Cowsay",
+                                "(Beware that it will take a lot of time)",
                                 "com",
                                  )
                              Answer = Question()
