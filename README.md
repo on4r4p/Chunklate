@@ -19,7 +19,7 @@
 - Save each modifications in a different file
 - Provide a summary of all modifications 
 - User friendly human readability
-- Bruteforce corrupted data chunk (With good crc for now)
+- Bruteforce corrupted data chunk
 - Repair missplaced chunks (Just IHDR for now)
 - Replace critical missing chunk (Todo)
 
