@@ -3316,14 +3316,30 @@ def stderr_redirector(stream):
         tfile.close()
         os.close(saved_stderr_fd)
 
+def Bruthex(cidx,value,datax,totalln):
+   newvalues = []
+   dataxlst = list(datax)
+   value_ln = 0
+   if value < 16**totalln:
+        fullhx=hex(value).replace("0x", "").zfill(totalln)
+        value += 1
+   else:
+       return(None,None,True)
+   for c in cidx:
+             dataxlst[c[0]:c[1]] = fullhx[value_ln:value_ln +c[2]]
+             value_ln += c[2]
+   return("".join(dataxlst),value,False)
+
 def MiniChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, CIndexList, FromError):
     global WORKING
     global SideNotes
     Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
     Chunk = Chunk.encode(errors="ignore")
-    Checklist =[]
-    Candy("Cowsay", "Not yet implemented", "bad")
-    TheEnd()
+    FewYearsLater = False
+    value = 0
+    cidx = []
+    total_len = 0
+
     if DEBUG is True:
         print("file:", File)
         print("chunk:", Chunk)
@@ -3340,6 +3356,8 @@ def MiniChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, CIndexList, FromE
         TheEnd()
 
     datax = data.hex()[DataOffset : ChunkLenght]
+    haystack = datax[16:-8]
+
     if DEBUG is False:
          Thread(target = Loadingbar).start()
     else:
@@ -3347,19 +3365,104 @@ def MiniChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, CIndexList, FromE
          [print(i) for i in CIndexList]
     Bingo = False
     result = "result is empty"
+    needle = 0
 
-    for wrong_value in CIndexList:
-        haystack = len(datax[16:-8])
-        needle = 0
-        while needle < 16**haystack:
-            newdatax = hex(needle).replace("0x", "").zfill(haystack)
-            newbytes = bytes.fromhex(newdatax)
+    for key in CIndexList:
+        start = int(key.split("CIndex([")[1].split(":")[0])
+        stop = int(key.split("CIndex([")[1].split(":")[1].split("])")[0])
+        ln = stop - start
+        total_len += ln
+        cidx.append((start,stop,ln))
+#    print("heystack:",haystack)
+    while True:
+
+            haystack,value,FewYearsLater= Bruthex(cidx,value,str(haystack),total_len)
+            if FewYearsLater is True:
+                break
+            newbytes = bytes.fromhex(haystack)
             checksum = hex(binascii.crc32(Chunk + newbytes)).replace("0x", "").zfill(8)
-            fullnewdatax = datax[:16]+newdatax+checksum
+            fullnewdatax = datax[:16]+haystack+checksum
             newfilewanabe = DATAX[:DataOffset] + fullnewdatax + DATAX[ChunkLenght:]
+            try:
+                with stderr_redirector(f):
+                    newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
+                    newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_COLOR)
+                    cv2.imread(newfile)
+                result = "{0}".format(f.getvalue().decode("utf-8"))
+            except Exception as e:
+                if DEBUG is True:
+                    print(Candy("Color", "red", "FullChunkForcerNoCrc Error:"), Candy("Color", "yellow", e))
+                    print("fullnewdatax:",fullnewdatax)
+#            Pause("pause")
+            if "libpng error" not in result and result != "result is empty":
+                  diffobj = difflib.SequenceMatcher(None, datax[16:], fullnewdatax)
+                  good = ""
+                  bad = ""
+                  for block in diffobj.get_opcodes():
+                      if block[0] != "equal":
+                           good += (
+                                    "\033[1;32;49m%s\033[m" % fullnewdatax[block[1] : block[2]]
+                                       )
+                           bad += "\033[1;31;49m%s\033[m" % datax[16:][block[1] : block[2]]
+                      else:
+                           good += fullnewdatax[block[1] : block[2]]
+                           bad += datax[16:][block[1] : block[2]]
+                  Bingo = True
+                  break
+
+    WORKING = False
+
+    if Bingo is True:
+        print(
+            "-Bruteforce was %s %s"
+            % (Candy("Color", "green", "Successfull!"), Candy("Emoj", "good"))
+        )
+        print(
+            "-Chunk %s has been repaired by changing those bytes:\n"
+            % Candy("Color", "green", Chunk)
+        )
+        print(bad)
+        print("\n-With those bytes:\n")
+        print(good)
+        Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
+        SideNotes.append(
+            "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s\n-with bytes:\n%s"
+            % (Chunk, datax[16:], fullnewdatax)
+        )
+        return CheckPoint(
+            True,
+            True,
+            "FullChunkForcerNoCrc",
+            Chunk.decode(errors="ignore"),
+            ["-Data has been corrupted"],
+            fullnewdatax,
+            DataOffset,
+            DataOffset + ChunkLenght,
+            "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
+            % (Chunk.decode(errors="ignore"), datax[16:], fullnewdatax),
+            Chunk.decode(errors="ignore"),
+            FromError,
+        )
+
+    else:
+        print(
+            "-Bruteforce has %s %s"
+            % (Candy("Color", "red", "Failed!"), Candy("Emoj", "bad"))
+        )
+        Candy("Cowsay", "I was afraid of this ..Looks like we r stuck..", "bad")
+        SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
+        TheEnd()
+        return CheckPoint(
+            True,
+            False,
+            "FullChunkForcerNoCrc",
+            Chunk.decode(errors="ignore"),
+            ["-Bruteforcer has Failed"],
+            FromError,
+        )
 
 
-    TheEnd()
+
 
 
 
@@ -3409,18 +3512,18 @@ def FullChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError):
                     print(Candy("Color", "red", "FullChunkForcerNoCrc Error:"), Candy("Color", "yellow", e))
                     print("fullnewdatax:",fullnewdatax)
         if "libpng error" not in result and result != "result is empty":
-           diffobj = difflib.SequenceMatcher(None, datax, newdatax_copy)
+           diffobj = difflib.SequenceMatcher(None, datax[16:], fullnewdatax)
            good = ""
            bad = ""
            for block in diffobj.get_opcodes():
                if block[0] != "equal":
                     good += (
-                             "\033[1;32;49m%s\033[m" % newdatax_copy[block[1] : block[2]]
+                             "\033[1;32;49m%s\033[m" % fullnewdatax[block[1] : block[2]]
                                 )
-                    bad += "\033[1;31;49m%s\033[m" % datax[block[1] : block[2]]
+                    bad += "\033[1;31;49m%s\033[m" % datax[16:][block[1] : block[2]]
                else:
-                    good += newdatax_copy[block[1] : block[2]]
-                    bad += datax[block[1] : block[2]]
+                    good += fullnewdatax[block[1] : block[2]]
+                    bad += datax[16:][block[1] : block[2]]
            Bingo = True
            break
 
@@ -3442,20 +3545,20 @@ def FullChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError):
         Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
         SideNotes.append(
             "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s\n-with bytes:\n%s"
-            % (Chunk, datax, newdatax_copy)
+            % (Chunk, datax[16:], fullnewdatax)
         )
-        TheEnd()
+
         return CheckPoint(
             True,
             True,
             "FullChunkForcerNoCrc",
             Chunk.decode(errors="ignore"),
             ["-Data has been corrupted"],
-            newdatax_copy,
+            fullnewdatax,
             DataOffset,
             DataOffset + ChunkLenght,
             "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
-            % (Chunk.decode(errors="ignore"), datax, newdatax_copy),
+            % (Chunk.decode(errors="ignore"), datax[16:], fullnewdatax),
             Chunk.decode(errors="ignore"),
             FromError,
         )

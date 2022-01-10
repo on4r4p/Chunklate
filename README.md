@@ -15,7 +15,7 @@
 - Repair wrong chunk crc
 - Repair wrong image size
 - Repair line feed conversion
-- Smart crc fixer based on errors found (Work in progress)
+- Smart crc fixer based on errors found
 - Save each modifications in a different file
 - Provide a summary of all modifications 
 - User friendly human readability
