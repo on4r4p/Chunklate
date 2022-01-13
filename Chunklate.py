@@ -3600,37 +3600,49 @@ def FullChunkForcerWithCrc(File, Chunk, OldCrc, DataOffset, ChunkLenght, FromErr
     except Exception as e:
         print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
         TheEnd()
-    Thread(target = Loadingbar).start()
-    time.sleep(30)
+    if DEBUG is False:
+        Thread(target = Loadingbar).start()
+    if File == "IHDR-Wrong-Width.png":
+        time.sleep(15)
     datax = data.hex()[DataOffset : DataOffset + (ChunkLenght * 2)]
+    #datax = data.hex()[DataOffset : DataOffset + 6]
     Bingo = False
     needle = 0
-    while needle < len(datax) - 1 and Bingo is False:
-        for hexa in range(0, 256):
-            newbyte = (hex(hexa).replace("0x", "")).zfill(2)
-            newdatax_copy = datax[:needle] + newbyte + datax[needle + 2 :]
-            newdatax = bytes.fromhex(datax[:needle] + newbyte + datax[needle + 2 :])
-            checksum = hex(binascii.crc32(Chunk + newdatax)).replace("0x", "").zfill(8)
+    needle2 = 2
+    while needle2 <= len(datax) and Bingo is False:
+        if needle < len(datax) - (needle2-1) and Bingo is False:
+            for hexa in range(0, 16**needle2):
+                newbyte = (hex(hexa).replace("0x", "")).zfill(needle2)
+                newdatax_copy = datax[:needle] + newbyte + datax[needle + len(newbyte) :]
+                newdatax = bytes.fromhex(datax[:needle] + newbyte + datax[needle + needle2 :])
+                checksum = hex(binascii.crc32(Chunk + newdatax)).replace("0x", "").zfill(8)
+#                print(newdatax_copy)
 
-            if checksum == OldCrc:
-                diffobj = difflib.SequenceMatcher(None, datax, newdatax_copy)
-                good = ""
-                bad = ""
-                for block in diffobj.get_opcodes():
-                    if block[0] != "equal":
-                        good += (
-                            "\033[1;32;49m%s\033[m" % newdatax_copy[block[1] : block[2]]
-                        )
-                        bad += "\033[1;31;49m%s\033[m" % datax[block[1] : block[2]]
-                    else:
-                        good += newdatax_copy[block[1] : block[2]]
-                        bad += datax[block[1] : block[2]]
-                Bingo = True
-                break
-            # elif DEBUG is True:
-            #     pass
-            # print("data:%s Oldcrc:%s != checksum:%s"%(newdatax_copy,OldCrc,checksum))
-        needle += 1
+                if checksum == OldCrc:
+                    diffobj = difflib.SequenceMatcher(None, datax, newdatax_copy)
+                    good = ""
+                    bad = ""
+                    for block in diffobj.get_opcodes():
+                        if block[0] != "equal":
+                            good += (
+                                "\033[1;32;49m%s\033[m" % newdatax_copy[block[1] : block[2]]
+                            )
+                            bad += "\033[1;31;49m%s\033[m" % datax[block[1] : block[2]]
+                        else:
+                            good += newdatax_copy[block[1] : block[2]]
+                            bad += datax[block[1] : block[2]]
+                    Bingo = True
+                    break
+
+            needle += 1
+        else:
+            needle = 0
+            needle2 += 2
+#            print("needle2 = ",needle2)
+#            Pause("poz2")
+
+
+
     WORKING = False
 
     if Bingo is True:
@@ -3651,6 +3663,8 @@ def FullChunkForcerWithCrc(File, Chunk, OldCrc, DataOffset, ChunkLenght, FromErr
             % (OldCrc, datax, newdatax_copy)
         )
 
+     #   Pause("Theend")
+     #   TheEnd()
         return CheckPoint(
             True,
             True,
@@ -5012,8 +5026,6 @@ def Relics(FromError):
                             tools_values,
                         )
                     )
-            Candy("Cowsay", "Not yet implemented", "bad")
-            TheEnd()
 
 
         if len(Pandemonium) == 1:
