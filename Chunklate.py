@@ -4,11 +4,13 @@ from threading import Thread
 from datetime import datetime
 from contextlib import contextmanager
 import numpy as np
-import sys, os, binascii, re, random, time, zlib, cv2, ctypes, io, tempfile, difflib
+import sys, os, binascii, re, random, time, zlib, cv2, ctypes, io, tempfile, difflib, collections
 
 
 def GetInfo(Chunk, data):
     global SideNotes
+    global IDAT_Len_History
+    global IDAT_Avg_Len
     global IHDR_Height
     global IHDR_Width
     global IHDR_Depht
@@ -334,6 +336,12 @@ def GetInfo(Chunk, data):
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
     if Chunk == "IDAT":
+        IDAT_Len_History.append(int(Raw_Length, 16))
+        try:
+           IDAT_Avg_Len= collections.Counter(IDAT_Len_History).most_common(1)[0][0]
+        except:
+           IDAT_Avg_Len = IDAT_Len_History[-1]
+
         print("-Image Datastream.")
 
     if Chunk == "pHYs":
@@ -3490,45 +3498,53 @@ def FullChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError):
 
     if DEBUG is False:
          Thread(target = Loadingbar).start()
-    datax = data.hex()[DataOffset : ChunkLenght]
+    datax = data.hex()[DataOffset : ChunkLenght] #datax[16:-8]
     Bingo = False
     result = "result is empty"
-    haystack = len(datax[16:-8])
     needle = 0
-    while needle < 16**haystack:
-        newdatax = hex(needle).replace("0x", "").zfill(haystack)
-        newbytes = bytes.fromhex(newdatax)
-        checksum = hex(binascii.crc32(Chunk + newbytes)).replace("0x", "").zfill(8)
-        fullnewdatax = datax[:16]+newdatax+checksum
-        newfilewanabe = DATAX[:DataOffset] + fullnewdatax + DATAX[ChunkLenght:]
-        try:
-            with stderr_redirector(f):
-                newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
-                newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_COLOR)
-                cv2.imread(newfile)
-            result = "{0}".format(f.getvalue().decode("utf-8"))
-        except Exception as e:
-                if DEBUG is True:
-                    print(Candy("Color", "red", "FullChunkForcerNoCrc Error:"), Candy("Color", "yellow", e))
-                    print("fullnewdatax:",fullnewdatax)
-        if "libpng error" not in result and result != "result is empty":
-           diffobj = difflib.SequenceMatcher(None, datax[16:], fullnewdatax)
-           good = ""
-           bad = ""
-           for block in diffobj.get_opcodes():
-               if block[0] != "equal":
-                    good += (
-                             "\033[1;32;49m%s\033[m" % fullnewdatax[block[1] : block[2]]
-                                )
-                    bad += "\033[1;31;49m%s\033[m" % datax[16:][block[1] : block[2]]
-               else:
-                    good += fullnewdatax[block[1] : block[2]]
-                    bad += datax[16:][block[1] : block[2]]
-           Bingo = True
-           break
+    needle2 = 2
+    while needle2 <= len(datax) and Bingo is False:
+        if needle < len(datax) - (needle2-1) and Bingo is False:
+            for hexa in range(0, 16**needle2):
+                newbyte = (hex(hexa).replace("0x", "")).zfill(needle2)
+                newdatax_copy = datax[:needle] + newbyte + datax[needle + len(newbyte) :]
+                newdatax = bytes.fromhex(newdatax_copy)
+                checksum = hex(binascii.crc32(Chunk + newdatax)).replace("0x", "").zfill(8)
+                fullnewdatax = datax[:16]+newdatax+checksum
+                newfilewanabe = DATAX[:DataOffset] + fullnewdatax + DATAX[ChunkLenght:]
 
-
-        needle = needle + 1
+#                print(newdatax_copy)
+                try:
+                    with stderr_redirector(f):
+                        newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
+                        newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_COLOR)
+                        cv2.imread(newfile)
+                    result = "{0}".format(f.getvalue().decode("utf-8"))
+                except Exception as e:
+                        if DEBUG is True:
+                            print(Candy("Color", "red", "FullChunkForcerNoCrc Error:"), Candy("Color", "yellow", e))
+                            print("fullnewdatax:",fullnewdatax)
+                if "libpng error" not in result and result != "result is empty":
+                   diffobj = difflib.SequenceMatcher(None, datax[16:], fullnewdatax)
+                   good = ""
+                   bad = ""
+                   for block in diffobj.get_opcodes():
+                       if block[0] != "equal":
+                            good += (
+                                     "\033[1;32;49m%s\033[m" % fullnewdatax[block[1] : block[2]]
+                                        )
+                            bad += "\033[1;31;49m%s\033[m" % datax[16:][block[1] : block[2]]
+                       else:
+                            good += fullnewdatax[block[1] : block[2]]
+                            bad += datax[16:][block[1] : block[2]]
+                   Bingo = True
+                   break
+            needle += 1
+        else:
+            needle = 0
+            needle2 += 2
+#            print("needle2 = ",needle2)
+#            Pause("poz2")
     WORKING = False
     if Bingo is True:
         print(
@@ -3614,7 +3630,7 @@ def FullChunkForcerWithCrc(File, Chunk, OldCrc, DataOffset, ChunkLenght, FromErr
             for hexa in range(0, 16**needle2):
                 newbyte = (hex(hexa).replace("0x", "")).zfill(needle2)
                 newdatax_copy = datax[:needle] + newbyte + datax[needle + len(newbyte) :]
-                newdatax = bytes.fromhex(datax[:needle] + newbyte + datax[needle + needle2 :])
+                newdatax = bytes.fromhex(newdatax_copy)
                 checksum = hex(binascii.crc32(Chunk + newdatax)).replace("0x", "").zfill(8)
 #                print(newdatax_copy)
 
@@ -4074,7 +4090,7 @@ def Double_Check(CType, ChunkLen, LastCType):
 
 def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck=None):
     Candy("Title", "Chunk N Destroy:")
-    Candy("Cowsay", " Let me check if i can fix that shit..", "com")
+    Candy("Cowsay", "Now where shall i start..?", "com")
 
     if DoubleCheck is None:
         Excluded = CheckChunkOrder(LastCType, "Fix")
@@ -4851,14 +4867,13 @@ def CheckLength(Cdata, Clen, Ctype):
 
     if int(Clen, 16) > 26736:
         Candy("Cowsay", " Really!? That much ?", "com")
-
     if len(Orig_NC) == 0:
         Candy(
             "Cowsay",
             " ..And this is what iv found there: " + Candy("Color", "red", "[NOTHING]"),
             "com",
         )
-        return CheckPoint(True, False, "CheckLength", Ctype, ["-No NextChunk"], Clen)
+        return CheckPoint(True, False, "CheckLength", Ctype, ["-No NextChunk"], Ctype, Clen, Chunks_History[-1])
     else:
         Candy(
             "Cowsay",
@@ -5236,6 +5251,7 @@ def FixItFelix(Chunk=None):
     global Skip_Bad_Missplaced
     global Skip_Bad_Critical
     global Skip_Bad_Libpng
+    global Old_Bad_Crc
     global EOF
     global Show_Must_Go_On
 
@@ -5343,7 +5359,7 @@ def FixItFelix(Chunk=None):
                         "com",
                     )
                 Answer = Question()
-                if Answer is True:
+                if Answer is False:
                     return SaveClone(
                         PandoraBox[key][chkd + "0"],
                         PandoraBox[key][chkd + "1"],
@@ -5359,6 +5375,7 @@ def FixItFelix(Chunk=None):
                         ),
                     )
                 else:
+                    Old_Bad_Crc = PandoraBox[key][chkd + "5"]
                     Skip_Bad_Crc = True
 
             else:
@@ -5418,18 +5435,84 @@ def FixItFelix(Chunk=None):
                 if str(key) not in Cornucopia:
                     print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
                     Ancillary(PandoraBox[key][chkd + "0"])
+
+                    if Chunks_History[-1] == b"IDAT":
+                           if IDAT_Avg_Len != int(PandoraBox[key][chkd + "1"],16):
+
+                                Candy(
+                                     "Cowsay",
+                                     "This must be a joke , we are having a wrong chunkname on one side...",
+                                     "bad",
+                                     )
+
+                                Candy(
+                                     "Cowsay",
+                                     "Another on the other side ...",
+                                     "bad",
+                                     )
+
+                                Candy(
+                                     "Cowsay",
+                                     "And the chunk's length is different from the one usually used somehow..",
+                                     "bad",
+                                     )
+
+                                Candy(
+                                     "Cowsay",
+                                     "All of this only means one thing for me ...more coding.",
+                                     "com",
+                                     )
+                                TheEnd()
+
                     if Bad_Ancillary is True:
                         Candy(
                             "Cowsay",
-                            "I don't know that chunk but it has passed Ancillary nomenclature check and since Crc is valid too this may be a legit private chunk..",
+                            "I don't know that chunk but it has passed Ancillary nomenclature check ..",
                             "com",
                         )
+                        if Bad_Crc is True:
+                            Candy(
+                                "Cowsay",
+                                "But since Crc is not valid there is more chances that this Chunkname is corrupt.",
+                            "bad",
+                            )
+                        else:
+
+                            Candy(
+                                "Cowsay",
+                                "and since Crc is valid too this may be a legit private chunk..",
+                            "com",
+                            )
+
+
                     else:
+
+
                         Candy(
                             "Cowsay",
-                            "Hum errors has been detected but the CRC is still Valid !!! Usually this means that it has been made on purpose by someone...",
+                            "I don't know that chunk and it has failed Ancillary nomenclature check ..",
                             "bad",
                         )
+                        if Bad_Crc is True:
+                            Candy(
+                                "Cowsay",
+                                "And since Crc is wrong this definitely looks like a corrupted Chunkname .",
+                            "bad",
+                            )
+                        else:
+
+                            Candy(
+                                "Cowsay",
+                                "But the CRC is still Valid !!! Usually this means that it has been made on purpose by someone...",
+                            "bad",
+                            )
+
+                            Candy(
+                                "Cowsay",
+                                "Or....SOMEHTING !!",
+                            "com",
+                            )
+
 
                     Candy(
                         "Cowsay",
@@ -5463,7 +5546,7 @@ def FixItFelix(Chunk=None):
             if Skip_Bad_No_Next_Chunk is False:
                 print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
                 GoodEnding = "0000000049454E44AE426082"
-                if Chunk == "IEND" and int(PandoraBox[key][chkd + "0"]) == 0:
+                if Chunk == "IEND" and int(PandoraBox[key][chkd + "1"]) == 0:
                     for key in PandoraBox:
                         if "No NextChunk" in str(key):
                             Candy(
@@ -5499,14 +5582,34 @@ def FixItFelix(Chunk=None):
                         print(DATAX[-len(GoodEnding) :])
                         SideNotes.append("-Not ending with regular IEND Chunk")
                         TheEnd()
-                elif ToolKit[0] == "IEND":
+                elif PandoraBox[key][chkd + "0"] == "IEND":
+                    print("-%s length for IEND %s "%(Candy("Color", "red", "Wrong"),Candy("Emoj", "bad")))
+
                     SideNotes.append("-Wrong length for IEND")  # TODO
                     TheEnd()
+
                 else:
+                    print(
+                         "\n-End of File Reached but IEND Chunk is %s ! %s"
+                         %(Candy("Color", "red", " MISSING! "),Candy("Emoj", "bad"))
+                    )
+
                     SideNotes.append(
                         "-End of File Reached but IEND Chunk is missing"
-                    )  # TODO
-                    TheEnd()
+                    ) 
+
+                    Candy(
+                        "Cowsay",
+                        "A length error maybe ? Do you want me to have a look ?",
+                        "com",
+                    )
+
+                    Answer = Question()
+                    if Answer is True:
+                       return(NearbyChunk(PandoraBox[key][chkd + "0"], PandoraBox[key][chkd + "1"], PandoraBox[key][chkd + "2"]))
+                    else:
+                        TheEnd()
+
         elif "gAMA Chunk of 0 is Useless" in str(key):
                         Candy("Cowsay", "Bah that's that's just a warning who cares ?! !", "good")
                         PandoraBox.pop(key, "key_not_found")
@@ -5740,6 +5843,8 @@ def main():
     global ERRORSFLAG
     global PandoraBox
     global Cornucopia
+    global IDAT_Len_History
+    global IDAT_Avg_Len
     global Chunks_History
     global Chunks_History_Index
     global Bytes_History
@@ -5848,6 +5953,8 @@ def main():
         EOF = False
         Show_Must_Go_On = False
         TmpFixIHDR = False
+        IDAT_Len_History = []
+        IDAT_Avg_Len = ""
         Chunks_History = []
         Chunks_History_Index = []
         Bytes_History = []
@@ -6063,8 +6170,8 @@ ALLCHUNKS = [
     b"MEND",
 ]
 
-
 Chunks_History = []
+IDAT_Len_History = []
 Chunks_History_Index = []
 pCAL_Param = []
 PLTE_R = []
@@ -6136,6 +6243,9 @@ PAUSE = False
 DEBUG = False
 AUTO = False
 CLONESWAR = False
+
+Old_Bad_Crc = ""
+IDAT_Avg_Len = ""
 FILE_Origin = ""
 FILE_DIR = ""
 Loading_txt = ""
