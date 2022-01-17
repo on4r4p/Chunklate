@@ -3918,7 +3918,7 @@ def FindFuckingMagic():
 
 
 def Ancillary(Chunk):
-    global AnciCheck
+    global Bad_Ancillary
     Candy("Title", "Ancillary Check:", Candy("Color", "white", Chunk))
     Charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
     Semantics = []
@@ -3947,7 +3947,7 @@ def Ancillary(Chunk):
             "com",
         )
         Candy("Cowsay", "..Or Not even a chunk's name at all ...", "bad")
-        AnciCheck = False
+        Bad_Ancillary = False
 
     elif len(Semantics) == 4:
         print(
@@ -4013,7 +4013,7 @@ def Ancillary(Chunk):
                 + ":"
                 + Candy("Color", "yellow", "Safe to Copy")
             )
-        AnciCheck = True
+        Bad_Ancillary = True
 
 
 def NullFind(data, search4=None):
@@ -4601,7 +4601,11 @@ def BruteChunk(CType, LastCType, ChunkLen, FromError):
     ErrorA = False
     BingoLst = []
     ToFix = []
-
+    if DEBUG is True:
+        print(CType)
+        print(LastCType)
+        print(ChunkLen)
+        print(FromError)
     if type(CType) == bytes:
         CTypeLst = [i.lower() for i in CType.decode(errors="ignore")]
     else:
@@ -4863,10 +4867,15 @@ def CheckLength(Cdata, Clen, Ctype):
         "com",
     )
 
-    ToBitstory(int(Clen, 16))
+#    ToBitstory(int(Clen, 16))
 
     if int(Clen, 16) > 26736:
         Candy("Cowsay", " Really!? That much ?", "com")
+
+    if Chunks_History[-1] == b"IDAT":
+        if IDAT_Avg_Len != int(Clen,16):
+             Candy("Cowsay", "Weird why does the length is not the same as before ?", "com")
+
     if len(Orig_NC) == 0:
         Candy(
             "Cowsay",
@@ -5294,8 +5303,7 @@ def FixItFelix(Chunk=None):
         print("Skip_Bad_Missplaced:", Skip_Bad_Missplaced)
         print("Skip_Bad_Libpng:", Skip_Bad_Libpng)
         print()
-        print("PandoraBox:")
-        print(PandoraBox)
+        print("PandoraBox:\n",PandoraBox)
 
         for nb, key in enumerate(PandoraBox):
 
@@ -5315,17 +5323,23 @@ def FixItFelix(Chunk=None):
         if PAUSE is True:
             Pause("FixItFelix Debug Pause:")
 
+    if Bad_Next_Name is False:
+        PandoraBox_len = len(PandoraBox) 
+    else: 
+        PandoraBox_len = len(PandoraBox) - 1
+
     for nb, key in enumerate(PandoraBox):
 
         if "Wrong Crc" in str(key) and Skip_Bad_Crc is False:
 
             if str(key) not in Cornucopia:
                 print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
-                if len(PandoraBox) <= 1:
+
+                if PandoraBox_len <= 1:
                     Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
                     Candy(
                         "Cowsay",
-                        "This looks like an easy fix since there is no other errors beside the Crc issue.Do you wish to try to fix it ?",
+                        "This looks like an easy fix since there is no real errors beside the Crc issue.Do you wish to try to fix it ?",
                         "com",
                     )
                     Answer = Question()
@@ -5350,9 +5364,10 @@ def FixItFelix(Chunk=None):
                     Candy(
                         "Cowsay",
                         "Crc checksum is not valid and there are %s other errors !"
-                        % (len(PandoraBox) - 1),
+                        % (PandoraBox_Len),
                         "bad",
                     )
+
                     Candy(
                         "Cowsay",
                         "We may want to fix them first before jumping on that Crc what do you think ?",
@@ -5436,34 +5451,6 @@ def FixItFelix(Chunk=None):
                     print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
                     Ancillary(PandoraBox[key][chkd + "0"])
 
-                    if Chunks_History[-1] == b"IDAT":
-                           if IDAT_Avg_Len != int(PandoraBox[key][chkd + "1"],16):
-
-                                Candy(
-                                     "Cowsay",
-                                     "This must be a joke , we are having a wrong chunkname on one side...",
-                                     "bad",
-                                     )
-
-                                Candy(
-                                     "Cowsay",
-                                     "Another on the other side ...",
-                                     "bad",
-                                     )
-
-                                Candy(
-                                     "Cowsay",
-                                     "And the chunk's length is different from the one usually used somehow..",
-                                     "bad",
-                                     )
-
-                                Candy(
-                                     "Cowsay",
-                                     "All of this only means one thing for me ...more coding.",
-                                     "com",
-                                     )
-                                TheEnd()
-
                     if Bad_Ancillary is True:
                         Candy(
                             "Cowsay",
@@ -5483,7 +5470,6 @@ def FixItFelix(Chunk=None):
                                 "and since Crc is valid too this may be a legit private chunk..",
                             "com",
                             )
-
 
                     else:
 
@@ -5514,14 +5500,51 @@ def FixItFelix(Chunk=None):
                             )
 
 
-                    Candy(
-                        "Cowsay",
-                        "Do you want me to try to fix this regardless of CRC's validity ?",
-                        "com",
-                    )
+                    if Chunks_History[-1] == b"IDAT" and Skip_Bad_Next_Name is False:
+                           if IDAT_Avg_Len != int(PandoraBox[key][chkd + "1"],16):
+                                   Candy(
+                                        "Cowsay",
+                                        "By the way IDAT chunk's length is different from the one usually used for some reason..",
+                                   "com",
+                            )
+                                   Candy(
+                                     "Cowsay",
+                                     "May i suggest to start by checking if this a length problem ?",
+                                     "good",
+                                   )
+                                   Answer = Question()
+                                   if Answer is True:
+#def BruteChunk(CType, LastCType, ChunkLen, FromError):
+                        #if Chunks_History[-1] == b"IDAT":
+                        #   if IDAT_Avg_Len != int(PandoraBox[key][chkd + "1"],16):
+
+                                        return(NearbyChunk(PandoraBox[key][chkd + "0"], PandoraBox[key][chkd + "1"], PandoraBox[key][chkd + "2"]))
+
+                                   else:
+                                          Skip_Bad_Next_Name = True
+
+
+
+#NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck=None)
+                    if Bad_Crc is False:
+                         Candy(
+                             "Cowsay",
+                             "Do you want me to try to fix this regardless of CRC's validity ?",
+                             "com",
+                              )
+                    else:
+                         Candy(
+                             "Cowsay",
+                             "How about im taking care of this ?",
+                             "com",
+                              )
 
                     Answer = Question()
                     if Answer is True:
+#def BruteChunk(CType, LastCType, ChunkLen, FromError):
+                        #if Chunks_History[-1] == b"IDAT":
+                        #   if IDAT_Avg_Len != int(PandoraBox[key][chkd + "1"],16):
+
                         return BruteChunk(
                             PandoraBox[key][chkd + "0"],
                             PandoraBox[key][chkd + "3"],
@@ -5837,7 +5860,7 @@ def main():
     global DEBUG
     global AUTO
     global CLONESWAR
-    global AnciCheck
+    global Bad_Ancillary
     global FILE_DIR
     global DATAX
     global ERRORSFLAG
@@ -5928,7 +5951,6 @@ def main():
             else:
                 FirStart = False
 
-        AnciCheck = False  # tmpfix
         Bad_Current_Name = False
         Bad_Ancillary = False
         Bad_No_Next_Chunk = False
@@ -6273,7 +6295,7 @@ NCoffX = ""
 NCoffB = ""
 NCoffI = ""
 NCoff_CRC = ""
-AnciCheck = ""
+Bad_Ancillary = ""
 CDoffX = ""
 CDoffB = ""
 CDoffI = ""
