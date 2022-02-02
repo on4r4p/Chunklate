@@ -9,7 +9,10 @@ import sys, os, binascii, re, random, time, zlib, cv2, ctypes, io, tempfile, dif
 
 def GetInfo(Chunk, data):
     global SideNotes
-    global IDAT_Len_History
+    global IDAT_Bytes_Len
+    global IDAT_Datastream
+    global idatcounter
+    global IDAT_Bytes_Len_History
     global IDAT_Avg_Len
     global IHDR_Height
     global IHDR_Width
@@ -350,12 +353,14 @@ def GetInfo(Chunk, data):
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
     if Chunk == "IDAT":
-        IDAT_Len_History.append(int(Raw_Length, 16))
+        IDAT_Bytes_Len_History.append(int(Raw_Length, 16))
         try:
-           IDAT_Avg_Len= collections.Counter(IDAT_Len_History).most_common(1)[0][0]
+           IDAT_Avg_Len= collections.Counter(IDAT_Bytes_Len_History).most_common(1)[0][0]
         except:
-           IDAT_Avg_Len = IDAT_Len_History[-1]
-
+           IDAT_Avg_Len = IDAT_Bytes_Len_History[-1]
+        IDAT_Bytes_Len += len(data)
+        IDAT_Datastream +=data
+        idatcounter += 1 
         print("-Image Datastream.")
 
     if Chunk == "pHYs":
@@ -3393,6 +3398,14 @@ def ChunkStory(action, Chunk ,start,end,chuck_lenght):
                    Pause("Pause:Chunkstory")
 
 def TheEnd():
+    if DEBUG is True:
+
+       print("Chnks nbr:",len(Chunks_History_Index))
+       print("idacounter:",idatcounter)
+       print(Chunks_History)
+       print("IDAT_Bytes_Len:%s Offset:%s"%(IDAT_Bytes_Len,IDAT_Bytes_Len/2))
+    if PAUSEDEBUG is True:
+         Pause("ThenEnd debug")
     Summarise(None, True)
     Chunklate(0)
     sys.exit(0)
@@ -5199,6 +5212,7 @@ def Relics(FromError):
     Candy("Title", "Opening the Ark Of The Covenant :")
 
     if DEBUG is True:
+            print("len pandemonium :",len(Pandemonium))
             for nb, key in enumerate(PandoraBox):
                                      print("Pandorbox Key:",str(key))
                                      for toolkey, keyvalue in PandoraBox[key].items():
@@ -5218,7 +5232,7 @@ def Relics(FromError):
                 "%s:-Errors fixed in File %s :"
                 % (Candy("Color", "white", "[File:%s]" % nb1), file)
             )
-            
+
             for nb2, (errors, errors_values) in enumerate(file_value.items()):
                 print("%s:%s" % (Candy("Color", "red", "    [-%s]" % nb2), errors))
                 for nb3, (tools, tools_values) in enumerate(errors_values.items()):
@@ -5230,23 +5244,23 @@ def Relics(FromError):
                             tools_values,
                         )
                     )
-            
-            Candy("Cowsay", "Not implemented yet", "bad")
-            TheEnd()
+
+
 
         if len(Pandemonium) == 1:
             Candy("Cowsay", "Only one Error,That is short indeed ..", "com")
 
             for nb1, (file, file_value) in enumerate(Pandemonium.items()):
-                Chunkname = "".join(
-                    [
-                        chnk.decode(errors="ignore")
-                        for chnk in ALLCHUNKS
-                        if chnk.decode(errors="ignore") in file
-                    ]
-                )
                 for nb2, (errors, errors_values) in enumerate(file_value.items()):
                     if "Wrong Crc" in errors:
+                        for nb3, (tools, tools_values) in enumerate(errors_values.items()):
+                            Chunkname = "".join(
+                            [
+                                chnk.decode(errors="ignore")
+                                for chnk in ALLCHUNKS
+                                if chnk.decode(errors="ignore") in tools
+                            ]
+                            )
 
                         Candy(
                             "Cowsay",
@@ -5264,7 +5278,7 @@ def Relics(FromError):
                             "How about taking a coffee break while im taking care of something?",
                             "good",
                         )
-
+                        print("Chunkname:",Chunkname)
                         # def Checksum(Ctype, Cdata, Crc,next=None):
                         Chunk = Pandemonium[file][errors][Chunkname + "_Tool_3"]
                         OldCrc = Pandemonium[file][errors][Chunkname + "_Tool_5"]
@@ -5300,6 +5314,12 @@ def Relics(FromError):
                                 Pause("Pause Pandemonium Debug")
                         TheEnd()
             return ()
+
+        if len(Pandemonium) > 1: 
+
+                Candy("Cowsay", "Not implemented yet", "bad")
+                TheEnd()
+
 
     else:
 
@@ -6025,6 +6045,9 @@ def Pause(msg):
 
 
 def main():
+    global IDAT_Bytes_Len
+    global IDAT_Datastream
+    global idatcounter
     global FirStart
     global FILE_Origin
     global CLEAR
@@ -6040,7 +6063,7 @@ def main():
     global ERRORSFLAG
     global PandoraBox
     global Cornucopia
-    global IDAT_Len_History
+    global IDAT_Bytes_Len_History
     global IDAT_Avg_Len
     global Chunks_History
     global Chunks_History_Index
@@ -6123,6 +6146,10 @@ def main():
     DEBUG = Args.DEBUG
     AUTO = Args.AUTO
     Sample = FILE_Origin
+
+    if PAUSEDEBUG is True:
+        DEBUG = True
+
     while True:
 
         if CLEAR is True:
@@ -6133,7 +6160,8 @@ def main():
                     os.system("cls")
             else:
                 FirStart = False
-
+        IDAT_Bytes_Len = 0
+        IDAT_Datastream = ""
         Bad_Current_Name = False
         Bad_Ancillary = False
         Bad_No_Next_Chunk = False
@@ -6158,7 +6186,7 @@ def main():
         EOF = False
         Show_Must_Go_On = False
         TmpFixIHDR = False
-        IDAT_Len_History = []
+        IDAT_Bytes_Len_History = []
         IDAT_Avg_Len = ""
         Chunks_History = []
         Chunks_History_Index = []
@@ -6378,7 +6406,7 @@ ALLCHUNKS = [
 
 IFOP = []
 Chunks_History = []
-IDAT_Len_History = []
+IDAT_Bytes_Len_History = []
 Chunks_History_Index = []
 pCAL_Param = []
 PLTE_R = []
@@ -6455,6 +6483,9 @@ PAUSEERROR = False
 AUTO = False
 CLONESWAR = False
 
+IDAT_Bytes_Len = 0
+IDAT_Datastream = ""
+idatcounter=0
 Old_Bad_Crc = ""
 IDAT_Avg_Len = ""
 FILE_Origin = ""
