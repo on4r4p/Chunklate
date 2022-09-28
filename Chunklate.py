@@ -4289,21 +4289,67 @@ def FindFuckingMagic():
                     )
             try:
                NearestPos = sorted(ChunksFound.items(), key=lambda kv: kv[1])[0][1]
+               NearestChk = sorted(ChunksFound.items(), key=lambda kv: kv[1])[0][0]
+
             except Exception as e:
                 Betterror(e, inspect.stack()[0][3])
                 if DEBUG is True:
                     print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
 
-            NearestPos = NearestPos - 8
+            Lenx = DATAX[NearestPos - 8:NearestPos]
+            stop = False
+            for key in KNOWN_CHUNKS_LN:
+                 if stop is True:
+                     break
+                 for name,value in KNOWN_CHUNKS_LN[key].items():
+                    if key == NearestChk:
+                         Candy(
+                           "Cowsay",
+                           "Kay ..Just Checking if the Lenght part is legit..",
+                           "com",
+                            )
+                         print("-Before %s : %s "%(NearestChk,Lenx))
+                         if name == "fixed":
+                              LenxReal = hex(int(value[0])).replace("0x", "").zfill(8)
+                              print("-Real %s Length: %s "%(key,LenxReal))
+
+                              if LenxReal == Lenx:
+
+                                  Candy(
+                                     "Cowsay",
+                                     "Looks good to me !",
+                                     "good",
+                                     )
+                                  stop = True
+                                  break
+                              else:
+                                  Candy(
+                                     "Cowsay",
+                                     "Lenght part is corrupted!",
+                                     "bad",
+                                     )
+                                  print("-Replacing corrupted part with :",LenxReal)
+                                  Lenx = LenxReal
+                                  stop = True
+                                  break
+                         elif name == "range":
+                              print("todo")
+                         else:
+                              print("todo")
+
+                     #print("Chunk:",key)
+                     #print("name:%s value:%s"%(name,value))
+                     #print("min:%s, max:%s"%(value[0],value[1]))
+#            BeforeLnPos = NearestPos - 8
             try:NearestPosX = hex(int(NearestPos / 2))
             except ZeroDivisionError:NearestPosX = hex(int(0))
 
-            Odin = Magic + DATAX[NearestPos : :]
+            Odin = Magic + Lenx +DATAX[NearestPos : :]
             if DEBUG is True:
                 print("Odin[NearestPos:NearestPos+64]:")
-                print(Odin[NearestPos:NearestPos+64])
+                print(Odin[:NearestPos+64])
                 print("DATAX[NearestPos:NearestPos+64]:")
-                print(DATAX[NearestPos:NearestPos+64])
+                print(DATAX[:NearestPos+64])
 
             return CheckPoint(
                 False,
