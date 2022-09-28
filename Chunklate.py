@@ -714,8 +714,24 @@ def GetInfo(Chunk, data):
             PLTE_B.append(str(pltb))
 
         print("-%s Red palettes are stored." % Candy("Color", "yellow", len(PLTE_R)))
+        if len(PLTE_R) > 256:
+              Candy(
+                   "Color", "red", "Error palettes red Total number must be < 256 but is :",len(PLTE_R)
+                    )
+              ToFix.append("-Error PLTER > 256 :",len(PLTE_R))
+
         print("-%s Green palettes are stored." % Candy("Color", "yellow", len(PLTE_G)))
+        if len(PLTE_G) > 256:
+              Candy(
+                   "Color", "red", "Error palettes green Total number must be < 256 but is :",len(PLTE_G)
+                    )
+              ToFix.append("-Error PLTER > 256 :",len(PLTE_R))
         print("-%s Blue palettes are stored." % Candy("Color", "yellow", len(PLTE_B)))
+        if len(PLTE_B) > 256:
+              Candy(
+                   "Color", "red", "Error palettes blue Total number must be < 256 but is :",len(PLTE_B)
+                    )
+              ToFix.append("-Error PLTER > 256 :",len(PLTE_R))
         print(
             "-%s RGB palettes are stored."
             % Candy("Color", "yellow", len(PLTE_R) + len(PLTE_G) + len(PLTE_B))
@@ -1085,8 +1101,8 @@ def GetInfo(Chunk, data):
                 ToFix.append("-PLTE Chunk sPLT is missing.(hIST must be used after one of them)")
             try:
                 pos = 0
-                for plt in range(0, len(data), 2):
-                    hIST.append(data[plt : plt + 2])
+                for plt in range(0, len(data), 4):
+                    hIST.append(data[plt : plt + 4])
                     pos = plt
                 print(
                     "-%s Histogram frequencies are stored."
@@ -3420,8 +3436,8 @@ def Candy(mode, arg, data=None):
             )
 
         print(Cowsay)
-        if DEBUG is True:
-             time.sleep(1)
+        if PAUSEDIALOGUE is True:
+             pause = input("-Pause Dialogue-")
 
     if mode == "Title":
         BotL = "╰─"
@@ -4940,7 +4956,7 @@ def CheckChunkOrder(lastchunk, mode):
                 Candy(
                     "Cowsay",
                     " So ..the last Chunk Type was IDAT so we either looking for another IDAT,IEND or one of them:%s"
-                    % [i.decode(errors="ignore") for i in NOT_POSITIONAL_CHUNKS],
+                    % [i.decode(errors="ignore") for i in NO_ORDER_CHUNKS],
                     "com",
                 )
 
@@ -5039,7 +5055,7 @@ def BruteChunk(CType, LastCType, ChunkLen, FromError):
                 "Score %s ,if you choose this name enter number: %s"
                 % (Candy("Color", "green", j), Candy("Color", "yellow", i))
             )
-
+        
         print(
             "\nIf you feel as lost as me then this might be a Length Problem type : wtf"
         )
@@ -5050,14 +5066,16 @@ def BruteChunk(CType, LastCType, ChunkLen, FromError):
                 if (Choice.lower() != "quit" or Choice.lower() != "wtf") and int(
                     Choice
                 ) <= len(BingoLst):
-                    SaveClone(
-                        BingoLst[int(Choice)].encode().hex(),
-                        CrcoffI + 16,
-                        CrcoffI + 24,
-                        "-Found Chunk[%s] has wrong name at offset: %s\n-Chunk seems corrupted user has decided to choose Chunk[%s] as a replacement."
-                        % (Orig_CT, CToffX, BingoLst[int(Choice)].encode()),
-                    )
-                    return ()
+                    if int(Choice) in range(0,len(BingoLst)):
+                        answer = BingoLst[int(Choice)].split(" ")[1]
+                        SaveClone(
+                            answer.encode().hex(),
+                            CrcoffI + 16,
+                            CrcoffI + 24,
+                            "-Found Chunk[%s] has wrong name at offset: %s\n-Chunk seems corrupted user has decided to choose Chunk[%s] as a replacement."
+                            % (Orig_CT, CToffX, BingoLst[int(Choice)].encode()),
+                        )
+                        return ()
             except Exception as e:
                 Betterror(e, inspect.stack()[0][3])
                 if DEBUG is True:
@@ -6305,6 +6323,7 @@ def main():
     global DEBUG
     global PAUSEDEBUG
     global PAUSEERROR
+    global PAUSEDIALOGUE
     global AUTO
     global CLONESWAR
     global Bad_Ancillary
@@ -6373,6 +6392,9 @@ def main():
         "-ep", "--pause-error", dest="PAUSEERROR", help="Pause at errors.", action="store_true"
     )
     parser.add_argument(
+        "-sp", "--pause-dialogue", dest="PAUSEDIALOGUE", help="Pause at dialogues.", action="store_true"
+    )
+    parser.add_argument(
         "-a", "--auto", dest="AUTO", help="Auto Choose action.", action="store_true"
     )
 
@@ -6393,6 +6415,7 @@ def main():
     PAUSE = Args.PAUSE
     PAUSEDEBUG = Args.PAUSEDEBUG
     PAUSEERROR = Args.PAUSEERROR
+    PAUSEDIALOGUE = Args.PAUSEDIALOGUE
     DEBUG = Args.DEBUG
     AUTO = Args.AUTO
     Sample = FILE_Origin
@@ -6589,6 +6612,8 @@ BEFORE_PLTE = [b"PNG", b"IHDR", b"gAMA", b"cHRM", b"iCCP", b"sRGB", b"sBIT"]
 
 AFTER_PLTE = [b"tRNS", b"hIST", b"bKGD"]  # but before idat
 
+KNOWN_CHUNKS_LN = {b"IHDR":{"fixed":[13,13]},b"PLTE":{"fixed":[1,768]},b"tRNS":{"color type:0":[2,512],"color type:2":[6,1536],"color type:3":[1,256]},b"gAMA":{"fixed":[4,4]},b"cHRM":{"fixed":[32,32]},b"sRGB":{"fixed":[1,1]},b"bKGD":{"color type:0":[2,2],"color type:2":[6,6],"color type:3":[1,1],"color type:4":[2,2],"color type:6":[6,6]},b"pHYs":{"fixed":[9,9]},b"sBIT":{"color type:0":[1,1],"color type:2":[3,3],"color type:3":[3,3],"color type:4":[2,2],"color type:6":[4,4]},b"hIST":{"fixed":[2,512]},b"tIME":{"fixed":[7,7]}}
+
 BEFORE_IDAT = [
         b"PNG",
         b"sPLT",
@@ -6642,7 +6667,7 @@ UNIQUE_CHUNK = [
         b"eXIf",
     ]
 
-NOT_POSITIONAL_CHUNKS = [b"tIME", b"tEXt", b"zTXt", b"iTXt", b"fRAc", b"gIFg", b"gIFx", b"gIFt"]
+NO_ORDER_CHUNKS = [b"tIME", b"tEXt", b"zTXt", b"iTXt", b"fRAc", b"gIFg", b"gIFx", b"gIFt"]
 
 
 
@@ -6793,6 +6818,7 @@ PAUSE = False
 DEBUG = False
 PAUSEDEBUG = False
 PAUSEERROR = False
+PAUSEDIALOGUE = False
 AUTO = False
 CLONESWAR = False
 
