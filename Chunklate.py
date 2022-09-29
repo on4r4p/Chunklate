@@ -47,7 +47,7 @@ def Error_Log(Err_to_log):
         Betterror(e, inspect.stack()[0][3])
 
 
-def GetInfo(Chunk, data):
+def GetInfo(Chunk, data,Dummy=False):
     global SideNotes
     global IDAT_Bytes_Len
     global IDAT_Datastream
@@ -2478,8 +2478,8 @@ def GetInfo(Chunk, data):
         if len(ToFix) > 0:
                 CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
-
-    CheckChunkOrder(Chunk, "TheGoodPlace")
+    if Dummy is False:
+       CheckChunkOrder(Chunk, "TheGoodPlace")
     return
 
 
@@ -4567,7 +4567,7 @@ def DummyChunk(Chunkname,bad_pos,bad_start,bad_end):
                        offset = 0
 
                     ChunkbyChunk(offset)
-                    GetInfo(Chk.decode(errors="ignore"), Raw_Data)
+                    GetInfo(Chk.decode(errors="ignore"), Raw_Data,True)
                     break
             Needle += 1
 
@@ -4735,7 +4735,6 @@ def TheGoodPlace(Missplaced_Chunkname,Missplaced_Chunkpos,ToFix_Chunkname):
             print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
 
 
-    print("tofix:",ToFix_Chunkname)
     for chnk,index in zip(Chunks_History,Chunks_History_Index):
          if ToFix_Chunkname == chnk:
             pos = int(index.split(":")[0].replace(" ",""))
