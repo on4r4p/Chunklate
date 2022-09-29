@@ -716,22 +716,22 @@ def GetInfo(Chunk, data):
         print("-%s Red palettes are stored." % Candy("Color", "yellow", len(PLTE_R)))
         if len(PLTE_R) > 256:
               Candy(
-                   "Color", "red", "Error palettes red Total number must be < 256 but is :",len(PLTE_R)
+                   "Color", "red", "Error palettes red Total number must be < 256 but is : %s"%len(PLTE_R)
                     )
-              ToFix.append("-Error PLTER > 256 :",len(PLTE_R))
+              ToFix.append("-Error PLTER > 256 :%s"%len(PLTE_R))
 
         print("-%s Green palettes are stored." % Candy("Color", "yellow", len(PLTE_G)))
         if len(PLTE_G) > 256:
               Candy(
-                   "Color", "red", "Error palettes green Total number must be < 256 but is :",len(PLTE_G)
+                   "Color", "red", "Error palettes green Total number must be < 256 but is : %s"%len(PLTE_G)
                     )
-              ToFix.append("-Error PLTER > 256 :",len(PLTE_R))
+              ToFix.append("-Error PLTER > 256 :%s"%len(PLTE_R))
         print("-%s Blue palettes are stored." % Candy("Color", "yellow", len(PLTE_B)))
         if len(PLTE_B) > 256:
               Candy(
-                   "Color", "red", "Error palettes blue Total number must be < 256 but is :",len(PLTE_B)
+                   "Color", "red", "Error palettes blue Total number must be < 256 but is : %s"%len(PLTE_B)
                     )
-              ToFix.append("-Error PLTER > 256 :",len(PLTE_R))
+              ToFix.append("-Error PLTER > 256 :%s"%len(PLTE_R))
         print(
             "-%s RGB palettes are stored."
             % Candy("Color", "yellow", len(PLTE_R) + len(PLTE_G) + len(PLTE_B))
@@ -2670,7 +2670,7 @@ def Chunklate(sec):
         "\033[1;37;49m",
     ]
 
-    lenght = "<[0x00000016]>"
+    length = "<[0x00000016]>"
     crc = "<[0x98bd5cb8]>"
 
     title = "\033[1;37;49m[\033[mC\033[1;37;49m|\033[mH\033[1;37;49m|\033[mU\033[1;37;49m|\033[mN\033[1;37;49m|\033[mK\033[1;37;49m|\033[mL\033[1;37;49m|\033[mA\033[1;37;49m|\033[mT\033[1;37;49m|\033[mE\033[1;37;49m]\033[m"
@@ -2681,7 +2681,7 @@ def Chunklate(sec):
     t_o_p = [i for i in top]
     b_o_t = [i for i in bot]
 
-    l_e_n = [i for i in lenght]
+    l_e_n = [i for i in length]
     c_r_c = [i for i in crc]
 
     colored_len = ""
@@ -3485,7 +3485,7 @@ def DigDigits(dig):
     return int(dig) if dig.isdigit() else dig
 
 
-def ChunkStory(action, Chunk ,start,end,chuck_lenght):
+def ChunkStory(action, Chunk ,start,end,chuck_length):
     global Chunks_History
     global Chunks_History_Index
 
@@ -3494,7 +3494,7 @@ def ChunkStory(action, Chunk ,start,end,chuck_lenght):
 
     if action == "add":
         Chunks_History.append(Chunk)
-        Chunks_History_Index.append(str(len(Chunks_History)-1)+":"+str(start)+":"+str(end)+":"+str(chuck_lenght))
+        Chunks_History_Index.append(str(len(Chunks_History)-1)+":"+str(start)+":"+str(end)+":"+str(chuck_length))
     elif action == "del":
         try:
             del Chunks_History[Chunks_History.index(Chunk)]
@@ -4141,7 +4141,7 @@ def FindFuckingMagic():
         Candy("Cowsay", " Looks like i gonna have to test them all.", "bad")
         print(Candy("Color", "yellow", "\n-ToDo"))
         SideNotes.append(
-            "-Found multiple potentials png signatures\n-Not Implemented yet"
+            "-FindFuckingMagic:Found multiple potentials png signatures\n-Not Implemented yet"
         )
         Candy("Cowsay", "Erf this case is not implemented yet ...", "bad")
         TheEnd()
@@ -4162,7 +4162,7 @@ def FindFuckingMagic():
         )
 
         SideNotes.append(
-            "-Png signatures matching score are too low\nLooking for any known Chunks in file-"
+            "-FindFuckingMagic:Png signatures matching score are too low\nLooking for any known Chunks in file-"
         )
 
         Candy("Cowsay", "!!Going into Super Sayan Mode!!", "bad")
@@ -4171,7 +4171,6 @@ def FindFuckingMagic():
         Needle = 0
 
         while Needle < len(DATAX):
-            Minibar()
             scopex = DATAX[Needle : Needle + 8]
             if len(scopex) < 8:
                 break
@@ -4226,6 +4225,7 @@ def FindFuckingMagic():
                 "Can't do much about that sorry ...",
                 "com",
                 )
+            SideNotes.append("-FindFuckingMagic:Haven't found any known png chunk in this file.")
             TheEnd()
         elif CheckIdat is False:
             Candy(
@@ -4238,14 +4238,10 @@ def FindFuckingMagic():
                 "Can't do much about that sorry ...",
                 "com",
                 )
+            SideNotes.append("-FindFuckingMagic:Haven't found any IDAT chunk in this file.")
             TheEnd()
 
         else:
-            Candy(
-                "Cowsay",
-                "So What do we have here...",
-                "good",
-                )
 
             for ck in ChunksFound:
                     print("ChunksFound Chunk:%s index:%s"%(ck,ChunksFound[ck]))
@@ -4276,7 +4272,8 @@ def FindFuckingMagic():
                     "bad",
                     )
 
-            
+                SideNotes.append("-FindFuckingMagic:Chunks known to be found before IDAT are missing.")
+ 
             Candy(
                   "Cowsay",
                   "Kay .. Let me try somthing.",
@@ -4296,59 +4293,26 @@ def FindFuckingMagic():
                 if DEBUG is True:
                     print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
 
-            Lenx = DATAX[NearestPos - 8:NearestPos]
-            stop = False
-            for key in KNOWN_CHUNKS_LN:
-                 if stop is True:
-                     break
-                 for name,value in KNOWN_CHUNKS_LN[key].items():
-                    if key == NearestChk:
-                         Candy(
-                           "Cowsay",
-                           "Kay ..Just Checking if the Lenght part is legit..",
-                           "com",
-                            )
-                         print("-Before %s : %s "%(NearestChk,Lenx))
-                         if name == "fixed":
-                              LenxReal = hex(int(value[0])).replace("0x", "").zfill(8)
-                              print("-Real %s Length: %s "%(key,LenxReal))
+            if NearestPos - 8 > 0:
+                Lenx = DATAX[NearestPos - 8:NearestPos]
+            else:
+                Lenx = DATAX[:NearestPos]
 
-                              if LenxReal == Lenx:
+            Specheck = SpecLenght(NearestChk,Lenx)
 
-                                  Candy(
-                                     "Cowsay",
-                                     "Looks good to me !",
-                                     "good",
-                                     )
-                                  stop = True
-                                  break
-                              else:
-                                  Candy(
-                                     "Cowsay",
-                                     "Lenght part is corrupted!",
-                                     "bad",
-                                     )
-                                  print("-Replacing corrupted part with :",LenxReal)
-                                  Lenx = LenxReal
-                                  stop = True
-                                  break
-                         elif name == "range":
-                              print("todo")
-                         else:
-                              print("todo")
-
-                     #print("Chunk:",key)
-                     #print("name:%s value:%s"%(name,value))
-                     #print("min:%s, max:%s"%(value[0],value[1]))
-#            BeforeLnPos = NearestPos - 8
+            if Specheck != Lenx and type(Specheck) != list:
+                 Lenx = Specheck
+            elif type(Specheck) == list:
+                 print(Candy("Color", "yellow", "\n-ToDo"))
+                 pass #brutefore
             try:NearestPosX = hex(int(NearestPos / 2))
             except ZeroDivisionError:NearestPosX = hex(int(0))
 
             Odin = Magic + Lenx +DATAX[NearestPos : :]
             if DEBUG is True:
-                print("Odin[NearestPos:NearestPos+64]:")
+                print("New:")
                 print(Odin[:NearestPos+64])
-                print("DATAX[NearestPos:NearestPos+64]:")
+                print("Old:")
                 print(DATAX[:NearestPos+64])
 
             return CheckPoint(
@@ -4542,6 +4506,86 @@ def Double_Check(CType, ChunkLen, LastCType):
     NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck=True)
 
 
+def DummyChunk(Chunkname,bad_pos,bad_start,bad_end):
+    Candy("Title", "Creating DummyChunk:")
+    print("bad pos:",bad_pos)
+    print("bad_start:",bad_start)
+    print("bad_end:",bad_end)
+    print("datax:",DATAX[bad_start:bad_end])
+
+    ChunksFound = {}
+    for c,i in zip(Chunks_History,Chunks_History_Index):
+          print("chunk:%s index:%s"%(c,i))
+
+    Candy(
+            "Cowsay",
+            "Mkay i will need to get some infos on the file before..",
+            "com",
+        )
+    Candy(
+            "Cowsay",
+            "Hang in there !",
+            "good",
+        )
+
+    Needle = 0
+    while Needle < len(DATAX):
+            scopex = DATAX[Needle : Needle + 8]
+            if len(scopex) < 8:
+                break
+            try:
+                scope = bytes.fromhex(scopex).lower()
+            except Exception as e:
+                Betterror(e, inspect.stack()[0][3])
+                if DEBUG is True:
+                    print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+                    print(
+                        Candy("Color", "red", "Scopex:"), Candy("Color", "yellow", scopex)
+                    )
+                    if PAUSEDEBUG is True or PAUSEERROR is True:
+                             Pause("Pause Debug")
+
+            NeedleI = int(Needle / 2)
+            NeedleX = hex(int(Needle / 2))
+            Data_End_OffsetI = NeedleI - 8
+            
+            for Chk in CHUNKS:
+                if Chk.lower() == scope:
+                    Candy("Cowsay", " Bingo!!!", "good")
+                    print(
+                        "-Found the closest Chunk to our position:%s at offset %s %s"
+                        % (
+                            Candy("Color", "green", Chk),
+                            Candy("Color", "blue", NeedleX),
+                            Candy("Color", "yellow", NeedleI),
+                        )
+                    )
+                    ChunksFound[Chk] = Needle
+                    if Needle - 8 > 0:
+                       offset = Needle - 8
+                    else:
+                       offset = 0
+
+                    ChunkbyChunk(offset)
+                    GetInfo(Chk.decode(errors="ignore"), Raw_Data)
+                    break
+            Needle += 1
+
+    if len(ChunksFound) == 0:
+            Candy(
+                "Cowsay",
+                " ...??Just Reach the EOF and found nothing!!",
+                "bad",
+                )
+            Candy(
+                "Cowsay",
+                "Can't do much about that sorry ...",
+                "com",
+                )
+    print(Candy("Color", "yellow", "\n-ToDo"))
+    TheEnd()
+
+
 def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck,FromError=None):
     Candy("Title", "Chunk N Destroy:")
     Candy("Cowsay", "Now where shall i start..?", "com")
@@ -4609,7 +4653,7 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck,FromError=None):
                     if b"IHDR" not in Chunks_History:
                         Candy("Cowsay", " Especially without IHDR chunk..", "bad")
                     print(Candy("Color", "yellow", "\n-ToDo"))
-                    SideNotes.append("-Missplaced Chunk")
+                    SideNotes.append("-NearbyChunk:Missplaced Chunk")
                     TheEnd()
                 else:
                     LenCalc = Data_End_OffsetI - CDoffB
@@ -4684,27 +4728,37 @@ def TheGoodPlace(Missplaced_Chunkname,Missplaced_Chunkpos,ToFix_Chunkname):
     bad_pos   = int(Chunks_History_Index[Missplaced_Chunkpos].split(":")[0].replace(" ",""))
     bad_start = int(Chunks_History_Index[Missplaced_Chunkpos].split(":")[1].replace(" ",""))
     bad_end   = int(Chunks_History_Index[Missplaced_Chunkpos].split(":")[2].replace(" ",""))
-    start,end = None,None
+    start,end,pos = None,None,None
 
     for nb, key in enumerate(PandoraBox):
         if "Missplaced" in str(key):
             print("\n-\033[1;31;49mCriticalHit\033[m: ", key)
 
 
-
+    print("tofix:",ToFix_Chunkname)
     for chnk,index in zip(Chunks_History,Chunks_History_Index):
          if ToFix_Chunkname == chnk:
             pos = int(index.split(":")[0].replace(" ",""))
             start = int(index.split(":")[1].replace(" ",""))
             end = int(index.split(":")[2].replace(" ",""))
-            break#Temp Break
+            break #Temp Break
 
-    if start and end == None:
+    if start == None and end == None:
 
-       print("-Missing Data %s %s"%(Candy("Color","red","Has Not Been Found"),Candy("emoj","bad")))    
+       print("-Missing Data %s %s"%(Candy("Color","red","Has Not Been Found"),Candy("Emoj","bad")))    
        Candy("Cowsay", "This is not good..", "bad")
-       Candy("Cowsay", "Not yet implemented", "bad")
-       TheEnd()
+       return CheckPoint(
+                True,
+                False,
+                "TheGoodPlace",
+                ToFix_Chunkname,
+                ["-Missing Data Has Not Been Found : [%s]",ToFix_Chunkname],
+                ToFix_Chunkname,
+                bad_pos,
+                bad_start,
+                bad_end
+            )
+
     else:
         print("\n-Found %s:[%s] at Chunk Position:%s Starting at:%s Ending at:%s %s"%(Candy("Color","green","Missing Data"),ToFix_Chunkname,pos,start,end,Candy("Emoj","good")))
         Candy("Cowsay", "Sounds good to me , where's my rubber tape already ?", "good")
@@ -4767,10 +4821,10 @@ def CheckChunkOrder(lastchunk, mode):
                     "-Critical Chunk %s is %s !"
                     % (chnk, Candy("Color", "red", "Missing"))
                 )
-                ToFix.append("-Critical Chunk %s is Missing" % chunk)
+                ToFix.append("-Critical Chunk %s is Missing" % chnk)
         if len(ToFix) > 0:
             CheckPoint(True, False, "CheckChunkOrder", "Critical", ToFix)
-            TheEnd()
+            #TheEnd()
         else:
             print(
                 "\n-Errors Check :"
@@ -5246,7 +5300,7 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
                  False,
                  "CheckChunkName",
                  CType,
-                 ["-Found Chunk[%s] has Wrong Chunk name at offset: %s and lenght is not the same than before." % (CType, CToffX)],
+                 ["-Found Chunk[%s] has Wrong Chunk name at offset: %s and length is not the same than before." % (CType, CToffX)],
                  CType,
                  ChunkLen,
                  CToffI,
@@ -5289,6 +5343,56 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
             LastCType,
             Next,
         )
+
+def SpecLenght(chunk_name,chunk_length):
+    global SideNotes
+
+    Candy("Title", "Checking Given Length against specification:")
+    Candy("Cowsay", "Kay ..Just Checking if the length part is legit..", "com")
+    stop = False
+    for key in KNOWN_CHUNKS_LN:
+                 if stop is True:
+                     break
+                 for name,value in KNOWN_CHUNKS_LN[key].items():
+                    if key == chunk_name:
+                         print("-Before %s Length is :%s "%(chunk_name,chunk_length))
+                         if "fixed" in name and not "color type:" in name:
+                              real_length = hex(int(value[0])).replace("0x", "").zfill(8)
+                              print("-Real %s Length: %s "%(key,real_length))
+
+                              if real_length == chunk_length:
+
+                                  Candy(
+                                     "Cowsay",
+                                     "Looks good to me !",
+                                     "good",
+                                     )
+                                  SideNotes.append("-SpecLenght:Giving correct length:  %s -"%chunk_length)
+                                  return(chunk_length)
+                              else:
+                                  Candy(
+                                     "Cowsay",
+                                     "length part is corrupted!",
+                                     "bad",
+                                     )
+                                  SideNotes.append("-SpecLenght:Giving correct length:  %s -"%real_length)
+                                  print("\n-Returning correct fixed length :",real_length)
+                                  return(real_length)
+                         elif "fixed" in name and "color type:" in name:
+                              print(Candy("Color", "yellow", "\n-ToDo"))
+                              stop = True
+                              break
+                         else:
+                              print(Candy("Color", "yellow", "\n-ToDo"))
+                              stop = True
+                              break
+                     #print("Chunk:",key)
+                     #print("name:%s value:%s"%(name,value))
+                     #print("min:%s, max:%s"%(value[0],value[1]))
+
+
+
+
 
 
 def CheckLength(Cdata, Clen, Ctype):
@@ -6000,7 +6104,7 @@ def FixItFelix(Chunk=None):
                             )
 
 
-                    if "and lenght is not the same than before." in str(key):
+                    if "and length is not the same than before." in str(key):
                                    Candy(
                                         "Cowsay",
                                         "By the way IDAT chunk's length is different from the one usually used for some reason..",
@@ -6226,6 +6330,9 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
         if function == "TheGoodPlace":
             if "Found Missing Data" in info:
                 return WriteClone(ToolKit[0])
+            if "Missing Data Has Not Been Found" in info:
+                return DummyChunk(ToolKit[0],ToolKit[1],ToolKit[2],ToolKit[3])
+
 
         if function == "FullChunkForcerWithCrc":
             if "Data has been corrupted" in info:
@@ -6658,7 +6765,7 @@ BEFORE_PLTE = [b"PNG", b"IHDR", b"gAMA", b"cHRM", b"iCCP", b"sRGB", b"sBIT"]
 
 AFTER_PLTE = [b"tRNS", b"hIST", b"bKGD"]  # but before idat
 
-KNOWN_CHUNKS_LN = {b"IHDR":{"fixed":[13,13]},b"PLTE":{"fixed":[1,768]},b"tRNS":{"color type:0":[2,512],"color type:2":[6,1536],"color type:3":[1,256]},b"gAMA":{"fixed":[4,4]},b"cHRM":{"fixed":[32,32]},b"sRGB":{"fixed":[1,1]},b"bKGD":{"color type:0":[2,2],"color type:2":[6,6],"color type:3":[1,1],"color type:4":[2,2],"color type:6":[6,6]},b"pHYs":{"fixed":[9,9]},b"sBIT":{"color type:0":[1,1],"color type:2":[3,3],"color type:3":[3,3],"color type:4":[2,2],"color type:6":[4,4]},b"hIST":{"fixed":[2,512]},b"tIME":{"fixed":[7,7]}}
+KNOWN_CHUNKS_LN = {b"IHDR":{"fixed":[13]},b"PLTE":{"range":[1,768]},b"tRNS":{"range color type:0":[2,512],"range color type:2":[6,1536],"range color type:3":[1,256]},b"gAMA":{"fixed":[4]},b"cHRM":{"fixed":[32]},b"sRGB":{"fixed":[1]},b"bKGD":{"fixed color type:0":[2],"fixed color type:2":[6],"fixed color type:3":[1],"fixed color type:4":[2],"fixed color type:6":[6]},b"pHYs":{"fixed":[9]},b"sBIT":{"fixed color type:0":[1],"fixed color type:2":[3],"fixed color type:3":[3],"fixed color type:4":[2],"fixed color type:6":[4]},b"hIST":{"range":[2,512]},b"tIME":{"fixed":[7]}}
 
 BEFORE_IDAT = [
         b"PNG",
