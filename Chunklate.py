@@ -4,7 +4,7 @@ from threading import Thread
 from datetime import datetime
 from contextlib import contextmanager
 import numpy as np
-import sys, os, binascii, re, random, time, zlib, cv2, ctypes, io, tempfile, inspect, difflib, collections
+import sys, os, binascii, re, random, time, zlib, cv2, ctypes, io, tempfile, inspect, difflib, collections, math , itertools
 
 
 def Betterror(error_msg, def_name):
@@ -46,6 +46,54 @@ def Error_Log(Err_to_log):
     except Exception as e:
         Betterror(e, inspect.stack()[0][3])
 
+
+def GetSpec():
+    
+    if b"IEND" in Chunks_History and Chunks_History[-1] == "IEND": ##TODO proper resolution estimation
+            size = IDAT_Bytes_Len
+            calc = math.floor(((size - 77) * 8 - 1) / 2) * 86 + 1
+            MaxRes = int(math.sqrt(calc))
+    else:
+        try:
+            size = os.path.getsize(FILE_Origin)
+            calc = math.floor(((size - 77) * 8 - 1) / 2) * 86 + 1
+            MaxRes = int(math.sqrt(calc))
+        except Exception as e:
+            Betterror(e, inspect.stack()[0][3])
+            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+            MaxRes = 3210
+
+    ThisYear = datetime.now().year
+    CHUNKS_SPEC = {
+    b"IHDR": {"nocolortype": (26,(8,8,2,2,2,2,2), ((i for i in range(1,MaxRes)),(i for i in range(1,MaxRes)),(1,2,4,8,16),(0,2,3,4,6),("0"),("0"),(0,1)) )},
+    b"PLTE": {"nocolortype": ((6, 1536),(2,2,2),((i for i in range(256)) for j in range(3)) )},
+    b"tRNS": {
+        "colortype:0": ((4, 1024),(4),(i for i in range(65536)) ),
+        "colortype:2": ((12, 3072),(4,4,4),((i for i in range(65536)) for j in range(3)) ),
+        "colortype:3": ((2, 512),(2),(i for i in range(256))),
+    },
+    b"gAMA": {"nocolortype": (8,(8),(i for i in range(100001)))},
+    b"cHRM": {"nocolortype": (64,(8,8,8,8,8,8,8,8),( (i for i in range(100001)) for j in range(8)) )},
+    b"sRGB": {"nocolortype": (2,(2),(0,1,2,3))},
+    b"bKGD": {
+        "colortype:0": (4,(4),(i for i in range(65536))),
+        "colortype:2": (12,(4,4,4),((i for i in range(65536)) for j in range(3)) ),
+        "colortype:3": (2,(2),(i for i in range(256))),
+        "colortype:4": (4,(4),(i for i in range(65536))),
+        "colortype:6": (12,(4,4,4),((i for i in range(65536)) for j in range(3)) ),
+    },
+    b"pHYs": {"notype": (18,(8,8,2),((i for i in range(2147483647)),(i for i in range(2147483647)),(0,1) ) )},
+    b"sBIT": {
+        "colortype:0": (2,(2),(i for i in range(256))),
+        "colortype:2": (6,(2,2,2),((i for i in range(256)) for j in range(3))),
+        "colortype:3": (6,(2,2,2),((i for i in range(256)) for j in range(3))),
+        "colortype:4": (4,(2,2),((i for i in range(256)) for j in range(2))),
+        "colortype:6": (8,(2,2,2,2),((i for i in range(256)) for j in range(4))),
+    },
+    b"hIST": {"nocolortype": ((4, 1024),(4),(i for i in range(65536)))},
+    b"tIME": {"nocolortype": (14,(4,2,2,2,2,2),(tuple(i for i in range(1970,ThisYear)),tuple(i for i in range(1,13)),tuple(i for i in range(1,32)),tuple(i for i in range(0,24)),tuple(i for i in range(0,60)),tuple(i for i in range(0,61))))},
+    }
+    return(CHUNKS_SPEC)
 
 def GetInfo(Chunk, data, Dummy=False):
     global SideNotes
@@ -3654,16 +3702,10 @@ def ChunkStory(action, Chunk, start, end, chuck_length):
         Chunk = Chunk.encode(errors="ignore")
 
     if action == "add":
-        Chunks_History.append(Chunk)
-        Chunks_History_Index.append(
-            str(len(Chunks_History) - 1)
-            + ":"
-            + str(start)
-            + ":"
-            + str(end)
-            + ":"
-            + str(chuck_length)
-        )
+        CHD = str(len(Chunks_History) - 1)+ ":"+ str(start)+ ":"+ str(end)+ ":"+ str(chuck_length)
+        if CHD not in Chunks_History_Index:
+           Chunks_History.append(Chunk)
+           Chunks_History_Index.append(CHD)
     elif action == "del":
         try:
             del Chunks_History[Chunks_History.index(Chunk)]
@@ -3682,7 +3724,7 @@ def TheEnd():
         print("Chnks nbr:", len(Chunks_History_Index))
         print("idacounter:", idatcounter)
         print(Chunks_History)
-        print("IDAT_Bytes_Len:%s Offset:%s" % (IDAT_Bytes_Len, IDAT_Bytes_Len / 2))
+        print("IDAT_Bytes_Len:%s",IDAT_Bytes_Len)
     if PAUSEDEBUG is True:
         Pause("ThenEnd debug")
     Summarise(None, True)
@@ -3719,7 +3761,7 @@ def stderr_redirector(stream):
         tfile.close()
         os.close(saved_stderr_fd)
 
-
+#haystack, value, FewYearsLater = Bruthex(cidx, value, str(haystack), total_len)
 def Bruthex(cidx, value, datax, totalln):
     newvalues = []
     dataxlst = list(datax)
@@ -3734,93 +3776,129 @@ def Bruthex(cidx, value, datax, totalln):
         value_ln += c[2]
     return ("".join(dataxlst), value, False)
 
-
-def MiniChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, CIndexList, FromError):
+def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode ,BruteCrc = False, BruteLenght = False):
     global WORKING
     global SideNotes
-    Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
-    Chunk = Chunk.encode(errors="ignore")
-    FewYearsLater = False
-    value = 0
-    cidx = []
-    total_len = 0
 
-    if DEBUG is True:
-        print("file:", File)
-        print("chunk:", Chunk)
-        print("offd:", DataOffset)
-        print("cl:", ChunkLenght)
-        if PAUSEDEBUG is True:
-            Pause("Pause:MiniChunkForcerNoCrc")
+    Candy("Title", "Attempting Bruteforce To Repair Corrupted Chunk Data:")
+
     try:
-        with open(Sample, "rb") as f:
-            data = f.read()
+       ChunkName = ChunkName.encode(errors="ignore")
     except Exception as e:
         Betterror(e, inspect.stack()[0][3])
         print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
-        TheEnd()
 
-    datax = data.hex()[DataOffset:ChunkLenght]
-    haystack = datax[16:-8]
+    CNamex_New = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x","")
 
     if DEBUG is False:
         Thread(target=Loadingbar).start()
-    else:
-        print("CIndexList:\n")
-        [print(i) for i in CIndexList]
-        if PAUSEDEBUG is True:
-            Pause("Pause:Reboot")
+
     Bingo = False
     result = "result is empty"
-    needle = 0
+#    chunknx = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x","")
+    KNOWN_CHUNKS_SPEC = GetSpec()
+    for key in KNOWN_CHUNKS_SPEC:
+        for color_type, bytes_spec in KNOWN_CHUNKS_SPEC[key].items():
+            if key == ChunkName:
 
-    for key in CIndexList:
-        start = int(key.split("CIndex([")[1].split(":")[0])
-        stop = int(key.split("CIndex([")[1].split(":")[1].split("])")[0])
-        ln = stop - start
-        total_len += ln
-        cidx.append((start, stop, ln))
-    #    print("heystack:",haystack)
-    while True:
+                CNamex_New = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x","")
 
-        haystack, value, FewYearsLater = Bruthex(cidx, value, str(haystack), total_len)
-        if FewYearsLater is True:
-            break
-        newbytes = bytes.fromhex(haystack)
-        checksum = hex(binascii.crc32(Chunk + newbytes)).replace("0x", "").zfill(8)
-        fullnewdatax = datax[:16] + haystack + checksum
-        newfilewanabe = DATAX[:DataOffset] + fullnewdatax + DATAX[ChunkLenght:]
-        try:
-            with stderr_redirector(f):
-                newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
-                newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_COLOR)
-                cv2.imread(newfile)
-            result = "{0}".format(f.getvalue().decode("utf-8"))
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                print(
-                    Candy("Color", "red", "FullChunkForcerNoCrc Error:"),
-                    Candy("Color", "yellow", e),
-                )
-                print("fullnewdatax:", fullnewdatax)
-            if PAUSEDEBUG is True or PAUSEERROR is True:
-                Pause("Pause:Debug")
+                if "nocolortype" in color_type:
+                    chunklen_spec = bytes_spec[0]
+                    chunk_format = bytes_spec[1]
+                    chunk_data = bytes_spec[2]
+
+                    if type(chunklen_spec) == tuple:
+                       maxchunklen = max(chunklen_spec)
+                       minchunklen = min(chunklen_spec)
+                    else:
+                       maxchunklen = chunklen_spec
+                       minchunklen = chunklen_spec
+
+    
+    if maxchunklen  == minchunklen:
+       maxchunklen += 1
+       step = 1
+    else:
+       step = minchunklen
+
+    if DEBUG is True:
+        print("File:", File)
+        print("ChunkName:",ChunkName)
+        print("DataOffset:",DataOffset)
+        print("ChunkLenght:",ChunkLenght)
+        print("BruteCrc:",BruteCrc)
+        print("EditMode:",EditMode)
+        print("FromError:",FromError)
+        print("chunklen_spec:",chunklen_spec)
+        print("chunk_format:",chunk_format)
+        print("chunk_data:",chunk_data)
+        print("maxchunklen:",maxchunklen)
+        print("minchunklen:",minchunklen)
+        if PAUSEDEBUG is True:
+            Pause("Pause:SmashBruteBrawl")
+
+    for ln in range(minchunklen,maxchunklen,step):
+        Lnx_New = hex(int(ln/2)).replace("0x","").zfill(8)
+        if EditMode == "replace":
+            if not BruteLenght and not BruteCrc:
+                 Before_New = DATAX[:DataOffset]
+                 After_New = DATAX[DataOffset+ChunkLenght+24:] #+24=chunklen+chunkname+data+crc
+
+        shuffle = itertools.product(*chunk_data)
+        for i in shuffle:
+            hexvalue = ""
+            for d,j in zip(chunk_format,i):
+                hexvalue +=  hex(int(j)).replace("0x", "").zfill(d)
+
+            newbytes = bytes.fromhex(hexvalue)
+            checksum = hex(binascii.crc32(ChunkName + newbytes)).replace("0x", "").zfill(8)
+            fullnewdatax = Lnx_New + CNamex_New + hexvalue + checksum
+            newfilewanabe = Before_New + fullnewdatax + After_New
+
+            f = io.BytesIO()
+            try:
+                with stderr_redirector(f):
+                    newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
+                    newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_COLOR)
+                    cv2.imread(newfile)
+                result = "{0}".format(f.getvalue().decode("utf-8"))
+            except Exception as e:
+                Betterror(e, inspect.stack()[0][3])
+                if DEBUG is True:
+                    print(
+                        Candy("Color", "red", "FullChunkForcerNoCrc Error:"),
+                        Candy("Color", "yellow", e),
+                    )
+                    print("fullnewdatax:", fullnewdatax)
+                if PAUSEDEBUG is True or PAUSEERROR is True:
+                    Pause("Pause:Debug")
         #            Pause("pause")
-        if "libpng error" not in result and result != "result is empty":
-            diffobj = difflib.SequenceMatcher(None, datax[16:], fullnewdatax)
-            good = ""
-            bad = ""
-            for block in diffobj.get_opcodes():
-                if block[0] != "equal":
-                    good += "\033[1;32;49m%s\033[m" % fullnewdatax[block[1] : block[2]]
-                    bad += "\033[1;31;49m%s\033[m" % datax[16:][block[1] : block[2]]
-                else:
-                    good += fullnewdatax[block[1] : block[2]]
-                    bad += datax[16:][block[1] : block[2]]
-            Bingo = True
-            break
-
+            if "libpng error" not in result and result != "result is empty":
+                diffobj = difflib.SequenceMatcher(None, datax[16:], fullnewdatax)
+                good = ""
+                bad = ""
+                for block in diffobj.get_opcodes():
+                    if block[0] != "equal":
+                        good += "\033[1;32;49m%s\033[m" % fullnewdatax[block[1] : block[2]]
+                        bad += "\033[1;31;49m%s\033[m" % datax[16:][block[1] : block[2]]
+                    else:
+                        good += fullnewdatax[block[1] : block[2]]
+                        bad += datax[16:][block[1] : block[2]]
+                Bingo = True
+                break
+            elif DEBUG is True:
+                 print("\nBefore_New:",Before_New)
+                 print("Middle:",DATAX[DataOffset:DataOffset+ChunkLenght])
+                 print("After_New:",After_New[:50])
+                 print("Lnx_New:",Lnx_New)
+                 print("hexvalue:",hexvalue)
+                 print("fullnewdatax:",fullnewdatax)
+                 print("fullnewdatax byte:",bytes.fromhex(fullnewdatax))
+                 print("result:",result)
+                 print("\ndata before:\n",DATAX[:150])
+                 print("data after:\n",newfilewanabe[:150])
+                 Pause("Pause")
     WORKING = False
 
     if Bingo is True:
@@ -4643,6 +4721,8 @@ def LibpngCheck(file):
             % (Candy("Color", "red", "FAILED!"), Candy("Emoj", "bad"))
         )
 
+
+
         return CheckPoint(True, False, "LibpngCheck", file, ["-" + result])
     else:
         print(
@@ -4699,6 +4779,7 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end,FromError):
         "Mkay i will need to get some infos on the file before..",
         "com",
     )
+    ##TODO
     if Chunkname == b"IHDR":
 
        DummyLength = SpecLenght(Chunkname)
@@ -4709,39 +4790,6 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end,FromError):
 
 
        if DEBUG is True:
-            print("""
-KNOWN_CHUNKS_LN = {
-    b"IHDR": {"fixed": [13]},
-    b"PLTE": {"range": [1, 768]},
-    b"tRNS": {
-        "range color type:0": [2, 512],
-        "range color type:2": [6, 1536],
-        "range color type:3": [1, 256],
-    },
-    b"gAMA": {"fixed": [4]},
-    b"cHRM": {"fixed": [32]},
-    b"sRGB": {"fixed": [1]},
-    b"bKGD": {
-        "fixed color type:0": [2],
-        "fixed color type:2": [6],
-        "fixed color type:3": [1],
-        "fixed color type:4": [2],
-        "fixed color type:6": [6],
-    },
-    b"pHYs": {"fixed": [9]},
-    b"sBIT": {
-        "fixed color type:0": [1],
-        "fixed color type:2": [3],
-        "fixed color type:3": [3],
-        "fixed color type:4": [2],
-        "fixed color type:6": [4],
-    },
-    b"hIST": {"range": [2, 512]},
-    b"tIME": {"fixed": [7]},
-}
-    """)
-
-
 
             print("bad pos:", bad_pos)
             print("bad_start:", bad_start)
@@ -4766,11 +4814,15 @@ KNOWN_CHUNKS_LN = {
 
        return CheckPoint(
                         True,
-                        True,
+                        False,
                         "DummyChunk",
                         Chunkname,
                         ["Filling with a dummy chunk"],
                         DummyFix,
+                        len(DummyData),
+                        bad_pos,
+                        bad_start,
+                        bad_end,
                         FromError,
                     )
 
@@ -4950,7 +5002,7 @@ def TheGoodPlace(Missplaced_Chunkname, Missplaced_Chunkpos, ToFix_Chunkname):
             False,
             "TheGoodPlace",
             ToFix_Chunkname,
-            ["-Missing Data Has Not Been Found : [%s]", ToFix_Chunkname],
+            ["-Missing Data Has Not Been Found : [%s]"%ToFix_Chunkname],
             ToFix_Chunkname,
             bad_pos,
             bad_start,
@@ -5580,56 +5632,64 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
             Next,
         )
 
-
 def SpecLenght(chunk_name, chunk_length=None):
     global SideNotes
 
-    Candy("Title", "Get Lenght from Spec:")
-
     if chunk_length:
+       Candy("Title", "Get Lenght from Spec:")
        Candy("Cowsay", "Kay ..Just Checking if the length part is legit..", "com")
 
     stop = False
-    for key in KNOWN_CHUNKS_LN:
+
+    KNOWN_CHUNKS_SPEC = GetSpec()
+    for key in KNOWN_CHUNKS_SPEC:
         if stop is True:
             break
-        for name, value in KNOWN_CHUNKS_LN[key].items():
+        for color_type, bytes_spec in KNOWN_CHUNKS_SPEC[key].items():
             if key == chunk_name:
 
-                if "fixed" in name and not "color type:" in name:
-                    real_length = hex(int(value[0])).replace("0x", "").zfill(8)
+                if "nocolortype" in color_type:
 
-                    if not chunk_length:
-                         return(real_length)
+                    chunklen_spec = int(bytes_spec[0]/2)
+                    chunk_format = bytes_spec[1],bytes_spec[2]
 
-                    print("-Real %s Length: %s " % (key, real_length))
-                    if real_length == chunk_length:
-                        Candy(
-                            "Cowsay",
-                            "Looks good to me !",
-                            "good",
-                        )
-                        SideNotes.append(
-                            "-SpecLenght:Giving correct length:  %s -" % chunk_length
-                        )
-                        return chunk_length
+                    if type(chunklen_spec) == tuple:
+
+                        print(Candy("Color", "yellow", "\n-ToDo"))
+                        stop = True
+                        break
                     else:
-                        print("-Given %s Length was : %s " % (chunk_name, chunk_length))
-                        Candy(
-                            "Cowsay",
-                            "length part is corrupted!",
-                            "bad",
-                        )
-                        SideNotes.append(
-                            "-SpecLenght:Giving correct length:  %s -" % real_length
-                        )
-                        print("\n-Returning correct fixed length :", real_length)
-                        return real_length
-                elif "fixed" in name and "color type:" in name:
-                    print(Candy("Color", "yellow", "\n-ToDo"))
-                    stop = True
-                    break
-                else:
+                        real_length = hex(int(chunklen_spec)).replace("0x", "").zfill(8)
+
+                        if not chunk_length:
+                            return(real_length)
+
+                        print("-Real %s Length: %s " % (key, real_length))
+                        if real_length == chunk_length:
+                            Candy(
+                                "Cowsay",
+                                "Looks good to me !",
+                                "good",
+                            )
+                            SideNotes.append(
+                                "-SpecLenght:Giving correct length:  %s -" % chunk_length
+                            )
+                            return chunk_length
+                        else:
+                            print("-Given %s Length was : %s " % (chunk_name, chunk_length))
+                            Candy(
+                                "Cowsay",
+                                "length part is corrupted!",
+                                "bad",
+                            )
+                            SideNotes.append(
+                                "-SpecLenght:Giving correct length:  %s -" % real_length
+                            )
+                            print("\n-Returning correct fixed length :", real_length)
+                            return real_length
+
+                if "colortype" in color_type:
+
                     print(Candy("Color", "yellow", "\n-ToDo"))
                     stop = True
                     break
@@ -5887,14 +5947,39 @@ def Relics(FromError):
             for nb2, (errors, errors_values) in enumerate(file_value.items()):
                 print("%s:%s" % (Candy("Color", "red", "    [-%s]" % nb2), errors))
                 for nb3, (tools, tools_values) in enumerate(errors_values.items()):
-                    print(
-                        "%s:%s:%s"
-                        % (
-                            Candy("Color", "yellow", "        [Tool used :%s]" % nb3),
-                            tools,
-                            tools_values,
-                        )
-                    )
+                    if type(tools_values) == str or type(tools_values) == bytes:
+                         if len(tools_values) > 100:
+                            if type(tools_values) == bytes :
+                                short_value = tools_values[0:40] + b"...To big to be displayed ..."
+                            if type(tools_values) == str:
+                                short_value = tools_values[0:40] + "...To big to be displayed ..."
+                            print(
+                                "%s:%s:%s"
+                                % (
+                                    Candy("Color", "yellow", "        [Tool used :%s]" % nb3),
+                                    tools,
+                                    short_value,
+                                )
+                             )
+                         else:
+                            print(
+                                "%s:%s:%s"
+                                % (
+                                    Candy("Color", "yellow", "        [Tool used :%s]" % nb3),
+                                    tools,
+                                    tools_values,
+                                )
+                             )
+
+                    else:
+                        print(
+                            "%s:%s:%s"
+                            % (
+                                Candy("Color", "yellow", "        [Tool used :%s]" % nb3),
+                                tools,
+                                tools_values,
+                            )
+                         )
 
         if len(Pandemonium) == 1:
             Candy("Cowsay", "Only one Error,That is short indeed ..", "com")
@@ -5963,12 +6048,49 @@ def Relics(FromError):
                         if DEBUG is True:
                             if PAUSEDEBUG is True or PAUSEERROR is True:
                                 Pause("Pause Pandemonium Debug")
+                        Candy("Cowsay", "Erf this case is not implemented yet ...", "bad")
                         TheEnd()
             return ()
 
         if len(Pandemonium) > 1:
 
-            Candy("Cowsay", "Not implemented yet", "bad")
+            for nb1, (file, file_value) in enumerate(Pandemonium.items()):
+                for nb2, (errors, errors_values) in enumerate(file_value.items()):
+                    if "Filling with a dummy chunk" in errors:
+                        for nb3, (tools, tools_values) in enumerate(
+                            errors_values.items()
+                        ):
+                            ChunkName = "".join(
+                                [
+                                    chnk.decode(errors="ignore")
+                                    for chnk in ALLCHUNKS
+                                    if chnk.decode(errors="ignore") in tools
+                                ]
+                            )
+
+                        ChunkLenght = Pandemonium[file][errors][ChunkName + "_Tool_1"]
+                        DataOffset = Pandemonium[file][errors][ChunkName + "_Tool_3"]
+                        Candy(
+                            "Cowsay",
+                            "Ok it's time to brute force that dummy %s chunk .."%(ChunkName),
+                            "good",
+                            )
+                        Candy(
+                            "Cowsay",
+                            "I hope you brought a book...A big one ..Cause it may takes forever.",
+                            "bad",
+                            )
+                        Candy(
+                            "Cowsay",
+                            "Shall i begin ? Otherwise Chunklate is going to close.",
+                            "bad",
+                            )
+
+                        Answer = Question()
+                        if Answer is True:
+                             SmashBruteBrawl(file, ChunkName, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = False, BruteLenght = False)
+                        else:
+                            TheEnd()
             TheEnd()
 
     else:
@@ -7084,36 +7206,6 @@ PRIVATE_CHUNKS = [
 BEFORE_PLTE = [b"PNG", b"IHDR", b"gAMA", b"cHRM", b"iCCP", b"sRGB", b"sBIT"]
 
 AFTER_PLTE = [b"tRNS", b"hIST", b"bKGD"]  # but before idat
-
-KNOWN_CHUNKS_LN = {
-    b"IHDR": {"fixed": [13]},
-    b"PLTE": {"range": [1, 768]},
-    b"tRNS": {
-        "range color type:0": [2, 512],
-        "range color type:2": [6, 1536],
-        "range color type:3": [1, 256],
-    },
-    b"gAMA": {"fixed": [4]},
-    b"cHRM": {"fixed": [32]},
-    b"sRGB": {"fixed": [1]},
-    b"bKGD": {
-        "fixed color type:0": [2],
-        "fixed color type:2": [6],
-        "fixed color type:3": [1],
-        "fixed color type:4": [2],
-        "fixed color type:6": [6],
-    },
-    b"pHYs": {"fixed": [9]},
-    b"sBIT": {
-        "fixed color type:0": [1],
-        "fixed color type:2": [3],
-        "fixed color type:3": [3],
-        "fixed color type:4": [2],
-        "fixed color type:6": [4],
-    },
-    b"hIST": {"range": [2, 512]},
-    b"tIME": {"fixed": [7]},
-}
 
 BEFORE_IDAT = [
     b"PNG",
