@@ -2954,6 +2954,8 @@ def Minibar():
 
 def Loadingbar():
 
+    global WORKING
+    WORKING = True
     Loading_txt = ""
     GoBack = False
     CharPos = 0
@@ -2976,6 +2978,9 @@ def Loadingbar():
         PosLine += 1
 
     while WORKING == True:
+        if WORKING is False:
+            Thread(target=Loadingbar).join()
+            break
         time.sleep(0.1)
         Ln = len(Loading_txt)
         if Ln < MAXCHAR - 7:
@@ -3780,7 +3785,6 @@ def Bruthex(cidx, value, datax, totalln):
 def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode ,BruteCrc = False, BruteLenght = False):
     global WORKING
     global SideNotes
-
     Candy("Title", "Attempting Bruteforce To Repair Corrupted Chunk Data:")
 
     try:
@@ -3790,9 +3794,6 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
         print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
 
     CNamex_New = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x","")
-
-    if DEBUG is False:
-        Thread(target=Loadingbar).start()
 
     Bingo = False
     result = "result is empty"
@@ -3839,6 +3840,11 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
         if PAUSEDEBUG is True:
             Pause("Pause:SmashBruteBrawl")
 
+    if DEBUG is False:
+#        print("Working:",WORKING)
+#        WORKING = True
+        Thread(target=Loadingbar).start()
+
     for ln in range(minchunklen,maxchunklen,step):
         Lnx_New = hex(int(ln/2)).replace("0x","").zfill(8)
         if EditMode == "replace":
@@ -3872,8 +3878,8 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
                         Candy("Color", "yellow", e),
                     )
                     print("fullnewdatax:", fullnewdatax)
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause:Debug")
+                    if PAUSEDEBUG is True or PAUSEERROR is True:
+                        Pause("Pause:Debug")
         #            Pause("pause")
             if "libpng error" not in result and result != "result is empty":
                 diffobj = difflib.SequenceMatcher(None, datax[16:], fullnewdatax)
@@ -3899,7 +3905,7 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
                  print("result:",result)
                  print("\ndata before:\n",DATAX[:150])
                  print("data after:\n",newfilewanabe[:150])
-                 #Pause("Pause")
+                 Pause("Pause")
     WORKING = False
 
     if Bingo is True:
