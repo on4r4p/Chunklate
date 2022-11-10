@@ -3703,7 +3703,8 @@ def ChunkStory(action, Chunk, start, end, chuck_length):
 
     if action == "add":
         CHD = str(len(Chunks_History) - 1)+ ":"+ str(start)+ ":"+ str(end)+ ":"+ str(chuck_length)
-        if CHD not in Chunks_History_Index:
+        chkdbl = str(start)+ ":"+ str(end)+ ":"+ str(chuck_length)
+        if chkdbl not in Chunks_History_Index:
            Chunks_History.append(Chunk)
            Chunks_History_Index.append(CHD)
     elif action == "del":
@@ -3951,7 +3952,146 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
         )
 
 
-def FullChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError):
+def MiniChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, CIndexList, FromError): ## need to be merged with SmashBruteBrawl
+    global WORKING
+    global SideNotes
+    Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
+    Chunk = Chunk.encode(errors="ignore")
+    FewYearsLater = False
+    value = 0
+    cidx = []
+    total_len = 0
+
+    if DEBUG is True:
+        print("file:", File)
+        print("chunk:", Chunk)
+        print("offd:", DataOffset)
+        print("cl:", ChunkLenght)
+        if PAUSEDEBUG is True:
+            Pause("Pause:MiniChunkForcerNoCrc")
+    try:
+        with open(Sample, "rb") as f:
+            data = f.read()
+    except Exception as e:
+        Betterror(e, inspect.stack()[0][3])
+        print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+        TheEnd()
+
+    datax = data.hex()[DataOffset:ChunkLenght]
+    haystack = datax[16:-8]
+
+    if DEBUG is False:
+        Thread(target=Loadingbar).start()
+    else:
+        for i in CIndexList:
+            print("CIndexList:",i)
+        if PAUSEDEBUG is True:
+            Pause("Pause:Reboot")
+    Bingo = False
+    result = "result is empty"
+    needle = 0
+
+    for key in CIndexList:
+        print("key:",key)
+        start = int(key.split("CIndex([")[1].split(":")[0])
+        stop = int(key.split("CIndex([")[1].split(":")[1].split("])")[0])
+        ln = stop - start
+        total_len += ln
+        cidx.append((start, stop, ln))
+    #    print("heystack:",haystack)
+    while True:
+
+        haystack, value, FewYearsLater = Bruthex(cidx, value, str(haystack), total_len)
+        if FewYearsLater is True:
+            break
+        newbytes = bytes.fromhex(haystack)
+        checksum = hex(binascii.crc32(Chunk + newbytes)).replace("0x", "").zfill(8)
+        fullnewdatax = datax[:16] + haystack + checksum
+        newfilewanabe = DATAX[:DataOffset] + fullnewdatax + DATAX[ChunkLenght:]
+        try:
+            f = io.BytesIO()
+            with stderr_redirector(f):
+                newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
+                newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_COLOR)
+                cv2.imread(newfile)
+            result = "{0}".format(f.getvalue().decode("utf-8"))
+        except Exception as e:
+            Betterror(e, inspect.stack()[0][3])
+            if DEBUG is True:
+                print(
+                    Candy("Color", "red", "FullChunkForcerNoCrc Error:"),
+                    Candy("Color", "yellow", e),
+                )
+                print("fullnewdatax:", fullnewdatax)
+            if PAUSEDEBUG is True or PAUSEERROR is True:
+                Pause("Pause:Debug")
+        #            Pause("pause")
+        if "libpng error" not in result and result != "result is empty":
+            diffobj = difflib.SequenceMatcher(None, datax[16:], fullnewdatax)
+            good = ""
+            bad = ""
+            for block in diffobj.get_opcodes():
+                if block[0] != "equal":
+                    good += "\033[1;32;49m%s\033[m" % fullnewdatax[block[1] : block[2]]
+                    bad += "\033[1;31;49m%s\033[m" % datax[16:][block[1] : block[2]]
+                else:
+                    good += fullnewdatax[block[1] : block[2]]
+                    bad += datax[16:][block[1] : block[2]]
+            Bingo = True
+            break
+
+    WORKING = False
+
+    if Bingo is True:
+        print(
+            "-Bruteforce was %s %s"
+            % (Candy("Color", "green", "Successfull!"), Candy("Emoj", "good"))
+        )
+        print(
+            "-Chunk %s has been repaired by changing those bytes:\n"
+            % Candy("Color", "green", Chunk)
+        )
+        print(bad)
+        print("\n-With those bytes:\n")
+        print(good)
+        Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
+        SideNotes.append(
+            "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s\n-with bytes:\n%s"
+            % (Chunk, datax[16:], fullnewdatax)
+        )
+        return CheckPoint(
+            True,
+            True,
+            "MiniChunkForcerNoCrc",
+            Chunk.decode(errors="ignore"),
+            ["-Data has been corrupted"],
+            fullnewdatax,
+            DataOffset,
+            DataOffset + ChunkLenght,
+            "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
+            % (Chunk.decode(errors="ignore"), datax[16:], fullnewdatax),
+            Chunk.decode(errors="ignore"),
+            FromError,
+        )
+
+    else:
+        print(
+            "-Bruteforce has %s %s"
+            % (Candy("Color", "red", "Failed!"), Candy("Emoj", "bad"))
+        )
+        Candy("Cowsay", "I was afraid of this ..Looks like we r stuck..", "bad")
+        SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
+        TheEnd()
+        return CheckPoint(
+            True,
+            False,
+            "MiniChunkForcerNoCrc",
+            Chunk.decode(errors="ignore"),
+            ["-Bruteforcer has Failed"],
+            FromError,
+        )
+
+def FullChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError): ## need to be merged with SmashBruteBrawl
     global WORKING
     global SideNotes
     Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
@@ -4099,7 +4239,7 @@ def FullChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError):
         )
 
 
-def FullChunkForcerWithCrc(File, Chunk, OldCrc, DataOffset, ChunkLenght, FromError):
+def FullChunkForcerWithCrc(File, Chunk, OldCrc, DataOffset, ChunkLenght, FromError): ## need to be merged with SmashBruteBrawl
     global WORKING
     global SideNotes
     Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
@@ -6097,7 +6237,7 @@ def Relics(FromError):
 
                             Answer = Question()
                             if Answer is True:
-                                 SmashBruteBrawl(file, ChunkName, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = False, BruteLenght = False)
+                                 return(SmashBruteBrawl(file, ChunkName, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = False, BruteLenght = False))
                             else:
                                 TheEnd()
                         else:
@@ -6122,7 +6262,7 @@ def Relics(FromError):
                                 print(Candy("Color", "yellow", "\n-ToDo"))
                                 TheEnd()
                             else:
-                                 SmashBruteBrawl(file, ChunkName, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = False, BruteLenght = False)
+                                 return(SmashBruteBrawl(file, ChunkName, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = False, BruteLenght = False))
 
             TheEnd()
 
@@ -6150,7 +6290,7 @@ def Relics(FromError):
                             break
                 if len(ChosenOne) > 0:
                     break
-            [CIndexList.append(k) for k in PandoraBox if ChosenOne in k]
+            [CIndexList.append(k) for k in PandoraBox if ChosenOne in k and "CIndex" in k]
 
             if len(CIndexList) > 0:
 
@@ -6189,9 +6329,21 @@ def Relics(FromError):
                     if (
                         len(ChosenOne.encode()) > 0
                         and ChosenOne.encode() in Chunks_History
+                        and len(CIndexList) > 0
                     ):
+#                        if ChosenOne.encode() in CRITICAL_CHUNKS:
+
+#                            Candy(
+#                               "Cowsay",
+#                               "This chunk is Critical and cannot be trusted not matter what crc is saying!",
+#                               "bad",
+#                               )
+#                            SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode ,BruteCrc = False, BruteLenght = False)
+#
+#                        else:
                         for c, i in zip(Chunks_History, Chunks_History_Index):
                             if c == ChosenOne.encode():
+#SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode ,BruteCrc = False, BruteLenght = False)
                                 return MiniChunkForcerNoCrc(
                                     Sample_Name,
                                     ChosenOne,
@@ -6415,6 +6567,7 @@ def FixItFelix(Chunk=None):
                         "We may want to fix them first before jumping on that Crc what do you think ?",
                         "com",
                     )
+                
                 Answer = Question(key)
                 if Answer is False:
                     return SaveClone(
@@ -6432,6 +6585,23 @@ def FixItFelix(Chunk=None):
                         ),
                     )
                 else:
+                    ChunkStory("add", PandoraBox[key][chkd + "3"].encode(), CLoffI, CrcoffI + 8, int(Orig_CL, 16))
+#                    ChunkStory("add", Ctype, CLoffI, PandoraBox[key][chkd + "2"],PandoraBox[key][chkd + "6"])
+        #return CheckPoint(
+#            True,
+#            False,
+#            "Checksum",
+#            Ctype,
+#            ["-Wrong Crc"],
+#            checksum[2::],
+#            CrcoffI,
+#            CrcoffI + 8,
+#            Orig_CT,
+#            CrcoffX,
+#            Orig_CRC,
+#            int(Orig_CL, 16),
+#            CDoffI,
+#        )
                     Old_Bad_Crc = PandoraBox[key][chkd + "5"]
                     Skip_Bad_Crc = True
 
