@@ -3899,7 +3899,7 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
                  print("result:",result)
                  print("\ndata before:\n",DATAX[:150])
                  print("data after:\n",newfilewanabe[:150])
-                 Pause("Pause")
+                 #Pause("Pause")
     WORKING = False
 
     if Bingo is True:
@@ -4081,7 +4081,12 @@ def MiniChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, CIndexList, FromE
         )
         Candy("Cowsay", "I was afraid of this ..Looks like we r stuck..", "bad")
         SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
-        TheEnd()
+        Candy("Cowsay", "Wanna try bruteforce the entire chunk ?", "com")
+        Answer = Question()
+        if Answer is True:
+            return(SmashBruteBrawl(File, Chunk, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = False, BruteLenght = False))
+        else:
+           TheEnd()
         return CheckPoint(
             True,
             False,
