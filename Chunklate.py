@@ -6070,27 +6070,60 @@ def Relics(FromError):
 
                         ChunkLenght = Pandemonium[file][errors][ChunkName + "_Tool_1"]
                         DataOffset = Pandemonium[file][errors][ChunkName + "_Tool_3"]
-                        Candy(
-                            "Cowsay",
-                            "Ok it's time to brute force that dummy %s chunk .."%(ChunkName),
-                            "good",
-                            )
-                        Candy(
-                            "Cowsay",
-                            "I hope you brought a book...A big one ..Cause it may takes forever.",
-                            "bad",
-                            )
-                        Candy(
-                            "Cowsay",
-                            "Shall i begin ? Otherwise Chunklate is going to close.",
-                            "bad",
-                            )
 
-                        Answer = Question()
-                        if Answer is True:
-                             SmashBruteBrawl(file, ChunkName, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = False, BruteLenght = False)
+                        if ChunkName.encode() in CRITICAL_CHUNKS:
+                            ChunkLenght = Pandemonium[file][errors][ChunkName + "_Tool_1"]
+                            DataOffset = Pandemonium[file][errors][ChunkName + "_Tool_3"]
+                            Candy(
+                                "Cowsay",
+                                "Ok it's time to brute force that dummy %s chunk .."%(ChunkName),
+                                "good",
+                                )
+                            Candy(
+                                "Cowsay",
+                                "I mean we have to since it is a critical chunk..",
+                                "com",
+                                )
+                            Candy(
+                                "Cowsay",
+                                "I hope you brought a book...A big one ..Cause it may takes forever.",
+                                "bad",
+                                )
+                            Candy(
+                                "Cowsay",
+                                "Shall i begin ? Otherwise Chunklate is going to close.",
+                                "bad",
+                                )
+
+                            Answer = Question()
+                            if Answer is True:
+                                 SmashBruteBrawl(file, ChunkName, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = False, BruteLenght = False)
+                            else:
+                                TheEnd()
                         else:
-                            TheEnd()
+                            Candy(
+                                "Cowsay",
+                                "We better remove that %s chunk than trying to bruteforce it"%(ChunkName),
+                                "com",
+                                )
+                            Candy(
+                                "Cowsay",
+                                "I mean it would be less time consuming since it is not a critical chunk",
+                                "com",
+                                )
+                            Candy(
+                                "Cowsay",
+                                "Do you still want to bruteforce this chunk ?",
+                                "com",
+                                )
+                            Answer = Question()
+                            if Answer is True:
+                                ##TODO
+                                print(Candy("Color", "yellow", "\n-ToDo"))
+                                TheEnd()
+                            else:
+                                 SmashBruteBrawl(file, ChunkName, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = False, BruteLenght = False)
+
             TheEnd()
 
     else:
