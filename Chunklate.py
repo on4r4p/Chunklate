@@ -3841,8 +3841,6 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
             Pause("Pause:SmashBruteBrawl")
 
     if DEBUG is False:
-#        print("Working:",WORKING)
-#        WORKING = True
         Thread(target=Loadingbar).start()
 
     for ln in range(minchunklen,maxchunklen,step):
