@@ -2956,6 +2956,7 @@ def Loadingbar():
 
     global WORKING
     WORKING = True
+
     Loading_txt = ""
     GoBack = False
     CharPos = 0
@@ -2979,7 +2980,6 @@ def Loadingbar():
 
     while WORKING == True:
         if WORKING is False:
-            Thread(target=Loadingbar).join()
             break
         time.sleep(0.1)
         Ln = len(Loading_txt)
@@ -3021,7 +3021,7 @@ def Loadingbar():
                 Tail = 0
                 TrailEnd = 0
                 CharPos = 0
-    return
+    return(Thread(target=Loadingbar).join())
 
 
 def Sumform(waitforit, switch):
@@ -3841,6 +3841,7 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
             Pause("Pause:SmashBruteBrawl")
 
     if DEBUG is False:
+        
         Thread(target=Loadingbar).start()
 
     for ln in range(minchunklen,maxchunklen,step):
