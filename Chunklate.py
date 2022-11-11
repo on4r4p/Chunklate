@@ -54,14 +54,14 @@ def GetSpec():
             calc = math.floor(((size - 77) * 8 - 1) / 2) * 86 + 1
             MaxRes = int(math.sqrt(calc))
     else:
-        try:
-            size = os.path.getsize(FILE_Origin)
-            calc = math.floor(((size - 77) * 8 - 1) / 2) * 86 + 1
-            MaxRes = int(math.sqrt(calc))
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
-            MaxRes = 3210
+           try:
+               size = os.path.getsize(FILE_Origin)
+               calc = math.floor(((size - 77) * 8 - 1) / 2) * 86 + 1
+               MaxRes = int(math.sqrt(calc))
+           except Exception as e:
+               Betterror(e, inspect.stack()[0][3])
+               print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+               MaxRes = 3210
 
     ThisYear = datetime.now().year
     CHUNKS_SPEC = {
@@ -3021,7 +3021,11 @@ def Loadingbar():
                 Tail = 0
                 TrailEnd = 0
                 CharPos = 0
-    return(Thread(target=Loadingbar).join())
+    try:
+        Thread(target=Loadingbar).join()
+    except Except as e:
+            Betterror(e, inspect.stack()[0][3])
+    return
 
 
 def Sumform(waitforit, switch):
@@ -3797,7 +3801,6 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
 
     Bingo = False
     result = "result is empty"
-#    chunknx = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x","")
     KNOWN_CHUNKS_SPEC = GetSpec()
     for key in KNOWN_CHUNKS_SPEC:
         for color_type, bytes_spec in KNOWN_CHUNKS_SPEC[key].items():
@@ -3847,9 +3850,10 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
     for ln in range(minchunklen,maxchunklen,step):
         Lnx_New = hex(int(ln/2)).replace("0x","").zfill(8)
         if EditMode == "replace":
-            if not BruteLenght and not BruteCrc:
+            if BruteLenght and  BruteCrc:
                  Before_New = DATAX[:DataOffset]
-                 After_New = DATAX[DataOffset+ChunkLenght+24:] #+24=chunklen+chunkname+data+crc
+                 ToBrute = DATAX[DataOffset:DataOffset+ln]
+                 After_New = DATAX[DataOffset+ln+24:] #+24=chunklen+chunkname+data+crc
 
         shuffle = itertools.product(*chunk_data)
         for i in shuffle:
@@ -3866,45 +3870,37 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
             try:
                 with stderr_redirector(f):
                     newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
-                    newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_COLOR)
-                    cv2.imread(newfile)
+                    newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_UNCHANGED)
+                    cv2.imshow("img",newfile)
                 result = "{0}".format(f.getvalue().decode("utf-8"))
             except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
+                if PAUSEDEBUG is True or PAUSEERROR is True:
+                    Betterror(e, inspect.stack()[0][3])
                     print(
-                        Candy("Color", "red", "FullChunkForcerNoCrc Error:"),
                         Candy("Color", "yellow", e),
                     )
-                    print("fullnewdatax:", fullnewdatax)
                     if PAUSEDEBUG is True or PAUSEERROR is True:
                         Pause("Pause:Debug")
-        #            Pause("pause")
-            if "libpng error" not in result and result != "result is empty":
-                diffobj = difflib.SequenceMatcher(None, datax[16:], fullnewdatax)
+
+            if "libpng error" not in result  and "libpng warning" not in result and result != "result is empty":
+                diffobj = difflib.SequenceMatcher(None, DATAX[DataOffset:], fullnewdatax)
                 good = ""
-                bad = ""
                 for block in diffobj.get_opcodes():
                     if block[0] != "equal":
                         good += "\033[1;32;49m%s\033[m" % fullnewdatax[block[1] : block[2]]
-                        bad += "\033[1;31;49m%s\033[m" % datax[16:][block[1] : block[2]]
                     else:
                         good += fullnewdatax[block[1] : block[2]]
-                        bad += datax[16:][block[1] : block[2]]
                 Bingo = True
                 break
+
             elif DEBUG is True:
-                 print("\nBefore_New:",Before_New)
-                 print("Middle:",DATAX[DataOffset:DataOffset+ChunkLenght])
-                 print("After_New:",After_New[:50])
-                 print("Lnx_New:",Lnx_New)
-                 print("hexvalue:",hexvalue)
-                 print("fullnewdatax:",fullnewdatax)
-                 print("fullnewdatax byte:",bytes.fromhex(fullnewdatax))
-                 print("result:",result)
-                 print("\ndata before:\n",DATAX[:150])
-                 print("data after:\n",newfilewanabe[:150])
-                 Pause("Pause")
+#                 print("\nBefore_New:",Before_New)
+#                 print("To_Brute:",ToBrute)
+#                 print("After_New:",After_New[:50])
+#                 print("Lnx_New:",Lnx_New)
+#                 print("hexvalue:",hexvalue)
+                 print(fullnewdatax,end="\r")
+#                 print("result:",result)
     WORKING = False
 
     if Bingo is True:
@@ -3914,28 +3910,28 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
         )
         print(
             "-Chunk %s has been repaired by changing those bytes:\n"
-            % Candy("Color", "green", Chunk)
+            % Candy("Color", "green", ChunkName)
         )
-        print(bad)
-        print("\n-With those bytes:\n")
         print(good)
         Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
+
+
         SideNotes.append(
             "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s\n-with bytes:\n%s"
-            % (Chunk, datax[16:], fullnewdatax)
+            % (ChunkName, ToBrute, fullnewdatax)
         )
         return CheckPoint(
             True,
             True,
-            "MiniChunkForcerNoCrc",
-            Chunk.decode(errors="ignore"),
-            ["-Data has been corrupted"],
-            fullnewdatax,
+            "SmashBruteBrawl",
+            ChunkName.decode(errors="ignore"),
+            ["-Corrupted Data has been replaced"],
+            newfilewanabe,
             DataOffset,
             DataOffset + ChunkLenght,
             "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
-            % (Chunk.decode(errors="ignore"), datax[16:], fullnewdatax),
-            Chunk.decode(errors="ignore"),
+            % (ChunkName.decode(errors="ignore"), ToBrute, fullnewdatax),
+            ChunkName.decode(errors="ignore"),
             FromError,
         )
 
@@ -3946,12 +3942,11 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
         )
         Candy("Cowsay", "I was afraid of this ..Looks like we r stuck..", "bad")
         SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
-        TheEnd()
         return CheckPoint(
             True,
             False,
-            "MiniChunkForcerNoCrc",
-            Chunk.decode(errors="ignore"),
+            "SmashBruteBrawl",
+            ChunkName.decode(errors="ignore"),
             ["-Bruteforcer has Failed"],
             FromError,
         )
@@ -4089,7 +4084,7 @@ def MiniChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, CIndexList, FromE
         Candy("Cowsay", "Wanna try bruteforce the entire chunk ?", "com")
         Answer = Question()
         if Answer is True:
-            return(SmashBruteBrawl(File, Chunk, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = False, BruteLenght = False))
+            return(SmashBruteBrawl(File, Chunk, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = True, BruteLenght = True))
         else:
            TheEnd()
         return CheckPoint(
@@ -6247,7 +6242,7 @@ def Relics(FromError):
 
                             Answer = Question()
                             if Answer is True:
-                                 return(SmashBruteBrawl(file, ChunkName, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = False, BruteLenght = False))
+                                 return(SmashBruteBrawl(file, ChunkName, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = True, BruteLenght = True))
                             else:
                                 TheEnd()
                         else:
@@ -6272,7 +6267,7 @@ def Relics(FromError):
                                 print(Candy("Color", "yellow", "\n-ToDo"))
                                 TheEnd()
                             else:
-                                 return(SmashBruteBrawl(file, ChunkName, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = False, BruteLenght = False))
+                                 return(SmashBruteBrawl(file, ChunkName, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = True, BruteLenght = True))
 
             TheEnd()
 
@@ -6908,7 +6903,16 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
         print("chunk:", chunk)
         print("ToolKit:")
         for i, a in enumerate(ToolKit):
-            print("Arg%s:%s type:%s" % (i, a, type(a)))
+             if len(str(a)) > 100:
+                 if type(a) == bytes :
+                                short_value = a[0:40] + b"...To big to be displayed ..."
+                 elif type(a) == str:
+                                short_value = a[0:40] + "...To big to be displayed ..."
+                 else:
+                                short_value = str(a)[0:40] + "...To big to be displayed ..."
+                 print("Arg%s:%s type:%s" % (i, short_value, type(a)))
+             else:
+                 print("Arg%s:%s type:%s" % (i, a, type(a)))
         print("Pandora:")
         for nb, key in enumerate(PandoraBox):
             print("key:", str(key))
@@ -6966,10 +6970,13 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
              if "Filling with a dummy chunk" in info:
                 return WriteClone(ToolKit[0])
 
-        if function == "FullChunkForcerWithCrc":
-            if "Data has been corrupted" in info:
+        if function == "SmashBruteBrawl":
+            if "Corrupted Data has been replaced" in info:
                 SideNotes.append("-CheckPoint: %s" % info)
-                FixItFelix(ToolKit[4])
+                return WriteClone(ToolKit[0])
+            elif "-Bruteforcer has Failed" in info:
+                SideNotes.append("-CheckPoint: %s" % info)
+                TheEnd()
             else:
 
                 SideNotes.append("-CheckPoint: %s" % info)
