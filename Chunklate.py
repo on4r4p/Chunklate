@@ -4043,9 +4043,6 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
                             Pause("Pause:Debug")
             result = "{0}".format(f.getvalue().decode("utf-8"))
             if "libpng error" not in result  and "libpng warning" not in result and result != "bad result":
-                print(i)
-                print("Result:",result)
-                input("wait")
                 if DEBUG is False:
                     StopBar.set()
                 cvproc = subprocess.Popen(["python3", "-c", """import numpy as np;import cv2;d='"""+newfilewanabe+"""';nd=np.fromstring(bytes.fromhex(d), np.uint8);f=cv2.imdecode(nd, cv2.IMREAD_UNCHANGED);cv2.imshow('Press a key to close',f);cv2.waitKey()"""],stdin=None, stdout=None, stderr=None, close_fds=True)
@@ -4053,7 +4050,7 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
                 Candy("Cowsay", "Ah ! Iv got One !", "good")
                 Candy("Cowsay", "Does it looks good or should i keep trying ?", "com")
                 BfDuration = (datetime.now() - stdt).total_seconds()
-                Answer = Question()
+                Answer = Question(None,True)
                 if Answer is True:
                     if DEBUG is False:
                         loadbar.join()
@@ -6116,7 +6113,7 @@ def CheckLength(Cdata, Clen, Ctype):
         )
 
 
-def Question(id=None):
+def Question(id=None,skipauto=False):
     global IFOP
     Candy("Title", "QUESTION!")
 
@@ -6126,7 +6123,7 @@ def Question(id=None):
         if PAUSEDEBUG is True:
             Pause("Pause Debug")
 
-    if AUTO is False:
+    if AUTO is False or skipauto is True:
 
         Response = input("Answer(yes/no):").lower()
         while Response != "yes" and Response != "no":
@@ -7878,7 +7875,7 @@ PAUSEDIALOGUE = False
 AUTO = False
 CLONESWAR = False
 
-Brute_LvL = 0
+Brute_LvL = 1
 IBN = 0
 IDAT_Bytes_Len = 0
 IDAT_Datastream = ""
