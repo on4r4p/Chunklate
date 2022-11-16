@@ -123,9 +123,14 @@ def ColorType():
                if str(key) not in Cornucopia:
                    Safe_val = False
             if "bad adaptive filter" in str(key):
+               if str(key) not in Cornucopia:
                    Safe_val = False
             if "-IHDR Color" in str(key):
+               if str(key) not in Cornucopia:
                    Safe_val = False
+            if "IHDR: CRC error" in str(key):
+               if str(key) not in Cornucopia:
+                  Safe_val = False
 
     for nb1, (file, file_value) in enumerate(Pandemonium.items()):
            for nb2, (errors, errors_values) in enumerate(file_value.items()):
@@ -3956,7 +3961,7 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
     CNamex_New = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x","")
 
     Bingo = False
-    result = "result is empty"
+    result = "bad result"
     bytes_spec = GetSpec(ChunkName)
     chunklen_spec = bytes_spec[0]
     chunk_format = bytes_spec[1]
@@ -4023,40 +4028,32 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
             newfilewanabe = Before_New + fullnewdatax + After_New
 
             f = io.BytesIO()
-            try:
-                with stderr_redirector(f):
+            with stderr_redirector(f):
                     newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
                     newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_UNCHANGED)
-                    cv2.imshow("img",newfile)
-                result = "{0}".format(f.getvalue().decode("utf-8"))
-            except Exception as e:
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Betterror(e, inspect.stack()[0][3])
-                    print(
-                        Candy("Color", "yellow", e),
-                    )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause:Debug")
-
-            if "libpng error" not in result  and "libpng warning" not in result and result != "result is empty":
+                    try:
+                        cv2.imshow("img",newfile)
+                    except Exception as e:
+                        result = "bad result"
+                        if PAUSEDEBUG is True or PAUSEERROR is True:
+                            Betterror(e, inspect.stack()[0][3])
+                            print(
+                                  Candy("Color", "yellow", e),
+                            )
+                            Pause("Pause:Debug")
+            result = "{0}".format(f.getvalue().decode("utf-8"))
+            if "libpng error" not in result  and "libpng warning" not in result and result != "bad result":
+                print(i)
+                print("Result:",result)
+                input("wait")
                 if DEBUG is False:
                     StopBar.set()
                 cvproc = subprocess.Popen(["python3", "-c", """import numpy as np;import cv2;d='"""+newfilewanabe+"""';nd=np.fromstring(bytes.fromhex(d), np.uint8);f=cv2.imdecode(nd, cv2.IMREAD_UNCHANGED);cv2.imshow('Press a key to close',f);cv2.waitKey()"""],stdin=None, stdout=None, stderr=None, close_fds=True)
 
-                Candy("Cowsay", "Ah iv got One !", "good")
-                Candy("Cowsay", "Does it looks good or should i keep trying ?(Yes/no)", "com")
-
+                Candy("Cowsay", "Ah ! Iv got One !", "good")
+                Candy("Cowsay", "Does it looks good or should i keep trying ?", "com")
                 BfDuration = (datetime.now() - stdt).total_seconds()
-                Response = input("Answer(yes/no):").lower()
-                while Response != "yes" and Response != "no":
-                      Response = input("Answer(yes/no):").lower()
-                if Response == "yes":
-                    Answer = True
-
-                elif Response == "no":
-                    Answer = False
-
-
+                Answer = Question()
                 if Answer is True:
                     if DEBUG is False:
                         loadbar.join()
