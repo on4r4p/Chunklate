@@ -3958,8 +3958,6 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
     Bingo = False
     result = "result is empty"
     bytes_spec = GetSpec(ChunkName)
-    print("type:",type(bytes_spec))
-    print(bytes_spec)
     chunklen_spec = bytes_spec[0]
     chunk_format = bytes_spec[1]
     chunk_data = bytes_spec[2]
