@@ -3962,6 +3962,7 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
 
     Bingo = False
     result = "bad result"
+    bad_results = ["libpng error", "libpng warning: IHDR", "libpng warning: PLTE", "libpng warning: IDAT", "bad result"]
     bytes_spec = GetSpec(ChunkName)
     chunklen_spec = bytes_spec[0]
     chunk_format = bytes_spec[1]
@@ -4041,8 +4042,10 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
                                   Candy("Color", "yellow", e),
                             )
                             Pause("Pause:Debug")
+
             result = "{0}".format(f.getvalue().decode("utf-8"))
-            if "libpng error" not in result  and "libpng warning" not in result and result != "bad result":
+
+            if not any(s in result for s in bad_results):
                 if DEBUG is False:
                     StopBar.set()
                 cvproc = subprocess.Popen(["python3", "-c", """import numpy as np;import cv2;d='"""+newfilewanabe+"""';nd=np.fromstring(bytes.fromhex(d), np.uint8);f=cv2.imdecode(nd, cv2.IMREAD_UNCHANGED);cv2.imshow('Press a key to close',f);cv2.waitKey()"""],stdin=None, stdout=None, stderr=None, close_fds=True)
@@ -7875,7 +7878,7 @@ PAUSEDIALOGUE = False
 AUTO = False
 CLONESWAR = False
 
-Brute_LvL = 1
+Brute_LvL = 0
 IBN = 0
 IDAT_Bytes_Len = 0
 IDAT_Datastream = ""
