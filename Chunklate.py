@@ -259,7 +259,7 @@ def GetSpec(GetChunk): ## todo GetSpec(chunk,colortype)
 #                         print("chunklen_spec:",chunklen_spec)
 #                         print("chunk_format",chunk_format)
 #                         print("chunk_data",chunk_data)
-                         return(product,chunklen_spec,chunk_format,chunk_data)
+                         return(product,len(str(product)),chunklen_spec,chunk_format,chunk_data)
 
 
     print("-Error in GetSpec: Didnt Found matching result")
@@ -3125,13 +3125,13 @@ def Minibar():
             GoBack = False
 
 
-def Loadingbar(fishs=None):
+def Loadingbar(fishs,fishsize,loop,build):
 
     global ThksForTheFish
     global FishPos
     global LenFishList
-    if fishs != None:
-            fishsize = len(str(fishs))
+
+    if build:
             fishbowl = "["+"0".zfill(fishsize) + "/"+str(fishs)+"]"
             Loading_txt = ""
             GoBack = False
@@ -3156,7 +3156,6 @@ def Loadingbar(fishs=None):
 
             for i in range(MAXCHAR+Trail+2):
 
-#            time.sleep(0.1)
                 Ln = len(Loading_txt)
                 if Ln < MAXCHAR - 7:
                     if CharPos >= Trail:
@@ -3169,8 +3168,7 @@ def Loadingbar(fishs=None):
 
                     if Tail > 3:
                         Tail = 0
-                    for i in range(500): 
-                        ThksForTheFish.append(Loading_txt + FishR[Tail])
+                    ThksForTheFish.append(Loading_txt + FishR[Tail])
                     CharPos += 1
                     Ln = len(Loading_txt)
                     Tail += 1
@@ -3184,8 +3182,7 @@ def Loadingbar(fishs=None):
 
                     if Tail > 3:
                         Tail = 0
-                    for i in range(500):
-                         ThksForTheFish.append(Loading_txt + FishR[Tail][:fishapear])
+                    ThksForTheFish.append(Loading_txt + FishR[Tail][:fishapear])
                     CharPos += 1
                     Tail += 1
                     if TrailEnd >= MAXCHAR + 2:
@@ -3198,12 +3195,10 @@ def Loadingbar(fishs=None):
                         CharPos = 0
             LenFishList = len(ThksForTheFish)-1
     else:
-         if FishPos != LenFishList:
-               FishPos += 1
-               return(ThksForTheFish[FishPos])
-         else:
-              FishPos = 0
-              return(ThksForTheFish[FishPos])
+         if loop % 100 == 0:
+             if FishPos != LenFishList:FishPos += 1
+             else:FishPos = 0
+             print("%s/%s%s"%(str(loop).zfill(fishsize),fishs,ThksForTheFish[FishPos]),end="\r")
 
 def Sumform(waitforit, switch):
     if switch is True:
@@ -3981,7 +3976,7 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
     Bingo = False
     result = "bad result"
     bad_results = ["libpng error", "libpng warning: IHDR", "libpng warning: PLTE", "libpng warning: IDAT", "bad result"]
-    fishs_nbr,chunklen_spec,chunk_format,chunk_data = GetSpec(ChunkName)
+    max_iter,len_iter,chunklen_spec,chunk_format,chunk_data = GetSpec(ChunkName)
   
     if type(chunklen_spec) == tuple:
         maxchunklen = max(chunklen_spec)
@@ -4017,8 +4012,7 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
 
 #        if DEBUG is False:
 #            Loadingbar(fishs_nbr)
-        Loadingbar(fishs_nbr) #tmp bar
-        fishsize = len(str(fishs_nbr))
+        Loadingbar(max_iter,len_iter,None,True) #need to adapt max/len_iter to ln range
 
         Lnx_New = hex(int(ln/2)).replace("0x","").zfill(8)
         if EditMode == "replace":
@@ -4034,10 +4028,8 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
                 shuffle = itertools.product(*chunk_data)
 
         for n,i in enumerate(shuffle):
-
-            print("%s/%s%s"%(str(n).zfill(fishsize),fishs_nbr,Loadingbar()),end="\r")
-
-            continue
+            Loadingbar(max_iter,len_iter,n,False)
+#            continue ##TODO REMOVE ME BEFOR PUSH FFS!
             hexvalue = ""
             for d,j in zip(chunk_format,i):
                 hexvalue +=  hex(int(j)).replace("0x", "").zfill(d)
