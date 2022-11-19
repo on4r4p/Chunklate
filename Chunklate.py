@@ -1,9 +1,7 @@
-#!/usr/bin/python3.6
+#!/usr/bin/python3
 from argparse import ArgumentParser, SUPPRESS
 from datetime import datetime
 from contextlib import contextmanager
-from PIL import Image
-from dis import get_instructions
 import numpy as np
 import sys, os, binascii, re, random, time, zlib, cv2, ctypes, io, tempfile, inspect, difflib, collections, math , itertools,psutil,subprocess
 
@@ -3195,7 +3193,7 @@ def Loadingbar(fishs,fishsize,loop,build):
                         CharPos = 0
             LenFishList = len(ThksForTheFish)-1
     else:
-         if loop % 100 == 0:
+         if loop % 50 == 0:
              if FishPos != LenFishList:FishPos += 1
              else:FishPos = 0
              print("%s/%s%s"%(str(loop).zfill(fishsize),fishs,ThksForTheFish[FishPos]),end="\r")
@@ -3975,9 +3973,8 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
 
     Bingo = False
     result = "bad result"
-    bad_results = ["libpng error", "libpng warning: IHDR", "libpng warning: PLTE", "libpng warning: IDAT", "bad result"]
     max_iter,len_iter,chunklen_spec,chunk_format,chunk_data = GetSpec(ChunkName)
-  
+
     if type(chunklen_spec) == tuple:
         maxchunklen = max(chunklen_spec)
         minchunklen = min(chunklen_spec)
@@ -4029,7 +4026,6 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
 
         for n,i in enumerate(shuffle):
             Loadingbar(max_iter,len_iter,n,False)
-#            continue ##TODO REMOVE ME BEFOR PUSH FFS!
             hexvalue = ""
             for d,j in zip(chunk_format,i):
                 hexvalue +=  hex(int(j)).replace("0x", "").zfill(d)
@@ -4044,20 +4040,15 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
                     newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
                     newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_UNCHANGED)
                     try:
-                        cv2.imshow("img",newfile)
+                         cv2.imread(newfile)
                     except Exception as e:
-                        result = "bad result"
-                        if PAUSEDEBUG is True or PAUSEERROR is True:
-                            Betterror(e, inspect.stack()[0][3])
-                            print(
-                                  Candy("Color", "yellow", e),
-                            )
-                            Pause("Pause:Debug")
-
+                        pass
             result = "{0}".format(f.getvalue().decode("utf-8"))
+#            print(result)
+#            Pause("Pause:Debug")
 
-            if not any(s in result for s in bad_results):
-                cvproc = subprocess.Popen(["python3", "-c", """import numpy as np;import cv2;d='"""+newfilewanabe+"""';nd=np.fromstring(bytes.fromhex(d), np.uint8);f=cv2.imdecode(nd, cv2.IMREAD_UNCHANGED);cv2.imshow('Press a key to close',f);cv2.waitKey()"""],stdin=None, stdout=None, stderr=None, close_fds=True)
+            if not any(s in result for s in LIBPNG_ERR):
+                cvproc = subprocess.Popen(["python3", "-c", """import numpy as np;import cv2;d='"""+newfilewanabe+"""';nd=np.fromstring(bytes.fromhex(d), np.uint8);f=cv2.imdecode(nd, cv2.IMREAD_UNCHANGED);cv2.imshow('Press a key to close',f);cv2.waitKey()"""])
 
                 Candy("Cowsay", "Ah ! Iv got One !", "good")
                 Candy("Cowsay", "Does it looks good or should i keep trying ?", "com")
@@ -5042,8 +5033,8 @@ def LibpngCheck(file):
     with stderr_redirector(f):
         cv2.imread(file)
     result = "{0}".format(f.getvalue().decode("utf-8"))
-    if len(result) > 0:
 
+    if any(s in result for s in LIBPNG_ERR):
         print(
             "-Libpng Check: %s %s"
             % (Candy("Color", "red", "FAILED!"), Candy("Emoj", "bad"))
@@ -5064,7 +5055,7 @@ def LibpngCheck(file):
             "good",
         )
         return CheckPoint(
-            False, False, "LibpngCheck", file, ["-Libpng has not found any error"]
+            False, False, "LibpngCheck", file, ["-Libpng dis not found any error"]
         )
 
 
@@ -7440,7 +7431,7 @@ def main():
         if CLEAR is True:
             if FirStart is False:
                 if os.name == "posix":
-                    sys.stdout.write("\033c")
+                    sys.stderr.write("\033c")
                 elif os.name == "nt":
                     os.system("cls")
             else:
@@ -7759,6 +7750,9 @@ ALLCHUNKS = [
     b"MAGN",
     b"MEND",
 ]
+
+LIBPNG_ERR = ["libpng error:", "Too much image data","Out of memory"," in PLTE","Invalid palette"," in IDAT","is too large for this architecture"," in IHDR","bad result"] ## need to sort error and warning in a dict
+
 
 IFOP = []
 Chunks_History = []
