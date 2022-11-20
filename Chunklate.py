@@ -3,7 +3,7 @@ from argparse import ArgumentParser, SUPPRESS
 from datetime import datetime
 from contextlib import contextmanager
 import numpy as np
-import sys, os, binascii, re, random, time, zlib, cv2, ctypes, io, tempfile, inspect, difflib, collections, math , itertools,psutil,subprocess
+import sys, os, binascii, re, random, time, zlib, cv2, ctypes, io, tempfile, inspect, difflib, collections, math, itertools, psutil, subprocess
 
 
 def Betterror(error_msg, def_name):
@@ -46,135 +46,139 @@ def Error_Log(Err_to_log):
         Betterror(e, inspect.stack()[0][3])
 
 
+def IDAT_Bytes_Nbr():  # tmpworkaround
+    global IBN
+    BCnt = 0
+    LastBcnt = 0
+    Needle = 0
+    IdatSwitch = False
+    Enough = False
+    while Needle < len(DATAX):
+        scopex = DATAX[Needle : Needle + 8]
+        if len(scopex) < 8:
+            break
+        elif Enough:
+            break
+        try:
+            scope = bytes.fromhex(scopex)
+        except Exception as e:
+            Betterror(e, inspect.stack()[0][3])
+            if DEBUG is True:
+                print(
+                    Candy("Color", "red", "Scopex:"),
+                    Candy("Color", "yellow", scopex),
+                )
+                if PAUSEDEBUG is True or PAUSEERROR is True:
+                    Pause("Pause Debug")
 
-def IDAT_Bytes_Nbr(): #tmpworkaround
-        global IBN
-        BCnt = 0
-        LastBcnt = 0
-        Needle = 0
-        IdatSwitch = False
-        Enough = False
-        while Needle < len(DATAX):
-            scopex = DATAX[Needle : Needle + 8]
-            if len(scopex) < 8:
-                break
-            elif Enough:
-                break
-            try:
-                scope = bytes.fromhex(scopex)
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
-                    print(
-                        Candy("Color", "red", "Scopex:"),
-                        Candy("Color", "yellow", scopex),
-                    )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
+        if scope == b"IDAT":
+            IdatSwitch = True
+            if LastBcnt == 0:
+                LastBcnt = Needle
+            else:
+                BCnt += (Needle - LastBcnt) - 24
+                LastBcnt = Needle
+        elif IdatSwitch:
+            for Chk in CHUNKS:
+                if Chk == scope:
+                    BCnt += (Needle - LastBcnt) - 24
+                    LastBcnt = Needle
+                    Enough = True
+                    break
+        Needle += 1
 
+    IBN = int(BCnt / 2)
 
-            if scope == b"IDAT":
-                        IdatSwitch = True
-                        if LastBcnt == 0:
-                            LastBcnt = Needle
-                        else:
-                           BCnt += (Needle - LastBcnt) - 24
-                           LastBcnt = Needle 
-            elif IdatSwitch:
-                for Chk in CHUNKS:
-                    if Chk == scope:
-                           BCnt += (Needle - LastBcnt) - 24
-                           LastBcnt = Needle
-                           Enough = True
-                           break
-            Needle += 1
-
-        IBN = int(BCnt/2)
 
 def Min_Res_W(MinRes):
-        for w in range(MinRes):
-               for h in range(w+1):
-                   yield(w,h)
+    for w in range(MinRes):
+        for h in range(w + 1):
+            yield (w, h)
+
+
 def Min_Res_H(MinRes):
-        for w in range(MinRes):
-               for h in range(w+1):
-                   yield(h,w)
+    for w in range(MinRes):
+        for h in range(w + 1):
+            yield (h, w)
 
-def Max_Res(): 
-           try:
-               size = os.path.getsize(FILE_Origin)
-               calc = math.floor(((size - 77) * 8 - 1) / 2) * 86 + 1
-               MaxRes = int(math.sqrt(calc))
-               if DEBUG:
-                   print("-Maximum resolution estimation based on file size: %s*%s"%(MaxRes,MaxRes))
-           except Exception as e:
-               Betterror(e, inspect.stack()[0][3])
-               print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
-               TheEnd()
 
-           return(MaxRes)
+def Max_Res():
+    try:
+        size = os.path.getsize(FILE_Origin)
+        calc = math.floor(((size - 77) * 8 - 1) / 2) * 86 + 1
+        MaxRes = int(math.sqrt(calc))
+        if DEBUG:
+            print(
+                "-Maximum resolution estimation based on file size: %s*%s"
+                % (MaxRes, MaxRes)
+            )
+    except Exception as e:
+        Betterror(e, inspect.stack()[0][3])
+        print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
+        TheEnd()
+
+    return MaxRes
 
 
 def ColorType(GetChunk):
 
     Safe_val = True
     for nb, key in enumerate(PandoraBox):
-#        print("key:",key)
+        #        print("key:",key)
         if "IHDR" in str(key):
             if "Wrong Crc" in str(key) and Skip_Bad_Crc is False:
-               if str(key) not in Cornucopia:
-                   Safe_val = False
+                if str(key) not in Cornucopia:
+                    Safe_val = False
             if "bad adaptive filter" in str(key):
-               if str(key) not in Cornucopia:
-                   Safe_val = False
+                if str(key) not in Cornucopia:
+                    Safe_val = False
             if "-IHDR Color" in str(key):
-               if str(key) not in Cornucopia:
-                   Safe_val = False
+                if str(key) not in Cornucopia:
+                    Safe_val = False
             if "IHDR: CRC error" in str(key):
-               if str(key) not in Cornucopia:
-                  Safe_val = False
+                if str(key) not in Cornucopia:
+                    Safe_val = False
 
     for nb1, (file, file_value) in enumerate(Pandemonium.items()):
-           for nb2, (errors, errors_values) in enumerate(file_value.items()):
-                if "Filling with a dummy chunk" in errors:
-                    for nb3, (tools, tools_values) in enumerate(
-                            errors_values.items()
-                        ):
-                            ChunkName = "".join(
-                                [
-                                    chnk.decode(errors="ignore")
-                                    for chnk in ALLCHUNKS
-                                    if chnk.decode(errors="ignore") in tools
-                                ]
-                            )
-                            if ChunkName == "IHDR":
-                                  Safe_val = False
+        for nb2, (errors, errors_values) in enumerate(file_value.items()):
+            if "Filling with a dummy chunk" in errors:
+                for nb3, (tools, tools_values) in enumerate(errors_values.items()):
+                    ChunkName = "".join(
+                        [
+                            chnk.decode(errors="ignore")
+                            for chnk in ALLCHUNKS
+                            if chnk.decode(errors="ignore") in tools
+                        ]
+                    )
+                    if ChunkName == "IHDR":
+                        Safe_val = False
     if IHDR_Color not in ["0", "2", "3", "4", "6"]:
-           Safe_val = False
+        Safe_val = False
 
     if IHDR_Height == 0 or IHDR_Width == 0:
-          Safe_val = False
+        Safe_val = False
 
     if Safe_val == False:
-      if GetChunk != b"IHDR":
-      	   ColorType = "nocolortype"
-      else:
-          if Brute_LvL == 0:
-               ColorType = "nocolortype:minres"
-          elif Brute_LvL == 1:
-              ColorType = "nocolortype:medres"
-          else:
-               ColorType = "nocolortype:maxres" 
+        if GetChunk != b"IHDR":
+            ColorType = "nocolortype"
+        else:
+            if Brute_LvL == 0:
+                ColorType = "nocolortype:minres"
+            elif Brute_LvL == 1:
+                ColorType = "nocolortype:medres"
+            else:
+                ColorType = "nocolortype:maxres"
 
     else:
-         ColorType = "colortype:"+str(IHDR_Color)
+        ColorType = "colortype:" + str(IHDR_Color)
 
     if DEBUG:
-       print("-ColorType set to:",ColorType)
+        print("-ColorType set to:", ColorType)
 
-    return(ColorType)
+    return ColorType
 
-def GetSpec(GetChunk): ## todo GetSpec(chunk,colortype)
+
+def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
     ##TODO ## Need to use strutc module coz speed ..
     ## And maybe reshap for easier brute force of smaller values
     ThisYear = datetime.now().year
@@ -182,90 +186,305 @@ def GetSpec(GetChunk): ## todo GetSpec(chunk,colortype)
     if IBN == 0:
         IDAT_Bytes_Nbr()
 
-    ibn = int(IBN/64)
+    ibn = int(IBN / 64)
     Mxr = Max_Res()
     MnrW = Min_Res_W(ibn)
     MnrH = Min_Res_H(ibn)
-    Mnr = itertools.chain(Min_Res_W(ibn),Min_Res_H(ibn))
+    Mnr = itertools.chain(Min_Res_W(ibn), Min_Res_H(ibn))
     MnrF = 0
 
     for x in range(ibn):
-         for y in range(x+1):
+        for y in range(x + 1):
             MnrF += 2
     MnrF -= 1
 
     if DEBUG:
-           print("-Smalest resolution estimation based on file size: %s*%s"%(int(IBN/64),int(IBN/64)))
-    
-    if GetChunk in [b"IHDR",b"tRNS",b"bKGD",b"sBIT"]:
+        print(
+            "-Smalest resolution estimation based on file size: %s*%s"
+            % (int(IBN / 64), int(IBN / 64))
+        )
+
+    if GetChunk in [b"IHDR", b"tRNS", b"bKGD", b"sBIT"]:
         GetMode = ColorType(GetChunk)
     else:
-    	GetMode = "nocolortype"
-
-  
-    
+        GetMode = "nocolortype"
 
     CHUNKS_SPEC = {
-    b"IHDR": {
-        "nocolortype:maxres": ( ((Mxr - 1)*(Mxr - 1))*5*5*2 ,26 ,(8,8,2,2,2,2,2), ((i for i in range(1,Mxr)),(i for i in range(1,Mxr)),(1,2,4,8,16),(0,2,3,4,6),("0"),("0"),(0,1)) ),
-        "nocolortype:medres": ( ((ibn - 1)*(ibn - 1))*5*5*2 ,26,(8,8,2,2,2,2,2), ((i for i in range(1,ibn)),(i for i in range(1,ibn)),(1,2,4,8,16),(0,2,3,4,6),("0"),("0"),(0,1)) ),
-        "nocolortype:minres": ( MnrF*5*5*2 ,26,(8,8,2,2,2,2,2),(Mnr,(1,2,4,8,16),(0,2,3,4,6),("0"),("0"),(0,1))) ,
-        "colortype:0": (10,26,(8,8,2,2,2,2,2), ((IHDR_Width for i in range(11)),(IHDR_Height for i in range(11)),(1,2,4,8,16),("0"),("0"),("0"),(0,1)) ),
-        "colortype:2": (4,26,(8,8,2,2,2,2,2), ((IHDR_Width for i in range(5)),(IHDR_Height for i in range(5)),(8,16),("2"),("0"),("0"),(0,1)) ),
-        "colortype:3": (8,26,(8,8,2,2,2,2,2), ((IHDR_Width for i in range(9)),(IHDR_Height for i in range(9)),(1,2,4,8),("3"),("0"),("0"),(0,1)) ),
-        "colortype:4": (4,26,(8,8,2,2,2,2,2), ((IHDR_Width for i in range(5)),(IHDR_Height for i in range(5)),(8,16),("4"),("0"),("0"),(0,1)) ),
-        "colortype:6": (4,26,(8,8,2,2,2,2,2), ((IHDR_Width for i in range(5)),(IHDR_Height for i in range(5)),(8,16),("6"),("0"),("0"),(0,1)) ),
-    },
-    b"PLTE": {"nocolortype":(16581375,(6, 1536),(2,2,2), ( (i for i in range(256)),(i for i in range(256)),(i for i in range(256)) )  )},
-    b"tRNS": {
-        "colortype:0": (65535,(4, 1024),(4),(i for i in range(65536)) ),
-        "colortype:2": (196605,(12, 3072),(4,4,4),( (i for i in range(65536)) ,(i for i in range(65536)), (i for i in range(65536)) )),
-        "colortype:3": (255,(2, 512),(2),(i for i in range(256))),
-    },
-    b"gAMA": {"nocolortype": (100000,8,(8),(i for i in range(100001)))},
-    b"cHRM": {"nocolortype": (800000,64,(8,8,8,8,8,8,8,8),( (i for i in range(100001)),(i for i in range(100001)),(i for i in range(100001)),(i for i in range(100001)),(i for i in range(100001)),(i for i in range(100001)),(i for i in range(100001)),(i for i in range(100001)) ))},
-    b"sRGB": {"nocolortype": (4,2,(2),(0,1,2,3))},
-    b"bKGD": {
-        "colortype:0": ((65535),4,(4),(i for i in range(65536))),
-        "colortype:2": ((196605),12,(4,4,4),((i for i in range(65536)),(i for i in range(65536)),(i for i in range(65536)) )),
-        "colortype:3": ((255),2,(2),(i for i in range(256))),
-        "colortype:4": ((65535),4,(4),(i for i in range(65536))),
-        "colortype:6": ((196605),12,(4,4,4),((i for i in range(65536)),(i for i in range(65536)),(i for i in range(65536)) )),
-    },
-    b"pHYs": {"nocolortype": ((4611686014132420609),18,(8,8,2),((i for i in range(2147483647)),(i for i in range(2147483647)),(0,1) ) )},
-    b"sBIT": {
-        "colortype:0": (255,2,(2),(i for i in range(256))),
-        "colortype:2": (16581375,6,(2,2,2),((i for i in range(256)),(i for i in range(256)),(i for i in range(256)) )),
-        "colortype:3": (16581375,6,(2,2,2),((i for i in range(256)),(i for i in range(256)),(i for i in range(256)) )),
-        "colortype:4": (65025,4,(2,2),((i for i in range(256)),(i for i in range(256)))),
-        "colortype:6": (16581375,8,(2,2,2,2),((i for i in range(256)),(i for i in range(256)),(i for i in range(256)),(i for i in range(256)) )),
-    },
-    b"hIST": {"nocolortype": (65536,(4, 1024),(4),(i for i in range(65536)))},
-    b"tIME": {"nocolortype": (( (1970-ThisYear)*12*31*23*59*60),14,(4,2,2,2,2,2),((i for i in range(1970,ThisYear+1)),(i for i in range(1,13)),(i for i in range(1,32)),(i for i in range(0,24)),(i for i in range(0,60)),(i for i in range(0,61))))},
+        b"IHDR": {
+            "nocolortype:maxres": (
+                ((Mxr - 1) * (Mxr - 1)) * 5 * 5 * 2,
+                26,
+                (8, 8, 2, 2, 2, 2, 2),
+                (
+                    (i for i in range(1, Mxr)),
+                    (i for i in range(1, Mxr)),
+                    (1, 2, 4, 8, 16),
+                    (0, 2, 3, 4, 6),
+                    ("0"),
+                    ("0"),
+                    (0, 1),
+                ),
+            ),
+            "nocolortype:medres": (
+                ((ibn - 1) * (ibn - 1)) * 5 * 5 * 2,
+                26,
+                (8, 8, 2, 2, 2, 2, 2),
+                (
+                    (i for i in range(1, ibn)),
+                    (i for i in range(1, ibn)),
+                    (1, 2, 4, 8, 16),
+                    (0, 2, 3, 4, 6),
+                    ("0"),
+                    ("0"),
+                    (0, 1),
+                ),
+            ),
+            "nocolortype:minres": (
+                MnrF * 5 * 5 * 2,
+                26,
+                (8, 8, 2, 2, 2, 2, 2),
+                (Mnr, (1, 2, 4, 8, 16), (0, 2, 3, 4, 6), ("0"), ("0"), (0, 1)),
+            ),
+            "colortype:0": (
+                10,
+                26,
+                (8, 8, 2, 2, 2, 2, 2),
+                (
+                    (IHDR_Width for i in range(11)),
+                    (IHDR_Height for i in range(11)),
+                    (1, 2, 4, 8, 16),
+                    ("0"),
+                    ("0"),
+                    ("0"),
+                    (0, 1),
+                ),
+            ),
+            "colortype:2": (
+                4,
+                26,
+                (8, 8, 2, 2, 2, 2, 2),
+                (
+                    (IHDR_Width for i in range(5)),
+                    (IHDR_Height for i in range(5)),
+                    (8, 16),
+                    ("2"),
+                    ("0"),
+                    ("0"),
+                    (0, 1),
+                ),
+            ),
+            "colortype:3": (
+                8,
+                26,
+                (8, 8, 2, 2, 2, 2, 2),
+                (
+                    (IHDR_Width for i in range(9)),
+                    (IHDR_Height for i in range(9)),
+                    (1, 2, 4, 8),
+                    ("3"),
+                    ("0"),
+                    ("0"),
+                    (0, 1),
+                ),
+            ),
+            "colortype:4": (
+                4,
+                26,
+                (8, 8, 2, 2, 2, 2, 2),
+                (
+                    (IHDR_Width for i in range(5)),
+                    (IHDR_Height for i in range(5)),
+                    (8, 16),
+                    ("4"),
+                    ("0"),
+                    ("0"),
+                    (0, 1),
+                ),
+            ),
+            "colortype:6": (
+                4,
+                26,
+                (8, 8, 2, 2, 2, 2, 2),
+                (
+                    (IHDR_Width for i in range(5)),
+                    (IHDR_Height for i in range(5)),
+                    (8, 16),
+                    ("6"),
+                    ("0"),
+                    ("0"),
+                    (0, 1),
+                ),
+            ),
+        },
+        b"PLTE": {
+            "nocolortype": (
+                16581375,
+                (6, 1536),
+                (2, 2, 2),
+                (
+                    (i for i in range(256)),
+                    (i for i in range(256)),
+                    (i for i in range(256)),
+                ),
+            )
+        },
+        b"tRNS": {
+            "colortype:0": (65535, (4, 1024), (4), (i for i in range(65536))),
+            "colortype:2": (
+                196605,
+                (12, 3072),
+                (4, 4, 4),
+                (
+                    (i for i in range(65536)),
+                    (i for i in range(65536)),
+                    (i for i in range(65536)),
+                ),
+            ),
+            "colortype:3": (255, (2, 512), (2), (i for i in range(256))),
+        },
+        b"gAMA": {"nocolortype": (100000, 8, (8), (i for i in range(100001)))},
+        b"cHRM": {
+            "nocolortype": (
+                800000,
+                64,
+                (8, 8, 8, 8, 8, 8, 8, 8),
+                (
+                    (i for i in range(100001)),
+                    (i for i in range(100001)),
+                    (i for i in range(100001)),
+                    (i for i in range(100001)),
+                    (i for i in range(100001)),
+                    (i for i in range(100001)),
+                    (i for i in range(100001)),
+                    (i for i in range(100001)),
+                ),
+            )
+        },
+        b"sRGB": {"nocolortype": (4, 2, (2), (0, 1, 2, 3))},
+        b"bKGD": {
+            "colortype:0": ((65535), 4, (4), (i for i in range(65536))),
+            "colortype:2": (
+                (196605),
+                12,
+                (4, 4, 4),
+                (
+                    (i for i in range(65536)),
+                    (i for i in range(65536)),
+                    (i for i in range(65536)),
+                ),
+            ),
+            "colortype:3": ((255), 2, (2), (i for i in range(256))),
+            "colortype:4": ((65535), 4, (4), (i for i in range(65536))),
+            "colortype:6": (
+                (196605),
+                12,
+                (4, 4, 4),
+                (
+                    (i for i in range(65536)),
+                    (i for i in range(65536)),
+                    (i for i in range(65536)),
+                ),
+            ),
+        },
+        b"pHYs": {
+            "nocolortype": (
+                (4611686014132420609),
+                18,
+                (8, 8, 2),
+                (
+                    (i for i in range(2147483647)),
+                    (i for i in range(2147483647)),
+                    (0, 1),
+                ),
+            )
+        },
+        b"sBIT": {
+            "colortype:0": (255, 2, (2), (i for i in range(256))),
+            "colortype:2": (
+                16581375,
+                6,
+                (2, 2, 2),
+                (
+                    (i for i in range(256)),
+                    (i for i in range(256)),
+                    (i for i in range(256)),
+                ),
+            ),
+            "colortype:3": (
+                16581375,
+                6,
+                (2, 2, 2),
+                (
+                    (i for i in range(256)),
+                    (i for i in range(256)),
+                    (i for i in range(256)),
+                ),
+            ),
+            "colortype:4": (
+                65025,
+                4,
+                (2, 2),
+                ((i for i in range(256)), (i for i in range(256))),
+            ),
+            "colortype:6": (
+                16581375,
+                8,
+                (2, 2, 2, 2),
+                (
+                    (i for i in range(256)),
+                    (i for i in range(256)),
+                    (i for i in range(256)),
+                    (i for i in range(256)),
+                ),
+            ),
+        },
+        b"hIST": {"nocolortype": (65536, (4, 1024), (4), (i for i in range(65536)))},
+        b"tIME": {
+            "nocolortype": (
+                ((1970 - ThisYear) * 12 * 31 * 23 * 59 * 60),
+                14,
+                (4, 2, 2, 2, 2, 2),
+                (
+                    (i for i in range(1970, ThisYear + 1)),
+                    (i for i in range(1, 13)),
+                    (i for i in range(1, 32)),
+                    (i for i in range(0, 24)),
+                    (i for i in range(0, 60)),
+                    (i for i in range(0, 61)),
+                ),
+            )
+        },
     }
     for key in CHUNKS_SPEC:
         for mode, bytes_spec in CHUNKS_SPEC[key].items():
             if key == GetChunk:
-                  if mode == GetMode:
-                         product = bytes_spec[0]
-                         chunklen_spec = bytes_spec[1]
-                         chunk_format = bytes_spec[2]
-                         chunk_data = bytes_spec[3]
-#                         print("key:",key)
-#                         print("product:",product)
-#                         print("keylen",len(key))
-#                         print("chunklen_spec:",chunklen_spec)
-#                         print("chunk_format",chunk_format)
-#                         print("chunk_data",chunk_data)
-                         return(product,len(str(product)),chunklen_spec,chunk_format,chunk_data)
-
+                if mode == GetMode:
+                    product = bytes_spec[0]
+                    chunklen_spec = bytes_spec[1]
+                    chunk_format = bytes_spec[2]
+                    chunk_data = bytes_spec[3]
+                    #                         print("key:",key)
+                    #                         print("product:",product)
+                    #                         print("keylen",len(key))
+                    #                         print("chunklen_spec:",chunklen_spec)
+                    #                         print("chunk_format",chunk_format)
+                    #                         print("chunk_data",chunk_data)
+                    return (
+                        product,
+                        len(str(product)),
+                        chunklen_spec,
+                        chunk_format,
+                        chunk_data,
+                    )
 
     print("-Error in GetSpec: Didnt Found matching result")
-    print("GetMode:",GetMode)
-    print("GetChunk:",GetChunk)
+    print("GetMode:", GetMode)
+    print("GetChunk:", GetChunk)
     print(Candy("Color", "yellow", "\n-ToDo"))
     TheEnd()
 
+
+####
 def GetInfo(Chunk, data, Dummy=False):
     global SideNotes
     global IDAT_Bytes_Len
@@ -1380,7 +1599,7 @@ def GetInfo(Chunk, data, Dummy=False):
 
             sPLT_Depht.append(Depht)
             sPLT_Name.append(Name)
-
+            lastnm = ""
             for nm in sPLT_Name:
                 if sPLT_Name.count(nm) > 1 and nm != lastnm:
                     print(
@@ -1434,8 +1653,8 @@ def GetInfo(Chunk, data, Dummy=False):
                 )
 
                 if b"PLTE" in Chunks_History:
-                    
-                    if len(hIST) != int((len(PLTE_R) + len(PLTE_G) + len(PLTE_B))/3):
+
+                    if len(hIST) != int((len(PLTE_R) + len(PLTE_G) + len(PLTE_B)) / 3):
                         print(
                             "-Histogram frequencies entries %s PLTE entries number %s"
                             % (
@@ -2415,53 +2634,53 @@ def GetInfo(Chunk, data, Dummy=False):
             )
         except Exception as e:
             Betterror(e, inspect.stack()[0][3])
-            oFFSX = ""
+            oFFSX = 2147483649
         try:
             oFFSY = str(
                 int.from_bytes(bytes.fromhex(data[8:16]), byteorder="big", signed=True)
             )
         except Exception as e:
             Betterror(e, inspect.stack()[0][3])
-            oFFSY = ""
+            oFFSY = 2147483649
         try:
             oFFSU = str(int(data[16:18], 16))
         except Exception as e:
             Betterror(e, inspect.stack()[0][3])
-            oFFSU = ""
+            oFFSU = 2147483649
 
-            print("-Offset position X    :", Candy("Color", "blue", oFFSX))
-            print("-Offset position Y  :", Candy("Color", "purple", oFFSY))
-            print("-Offset Unit   :", Candy("Color", "white", oFFSU))
-            if int(oFFSX) not in range(-2147483647, 2147483648):
-                print(
-                    "-%s Offset position X must be between -2,147,483,647 to +2,147,483,647 %s"
-                    % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
-                )
-                ToFix.append(
-                    "-Wrong Offset position X must be between -2,147,483,647 to +2,147,483,647"
-                )
-            if int(oFFSY) not in range(-2147483647, 2147483648):
-                print(
-                    "-%s Offset position Y must be between -2,147,483,647 to +2,147,483,647 %s"
-                    % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
-                )
-                ToFix.append(
-                    "-Wrong Offset position Y must be between -2,147,483,647 to +2,147,483,647"
-                )
-            if oFFSU != "0" and oFFSU != "1":
-                print(
-                    "-%s Offset unit must be between 0 or 1 %s"
-                    % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
-                )
-                ToFix.append("-Wrong Offset unit must be between 0 or 1")
-            if len(ToFix) > 0:
-                CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-            else:
-                print(
-                    "\n-Errors Check :"
-                    + Candy("Color", "green", " OK ")
-                    + Candy("Emoj", "good")
-                )
+        print("-Offset position X    :", Candy("Color", "blue", oFFSX))
+        print("-Offset position Y  :", Candy("Color", "purple", oFFSY))
+        print("-Offset Unit   :", Candy("Color", "white", oFFSU))
+        if int(oFFSX) not in range(-2147483647, 2147483648):
+            print(
+                "-%s Offset position X must be between -2,147,483,647 to +2,147,483,647 %s"
+                % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
+            )
+            ToFix.append(
+                "-Wrong Offset position X must be between -2,147,483,647 to +2,147,483,647"
+            )
+        if int(oFFSY) not in range(-2147483647, 2147483648):
+            print(
+                "-%s Offset position Y must be between -2,147,483,647 to +2,147,483,647 %s"
+                % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
+            )
+            ToFix.append(
+                "-Wrong Offset position Y must be between -2,147,483,647 to +2,147,483,647"
+            )
+        if oFFSU != "0" and oFFSU != "1":
+            print(
+                "-%s Offset unit must be between 0 or 1 %s"
+                % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
+            )
+            ToFix.append("-Wrong Offset unit must be between 0 or 1")
+        if len(ToFix) > 0:
+            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+        else:
+            print(
+                "\n-Errors Check :"
+                + Candy("Color", "green", " OK ")
+                + Candy("Emoj", "good")
+            )
 
     if Chunk == "pCAL":
         pCAL_Param = []
@@ -2863,6 +3082,751 @@ def GetInfo(Chunk, data, Dummy=False):
     return
 
 
+####
+
+
+def YouShallPass(Chunk, data):
+
+    if Chunk == b"IHDR":
+        try:
+            IHDR_Height = str(int(data[:8], 16))
+
+        except:
+            return False
+        try:
+            IHDR_Width = str(int(data[8:16], 16))
+        except:
+            return False
+        try:
+            IHDR_Depht = str(int(data[16:18], 16))
+        except:
+            return False
+        try:
+            IHDR_Color = str(int(data[18:20], 16))
+        except:
+            return False
+        try:
+            IHDR_Method = str(int(data[20:22], 16))
+        except:
+            return False
+        try:
+            IHDR_Filter = str(int(data[22:24], 16))
+        except:
+            return False
+        try:
+            IHDR_Interlace = str(int(data[24:26], 16))
+        except:
+            return False
+        try:
+            if len(data) != 26:
+                return False
+            if len(IHDR_Height) > 0:
+                if int(IHDR_Height) > 2147483647:
+                    return False
+            else:
+                return False
+
+            if len(IHDR_Width) > 0:
+                if int(IHDR_Width) > 2147483647:
+                    return False
+            else:
+                return False
+
+            if len(IHDR_Depht) > 0:
+                if IHDR_Depht not in ["1", "2", "4", "8", "16"]:
+                    return False
+            else:
+                return False
+            if len(IHDR_Color) > 0:
+                if IHDR_Color not in ["0", "2", "3", "4", "6"]:
+                    return False
+                if IHDR_Color == "2" or IHDR_Color == "4" or IHDR_Color == "6":
+                    if IHDR_Depht not in ["8", "16"]:
+                        return False
+                if IHDR_Color == "3":
+                    if IHDR_Depht not in ["1", "2", "4", "8"]:
+                        return False
+            else:
+                return False
+
+            if len(IHDR_Filter) > 0 and IHDR_Filter != "0":
+                return False
+            elif len(IHDR_Filter) == 0:
+                return False
+            if len(IHDR_Method) > 0 and IHDR_Method != "0":
+                return False
+            elif len(IHDR_Method) == 0:
+                return False
+            if len(IHDR_Interlace) > 0 and (
+                IHDR_Interlace != "0" and IHDR_Interlace != "1"
+            ):
+                return False
+            elif len(IHDR_Interlace) == 0:
+                return False
+
+        except Exception as e:
+            if DEBUG:
+                print("Error:", e)
+
+    if Chunk == b"pHYs":
+        try:
+            pHYs_Y = str(int(data[:8], 16))
+        except (NameError, ValueError) as e:
+            return False
+        try:
+            pHYs_X = str(int(data[8:16], 16))
+        except (NameError, ValueError) as e:
+            return False
+        try:
+            pHYs_Unit = str(int(data[16:18], 16))
+        except (NameError, ValueError) as e:
+            return False
+        try:
+            if len(pHYs_Y) > 0:
+                if int(pHYs_Y) > 2147483647:
+                    return False
+            else:
+                return False
+            if len(pHYs_X) > 0:
+                if int(pHYs_X) > 2147483647:
+                    return False
+            else:
+                return False
+            if len(pHYs_Unit) > 0:
+                if pHYs_Unit != "0" and pHYs_Unit != "1":
+                    return False
+        except Exception as e:
+            if DEBUG:
+                print("Error:", e)
+    if Chunk == b"bKGD":
+        if IHDR_Color == "0" or IHDR_Color == "4":
+            try:
+                bKGD_Gray = str(int(data[:4], 16))
+            except:
+                return False
+            if len(bKGD_Gray) > 0:
+                if int(bKGD_Gray) > (2 ** int(IHDR_Depht)) - 1:
+                    return False
+        if IHDR_Color == "2" or IHDR_Color == "6":
+            try:
+                try:
+                    bKGD_Red = str(int(data[:4], 16))
+                except Exception as e:
+                    return False
+                try:
+                    bKGD_Green = str(int(data[4:8], 16))
+                except Exception as e:
+                    return False
+                try:
+                    bKGD_Blue = str(int(data[8:12], 16))
+                except Exception as e:
+                    return False
+                if len(bKGD_Red) > 0:
+                    if int(bKGD_Red) > (2 ** int(IHDR_Depht)) - 1:
+                        return False
+                if len(bKGD_Green) > 0:
+                    if int(bKGD_Green) > (2 ** int(IHDR_Depht)) - 1:
+                        return False
+                if len(bKGD_Blue) > 0:
+                    if int(bKGD_Blue) > (2 ** int(IHDR_Depht)) - 1:
+                        return False
+            except:
+                if DEBUG:
+                    print("Error:", e)
+                return False
+        if IHDR_Color == "3":
+            try:
+                bKGD_Index = str(int(data[:2], 16))
+            except:
+                return False
+    if Chunk == b"PLTE":
+
+        PLTE_R = []
+        PLTE_G = []
+        PLTE_B = []
+
+        PLTNbr = len(data)
+
+        if not str(int(PLTNbr) / 3).endswith(".0"):
+            return False
+
+        for i in range(0, PLTNbr, 6):
+            pltr = data[i : i + 2]
+            try:
+                int(pltr, 16)
+            except:
+                return False
+
+            pltg = data[i + 2 : i + 4]
+            try:
+                int(pltg, 16)
+            except:
+                return False
+            pltb = data[i + 4 : i + 6]
+
+            try:
+                int(pltb, 16)
+            except:
+                return False
+
+            PLTE_R.append(str(pltr))
+            PLTE_G.append(str(pltg))
+            PLTE_B.append(str(pltb))
+
+        if len(PLTE_R) > 256:
+            return False
+
+        if len(PLTE_G) > 256:
+            return False
+        if len(PLTE_B) > 256:
+            return False
+        if len(IHDR_Depht) > 0:
+            if len(PLTE_R) > 2 ** int(IHDR_Depht):
+                return False
+            elif len(PLTE_R) == 0:
+                return False
+
+            if len(PLTE_G) > 2 ** int(IHDR_Depht):
+                return False
+            elif len(PLTE_G) == 0:
+                return False
+
+            if len(PLTE_B) > 2 ** int(IHDR_Depht):
+                return False
+            elif len(PLTE_G) == 0:
+                return False
+        else:
+            return False
+
+    if Chunk == b"sPLT":
+        sPLT_Red = []
+        sPLT_Green = []
+        sPLT_Blue = []
+        sPLT_Alpha = []
+        sPLT_Freq = []
+        sPLT_Depht = []
+        sPLT_Name = []
+        sPLT_Ln = len(data)
+        Name = ""
+        if sPLT_Ln <= 0:
+            return False
+
+        elif NullFind(data) is False:
+            return False
+        elif sPLT_Ln > 0 and NullFind(data) is not False:
+            null_pos = NullFind(data)
+            Name = data[:null_pos]
+            ChrName = ""
+
+            for i in range(0, len(Name), 2):
+                try:
+                    nint = int(data[i : i + 2], 16)
+                    nchar = chr(nint)
+                except:
+                    nint = 258
+                    nchar = chr(nint)
+
+                if (nint not in range(32, 127)) and (nint not in range(161, 256)):
+                    ChrName += "€"
+                else:
+                    ChrName += nchar
+
+            Depht = str(int(data[null_pos + 2 : null_pos + 4], 16))
+            if Depht != "8" and Depht != "16":
+                return False
+            pos = 0
+            for i in range(sPLT_Ln):
+                if Depht == "8":
+                    sPLT_Red.append(data[:pos])
+                    sPLT_Green.append(data[pos : pos + 2])
+                    sPLT_Blue.append(data[pos + 2 : pos + 4])
+                    sPLT_Alpha.append(data[pos + 4 : pos + 6])
+                    sPLT_Freq.append(data[pos + 6 : pos + 8])
+                    pos += 8
+
+                if Depht == "16":
+                    sPLT_Red.append(data[:pos])
+                    sPLT_Green.append(data[pos : pos + 4])
+                    sPLT_Blue.append(data[pos + 4 : pos + 8])
+                    sPLT_Alpha.append(data[pos + 8 : pos + 16])
+                    sPLT_Freq.append(data[pos + 16 : pos + 24])
+                    pos += 24
+                else:
+                    break
+
+            if len(Name) > 79:
+                return False
+
+            if Depht == "8":
+                if not str(int(len(sPLT_Red)) / 6).endswith(".0"):
+                    return False
+            elif Depht == "16":
+                if not str(int(len(sPLT_Red)) / 10).endswith(".0"):
+                    return False
+            if Depht == "8":
+                if not str(int(len(sPLT_Green)) / 6).endswith(".0"):
+                    return False
+            elif Depht == "16":
+                if not str(int(len(sPLT_Green)) / 10).endswith(".0"):
+                    return False
+            if Depht == "8":
+                if not str(int(len(sPLT_Blue)) / 6).endswith(".0"):
+                    return False
+            elif Depht == "16":
+                if not str(int(len(sPLT_Blue)) / 10).endswith(".0"):
+                    return False
+            if Depht == "8":
+                if not str(int(len(sPLT_Alpha)) / 6).endswith(".0"):
+                    return False
+            elif Depht == "16":
+                if not str(int(len(sPLT_Alpha)) / 10).endswith(".0"):
+                    return False
+            if Depht == "8":
+                if not str(int(len(sPLT_Freq)) / 6).endswith(".0"):
+                    return False
+            elif Depht == "16":
+                if not str(int(len(sPLT_Freq)) / 10).endswith(".0"):
+                    return False
+            sPLT_Depht.append(Depht)
+            sPLT_Name.append(Name)
+
+            for nm in sPLT_Name:
+                if sPLT_Name.count(nm) > 1 and nm != lastnm:
+                    lastnm = nm
+                    return False
+    if Chunk == b"hIST":
+        hIST = []
+        if len(data) <= 0:
+            return False
+        elif len(data) > 0:
+
+            if b"PLTE" not in Chunks_History and b"sPLT" not in Chunks_History:
+                return False
+            try:
+                pos = 0
+                for plt in range(0, len(data), 4):
+                    hIST.append(data[plt : plt + 4])
+                    pos = plt
+                if b"PLTE" in Chunks_History:
+                    if len(hIST) != int((len(PLTE_R) + len(PLTE_G) + len(PLTE_B)) / 3):
+                        return False
+                if b"sPLT" in Chunks_History:
+                    if len(hIST) != len(sPLT_Red) + len(sPLT_Green) + len(
+                        sPLT_Blue
+                    ) + len(sPLT_Aplha):
+                        return False
+            except:
+                if DEBUG:
+                    print("Error:", e)
+                return False
+    if Chunk == b"tIME":
+        if len(data) < 14:
+            return False
+        else:
+            try:
+                tIME_Yr = str(int(data[:4], 16))
+            except:
+                return False
+            try:
+                tIME_Mth = str(int(data[4:6], 16))
+            except:
+                return False
+            try:
+                tIME_Day = str(int(data[6:8], 16))
+            except:
+                return False
+            try:
+                tIME_Hr = str(int(data[8:10], 16))
+            except:
+                return False
+            try:
+                tIME_Min = str(int(data[10:12], 16))
+            except:
+                return False
+            try:
+                tIME_Sec = str(int(data[12:14], 16))
+            except:
+                return False
+            if len(str(tIME_Yr)) > 0:
+                if int(tIME_Yr) > datetime.now().year:
+                    return False
+            if len(str(tIME_Mth)) > 0:
+                if int(tIME_Mth) not in range(1, 13):
+                    return False
+            if len(str(tIME_Day)) > 0:
+                if int(tIME_Day) not in range(1, 32):
+                    return False
+            if len(str(tIME_Hr)) > 0:
+                if int(tIME_Hr) not in range(0, 24):
+                    return False
+            if len(str(tIME_Min)) > 0:
+                if int(tIME_Min) not in range(0, 60):
+                    return False
+            if len(str(tIME_Sec)) > 0:
+                if int(tIME_Sec) not in range(0, 61):
+                    return False
+
+    if Chunk == b"tRNS":
+        TRNSNBR = len(data)
+        if len(IHDR_Color) == 0:
+            return False
+        elif len(data) == 0:
+            return False
+        elif str(IHDR_Color) not in ["0", "2", "3"]:
+            return False
+        elif len(data) > 0 and str(IHDR_Color) in ["0", "2", "3"]:
+            if IHDR_Color == "0":
+                try:
+                    tRNS_Gray = str(int(data[:4], 16))
+                except:
+                    return False
+            if IHDR_Color == "2":
+                try:
+                    tRNS_TrueR = str(int(data[:4], 16))
+                except:
+                    return False
+                try:
+                    tRNS_TrueG = str(int(data[4:8], 16))
+                except:
+                    return False
+                try:
+                    tRNS_TrueB = str(int(data[8:16], 16))
+                except:
+                    return False
+            if IHDR_Color == "3":
+                if b"PLTE" not in Chunks_History and b"sPLT" not in Chunks_History:
+                    return False
+                for i in range(0, TRNSNBR, 2):
+                    try:
+                        tRNS_Index.append(str(int(data[i : i + 2], 16)))
+                    except:
+                        return False
+                if b"PLTE" in Chunks_History:
+                    if (
+                        (len(tRNS_Index) > len(PLTE_R))
+                        or (len(tRNS_Index) > len(PLTE_G))
+                        or (len(tRNS_Index) > len(PLTE_B))
+                    ):
+                        return False
+                if b"sPLT" in Chunks_History:
+                    if (
+                        (len(hIST) > len(sPLT_Red))
+                        or (len(hIST) > len(sPLT_Green))
+                        or (len(hIST) > len(sPLT_Blue))
+                        or (len(hIST) > len(sPLT_Aplha))
+                    ):
+                        return False
+
+    if Chunk == b"sRGB":
+        sRGB = str(int(data[:2], 16))
+        if sRGB not in ["0", "1", "2", "3"]:
+            return False
+        if "cHRM".encode() in Chunks_History:
+            return False
+    if Chunk == b"cHRM":
+        try:
+            cHRM_WhiteX = str(
+                int.from_bytes(bytes.fromhex(data[:8]), byteorder="big", signed=False)
+            )
+        except:
+            return False
+        try:
+            cHRM_WhiteY = str(
+                int.from_bytes(bytes.fromhex(data[8:16]), byteorder="big", signed=False)
+            )
+        except:
+            return False
+
+        try:
+            cHRM_Redx = str(
+                int.from_bytes(
+                    bytes.fromhex(data[16:24]), byteorder="big", signed=False
+                )
+            )
+        except:
+            return False
+        try:
+            cHRM_Redy = str(
+                int.from_bytes(
+                    bytes.fromhex(data[24:32]), byteorder="big", signed=False
+                )
+            )
+        except:
+            return False
+        try:
+            cHRM_Greenx = str(
+                int.from_bytes(
+                    bytes.fromhex(data[32:40]), byteorder="big", signed=False
+                )
+            )
+        except:
+            return False
+
+        try:
+            cHRM_Greeny = str(
+                int.from_bytes(
+                    bytes.fromhex(data[40:48]), byteorder="big", signed=False
+                )
+            )
+        except:
+            return False
+        try:
+            cHRM_Bluex = str(
+                int.from_bytes(
+                    bytes.fromhex(data[48:56]), byteorder="big", signed=False
+                )
+            )
+        except:
+            return False
+        try:
+            cHRM_Bluey = str(
+                int.from_bytes(
+                    bytes.fromhex(data[56:64]), byteorder="big", signed=False
+                )
+            )
+        except:
+            return False
+        if "sRGB".encode() in Chunks_History or "iCCP".encode() in Chunks_History:
+            return False
+    if Chunk == b"gAMA":
+        try:
+            gAMA = str(int(data[:8], 16))
+            if gAMA == "0":
+                return False
+        except:
+            return False
+    if Chunk == b"iCCP":
+        null = "00"
+        null_pos = 0
+        for i in range(0, len(data), 2):
+            nint = int(data[i : i + 2], 16)
+            nchar = chr(nint)
+
+            if data[i : i + 2] == "00":
+                null_pos = i
+                if i > 79:
+                    return False
+                break
+            if (int(nint) not in range(32, 127)) and (int(nint) not in range(161, 255)):
+                return False
+                iCCP_Name += "€"
+            else:
+                iCCP_Name += nchar
+
+        iCCP_Method = int(data[null_pos + 2 : null_pos + 4], 16)
+
+        if iCCP_Method > 0:
+            return False
+
+        iCCP_Profile = data[null_pos + 4 :]
+
+        if int(int(Orig_CL, 16)) - (int(null_pos / 2) + 2) != int(
+            len(iCCP_Profile) / 2
+        ):
+            return False
+
+        if "cHRM".encode() in Chunks_History:
+            return False
+
+    if Chunk == b"sBIT":
+        if IHDR_Color == "0":
+            sBIT_Gray = str(int(data[:2], 16))
+            if sBIT_Gray == "0":
+                return False
+
+        if IHDR_Color == "2" or IHDR_Color == "3":
+            sBIT_TrueR = str(int(data[:2], 16))
+            sBIT_TrueG = str(int(data[2:4], 16))
+            sBIT_TrueB = str(int(data[4:6], 16))
+            if sBIT_TrueR == "0":
+                return False
+            if sBIT_TrueG == "0":
+                return False
+
+            if sBIT_TrueB == "0":
+                return False
+            if IHDR_Color == "3":
+                if int(sBIT_TrueR) > 8:
+                    return False
+                if int(sBIT_TrueG) > 8:
+                    return False
+                if int(sBIT_TrueB) > 8:
+                    return False
+            else:
+                if int(sBIT_TrueR) > int(IHDR_Depht):
+                    return False
+                if int(sBIT_TrueG) > int(IHDR_Depht):
+                    return False
+                if int(sBIT_TrueB) > int(IHDR_Depht):
+                    return False
+        if IHDR_Color == "4":
+            sBIT_GrayScale = str(int(data[:pos], 16))
+            sBIT_GrayAlpha = str(int(data[:pos], 16))
+            if sBIT_GrayScale == "0":
+                return False
+            if sBIT_GrayAlpha == "0":
+                return False
+            if int(sBIT_GrayScale) > int(IHDR_Depht):
+                return False
+            if int(sBIT_GrayScale) > int(IHDR_Depht):
+                return False
+        if IHDR_Color == "6":
+            sBIT_TrueAlphaR = str(int(data[:2], 16))
+            sBIT_TrueAlphaG = str(int(data[2:4], 16))
+            sBIT_TrueAlphaB = str(int(data[4:6], 16))
+            sBIT_TrueAlpha = str(int(data[6:8], 16))
+            if sBIT_TrueAlphaR == "0":
+                return False
+            if sBIT_TrueAlphaG == "0":
+                return False
+            if sBIT_TrueAlphaB == "0":
+                return False
+            if sBIT_TrueAlpha == "0":
+                return False
+            if int(sBIT_TrueAlphaR) > int(IHDR_Depht):
+                return False
+            if int(sBIT_TrueAlphaG) > int(IHDR_Depht):
+                return False
+            if int(sBIT_TrueAlphaB) > int(IHDR_Depht):
+                return False
+            if int(sBIT_TrueAlpha) > int(IHDR_Depht):
+                return False
+
+    if Chunk == b"oFFs":
+        try:
+            oFFSX = str(
+                int.from_bytes(bytes.fromhex(data[:8]), byteorder="big", signed=True)
+            )
+        except:
+            return False
+        try:
+            oFFSY = str(
+                int.from_bytes(bytes.fromhex(data[8:16]), byteorder="big", signed=True)
+            )
+        except:
+            return False
+        try:
+            oFFSU = str(int(data[16:18], 16))
+        except:
+            return False
+
+        if int(oFFSX) not in range(-2147483647, 2147483648):
+            return False
+        if int(oFFSY) not in range(-2147483647, 2147483648):
+            return False
+        if oFFSU != "0" and oFFSU != "1":
+            return False
+    if Chunk == b"pCAL":
+        pCAL_Param = []
+        try:
+            pCAL_Key = data.split("00")[0]
+            for i in range(0, len(pCAL_Key), 2):
+                if int(pCAL_Key[i : i + 2], 16) not in range(32, 127) and int(
+                    pCAL_Key[i : i + 2], 16
+                ) not in range(161, 256):
+                    if pCAL_Key[i : i + 2] != "00" and pCAL_Key[i : i + 2] != "0a":
+                        return False
+            if len(pCAL_Key) >= 79:
+                return False
+            Keypos = len(pCAL_Key) + 2
+            pCAL_Zero = str(int(data[Keypos : Keypos + 8], 16))
+            pCAL_Max = str(int(data[Keypos + 8 : Keypos + 16], 16))
+            pCAL_Eq = str(int(data[Keypos + 16 : Keypos + 18], 16))
+            pCAL_PNBR = str(int(data[Keypos + 18 : Keypos + 20], 16))
+
+            if pCAL_PNBR == "0":
+                pCAL_Unit = ""
+            else:
+                pCAL_Unit = bytes.fromhex(data[20:].split("00")[0])
+
+            newlength = Keypos + 20
+
+            for i in range(0, int(pCAL_PNBR)):
+                param = ""
+                try:
+                    for j in range(0, len(data[newlength:]), 2):
+                        hx = data[newlength + j : newlength + j + 2]
+                        if hx != "00":
+                            param += str(hx)
+                        else:
+                            break
+                    pCAL_Param.append(param)
+                    newlength += len(param) + 2
+                except:
+                    return False
+        except Exception as e:
+            if DEBUG:
+                print("Error:", e)
+
+    if Chunk == b"gIFg":
+        try:
+            gIFgM = str(int(data[:2], 16))
+            gIFgU = str(int(data[2:4], 16))
+            gIFgT = str(int(data[4:6], 16))
+        except:
+            return False
+
+    if Chunk == b"gIFx":
+        try:
+            gIFID = str(int(data[:16], 16))
+            gIFCD = str(int(data[16:22], 16))
+            gIFDT = str(int(data[22:], 16))
+        except:
+            return False
+
+    if Chunk == b"sTER":
+
+        try:
+            sTER = str(int(data[:2], 16))
+        except:
+            return False
+
+    if Chunk == b"tEXt":
+        tEXt_Key_List = []
+        tEXt_Str_List = []
+        try:
+            null_pos = NullFind(data)
+            tEXt_Key = data[:null_pos]
+            tEXt_Text = data[null_pos + 2 :]
+
+            if len(tEXt_Key) >= 79:
+                return False
+        except:
+            return False
+
+    if Chunk == b"zTXt":
+        zTXt_Key_List = []
+        zTXt_Str_List = []
+        try:
+            null_pos = NullFind(data)
+            zTXt_Key = data[:null_pos]
+            zTXt_Text = zlib.decompress(bytes.fromhex(data[null_pos + 4 :]))
+
+            if len(zTXt_Key) >= 79:
+                return False
+        except:
+            return False
+
+    if Chunk == b"iTXt":
+        iTXt_Key_List = []
+        iTXt_String_List = []
+        try:
+            null_pos = NullFind(data)
+            iTXt_Key = data[:null_pos]
+
+            if len(iTXt_Key) >= 79:
+                return False
+        except:
+            return False
+    if Chunk == b"eXIf":
+        eXIf_endian = bytes.fromhex(data[:4]).decode(errors="ignore")
+
+        if eXIf_endian != "II" and eXIf_endian != "MM":
+            return False
+
+    return True
+
+
 def ChunkbyChunk(offset):
     global Have_A_KitKat
 
@@ -3123,80 +4087,86 @@ def Minibar():
             GoBack = False
 
 
-def Loadingbar(fishs,fishsize,loop,build):
+def Loadingbar(fishs, fishsize, loop, build):
 
     global ThksForTheFish
     global FishPos
     global LenFishList
 
     if build:
-            fishbowl = "["+"0".zfill(fishsize) + "/"+str(fishs)+"]"
-            Loading_txt = ""
-            GoBack = False
-            CharPos = 0
-            PosLine = 0
-            Tail = 0
-            MAXCHAR = (int(os.get_terminal_size(0)[0]) - 1) - len(fishbowl)
-            Line = "¸.·´¯`·.¸"
-            Linelst = []
-            FishR = ["><(((º>", "⸌<(((º>", "><(((º>", "⸝<(((º>"]
-            FishL = ["<º)))><", "<º)))>⸍", "<º)))><", "<º)))>⸜"]
-            Trail = 3 * len(Line)
-            TrailEnd = 0
+        fishbowl = "[" + "0".zfill(fishsize) + "/" + str(fishs) + "]"
+        Loading_txt = ""
+        GoBack = False
+        CharPos = 0
+        PosLine = 0
+        Tail = 0
+        MAXCHAR = (int(os.get_terminal_size(0)[0]) - 1) - len(fishbowl)
+        Line = "¸.·´¯`·.¸"
+        Linelst = []
+        FishR = ["><(((º>", "⸌<(((º>", "><(((º>", "⸝<(((º>"]
+        FishL = ["<º)))><", "<º)))>⸍", "<º)))><", "<º)))>⸜"]
+        Trail = 3 * len(Line)
+        TrailEnd = 0
 
-            for i in range(0, MAXCHAR + 7):
-                if PosLine <= len(Line) - 1:
-                    Linelst.append(Line[PosLine])
-                else:
-                    PosLine = 0
-                    Linelst.append(Line[PosLine])
-                PosLine += 1
+        for i in range(0, MAXCHAR + 7):
+            if PosLine <= len(Line) - 1:
+                Linelst.append(Line[PosLine])
+            else:
+                PosLine = 0
+                Linelst.append(Line[PosLine])
+            PosLine += 1
 
-            for i in range(MAXCHAR+Trail+2):
+        for i in range(MAXCHAR + Trail + 2):
 
-                Ln = len(Loading_txt)
-                if Ln < MAXCHAR - 7:
-                    if CharPos >= Trail:
-                        Loading_txt = (" " * TrailEnd) + Loading_txt[TrailEnd:]
-                        Loading_txt += Linelst[CharPos]
-                        TrailEnd += 1
-                    else:
-
-                        Loading_txt += Linelst[CharPos]
-
-                    if Tail > 3:
-                        Tail = 0
-                    ThksForTheFish.append(Loading_txt + FishR[Tail])
-                    CharPos += 1
-                    Ln = len(Loading_txt)
-                    Tail += 1
-                else:
-
-                    fishapear = (MAXCHAR - 7) - (CharPos)
+            Ln = len(Loading_txt)
+            if Ln < MAXCHAR - 7:
+                if CharPos >= Trail:
                     Loading_txt = (" " * TrailEnd) + Loading_txt[TrailEnd:]
-                    if fishapear >= -7:
-                        Loading_txt += Linelst[CharPos]
+                    Loading_txt += Linelst[CharPos]
                     TrailEnd += 1
+                else:
 
-                    if Tail > 3:
-                        Tail = 0
-                    ThksForTheFish.append(Loading_txt + FishR[Tail][:fishapear])
-                    CharPos += 1
-                    Tail += 1
-                    if TrailEnd >= MAXCHAR + 2:
+                    Loading_txt += Linelst[CharPos]
 
-                        Loading_txt = ""
-                        PosLine = 0
-                        Trail = 3 * len(Line)
-                        Tail = 0
-                        TrailEnd = 0
-                        CharPos = 0
-            LenFishList = len(ThksForTheFish)-1
+                if Tail > 3:
+                    Tail = 0
+                ThksForTheFish.append(Loading_txt + FishR[Tail])
+                CharPos += 1
+                Ln = len(Loading_txt)
+                Tail += 1
+            else:
+
+                fishapear = (MAXCHAR - 7) - (CharPos)
+                Loading_txt = (" " * TrailEnd) + Loading_txt[TrailEnd:]
+                if fishapear >= -7:
+                    Loading_txt += Linelst[CharPos]
+                TrailEnd += 1
+
+                if Tail > 3:
+                    Tail = 0
+                ThksForTheFish.append(Loading_txt + FishR[Tail][:fishapear])
+                CharPos += 1
+                Tail += 1
+                if TrailEnd >= MAXCHAR + 2:
+
+                    Loading_txt = ""
+                    PosLine = 0
+                    Trail = 3 * len(Line)
+                    Tail = 0
+                    TrailEnd = 0
+                    CharPos = 0
+        LenFishList = len(ThksForTheFish) - 1
     else:
-         if loop % 50 == 0:
-             if FishPos != LenFishList:FishPos += 1
-             else:FishPos = 0
-             print("%s/%s%s"%(str(loop).zfill(fishsize),fishs,ThksForTheFish[FishPos]),end="\r")
+        if loop % 100 == 0:
+            if FishPos != LenFishList:
+                FishPos += 1
+            else:
+                FishPos = 0
+            print(
+                "%s/%s%s" % (str(loop).zfill(fishsize), fishs, ThksForTheFish[FishPos]),
+                end="\r",
+            )
+
 
 def Sumform(waitforit, switch):
     if switch is True:
@@ -3881,11 +4851,19 @@ def ChunkStory(action, Chunk, start, end, chuck_length):
         Chunk = Chunk.encode(errors="ignore")
 
     if action == "add":
-        CHD = str(len(Chunks_History) - 1)+ ":"+ str(start)+ ":"+ str(end)+ ":"+ str(chuck_length)
-        chkdbl = str(start)+ ":"+ str(end)+ ":"+ str(chuck_length)
+        CHD = (
+            str(len(Chunks_History) - 1)
+            + ":"
+            + str(start)
+            + ":"
+            + str(end)
+            + ":"
+            + str(chuck_length)
+        )
+        chkdbl = str(start) + ":" + str(end) + ":" + str(chuck_length)
         if chkdbl not in Chunks_History_Index:
-           Chunks_History.append(Chunk)
-           Chunks_History_Index.append(CHD)
+            Chunks_History.append(Chunk)
+            Chunks_History_Index.append(CHD)
     elif action == "del":
         try:
             del Chunks_History[Chunks_History.index(Chunk)]
@@ -3904,7 +4882,7 @@ def TheEnd():
         print("Chnks nbr:", len(Chunks_History_Index))
         print("idacounter:", idatcounter)
         print(Chunks_History)
-        print("IDAT_Bytes_Len:%s",IDAT_Bytes_Len)
+        print("IDAT_Bytes_Len:%s", IDAT_Bytes_Len)
     if PAUSEDEBUG is True:
         Pause("ThenEnd debug")
     Summarise(None, True)
@@ -3941,7 +4919,8 @@ def stderr_redirector(stream):
         tfile.close()
         os.close(saved_stderr_fd)
 
-#haystack, value, FewYearsLater = Bruthex(cidx, value, str(haystack), total_len)
+
+# haystack, value, FewYearsLater = Bruthex(cidx, value, str(haystack), total_len)
 def Bruthex(cidx, value, datax, totalln):
     newvalues = []
     dataxlst = list(datax)
@@ -3956,24 +4935,34 @@ def Bruthex(cidx, value, datax, totalln):
         value_ln += c[2]
     return ("".join(dataxlst), value, False)
 
-def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode ,BruteCrc = False, BruteLenght = False):
+
+def SmashBruteBrawl(
+    File,
+    ChunkName,
+    ChunkLenght,
+    DataOffset,
+    FromError,
+    EditMode,
+    BruteCrc=False,
+    BruteLenght=False,
+):
     global SideNotes
 
     Candy("Title", "Attempting Bruteforce To Repair Corrupted Chunk Data:")
     stdt = datetime.now()
-    print("started at:",stdt)
+    print("started at:", stdt)
     try:
-       ChunkName = ChunkName.encode(errors="ignore")
+        ChunkName = ChunkName.encode(errors="ignore")
     except Exception as e:
         Betterror(e, inspect.stack()[0][3])
         if DEBUG is True:
             print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
 
-    CNamex_New = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x","")
+    CNamex_New = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x", "")
 
     Bingo = False
     result = "bad result"
-    max_iter,len_iter,chunklen_spec,chunk_format,chunk_data = GetSpec(ChunkName)
+    max_iter, len_iter, chunklen_spec, chunk_format, chunk_data = GetSpec(ChunkName)
 
     if type(chunklen_spec) == tuple:
         maxchunklen = max(chunklen_spec)
@@ -3982,94 +4971,118 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
         maxchunklen = chunklen_spec
         minchunklen = chunklen_spec
 
-    if maxchunklen  == minchunklen:
-       maxchunklen += 1
-       step = 1
+    if maxchunklen == minchunklen:
+        maxchunklen += 1
+        step = 1
     else:
-       step = minchunklen
+        step = minchunklen
 
     if DEBUG is True:
         print("File:", File)
-        print("ChunkName:",ChunkName)
-        print("DataOffset:",DataOffset)
-        print("ChunkLenght:",ChunkLenght)
-        print("BruteCrc:",BruteCrc)
-        print("EditMode:",EditMode)
-        print("FromError:",FromError)
-        print("chunklen_spec:",chunklen_spec)
-        print("chunk_format:",chunk_format)
-        print("chunk_data:",chunk_data)
-        print("maxchunklen:",maxchunklen)
-        print("minchunklen:",minchunklen)
+        print("ChunkName:", ChunkName)
+        print("DataOffset:", DataOffset)
+        print("ChunkLenght:", ChunkLenght)
+        print("BruteCrc:", BruteCrc)
+        print("EditMode:", EditMode)
+        print("FromError:", FromError)
+        print("chunklen_spec:", chunklen_spec)
+        print("chunk_format:", chunk_format)
+        print("chunk_data:", chunk_data)
+        print("maxchunklen:", maxchunklen)
+        print("minchunklen:", minchunklen)
         if PAUSEDEBUG is True:
             Pause("Pause:SmashBruteBrawl")
 
+    for ln in range(minchunklen, maxchunklen, step):
 
-    for ln in range(minchunklen,maxchunklen,step):
+        #        if DEBUG is False:
+        #            Loadingbar(fishs_nbr)
+        Loadingbar(
+            max_iter, len_iter, None, True
+        )  # need to adapt max/len_iter to ln range
 
-#        if DEBUG is False:
-#            Loadingbar(fishs_nbr)
-        Loadingbar(max_iter,len_iter,None,True) #need to adapt max/len_iter to ln range
-
-        Lnx_New = hex(int(ln/2)).replace("0x","").zfill(8)
+        Lnx_New = hex(int(ln / 2)).replace("0x", "").zfill(8)
         if EditMode == "replace":
-            if BruteLenght and  BruteCrc:
-                 Before_New = DATAX[:DataOffset]
-                 ToBrute = DATAX[DataOffset:DataOffset+ln]
-                 After_New = DATAX[DataOffset+ln+24:] #+24=chunklen+chunkname+data+crc
+            if BruteLenght and BruteCrc:
+                Before_New = DATAX[:DataOffset]
+                ToBrute = DATAX[DataOffset : DataOffset + ln]
+                After_New = DATAX[
+                    DataOffset + ln + 24 :
+                ]  # +24=chunklen+chunkname+data+crc
 
-
-        if ChunkName == b'IHDR' and Brute_LvL == 0:
-                shuffle = ((a, b, c, d, e, f, g) for ((a, b),c,d,e,f,g) in itertools.product(*chunk_data))
+        if ChunkName == b"IHDR" and Brute_LvL == 0:
+            shuffle = (
+                (a, b, c, d, e, f, g)
+                for ((a, b), c, d, e, f, g) in itertools.product(*chunk_data)
+            )
         else:
-                shuffle = itertools.product(*chunk_data)
+            shuffle = itertools.product(*chunk_data)
 
-        for n,i in enumerate(shuffle):
-            Loadingbar(max_iter,len_iter,n,False)
+        for n, i in enumerate(shuffle):
+            Loadingbar(max_iter, len_iter, n, False)
             hexvalue = ""
-            for d,j in zip(chunk_format,i):
-                hexvalue +=  hex(int(j)).replace("0x", "").zfill(d)
+            for d, j in zip(chunk_format, i):
+                hexvalue += hex(int(j)).replace("0x", "").zfill(d)
 
+            if YouShallPass(ChunkName, hexvalue) is False:
+                continue
             newbytes = bytes.fromhex(hexvalue)
-            checksum = hex(binascii.crc32(ChunkName + newbytes)).replace("0x", "").zfill(8)
+            checksum = (
+                hex(binascii.crc32(ChunkName + newbytes)).replace("0x", "").zfill(8)
+            )
             fullnewdatax = Lnx_New + CNamex_New + hexvalue + checksum
             newfilewanabe = Before_New + fullnewdatax + After_New
 
             f = io.BytesIO()
             with stderr_redirector(f):
-                    newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
-                    newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_UNCHANGED)
-                    try:
-                         cv2.imread(newfile)
-                    except Exception as e:
-                        pass
+                newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
+                newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_UNCHANGED)
+                try:
+                    cv2.imread(newfile)
+                except Exception as e:
+                    pass
             result = "{0}".format(f.getvalue().decode("utf-8"))
-#            print(result)
-#            Pause("Pause:Debug")
-
             if not any(s in result for s in LIBPNG_ERR):
-                cvproc = subprocess.Popen(["python3", "-c", """import numpy as np;import cv2;d='"""+newfilewanabe+"""';nd=np.fromstring(bytes.fromhex(d), np.uint8);f=cv2.imdecode(nd, cv2.IMREAD_UNCHANGED);cv2.imshow('Press a key to close',f);cv2.waitKey()"""])
+                with stderr_redirector(f):
+                    cvproc = subprocess.Popen(
+                        [
+                            "python3",
+                            "-c",
+                            """import numpy as np;import cv2;d='"""
+                            + newfilewanabe
+                            + """';nd=np.fromstring(bytes.fromhex(d), np.uint8);f=cv2.imdecode(nd, cv2.IMREAD_UNCHANGED);cv2.imshow('Press a key to close',f);cv2.waitKey()""",
+                        ]
+                    )
 
                 Candy("Cowsay", "Ah ! Iv got One !", "good")
                 Candy("Cowsay", "Does it looks good or should i keep trying ?", "com")
-                Answer = Question(None,True)
+                Answer = Question(None, True)
                 if Answer is True:
 
                     for proc in psutil.process_iter():
-                        if "python3 -c import numpy as np;import cv2" in " ".join(proc.cmdline()):
+                        if "python3 -c import numpy as np;import cv2" in " ".join(
+                            proc.cmdline()
+                        ):
                             proc.kill()
-                    diffobj = difflib.SequenceMatcher(None, DATAX[DataOffset:], fullnewdatax)
+                    diffobj = difflib.SequenceMatcher(
+                        None, DATAX[DataOffset:], fullnewdatax
+                    )
                     good = ""
                     for block in diffobj.get_opcodes():
                         if block[0] != "equal":
-                            good += "\033[1;32;49m%s\033[m" % fullnewdatax[block[1] : block[2]]
+                            good += (
+                                "\033[1;32;49m%s\033[m"
+                                % fullnewdatax[block[1] : block[2]]
+                            )
                         else:
                             good += fullnewdatax[block[1] : block[2]]
                     Bingo = True
                     break
                 else:
                     for proc in psutil.process_iter():
-                        if "python3 -c import numpy as np;import cv2" in " ".join(proc.cmdline()):
+                        if "python3 -c import numpy as np;import cv2" in " ".join(
+                            proc.cmdline()
+                        ):
                             proc.kill()
                     Candy("Cowsay", "Damned !", "bad")
                     continue
@@ -4084,7 +5097,6 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
         )
         print(good)
         Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
-
 
         SideNotes.append(
             "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s\n-with bytes:\n%s"
@@ -4111,10 +5123,9 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
             % (Candy("Color", "red", "Failed!"), Candy("Emoj", "bad"))
         )
 
-
         Candy("Cowsay", "I was afraid of this ...", "bad")
         SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
-#(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode ,BruteCrc = False, BruteLenght = False)
+        # (File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode ,BruteCrc = False, BruteLenght = False)
         return CheckPoint(
             True,
             False,
@@ -4132,7 +5143,9 @@ def SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode
         )
 
 
-def MiniChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, CIndexList, FromError): ## need to be merged with SmashBruteBrawl
+def MiniChunkForcerNoCrc(
+    File, Chunk, DataOffset, ChunkLenght, CIndexList, FromError
+):  ## need to be merged with SmashBruteBrawl
     global SideNotes
     Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
     Chunk = Chunk.encode(errors="ignore")
@@ -4161,7 +5174,7 @@ def MiniChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, CIndexList, FromE
 
     if DEBUG:
         for i in CIndexList:
-            print("CIndexList:",i)
+            print("CIndexList:", i)
         if PAUSEDEBUG is True:
             Pause("Pause:Reboot")
     Bingo = False
@@ -4216,7 +5229,6 @@ def MiniChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, CIndexList, FromE
             Bingo = True
             break
 
-
     if Bingo is True:
         print(
             "-Bruteforce was %s %s"
@@ -4259,9 +5271,18 @@ def MiniChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, CIndexList, FromE
         Candy("Cowsay", "Wanna try to bruteforce the entire chunk instead ?", "com")
         Answer = Question()
         if Answer is True:
-            return(SmashBruteBrawl(File, Chunk, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = True, BruteLenght = True))
+            return SmashBruteBrawl(
+                File,
+                Chunk,
+                ChunkLenght,
+                DataOffset,
+                FromError,
+                "replace",
+                BruteCrc=True,
+                BruteLenght=True,
+            )
         else:
-           TheEnd()
+            TheEnd()
         return CheckPoint(
             True,
             False,
@@ -4271,7 +5292,10 @@ def MiniChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, CIndexList, FromE
             FromError,
         )
 
-def FullChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError): ## need to be merged with SmashBruteBrawl
+
+def FullChunkForcerNoCrc(
+    File, Chunk, DataOffset, ChunkLenght, FromError
+):  ## need to be merged with SmashBruteBrawl
     global SideNotes
     Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
     Chunk = Chunk.encode(errors="ignore")
@@ -4291,7 +5315,6 @@ def FullChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError): ## ne
         Betterror(e, inspect.stack()[0][3])
         print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
         TheEnd()
-
 
     datax = data.hex()[DataOffset:ChunkLenght]  # datax[16:-8]
     Bingo = False
@@ -4418,7 +5441,9 @@ def FullChunkForcerNoCrc(File, Chunk, DataOffset, ChunkLenght, FromError): ## ne
         )
 
 
-def FullChunkForcerWithCrc(File, Chunk, OldCrc, DataOffset, ChunkLenght, FromError): ## need to be merged with SmashBruteBrawl
+def FullChunkForcerWithCrc(
+    File, Chunk, OldCrc, DataOffset, ChunkLenght, FromError
+):  ## need to be merged with SmashBruteBrawl
     global SideNotes
     Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
     Chunk = Chunk.encode(errors="ignore")
@@ -4438,8 +5463,6 @@ def FullChunkForcerWithCrc(File, Chunk, OldCrc, DataOffset, ChunkLenght, FromErr
         Betterror(e, inspect.stack()[0][3])
         print(Candy("Color", "red", "Error:"), Candy("Color", "yellow", e))
         TheEnd()
-
-
 
     #    if File == "IHDR-Wrong-Width.png":
     #        time.sleep(15)
@@ -4485,7 +5508,6 @@ def FullChunkForcerWithCrc(File, Chunk, OldCrc, DataOffset, ChunkLenght, FromErr
             needle2 += 2
     #            print("needle2 = ",needle2)
     #            Pause("poz2")
-
 
     if Bingo is True:
         print(
@@ -5034,16 +6056,7 @@ def LibpngCheck(file):
         cv2.imread(file)
     result = "{0}".format(f.getvalue().decode("utf-8"))
 
-    if any(s in result for s in LIBPNG_ERR):
-        print(
-            "-Libpng Check: %s %s"
-            % (Candy("Color", "red", "FAILED!"), Candy("Emoj", "bad"))
-        )
-
-
-
-        return CheckPoint(True, False, "LibpngCheck", file, ["-" + result])
-    else:
+    if not any(s in result for s in LIBPNG_ERR):
         print(
             "-Libpng Check: %s %s"
             % (Candy("Color", "green", "Ok!"), Candy("Emoj", "good"))
@@ -5054,9 +6067,18 @@ def LibpngCheck(file):
             "Good ! The AllMighty Libpng is happy !",
             "good",
         )
+
         return CheckPoint(
             False, False, "LibpngCheck", file, ["-Libpng dis not found any error"]
         )
+
+    else:
+        print(
+            "-Libpng Check: %s %s"
+            % (Candy("Color", "red", "FAILED!"), Candy("Emoj", "bad"))
+        )
+
+        return CheckPoint(True, False, "LibpngCheck", file, ["-" + result])
 
 
 def Double_Check(CType, ChunkLen, LastCType):
@@ -5087,11 +6109,11 @@ def Double_Check(CType, ChunkLen, LastCType):
     NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck=True)
 
 
-def DummyChunk(Chunkname, bad_pos, bad_start, bad_end,FromError):
+def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
     Candy("Title", "Creating DummyChunk:")
 
-#    for c, i in zip(Chunks_History, Chunks_History_Index):
-#        print("chunk:%s index:%s" % (c, i))
+    #    for c, i in zip(Chunks_History, Chunks_History_Index):
+    #        print("chunk:%s index:%s" % (c, i))
 
     Candy(
         "Cowsay",
@@ -5101,50 +6123,49 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end,FromError):
     ##TODO
     if Chunkname == b"IHDR":
 
-       DummyLength = SpecLenght(Chunkname)
-       DummyName = hex(int.from_bytes(Chunkname, byteorder="big")).replace("0x","")
-       DummyData = "00000010000000100803000000"
-       DummyCrc = hex(binascii.crc32(Chunkname + bytes.fromhex(DummyData))).replace("0x","")
-       DumDum = DummyLength + DummyName + DummyData + DummyCrc
+        DummyLength = SpecLenght(Chunkname)
+        DummyName = hex(int.from_bytes(Chunkname, byteorder="big")).replace("0x", "")
+        DummyData = "00000010000000100803000000"
+        DummyCrc = hex(binascii.crc32(Chunkname + bytes.fromhex(DummyData))).replace(
+            "0x", ""
+        )
+        DumDum = DummyLength + DummyName + DummyData + DummyCrc
 
-
-       if DEBUG is True:
+        if DEBUG is True:
 
             print("bad pos:", bad_pos)
             print("bad_start:", bad_start)
             print("bad_end:", bad_end)
             print("datax:", DATAX[bad_start:bad_end])
-            print("dumylen:",DummyLength)
-            print("dumyname:",DummyName)
-            print("dumydata:",DummyData)
-            print("dumycrc;",DummyCrc)
-            print("dumdum:",DumDum)
-            if PAUSEDEBUG is True :
-                    Pause("Pause Debug")
+            print("dumylen:", DummyLength)
+            print("dumyname:", DummyName)
+            print("dumydata:", DummyData)
+            print("dumycrc;", DummyCrc)
+            print("dumdum:", DumDum)
+            if PAUSEDEBUG is True:
+                Pause("Pause Debug")
 
-       DummyFix = DATAX[:bad_start] + DumDum + DATAX[bad_start:]
+        DummyFix = DATAX[:bad_start] + DumDum + DATAX[bad_start:]
 
-
-       Candy(
-        "Cowsay",
-        "Fake datas ready to be served! Bonne appetit !",
-        "good",
+        Candy(
+            "Cowsay",
+            "Fake datas ready to be served! Bonne appetit !",
+            "good",
         )
 
-       return CheckPoint(
-                        True,
-                        False,
-                        "DummyChunk",
-                        Chunkname,
-                        ["Filling with a dummy chunk"],
-                        DummyFix,
-                        len(DummyData),
-                        bad_pos,
-                        bad_start,
-                        bad_end,
-                        FromError,
-                    )
-
+        return CheckPoint(
+            True,
+            False,
+            "DummyChunk",
+            Chunkname,
+            ["Filling with a dummy chunk"],
+            DummyFix,
+            len(DummyData),
+            bad_pos,
+            bad_start,
+            bad_end,
+            FromError,
+        )
 
     print(Candy("Color", "yellow", "\n-ToDo"))
     TheEnd()
@@ -5321,7 +6342,7 @@ def TheGoodPlace(Missplaced_Chunkname, Missplaced_Chunkpos, ToFix_Chunkname):
             False,
             "TheGoodPlace",
             ToFix_Chunkname,
-            ["-Missing Data Has Not Been Found : [%s]"%ToFix_Chunkname],
+            ["-Missing Data Has Not Been Found : [%s]" % ToFix_Chunkname],
             ToFix_Chunkname,
             bad_pos,
             bad_start,
@@ -5421,7 +6442,7 @@ def CheckChunkOrder(lastchunk, mode):
         Done = False
         Used_Chunks = list(dict.fromkeys(Chunks_History))
         Excluded = [used for used in Used_Chunks if used in UNIQUE_CHUNK]
-#        print(Excluded)
+        #        print(Excluded)
         Candy(
             "Cowsay",
             " So far we came across those chunks in "
@@ -5951,12 +6972,13 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
             Next,
         )
 
+
 def SpecLenght(chunk_name, chunk_length=None):
     global SideNotes
 
     if chunk_length:
-       Candy("Title", "Get Lenght from Spec:")
-       Candy("Cowsay", "Kay ..Just Checking if the length part is legit..", "com")
+        Candy("Title", "Get Lenght from Spec:")
+        Candy("Cowsay", "Kay ..Just Checking if the length part is legit..", "com")
 
     stop = False
 
@@ -5969,8 +6991,8 @@ def SpecLenght(chunk_name, chunk_length=None):
 
                 if "nocolortype" in color_type:
 
-                    chunklen_spec = int(bytes_spec[0]/2)
-                    chunk_format = bytes_spec[1],bytes_spec[2]
+                    chunklen_spec = int(bytes_spec[0] / 2)
+                    chunk_format = bytes_spec[1], bytes_spec[2]
 
                     if type(chunklen_spec) == tuple:
 
@@ -5981,7 +7003,7 @@ def SpecLenght(chunk_name, chunk_length=None):
                         real_length = hex(int(chunklen_spec)).replace("0x", "").zfill(8)
 
                         if not chunk_length:
-                            return(real_length)
+                            return real_length
 
                         print("-Real %s Length: %s " % (key, real_length))
                         if real_length == chunk_length:
@@ -5991,11 +7013,15 @@ def SpecLenght(chunk_name, chunk_length=None):
                                 "good",
                             )
                             SideNotes.append(
-                                "-SpecLenght:Giving correct length:  %s -" % chunk_length
+                                "-SpecLenght:Giving correct length:  %s -"
+                                % chunk_length
                             )
                             return chunk_length
                         else:
-                            print("-Given %s Length was : %s " % (chunk_name, chunk_length))
+                            print(
+                                "-Given %s Length was : %s "
+                                % (chunk_name, chunk_length)
+                            )
                             Candy(
                                 "Cowsay",
                                 "length part is corrupted!",
@@ -6068,7 +7094,7 @@ def CheckLength(Cdata, Clen, Ctype):
         )
 
 
-def Question(id=None,skipauto=False):
+def Question(id=None, skipauto=False):
     global IFOP
     Candy("Title", "QUESTION!")
 
@@ -6267,38 +7293,53 @@ def Relics(FromError):
                 print("%s:%s" % (Candy("Color", "red", "    [-%s]" % nb2), errors))
                 for nb3, (tools, tools_values) in enumerate(errors_values.items()):
                     if type(tools_values) == str or type(tools_values) == bytes:
-                         if len(tools_values) > 100:
-                            if type(tools_values) == bytes :
-                                short_value = tools_values[0:40] + b"...To big to be displayed ..."
+                        if len(tools_values) > 100:
+                            if type(tools_values) == bytes:
+                                short_value = (
+                                    tools_values[0:40]
+                                    + b"...To big to be displayed ..."
+                                )
                             if type(tools_values) == str:
-                                short_value = tools_values[0:40] + "...To big to be displayed ..."
+                                short_value = (
+                                    tools_values[0:40] + "...To big to be displayed ..."
+                                )
                             print(
                                 "%s:%s:%s"
                                 % (
-                                    Candy("Color", "yellow", "        [Tool used :%s]" % nb3),
+                                    Candy(
+                                        "Color",
+                                        "yellow",
+                                        "        [Tool used :%s]" % nb3,
+                                    ),
                                     tools,
                                     short_value,
                                 )
-                             )
-                         else:
+                            )
+                        else:
                             print(
                                 "%s:%s:%s"
                                 % (
-                                    Candy("Color", "yellow", "        [Tool used :%s]" % nb3),
+                                    Candy(
+                                        "Color",
+                                        "yellow",
+                                        "        [Tool used :%s]" % nb3,
+                                    ),
                                     tools,
                                     tools_values,
                                 )
-                             )
+                            )
 
                     else:
                         print(
                             "%s:%s:%s"
                             % (
-                                Candy("Color", "yellow", "        [Tool used :%s]" % nb3),
+                                Candy(
+                                    "Color", "yellow", "        [Tool used :%s]" % nb3
+                                ),
                                 tools,
                                 tools_values,
                             )
-                         )
+                        )
 
         if len(Pandemonium) == 1:
             Candy("Cowsay", "Only one Error,That is short indeed ..", "com")
@@ -6367,7 +7408,9 @@ def Relics(FromError):
                         if DEBUG is True:
                             if PAUSEDEBUG is True or PAUSEERROR is True:
                                 Pause("Pause Pandemonium Debug")
-                        Candy("Cowsay", "Erf this case is not implemented yet ...", "bad")
+                        Candy(
+                            "Cowsay", "Erf this case is not implemented yet ...", "bad"
+                        )
                         TheEnd()
             return ()
 
@@ -6391,57 +7434,81 @@ def Relics(FromError):
                         DataOffset = Pandemonium[file][errors][ChunkName + "_Tool_3"]
 
                         if ChunkName.encode() in CRITICAL_CHUNKS:
-                            ChunkLenght = Pandemonium[file][errors][ChunkName + "_Tool_1"]
-                            DataOffset = Pandemonium[file][errors][ChunkName + "_Tool_3"]
+                            ChunkLenght = Pandemonium[file][errors][
+                                ChunkName + "_Tool_1"
+                            ]
+                            DataOffset = Pandemonium[file][errors][
+                                ChunkName + "_Tool_3"
+                            ]
                             Candy(
                                 "Cowsay",
-                                "Ok it's time to brute force that dummy %s chunk .."%(ChunkName),
+                                "Ok it's time to brute force that dummy %s chunk .."
+                                % (ChunkName),
                                 "good",
-                                )
+                            )
                             Candy(
                                 "Cowsay",
                                 "I mean we have to since it is a critical chunk..",
                                 "com",
-                                )
+                            )
                             Candy(
                                 "Cowsay",
                                 "I hope you brought a book...A big one ..Cause it may takes forever.",
                                 "bad",
-                                )
+                            )
                             Candy(
                                 "Cowsay",
                                 "Shall i begin ? Otherwise Chunklate is going to close.",
                                 "bad",
-                                )
+                            )
 
                             Answer = Question()
                             if Answer is True:
-                                 return(SmashBruteBrawl(file, ChunkName, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = True, BruteLenght = True))
+                                return SmashBruteBrawl(
+                                    file,
+                                    ChunkName,
+                                    ChunkLenght,
+                                    DataOffset,
+                                    FromError,
+                                    "replace",
+                                    BruteCrc=True,
+                                    BruteLenght=True,
+                                )
                             else:
                                 TheEnd()
                         else:
                             Candy(
                                 "Cowsay",
-                                "We better remove that %s chunk than trying to bruteforce it"%(ChunkName),
+                                "We better remove that %s chunk than trying to bruteforce it"
+                                % (ChunkName),
                                 "com",
-                                )
+                            )
                             Candy(
                                 "Cowsay",
                                 "I mean it would be less time consuming since it is not a critical chunk",
                                 "com",
-                                )
+                            )
                             Candy(
                                 "Cowsay",
                                 "Do you still want to bruteforce this chunk ?",
                                 "com",
-                                )
+                            )
                             Answer = Question()
                             if Answer is True:
                                 ##TODO
                                 print(Candy("Color", "yellow", "\n-ToDo"))
                                 TheEnd()
                             else:
-                                 return(SmashBruteBrawl(file, ChunkName, ChunkLenght, DataOffset,FromError, "replace" ,BruteCrc = True, BruteLenght = True))
+                                return SmashBruteBrawl(
+                                    file,
+                                    ChunkName,
+                                    ChunkLenght,
+                                    DataOffset,
+                                    FromError,
+                                    "replace",
+                                    BruteCrc=True,
+                                    BruteLenght=True,
+                                )
 
             TheEnd()
 
@@ -6469,7 +7536,11 @@ def Relics(FromError):
                             break
                 if len(ChosenOne) > 0:
                     break
-            [CIndexList.append(k) for k in PandoraBox if ChosenOne in k and "CIndex" in k]
+            [
+                CIndexList.append(k)
+                for k in PandoraBox
+                if ChosenOne in k and "CIndex" in k
+            ]
 
             if len(CIndexList) > 0:
 
@@ -6510,19 +7581,19 @@ def Relics(FromError):
                         and ChosenOne.encode() in Chunks_History
                         and len(CIndexList) > 0
                     ):
-#                        if ChosenOne.encode() in CRITICAL_CHUNKS:
+                        #                        if ChosenOne.encode() in CRITICAL_CHUNKS:
 
-#                            Candy(
-#                               "Cowsay",
-#                               "This chunk is Critical and cannot be trusted not matter what crc is saying!",
-#                               "bad",
-#                               )
-#                            SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode ,BruteCrc = False, BruteLenght = False)
-#
-#                        else:
+                        #                            Candy(
+                        #                               "Cowsay",
+                        #                               "This chunk is Critical and cannot be trusted not matter what crc is saying!",
+                        #                               "bad",
+                        #                               )
+                        #                            SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode ,BruteCrc = False, BruteLenght = False)
+                        #
+                        #                        else:
                         for c, i in zip(Chunks_History, Chunks_History_Index):
                             if c == ChosenOne.encode():
-#SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode ,BruteCrc = False, BruteLenght = False)
+                                # SmashBruteBrawl(File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode ,BruteCrc = False, BruteLenght = False)
                                 return MiniChunkForcerNoCrc(
                                     Sample_Name,
                                     ChosenOne,
@@ -6746,7 +7817,7 @@ def FixItFelix(Chunk=None):
                         "We may want to fix them first before jumping on that Crc what do you think ?",
                         "com",
                     )
-                
+
                 Answer = Question(key)
                 if Answer is False:
                     return SaveClone(
@@ -6764,23 +7835,29 @@ def FixItFelix(Chunk=None):
                         ),
                     )
                 else:
-                    ChunkStory("add", PandoraBox[key][chkd + "3"].encode(), CLoffI, CrcoffI + 8, int(Orig_CL, 16))
-#                    ChunkStory("add", Ctype, CLoffI, PandoraBox[key][chkd + "2"],PandoraBox[key][chkd + "6"])
-        #return CheckPoint(
-#            True,
-#            False,
-#            "Checksum",
-#            Ctype,
-#            ["-Wrong Crc"],
-#            checksum[2::],
-#            CrcoffI,
-#            CrcoffI + 8,
-#            Orig_CT,
-#            CrcoffX,
-#            Orig_CRC,
-#            int(Orig_CL, 16),
-#            CDoffI,
-#        )
+                    ChunkStory(
+                        "add",
+                        PandoraBox[key][chkd + "3"].encode(),
+                        CLoffI,
+                        CrcoffI + 8,
+                        int(Orig_CL, 16),
+                    )
+                    #                    ChunkStory("add", Ctype, CLoffI, PandoraBox[key][chkd + "2"],PandoraBox[key][chkd + "6"])
+                    # return CheckPoint(
+                    #            True,
+                    #            False,
+                    #            "Checksum",
+                    #            Ctype,
+                    #            ["-Wrong Crc"],
+                    #            checksum[2::],
+                    #            CrcoffI,
+                    #            CrcoffI + 8,
+                    #            Orig_CT,
+                    #            CrcoffX,
+                    #            Orig_CRC,
+                    #            int(Orig_CL, 16),
+                    #            CDoffI,
+                    #        )
                     Old_Bad_Crc = PandoraBox[key][chkd + "5"]
                     Skip_Bad_Crc = True
 
@@ -7078,16 +8155,16 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
         print("chunk:", chunk)
         print("ToolKit:")
         for i, a in enumerate(ToolKit):
-             if len(str(a)) > 100:
-                 if type(a) == bytes :
-                                short_value = a[0:40] + b"...To big to be displayed ..."
-                 elif type(a) == str:
-                                short_value = a[0:40] + "...To big to be displayed ..."
-                 else:
-                                short_value = str(a)[0:40] + "...To big to be displayed ..."
-                 print("Arg%s:%s type:%s" % (i, short_value, type(a)))
-             else:
-                 print("Arg%s:%s type:%s" % (i, a, type(a)))
+            if len(str(a)) > 100:
+                if type(a) == bytes:
+                    short_value = a[0:40] + b"...To big to be displayed ..."
+                elif type(a) == str:
+                    short_value = a[0:40] + "...To big to be displayed ..."
+                else:
+                    short_value = str(a)[0:40] + "...To big to be displayed ..."
+                print("Arg%s:%s type:%s" % (i, short_value, type(a)))
+            else:
+                print("Arg%s:%s type:%s" % (i, a, type(a)))
         print("Pandora:")
         for nb, key in enumerate(PandoraBox):
             print("key:", str(key))
@@ -7138,11 +8215,11 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
             if "Found Missing Data" in info:
                 return WriteClone(ToolKit[0])
             if "Missing Data Has Not Been Found" in info:
-                return DummyChunk(ToolKit[0], ToolKit[1], ToolKit[2], ToolKit[3],info)
+                return DummyChunk(ToolKit[0], ToolKit[1], ToolKit[2], ToolKit[3], info)
 
         if function == "DummyChunk":
 
-             if "Filling with a dummy chunk" in info:
+            if "Filling with a dummy chunk" in info:
                 return WriteClone(ToolKit[0])
 
         if function == "SmashBruteBrawl":
@@ -7150,18 +8227,32 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                 SideNotes.append("-CheckPoint: %s" % info)
                 return WriteClone(ToolKit[0])
             elif "-Bruteforcer has Failed" in info:
-                if Brute_LvL < 3 and chunk == "IHDR": #tmp workaround
-                   Brute_LvL += 1
-                   Candy( 
-                    "Cowsay", "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/2)"%Brute_LvL, "bad"
-                   )
-                   
-                   SideNotes.append("-CheckPoint: %s" % info)
-                   SmashBruteBrawl(ToolKit[0], ToolKit[1], ToolKit[2], ToolKit[3],ToolKit[7], ToolKit[4] ,ToolKit[5], ToolKit[6])
+                if Brute_LvL < 3 and chunk == "IHDR":  # tmp workaround
+                    Brute_LvL += 1
+                    Candy(
+                        "Cowsay",
+                        "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/2)"
+                        % Brute_LvL,
+                        "bad",
+                    )
+
+                    SideNotes.append("-CheckPoint: %s" % info)
+                    SmashBruteBrawl(
+                        ToolKit[0],
+                        ToolKit[1],
+                        ToolKit[2],
+                        ToolKit[3],
+                        ToolKit[7],
+                        ToolKit[4],
+                        ToolKit[5],
+                        ToolKit[6],
+                    )
                 else:
-                    Candy( 
-                    "Cowsay", "Iv tried everything , im out of option sorry ..", "bad"
-                   )
+                    Candy(
+                        "Cowsay",
+                        "Iv tried everything , im out of option sorry ..",
+                        "bad",
+                    )
                     SideNotes.append("-CheckPoint: %s" % info)
                     TheEnd()
             else:
@@ -7751,7 +8842,17 @@ ALLCHUNKS = [
     b"MEND",
 ]
 
-LIBPNG_ERR = ["libpng error:", "Too much image data","Out of memory"," in PLTE","Invalid palette"," in IDAT","is too large for this architecture"," in IHDR","bad result"] ## need to sort error and warning in a dict
+LIBPNG_ERR = [
+    "libpng error:",
+    "Too much image data",
+    "Out of memory",
+    " in PLTE",
+    "Invalid palette",
+    " in IDAT",
+    "is too large for this architecture",
+    " in IHDR",
+    "bad result",
+]  ## need to sort error and warning in a dict
 
 
 IFOP = []
