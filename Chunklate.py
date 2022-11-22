@@ -5030,7 +5030,6 @@ def SmashBruteBrawl(
             shuffle = itertools.product(*chunk_data)
 
         for n, i in enumerate(shuffle):
-#            if n == 5000: TheEnd()
             bvalue = b""
             for d, j in zip(chunk_format, i):
                 bvalue += int(j).to_bytes(d, "big")
@@ -5104,7 +5103,7 @@ def SmashBruteBrawl(
             "SmashBruteBrawl",
             ChunkName.decode(errors="ignore"),
             ["-Corrupted Data has been replaced"],
-            newfilewanabe.hex(),
+            wanabyte.hex(),
             DataOffset,
             DataOffset + ChunkLenght,
             "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
