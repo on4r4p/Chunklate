@@ -1,7 +1,8 @@
-#!/usr/bin/python3
+#!/usr/bin/python3.11
 from argparse import ArgumentParser, SUPPRESS
 from datetime import datetime
 from contextlib import contextmanager
+from PIL import Image
 import numpy as np
 import sys, os, binascii, re, random, time, zlib, cv2, ctypes, io, tempfile, inspect, difflib, collections, math, itertools, psutil, subprocess
 
@@ -91,14 +92,14 @@ def IDAT_Bytes_Nbr():  # tmpworkaround
 
 
 def Min_Res_W(MinRes):
-    for w in range(MinRes):
-        for h in range(w + 1):
+    for w in range(1,MinRes):
+        for h in range(1,w + 1):
             yield (w, h)
 
 
 def Min_Res_H(MinRes):
-    for w in range(MinRes):
-        for h in range(w + 1):
+    for w in range(1,MinRes):
+        for h in range(1,w + 1):
             yield (h, w)
 
 
@@ -242,7 +243,7 @@ def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
             "nocolortype:minres": (
                 MnrF * 5 * 5 * 2,
                 26,
-                (8, 8, 2, 2, 2, 2, 2),
+                (4, 4, 1, 1, 1, 1, 1),
                 (Mnr, (1, 2, 4, 8, 16), (0, 2, 3, 4, 6), ("0"), ("0"), (0, 1)),
             ),
             "colortype:0": (
@@ -3167,6 +3168,7 @@ def YouShallPass(Chunk, data):
         except Exception as e:
             if DEBUG:
                 print("Error:", e)
+        return True
 
     if Chunk == b"pHYs":
         try:
@@ -3198,6 +3200,8 @@ def YouShallPass(Chunk, data):
         except Exception as e:
             if DEBUG:
                 print("Error:", e)
+        return True
+
     if Chunk == b"bKGD":
         if IHDR_Color == "0" or IHDR_Color == "4":
             try:
@@ -3239,6 +3243,8 @@ def YouShallPass(Chunk, data):
                 bKGD_Index = str(int(data[:2], 16))
             except:
                 return False
+        return True
+
     if Chunk == b"PLTE":
 
         PLTE_R = []
@@ -3297,6 +3303,7 @@ def YouShallPass(Chunk, data):
                 return False
         else:
             return False
+        return True
 
     if Chunk == b"sPLT":
         sPLT_Red = []
@@ -3394,6 +3401,7 @@ def YouShallPass(Chunk, data):
                 if sPLT_Name.count(nm) > 1 and nm != lastnm:
                     lastnm = nm
                     return False
+        return True
     if Chunk == b"hIST":
         hIST = []
         if len(data) <= 0:
@@ -3419,6 +3427,7 @@ def YouShallPass(Chunk, data):
                 if DEBUG:
                     print("Error:", e)
                 return False
+        return True
     if Chunk == b"tIME":
         if len(data) < 14:
             return False
@@ -3465,7 +3474,7 @@ def YouShallPass(Chunk, data):
             if len(str(tIME_Sec)) > 0:
                 if int(tIME_Sec) not in range(0, 61):
                     return False
-
+        return True
     if Chunk == b"tRNS":
         TRNSNBR = len(data)
         if len(IHDR_Color) == 0:
@@ -3516,13 +3525,14 @@ def YouShallPass(Chunk, data):
                         or (len(hIST) > len(sPLT_Aplha))
                     ):
                         return False
-
+        return True
     if Chunk == b"sRGB":
         sRGB = str(int(data[:2], 16))
         if sRGB not in ["0", "1", "2", "3"]:
             return False
         if "cHRM".encode() in Chunks_History:
             return False
+        return True
     if Chunk == b"cHRM":
         try:
             cHRM_WhiteX = str(
@@ -3588,6 +3598,7 @@ def YouShallPass(Chunk, data):
             return False
         if "sRGB".encode() in Chunks_History or "iCCP".encode() in Chunks_History:
             return False
+        return True
     if Chunk == b"gAMA":
         try:
             gAMA = str(int(data[:8], 16))
@@ -3595,6 +3606,7 @@ def YouShallPass(Chunk, data):
                 return False
         except:
             return False
+        return True
     if Chunk == b"iCCP":
         null = "00"
         null_pos = 0
@@ -3627,7 +3639,7 @@ def YouShallPass(Chunk, data):
 
         if "cHRM".encode() in Chunks_History:
             return False
-
+        return True
     if Chunk == b"sBIT":
         if IHDR_Color == "0":
             sBIT_Gray = str(int(data[:2], 16))
@@ -3691,7 +3703,7 @@ def YouShallPass(Chunk, data):
                 return False
             if int(sBIT_TrueAlpha) > int(IHDR_Depht):
                 return False
-
+        return True
     if Chunk == b"oFFs":
         try:
             oFFSX = str(
@@ -3716,6 +3728,7 @@ def YouShallPass(Chunk, data):
             return False
         if oFFSU != "0" and oFFSU != "1":
             return False
+        return True
     if Chunk == b"pCAL":
         pCAL_Param = []
         try:
@@ -3757,7 +3770,7 @@ def YouShallPass(Chunk, data):
         except Exception as e:
             if DEBUG:
                 print("Error:", e)
-
+        return True
     if Chunk == b"gIFg":
         try:
             gIFgM = str(int(data[:2], 16))
@@ -3765,7 +3778,7 @@ def YouShallPass(Chunk, data):
             gIFgT = str(int(data[4:6], 16))
         except:
             return False
-
+        return True
     if Chunk == b"gIFx":
         try:
             gIFID = str(int(data[:16], 16))
@@ -3773,14 +3786,14 @@ def YouShallPass(Chunk, data):
             gIFDT = str(int(data[22:], 16))
         except:
             return False
-
+        return True
     if Chunk == b"sTER":
 
         try:
             sTER = str(int(data[:2], 16))
         except:
             return False
-
+        return True
     if Chunk == b"tEXt":
         tEXt_Key_List = []
         tEXt_Str_List = []
@@ -3793,7 +3806,7 @@ def YouShallPass(Chunk, data):
                 return False
         except:
             return False
-
+        return True
     if Chunk == b"zTXt":
         zTXt_Key_List = []
         zTXt_Str_List = []
@@ -3806,7 +3819,7 @@ def YouShallPass(Chunk, data):
                 return False
         except:
             return False
-
+        return True
     if Chunk == b"iTXt":
         iTXt_Key_List = []
         iTXt_String_List = []
@@ -3818,11 +3831,13 @@ def YouShallPass(Chunk, data):
                 return False
         except:
             return False
+        return True
     if Chunk == b"eXIf":
         eXIf_endian = bytes.fromhex(data[:4]).decode(errors="ignore")
 
         if eXIf_endian != "II" and eXIf_endian != "MM":
             return False
+        return True
 
     return True
 
@@ -4995,20 +5010,16 @@ def SmashBruteBrawl(
 
     for ln in range(minchunklen, maxchunklen, step):
 
-        #        if DEBUG is False:
-        #            Loadingbar(fishs_nbr)
         Loadingbar(
             max_iter, len_iter, None, True
         )  # need to adapt max/len_iter to ln range
 
-        Lnx_New = hex(int(ln / 2)).replace("0x", "").zfill(8)
+        Lnx_New = int(int(ln/2)).to_bytes(4, "big")
         if EditMode == "replace":
             if BruteLenght and BruteCrc:
-                Before_New = DATAX[:DataOffset]
+                Before_New = bytes.fromhex(DATAX[:DataOffset])
                 ToBrute = DATAX[DataOffset : DataOffset + ln]
-                After_New = DATAX[
-                    DataOffset + ln + 24 :
-                ]  # +24=chunklen+chunkname+data+crc
+                After_New = bytes.fromhex(DATAX[DataOffset + ln + 24 :])  # +24=chunklen+chunkname+data+crc
 
         if ChunkName == b"IHDR" and Brute_LvL == 0:
             shuffle = (
@@ -5019,71 +5030,53 @@ def SmashBruteBrawl(
             shuffle = itertools.product(*chunk_data)
 
         for n, i in enumerate(shuffle):
-            Loadingbar(max_iter, len_iter, n, False)
-            hexvalue = ""
+#            if n == 5000: TheEnd()
+            bvalue = b""
             for d, j in zip(chunk_format, i):
-                hexvalue += hex(int(j)).replace("0x", "").zfill(d)
+                bvalue += int(j).to_bytes(d, "big")
 
-            if YouShallPass(ChunkName, hexvalue) is False:
+            if YouShallPass(ChunkName, bvalue.hex()) is False:
                 continue
-            newbytes = bytes.fromhex(hexvalue)
-            checksum = (
-                hex(binascii.crc32(ChunkName + newbytes)).replace("0x", "").zfill(8)
-            )
-            fullnewdatax = Lnx_New + CNamex_New + hexvalue + checksum
-            newfilewanabe = Before_New + fullnewdatax + After_New
+            Loadingbar(max_iter, len_iter, n, False)
+
+            checksum = binascii.crc32(ChunkName + bvalue).to_bytes(4, "big")
+            fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
+            wanabyte = Before_New + fullnewdatax + After_New
 
             f = io.BytesIO()
             with stderr_redirector(f):
-                newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
-                newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_UNCHANGED)
                 try:
-                    cv2.imread(newfile)
-                except Exception as e:
+                    cv2.imdecode(np.frombuffer(wanabyte, np.uint8), cv2.IMREAD_UNCHANGED)
+                except:
                     pass
             result = "{0}".format(f.getvalue().decode("utf-8"))
             if not any(s in result for s in LIBPNG_ERR):
-                with stderr_redirector(f):
-                    cvproc = subprocess.Popen(
-                        [
-                            "python3",
-                            "-c",
-                            """import numpy as np;import cv2;d='"""
-                            + newfilewanabe
-                            + """';nd=np.fromstring(bytes.fromhex(d), np.uint8);f=cv2.imdecode(nd, cv2.IMREAD_UNCHANGED);cv2.imshow('Press a key to close',f);cv2.waitKey()""",
-                        ]
-                    )
+                try:
+                     Image.open(io.BytesIO(wanabyte)).show()
+                except:
+                     continue
 
+                print()
                 Candy("Cowsay", "Ah ! Iv got One !", "good")
                 Candy("Cowsay", "Does it looks good or should i keep trying ?", "com")
                 Answer = Question(None, True)
                 if Answer is True:
 
-                    for proc in psutil.process_iter():
-                        if "python3 -c import numpy as np;import cv2" in " ".join(
-                            proc.cmdline()
-                        ):
-                            proc.kill()
                     diffobj = difflib.SequenceMatcher(
-                        None, DATAX[DataOffset:], fullnewdatax
+                        None, DATAX[DataOffset:], fullnewdatax.hex()
                     )
                     good = ""
                     for block in diffobj.get_opcodes():
                         if block[0] != "equal":
                             good += (
                                 "\033[1;32;49m%s\033[m"
-                                % fullnewdatax[block[1] : block[2]]
+                                % fullnewdatax.hex()[block[1] : block[2]]
                             )
                         else:
-                            good += fullnewdatax[block[1] : block[2]]
+                            good += fullnewdatax.hex()[block[1] : block[2]]
                     Bingo = True
                     break
                 else:
-                    for proc in psutil.process_iter():
-                        if "python3 -c import numpy as np;import cv2" in " ".join(
-                            proc.cmdline()
-                        ):
-                            proc.kill()
                     Candy("Cowsay", "Damned !", "bad")
                     continue
     if Bingo is True:
@@ -5100,7 +5093,7 @@ def SmashBruteBrawl(
 
         SideNotes.append(
             "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s\n-with bytes:\n%s"
-            % (ChunkName, ToBrute, fullnewdatax)
+            % (ChunkName,fullnewdatax.hex())
         )
         return CheckPoint(
             True,
@@ -5108,11 +5101,11 @@ def SmashBruteBrawl(
             "SmashBruteBrawl",
             ChunkName.decode(errors="ignore"),
             ["-Corrupted Data has been replaced"],
-            newfilewanabe,
+            newfilewanabe.hex(),
             DataOffset,
             DataOffset + ChunkLenght,
             "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
-            % (ChunkName.decode(errors="ignore"), ToBrute, fullnewdatax),
+            % (ChunkName.decode(errors="ignore"), ToBrute, fullnewdatax.hex()),
             ChunkName.decode(errors="ignore"),
             FromError,
         )
@@ -5125,7 +5118,6 @@ def SmashBruteBrawl(
 
         Candy("Cowsay", "I was afraid of this ...", "bad")
         SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
-        # (File, ChunkName, ChunkLenght, DataOffset,FromError, EditMode ,BruteCrc = False, BruteLenght = False)
         return CheckPoint(
             True,
             False,
