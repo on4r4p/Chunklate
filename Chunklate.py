@@ -215,7 +215,7 @@ def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
             "nocolortype:maxres": (
                 ((Mxr - 1) * (Mxr - 1)) * 5 * 5 * 2,
                 26,
-                (8, 8, 2, 2, 2, 2, 2),
+                (4, 4, 1, 1, 1, 1, 1),
                 (
                     (i for i in range(1, Mxr)),
                     (i for i in range(1, Mxr)),
@@ -229,7 +229,7 @@ def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
             "nocolortype:medres": (
                 ((ibn - 1) * (ibn - 1)) * 5 * 5 * 2,
                 26,
-                (8, 8, 2, 2, 2, 2, 2),
+                (4, 4, 1, 1, 1, 1, 1),
                 (
                     (i for i in range(1, ibn)),
                     (i for i in range(1, ibn)),
@@ -249,7 +249,7 @@ def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
             "colortype:0": (
                 10,
                 26,
-                (8, 8, 2, 2, 2, 2, 2),
+                (4, 4, 1, 1, 1, 1, 1),
                 (
                     (IHDR_Width for i in range(11)),
                     (IHDR_Height for i in range(11)),
@@ -263,7 +263,7 @@ def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
             "colortype:2": (
                 4,
                 26,
-                (8, 8, 2, 2, 2, 2, 2),
+                (4, 4, 1, 1, 1, 1, 1),
                 (
                     (IHDR_Width for i in range(5)),
                     (IHDR_Height for i in range(5)),
@@ -277,7 +277,7 @@ def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
             "colortype:3": (
                 8,
                 26,
-                (8, 8, 2, 2, 2, 2, 2),
+                (4, 4, 1, 1, 1, 1, 1),
                 (
                     (IHDR_Width for i in range(9)),
                     (IHDR_Height for i in range(9)),
@@ -291,7 +291,7 @@ def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
             "colortype:4": (
                 4,
                 26,
-                (8, 8, 2, 2, 2, 2, 2),
+                (4, 4, 1, 1, 1, 1, 1),
                 (
                     (IHDR_Width for i in range(5)),
                     (IHDR_Height for i in range(5)),
@@ -305,7 +305,7 @@ def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
             "colortype:6": (
                 4,
                 26,
-                (8, 8, 2, 2, 2, 2, 2),
+                (4, 4, 1, 1, 1, 1, 1),
                 (
                     (IHDR_Width for i in range(5)),
                     (IHDR_Height for i in range(5)),
@@ -321,7 +321,7 @@ def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
             "nocolortype": (
                 16581375,
                 (6, 1536),
-                (2, 2, 2),
+                (1, 1, 1),
                 (
                     (i for i in range(256)),
                     (i for i in range(256)),
@@ -330,11 +330,11 @@ def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
             )
         },
         b"tRNS": {
-            "colortype:0": (65535, (4, 1024), (4), (i for i in range(65536))),
+            "colortype:0": (65535, (4, 1024), (2), (i for i in range(65536))),
             "colortype:2": (
                 196605,
                 (12, 3072),
-                (4, 4, 4),
+                (2, 2, 2),
                 (
                     (i for i in range(65536)),
                     (i for i in range(65536)),
@@ -343,12 +343,12 @@ def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
             ),
             "colortype:3": (255, (2, 512), (2), (i for i in range(256))),
         },
-        b"gAMA": {"nocolortype": (100000, 8, (8), (i for i in range(100001)))},
+        b"gAMA": {"nocolortype": (100000, 8, (4), (i for i in range(100001)))},
         b"cHRM": {
             "nocolortype": (
                 800000,
                 64,
-                (8, 8, 8, 8, 8, 8, 8, 8),
+                (4, 4, 4, 4, 4, 4, 4, 4),
                 (
                     (i for i in range(100001)),
                     (i for i in range(100001)),
@@ -361,25 +361,25 @@ def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
                 ),
             )
         },
-        b"sRGB": {"nocolortype": (4, 2, (2), (0, 1, 2, 3))},
+        b"sRGB": {"nocolortype": (4, 2, (1), (0, 1, 2, 3))},
         b"bKGD": {
-            "colortype:0": ((65535), 4, (4), (i for i in range(65536))),
+            "colortype:0": ((65535), 4, (2), (i for i in range(65536))),
             "colortype:2": (
                 (196605),
                 12,
-                (4, 4, 4),
+                (2, 2, 2),
                 (
                     (i for i in range(65536)),
                     (i for i in range(65536)),
                     (i for i in range(65536)),
                 ),
             ),
-            "colortype:3": ((255), 2, (2), (i for i in range(256))),
-            "colortype:4": ((65535), 4, (4), (i for i in range(65536))),
+            "colortype:3": ((255), 2, (1), (i for i in range(256))),
+            "colortype:4": ((65535), 4, (2), (i for i in range(65536))),
             "colortype:6": (
                 (196605),
                 12,
-                (4, 4, 4),
+                (2, 2, 2),
                 (
                     (i for i in range(65536)),
                     (i for i in range(65536)),
@@ -439,12 +439,12 @@ def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
                 ),
             ),
         },
-        b"hIST": {"nocolortype": (65536, (4, 1024), (4), (i for i in range(65536)))},
+        b"hIST": {"nocolortype": (65536, (4, 1024), (2), (i for i in range(65536)))},
         b"tIME": {
             "nocolortype": (
                 ((1970 - ThisYear) * 12 * 31 * 23 * 59 * 60),
                 14,
-                (4, 2, 2, 2, 2, 2),
+                (2, 1, 1, 1, 1, 1),
                 (
                     (i for i in range(1970, ThisYear + 1)),
                     (i for i in range(1, 13)),
@@ -5046,7 +5046,7 @@ def SmashBruteBrawl(
             f = io.BytesIO()
             with stderr_redirector(f):
                 try:
-                    cv2.imdecode(np.frombuffer(wanabyte, np.uint8), cv2.IMREAD_UNCHANGED)
+                    cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
                 except:
                     pass
             result = "{0}".format(f.getvalue().decode("utf-8"))
