@@ -5051,10 +5051,13 @@ def SmashBruteBrawl(
                     pass
             result = "{0}".format(f.getvalue().decode("utf-8"))
             if not any(s in result for s in LIBPNG_ERR):
-                try:
-                     Image.open(io.BytesIO(wanabyte)).show()
-                except:
-                     continue
+
+                f = io.BytesIO()
+                with stderr_redirector(f):
+                    try:
+                         Image.open(io.BytesIO(wanabyte)).show()
+                    except:
+                         continue
 
                 print()
                 Candy("Cowsay", "Ah ! Iv got One !", "good")
@@ -5092,7 +5095,7 @@ def SmashBruteBrawl(
         Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
 
         SideNotes.append(
-            "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s\n-with bytes:\n%s"
+            "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s"
             % (ChunkName,fullnewdatax.hex())
         )
         return CheckPoint(
