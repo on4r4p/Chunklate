@@ -4,7 +4,7 @@ from datetime import datetime
 from contextlib import contextmanager
 from PIL import Image
 import numpy as np
-import sys, os, binascii, re, random, time, zlib, cv2, ctypes, io, tempfile, inspect, difflib, collections, math, itertools, psutil, subprocess
+import sys, os, binascii, re, random, time, zlib, cv2, ctypes, struct,io, tempfile, inspect, difflib, collections, math, itertools, psutil, subprocess
 
 
 def Betterror(error_msg, def_name):
@@ -94,13 +94,13 @@ def IDAT_Bytes_Nbr():  # tmpworkaround
 def Min_Res_W(MinRes):
     for w in range(1,MinRes):
         for h in range(1,w + 1):
-            yield (w, h)
+            yield (w,h)
 
 
 def Min_Res_H(MinRes):
     for w in range(1,MinRes):
         for h in range(1,w + 1):
-            yield (h, w)
+            yield (h,w)
 
 
 def Max_Res():
@@ -121,7 +121,7 @@ def Max_Res():
     return MaxRes
 
 
-def ColorType(GetChunk):
+def ColorType(GetChunk,Mode):
 
     Safe_val = True
     for nb, key in enumerate(PandoraBox):
@@ -162,13 +162,16 @@ def ColorType(GetChunk):
     if Safe_val == False:
         if GetChunk != b"IHDR":
             ColorType = "nocolortype"
-        else:
+        elif Mode == "BF":
+
             if Brute_LvL == 0:
                 ColorType = "nocolortype:minres"
             elif Brute_LvL == 1:
                 ColorType = "nocolortype:medres"
             else:
                 ColorType = "nocolortype:maxres"
+        else:
+            ColorType = "nocolortype"
 
     else:
         ColorType = "colortype:" + str(IHDR_Color)
@@ -179,310 +182,548 @@ def ColorType(GetChunk):
     return ColorType
 
 
-def GetSpec(GetChunk):  ## todo GetSpec(chunk,colortype)
-    ##TODO ## Need to use strutc module coz speed ..
-    ## And maybe reshap for easier brute force of smaller values
+def GetSpec(GetChunk,Mode): 
     ThisYear = datetime.now().year
 
-    if IBN == 0:
-        IDAT_Bytes_Nbr()
-
-    ibn = int(IBN / 64)
-    Mxr = Max_Res()
-    MnrW = Min_Res_W(ibn)
-    MnrH = Min_Res_H(ibn)
-    Mnr = itertools.chain(Min_Res_W(ibn), Min_Res_H(ibn))
-    MnrF = 0
-
-    for x in range(ibn):
-        for y in range(x + 1):
-            MnrF += 2
-    MnrF -= 1
-
-    if DEBUG:
-        print(
-            "-Smalest resolution estimation based on file size: %s*%s"
-            % (int(IBN / 64), int(IBN / 64))
-        )
-
     if GetChunk in [b"IHDR", b"tRNS", b"bKGD", b"sBIT"]:
-        GetMode = ColorType(GetChunk)
+            GetColor = ColorType(GetChunk,Mode)
     else:
-        GetMode = "nocolortype"
+            GetColor = "nocolortype"
 
-    CHUNKS_SPEC = {
-        b"IHDR": {
-            "nocolortype:maxres": (
-                ((Mxr - 1) * (Mxr - 1)) * 5 * 5 * 2,
-                26,
-                (4, 4, 1, 1, 1, 1, 1),
-                (
-                    (i for i in range(1, Mxr)),
-                    (i for i in range(1, Mxr)),
-                    (1, 2, 4, 8, 16),
-                    (0, 2, 3, 4, 6),
-                    ("0"),
-                    ("0"),
-                    (0, 1),
-                ),
-            ),
-            "nocolortype:medres": (
-                ((ibn - 1) * (ibn - 1)) * 5 * 5 * 2,
-                26,
-                (4, 4, 1, 1, 1, 1, 1),
-                (
-                    (i for i in range(1, ibn)),
-                    (i for i in range(1, ibn)),
-                    (1, 2, 4, 8, 16),
-                    (0, 2, 3, 4, 6),
-                    ("0"),
-                    ("0"),
-                    (0, 1),
-                ),
-            ),
-            "nocolortype:minres": (
-                MnrF * 5 * 5 * 2,
-                26,
-                (4, 4, 1, 1, 1, 1, 1),
-                (Mnr, (1, 2, 4, 8, 16), (0, 2, 3, 4, 6), ("0"), ("0"), (0, 1)),
-            ),
-            "colortype:0": (
-                10,
-                26,
-                (4, 4, 1, 1, 1, 1, 1),
-                (
-                    (IHDR_Width for i in range(11)),
-                    (IHDR_Height for i in range(11)),
-                    (1, 2, 4, 8, 16),
-                    ("0"),
-                    ("0"),
-                    ("0"),
-                    (0, 1),
-                ),
-            ),
-            "colortype:2": (
-                4,
-                26,
-                (4, 4, 1, 1, 1, 1, 1),
-                (
-                    (IHDR_Width for i in range(5)),
-                    (IHDR_Height for i in range(5)),
-                    (8, 16),
-                    ("2"),
-                    ("0"),
-                    ("0"),
-                    (0, 1),
-                ),
-            ),
-            "colortype:3": (
-                8,
-                26,
-                (4, 4, 1, 1, 1, 1, 1),
-                (
-                    (IHDR_Width for i in range(9)),
-                    (IHDR_Height for i in range(9)),
-                    (1, 2, 4, 8),
-                    ("3"),
-                    ("0"),
-                    ("0"),
-                    (0, 1),
-                ),
-            ),
-            "colortype:4": (
-                4,
-                26,
-                (4, 4, 1, 1, 1, 1, 1),
-                (
-                    (IHDR_Width for i in range(5)),
-                    (IHDR_Height for i in range(5)),
-                    (8, 16),
-                    ("4"),
-                    ("0"),
-                    ("0"),
-                    (0, 1),
-                ),
-            ),
-            "colortype:6": (
-                4,
-                26,
-                (4, 4, 1, 1, 1, 1, 1),
-                (
-                    (IHDR_Width for i in range(5)),
-                    (IHDR_Height for i in range(5)),
-                    (8, 16),
-                    ("6"),
-                    ("0"),
-                    ("0"),
-                    (0, 1),
-                ),
-            ),
-        },
-        b"PLTE": {
-            "nocolortype": (
-                16581375,
-                (6, 1536),
-                (1, 1, 1),
-                (
-                    (i for i in range(256)),
-                    (i for i in range(256)),
-                    (i for i in range(256)),
-                ),
-            )
-        },
-        b"tRNS": {
-            "colortype:0": (65535, (4, 1024), (2), (i for i in range(65536))),
-            "colortype:2": (
-                196605,
-                (12, 3072),
-                (2, 2, 2),
-                (
-                    (i for i in range(65536)),
-                    (i for i in range(65536)),
-                    (i for i in range(65536)),
-                ),
-            ),
-            "colortype:3": (255, (2, 512), (2), (i for i in range(256))),
-        },
-        b"gAMA": {"nocolortype": (100000, 8, (4), (i for i in range(100001)))},
-        b"cHRM": {
-            "nocolortype": (
-                800000,
-                64,
-                (4, 4, 4, 4, 4, 4, 4, 4),
-                (
-                    (i for i in range(100001)),
-                    (i for i in range(100001)),
-                    (i for i in range(100001)),
-                    (i for i in range(100001)),
-                    (i for i in range(100001)),
-                    (i for i in range(100001)),
-                    (i for i in range(100001)),
-                    (i for i in range(100001)),
-                ),
-            )
-        },
-        b"sRGB": {"nocolortype": (4, 2, (1), (0, 1, 2, 3))},
-        b"bKGD": {
-            "colortype:0": ((65535), 4, (2), (i for i in range(65536))),
-            "colortype:2": (
-                (196605),
-                12,
-                (2, 2, 2),
-                (
-                    (i for i in range(65536)),
-                    (i for i in range(65536)),
-                    (i for i in range(65536)),
-                ),
-            ),
-            "colortype:3": ((255), 2, (1), (i for i in range(256))),
-            "colortype:4": ((65535), 4, (2), (i for i in range(65536))),
-            "colortype:6": (
-                (196605),
-                12,
-                (2, 2, 2),
-                (
-                    (i for i in range(65536)),
-                    (i for i in range(65536)),
-                    (i for i in range(65536)),
-                ),
-            ),
-        },
-        b"pHYs": {
-            "nocolortype": (
-                (4611686014132420609),
-                18,
-                (8, 8, 2),
-                (
-                    (i for i in range(2147483647)),
-                    (i for i in range(2147483647)),
-                    (0, 1),
-                ),
-            )
-        },
-        b"sBIT": {
-            "colortype:0": (255, 2, (2), (i for i in range(256))),
-            "colortype:2": (
-                16581375,
-                6,
-                (2, 2, 2),
-                (
-                    (i for i in range(256)),
-                    (i for i in range(256)),
-                    (i for i in range(256)),
-                ),
-            ),
-            "colortype:3": (
-                16581375,
-                6,
-                (2, 2, 2),
-                (
-                    (i for i in range(256)),
-                    (i for i in range(256)),
-                    (i for i in range(256)),
-                ),
-            ),
-            "colortype:4": (
-                65025,
-                4,
-                (2, 2),
-                ((i for i in range(256)), (i for i in range(256))),
-            ),
-            "colortype:6": (
-                16581375,
-                8,
-                (2, 2, 2, 2),
-                (
-                    (i for i in range(256)),
-                    (i for i in range(256)),
-                    (i for i in range(256)),
-                    (i for i in range(256)),
-                ),
-            ),
-        },
-        b"hIST": {"nocolortype": (65536, (4, 1024), (2), (i for i in range(65536)))},
-        b"tIME": {
-            "nocolortype": (
-                ((1970 - ThisYear) * 12 * 31 * 23 * 59 * 60),
-                14,
-                (2, 1, 1, 1, 1, 1),
-                (
-                    (i for i in range(1970, ThisYear + 1)),
-                    (i for i in range(1, 13)),
-                    (i for i in range(1, 32)),
-                    (i for i in range(0, 24)),
-                    (i for i in range(0, 60)),
-                    (i for i in range(0, 61)),
-                ),
-            )
-        },
-    }
-    for key in CHUNKS_SPEC:
-        for mode, bytes_spec in CHUNKS_SPEC[key].items():
-            if key == GetChunk:
-                if mode == GetMode:
-                    product = bytes_spec[0]
-                    chunklen_spec = bytes_spec[1]
-                    chunk_format = bytes_spec[2]
-                    chunk_data = bytes_spec[3]
-                    #                         print("key:",key)
-                    #                         print("product:",product)
-                    #                         print("keylen",len(key))
-                    #                         print("chunklen_spec:",chunklen_spec)
-                    #                         print("chunk_format",chunk_format)
-                    #                         print("chunk_data",chunk_data)
-                    return (
-                        product,
-                        len(str(product)),
-                        chunklen_spec,
-                        chunk_format,
-                        chunk_data,
-                    )
+    if Mode =="Spec":
 
-    print("-Error in GetSpec: Didnt Found matching result")
-    print("GetMode:", GetMode)
-    print("GetChunk:", GetChunk)
-    print(Candy("Color", "yellow", "\n-ToDo"))
-    TheEnd()
+        CHUNKS_SPEC = {
+            b"IHDR": {
+                "nocolortype": (
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (i for i in range(1, 2147483647)),
+                        (i for i in range(1, 2147483647)),
+                        (1, 2, 4, 8, 16),
+                        (0, 2, 3, 4, 6),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:0": (
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (IHDR_Width for i in range(11)),
+                        (IHDR_Height for i in range(11)),
+                        (1, 2, 4, 8, 16),
+                        ("0"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:2": (
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (IHDR_Width for i in range(5)),
+                        (IHDR_Height for i in range(5)),
+                        (8, 16),
+                        ("2"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:3": (
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (IHDR_Width for i in range(9)),
+                        (IHDR_Height for i in range(9)),
+                        (1, 2, 4, 8),
+                        ("3"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:4": (
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (IHDR_Width for i in range(5)),
+                        (IHDR_Height for i in range(5)),
+                        (8, 16),
+                        ("4"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:6": (
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (IHDR_Width for i in range(5)),
+                        (IHDR_Height for i in range(5)),
+                        (8, 16),
+                        ("6"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+            },
+            b"PLTE": {
+                "nocolortype": (
+                    (6, 1536),
+                    ("!B", "!B", "!B"),
+                    (
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                    ),
+                )
+            },
+            b"tRNS": {
+                "colortype:0": ((4, 1024), ("!H"), (i for i in range(65536))),
+                "colortype:2": (
+                    (12, 3072),
+                    ("!H", "!H", "!H"),
+                    (
+                        (i for i in range(65536)),
+                        (i for i in range(65536)),
+                        (i for i in range(65536)),
+                    ),
+                ),
+                "colortype:3": ((2, 512), ("!B"), (i for i in range(256))),
+            },
+            b"gAMA": {"nocolortype": (100000, 8, ("!I"), (i for i in range(100001)))},
+            b"cHRM": {
+                "nocolortype": (
+                    64,
+                    ("!I", "!I", "!I", "!I", "!I", "!I", "!I", "!I"),
+                    (
+                        (i for i in range(100001)),
+                        (i for i in range(100001)),
+                        (i for i in range(100001)),
+                        (i for i in range(100001)),
+                        (i for i in range(100001)),
+                        (i for i in range(100001)),
+                        (i for i in range(100001)),
+                        (i for i in range(100001)),
+                    ),
+                )
+            },
+            b"sRGB": {"nocolortype": (2, ("!B"), (0, 1, 2, 3))},
+            b"bKGD": {
+                "colortype:0": (4, ("!H"), (i for i in range(65536))),
+                "colortype:2": (
+                    12,
+                    ("!H", "!H", "!H"),
+                    (
+                        (i for i in range(65536)),
+                        (i for i in range(65536)),
+                        (i for i in range(65536)),
+                    ),
+                ),
+                "colortype:3": (2, ("!B"), (i for i in range(256))),
+                "colortype:4": (4, ("!H"), (i for i in range(65536))),
+                "colortype:6": (
+                    12,
+                    ("!H", "!H", "!H"),
+                    (
+                        (i for i in range(65536)),
+                        (i for i in range(65536)),
+                        (i for i in range(65536)),
+                    ),
+                ),
+            },
+            b"pHYs": {
+                "nocolortype": (
+                    18,
+                    ("!I", "!I", "!B"),
+                    (
+                        (i for i in range(2147483647)),
+                        (i for i in range(2147483647)),
+                        (0, 1),
+                    ),
+                )
+            },
+            b"sBIT": {
+                "colortype:0": (2, ("!B"), (i for i in range(256))),
+                "colortype:2": (
+                    6,
+                    ("!B", "!B", "!B"),
+                    (
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                    ),
+                ),
+                "colortype:3": (
+                    6,
+                    ("!B", "!B", "!B"),
+                    (
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                    ),
+                ),
+                "colortype:4": (
+                    4,
+                    ("!B", "!B"),
+                    ((i for i in range(256)), (i for i in range(256))),
+                ),
+                "colortype:6": (
+                    8,
+                    ("!B", "!B", "!B", "!B"),
+                    (
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                    ),
+                ),
+            },
+            b"hIST": {"nocolortype": (65536, (4, 1024), ("!H"), (i for i in range(65536)))},
+            b"tIME": {
+                "nocolortype": (
+                    14,
+                    ("!H", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (i for i in range(1970, ThisYear + 1)),
+                        (i for i in range(1, 13)),
+                        (i for i in range(1, 32)),
+                        (i for i in range(0, 24)),
+                        (i for i in range(0, 60)),
+                        (i for i in range(0, 61)),
+                    ),
+                )
+            },
+        }
+        for key in CHUNKS_SPEC:
+            for color, bytes_spec in CHUNKS_SPEC[key].items():
+                if key == GetChunk:
+                    if color == GetColor:
+                        chunklen_spec = bytes_spec[0]
+                        chunk_format = bytes_spec[1]
+                        chunk_data = bytes_spec[2]
+                        #                         print("key:",key)
+                        #                         print("product:",product)
+                        #                         print("keylen",len(key))
+                        #                         print("chunklen_spec:",chunklen_spec)
+                        #                         print("chunk_format",chunk_format)
+                        #                         print("chunk_data",chunk_data)
+                        return (
+                            chunklen_spec,
+                            chunk_format,
+                            chunk_data,
+                        )
+
+        print("-Error in GetSpec: Didnt Found matching result")
+        print("GetColor:", GetColor)
+        print("GetChunk:", GetChunk)
+        print(Candy("Color", "yellow", "\n-ToDo"))
+        TheEnd()
+
+
+    if Mode == "BF":
+        if IBN == 0:
+            IDAT_Bytes_Nbr()
+
+        ibn = int(IBN / 64)
+        Mxr = Max_Res()
+        MnrW = Min_Res_W(ibn)
+        MnrH = Min_Res_H(ibn)
+        Mnr = itertools.chain(Min_Res_W(ibn), Min_Res_H(ibn))
+        MnrF = 0
+
+        for x in range(ibn):
+             for y in range(x + 1):
+                MnrF += 2
+        MnrF -= 1
+
+        if DEBUG:
+            print(
+                "-Smalest resolution estimation based on file size: %s*%s"
+                % (int(IBN / 64), int(IBN / 64))
+            )
+
+
+
+        CHUNKS_SPEC = {
+            b"IHDR": {
+                "nocolortype:maxres": (
+                    ((Mxr - 1) * (Mxr - 1)) * 5 * 5 * 2,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (i for i in range(1, Mxr)),
+                        (i for i in range(1, Mxr)),
+                        (1, 2, 4, 8, 16),
+                        (0, 2, 3, 4, 6),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "nocolortype:medres": (
+                    ((ibn - 1) * (ibn - 1)) * 5 * 5 * 2,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (i for i in range(1, ibn)),
+                        (i for i in range(1, ibn)),
+                        (1, 2, 4, 8, 16),
+                        (0, 2, 3, 4, 6),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "nocolortype:minres": (
+                    MnrF * 5 * 5 * 2,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (Mnr, (1, 2, 4, 8, 16), (0, 2, 3, 4, 6), ("0"), ("0"), (0, 1)),
+                ),
+                "colortype:0": (
+                    10,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (IHDR_Width for i in range(11)),
+                        (IHDR_Height for i in range(11)),
+                        (1, 2, 4, 8, 16),
+                        ("0"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:2": (
+                    4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (IHDR_Width for i in range(5)),
+                        (IHDR_Height for i in range(5)),
+                        (8, 16),
+                        ("2"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:3": (
+                    8,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (IHDR_Width for i in range(9)),
+                        (IHDR_Height for i in range(9)),
+                        (1, 2, 4, 8),
+                        ("3"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:4": (
+                    4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (IHDR_Width for i in range(5)),
+                        (IHDR_Height for i in range(5)),
+                        (8, 16),
+                        ("4"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:6": (
+                    4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (IHDR_Width for i in range(5)),
+                        (IHDR_Height for i in range(5)),
+                        (8, 16),
+                        ("6"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+            },
+            b"PLTE": {
+                "nocolortype": (
+                    16581375,
+                    (6, 1536),
+                    ("!B", "!B", "!B"),
+                    (
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                    ),
+                )
+            },
+            b"tRNS": {
+                "colortype:0": (65535, (4, 1024), ("!H"), (i for i in range(65536))),
+                "colortype:2": (
+                    196605,
+                    (12, 3072),
+                    ("!H", "!H", "!H"),
+                    (
+                        (i for i in range(65536)),
+                        (i for i in range(65536)),
+                        (i for i in range(65536)),
+                    ),
+                ),
+                "colortype:3": (255, (2, 512), ("!B"), (i for i in range(256))),
+            },
+            b"gAMA": {"nocolortype": (100000, 8, ("!I"), (i for i in range(100001)))},
+            b"cHRM": {
+                "nocolortype": (
+                    800000,
+                    64,
+                    ("!I", "!I", "!I", "!I", "!I", "!I", "!I", "!I"),
+                    (
+                        (i for i in range(100001)),
+                        (i for i in range(100001)),
+                        (i for i in range(100001)),
+                        (i for i in range(100001)),
+                        (i for i in range(100001)),
+                        (i for i in range(100001)),
+                        (i for i in range(100001)),
+                        (i for i in range(100001)),
+                    ),
+                )
+            },
+            b"sRGB": {"nocolortype": (4, 2, ("!B"), (0, 1, 2, 3))},
+            b"bKGD": {
+                "colortype:0": ((65535), 4, ("!H"), (i for i in range(65536))),
+                "colortype:2": (
+                    (196605),
+                    12,
+                    ("!H", "!H", "!H"),
+                    (
+                        (i for i in range(65536)),
+                        (i for i in range(65536)),
+                        (i for i in range(65536)),
+                    ),
+                ),
+                "colortype:3": ((255), 2, ("!B"), (i for i in range(256))),
+                "colortype:4": ((65535), 4, ("!H"), (i for i in range(65536))),
+                "colortype:6": (
+                    (196605),
+                    12,
+                    ("!H", "!H", "!H"),
+                    (
+                        (i for i in range(65536)),
+                        (i for i in range(65536)),
+                        (i for i in range(65536)),
+                    ),
+                ),
+            },
+            b"pHYs": {
+                "nocolortype": (
+                    (4611686014132420609),
+                    18,
+                    ("!I", "!I", "!B"),
+                    (
+                        (i for i in range(2147483647)),
+                        (i for i in range(2147483647)),
+                        (0, 1),
+                    ),
+                )
+            },
+            b"sBIT": {
+                "colortype:0": (255, 2, ("!B"), (i for i in range(256))),
+                "colortype:2": (
+                    16581375,
+                    6,
+                    ("!B", "!B", "!B"),
+                    (
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                    ),
+                ),
+                "colortype:3": (
+                    16581375,
+                    6,
+                    ("!B", "!B", "!B"),
+                    (
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                    ),
+                ),
+                "colortype:4": (
+                    65025,
+                    4,
+                    ("!B", "!B"),
+                    ((i for i in range(256)), (i for i in range(256))),
+                ),
+                "colortype:6": (
+                    16581375,
+                    8,
+                    ("!B", "!B", "!B", "!B"),
+                    (
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                        (i for i in range(256)),
+                    ),
+                ),
+            },
+            b"hIST": {"nocolortype": (65536, (4, 1024), ("!H"), (i for i in range(65536)))},
+            b"tIME": {
+                "nocolortype": (
+                    ((1970 - ThisYear) * 12 * 31 * 23 * 59 * 60),
+                    14,
+                    ("!H", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        (i for i in range(1970, ThisYear + 1)),
+                        (i for i in range(1, 13)),
+                        (i for i in range(1, 32)),
+                        (i for i in range(0, 24)),
+                        (i for i in range(0, 60)),
+                        (i for i in range(0, 61)),
+                    ),
+                )
+            },
+        }
+        for key in CHUNKS_SPEC:
+            for color, bytes_spec in CHUNKS_SPEC[key].items():
+                if key == GetChunk:
+                    if color == GetColor:
+                        product = bytes_spec[0]
+                        chunklen_spec = bytes_spec[1]
+                        chunk_format = bytes_spec[2]
+                        chunk_data = bytes_spec[3]
+                    #    print("key:",key)
+                    #    print("product:",product)
+                    #    print("keylen",len(key))
+                    #    print("chunklen_spec:",chunklen_spec)
+                    #    print("chunk_format",chunk_format)
+                    #    print("chunk_data",chunk_data)
+                        return (
+                            product,
+                            len(str(product)),
+                            chunklen_spec,
+                            chunk_format,
+                            chunk_data,
+                        )
+
+        print("-Error in GetSpec: Didnt Found matching result")
+        print("GetColor:", GetColor)
+        print("GetChunk:", GetChunk)
+        print(Candy("Color", "yellow", "\n-ToDo"))
+        TheEnd()
 
 
 ####
@@ -4977,7 +5218,7 @@ def SmashBruteBrawl(
 
     Bingo = False
     result = "bad result"
-    max_iter, len_iter, chunklen_spec, chunk_format, chunk_data = GetSpec(ChunkName)
+    max_iter, len_iter, chunklen_spec, chunk_format, chunk_data = GetSpec(ChunkName,"BF")
 
     if type(chunklen_spec) == tuple:
         maxchunklen = max(chunklen_spec)
@@ -5001,7 +5242,6 @@ def SmashBruteBrawl(
         print("EditMode:", EditMode)
         print("FromError:", FromError)
         print("chunklen_spec:", chunklen_spec)
-        print("chunk_format:", chunk_format)
         print("chunk_data:", chunk_data)
         print("maxchunklen:", maxchunklen)
         print("minchunklen:", minchunklen)
@@ -5031,14 +5271,14 @@ def SmashBruteBrawl(
 
         for n, i in enumerate(shuffle):
             bvalue = b""
-            for d, j in zip(chunk_format, i):
-                bvalue += int(j).to_bytes(d, "big")
+            for cf, j in zip(chunk_format, i):
+                bvalue += struct.pack(cf,int(j))
 
             if YouShallPass(ChunkName, bvalue.hex()) is False:
                 continue
             Loadingbar(max_iter, len_iter, n, False)
 
-            checksum = binascii.crc32(ChunkName + bvalue).to_bytes(4, "big")
+            checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
             fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
             wanabyte = Before_New + fullnewdatax + After_New
 
@@ -5049,6 +5289,7 @@ def SmashBruteBrawl(
                 except:
                     pass
             result = "{0}".format(f.getvalue().decode("utf-8"))
+
             if not any(s in result for s in LIBPNG_ERR):
 
                 f = io.BytesIO()
@@ -6049,7 +6290,7 @@ def LibpngCheck(file):
     with stderr_redirector(f):
         cv2.imread(file)
     result = "{0}".format(f.getvalue().decode("utf-8"))
-
+    print("Result:",result)
     if not any(s in result for s in LIBPNG_ERR):
         print(
             "-Libpng Check: %s %s"
@@ -6967,71 +7208,53 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
         )
 
 
-def SpecLenght(chunk_name, chunk_length=None):
-    global SideNotes
+def SpecLenght(chunk_name, chunk_length=None): ## temp func
+    global SideNotes 
 
     if chunk_length:
         Candy("Title", "Get Lenght from Spec:")
         Candy("Cowsay", "Kay ..Just Checking if the length part is legit..", "com")
 
-    stop = False
+    chunklen_spec, chunk_format, chunk_data = GetSpec(ChunkName,"SPEC")
 
-    KNOWN_CHUNKS_SPEC = GetSpec()
-    for key in KNOWN_CHUNKS_SPEC:
-        if stop is True:
-            break
-        for color_type, bytes_spec in KNOWN_CHUNKS_SPEC[key].items():
-            if key == chunk_name:
 
-                if "nocolortype" in color_type:
+    if type(chunklen_spec) == tuple:
 
-                    chunklen_spec = int(bytes_spec[0] / 2)
-                    chunk_format = bytes_spec[1], bytes_spec[2]
+        print(Candy("Color", "yellow", "\n-ToDo"))
+    else:
+        real_length = hex(int(chunklen_spec)).replace("0x", "").zfill(8)
 
-                    if type(chunklen_spec) == tuple:
+        if not chunk_length:
+            return real_length
 
-                        print(Candy("Color", "yellow", "\n-ToDo"))
-                        stop = True
-                        break
-                    else:
-                        real_length = hex(int(chunklen_spec)).replace("0x", "").zfill(8)
+        print("-Real %s Length: %s " % (key, real_length))
+        if real_length == chunk_length:
+            Candy(
+                "Cowsay",
+                "Looks good to me !",
+                "good",
+            )
+            SideNotes.append(
+                "-SpecLenght:Giving correct length:  %s -"
+                % chunk_length
+            )
+            return chunk_length
+        else:
+            print(
+                "-Given %s Length was : %s "
+                % (chunk_name, chunk_length)
+            )
+            Candy(
+                "Cowsay",
+                "length part is corrupted!",
+                "bad",
+            )
+            SideNotes.append(
+                "-SpecLenght:Giving correct length:  %s -" % real_length
+            )
+            print("\n-Returning correct fixed length :", real_length)
+            return real_length
 
-                        if not chunk_length:
-                            return real_length
-
-                        print("-Real %s Length: %s " % (key, real_length))
-                        if real_length == chunk_length:
-                            Candy(
-                                "Cowsay",
-                                "Looks good to me !",
-                                "good",
-                            )
-                            SideNotes.append(
-                                "-SpecLenght:Giving correct length:  %s -"
-                                % chunk_length
-                            )
-                            return chunk_length
-                        else:
-                            print(
-                                "-Given %s Length was : %s "
-                                % (chunk_name, chunk_length)
-                            )
-                            Candy(
-                                "Cowsay",
-                                "length part is corrupted!",
-                                "bad",
-                            )
-                            SideNotes.append(
-                                "-SpecLenght:Giving correct length:  %s -" % real_length
-                            )
-                            print("\n-Returning correct fixed length :", real_length)
-                            return real_length
-
-                if "colortype" in color_type:
-
-                    print(Candy("Color", "yellow", "\n-ToDo"))
-                    stop = True
-                    break
             # print("Chunk:",key)
             # print("name:%s value:%s"%(name,value))
             # print("min:%s, max:%s"%(value[0],value[1]))
@@ -7691,6 +7914,10 @@ def Naming(filename):
 
     return (filename, newdir)
 
+def LockDown(ChunkData,Offset):
+    Candy("Title", "LockDown: ", Candy("Color", "white", Chunk))
+
+      
 
 def FixItFelix(Chunk=None):
     Candy("Title", "Fix It Felix: ", Candy("Color", "white", Chunk))
@@ -8098,7 +8325,7 @@ def FixItFelix(Chunk=None):
                         TheEnd()
 
         elif "gAMA Chunk of 0 is Useless" in str(key):
-            Candy("Cowsay", "Bah that's that's just a warning who cares ?! !", "good")
+            Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good")
             PandoraBox.pop(key, "key_not_found")
             SideNotes.append("-Found False-Positive :[Error:-%s]." % (str(key)))
             return FixItFelix
@@ -8327,7 +8554,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
             elif "libpng warning:" in info:
                 print("\n-\033[1;31;49mCriticalHit\033[m: ", info)
                 Candy(
-                    "Cowsay", "Bah that's that's just a warning who cares ?! !", "good"
+                    "Cowsay", "Bahthat's just a warning who cares ?! !", "good"
                 )
                 Candy(
                     "Cowsay",
