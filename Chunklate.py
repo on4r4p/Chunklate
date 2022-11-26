@@ -5117,7 +5117,7 @@ def ChunkStory(action, Chunk, start, end, chuck_length):
             + str(chuck_length)
         )
         chkdbl = str(start) + ":" + str(end) + ":" + str(chuck_length)
-        if chkdbl not in Chunks_History_Index:
+        if not any(chkdbl in s for s in Chunks_History_Index):
             Chunks_History.append(Chunk)
             Chunks_History_Index.append(CHD)
     elif action == "del":
@@ -7914,10 +7914,14 @@ def Naming(filename):
 
     return (filename, newdir)
 
-def LockDown(ChunkData,Offset):
+def LockDown(ToLock):
     Candy("Title", "LockDown: ", Candy("Color", "white", Chunk))
 
-      
+    folder = FILE_DIR + "Folder_" + str(os.path.basename(FILE_Origin))
+    print(folder)
+    folder = os.path.splitext(folder)[0] + "/"
+    print(folder)
+    
 
 def FixItFelix(Chunk=None):
     Candy("Title", "Fix It Felix: ", Candy("Color", "white", Chunk))
@@ -7992,6 +7996,13 @@ def FixItFelix(Chunk=None):
         PandoraBox_len = len(PandoraBox)
     else:
         PandoraBox_len = len(PandoraBox) - 1
+
+#    for nb, key in enumerate(PandoraBox): TODO Trim The fat ChunkLockdown()
+
+#        if "Wrong Crc" in str(key) and Skip_Bad_Crc is False:
+#
+#            if str(key) not in Cornucopia:
+#                print("\n-\033[1;31;49mCriticalHit\033[m: ", key
 
     for nb, key in enumerate(PandoraBox):
 
