@@ -923,6 +923,8 @@ def GetInfo(Chunk, data, Dummy=False):
                 #    print(data)
                 ToFix.append("-IHDR size have to always be 13 bytes")
 
+            MxRs = Max_Res()
+
             if len(IHDR_Height) > 0:
                 if int(IHDR_Height) > 2147483647:
                     print(
@@ -934,17 +936,48 @@ def GetInfo(Chunk, data, Dummy=False):
                     ToFix.append(
                         "-IHDR Height Must be between 1 to 2147483647.CIndex([0:8])"
                     )
+                elif int(IHDR_Height) < 1:
+                    print(
+                        "-Height :"
+                        + Candy("Color", "red", " Wrong size (Too low)")
+                        + " Must be between 1 to 2147483647."
+                        + Candy("Emoj", "bad")
+                    )
+                    ToFix.append(
+                        "-IHDR Height Must be between 1 to 2147483647.CIndex([0:8])"
+                    )
+                if int(IHDR_Height) > (MxRs*2):
+                    print(
+                        "-Height :"
+                        + Candy("Color", "red", " (Error) superior to max resolution for this file: ")
+                        + str(MxRs*2)
+                        + Candy("Emoj", "bad")
+                    )
+                    ToFix.append(
+                        "-IHDR Height Error %s Above estimated max resolution(*2):%s.CIndex([0:8])"%(IHDR_Height,MxRs*2)
+                    )
+                elif int(IHDR_Height) > MxRs:
+                    print(
+                        "-Height :"
+                        + Candy("Color", "yellow", " (Warning) Above estimated max resolution: ")
+                        + str(MxRs)
+                        + Candy("Emoj", "bad")
+                    )
+                    ToFix.append(
+                        "-IHDR Height Warning %s Above estimated max resolution:%s.CIndex([0:8])"%(IHDR_Height,MxRs)
+                    )
+
+
             else:
                 print(
                     "-Height :"
-                    + Candy("Color", "red", " Wrong size (Too low)")
+                    + Candy("Color", "red", " is empty")
                     + " Must be between 1 to 2147483647."
                     + Candy("Emoj", "bad")
                 )
                 ToFix.append(
-                    "-IHDR Height Must be between 1 to 2147483647.CIndex([0:8])"
+                    "-Height is empty.CIndex([8:16])"
                 )
-
             if len(IHDR_Width) > 0:
                 if int(IHDR_Width) > 2147483647:
                     print(
@@ -956,15 +989,49 @@ def GetInfo(Chunk, data, Dummy=False):
                     ToFix.append(
                         "-IHDR Width Must be between 1 to 2147483647.CIndex([8:16])"
                     )
+
+                elif int(IHDR_Width) < 1:
+                    print(
+                        "-Width :"
+                        + Candy("Color", "red", " Wrong size (Too low)")
+                        + " Must be between 1 to 2147483647."
+                        + Candy("Emoj", "bad")
+                    )
+                    ToFix.append(
+                        "-IHDR Width Must be between 1 to 2147483647.CIndex([8:16])"
+                    )
+
+                if int(IHDR_Width) > (MxRs*2):
+                    print(
+                        "-Width :"
+                        + Candy("Color", "red", " (Error) Above estimated max resolution(*2): ")
+                        + str(MxRs*2)
+                        + Candy("Emoj", "bad")
+                    )
+                    ToFix.append(
+                        "-IHDR Width Error %s Above estimated max resolution(*2):%s.CIndex([0:8])"%(IHDR_Width,MxRs*2)
+                    )
+                elif int(IHDR_Width) > MxRs:
+                    print(
+                        "-Width :"
+                        + Candy("Color", "yellow", " (Warning) Above estimated max resolution: ")
+                        + str(MxRs)
+                        + Candy("Emoj", "bad")
+                    )
+                    ToFix.append(
+                        "-IHDR Width Warning %s Above estimated max resolution:%s.CIndex([0:8])"%(IHDR_Width,MxRs)
+                    )
+
+
             else:
                 print(
                     "-Width :"
-                    + Candy("Color", "red", " Wrong size (Too low)")
+                    + Candy("Color", "red", " is empty")
                     + " Must be between 1 to 2147483647."
                     + Candy("Emoj", "bad")
                 )
                 ToFix.append(
-                    "-IHDR Width Must be between 1 to 2147483647.CIndex([8:16])"
+                    "-IHDR Width is empty.CIndex([8:16])"
                 )
 
             if len(IHDR_Depht) > 0:
@@ -5432,25 +5499,26 @@ def MiniChunkForcerNoCrc(
         checksum = hex(binascii.crc32(Chunk + newbytes)).replace("0x", "").zfill(8)
         fullnewdatax = datax[:16] + haystack + checksum
         newfilewanabe = DATAX[:DataOffset] + fullnewdatax + DATAX[ChunkLenght:]
-        try:
-            f = io.BytesIO()
-            with stderr_redirector(f):
+#        try:
+        f = io.BytesIO()
+        with stderr_redirector(f):
                 newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
                 newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_COLOR)
                 cv2.imread(newfile)
-            result = "{0}".format(f.getvalue().decode("utf-8"))
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                print(
-                    Candy("Color", "red", "FullChunkForcerNoCrc Error:"),
-                    Candy("Color", "yellow", e),
-                )
-                print("fullnewdatax:", fullnewdatax)
-            if PAUSEDEBUG is True or PAUSEERROR is True:
-                Pause("Pause:Debug")
+        result = "{0}".format(f.getvalue().decode("utf-8"))
+#        except Exception as e:
+#            Betterror(e, inspect.stack()[0][3])
+#            if DEBUG is True:
+#                print(
+#                    Candy("Color", "red", "FullChunkForcerNoCrc Error:"),
+#                    Candy("Color", "yellow", e),
+#                )
+#                print("fullnewdatax:", fullnewdatax)
+#            if PAUSEDEBUG is True or PAUSEERROR is True:
+#                Pause("Pause:Debug")
         #            Pause("pause")
-        if "libpng error" not in result and result != "result is empty":
+#        if "libpng error" not in result and result != "result is empty":
+        if not any(s in result for s in LIBPNG_ERR):
             diffobj = difflib.SequenceMatcher(None, datax[16:], fullnewdatax)
             good = ""
             bad = ""
@@ -7914,7 +7982,7 @@ def Naming(filename):
 
     return (filename, newdir)
 
-def LockDown(ToLock):
+def LockDown():
     Candy("Title", "LockDown: ", Candy("Color", "white", Chunk))
 
     folder = FILE_DIR + "Folder_" + str(os.path.basename(FILE_Origin))
@@ -7925,6 +7993,7 @@ def LockDown(ToLock):
 
 def FixItFelix(Chunk=None):
     Candy("Title", "Fix It Felix: ", Candy("Color", "white", Chunk))
+    ##TODOFIND A WAY TO MAKE IT READABLE
 
     global Skip_Bad_Current_Name
     global Skip_Bad_Ancillary
@@ -7996,13 +8065,6 @@ def FixItFelix(Chunk=None):
         PandoraBox_len = len(PandoraBox)
     else:
         PandoraBox_len = len(PandoraBox) - 1
-
-#    for nb, key in enumerate(PandoraBox): TODO Trim The fat ChunkLockdown()
-
-#        if "Wrong Crc" in str(key) and Skip_Bad_Crc is False:
-#
-#            if str(key) not in Cornucopia:
-#                print("\n-\033[1;31;49mCriticalHit\033[m: ", key
 
     for nb, key in enumerate(PandoraBox):
 
@@ -8336,7 +8398,7 @@ def FixItFelix(Chunk=None):
                         TheEnd()
 
         elif "gAMA Chunk of 0 is Useless" in str(key):
-            Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good")
+            Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good") ##ME !!!
             PandoraBox.pop(key, "key_not_found")
             SideNotes.append("-Found False-Positive :[Error:-%s]." % (str(key)))
             return FixItFelix
@@ -8348,7 +8410,6 @@ def FixItFelix(Chunk=None):
                 if PAUSEDEBUG is True:
                     Pause("Pause:Debug")
     Show_Must_Go_On = True
-
 
 def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
     global Bad_Current_Name
@@ -8418,7 +8479,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                 )
 
             chunkstr = "johnnybytesme"
-
+#def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
     for info in infos:
         if error is True:
             TOOLS = {}
