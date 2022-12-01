@@ -27,7 +27,7 @@
 
 ## Usage
 
-    usage: Chunklate.py [-h] [-f FILE] [-c] [-p] [-d] [-a]
+    usage: Chunklate.py [-h] [-f FILE] [-c] [-p] [-d] [-dp] [-ep] [-sp] [-stfu] [-a]
     
     optional arguments:
       -h, --help            show this help message and exit
@@ -35,4 +35,8 @@
       -c, --clear           Clear screen at each saves.
       -p, --pause           Pause at each saves.
 	  -d, --debug           Debug stuffs.
+	  -dp, --pause-debug    Pause at Debug stuffs.
+	  -ep, --pause-error    Pause at errors.
+	  -sp, --pause-dialogue Pause at dialogues.
+	  -stfu, --shut-the-fuck-up Show minimal output.
 	  -a, --auto            Auto Choose action.
