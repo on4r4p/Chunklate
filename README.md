@@ -4,7 +4,7 @@
 
 **Chunklate** checks png images for file format corruption and fix them .
 
-##### Work in progress
+##### Work in progress May Not Work as Expected ATM !
 
 **Chunklate**'s aim is to be able to provide those features:
 
@@ -21,7 +21,7 @@
 - User friendly human readability
 - Bruteforce corrupted data chunk
 - Repair missplaced chunks (Just IHDR for now)
-- Replace critical missing chunk (Todo)
+- Replace critical missing chunk
 
 
 
