@@ -4461,6 +4461,9 @@ def Loadingbar(fishs, fishsize, loop, build):
     global LenFishList
 
     if build:
+        ThksForTheFish = []
+        LenFishList = 0
+        FishPos = 0
         fishbowl = "[" + "0".zfill(fishsize) + "/" + str(fishs) + "]"
         Loading_txt = ""
         GoBack = False
