@@ -5396,10 +5396,10 @@ def SmashBruteBrawl(
                 frm = "!"+"".join(chunk_format).replace("!","")
                 unpackTB = struct.unpack(frm,ToBryte)
                 bvalue = b""
-                for n,(utb,cf) in enumerate(zip(unpackTB,chunk_format)):
-                    if any(s == n for s in Sti):
+                for enum,(utb,cf) in enumerate(zip(unpackTB,chunk_format)):
+                    if any(s == enum for s in Sti):
                         for s in Sti:
-                            if s == n:
+                            if s == enum:
                                bvalue += struct.pack(cf,s)
                                break
                     else:
@@ -5412,7 +5412,6 @@ def SmashBruteBrawl(
 #            if YouShallPass(ChunkName, bvalue.hex()) is False:
 #                continue
             Loadingbar(max_iter, len_iter, n, False)
-
             checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
             fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
             wanabyte = Before_New + fullnewdatax + After_New
