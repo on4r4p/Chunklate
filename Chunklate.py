@@ -4,7 +4,7 @@ from datetime import datetime
 from contextlib import contextmanager
 from PIL import Image
 import numpy as np
-import sys, os, binascii, re, random, time, zlib, cv2, ctypes, struct,io, tempfile, inspect, difflib, collections, math, itertools, psutil, subprocess
+import sys, os, binascii, re, random, time, zlib, cv2, ctypes, struct,io, tempfile, inspect, types, difflib, collections, math, itertools
 
 
 def Betterror(error_msg, def_name): ##useless since 3.11
@@ -720,7 +720,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                             for s in StructIndex:
                                 Double,Dragon = itertools.tee(chunk_data[s])
                                 CustomProduct.append(Double)
-                                CustomStruct.append(Dragon)
+                                CustomStruct.append(tuple(Dragon)) ##TempFix 
                             Csprod = 1
                             for cp in CustomProduct:
                                    for n,p in enumerate(cp):pass
@@ -730,7 +730,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                                 len(str(Csprod)),
                                 chunklen_spec,
                                 chunk_format,
-                                CustomStruct,
+                                tuple(CustomStruct),
                             )
 
 
@@ -5308,6 +5308,30 @@ def Bruthex(cidx, value, datax, totalln):
     return ("".join(dataxlst), value, False)
 
 
+
+def product(tup):
+  if len(tup) == 1:
+     yield from tup[0]
+  else:
+     for item in tup[0]:
+       for combination in product(tup[1:]):
+         yield (item,combination,)
+
+def flatten_tuple(tup):
+  if isinstance(tup, (tuple,itertools.chain,types.GeneratorType)):
+    #  if isinstance(tup[0], (itertools.chain)):
+    #       input("heyu")
+      if len(tup) == 1:
+        if isinstance(tup[0], (tuple,itertools.chain,types.GeneratorType)):
+          return flatten_tuple(tup[0])
+        else:
+          return (tup[0], )
+      else:
+        return (tup[0], ) + flatten_tuple(tup[1])
+  return (tup, )
+
+
+
 def SmashBruteBrawl(
     File,
     ChunkName,
@@ -5366,13 +5390,16 @@ def SmashBruteBrawl(
         PRINT("FromError:%s"% FromError)
         PRINT("chunklen_spec:%s"% chunklen_spec)
         PRINT("chunk_format:%s"% str(chunk_format))
-        PRINT("chunk_data:%s"% str(chunk_data))
+        if len(str(chunk_data)) > 140:
+            PRINT("chunk_data:Too Big To be displayed")
+        else:
+            PRINT("chunk_data:%s"% str(chunk_data))
         PRINT("max_iter:%s"%max_iter)
         PRINT("maxchunklen:%s"% maxchunklen)
         PRINT("minchunklen:%s"% minchunklen)
         if PAUSEDEBUG is True:
             Pause("Pause:SmashBruteBrawl")
-
+    f = io.BytesIO()
     for ln in range(minchunklen, maxchunklen, step):
 
         Loadingbar(
@@ -5388,10 +5415,14 @@ def SmashBruteBrawl(
                 After_New = bytes.fromhex(DATAX[DataOffset + ln + 24 :])  # +24=chunklen+chunkname+data+crc
         ##else bla bla #TODO
 
-        shuffle = itertools.product(*chunk_data)
+        shuffle = product(chunk_data)
         for n, i in enumerate(shuffle):
-            if type(i[0]) == tuple:
-               i = tuple([i[0][0]] + [i[0][1]] + list(i[1:]))
+            try:
+                if type(i[0]) == tuple and len(i[0]) >1:
+            #       print("found tuple at i[0]")
+                   i = tuple([i[0][0]] + [i[0][1]] + list(i[1:]))
+            except:pass ##TmpFix
+#            print("type(i):%s i:%s"%(type(i),i))
             if BfMode == "Custom":
                 frm = "!"+"".join(chunk_format).replace("!","")
                 unpackTB = struct.unpack(frm,ToBryte)
@@ -5400,7 +5431,11 @@ def SmashBruteBrawl(
                     if any(s == enum for s in Sti):
                         for s in Sti:
                             if s == enum:
-                               bvalue += struct.pack(cf,s)
+#                               print("i:%s s:%s Sti.index(s):%s"%(i,s,Sti.index(s)))
+                               try:
+                                   bvalue += struct.pack(cf,int(i[Sti.index(s)]))
+                               except TypeError: ##TMPFix
+                                   bvalue += struct.pack(cf,i)
                                break
                     else:
                         bvalue += struct.pack(cf,utb)
@@ -5409,6 +5444,9 @@ def SmashBruteBrawl(
                 for cf, j in zip(chunk_format, i):
                      bvalue += struct.pack(cf,int(j))
 
+#            print(bvalue)
+#            input("hold")
+#            continue
 #            if YouShallPass(ChunkName, bvalue.hex()) is False:
 #                continue
             Loadingbar(max_iter, len_iter, n, False)
@@ -5416,7 +5454,6 @@ def SmashBruteBrawl(
             fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
             wanabyte = Before_New + fullnewdatax + After_New
 
-            f = io.BytesIO()
             with stderr_redirector(f):
                 try:
                     cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
@@ -5426,7 +5463,6 @@ def SmashBruteBrawl(
 
             if not any(s in result for s in LIBPNG_ERR):
 
-                f = io.BytesIO()
                 with stderr_redirector(f):
                     try:
                          Image.open(io.BytesIO(wanabyte)).show()
@@ -8607,7 +8643,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                     Brute_LvL += 1
                     Candy(
                         "Cowsay",
-                        "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/2)"
+                        "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/3)"
                         % Brute_LvL,
                         "bad",
                     )
