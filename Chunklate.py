@@ -5417,6 +5417,7 @@ def SmashBruteBrawl(
 
         shuffle = product(chunk_data)
         for n, i in enumerate(shuffle):
+            i = flatten_tuple(i)
             try:
                 if type(i[0]) == tuple and len(i[0]) >1:
             #       print("found tuple at i[0]")
@@ -5447,7 +5448,7 @@ def SmashBruteBrawl(
 #            print(bvalue)
 #            input("hold")
 #            continue
-#            if YouShallPass(ChunkName, bvalue.hex()) is False:
+#            if not YouShallPass(ChunkName, bvalue.hex()):
 #                continue
             Loadingbar(max_iter, len_iter, n, False)
             checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
