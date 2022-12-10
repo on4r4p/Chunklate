@@ -91,17 +91,6 @@ def IDAT_Bytes_Nbr():  # tmpworkaround
     IBN = int(BCnt / 2)
 
 
-def Min_Res_W(MinRes):
-    for w in range(1,MinRes):
-        for h in range(1,w + 1):
-            yield (w,h)
-
-
-def Min_Res_H(MinRes):
-    for w in range(1,MinRes):
-        for h in range(1,w + 1):
-            yield (h,w)
-
 
 def Max_Res():
     try:
@@ -205,6 +194,14 @@ def ColorType(GetChunk,Mode):
     return ColorType
 
 
+def Min_Res(MinRes):
+    mrwh = []
+    for w in range(1,MinRes):
+        for h in range(1,w + 1):
+            mrwh.append((h,w))
+            mrwh.append((w,h))
+    return(tuple(mrwh))
+
 def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
 
     if DEBUG:
@@ -225,15 +222,15 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
 
     ibn = int(IBN / 64)
     Mxr = Max_Res()
-    MnrW = Min_Res_W(ibn)
-    MnrH = Min_Res_H(ibn)
-    Mnr = itertools.chain(Min_Res_W(ibn), Min_Res_H(ibn))
-    MnrF = 0
+    Mnr = int(IBN / 64)
 
-    for x in range(ibn):
-             for y in range(x + 1):
-                MnrF += 2
-    MnrF -= 1
+    if Mode =="Custom":
+         if 0 in StructIndex and 1 in StructIndex: 
+              MnrF = Mnr * Mnr
+         else:
+              MnrF = Mnr
+    else:
+         MnrF = Mnr * Mnr
 
     if DEBUG:
             PRINT(
@@ -284,7 +281,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     MnrF * 5 * 5 * 2,
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
-                    (Mnr, (1, 2, 4, 8, 16), (0, 2, 3, 4, 6), ("0"), ("0"), (0, 1)),
+                    ((i for i in range(1,Mnr)), (1, 2, 4, 8, 16), (0, 2, 3, 4, 6), ("0"), ("0"), (0, 1)),
                 ),
                 "colortype:0:minres:custom": (
                     MnrF * 10,
@@ -306,7 +303,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        Mnr,
+                        (i for i in range(1,Mnr)),
                         (1, 2, 4, 8, 16),
                         ("0"),
                         ("0"),
@@ -362,7 +359,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        Mnr,
+                        (i for i in range(Mnr)),
                         (8, 16),
                         ("2"),
                         ("0"),
@@ -417,7 +414,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        Mnr,
+                        (i for i in range(1,Mnr)),
                         (1, 2, 4, 8),
                         ("3"),
                         ("0"),
@@ -472,7 +469,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        Mnr,
+                        (i for i in range(1,Mnr)),
                         (8, 16),
                         ("4"),
                         ("0"),
@@ -527,7 +524,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        Mnr,
+                        (i for i in range(1,Mnr)),
                         (8, 16),
                         ("6"),
                         ("0"),
@@ -731,6 +728,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                                 chunklen_spec,
                                 chunk_format,
                                 tuple(CustomStruct),
+                                GetColor,
                             )
 
 
@@ -743,6 +741,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                                     chunklen_spec,
                                     chunk_format,
                                     chunk_data,
+                                    GetColor,
                                 )
                             elif SpecId == "Lenght":
                                  return(chunklen_spec)
@@ -760,6 +759,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                                 chunklen_spec,
                                 chunk_format,
                                 chunk_data,
+                                GetColor, 
                             )
 
     PRINT("-Error in GetSpec: Didnt Found matching result")
@@ -5291,90 +5291,26 @@ def stderr_redirector(stream):
         tfile.close()
         os.close(saved_stderr_fd)
 
+def Product(chunk_data,color_type):
+#     print("hey chunk_data:",chunk_data)
+     shuffle = itertools.product(*chunk_data)
+     for i in shuffle:
+#         print("type(i):%s i:%s ct:%s"%(type(i),i,color_type))
+         if color_type.endswith("minres"):
+               for w in range(1,i[0]+1):
+                     i2 = tuple([i[0]]+[w]+list(i[1:]))
+                     yield(i2)
+#                     print("type(i2):%s i2:%s"%(type(i2),i2))
+                     i3 = tuple([w]+[i[0]]+list(i[1:]))
+                     if i3 != i2:
+                          yield(i3)
+#                         print("type(i3):%s i3:%s"%(type(i3),i3))
+#                     input("holdd")
+         else:
+              yield(i)
 
-# haystack, value, FewYearsLater = Bruthex(cidx, value, str(haystack), total_len)
-def Bruthex(cidx, value, datax, totalln):
-    newvalues = []
-    dataxlst = list(datax)
-    value_ln = 0
-    if value < 16 ** totalln:
-        fullhx = hex(value).replace("0x", "").zfill(totalln)
-        value += 1
-    else:
-        return (None, None, True)
-    for c in cidx:
-        dataxlst[c[0] : c[1]] = fullhx[value_ln : value_ln + c[2]]
-        value_ln += c[2]
-    return ("".join(dataxlst), value, False)
-
-
-
-#def product(tup):
-#  if len(tup) == 1:
-#     yield from tup[0]
-#  else:
-#     for item in tup[0]:
-#       for combination in product(tup[1:]):
-#         yield (item,combination,)
-
-#def flatten_tuple(tup):
-#  if isinstance(tup, (tuple,itertools.chain,types.GeneratorType)):
-    #  if isinstance(tup[0], (itertools.chain)):
-    #       input("heyu")
-#      if len(tup) == 1:
-#        if isinstance(tup[0], (tuple,itertools.chain,types.GeneratorType)):
-#          return flatten_tuple(tup[0])
-#        else:
-#          return (tup[0], )
-#      else:
-#        return (tup[0], ) + flatten_tuple(tup[1])
-#  return (tup, )
-
-def product(tuples):
-
-    tuples = tuple(tuple(x) if isinstance(x, types.GeneratorType) or isinstance(x, itertools.chain) else x for x in tuples)
-    tupid = [0 for x in tuples]
-
-    lnt = len(tuples)
-    haystack = len(tuples)-1
-    end = []
-    for i in tuples:
-        end.append(i[-1])
-    while True:
-        tmp = []
-        for num,tup in enumerate(tuples):
-           tmp.append(tup[tupid[num]])
-        if tmp == end:
-            break
-        needle = 0
-        while needle < lnt:
-            if tupid[haystack-needle] < len(tuples[haystack-needle])-1:
-                 tupid[haystack-needle] += 1
-                 break
-            else:
-                   tupid[haystack-needle] = 0
-            needle += 1
-
-        tmp = tuple(tmp)
-
-        if type(tmp[0]) == tuple:
-            if len(tmp) >1:
-                if len(tmp[0]) >1:
-                   tmp = tuple([tmp[0][0]] + [tmp[0][1]] + list(tmp[1:]))
-                else:
-                   tmp = tuple([tmp[0][0]] + list(tmp[1:]))
-            else:
-                if len(tup[0]) >1:
-                   tmp = tuple([tmp[0][0]] + [tmp[0][1]])
-                else:
-                   tmp = tuple(tmp[0][0])
-
-        yield tmp
-    yield tmp
-
-
-
-
+#         input("hold")
+#     input("end")
 def SmashBruteBrawl(
     File,
     ChunkName,
@@ -5404,11 +5340,11 @@ def SmashBruteBrawl(
     result = "bad result"
 
     if BfMode == "Custom":
-         
+ 
          Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
-         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data = GetSpec(ChunkName,BfMode,StructIndex = Sti)
+         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
     else:
-         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data = GetSpec(ChunkName,BfMode)
+         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
 
     if type(chunklen_spec) == tuple:
         maxchunklen = max(chunklen_spec)
@@ -5457,12 +5393,11 @@ def SmashBruteBrawl(
                 ToBryte = bytes.fromhex(ToBrute)
                 After_New = bytes.fromhex(DATAX[DataOffset + ln + 24 :])  # +24=chunklen+chunkname+data+crc
         ##else bla bla #TODO
-
-        shuffle = product(chunk_data)
+        
+        shuffle = Product(chunk_data,color_type)
         for n, i in enumerate(shuffle):
-#            if BfMode == "Brutus":
-#                print("type(i):%s i:%s"%(type(i),i))
-#                input("hold")
+#            print("type(i):%s i:%s"%(type(i),i))
+#            input("Good")
             if BfMode == "Custom":
                 frm = "!"+"".join(chunk_format).replace("!","")
                 unpackTB = struct.unpack(frm,ToBryte)
@@ -5483,8 +5418,8 @@ def SmashBruteBrawl(
                 for cf, j in zip(chunk_format, i):
                      bvalue += struct.pack(cf,int(j))
 
-            #print(bvalue)
-            #input("hold")
+#            print(bvalue)
+#            input("hold")
 #            continue
 #            if not YouShallPass(ChunkName, bvalue.hex()):
 #                continue
@@ -8876,6 +8811,7 @@ def PRINT(msg):
 
 def main():
     global IDAT_Bytes_Len
+    global IBN
     global IDAT_Datastream
     global idatcounter
     global FirStart
@@ -9027,6 +8963,7 @@ def main():
                     os.system("cls")
             else:
                 FirStart = False
+        IBN = 0
         IDAT_Bytes_Len = 0
         IDAT_Datastream = ""
         Bad_Current_Name = False
