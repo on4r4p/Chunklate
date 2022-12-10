@@ -5309,26 +5309,69 @@ def Bruthex(cidx, value, datax, totalln):
 
 
 
-def product(tup):
-  if len(tup) == 1:
-     yield from tup[0]
-  else:
-     for item in tup[0]:
-       for combination in product(tup[1:]):
-         yield (item,combination,)
+#def product(tup):
+#  if len(tup) == 1:
+#     yield from tup[0]
+#  else:
+#     for item in tup[0]:
+#       for combination in product(tup[1:]):
+#         yield (item,combination,)
 
-def flatten_tuple(tup):
-  if isinstance(tup, (tuple,itertools.chain,types.GeneratorType)):
+#def flatten_tuple(tup):
+#  if isinstance(tup, (tuple,itertools.chain,types.GeneratorType)):
     #  if isinstance(tup[0], (itertools.chain)):
     #       input("heyu")
-      if len(tup) == 1:
-        if isinstance(tup[0], (tuple,itertools.chain,types.GeneratorType)):
-          return flatten_tuple(tup[0])
-        else:
-          return (tup[0], )
-      else:
-        return (tup[0], ) + flatten_tuple(tup[1])
-  return (tup, )
+#      if len(tup) == 1:
+#        if isinstance(tup[0], (tuple,itertools.chain,types.GeneratorType)):
+#          return flatten_tuple(tup[0])
+#        else:
+#          return (tup[0], )
+#      else:
+#        return (tup[0], ) + flatten_tuple(tup[1])
+#  return (tup, )
+
+def product(tuples):
+
+    tuples = tuple(tuple(x) if isinstance(x, types.GeneratorType) or isinstance(x, itertools.chain) else x for x in tuples)
+    tupid = [0 for x in tuples]
+
+    lnt = len(tuples)
+    haystack = len(tuples)-1
+    end = []
+    for i in tuples:
+        end.append(i[-1])
+    while True:
+        tmp = []
+        for num,tup in enumerate(tuples):
+           tmp.append(tup[tupid[num]])
+        if tmp == end:
+            break
+        needle = 0
+        while needle < lnt:
+            if tupid[haystack-needle] < len(tuples[haystack-needle])-1:
+                 tupid[haystack-needle] += 1
+                 break
+            else:
+                   tupid[haystack-needle] = 0
+            needle += 1
+
+        tmp = tuple(tmp)
+
+        if type(tmp[0]) == tuple:
+            if len(tmp) >1:
+                if len(tmp[0]) >1:
+                   tmp = tuple([tmp[0][0]] + [tmp[0][1]] + list(tmp[1:]))
+                else:
+                   tmp = tuple([tmp[0][0]] + list(tmp[1:]))
+            else:
+                if len(tup[0]) >1:
+                   tmp = tuple([tmp[0][0]] + [tmp[0][1]])
+                else:
+                   tmp = tuple(tmp[0][0])
+
+        yield tmp
+    yield tmp
+
 
 
 
@@ -5417,13 +5460,9 @@ def SmashBruteBrawl(
 
         shuffle = product(chunk_data)
         for n, i in enumerate(shuffle):
-            i = flatten_tuple(i)
-            try:
-                if type(i[0]) == tuple and len(i[0]) >1:
-            #       print("found tuple at i[0]")
-                   i = tuple([i[0][0]] + [i[0][1]] + list(i[1:]))
-            except:pass ##TmpFix
-#            print("type(i):%s i:%s"%(type(i),i))
+#            if BfMode == "Brutus":
+#                print("type(i):%s i:%s"%(type(i),i))
+#                input("hold")
             if BfMode == "Custom":
                 frm = "!"+"".join(chunk_format).replace("!","")
                 unpackTB = struct.unpack(frm,ToBryte)
@@ -5432,10 +5471,9 @@ def SmashBruteBrawl(
                     if any(s == enum for s in Sti):
                         for s in Sti:
                             if s == enum:
-#                               print("i:%s s:%s Sti.index(s):%s"%(i,s,Sti.index(s)))
                                try:
                                    bvalue += struct.pack(cf,int(i[Sti.index(s)]))
-                               except TypeError: ##TMPFix
+                               except TypeError:
                                    bvalue += struct.pack(cf,i)
                                break
                     else:
@@ -5445,8 +5483,8 @@ def SmashBruteBrawl(
                 for cf, j in zip(chunk_format, i):
                      bvalue += struct.pack(cf,int(j))
 
-#            print(bvalue)
-#            input("hold")
+            #print(bvalue)
+            #input("hold")
 #            continue
 #            if not YouShallPass(ChunkName, bvalue.hex()):
 #                continue
