@@ -5323,6 +5323,7 @@ def SmashBruteBrawl(
     BruteLenght=True,
 ):
     global SideNotes
+    global CRASH 
 
     Candy("Title", "Attempting Bruteforce To Repair Corrupted Chunk Data:")
     stdt = datetime.now()
@@ -5397,8 +5398,13 @@ def SmashBruteBrawl(
         shuffle = Product(chunk_data,color_type)
         lastbvalue = ""
         for n, i in enumerate(shuffle):
-#            print("type(i):%s i:%s"%(type(i),i))
-#            input("Good")
+
+            if CRASH:
+                if n < CRASH:
+                     continue
+                else:
+                    CRASH = False
+
             f = io.BytesIO()
             if BfMode == "Custom":
                 frm = "!"+"".join(chunk_format).replace("!","")
@@ -5419,24 +5425,12 @@ def SmashBruteBrawl(
                 bvalue = b""
                 for cf, j in zip(chunk_format, i):
                      bvalue += struct.pack(cf,int(j))
-             
-#            print(bvalue)
-#            input("hold")
-#            continue
-#            if not YouShallPass(ChunkName, bvalue.hex()):
-#                continue
-#            if len(bvalue) != len(lastbvalue) and lastbvalue != "":
-#                   print("HAHA ! GOT U !")
-#                   print(len(bvalue))
-#                   print(len(lastbvalue))
-#                   TheEnd()
-#            else:
-#                lastbvalue = bvalue
+
             Loadingbar(max_iter, len_iter, n, False)
             checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
             fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
             wanabyte = Before_New + fullnewdatax + After_New
-#            continue
+
             with stderr_redirector(f):
                 try:
                     cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
@@ -5450,12 +5444,21 @@ def SmashBruteBrawl(
                     try:
                          Image.open(io.BytesIO(wanabyte)).show()
                     except:
-                         continue
+                         pass
 
                 PRINT("")
                 Candy("Cowsay", "Ah ! Iv got One !", "good")
                 Candy("Cowsay", "Does it looks good or should i keep trying ?", "com")
-                Answer = Question(None, True)
+                try:
+                   Answer = Question(None, True)
+                except EOFError as e:
+                    print(e)
+                    Candy("Cowsay", "Aouch my head ...Didn't see that one coming..", "bad")
+                    Candy("Cowsay", "Please close this terminal and open it again.", "com")
+                    Candy("Cowsay", "Then Launch Chunklate again like you did before,", "com")
+                    Candy("Cowsay", "But add --crash %s at the end of the argument."%(n-2), "com")
+                    Candy("Cowsay", "And Everything would be fine i think!", "good")
+                    TheEnd()
                 if Answer is True:
 
                     diffobj = difflib.SequenceMatcher(
@@ -8826,6 +8829,7 @@ def main():
     global FirStart
     global FILE_Origin
     global CLEAR
+    global CRASH
     global PAUSE
     global DEBUG
     global PAUSEDEBUG
@@ -8931,6 +8935,8 @@ def main():
     unknown = " ".join([i for i in unknown])
     if "--CLONE" in unknown:
         CLONESWAR = unknown.split("--CLONE ")[1]
+    if "--crash" in unknown:
+        CRASH = unknown.split("--crash ")[1]
 
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
@@ -8938,6 +8944,12 @@ def main():
     if Args.FILENAME is None:
         print("-f,--filename arguments is missing.")
         sys.exit(1)
+
+    if not str(CRASH).isdigit():
+       print("--crash arguments must be a number.")
+       sys.exit(1)
+    else:
+        CRASH = int(CRASH)
 
     FILE_Origin = Args.FILENAME
     CLEAR = Args.CLEAR
@@ -9372,6 +9384,7 @@ Skip_Bad_Libpng = False
 EOF = False
 Show_Must_Go_On = False
 CLEAR = False
+CRASH = False
 PAUSE = False
 DEBUG = False
 PAUSEDEBUG = False
