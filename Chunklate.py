@@ -5378,7 +5378,7 @@ def SmashBruteBrawl(
         PRINT("minchunklen:%s"% minchunklen)
         if PAUSEDEBUG is True:
             Pause("Pause:SmashBruteBrawl")
-    f = io.BytesIO()
+#    f = io.BytesIO()
     for ln in range(minchunklen, maxchunklen, step):
 
         Loadingbar(
@@ -5393,11 +5393,13 @@ def SmashBruteBrawl(
                 ToBryte = bytes.fromhex(ToBrute)
                 After_New = bytes.fromhex(DATAX[DataOffset + ln + 24 :])  # +24=chunklen+chunkname+data+crc
         ##else bla bla #TODO
-        
+     
         shuffle = Product(chunk_data,color_type)
+        lastbvalue = ""
         for n, i in enumerate(shuffle):
 #            print("type(i):%s i:%s"%(type(i),i))
 #            input("Good")
+            f = io.BytesIO()
             if BfMode == "Custom":
                 frm = "!"+"".join(chunk_format).replace("!","")
                 unpackTB = struct.unpack(frm,ToBryte)
@@ -5417,17 +5419,24 @@ def SmashBruteBrawl(
                 bvalue = b""
                 for cf, j in zip(chunk_format, i):
                      bvalue += struct.pack(cf,int(j))
-
+             
 #            print(bvalue)
 #            input("hold")
 #            continue
 #            if not YouShallPass(ChunkName, bvalue.hex()):
 #                continue
+#            if len(bvalue) != len(lastbvalue) and lastbvalue != "":
+#                   print("HAHA ! GOT U !")
+#                   print(len(bvalue))
+#                   print(len(lastbvalue))
+#                   TheEnd()
+#            else:
+#                lastbvalue = bvalue
             Loadingbar(max_iter, len_iter, n, False)
             checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
             fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
             wanabyte = Before_New + fullnewdatax + After_New
-
+#            continue
             with stderr_redirector(f):
                 try:
                     cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
