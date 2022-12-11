@@ -8937,6 +8937,11 @@ def main():
         CLONESWAR = unknown.split("--CLONE ")[1]
     if "--crash" in unknown:
         CRASH = unknown.split("--crash ")[1]
+        if not str(CRASH).isdigit():
+           print("--crash arguments must be a number.")
+           sys.exit(1)
+        else:
+            CRASH = int(CRASH)
 
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
@@ -8944,12 +8949,6 @@ def main():
     if Args.FILENAME is None:
         print("-f,--filename arguments is missing.")
         sys.exit(1)
-
-    if not str(CRASH).isdigit():
-       print("--crash arguments must be a number.")
-       sys.exit(1)
-    else:
-        CRASH = int(CRASH)
 
     FILE_Origin = Args.FILENAME
     CLEAR = Args.CLEAR
