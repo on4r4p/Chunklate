@@ -4562,6 +4562,7 @@ def Sumform(waitforit, switch):
 
 def Summarise(infos, Summary_Footer=False):
     global Summary_Header
+    global SideNotes
 
     folder = FILE_DIR + "Folder_" + str(os.path.basename(FILE_Origin))
     folder = os.path.splitext(folder)[0] + "/"
@@ -4783,7 +4784,7 @@ def Summarise(infos, Summary_Footer=False):
                     f.write(txt)
 
             f.write(eof)
-
+    SideNotes = []
 
 def Candy(mode, arg, data=None):
     if mode == "Emoj":
@@ -5506,7 +5507,7 @@ def SmashBruteBrawl(
 #                   Answer = Question(None, True)
                     Answer = None
                     while Answer != "yes" and Answer != "no":
-                        Answer = inputimeout(prompt='Answer(yes/no) auto answer in 15s:', timeout=15)
+                        Answer = inputimeout(prompt='Answer(yes/no) auto answer in 23s:', timeout=23)
                     if Answer == "yes":
                         Answer = True
                         Summarise("-SmashBruteBrawl:User chose yes at tries nbr:%s"%str(n-2))
