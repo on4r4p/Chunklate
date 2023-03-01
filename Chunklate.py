@@ -5496,19 +5496,29 @@ def SmashBruteBrawl(
 
                 PRINT("")
                 Candy("Cowsay", "Ah ! Iv got One !", "good")
-                PRINT("-Tmp Image width:%s"%TmpIW)
-                PRINT("-Tmp Image height:%s"%TmpIH)
+                PRINT("-Tmp Image Number %s"%str(n-2))
+                PRINT("-Tmp Image Width: %s"%TmpIW)
+                PRINT("-Tmp Image Height: %s"%TmpIH)
+                Summarise("-SmashBruteBrawl:Tries nbr %s Found a width:%s height:%s picture at %s"%(str(n-2),str(TmpIW),str(TmpIH),str(datetime.now().strftime('%y-%m-%d:%H:%M:%S'))))
                 PRINT("")
                 Candy("Cowsay", "Does it looks good or should i keep trying ?", "com")
                 try:
 #                   Answer = Question(None, True)
-                    Answer = inputimeout(prompt='Answer(yes/no) auto answer in 23 secondes:', timeout=23)
+                    Answer = None
+                    while Answer != "yes" and Answer != "no":
+                        Answer = inputimeout(prompt='Answer(yes/no) auto answer in 15s:', timeout=15)
+                    if Answer == "yes":
+                        Answer = True
+                        Summarise("-SmashBruteBrawl:User chose yes at tries nbr:%s"%str(n-2))
+                    else:
+                        Answer = False
+                        Summarise("-SmashBruteBrawl:User chose no at tries nbr:%s"%str(n-2))
                 except EOFError as e:
                     print(e)
                     Candy("Cowsay", "Aouch my head ...Didn't see that one coming..", "bad")
                     Candy("Cowsay", "Please close this terminal and open it again.", "com")
                     Candy("Cowsay", "Then Launch Chunklate again like you did before,", "com")
-                    Candy("Cowsay", "But add --crash %s at the end of the argument."%(n-2), "com")
+                    Candy("Cowsay", "But add --crash %s at the end of the argument."%(str(n-2)), "com")
                     Candy("Cowsay", "And Everything would be fine i think!", "good")
                     TheEnd()
                 except :
@@ -5517,11 +5527,17 @@ def SmashBruteBrawl(
 
                    tmpname =  dir+"/"+"BF-W"+str(TmpIW)+"-H"+str(TmpIH)+str(datetime.now().strftime('-%y%m%d%H%M%S-'))+name
                    PRINT("\n-Skipped No input given within time limit.\n")
+                   try:
+                       TmpI.save(tmpname)
+                       Candy("Cowsay", "I took the liberty to save a copy of that image just in case.", "com")
+                       PRINT("-Image saved at:%s\n"%tmpname)
 
-                   TmpI.save(tmpname)
+                       Summarise("-SmashBruteBrawl:Image nbr %s Skipped due to user input timeout.\n-SmashBruteBrawl:Image saved at %s ."%(str(n-2),tmpname)) 
 
-                   Candy("Cowsay", "I took the liberty to save a copy of that image just in case.", "com")
-                   PRINT("-Image saved at:%s\n"%tmpname)
+                   except Exception as e:
+                       Betterror(e, inspect.stack()[0][3])
+                       PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
+                       Summarise("-SmashBruteBrawl:Saving image %s failed due to %s.\n-SmashBruteBrawl:Use ./chunklate.py -f yourfile.png --crash %s to try again"%(tmpname,str(e),str(n-2)))
                 if Answer is True:
 
                     diffobj = difflib.SequenceMatcher(
@@ -5542,7 +5558,6 @@ def SmashBruteBrawl(
                     for proc in psutil.process_iter():
                         if "/tmp/tmp" in " ".join(proc.cmdline()) and ".PNG" in " ".join(proc.cmdline()):
                             proc.kill()
-
                     Candy("Cowsay", "Ok back to work..", "bad")
                     continue
     if Bingo is True:
