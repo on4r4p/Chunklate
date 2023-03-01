@@ -194,13 +194,12 @@ def ColorType(GetChunk,Mode):
     return ColorType
 
 
-def Min_Res(MinRes):
-    mrwh = []
+def Min_Res_Iter(MinRes):
+    mri = 0
     for w in range(1,MinRes):
         for h in range(1,w + 1):
-            mrwh.append((h,w))
-            mrwh.append((w,h))
-    return(tuple(mrwh))
+            mri += 2
+    return(mri)
 
 def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
 
@@ -222,13 +221,10 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
 
     ibn = int(IBN / 64)
     Mxr = Max_Res()
-    Mnr = int(IBN / 64)
+    Mnr = ibn
 
-    if Mode =="Custom":
-         if 0 in StructIndex and 1 in StructIndex: 
-              MnrF = Mnr * Mnr
-         else:
-              MnrF = Mnr
+    if GetColor.endswith(":minres"):
+         MnrF = Min_Res_Iter(Mnr)
     else:
          MnrF = Mnr * Mnr
 
@@ -561,7 +557,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     ),
                 ),
             },
-            b"PLTE": {
+            b"PLTE": { 
                 "nocolortype": (
                     16581375,
                     (6, 1536),
@@ -719,9 +715,14 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                                 CustomProduct.append(Double)
                                 CustomStruct.append(tuple(Dragon)) ##TempFix 
                             Csprod = 1
+
                             for cp in CustomProduct:
                                    for n,p in enumerate(cp):pass
                                    Csprod *= n+1
+
+                            if 0 in StructIndex and 1 in StructIndex: 
+                                 Csprod *= Mnr
+
                             return (
                                 Csprod,
                                 len(str(Csprod)),
@@ -738,6 +739,13 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                                 return (
                                     product,
                                     len(str(product)),
+                                    chunklen_spec,
+                                    chunk_format,
+                                    chunk_data,
+                                    GetColor,
+                                )
+                            elif SpecId == "Dummy":
+                                return (
                                     chunklen_spec,
                                     chunk_format,
                                     chunk_data,
@@ -1614,7 +1622,7 @@ def GetInfo(Chunk, data, Dummy=False):
                     )
                 )
                 ToFix.append(
-                    "-PLTE %s wrongGreen palettes not in bitdepht range: (must not be > 2 power of image Depht:%s)"
+                    "-PLTE %s Wrong Green palettes not in bitdepht range: (must not be > 2 power of image Depht:%s)"
                     % (str(len(pltb)), 2 ** int(IHDR_Depht))
                 )
             elif len(PLTE_G) == 0:
@@ -5347,6 +5355,8 @@ def SmashBruteBrawl(
     else:
          max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
 
+    lncf = len(chunk_format)-1
+
     if type(chunklen_spec) == tuple:
         maxchunklen = max(chunklen_spec)
         minchunklen = min(chunklen_spec)
@@ -5368,12 +5378,13 @@ def SmashBruteBrawl(
         PRINT("BruteCrc:%s"% BruteCrc)
         PRINT("EditMode:%s"% EditMode)
         PRINT("FromError:%s"% FromError)
-        PRINT("chunklen_spec:%s"% chunklen_spec)
+        PRINT("chunklen_spec:%s"% str(chunklen_spec))
         PRINT("chunk_format:%s"% str(chunk_format))
-        if len(str(chunk_data)) > 140:
+        if len(str(chunk_data)) > MAXCHAR:
             PRINT("chunk_data:Too Big To be displayed")
         else:
             PRINT("chunk_data:%s"% str(chunk_data))
+
         PRINT("max_iter:%s"%max_iter)
         PRINT("maxchunklen:%s"% maxchunklen)
         PRINT("minchunklen:%s"% minchunklen)
@@ -5385,7 +5396,7 @@ def SmashBruteBrawl(
         Loadingbar(
             max_iter, len_iter, None, True
         )  # TODO need to adapt max/len_iter to ln range According to BruteLenght 
-
+        print("ln:",ln)
         Lnx_New = int(int(ln/2)).to_bytes(4, "big")
         if EditMode == "Replace":
             if BruteLenght and BruteCrc:
@@ -5393,11 +5404,23 @@ def SmashBruteBrawl(
                 ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ]
                 ToBryte = bytes.fromhex(ToBrute)
                 After_New = bytes.fromhex(DATAX[DataOffset + ln + 24 :])  # +24=chunklen+chunkname+data+crc
-        ##else bla bla #TODO
-     
+            ##else bla bla #TODO
+        elif EditMode == "Insert":
+            if BruteLenght and BruteCrc:
+                Before_New = bytes.fromhex(DATAX[:DataOffset])
+                ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ] ## wrong value 
+                ToBryte = bytes.fromhex(ToBrute) ## b"wrong value"
+                After_New = bytes.fromhex(DATAX[DataOffset + ChunkLenght + 24 :])  # +24=chunklen+chunkname+data+crc
+
+            ##else bla bla #TODO
+        print("bfn:",Before_New)
+        print("beforbrute",bytes.fromhex(DATAX[DataOffset+8:DataOffset+32]))
+        print("Tobrute:",ToBrute)
         shuffle = Product(chunk_data,color_type)
-        lastbvalue = ""
+
         for n, i in enumerate(shuffle):
+
+            f = io.BytesIO()
 
             if CRASH:
                 if n < CRASH:
@@ -5405,7 +5428,6 @@ def SmashBruteBrawl(
                 else:
                     CRASH = False
 
-            f = io.BytesIO()
             if BfMode == "Custom":
                 frm = "!"+"".join(chunk_format).replace("!","")
                 unpackTB = struct.unpack(frm,ToBryte)
@@ -5420,11 +5442,25 @@ def SmashBruteBrawl(
                                    bvalue += struct.pack(cf,i)
                                break
                     else:
+
                         bvalue += struct.pack(cf,utb)
+
             else:
-                bvalue = b""
-                for cf, j in zip(chunk_format, i):
-                     bvalue += struct.pack(cf,int(j))
+
+
+               bvalue = b""
+               idx = 0
+               for j in i:
+                   if idx < lncf:
+                      bvalue += struct.pack(chunk_format[idx],int(j))
+                      idx += 1
+                   else:
+                      bvalue += struct.pack(chunk_format[idx],int(j))
+                      idx = 0
+
+                #bvalue = b""
+                #for cf, j in zip(chunk_format, i):
+                #     bvalue += struct.pack(cf,int(j))
 
             Loadingbar(max_iter, len_iter, n, False)
             checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
@@ -5437,7 +5473,10 @@ def SmashBruteBrawl(
                 except:
                     pass
             result = "{0}".format(f.getvalue().decode("utf-8"))
-
+#            print(result)
+#            print(ToBryte,end="\r")
+#           print(bvalue.hex(),end="\r")
+#            input("hold")
             if not any(s in result for s in LIBPNG_ERR):
 
                 with stderr_redirector(f):
@@ -6516,7 +6555,12 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
         "Mkay i will need to get some infos on the file before..",
         "com",
     )
+
+    chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(Chunkname,"Spec",SpecId = "Dummy")
+
+
     ##TODO
+    
     if Chunkname == b"IHDR":
 
         DummyLength = SpecLenght(Chunkname)
@@ -6529,6 +6573,9 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
 
         if DEBUG is True:
 
+            PRINT("chunklen_spec:%s"%str(chunklen_spec))
+            PRINT("chunk_format:%s"%str(chunk_format))
+            PRINT("color_type:%s"%str(color_type))
             PRINT("bad pos:%s"% bad_pos)
             PRINT("bad_start:%s"% bad_start)
             PRINT("bad_end:%s"% bad_end)
@@ -6538,9 +6585,14 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
             PRINT("dumydata:%s"% DummyData)
             PRINT("dumycrc:%s"% DummyCrc)
             PRINT("dumdum:%s"% DumDum)
+            
+
+
             if PAUSEDEBUG is True:
                 Pause("Pause Debug")
 
+#        print("Chunks_History:\n",Chunks_History)
+#        TheEnd()
         DummyFix = DATAX[:bad_start] + DumDum + DATAX[bad_start:]
 
         Candy(
@@ -7419,50 +7471,60 @@ def SpecLenght(chunk_name, chunk_length=None):
             for color, bytes_spec in CHUNKS_LEN[key].items():
                 if key == chunk_name:
                     if color == GetColor:
-                        chunklen_spec = bytes_spec[0]
+                        print("key:",chunk_name)
+                        print("color:",GetColor)
+                        print("bytes_spec:",bytes_spec)
+#                        print("bytes_spec[0]:",bytes_spec[0])
+                        try:
+                            chunklen_spec = bytes_spec[0]
+                        except:
+                            chunklen_spec = bytes_spec
 
 
 
-    if type(chunklen_spec) == tuple:
+                        if type(chunklen_spec) == tuple:
 
-        PRINT(Candy("Color", "yellow", "\n-ToDo"))
-    else:
-        real_length = hex(int(chunklen_spec)).replace("0x", "").zfill(8)
+                            PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                        else:
+                            real_length = hex(int(chunklen_spec/2)).replace("0x", "").zfill(8)
 
-        if not chunk_length:
-            return real_length
+                            if not chunk_length:
+                                return real_length
 
-        PRINT("-Real %s Length: %s " % (key, real_length))
-        if real_length == chunk_length:
-            Candy(
-                "Cowsay",
-                "Looks good to me !",
-                "good",
-            )
-            SideNotes.append(
-                "-SpecLenght:Giving correct length:  %s -"
-                % chunk_length
-            )
-            return chunk_length
-        else:
-            PRINT(
-                "-Given %s Length was : %s "
-                % (chunk_name, chunk_length)
-            )
-            Candy(
-                "Cowsay",
-                "length part is corrupted!",
-                "bad",
-            )
-            SideNotes.append(
-                "-SpecLenght:Giving correct length:  %s -" % real_length
-            )
-            PRINT("\n-Returning correct fixed length :%s"% real_length)
-            return real_length
+                            PRINT("-Real %s Length: %s " % (key, real_length))
+                            if real_length == chunk_length:
+                                Candy(
+                                    "Cowsay",
+                                    "Looks good to me !",
+                                    "good",
+                                )
+                                SideNotes.append(
+                                    "-SpecLenght:Giving correct length:  %s -"
+                                    % chunk_length
+                                )
+                                return chunk_length
+                            else:
+                                PRINT(
+                                    "-Given %s Length was : %s "
+                                    % (chunk_name, chunk_length)
+                                )
+                                Candy(
+                                    "Cowsay",
+                                    "length part is corrupted!",
+                                    "bad",
+                                )
+                                SideNotes.append(
+                                    "-SpecLenght:Giving correct length:  %s -" % real_length
+                                )
+                                PRINT("\n-Returning correct fixed length :%s"% real_length)
+                                return real_length
 
-            # PRINT("Chunk:%s"%key)
-            # PRINT("name:%s value:%s"%(name,value))
-            # PRINT("min:%s, max:%s"%(value[0],value[1]))
+                                # PRINT("Chunk:%s"%key)
+                                # PRINT("name:%s value:%s"%(name,value))
+                                # PRINT("min:%s, max:%s"%(value[0],value[1]))
+    PRINT(Candy("Color", "yellow", "\n-Requested Spec has not been found"))
+    PRINT(Candy("Color", "yellow", "\n-ToDo"))
+    TheEnd()
 
 
 def CheckLength(Cdata, Clen, Ctype):
@@ -7966,11 +8028,14 @@ def Relics(FromError):
                     break
             if any(ChosenOne in k and "StructIndex:" in k for k in PandoraBox) and ChosenOne:
 
-                [
-                    PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% k)
+                ChosenErr = [
+                    "\n-\033[1;31;49mCriticalHit\033[m: %s"%(k)
                     for k in PandoraBox
                     if ChosenOne in k and "StructIndex:" in k
                 ]
+
+                for i in ChosenErr:PRINT(i)
+
                 Candy(
                     "Cowsay",
                     "Hm yeah that could be problematic indeed..",
@@ -8000,8 +8065,32 @@ def Relics(FromError):
                 )
                 Answer = Question()
                 if Answer is True:
-                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                        if ch == ChosenOne.encode():
+
+                    if ChosenOne.encode() in CHUNKS_LEN_NOT_FIXED:
+                        for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                            if ch == ChosenOne.encode():
+                                return SmashBruteBrawl(
+                                    Sample_Name,
+                                    ChosenOne,
+                                    int(chi.split(":")[2]),
+                                    int(chi.split(":")[1]),
+                                    FromError,
+                                    BfMode="Brutus"
+                                )
+                    elif len(ChosenErr) > 2 :
+                        for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                            if ch == ChosenOne.encode():
+                                return SmashBruteBrawl(
+                                    Sample_Name,
+                                    ChosenOne,
+                                    int(chi.split(":")[2]),
+                                    int(chi.split(":")[1]),
+                                    FromError,
+                                    BfMode="Brutus"
+                                )
+                    else:
+                        for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                            if ch == ChosenOne.encode():
                                 return SmashBruteBrawl(
                                     Sample_Name,
                                     ChosenOne,
@@ -8508,6 +8597,37 @@ def FixItFelix(Chunk=None):
             SideNotes.append("-Found False-Positive :[Error:-%s]." % (str(key)))
             return FixItFelix
 
+        elif "-PLTE" in str(key):
+
+#DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError)
+#            LibpngCheck(Sample_Name)
+
+            if not Skip_Bad_Current_Name and not Skip_Bad_Infos and not Skip_Bad_Critical:
+                if str(key) not in Cornucopia:
+                     Candy("Cowsay", "Alright this is a tough one as PLTE is a critical chunk..", "bad")
+                     #if not something to get intel about plte nbr and what TODO:
+                     
+                     Candy("Cowsay", "Since i have no information about what to put in there ill have to bruteforce my way through.", "bad")
+                     Candy(
+                                "Cowsay",
+                                "Shall i give it a try ? Otherwise Chunklate is going to exit.",
+                                "com",
+                            )
+                     Answer = Question()
+                     if Answer is True:
+                        for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                            if ch == b"PLTE":
+                                return SmashBruteBrawl(
+                                    Sample_Name,
+                                    b"PLTE",
+                                    int(chi.split(":")[2]),
+                                    int(chi.split(":")[1]),
+                                    "-PLTE Wrong Data",
+                                    EditMode = "Insert",
+                                )
+                     else:
+                                TheEnd()
+
         else:
 
             PRINT("\n-\033[1;31;49mCriticalMiss\033[m: %s"%key)
@@ -8811,7 +8931,19 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
 
 
 def Pause(msg):
-    pause = input(msg)
+    try:
+        pause = input(msg)
+    except EOFError as e:
+        print("heyError:",e)
+        f = io.BytesIO()
+        with stderr_redirector(f):
+             pass
+        try:
+           input("again:")
+        except EOFError as e:
+            print("FUCK:",e)
+
+        TheEnd()
     return ()
 
 def PRINT(msg):
@@ -9227,6 +9359,7 @@ NO_ORDER_CHUNKS = [
     b"gIFt",
 ]
 
+CHUNKS_LEN_NOT_FIXED = [b"PLTE",b"tRNS",b"hIST"]
 
 ALLCHUNKS = [
     b"sBIT",
