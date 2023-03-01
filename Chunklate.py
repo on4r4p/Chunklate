@@ -5396,7 +5396,9 @@ def SmashBruteBrawl(
         Loadingbar(
             max_iter, len_iter, None, True
         )  # TODO need to adapt max/len_iter to ln range According to BruteLenght 
-        print("ln:",ln)
+
+#        print("ln:",ln)
+
         Lnx_New = int(int(ln/2)).to_bytes(4, "big")
         if EditMode == "Replace":
             if BruteLenght and BruteCrc:
@@ -5413,9 +5415,12 @@ def SmashBruteBrawl(
                 After_New = bytes.fromhex(DATAX[DataOffset + ChunkLenght + 24 :])  # +24=chunklen+chunkname+data+crc
 
             ##else bla bla #TODO
-        print("bfn:",Before_New)
-        print("beforbrute",bytes.fromhex(DATAX[DataOffset+8:DataOffset+32]))
-        print("Tobrute:",ToBrute)
+ 
+#        print("bfn:",Before_New)
+#        print("beforbrute",bytes.fromhex(DATAX[DataOffset+8:DataOffset+32]))
+#        print("Tobrute:",ToBrute)
+ 
+
         shuffle = Product(chunk_data,color_type)
 
         for n, i in enumerate(shuffle):
