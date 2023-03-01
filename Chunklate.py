@@ -3,8 +3,9 @@ from argparse import ArgumentParser, SUPPRESS
 from datetime import datetime
 from contextlib import contextmanager
 from PIL import Image
+from inputimeout import inputimeout
 import numpy as np
-import sys, os, binascii, re, random, time, zlib, cv2, ctypes, struct,io, tempfile, inspect, types, difflib, collections, math, itertools
+import sys, os, binascii, re, random, time, zlib, cv2, ctypes, struct,io, tempfile, inspect, types, difflib, collections, math, itertools, psutil
 
 
 def Betterror(error_msg, def_name): ##useless since 3.11
@@ -5486,15 +5487,22 @@ def SmashBruteBrawl(
 
                 with stderr_redirector(f):
                     try:
-                         Image.open(io.BytesIO(wanabyte)).show()
+                         TmpI = Image.open(io.BytesIO(wanabyte))
+                         TmpIW,TmpIH = TmpI.size
+                         TmpI.show()
+
                     except:
                          pass
 
                 PRINT("")
                 Candy("Cowsay", "Ah ! Iv got One !", "good")
+                PRINT("-Tmp Image width:%s"%TmpIW)
+                PRINT("-Tmp Image height:%s"%TmpIH)
+                PRINT("")
                 Candy("Cowsay", "Does it looks good or should i keep trying ?", "com")
                 try:
-                   Answer = Question(None, True)
+#                   Answer = Question(None, True)
+                    Answer = inputimeout(prompt='Answer(yes/no) auto answer in 23 secondes:', timeout=23)
                 except EOFError as e:
                     print(e)
                     Candy("Cowsay", "Aouch my head ...Didn't see that one coming..", "bad")
@@ -5503,6 +5511,17 @@ def SmashBruteBrawl(
                     Candy("Cowsay", "But add --crash %s at the end of the argument."%(n-2), "com")
                     Candy("Cowsay", "And Everything would be fine i think!", "good")
                     TheEnd()
+                except :
+                   Answer = False
+                   name, dir = Naming(FILE_Origin)
+
+                   tmpname =  dir+"/"+"BF-W"+str(TmpIW)+"-H"+str(TmpIH)+str(datetime.now().strftime('-%y%m%d%H%M%S-'))+name
+                   PRINT("\n-Skipped No input given within time limit.\n")
+
+                   TmpI.save(tmpname)
+
+                   Candy("Cowsay", "I took the liberty to save a copy of that image just in case.", "com")
+                   PRINT("-Image saved at:%s\n"%tmpname)
                 if Answer is True:
 
                     diffobj = difflib.SequenceMatcher(
@@ -5520,7 +5539,11 @@ def SmashBruteBrawl(
                     Bingo = True
                     break
                 else:
-                    Candy("Cowsay", "Damned !", "bad")
+                    for proc in psutil.process_iter():
+                        if "/tmp/tmp" in " ".join(proc.cmdline()) and ".PNG" in " ".join(proc.cmdline()):
+                            proc.kill()
+
+                    Candy("Cowsay", "Ok back to work..", "bad")
                     continue
     if Bingo is True:
         PRINT(
