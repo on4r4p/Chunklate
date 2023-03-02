@@ -6756,7 +6756,10 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
                         % (Candy("Color", "green", "Valid "), Candy("Emoj", "good"))
                     )
                     FixedLen = str("0x%08X" % LenCalc)[2::]
-
+                    PRINT(
+                        "-Found Chunk[%s] has Wrong length at offset: %s\n-Replaced with: %s old value was: %s"
+                        % (Orig_CT, CLoffX, FixedLen, Orig_CL)
+                        )
                     SolvedMsg = (
                         "-Found Chunk[%s] has Wrong length at offset: %s\n-Found next chunk: %s at: %s\n-Replaced with: %s old value was: %s"
                         % (Orig_CT, CLoffX, Chk, NeedleX, FixedLen, Orig_CL)
@@ -7173,6 +7176,87 @@ def CheckChunkOrder(lastchunk, mode):
         return Excluded
 
 
+def NameShift():
+    Candy("Title", "Checking around Chunk's position:")
+    ToFix = []
+    Shifted = False
+    if DEBUG is True:
+        for c, i in zip(Chunks_History, Chunks_History_Index):
+            PRINT("\nCame accross that chunk: %s"% c)
+            PRINT("With those index: %s"% i)
+        if PAUSEDEBUG is True:
+            Pause("-Debug Pause Press Return to continue:")
+    for i in range(0,16):
+         ioff = CToffI-8+i
+         value = bytes.fromhex(DATAX[ioff:CToffI+i])
+         if value in ALLCHUNKS:
+              PRINT("\n-Current value of chunkname at offset %s : %s"%(str(CToffI),bytes.fromhex(DATAX[CToffI:CToffI+8])))
+              SideNotes.append("-NameShift: Found correct chunkname i:%s Offset:%s data: %s"%(str(i),str(ioff),value))
+              if ioff < CToffI:
+                  PRINT(Candy("Color", "green", "-Found correct chunkname %s at exactly %s bytes before .")%(value,str( int((CToffI-ioff)/2) )))
+              elif ioff > CToffI:
+                  PRINT(Candy("Color", "green", "-Found correct chunkname %s at exactly %s bytes after.")%(value,str( int((ioff-CToffI)/2) )))
+              Shifted = True
+              break
+    if Shifted :
+
+        Candy("Cowsay", "Mokay ..Maybe some bytes are missing somewhere ..", "com")
+
+        lenioff = DATAX[ioff-8:ioff]
+        reallen = SpecLenght(value, lenioff)
+
+        if lenioff != reallen:
+
+             Candy("Cowsay", "I knew there was something odd..", "bad")
+             Candy("Cowsay", "The good news is we wont have to bruteforce all the previous chunk...", "com")
+
+             datpart = int.from_bytes(bytes.fromhex(reallen), byteorder="big")*2
+             Ctype = value
+             Cdata = bytes.fromhex(DATAX[ioff+8:ioff+8+datpart])
+             Crc = hex(int.from_bytes(bytes.fromhex(DATAX[ioff+8+datpart:ioff+8+datpart+8]), byteorder="big"))
+             checksum = hex(binascii.crc32(Ctype + Cdata))
+
+             if checksum == Crc:
+                 PRINT(
+                "-Crc Check :"
+                + Candy("Color", "green", " OK ")
+                + Candy("Emoj", "good")
+                + "\n"
+                )
+
+                 Candy("Cowsay", "Found the culprit! Now lets fix this !", "good")
+                 SideNotes.append("-NameShift:Crc check is valid.")
+                 fixed = reallen + value.hex() + DATAX[ioff+8:ioff+8+datpart] + Crc.replace("0x","")
+                 return(fixed)
+
+             else:
+                PRINT(
+                    "-Crc Check :" + Candy("Color", "red", " FAILED! ") + Candy("Emoj", "bad")
+                )
+                if len(Crc) == 0 or len(checksum) == 0:
+                    PRINT("\nMonkey wanted Banana :%s"%Candy("Color", "green", checksum))
+                    PRINT("Monkey got Pullover :%s"%Candy("Color", "red", Crc))
+                    Candy("Cowsay", " Hold on a sec ... Must have missed something...", "com")
+                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                    TheEnd()
+
+                if len(checksum) < 10:
+                    checksum = "0x" + (checksum[2::].zfill(8))
+                    PRINT("\nMonkey wanted Banana :%s"%Candy("Color", "green", checksum))
+                    PRINT("Monkey got Pullover :%s"%Candy("Color", "red", Crc))
+                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                    TheEnd()
+
+             SideNotes.append("-NameShift: Length part of %s was corrupted"%value)
+
+        else:
+             PRINT(Candy("Color", "yellow", "\n-ToDo"))
+             TheEnd()
+    else:
+        return False
+
+    TheEnd()
+
 def BruteChunk(CType, LastCType, ChunkLen, FromError):
     Candy("Title", "Chunk Scrabble Solver:")
     ErrorA = False
@@ -7190,6 +7274,29 @@ def BruteChunk(CType, LastCType, ChunkLen, FromError):
         CTypeLst = [i.lower() for i in CType.decode(errors="ignore")]
     else:
         CTypeLst = [i.lower() for i in CType]
+
+
+    Candy(
+        "Cowsay", "Before going any further i need to check something real quick...", "com"
+    )
+
+    Missing_Bit = NameShift()
+
+    if Missing_Bit:
+        SolvedMsg = "-Chunk length has been corrupted due to some missing bytes."
+
+        return CheckPoint(
+            True,
+            True,
+            "CheckChunkName",
+            Orig_CT,
+            [SolvedMsg],
+            Missing_Bit,
+            len(Missing_Bit)-2,
+            CToffI - 8,
+            SolvedMsg,
+            FromError,
+        )
 
     Candy(
         "Cowsay", " Maybe it's name got corrupted somehow. Let's see about that.", "com"
@@ -7469,7 +7576,7 @@ def SpecLenght(chunk_name, chunk_length=None):
     global SideNotes 
 
     if chunk_length:
-        Candy("Title", "Get Lenght from Spec:")
+        Candy("Title", "Get Length from Spec:")
         Candy("Cowsay", "Kay ..Just Checking if the length part is legit..", "com")
 
     if chunk_name in [b"tRNS", b"bKGD", b"sBIT"]:
@@ -7515,9 +7622,9 @@ def SpecLenght(chunk_name, chunk_length=None):
             for color, bytes_spec in CHUNKS_LEN[key].items():
                 if key == chunk_name:
                     if color == GetColor:
-                        print("key:",chunk_name)
-                        print("color:",GetColor)
-                        print("bytes_spec:",bytes_spec)
+#                        print("key:",chunk_name)
+#                        print("color:",GetColor)
+#                        print("bytes_spec:",bytes_spec)
 #                        print("bytes_spec[0]:",bytes_spec[0])
                         try:
                             chunklen_spec = bytes_spec[0]
@@ -7529,6 +7636,7 @@ def SpecLenght(chunk_name, chunk_length=None):
                         if type(chunklen_spec) == tuple:
 
                             PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                            TheEnd()
                         else:
                             real_length = hex(int(chunklen_spec/2)).replace("0x", "").zfill(8)
 
@@ -7554,7 +7662,7 @@ def SpecLenght(chunk_name, chunk_length=None):
                                 )
                                 Candy(
                                     "Cowsay",
-                                    "length part is corrupted!",
+                                    "Length part is corrupted!",
                                     "bad",
                                 )
                                 SideNotes.append(
@@ -7566,7 +7674,7 @@ def SpecLenght(chunk_name, chunk_length=None):
                                 # PRINT("Chunk:%s"%key)
                                 # PRINT("name:%s value:%s"%(name,value))
                                 # PRINT("min:%s, max:%s"%(value[0],value[1]))
-    PRINT(Candy("Color", "yellow", "\n-Requested Spec has not been found"))
+    PRINT(Candy("Color", "yellow", "\n-Requested Spec %s has not been found."%chunk_name))
     PRINT(Candy("Color", "yellow", "\n-ToDo"))
     TheEnd()
 
@@ -8425,7 +8533,6 @@ def FixItFelix(Chunk=None):
                         Skip_Bad_Libpng = True
                         return Relics(str(key))
                     else:
-
                         Candy("Cowsay", "See You Space Cowboy....", "good")
                         TheEnd()
 
@@ -8941,6 +9048,9 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                         "Well maybe i am missing something but as for my abilities my job is done here!",
                         "good",
                     )
+                    Candy("Cowsay", "Your file is here :","good")
+                    name, dir = Naming(FILE_Origin)
+                    PRINT(Candy("Color", "green", "-Saved in : %s/%s")%(dir,Sample_Name))
                     Candy("Cowsay", "See you Space Cowboy...", "good")
                     TheEnd()
 
@@ -8950,6 +9060,9 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                     "Well maybe i am missing something but as far as my current abilities goes the job is done for me here!",
                     "good",
                 )
+                Candy("Cowsay", "Your file is here :","good")
+                name, dir = Naming(FILE_Origin)
+                PRINT(Candy("Color", "green", "-Saved in : %s/%s")%(dir,Sample_Name))
                 Candy("Cowsay", "See you Space Cowboy...", "good")
                 TheEnd()
 
@@ -8971,6 +9084,10 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
 
             if "has Wrong Chunk name after Chunk[" in info:
                 Bad_Next_Name = error
+            if "corrupted due to some missing bytes." in info:
+                
+                return SaveClone(ToolKit[0], ToolKit[2], ToolKit[1] + ToolKit[2], "Fixing Missing bytes corruption")
+
     return ()
 
 
@@ -8978,16 +9095,10 @@ def Pause(msg):
     try:
         pause = input(msg)
     except EOFError as e:
-        print("heyError:",e)
+        print("Error:",e)
         f = io.BytesIO()
         with stderr_redirector(f):
              pass
-        try:
-           input("again:")
-        except EOFError as e:
-            print("FUCK:",e)
-
-        TheEnd()
     return ()
 
 def PRINT(msg):
