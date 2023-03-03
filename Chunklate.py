@@ -6011,12 +6011,12 @@ def FullChunkForcerWithCrc(
         return CheckPoint(
             True,
             True,
-            "FullChunkForcerWithCrc",
+            "SmashBruteBrawl", # tmp fix
             Chunk.decode(errors="ignore"),
             ["-Data has been corrupted"],
-            newdatax_copy,
+            newdatax_copy+OldCrc,
             DataOffset,
-            DataOffset + (ChunkLenght * 2),
+            DataOffset + (ChunkLenght * 2)+len(OldCrc),
             "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
             % (Chunk.decode(errors="ignore"), datax, newdatax_copy),
             Chunk.decode(errors="ignore"),
@@ -6033,7 +6033,7 @@ def FullChunkForcerWithCrc(
         return CheckPoint(
             True,
             False,
-            "FullChunkForcerWithCrc",
+            "SmashBruteBrawl", #tmp fix
             Chunk.decode(errors="ignore"),
             ["-Bruteforcer has Failed"],
             FromError,
@@ -8892,9 +8892,14 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                 return WriteClone(ToolKit[0])
 
         if function == "SmashBruteBrawl":
-            if "Corrupted Data has been replaced" in info:
+            if "Corrupted Data has been replaced" in info: 
                 SideNotes.append("-CheckPoint: %s" % info)
                 return WriteClone(ToolKit[0])
+
+            if "Data has been corrupted" in info: #tmp fix
+                SideNotes.append("-CheckPoint: %s" % info)
+                return SaveClone(ToolKit[0], ToolKit[1] , ToolKit[2], ToolKit[3])
+
             elif "-Bruteforcer has Failed" in info:
                 if Brute_LvL < 3 and chunk == "IHDR":  # tmp workaround
                     Brute_LvL += 1
