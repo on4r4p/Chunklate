@@ -160,9 +160,11 @@ def ColorType(GetChunk,Mode):
     if IHDR_Height == 0 or IHDR_Width == 0:
         Safe_val = False
 
+    if "OldCrc" in Mode:
+        Safe_val = False
+
     if Safe_val == False:
-        if GetChunk == b"IHDR" and Mode in ("Brutus","Custom","Spec"):
-          
+        if GetChunk == b"IHDR" and (Mode in ("Brutus","Custom","Spec") or "OldCrc" in Mode):
             if Brute_LvL == 0:
                 if Mode == "Custom" and not Use_MinRes:
                     ColorType = "nocolortype:minres:custom"
@@ -172,11 +174,10 @@ def ColorType(GetChunk,Mode):
                 ColorType = "nocolortype:medres"
             else:
                 ColorType = "nocolortype:maxres"
-         
         else:
             ColorType = "nocolortype" #TODO what about [b"tRNS", b"bKGD", b"sBIT"] ??
 
-    elif Mode in ("Brutus","Custom","Spec"):
+    elif Mode in ("Brutus","Custom","Spec") or "OldCrc" in Mode:
             if Brute_LvL == 0:
                 if Mode == "Custom" and not Use_MinRes:
                     ColorType = "colortype:" + str(IHDR_Color) +":minres:custom"
@@ -702,6 +703,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
     for key in CHUNKS_SPEC:
             for color, bytes_spec in CHUNKS_SPEC[key].items():
                 if key == GetChunk:
+
                     if color == GetColor:
                         product = bytes_spec[0]
                         chunklen_spec = bytes_spec[1]
@@ -752,7 +754,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                                     chunk_data,
                                     GetColor,
                                 )
-                            elif SpecId == "Lenght":
+                            elif SpecId == "Length":
                                  return(chunklen_spec)
                             elif SpecId == "Format":
                                  return(chunk_format)
@@ -770,7 +772,15 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                                 chunk_data,
                                 GetColor, 
                             )
-
+                        elif "OldCrc" in Mode: #tmp
+                            return (
+                                product,
+                                len(str(product)),
+                                chunklen_spec,
+                                chunk_format,
+                                chunk_data,
+                                GetColor, 
+                            )
     PRINT("-Error in GetSpec: Didnt Found matching result")
     PRINT("GetColor:%s"% GetColor)
     PRINT("GetChunk:%s"% GetChunk)
@@ -5321,16 +5331,17 @@ def Product(chunk_data,color_type):
 
 #         input("hold")
 #     input("end")
+
 def SmashBruteBrawl(
     File,
     ChunkName,
-    ChunkLenght,
+    ChunkLength,
     DataOffset,
     FromError,
     EditMode="Replace",
     BfMode="Brutus",
     BruteCrc=True,
-    BruteLenght=True,
+    BruteLength=True,
 ):
     global SideNotes
     global CRASH 
@@ -5349,6 +5360,11 @@ def SmashBruteBrawl(
 
     Bingo = False
     result = "bad result"
+
+    if "OldCrc:" in BfMode: 
+        OldCrc = bytes.fromhex(BfMode.split(":")[1])
+    else:
+        OldCrc = False
 
     if BfMode == "Custom":
  
@@ -5376,7 +5392,7 @@ def SmashBruteBrawl(
         PRINT("File:%s"% File)
         PRINT("ChunkName:%s"% ChunkName)
         PRINT("DataOffset:%s"% DataOffset)
-        PRINT("ChunkLenght:%s"% ChunkLenght)
+        PRINT("ChunkLength:%s"% ChunkLength)
         PRINT("BruteCrc:%s"% BruteCrc)
         PRINT("EditMode:%s"% EditMode)
         PRINT("FromError:%s"% FromError)
@@ -5397,24 +5413,24 @@ def SmashBruteBrawl(
 
         Loadingbar(
             max_iter, len_iter, None, True
-        )  # TODO need to adapt max/len_iter to ln range According to BruteLenght 
+        )  # TODO need to adapt max/len_iter to ln range According to BruteLength 
 
 #        print("ln:",ln)
 
         Lnx_New = int(int(ln/2)).to_bytes(4, "big")
         if EditMode == "Replace":
-            if BruteLenght and BruteCrc:
+#            if BruteLength and BruteCrc:
                 Before_New = bytes.fromhex(DATAX[:DataOffset])
                 ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ]
                 ToBryte = bytes.fromhex(ToBrute)
                 After_New = bytes.fromhex(DATAX[DataOffset + ln + 24 :])  # +24=chunklen+chunkname+data+crc
-            ##else bla bla #TODO
-        elif EditMode == "Insert":
-            if BruteLenght and BruteCrc:
+#            elif not BruteCrc and BruteLength:
+        elif EditMode == "Insert":#TODO
+#            if BruteLength and BruteCrc:
                 Before_New = bytes.fromhex(DATAX[:DataOffset])
                 ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ] ## wrong value 
                 ToBryte = bytes.fromhex(ToBrute) ## b"wrong value"
-                After_New = bytes.fromhex(DATAX[DataOffset + ChunkLenght + 24 :])  # +24=chunklen+chunkname+data+crc
+                After_New = bytes.fromhex(DATAX[DataOffset + ChunkLength + 24 :])  # +24=chunklen+chunkname+data+crc
 
             ##else bla bla #TODO
  
@@ -5471,7 +5487,48 @@ def SmashBruteBrawl(
 
             Loadingbar(max_iter, len_iter, n, False)
             checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
-            fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
+            if OldCrc:
+
+                  if OldCrc != checksum:
+                      continue
+                  else:
+                      if BruteLength and BruteCrc:
+                          fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
+                      elif not BruteLength and BruteCrc:
+                          fullnewdatax =  bvalue + checksum
+                      elif not BruteCrc and BruteLength:
+                          fullnewdatax = Lnx_New + ChunkName + bvalue
+                      elif not BruteCrc and not BruteLength:
+                          fullnewdatax = ChunkName + bvalue
+
+                      wanabyte = Before_New + fullnewdatax + After_New
+                      diffobj = difflib.SequenceMatcher(
+                          None, DATAX[DataOffset:], fullnewdatax.hex()
+                      )
+                      good = ""
+                      for block in diffobj.get_opcodes():
+                          if block[0] != "equal":
+                              good += (
+                                  "\033[1;32;49m%s\033[m"
+                                  % fullnewdatax.hex()[block[1] : block[2]]
+                              )
+                          else:
+                              good += fullnewdatax.hex()[block[1] : block[2]]
+                      Bingo = True
+                      break
+
+
+            if BruteLength and BruteCrc:
+                          fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
+            elif not BruteLength and BruteCrc:
+                          fullnewdatax = ChunkName + bvalue + checksum
+            elif not BruteCrc and BruteLength:
+                          fullnewdatax = Lnx_New + ChunkName + bvalue 
+            elif not BruteCrc and not BruteLength:
+                          fullnewdatax = ChunkName + bvalue
+
+
+
             wanabyte = Before_New + fullnewdatax + After_New
 
             with stderr_redirector(f):
@@ -5577,20 +5634,38 @@ def SmashBruteBrawl(
             "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s"
             % (ChunkName,fullnewdatax.hex())
         )
-        return CheckPoint(
-            True,
-            True,
-            "SmashBruteBrawl",
-            ChunkName.decode(errors="ignore"),
-            ["-Corrupted Data has been replaced"],
-            wanabyte.hex(),
-            DataOffset,
-            DataOffset + ChunkLenght,
-            "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
-            % (ChunkName.decode(errors="ignore"), ToBrute, fullnewdatax.hex()),
-            ChunkName.decode(errors="ignore"),
-            FromError,
-        )
+
+        if OldCrc:
+            return CheckPoint(
+                True,
+                True,
+                "SmashBruteBrawl",
+                ChunkName.decode(errors="ignore"),
+                ["-Previous Crc checksum found by replacing datas"],
+                fullnewdatax.hex(),
+                DataOffset,
+                DataOffset + len(fullnewdatax.hex()),
+                "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
+                % (ChunkName.decode(errors="ignore"), ToBrute, fullnewdatax.hex()),
+                ChunkName.decode(errors="ignore"),
+                FromError,
+            )
+
+        else:
+            return CheckPoint(
+                True,
+                True,
+                "SmashBruteBrawl",
+                ChunkName.decode(errors="ignore"),
+                ["-Corrupted Data has been replaced"],
+                wanabyte.hex(),
+                DataOffset,
+                DataOffset + ChunkLength,
+                "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
+                % (ChunkName.decode(errors="ignore"), ToBrute, fullnewdatax.hex()),
+                ChunkName.decode(errors="ignore"),
+                FromError,
+            )
 
     else:
         PRINT(
@@ -5608,81 +5683,81 @@ def SmashBruteBrawl(
             ["-Bruteforcer has Failed"],
             File,
             ChunkName,
-            ChunkLenght,
+            ChunkLength,
             DataOffset,
             EditMode,
             BfMode,
             BruteCrc,
-            BruteLenght,
+            BruteLength,
             FromError,
         )
 
 
-def MiniChunkForcerNoCrc(
-    File, Chunk, DataOffset, ChunkLenght, CIndexList, FromError
-):  ## need to be merged with SmashBruteBrawl
-    global SideNotes
-    Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
-    Chunk = Chunk.encode(errors="ignore")
-    FewYearsLater = False
-    value = 0
-    cidx = []
-    total_len = 0
+#def MiniChunkForcerNoCrc(
+#    File, Chunk, DataOffset, ChunkLength, CIndexList, FromError
+#):  ## need to be merged with SmashBruteBrawl
+#    global SideNotes
+#    Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
+#    Chunk = Chunk.encode(errors="ignore")
+#    FewYearsLater = False
+#    value = 0
+#    cidx = []
+#    total_len = 0
 
-    if DEBUG is True:
-        PRINT("file:%s"% File)
-        PRINT("chunk:%s"% Chunk)
-        PRINT("offd:%s"% DataOffset)
-        PRINT("cl:%s"% ChunkLenght)
-        if PAUSEDEBUG is True:
-            Pause("Pause:MiniChunkForcerNoCrc")
-    try:
-        with open(Sample, "rb") as f:
-            data = f.read()
-    except Exception as e:
-        Betterror(e, inspect.stack()[0][3])
-        PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-        TheEnd()
+#    if DEBUG is True:
+#        PRINT("file:%s"% File)
+#        PRINT("chunk:%s"% Chunk)
+#        PRINT("offd:%s"% DataOffset)
+#        PRINT("cl:%s"% ChunkLength)
+#        if PAUSEDEBUG is True:
+#            Pause("Pause:MiniChunkForcerNoCrc")
+#    try:
+#        with open(Sample, "rb") as f:
+#            data = f.read()
+#    except Exception as e:
+#        Betterror(e, inspect.stack()[0][3])
+#        PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
+#        TheEnd()
 
-    datax = data.hex()[DataOffset:ChunkLenght]
-    haystack = datax[16:-8]
+#    datax = data.hex()[DataOffset:ChunkLength]
+#    haystack = datax[16:-8]
 
-    if DEBUG:
-        for i in CIndexList:
-            PRINT("CIndexList:%s"% i)
-        if PAUSEDEBUG is True:
-            Pause("Pause:Reboot")
-    Bingo = False
-    result = "result is empty"
-    needle = 0
+#    if DEBUG:
+#        for i in CIndexList:
+#            PRINT("CIndexList:%s"% i)
+#        if PAUSEDEBUG is True:
+#            Pause("Pause:Reboot")
+#    Bingo = False
+#    result = "result is empty"
+#    needle = 0
 
-    for key in CIndexList:
-        start = int(key.split("CIndex([")[1].split(":")[0])
-        stop = int(key.split("CIndex([")[1].split(":")[1].split("])")[0])
-        ln = stop - start
-        total_len += ln
-        cidx.append((start, stop, ln))
+#    for key in CIndexList:
+#        start = int(key.split("CIndex([")[1].split(":")[0])
+#        stop = int(key.split("CIndex([")[1].split(":")[1].split("])")[0])
+#        ln = stop - start
+#        total_len += ln
+#        cidx.append((start, stop, ln))
     #    PRINT("heystack:%s"%haystack)
-    while True:
-        Minibar()
-        break ## just fget out of here .
-        haystack, value, FewYearsLater = Bruthex(cidx, value, str(haystack), total_len)
-        if FewYearsLater is True:
-            break
-        newbytes = bytes.fromhex(haystack)
-        checksum = hex(binascii.crc32(Chunk + newbytes)).replace("0x", "").zfill(8)
-        fullnewdatax = datax[:16] + haystack + checksum
-        newfilewanabe = DATAX[:DataOffset] + fullnewdatax + DATAX[ChunkLenght:]
+#    while True:
+#        Minibar()
+#        break ## just fget out of here .
+#        haystack, value, FewYearsLater = Bruthex(cidx, value, str(haystack), total_len)
+#        if FewYearsLater is True:
+#            break
+#        newbytes = bytes.fromhex(haystack)
+#        checksum = hex(binascii.crc32(Chunk + newbytes)).replace("0x", "").zfill(8)
+#        fullnewdatax = datax[:16] + haystack + checksum
+#        newfilewanabe = DATAX[:DataOffset] + fullnewdatax + DATAX[ChunkLength:]
 #        try:
-        f = io.BytesIO()
-        with stderr_redirector(f):
-                newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
-                try:
-                    cv2.imdecode(newfilewanarray, cv2.IMREAD_COLOR)
-                except Exception as e:
-                    PRINT("Error:%s"%e)
-                    continue
-        result = "{0}".format(f.getvalue().decode("utf-8"))
+#        f = io.BytesIO()
+#        with stderr_redirector(f):
+#                newfilewanarray = np.fromstring(bytes.fromhex(newfilewanabe), np.uint8)
+#                try:
+#                    cv2.imdecode(newfilewanarray, cv2.IMREAD_COLOR)
+#                except Exception as e:
+#                    PRINT("Error:%s"%e)
+#                    continue
+#        result = "{0}".format(f.getvalue().decode("utf-8"))
 #        except Exception as e:
 #            Betterror(e, inspect.stack()[0][3])
 #            if DEBUG is True:
@@ -5695,85 +5770,85 @@ def MiniChunkForcerNoCrc(
 #                Pause("Pause:Debug")
         #            Pause("pause")
 #        if "libpng error" not in result and result != "result is empty":
-        if not any(s in result for s in LIBPNG_ERR):
-            diffobj = difflib.SequenceMatcher(None, datax[16:], fullnewdatax)
-            good = ""
-            bad = ""
-            for block in diffobj.get_opcodes():
-                if block[0] != "equal":
-                    good += "\033[1;32;49m%s\033[m" % fullnewdatax[block[1] : block[2]]
-                    bad += "\033[1;31;49m%s\033[m" % datax[16:][block[1] : block[2]]
-                else:
-                    good += fullnewdatax[block[1] : block[2]]
-                    bad += datax[16:][block[1] : block[2]]
-            Bingo = True
-            break
+#        if not any(s in result for s in LIBPNG_ERR):
+#            diffobj = difflib.SequenceMatcher(None, datax[16:], fullnewdatax)
+#            good = ""
+#            bad = ""
+#            for block in diffobj.get_opcodes():
+#                if block[0] != "equal":
+#                    good += "\033[1;32;49m%s\033[m" % fullnewdatax[block[1] : block[2]]
+#                    bad += "\033[1;31;49m%s\033[m" % datax[16:][block[1] : block[2]]
+#                else:
+#                    good += fullnewdatax[block[1] : block[2]]
+#                    bad += datax[16:][block[1] : block[2]]
+#            Bingo = True
+#            break
 
 
-    PRINT("result: %s"%result)
-    if Bingo is True:
-        PRINT(
-            "-Bruteforce was %s %s"
-            % (Candy("Color", "green", "Successfull!"), Candy("Emoj", "good"))
-        )
-        PRINT(
-            "-Chunk %s has been repaired by changing those bytes:\n"
-            % Candy("Color", "green", Chunk)
-        )
-        PRINT(bad)
-        PRINT("\n-With those bytes:\n")
-        PRINT(good)
-        Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
-        SideNotes.append(
-            "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s\n-with bytes:\n%s"
-            % (Chunk, datax[16:], fullnewdatax)
-        )
-        return CheckPoint(
-            True,
-            True,
-            "MiniChunkForcerNoCrc",
-            Chunk.decode(errors="ignore"),
-            ["-Data has been corrupted"],
-            fullnewdatax,
-            DataOffset,
-            DataOffset + ChunkLenght,
-            "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
-            % (Chunk.decode(errors="ignore"), datax[16:], fullnewdatax),
-            Chunk.decode(errors="ignore"),
-            FromError,
-        )
+#    PRINT("result: %s"%result)
+#    if Bingo is True:
+#        PRINT(
+#            "-Bruteforce was %s %s"
+#            % (Candy("Color", "green", "Successfull!"), Candy("Emoj", "good"))
+#        )
+#        PRINT(
+#            "-Chunk %s has been repaired by changing those bytes:\n"
+#            % Candy("Color", "green", Chunk)
+#        )
+#        PRINT(bad)
+#        PRINT("\n-With those bytes:\n")
+#        PRINT(good)
+#        Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
+#        SideNotes.append(
+#            "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s\n-with bytes:\n%s"
+#            % (Chunk, datax[16:], fullnewdatax)
+#        )
+#        return CheckPoint(
+#            True,
+#            True,
+#            "MiniChunkForcerNoCrc",
+#            Chunk.decode(errors="ignore"),
+#            ["-Data has been corrupted"],
+#            fullnewdatax,
+#            DataOffset,
+#            DataOffset + ChunkLength,
+#            "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
+#            % (Chunk.decode(errors="ignore"), datax[16:], fullnewdatax),
+#            Chunk.decode(errors="ignore"),
+#            FromError,
+#        )
 
-    else:
-        PRINT(
-            "-Bruteforce has %s %s"
-            % (Candy("Color", "red", "Failed!"), Candy("Emoj", "bad"))
-        )
-        Candy("Cowsay", "Too bad that was the easy way ..", "bad")
-        SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
-        Candy("Cowsay", "Wanna try to bruteforce the entire chunk instead ?", "com")
-        Answer = Question()
-        if Answer is True:
-            return SmashBruteBrawl(
-                File,
-                Chunk,
-                ChunkLenght,
-                DataOffset,
-                FromError
-            )
-        else:
-            TheEnd()
-        return CheckPoint(
-            True,
-            False,
-            "MiniChunkForcerNoCrc",
-            Chunk.decode(errors="ignore"),
-            ["-Bruteforcer has Failed"],
-            FromError,
-        )
+#    else:
+#        PRINT(
+#            "-Bruteforce has %s %s"
+#            % (Candy("Color", "red", "Failed!"), Candy("Emoj", "bad"))
+#        )
+#        Candy("Cowsay", "Too bad that was the easy way ..", "bad")
+#        SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
+#        Candy("Cowsay", "Wanna try to bruteforce the entire chunk instead ?", "com")
+#        Answer = Question()
+#        if Answer is True:
+#            return SmashBruteBrawl(
+#                File,
+#                Chunk,
+#                ChunkLength,
+#                DataOffset,
+#                FromError
+#            )
+#        else:
+#            TheEnd()
+#        return CheckPoint(
+#            True,
+#            False,
+#            "MiniChunkForcerNoCrc",
+#            Chunk.decode(errors="ignore"),
+#            ["-Bruteforcer has Failed"],
+#            FromError,
+#        )
 
 
 def FullChunkForcerNoCrc(
-    File, Chunk, DataOffset, ChunkLenght, FromError
+    File, Chunk, DataOffset, ChunkLength, FromError
 ):  ## need to be merged with SmashBruteBrawl
     global SideNotes
     Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
@@ -5783,7 +5858,7 @@ def FullChunkForcerNoCrc(
         PRINT("file:%s"% File)
         PRINT("chunk:%s"% Chunk)
         PRINT("offd:%s"% DataOffset)
-        PRINT("cl:%s"% ChunkLenght)
+        PRINT("cl:%s"% ChunkLength)
         if PAUSEDEBUG is True:
             Pause("Debug Pause:")
 
@@ -5795,7 +5870,7 @@ def FullChunkForcerNoCrc(
         PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
         TheEnd()
 
-    datax = data.hex()[DataOffset:ChunkLenght]  # datax[16:-8]
+    datax = data.hex()[DataOffset:ChunkLength]  # datax[16:-8]
     Bingo = False
     result = "result is empty"
     needle = 0
@@ -5816,7 +5891,7 @@ def FullChunkForcerNoCrc(
                 #                PRINT("newdataxt:%s"%newdatax.hex())
                 #                PRINT("checksum:%s"%checksum)
                 fullnewdatax = datax[:16] + newdatax.hex() + checksum
-                newfilewanabe = DATAX[:DataOffset] + fullnewdatax + DATAX[ChunkLenght:]
+                newfilewanabe = DATAX[:DataOffset] + fullnewdatax + DATAX[ChunkLength:]
 
                 #                PRINT(newdatax_copy)
                 try:
@@ -5895,7 +5970,7 @@ def FullChunkForcerNoCrc(
             ["-Data has been corrupted"],
             fullnewdatax,
             DataOffset,
-            DataOffset + ChunkLenght,
+            DataOffset + ChunkLength,
             "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
             % (Chunk.decode(errors="ignore"), datax[16:], fullnewdatax),
             Chunk.decode(errors="ignore"),
@@ -5920,124 +5995,124 @@ def FullChunkForcerNoCrc(
         )
 
 
-def FullChunkForcerWithCrc(
-    File, Chunk, OldCrc, DataOffset, ChunkLenght, FromError
-):  ## need to be merged with SmashBruteBrawl
-    global SideNotes
-    Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
-    Chunk = Chunk.encode(errors="ignore")
-    if DEBUG is True:
-        PRINT("file:%s"% File)
-        PRINT("chunk:%s"% Chunk)
-        PRINT("crc:%s"% OldCrc)
-        PRINT("offd:%s"% DataOffset)
-        PRINT("cl:%s"% ChunkLenght)
-        if PAUSEDEBUG is True:
-            Pause("Pause:Debug")
+#def FullChunkForcerWithCrc(
+#    File, Chunk, OldCrc, DataOffset, ChunkLength, FromError
+#):  ## need to be merged with SmashBruteBrawl
+#    global SideNotes
+#    Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
+#    Chunk = Chunk.encode(errors="ignore")
+#    if DEBUG is True:
+#        PRINT("file:%s"% File)
+#        PRINT("chunk:%s"% Chunk)
+#        PRINT("crc:%s"% OldCrc)
+#        PRINT("offd:%s"% DataOffset)
+#        PRINT("cl:%s"% ChunkLength)
+#        if PAUSEDEBUG is True:
+#            Pause("Pause:Debug")
 
-    try:
-        with open(Sample, "rb") as f:
-            data = f.read()
-    except Exception as e:
-        Betterror(e, inspect.stack()[0][3])
-        PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-        TheEnd()
+#    try:
+#        with open(Sample, "rb") as f:
+#            data = f.read()
+#    except Exception as e:
+#        Betterror(e, inspect.stack()[0][3])
+#        PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
+#        TheEnd()
 
     #    if File == "IHDR-Wrong-Width.png":
     #        time.sleep(15)
-    datax = data.hex()[DataOffset : DataOffset + (ChunkLenght * 2)]
+#    datax = data.hex()[DataOffset : DataOffset + (ChunkLength * 2)]
     # datax = data.hex()[DataOffset : DataOffset + 6]
-    Bingo = False
-    needle = 0
-    needle2 = 2
-    while needle2 <= len(datax) and Bingo is False:
-        Minibar()
-        if needle < len(datax) - (needle2 - 1) and Bingo is False:
-            for hexa in range(0, 16 ** needle2):
-                newbyte = (hex(hexa).replace("0x", "")).zfill(needle2)
-                newdatax_copy = (
-                    datax[:needle] + newbyte + datax[needle + len(newbyte) :]
-                )
-                newdatax = bytes.fromhex(newdatax_copy)
-                checksum = (
-                    hex(binascii.crc32(Chunk + newdatax)).replace("0x", "").zfill(8)
-                )
+#    Bingo = False
+#    needle = 0
+#    needle2 = 2
+#    while needle2 <= len(datax) and Bingo is False:
+#        Minibar()
+#        if needle < len(datax) - (needle2 - 1) and Bingo is False:
+#            for hexa in range(0, 16 ** needle2):
+#                newbyte = (hex(hexa).replace("0x", "")).zfill(needle2)
+#                newdatax_copy = (
+#                    datax[:needle] + newbyte + datax[needle + len(newbyte) :]
+#                )
+#                newdatax = bytes.fromhex(newdatax_copy)
+#                checksum = (
+#                    hex(binascii.crc32(Chunk + newdatax)).replace("0x", "").zfill(8)
+#                )
                 #                PRINT(newdatax_copy)
 
-                if checksum == OldCrc:
-                    diffobj = difflib.SequenceMatcher(None, datax, newdatax_copy)
-                    good = ""
-                    bad = ""
-                    for block in diffobj.get_opcodes():
-                        if block[0] != "equal":
-                            good += (
-                                "\033[1;32;49m%s\033[m"
-                                % newdatax_copy[block[1] : block[2]]
-                            )
-                            bad += "\033[1;31;49m%s\033[m" % datax[block[1] : block[2]]
-                        else:
-                            good += newdatax_copy[block[1] : block[2]]
-                            bad += datax[block[1] : block[2]]
-                    Bingo = True
-                    break
+#                if checksum == OldCrc:
+#                    diffobj = difflib.SequenceMatcher(None, datax, newdatax_copy)
+#                    good = ""
+#                    bad = ""
+#                    for block in diffobj.get_opcodes():
+#                        if block[0] != "equal":
+#                            good += (
+#                                "\033[1;32;49m%s\033[m"
+#                                % newdatax_copy[block[1] : block[2]]
+#                            )
+#                            bad += "\033[1;31;49m%s\033[m" % datax[block[1] : block[2]]
+#                        else:
+#                            good += newdatax_copy[block[1] : block[2]]
+#                            bad += datax[block[1] : block[2]]
+#                    Bingo = True
+#                    break
 
-            needle += 1
-        else:
-            needle = 0
-            needle2 += 2
+#            needle += 1
+#        else:
+#            needle = 0
+#            needle2 += 2
     #            PRINT("needle2 = ",needle2)
     #            Pause("poz2")
 
-    if Bingo is True:
-        PRINT(
-            "-Bruteforce was %s %s"
-            % (Candy("Color", "green", "Successfull!"), Candy("Emoj", "good"))
-        )
-        PRINT(
-            "-Previous Crc %s has been found by changing those bytes:\n"
-            % Candy("Color", "green", OldCrc)
-        )
-        PRINT(bad)
-        PRINT("\n-With those bytes:\n")
-        PRINT(good)
-        Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
-        SideNotes.append(
-            "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Previous Crc %s has been found by changing those bytes:\n%s\n-with bytes:\n%s"
-            % (OldCrc, datax, newdatax_copy)
-        )
+#    if Bingo is True:
+#        PRINT(
+#            "-Bruteforce was %s %s"
+#            % (Candy("Color", "green", "Successfull!"), Candy("Emoj", "good"))
+#        )
+#        PRINT(
+#            "-Previous Crc %s has been found by changing those bytes:\n"
+#            % Candy("Color", "green", OldCrc)
+#        )
+#        PRINT(bad)
+#        PRINT("\n-With those bytes:\n")
+#        PRINT(good)
+#        Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
+#        SideNotes.append(
+#            "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Previous Crc %s has been found by changing those bytes:\n%s\n-with bytes:\n%s"
+ #           % (OldCrc, datax, newdatax_copy)
+ #       )
 
-        #   Pause("Theend")
-        #   TheEnd()
-        return CheckPoint(
-            True,
-            True,
-            "SmashBruteBrawl", # tmp fix
-            Chunk.decode(errors="ignore"),
-            ["-Data has been corrupted"],
-            newdatax_copy+OldCrc,
-            DataOffset,
-            DataOffset + (ChunkLenght * 2)+len(OldCrc),
-            "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
-            % (Chunk.decode(errors="ignore"), datax, newdatax_copy),
-            Chunk.decode(errors="ignore"),
-            FromError,
-        )
+#        #   Pause("Theend")
+#        #   TheEnd()
+#        return CheckPoint(
+#            True,
+#            True,
+#            "SmashBruteBrawl", # tmp fix
+#            Chunk.decode(errors="ignore"),
+#            ["-Data has been corrupted"],
+#            newdatax_copy+OldCrc,
+#            DataOffset,
+#            DataOffset + (ChunkLength * 2)+len(OldCrc),
+#            "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
+#            % (Chunk.decode(errors="ignore"), datax, newdatax_copy),
+#            Chunk.decode(errors="ignore"),
+#            FromError,
+#        )
 
-    else:
-        PRINT(
-            "-Bruteforce has %s %s"
-            % (Candy("Color", "red", "Failed!"), Candy("Emoj", "bad"))
-        )
-        Candy("Cowsay", "I was afraid of this ..Looks like we r stuck..", "bad")
-        SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
-        return CheckPoint(
-            True,
-            False,
-            "SmashBruteBrawl", #tmp fix
-            Chunk.decode(errors="ignore"),
-            ["-Bruteforcer has Failed"],
-            FromError,
-        )
+#    else:
+#        PRINT(
+#            "-Bruteforce has %s %s"
+#            % (Candy("Color", "red", "Failed!"), Candy("Emoj", "bad"))
+#        )
+#        Candy("Cowsay", "I was afraid of this ..Looks like we r stuck..", "bad")
+#        SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
+#        return CheckPoint(
+#            True,
+#            False,
+#            "SmashBruteBrawl", #tmp fix
+#            Chunk.decode(errors="ignore"),
+#            ["-Bruteforcer has Failed"],
+#            FromError,
+#        )
 
 
 def FindMagic():
@@ -6120,6 +6195,7 @@ def FindMagic():
                     SideNotes.append(
                         "-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented."
                     )
+                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
                     # FullChunkForcerWithCrc()
                     TheEnd()
 
@@ -6139,6 +6215,7 @@ def FindMagic():
                     SideNotes.append(
                         "-Major Corruption due to line feed conversion\n-File may not be recovered.\n-Not yet implemented."
                     )
+                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
                     TheEnd()
 
         Candy("Cowsay", " Ok let's dig a little bit deeper..", "bad")
@@ -6385,7 +6462,7 @@ def FindFuckingMagic():
             else:
                 Lenx = DATAX[:NearestPos]
 
-            Specheck = SpecLenght(NearestChk, Lenx)
+            Specheck = SpecLength(NearestChk, Lenx)
 
             if Specheck != Lenx and type(Specheck) != list:
                 Lenx = Specheck
@@ -6607,7 +6684,7 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
     
     if Chunkname == b"IHDR":
 
-        DummyLength = SpecLenght(Chunkname)
+        DummyLength = SpecLength(Chunkname)
         DummyName = hex(int.from_bytes(Chunkname, byteorder="big")).replace("0x", "")
         DummyData = "00000010000000100803000000"
         DummyCrc = hex(binascii.crc32(Chunkname + bytes.fromhex(DummyData))).replace(
@@ -7203,7 +7280,7 @@ def NameShift():
         Candy("Cowsay", "Mokay ..Maybe some bytes are missing somewhere ..", "com")
 
         lenioff = DATAX[ioff-8:ioff]
-        reallen = SpecLenght(value, lenioff)
+        reallen = SpecLength(value, lenioff)
 
         if lenioff != reallen:
 
@@ -7572,7 +7649,7 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
         )
 
 
-def SpecLenght(chunk_name, chunk_length=None):
+def SpecLength(chunk_name, chunk_length=None):
     global SideNotes 
 
     if chunk_length:
@@ -7580,7 +7657,7 @@ def SpecLenght(chunk_name, chunk_length=None):
         Candy("Cowsay", "Kay ..Just Checking if the length part is legit..", "com")
 
     if chunk_name in [b"tRNS", b"bKGD", b"sBIT"]:
-            GetColor = ColorType(chunk_name,"SpecLenght")
+            GetColor = ColorType(chunk_name,"SpecLength")
     else:
             GetColor = "nocolortype"
 
@@ -7651,7 +7728,7 @@ def SpecLenght(chunk_name, chunk_length=None):
                                     "good",
                                 )
                                 SideNotes.append(
-                                    "-SpecLenght:Giving correct length:  %s -"
+                                    "-SpecLength:Giving correct length:  %s -"
                                     % chunk_length
                                 )
                                 return chunk_length
@@ -7666,7 +7743,7 @@ def SpecLenght(chunk_name, chunk_length=None):
                                     "bad",
                                 )
                                 SideNotes.append(
-                                    "-SpecLenght:Giving correct length:  %s -" % real_length
+                                    "-SpecLength:Giving correct length:  %s -" % real_length
                                 )
                                 PRINT("\n-Returning correct fixed length :%s"% real_length)
                                 return real_length
@@ -7876,10 +7953,15 @@ def SaveClone(DataFix, start, end, infos):
 
     Candy("Title", "Saving Clone")
     try:
-        PRINT("-Data : %s\n" % bytes.fromhex(DataFix))
+        if len(str(DataFix)) > MAXCHAR:
+            PRINT("-Data:Too Big To be displayed")
+        else:
+            PRINT("-Data : %s\n" % bytes.fromhex(DataFix))
+
+
     except Exception as e:
         Betterror(e, inspect.stack()[0][3])
-        PRINT("-Data : %s\n" % DataFix)
+
 
     Summarise(infos)
     Before = DATAX[:start]
@@ -7897,7 +7979,15 @@ def WriteClone(data):
     Pandemonium[Sample] = PandoraBox
     ArkOfCovenant[Sample] = Cornucopia
 
-    data = bytes.fromhex(data)
+    try:
+        data = bytes.fromhex(data)
+    except ValueError as e:
+        print("error:",e)
+        print("type(data):",type(data))
+    except TypeError as e:
+        print("error:",e)
+        print("type(data):",type(data))
+
     name, dir = Naming(FILE_Origin)
 
     PRINT(Candy("Color", "green", "-Saving to : %s")% dir + "/" + name)
@@ -8026,27 +8116,30 @@ def Relics(FromError):
                         # def Checksum(Ctype, Cdata, Crc,next=None):
                         Chunk = Pandemonium[file][errors][Chunkname + "_Tool_3"]
                         OldCrc = Pandemonium[file][errors][Chunkname + "_Tool_5"]
-                        ChunkLenght = Pandemonium[file][errors][Chunkname + "_Tool_6"]
+                        ChunkLength = Pandemonium[file][errors][Chunkname + "_Tool_6"]
                         DataOffset = Pandemonium[file][errors][Chunkname + "_Tool_7"]
                         if nb1 == 0:
-                            FullChunkForcerWithCrc(
+
+                            SmashBruteBrawl(
                                 FILE_Origin,
                                 Chunk,
-                                OldCrc,
+                                ChunkLength,
                                 DataOffset,
-                                ChunkLenght,
                                 FromError,
+                                BfMode="OldCrc:%s"%OldCrc,
+                                BruteLength=False
                             )
+
                             return ()
                         else:
-                            pass
-                            FullChunkForcerWithCrc(
+                            SmashBruteBrawl(
                                 os.path.dirname(Sample) + "/" + file,
                                 Chunk,
-                                OldCrc,
+                                ChunkLength,
                                 DataOffset,
-                                ChunkLenght,
                                 FromError,
+                                BfMode="OldCrc:%s"%OldCrc,
+                                BruteLength=False
                             )
                             return ()
                     # print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),errors))
@@ -8078,11 +8171,11 @@ def Relics(FromError):
                                 ]
                             )
 
-                        ChunkLenght = Pandemonium[file][errors][ChunkName + "_Tool_1"]
+                        ChunkLength = Pandemonium[file][errors][ChunkName + "_Tool_1"]
                         DataOffset = Pandemonium[file][errors][ChunkName + "_Tool_3"]
 
                         if ChunkName.encode() in CRITICAL_CHUNKS:
-                            ChunkLenght = Pandemonium[file][errors][
+                            ChunkLength = Pandemonium[file][errors][
                                 ChunkName + "_Tool_1"
                             ]
                             DataOffset = Pandemonium[file][errors][
@@ -8115,7 +8208,7 @@ def Relics(FromError):
                                 return SmashBruteBrawl(
                                     file,
                                     ChunkName,
-                                    ChunkLenght,
+                                    ChunkLength,
                                     DataOffset,
                                     FromError
                                 )
@@ -8143,7 +8236,7 @@ def Relics(FromError):
                                 return SmashBruteBrawl(
                                     file,
                                     ChunkName,
-                                    ChunkLenght,
+                                    ChunkLength,
                                     DataOffset,
                                     FromError
                                 )
@@ -8346,7 +8439,7 @@ def FixItFelix(Chunk=None):
     global Skip_Bad_Next_Name
     global Skip_Bad_Next_Ancillary
     global Skip_Bad_Infos
-    global Skip_Bad_Lenght
+    global Skip_Bad_Length
     global Skip_Bad_Crc
     global Skip_Bad_Missplaced
     global Skip_Bad_Critical
@@ -8368,7 +8461,7 @@ def FixItFelix(Chunk=None):
         PRINT("Bad_No_Next_Chunk:%s"% Bad_No_Next_Chunk)
         PRINT("Bad_Next_Name:%s"% Bad_Next_Name)
         PRINT("Bad_Next_Ancillary:%s"% Bad_Next_Ancillary)
-        PRINT("Bad_Lenght:%s"% Bad_Lenght)
+        PRINT("Bad_Length:%s"% Bad_Length)
         PRINT("Bad_Infos:%s"% Bad_Infos)
         PRINT("Bad_Crc:%s"% Bad_Crc)
         PRINT("Bad_Critical:%s"% Bad_Critical)
@@ -8379,7 +8472,7 @@ def FixItFelix(Chunk=None):
         PRINT("Skip_Bad_No_Next_Chunk:%s"% Skip_Bad_No_Next_Chunk)
         PRINT("Skip_Bad_Next_Name:%s"% Skip_Bad_Next_Name)
         PRINT("Skip_Bad_Next_Ancillary:%s"% Skip_Bad_Next_Ancillary)
-        PRINT("Skip_Bad_Lenght:%s"% Skip_Bad_Lenght)
+        PRINT("Skip_Bad_Length:%s"% Skip_Bad_Length)
         PRINT("Skip_Bad_Infos:%s"% Skip_Bad_Infos)
         PRINT("Skip_Bad_Crc:%s"% Skip_Bad_Crc)
         PRINT("Skip_Bad_Critical:%s"% Skip_Bad_Critical)
@@ -8794,7 +8887,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
     global Bad_Next_Name
     global Bad_Next_Ancillary
     global Bad_Infos
-    global Bad_Lenght
+    global Bad_Length
     global Bad_Crc
     global Bad_Missplaced
     global Bad_Critical
@@ -8896,7 +8989,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                 SideNotes.append("-CheckPoint: %s" % info)
                 return WriteClone(ToolKit[0])
 
-            if "Data has been corrupted" in info: #tmp fix
+            if "Previous Crc checksum" in info: #tmp fix
                 SideNotes.append("-CheckPoint: %s" % info)
                 return SaveClone(ToolKit[0], ToolKit[1] , ToolKit[2], ToolKit[3])
 
@@ -9148,7 +9241,7 @@ def main():
     global Bad_Next_Name
     global Bad_Next_Ancillary
     global Bad_Infos
-    global Bad_Lenght
+    global Bad_Length
     global Bad_Crc
     global Bad_Missplaced
     global Bad_Critical
@@ -9159,7 +9252,7 @@ def main():
     global Skip_Bad_Next_Name
     global Skip_Bad_Next_Ancillary
     global Skip_Bad_Infos
-    global Skip_Bad_Lenght
+    global Skip_Bad_Length
     global Skip_Bad_Crc
     global Skip_Bad_Missplaced
     global Skip_Bad_Critical
@@ -9283,7 +9376,7 @@ def main():
         Bad_No_Next_Chunk = False
         Bad_Next_Name = False
         Bad_Next_Ancillary = False
-        Bad_Lenght = False
+        Bad_Length = False
         Bad_Infos = False
         Bad_Crc = False
         Bad_Critical = False
@@ -9293,7 +9386,7 @@ def main():
         Skip_Bad_No_Next_Chunk = False
         Skip_Bad_Next_Name = False
         Skip_Bad_Next_Ancillary = False
-        Skip_Bad_Lenght = False
+        Skip_Bad_Length = False
         Skip_Bad_Infos = False
         Skip_Bad_Crc = False
         Skip_Bad_Critical = False
@@ -9656,7 +9749,7 @@ Bad_Ancillary = False
 Bad_No_Next_Chunk = False
 Bad_Next_Name = False
 Bad_Next_Ancillary = False
-Bad_Lenght = False
+Bad_Length = False
 Bad_Infos = False
 Bad_Crc = False
 Bad_Critical = False
@@ -9667,7 +9760,7 @@ Skip_Bad_Ancillary = False
 Skip_Bad_No_Next_Chunk = False
 Skip_Bad_Next_Name = False
 Skip_Bad_Next_Ancillary = False
-Skip_Bad_Lenght = False
+Skip_Bad_Length = False
 Skip_Bad_Infos = False
 Skip_Bad_Crc = False
 Skip_Bad_Critical = False
