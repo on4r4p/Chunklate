@@ -5359,6 +5359,7 @@ def SmashBruteBrawl(
     CNamex_New = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x", "")
 
     Bingo = False
+    TmpImgLst = []
     result = "bad result"
 
     if "OldCrc:" in BfMode: 
@@ -5589,7 +5590,7 @@ def SmashBruteBrawl(
                        TmpI.save(tmpname)
                        Candy("Cowsay", "I took the liberty to save a copy of that image just in case.", "com")
                        PRINT("-Image saved at:%s\n"%tmpname)
-
+                       TmpImgLst.append(tmpname)
                        Summarise("-SmashBruteBrawl:Image nbr %s Skipped due to user input timeout.\n-SmashBruteBrawl:Image saved at %s ."%(str(n-2),tmpname)) 
 
                    except Exception as e:
@@ -5675,6 +5676,13 @@ def SmashBruteBrawl(
 
         Candy("Cowsay", "I was afraid of this ...", "bad")
         SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
+
+        if len(TmpImgLst) > 0:
+           Candy("Cowsay", "But while you were away i v saved some pictures maybe you should take a look ...", "bad")
+
+           for pic in TmpImgLst:
+               PRINT("-Saved Valid Image: %s"%pic)
+
         return CheckPoint(
             True,
             False,
@@ -7253,10 +7261,17 @@ def CheckChunkOrder(lastchunk, mode):
         return Excluded
 
 
+
 def NameShift():
     Candy("Title", "Checking around Chunk's position:")
     ToFix = []
     Shifted = False
+    last_chunk_nbr = ""
+    last_chunk_start = ""
+    last_chunk_end = ""
+    last_chunk_len = ""
+    good_offset = False
+
     if DEBUG is True:
         for c, i in zip(Chunks_History, Chunks_History_Index):
             PRINT("\nCame accross that chunk: %s"% c)
@@ -7270,9 +7285,11 @@ def NameShift():
               PRINT("\n-Current value of chunkname at offset %s : %s"%(str(CToffI),bytes.fromhex(DATAX[CToffI:CToffI+8])))
               SideNotes.append("-NameShift: Found correct chunkname i:%s Offset:%s data: %s"%(str(i),str(ioff),value))
               if ioff < CToffI:
-                  PRINT(Candy("Color", "green", "-Found correct chunkname %s at exactly %s bytes before .")%(value,str( int((CToffI-ioff)/2) )))
+                  good_offset = CToffI-ioff
+                  PRINT(Candy("Color", "green", "-Found valid chunkname %s at exactly %s bytes before.")%(value,str( int((good_offset)/2) )))
               elif ioff > CToffI:
-                  PRINT(Candy("Color", "green", "-Found correct chunkname %s at exactly %s bytes after.")%(value,str( int((ioff-CToffI)/2) )))
+                  good_offset = ioff-CToffI
+                  PRINT(Candy("Color", "green", "-Found valid chunkname %s at exactly %s bytes after.")%(value,str( int((good_offset)/2) )))
               Shifted = True
               break
     if Shifted :
@@ -7286,7 +7303,7 @@ def NameShift():
 
              Candy("Cowsay", "I knew there was something odd..", "bad")
              Candy("Cowsay", "The good news is we wont have to bruteforce all the previous chunk...", "com")
-
+             Candy("Cowsay", "The problems seems to come from the length part .", "good")
              datpart = int.from_bytes(bytes.fromhex(reallen), byteorder="big")*2
              Ctype = value
              Cdata = bytes.fromhex(DATAX[ioff+8:ioff+8+datpart])
@@ -7301,10 +7318,40 @@ def NameShift():
                 + "\n"
                 )
 
-                 Candy("Cowsay", "Found the culprit! Now lets fix this !", "good")
+                 Candy("Cowsay", "Found the culprit!", "good")
                  SideNotes.append("-NameShift:Crc check is valid.")
                  fixed = reallen + value.hex() + DATAX[ioff+8:ioff+8+datpart] + Crc.replace("0x","")
-                 return(fixed)
+
+                 if ioff > CToffI:
+                      for c, i in zip(Chunks_History, Chunks_History_Index):
+                          if int(i.split(":")[2]) < CToffI:
+                                    last_chunk_nbr = i.split(":")[0]
+                                    last_chunk_start = int(i.split(":")[1])
+                                    last_chunk_end = int(i.split(":")[2])
+                                    last_chunk_len = int(i.split(":")[3])
+                          else:
+                              break
+
+                      if len(last_chunk_nbr) > 0:
+#                          print("last_chunk_nbr:",last_chunk_nbr)
+#                          print("last_chunk_start:",last_chunk_start)
+#                          print("last_chunk_end:",last_chunk_end)
+#                          print("last_chunk_len:",last_chunk_len)
+
+                          if ioff == last_chunk_end + 8 + good_offset:
+#                             print(last_chunk_end + 8 + good_offset)
+                             SideNotes.append("-NameShift: Extra bytes has been found.")
+                             Candy("Cowsay", "Found some extra bytes for some reason.. let's fix this now .", "good")
+                             return([fixed,len(fixed)+good_offset,CToffI - 8])
+                          else:
+                             print("bad")
+                             print(last_chunk_end + 8 + good_offset)
+                             PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                             TheEnd()
+                 else:
+                     Candy("Cowsay", "So there was some missing bytes after all let's fix this now .", "good")
+                     SideNotes.append("-NameShift: Missing bytes found.")
+                     return([fixed,len(fixed)-good_offset,CToffI - 8])
 
              else:
                 PRINT(
@@ -7330,6 +7377,10 @@ def NameShift():
              PRINT(Candy("Color", "yellow", "\n-ToDo"))
              TheEnd()
     else:
+        if Shifted:
+            Candy("Cowsay", "Something went wrong sorry ..", "bad")
+            PRINT(Candy("Color", "yellow", "\n-ToDo"))
+            TheEnd()
         return False
 
     TheEnd()
@@ -7357,20 +7408,22 @@ def BruteChunk(CType, LastCType, ChunkLen, FromError):
         "Cowsay", "Before going any further i need to check something real quick...", "com"
     )
 
-    Missing_Bit = NameShift()
+    Shifted_Bit = NameShift()
 
-    if Missing_Bit:
+    if Shifted_Bit:
         SolvedMsg = "-Chunk length has been corrupted due to some missing bytes."
-
+        Fixed = Shifted_Bit[0]
+        FixedLn = Shifted_Bit[1]
+        FixedOff = Shifted_Bit[2]
         return CheckPoint(
             True,
             True,
             "CheckChunkName",
             Orig_CT,
             [SolvedMsg],
-            Missing_Bit,
-            len(Missing_Bit)-2,
-            CToffI - 8,
+            Fixed,
+            FixedLn,
+            FixedOff,
             SolvedMsg,
             FromError,
         )
