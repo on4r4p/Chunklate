@@ -897,11 +897,11 @@ def GetInfo(Chunk, data, Dummy=False):
 
     Candy("Title", "Getting infos about:", Candy("Color", "white", str(Chunk)))
 
-    if Chunk == "PNG":
+    if Chunk == b"PNG":
         Candy(
             "Cowsay", " Well ..That's a start ..At least it looks like a png.", "good"
         )
-    if Chunk == "IHDR":
+    if Chunk == b"IHDR":
         try:
             IHDR_Width = str(int(data[:8], 16))
 
@@ -1228,7 +1228,7 @@ def GetInfo(Chunk, data, Dummy=False):
             ToFix.append("-Error IHDR:" + str(e))
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
-    if Chunk == "IDAT":
+    if Chunk == b"IDAT":
         IDAT_Bytes_Len_History.append(int(Raw_Length, 16))
         try:
             IDAT_Avg_Len = collections.Counter(IDAT_Bytes_Len_History).most_common(1)[
@@ -1242,7 +1242,7 @@ def GetInfo(Chunk, data, Dummy=False):
         idatcounter += 1
         PRINT("-Image Datastream.")
 
-    if Chunk == "pHYs":
+    if Chunk == b"pHYs":
         try:
             pHYs_Y = str(int(data[:8], 16))
             PRINT("-Pixels per unit, Y axis: %s"% Candy("Color", "yellow", pHYs_Y))
@@ -1353,7 +1353,7 @@ def GetInfo(Chunk, data, Dummy=False):
             ToFix.append("-Error pHys:" + str(e))
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
-    if Chunk == "bKGD":
+    if Chunk == b"bKGD":
         if IHDR_Color == "0" or IHDR_Color == "4":
             try:
                 bKGD_Gray = str(int(data[:4], 16))
@@ -1493,7 +1493,7 @@ def GetInfo(Chunk, data, Dummy=False):
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-    if Chunk == "PLTE":
+    if Chunk == b"PLTE":
 
         PLTE_R = []
         PLTE_G = []
@@ -1675,7 +1675,7 @@ def GetInfo(Chunk, data, Dummy=False):
                 + Candy("Emoj", "good")
             )
 
-    if Chunk == "sPLT":
+    if Chunk == b"sPLT":
         sPLT_Red = []
         sPLT_Green = []
         sPLT_Blue = []
@@ -1995,7 +1995,7 @@ def GetInfo(Chunk, data, Dummy=False):
                 + Candy("Emoj", "good")
             )
 
-    if Chunk == "hIST":
+    if Chunk == b"hIST":
         hIST = []
         if len(data) <= 0:
             PRINT(
@@ -2069,7 +2069,7 @@ def GetInfo(Chunk, data, Dummy=False):
                 + Candy("Emoj", "good")
             )
 
-    if Chunk == "tIME":
+    if Chunk == b"tIME":
         if len(data) < 14:
             PRINT(
                 "-tIME %s inside tIME data.%s"
@@ -2214,7 +2214,7 @@ def GetInfo(Chunk, data, Dummy=False):
                     + Candy("Emoj", "good")
                 )
 
-    if Chunk == "tRNS":
+    if Chunk == b"tRNS":
         TRNSNBR = len(data)
         if len(IHDR_Color) == 0:
             PRINT(
@@ -2378,7 +2378,7 @@ def GetInfo(Chunk, data, Dummy=False):
                 + Candy("Emoj", "good")
             )
 
-    if Chunk == "sRGB":
+    if Chunk == b"sRGB":
         sRGB = str(int(data[:2], 16))
         if sRGB == "0":
             PRINT("-Rendering Perceptual :%s"% Candy("Color", "yellow", sRGB))
@@ -2415,7 +2415,7 @@ def GetInfo(Chunk, data, Dummy=False):
                 + Candy("Emoj", "good")
             )
 
-    if Chunk == "cHRM":
+    if Chunk == b"cHRM":
         try:
             cHRM_WhiteX = str(
                 int.from_bytes(bytes.fromhex(data[:8]), byteorder="big", signed=False)
@@ -2576,7 +2576,7 @@ def GetInfo(Chunk, data, Dummy=False):
                 + Candy("Emoj", "good")
             )
 
-    if Chunk == "gAMA":
+    if Chunk == b"gAMA":
         try:
             gAMA = str(int(data[:8], 16))
             PRINT("-Gama   :%s"% Candy("Color", "white", gAMA))
@@ -2589,7 +2589,7 @@ def GetInfo(Chunk, data, Dummy=False):
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
-    if Chunk == "iCCP":
+    if Chunk == b"iCCP":
         null = "00"
         null_pos = 0
         badchar = ["badchar"]
@@ -2669,7 +2669,7 @@ def GetInfo(Chunk, data, Dummy=False):
                 + Candy("Emoj", "good")
             )
 
-    if Chunk == "sBIT":
+    if Chunk == b"sBIT":
         if IHDR_Color == "0":
             sBIT_Gray = str(int(data[:2], 16))
             PRINT(
@@ -2999,7 +2999,7 @@ def GetInfo(Chunk, data, Dummy=False):
                 + Candy("Emoj", "good")
             )
 
-    if Chunk == "oFFs":
+    if Chunk == b"oFFs":
         try:
             oFFSX = str(
                 int.from_bytes(bytes.fromhex(data[:8]), byteorder="big", signed=True)
@@ -3054,7 +3054,7 @@ def GetInfo(Chunk, data, Dummy=False):
                 + Candy("Emoj", "good")
             )
 
-    if Chunk == "pCAL":
+    if Chunk == b"pCAL":
         pCAL_Param = []
         try:
             pCAL_Key = data.split("00")[0]
@@ -3146,7 +3146,7 @@ def GetInfo(Chunk, data, Dummy=False):
                     Candy("Color", "red", "Error pCAL2:%s")% Candy("Color", "yellow", e)
                 )
 
-    if Chunk == "gIFg":
+    if Chunk == b"gIFg":
 
         gIFgM = str(int(data[:2], 16))
         gIFgU = str(int(data[2:4], 16))
@@ -3158,7 +3158,7 @@ def GetInfo(Chunk, data, Dummy=False):
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-    if Chunk == "gIFx":
+    if Chunk == b"gIFx":
         gIFID = str(int(data[:16], 16))
         gIFCD = str(int(data[16:22], 16))
         gIFDT = str(int(data[22:], 16))
@@ -3170,7 +3170,7 @@ def GetInfo(Chunk, data, Dummy=False):
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
-    if Chunk == "sTER":
+    if Chunk == b"sTER":
 
         sTER = str(int(data[:2], 16))
 
@@ -3179,7 +3179,7 @@ def GetInfo(Chunk, data, Dummy=False):
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
-    if Chunk == "tEXt":
+    if Chunk == b"tEXt":
         tEXt_Key_List = []
         tEXt_Str_List = []
         try:
@@ -3244,7 +3244,7 @@ def GetInfo(Chunk, data, Dummy=False):
                 if PAUSEDEBUG is True or PAUSEERROR is True:
                     Pause("Pause Debug")
 
-    if Chunk == "zTXt":
+    if Chunk == b"zTXt":
         zTXt_Key_List = []
         zTXt_Str_List = []
         try:
@@ -3301,7 +3301,7 @@ def GetInfo(Chunk, data, Dummy=False):
                 PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
                 if PAUSEDEBUG is True or PAUSEERROR is True:
                     Pause("Pause Debug")
-    if Chunk == "iTXt":
+    if Chunk == b"iTXt":
         iTXt_Key_List = []
         iTXt_String_List = []
         try:
@@ -3401,7 +3401,7 @@ def GetInfo(Chunk, data, Dummy=False):
                 PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
                 if PAUSEDEBUG is True or PAUSEERROR is True:
                     Pause("Pause Debug")
-    if Chunk == "eXIf":
+    if Chunk == b"eXIf":
         eXIf_raw = []
         raw = ""
         sepcounter = 0
@@ -3430,19 +3430,19 @@ def GetInfo(Chunk, data, Dummy=False):
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
-    if Chunk == "spAL":
+    if Chunk == b"spAL":
         PRINT("-intermediate sPLT test version")
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
-    if Chunk.encode(errors="ignore") in PRIVATE_CHUNKS:
+    if Chunk in PRIVATE_CHUNKS:
         PRINT("-Private Chunk")
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
-    if Chunk.encode(errors="ignore") not in ALLCHUNKS:
+    if Chunk not in ALLCHUNKS:
 
         PRINT("-%s" % Candy("Color", "red", "Unknown Chunk."))
 
@@ -4255,7 +4255,11 @@ def ChunkbyChunk(offset):
     CLoffI = offset
 
     Raw_Type = DATAX[offset + 8 : offset + 16]
-    Orig_CT = bytes.fromhex(Raw_Type).decode(errors="ignore")
+#    Orig_CT = bytes.fromhex(Raw_Type).decode(errors="ignore") #why decode??
+#    print("Orig_CT decode:",Orig_CT)
+#    print("Orig_CT pas decode:",bytes.fromhex(Raw_Type))
+#    Pause("tst")
+    Orig_CT = bytes.fromhex(Raw_Type)
     CToffX = hex(int(offset / 2) + 4)
     CToffB = int(offset / 2) + 4
     CToffI = offset + 8
@@ -7302,8 +7306,8 @@ def NameShift():
         if lenioff != reallen:
 
              Candy("Cowsay", "I knew there was something odd..", "bad")
-             Candy("Cowsay", "The good news is we wont have to bruteforce all the previous chunk...", "com")
-             Candy("Cowsay", "The problems seems to come from the length part .", "good")
+#             Candy("Cowsay", "The good news is we wont have to bruteforce all the previous chunk...", "com")
+             Candy("Cowsay", "That error seems to come from the length part .", "good")
              datpart = int.from_bytes(bytes.fromhex(reallen), byteorder="big")*2
              Ctype = value
              Cdata = bytes.fromhex(DATAX[ioff+8:ioff+8+datpart])
@@ -7510,19 +7514,21 @@ def BruteChunk(CType, LastCType, ChunkLen, FromError):
         Choice = input("WHO'S THAT POKEMON !? :")
         while True:
             try:
-                if (Choice.lower() != "quit" or Choice.lower() != "wtf") and int(
-                    Choice
-                ) <= len(BingoLst):
+                if (Choice.lower() != "quit" or Choice.lower() != "wtf") and int(Choice) <= len(BingoLst):
                     if int(Choice) in range(0, len(BingoLst)):
                         answer = BingoLst[int(Choice)].split(" ")[1]
                         SaveClone(
                             answer.encode().hex(),
-                            CrcoffI + 16,
-                            CrcoffI + 24,
+                            CToffI,
+                            CToffI+8,
                             "-Found Chunk[%s] has wrong name at offset: %s\n-Chunk seems corrupted user has decided to choose Chunk[%s] as a replacement."
                             % (Orig_CT, CToffX, BingoLst[int(Choice)].encode()),
                         )
                         return ()
+                    else:
+                         print("choice:",choice)
+                else:
+                     print("FuckChoice:",choice)
             except Exception as e:
                 Betterror(e, inspect.stack()[0][3])
                 if DEBUG is True:
@@ -7556,6 +7562,16 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
         Candy("Title", "Checking Next Chunk Type:", Candy("Color", "white", CType))
     else:
         Candy("Title", "Checking Current Chunk Type:", Candy("Color", "white", CType))
+
+    print("ChunkType raw :",ChunkType)
+    if type(ChunkType) != bytes:
+        try:
+            print("ChunkType from x:",bytes.fromhex(ChunkType))
+        except Exception as e:
+            print("error:",e)
+            print("ChunType.encode:",ChunkType.encode(errors="ignore"))
+
+#    Pause("tst")
 
     for name in ALLCHUNKS:
         if name.lower() == CType.lower():
@@ -8812,7 +8828,7 @@ def FixItFelix(Chunk=None):
             if Skip_Bad_No_Next_Chunk is False:
                 PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
                 GoodEnding = "0000000049454E44AE426082"
-                if Chunk == "IEND" and int(PandoraBox[key][chkd + "1"]) == 0:
+                if Chunk == b"IEND" and int(PandoraBox[key][chkd + "1"]) == 0:
                     for key in PandoraBox:
                         if "No NextChunk" in str(key):
                             Candy(
@@ -9218,7 +9234,6 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                 TheEnd()
 
         if function == "CheckChunkName":
-
             if "turning it into a valid Chunk name" in info:
 
                 SideNotes.append("-%s: %s" % (function, info))
@@ -9238,7 +9253,6 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
             if "corrupted due to some missing bytes." in info:
                 
                 return SaveClone(ToolKit[0], ToolKit[2], ToolKit[1] + ToolKit[2], "Fixing Missing bytes corruption")
-
     return ()
 
 
