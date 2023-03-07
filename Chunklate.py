@@ -8063,12 +8063,8 @@ def WriteClone(data):
 
     try:
         data = bytes.fromhex(data)
-    except ValueError as e:
-        print("error:",e)
-        print("type(data):",type(data))
-    except TypeError as e:
-        print("error:",e)
-        print("type(data):",type(data))
+    except Exception as e:
+        Betterror(e, inspect.stack()[0][3])
 
     name, dir = Naming(FILE_Origin)
 
@@ -8847,7 +8843,7 @@ def FixItFelix(Chunk=None):
         elif "No NextChunk" in str(key):
             if Skip_Bad_No_Next_Chunk is False:
                 PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-                GoodEnding = "0000000049454E44AE426082"
+                GoodEnding = "0000000049454e44ae426082"
                 if Chunk == b"IEND" and int(PandoraBox[key][chkd + "1"]) == 0:
                     for key in PandoraBox:
                         if "No NextChunk" in str(key):
@@ -8860,10 +8856,11 @@ def FixItFelix(Chunk=None):
                             SideNotes.append(
                                 "-Found False-Positive :[Error:-No NextChunk]."
                             )
+                            Skip_Bad_No_Next_Chunk = True
                             break
                     ChunkStory("add", b"IEND", CLoffI, CrcoffI + 8, int(Orig_CL, 16))
-
-                    if DATAX[-len(GoodEnding) :].upper() == GoodEnding:
+ 
+                    if DATAX[-len(GoodEnding) :] == GoodEnding:
                         CheckChunkOrder(b"IEND", "Critical")
                         Candy("Cowsay", "We have reached the end of file.", "good")
                         EOF = True
@@ -8885,11 +8882,21 @@ def FixItFelix(Chunk=None):
                                         rustine[0], rustine[1], rustine[2]
                                     )
                     else:
-                        PRINT(DATAX[-len(GoodEnding) :])
-                        PRINT(Candy("Color", "yellow", "Not ending with regular IEND\n-ToDo"))
-                        SideNotes.append("-Not ending with regular IEND Chunk")
-                        TheEnd()
-                elif PandoraBox[key][chkd + "0"] == "IEND":
+                        if GoodEnding in DATAX:
+                               posgoodending = DATAX.index(GoodEnding)
+                               cuthere = DATAX.index(GoodEnding)+len(GoodEnding)
+                               tyri
+                               cleancut = bytes.fromhex(DATAX[:cuthere])
+                               SideNotes.append("-FixitFelix:Removing extra bytes after IEND chunk.")
+                               return(WriteClone(cleancut))
+                        else:
+
+                           PRINT(Candy("Color", "yellow", "Not ending with regular IEND\n-ToDo"))
+                           SideNotes.append("-Not ending with regular IEND Chunk")
+                           PRINT("-Exceptation: %s"%(str(GoodEnding)))
+                           PRINT("-Reality: %s"%(str(DATAX[-len(GoodEnding) :])))
+                           TheEnd()
+                elif PandoraBox[key][chkd + "0"] == b"IEND":
                     PRINT(
                         "-%s length for IEND %s "
                         % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
@@ -8902,6 +8909,64 @@ def FixItFelix(Chunk=None):
 
                     if Bad_Critical:
                           Candy("Cowsay", "Well it seems that i need to add that IEND chunk myself after all ..", "bad")
+                          if DEBUG:
+                              print("CrcoffI:",CrcoffI)
+                              print("Raw_Crc:",Raw_Crc)
+                              print("DATAX[crc]:",DATAX[CrcoffI:CrcoffI+8])
+                              if PAUSEDEBUG is True or PAUSEERROR is True:
+                                  Pause("Pause Debug")
+
+                          exceeding = ""
+                          iendsample = "0000000049454e44ae426082"
+                          start = 8
+                          end = 9
+                          for i in range(CrcoffI+start,len(DATAX)):
+                               try:
+                                    exceeding += DATAX[CrcoffI+start:CrcoffI+end]
+                                    start += 1
+                                    end += 1
+                               except Exception as e:
+                                    print("error:",e)
+                                    break
+                          if len(exceeding) > 0:
+                               if int(len(exceeding)/2) == 0: 
+
+                                  Candy("Cowsay", "Ah there is one bit left after the Crc ..", "com")
+                               else:
+                                   Candy("Cowsay", "Ah there are %s bytes left after the Crc .."%(str(int(len(exceeding)/2))), "com")
+                               SideNotes.append("-Extra bits detected:%s"%str(exceeding))
+
+                          if len(exceeding) > len(iendsample):
+                             if iendsample in exceeding:
+                                 Candy("Cowsay", "And it seems that the IEND chunk is inside it  ..", "com")
+                                 print("-iendsample:",iendsample)
+                                 print("-exceeding:",exceeding)
+                                 SideNotes.append("-Part or full IEND chunk detected:%s"%(str(exceeding)))
+                                 PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                                 TheEnd()
+                             else:
+                                 Candy("Cowsay", "But i don't know what to do with those bytes  ..", "com")
+                                 Candy("Cowsay", "So..Im just going to append an IEND chunk there for the moment ..", "com")
+                                 print("-exceeding:",exceeding)
+                                 return(DummyChunk(b"IEND", CrcoffI+8, CrcoffI+8, CrcoffI+8, str(key)))
+
+                                 PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                          else:
+
+                             if exceeding.startswith(iendsample[:len(exceeding)]):
+                                 Candy("Cowsay", "And it seems that it matches with some part of IEND chunk ..", "com")
+                                 Candy("Cowsay", "I don't think this is a coincidence.", "good")
+                                 SideNotes.append("-Part or full IEND chunk detected:%s"%(str(exceeding)))
+                                 print("-iendsample:",iendsample)
+                                 print("-exceeding:",exceeding)
+                                 Pause("todo")
+                             else:
+                                 Candy("Cowsay", "It doesn't looks like and IEND chunk ..", "bad")
+                                 Candy("Cowsay", "And i don't know what to do with those bytes  ..", "com")
+                                 print("-exceeding:",exceeding)
+                                 Candy("Cowsay", "So..Im just going to append an IEND chunk there for the moment ..", "com")
+                                 return(DummyChunk(b"IEND", CrcoffI+8, CrcoffI+8, CrcoffI+8, str(key)))
+
                           return(DummyChunk(b"IEND", len(DATAX), len(DATAX), len(DATAX), str(key)))
                           
                     PRINT(
