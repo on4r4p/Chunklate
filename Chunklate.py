@@ -2395,7 +2395,7 @@ def GetInfo(Chunk, data, Dummy=False):
             )
             ToFix.append("-sRGB value must be between 0 to 3.")
 
-        if "cHRM".encode() in Chunks_History:
+        if b"cHRM" in Chunks_History:
             PRINT(
                 "-%s already present cHRM will be %s if reconized by decoders %s"
                 % (
@@ -2556,7 +2556,7 @@ def GetInfo(Chunk, data, Dummy=False):
                     Pause("Pause Debug")
             ToFix.append("-cHRM BlueY Error:" + str(e))
 
-        if "sRGB".encode() in Chunks_History or "iCCP".encode() in Chunks_History:
+        if b"sRGB" in Chunks_History or b"iCCP" in Chunks_History:
             PRINT(
                 "-%s or %s already present cHRM will be overide if reconized by decoders %s"
                 % (
@@ -2644,7 +2644,7 @@ def GetInfo(Chunk, data, Dummy=False):
             PRINT("-iCCP Profile length is %s" % Candy("Color", "red", "not Valid"))
             ToFix.append("-iCCP Profile length is not Valid")
 
-        if "cHRM".encode() in Chunks_History:
+        if b"cHRM" in Chunks_History:
             PRINT(
                 "-%s already present cHRM will be %s if reconized by decoders %s"
                 % (
@@ -3901,7 +3901,7 @@ def YouShallPass(Chunk, data):
         sRGB = str(int(data[:2], 16))
         if sRGB not in ["0", "1", "2", "3"]:
             return False
-        if "cHRM".encode() in Chunks_History:
+        if b"cHRM" in Chunks_History:
             return False
         return True
     if Chunk == b"cHRM":
@@ -3967,7 +3967,7 @@ def YouShallPass(Chunk, data):
             )
         except:
             return False
-        if "sRGB".encode() in Chunks_History or "iCCP".encode() in Chunks_History:
+        if b"sRGB" in Chunks_History or b"iCCP" in Chunks_History:
             return False
         return True
     if Chunk == b"gAMA":
@@ -4008,7 +4008,7 @@ def YouShallPass(Chunk, data):
         ):
             return False
 
-        if "cHRM".encode() in Chunks_History:
+        if b"cHRM" in Chunks_History:
             return False
         return True
     if Chunk == b"sBIT":
@@ -4591,9 +4591,9 @@ def Summarise(infos, Summary_Footer=False):
         if len(SideNotes) > 0:
             for note in SideNotes:
                 tmp += "\n" + str(note) + "\n"
-            infos = tmp + infos + "\n"
+            infos = tmp + str(infos) + "\n"
         else:
-            infos = "\n" + infos + "\n"
+            infos = "\n" + str(infos) + "\n"
     elif len(SideNotes) > 0:
         for note in SideNotes:
             tmp += "\n" + str(note) + "\n"
@@ -7236,8 +7236,8 @@ def CheckChunkOrder(lastchunk, mode):
                 (int(IHDR_Color) == 2)
                 or (int(IHDR_Color) == 6)
                 and (
-                    "PLTE".encode() not in Chunks_History
-                    and "sPLT".encode not in Chunks_History
+                    b"PLTE" not in Chunks_History
+                    and b"sPLT" not in Chunks_History
                 )
             ):
                 if Warning is False:
@@ -8340,7 +8340,7 @@ def Relics(FromError):
                             break
                 if ChosenOne:
                     break
-            if any(ChosenOne in k and "StructIndex:" in k for k in PandoraBox) and ChosenOne:
+            if ChosenOne and any(ChosenOne in k and "StructIndex:" in k for k in PandoraBox):
 
                 ChosenErr = [
                     "\n-\033[1;31;49mCriticalHit\033[m: %s"%(k)
@@ -8638,7 +8638,7 @@ def FixItFelix(Chunk=None):
                 else:
                     ChunkStory(
                         "add",
-                        PandoraBox[key][chkd + "3"].encode(),
+                        PandoraBox[key][chkd + "3"],
                         CLoffI,
                         CrcoffI + 8,
                         int(Orig_CL, 16),
