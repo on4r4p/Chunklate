@@ -6682,6 +6682,8 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
 
     #    for c, i in zip(Chunks_History, Chunks_History_Index):
     #        PRINT("chunk:%s index:%s" % (c, i))
+    Todo = True
+
 
     Candy(
         "Cowsay",
@@ -6689,13 +6691,10 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
         "com",
     )
 
-    chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(Chunkname,"Spec",SpecId = "Dummy")
-
-
-    ##TODO
-    
+    #TODO
     if Chunkname == b"IHDR":
 
+        chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(Chunkname,"Spec",SpecId = "Dummy")
         DummyLength = SpecLength(Chunkname)
         DummyName = hex(int.from_bytes(Chunkname, byteorder="big")).replace("0x", "")
         DummyData = "00000010000000100803000000"
@@ -6703,29 +6702,40 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
             "0x", ""
         )
         DumDum = DummyLength + DummyName + DummyData + DummyCrc
+        Todo = False
+        Solved = False
 
-        if DEBUG is True:
+    elif Chunkname == b"IEND":
+        DummyLength = SpecLength(Chunkname)
+        DummyName = "49454e44"
+        DummyData = ""
+        DummyCrc = "ae426082"
+        DumDum = DummyLength + DummyName + DummyData + DummyCrc
+        Todo = False
+        Solved = True
 
+    if DEBUG is True:
+        if Chunkname != b"IEND":
             PRINT("chunklen_spec:%s"%str(chunklen_spec))
             PRINT("chunk_format:%s"%str(chunk_format))
             PRINT("color_type:%s"%str(color_type))
-            PRINT("bad pos:%s"% bad_pos)
-            PRINT("bad_start:%s"% bad_start)
-            PRINT("bad_end:%s"% bad_end)
-            PRINT("datax:%s"% DATAX[bad_start:bad_end])
-            PRINT("dumylen:%s"% DummyLength)
-            PRINT("dumyname:%s"% DummyName)
-            PRINT("dumydata:%s"% DummyData)
-            PRINT("dumycrc:%s"% DummyCrc)
-            PRINT("dumdum:%s"% DumDum)
-            
+        PRINT("dumylen:%s"% DummyLength)
+        PRINT("dumyname:%s"% DummyName)
+        PRINT("dumydata:%s"% DummyData)
+        PRINT("dumycrc:%s"% DummyCrc)
+        PRINT("bad_start:%s"% bad_start)
+        PRINT("bad_end:%s"% bad_end)
+        PRINT("dumdum:%s"% DumDum)
+        PRINT("bad pos:%s"% bad_pos)
+        PRINT("datax:%s"% DATAX[bad_start:bad_end])
 
-
-            if PAUSEDEBUG is True:
+        if PAUSEDEBUG is True:
                 Pause("Pause Debug")
 
 #        print("Chunks_History:\n",Chunks_History)
 #        TheEnd()
+
+    if not Todo :
         DummyFix = DATAX[:bad_start] + DumDum + DATAX[bad_start:]
 
         Candy(
@@ -6736,7 +6746,7 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
 
         return CheckPoint(
             True,
-            False,
+            Solved,
             "DummyChunk",
             Chunkname,
             ["Filling with a dummy chunk"],
@@ -6747,9 +6757,9 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
             bad_end,
             FromError,
         )
-
-    PRINT(Candy("Color", "yellow", "\n-ToDo"))
-    TheEnd()
+    else:
+        PRINT(Candy("Color", "yellow", "\n-ToDo"))
+        TheEnd()
 
 
 def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
@@ -6764,7 +6774,9 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
     Needle = CLoffI + 16
 
     while Needle < len(DATAX):
-
+        if Needle + 8 > len(DATAX):
+           PRINT(Candy("Color", "yellow", "-End of File"))
+           break
         scopex = DATAX[Needle : Needle + 8]
         try:
             scope = bytes.fromhex(scopex).lower()
@@ -6777,6 +6789,7 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
                 )
                 if PAUSEDEBUG is True or PAUSEERROR is True:
                     Pause("Pause Debug")
+            print("hey")
             TheEnd()
         NeedleI = int(Needle / 2)
         NeedleX = hex(int(Needle / 2))
@@ -6872,9 +6885,18 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
         Needle += 1
     if DoubleCheck is True:
         Candy("Cowsay", " ...??NOTHING AGAIN!?!?!?!?", "bad")
-        Candy("Cowsay", " THEY PLAYED US LIKE A DAMN FIDDLE !!!", "bad")
-        Candy("Cowsay", " AMa Outta Here !Do It YourSelf FFS!!", "bad")
-        TheEnd()
+        CheckChunkOrder(LastCType, "Critical")
+        if not Bad_Critical:
+           Candy("Cowsay", "THEY PLAYED US LIKE A DAMN FIDDLE !!!", "bad")
+           Candy(
+            "Cowsay",
+            " ...??Just Reach the EOF and found nothing!!Can't do much about that sorry ...",
+            "com",
+           )
+           TheEnd()
+        else:
+            SideNotes.append("-NearbyChunk:Critical Chunk Missing: %s"%Bad_Critical) 
+            return(FixItFelix(CType))
     else:
         Candy(
             "Cowsay",
@@ -7250,7 +7272,7 @@ def CheckChunkOrder(lastchunk, mode):
                         " There is a chance that some %s chunks are %s."
                         % (
                             Candy("Color", "red", "Critical Palette"),
-                            Candy("Color", "red", "Missing"),
+                            Candy("Color", "yellow", "Missing"),
                         ),
                         "com",
                     )
@@ -7563,16 +7585,6 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
     else:
         Candy("Title", "Checking Current Chunk Type:", Candy("Color", "white", CType))
 
-    print("ChunkType raw :",ChunkType)
-    if type(ChunkType) != bytes:
-        try:
-            print("ChunkType from x:",bytes.fromhex(ChunkType))
-        except Exception as e:
-            print("error:",e)
-            print("ChunType.encode:",ChunkType.encode(errors="ignore"))
-
-#    Pause("tst")
-
     for name in ALLCHUNKS:
         if name.lower() == CType.lower():
             if name == CType:
@@ -7762,6 +7774,7 @@ def SpecLength(chunk_name, chunk_length=None):
             b"hIST": {"nocolortype":(4, 1024)},
             b"tIME": {
                 "nocolortype":14},
+            b"IEND": {"nocolortype":0},
         }
 
     for key in CHUNKS_LEN:
@@ -8671,6 +8684,13 @@ def FixItFelix(Chunk=None):
         elif "libpng error:" in str(key):
             if str(key) not in Cornucopia:
                 PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+
+                if "Not enough image data" in str(key):
+                   Candy("Cowsay", "Well this is as far as i could get for now. ", "bad")
+                   Candy("Cowsay", "At least i was able to get some pixels out of it ..", "com")
+                   PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                   TheEnd()
+
                 if Skip_Bad_Libpng is False:
                     Candy(
                         "Cowsay",
@@ -8879,6 +8899,11 @@ def FixItFelix(Chunk=None):
                     TheEnd()
 
                 else:
+
+                    if Bad_Critical:
+                          Candy("Cowsay", "Well it seems that i need to add that IEND chunk myself after all ..", "bad")
+                          return(DummyChunk(b"IEND", len(DATAX), len(DATAX), len(DATAX), str(key)))
+                          
                     PRINT(
                         "\n-End of File Reached but IEND Chunk is %s ! %s"
                         % (Candy("Color", "red", " MISSING! "), Candy("Emoj", "bad"))
@@ -9049,7 +9074,8 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                 return DummyChunk(ToolKit[0], ToolKit[1], ToolKit[2], ToolKit[3], info)
 
         if function == "DummyChunk":
-
+            if chunk == b'IEND':
+               Bad_Critical = False
             if "Filling with a dummy chunk" in info:
                 return WriteClone(ToolKit[0])
 
