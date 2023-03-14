@@ -2,7 +2,7 @@
 from argparse import ArgumentParser, SUPPRESS
 from datetime import datetime
 from contextlib import contextmanager
-from PIL import Image
+from PIL import Image,ImageShow
 from inputimeout import inputimeout
 import numpy as np
 import sys, os, binascii, re, random, time, zlib, cv2, ctypes, struct,io, tempfile, inspect, types, difflib, collections, math, itertools, psutil
@@ -96,9 +96,15 @@ def IDAT_Bytes_Nbr():  # tmpworkaround
 def Max_Res():
     try:
         size = os.path.getsize(FILE_Origin)
-        calc = math.floor(((size - 77) * 8 - 1) / 2) * 86 + 1
+        if size < 77:
+            calc = math.floor(((size) * 8 - 1) / 2) * 86 + 1
+        else:
+            calc = math.floor(((size - 77) * 8 - 1) / 2) * 86 + 1
         MaxRes = int(math.sqrt(calc))
         if DEBUG:
+            PRINT("Size:%s"%str(size))
+            PRINT("Calc:%s"%str(calc))
+            
             PRINT(
                 "-Maximum resolution estimation based on file size: %s*%s"
                 % (MaxRes, MaxRes)
@@ -5366,6 +5372,14 @@ def SmashBruteBrawl(
     TmpImgLst = []
     result = "bad result"
 
+
+    ImageShow.register(ImageShow.EogViewer(),1)
+    ImageShow.register(ImageShow.XDGViewer(),-3)
+    ImageShow.register(ImageShow.DisplayViewer(),-2)
+    ImageShow.register(ImageShow.XVViewer(),-1)
+    ImageShow.register(ImageShow.GmDisplayViewer(),0)
+
+
     if "OldCrc:" in BfMode: 
         OldCrc = bytes.fromhex(BfMode.split(":")[1])
     else:
@@ -5399,6 +5413,7 @@ def SmashBruteBrawl(
         PRINT("DataOffset:%s"% DataOffset)
         PRINT("ChunkLength:%s"% ChunkLength)
         PRINT("BruteCrc:%s"% BruteCrc)
+        PRINT("BruteLength:%s"%BruteLength)
         PRINT("EditMode:%s"% EditMode)
         PRINT("FromError:%s"% FromError)
         PRINT("chunklen_spec:%s"% str(chunklen_spec))
@@ -5407,7 +5422,8 @@ def SmashBruteBrawl(
             PRINT("chunk_data:Too Big To be displayed")
         else:
             PRINT("chunk_data:%s"% str(chunk_data))
-
+#        print("cdata:\n",chunk_data)
+        
         PRINT("max_iter:%s"%max_iter)
         PRINT("maxchunklen:%s"% maxchunklen)
         PRINT("minchunklen:%s"% minchunklen)
@@ -5423,6 +5439,7 @@ def SmashBruteBrawl(
 #        print("ln:",ln)
 
         Lnx_New = int(int(ln/2)).to_bytes(4, "big")
+
         if EditMode == "Replace":
 #            if BruteLength and BruteCrc:
                 Before_New = bytes.fromhex(DATAX[:DataOffset])
@@ -5433,9 +5450,16 @@ def SmashBruteBrawl(
         elif EditMode == "Insert":#TODO
 #            if BruteLength and BruteCrc:
                 Before_New = bytes.fromhex(DATAX[:DataOffset])
-                ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ] ## wrong value 
+#                ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ] ## wrong value 
+                ToBrute = ""
                 ToBryte = bytes.fromhex(ToBrute) ## b"wrong value"
-                After_New = bytes.fromhex(DATAX[DataOffset + ChunkLength + 24 :])  # +24=chunklen+chunkname+data+crc
+                After_New = bytes.fromhex(DATAX[DataOffset + 24 :])  # +24=chunklen+chunkname+data+crc
+
+#                print("tobrute: ",ToBrute)
+#                print("ln:",ln)
+#                print("befor:",Before_New[-24:])
+#                print("after:",After_New[:24])
+#                print("lenafter:",len(After_New))
 
             ##else bla bla #TODO
  
@@ -5490,8 +5514,10 @@ def SmashBruteBrawl(
                 #for cf, j in zip(chunk_format, i):
                 #     bvalue += struct.pack(cf,int(j))
 
-            Loadingbar(max_iter, len_iter, n, False)
+#            Loadingbar(max_iter, len_iter, n, False)
+
             checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
+
             if OldCrc:
 
                   if OldCrc != checksum:
@@ -5535,6 +5561,17 @@ def SmashBruteBrawl(
 
 
             wanabyte = Before_New + fullnewdatax + After_New
+            
+#            print("bvalue:%s fullnewdatax:%s"%(bvalue.hex(),fullnewdatax.hex()),end="\r")
+#            print("fullnewdatax:",fullnewdatax.hex())
+#            print("fullnewdatax:",fullnewdatax)
+#            print("bvalue:",bvalue.hex())
+#            print("bvalue:",bvalue)
+#            Pause("pose")
+#            print("len(wanabyte:",len(wanabyte))
+#            print("len(datax:",len(bytes.fromhex(DATAX)))
+#            print("Aftne:\n",After_New)
+#            Pause("Pause")
 
             with stderr_redirector(f):
                 try:
@@ -5542,9 +5579,9 @@ def SmashBruteBrawl(
                 except:
                     pass
             result = "{0}".format(f.getvalue().decode("utf-8"))
-#            print(result)
-#            print(ToBryte,end="\r")
-#           print(bvalue.hex(),end="\r")
+#            print("Result:",result)
+#            print("bryte:",ToBryte)
+#            print("bvaluehex:",bvalue.hex())
 #            input("hold")
             if not any(s in result for s in LIBPNG_ERR):
 
@@ -5553,11 +5590,36 @@ def SmashBruteBrawl(
                          TmpI = Image.open(io.BytesIO(wanabyte))
                          TmpIW,TmpIH = TmpI.size
                          TmpI.show()
-
-                    except:
-                         pass
-
+                    except Exception as e:
+                         if any(s in str(e) for s in LIBPNG_ERR):
+                             if not TmpI.mode == 'RGB':
+                                #print("bvalue:%s fullnewdatax:%s error:%s immode:%s"%(bvalue.hex(),fullnewdatax.hex(),str(e),str(TmpI.mode)),end="\r")
+                                TmpI = TmpI.convert('RGB')
+                                TmpIW,TmpIH = TmpI.size
+                                TmpI.show()
+                         else:
+                                print("bvalue:%s fullnewdatax:%s error:%s immode:%s"%(bvalue.hex(),fullnewdatax.hex(),str(e),str(TmpI.mode)),end="\r")
+#                         print("bvalue:%s fullnewdatax:%s error:%s immode:%s"%(bvalue.hex(),fullnewdatax.hex(),str(e),str(TmpI.mode)),end="\r")
                 PRINT("")
+#                bla = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
+#                cv2.imshow('bla',bla)
+#                TmpI.show()
+
+                cnt = 0
+                BREAK = False
+                PRINT("-Waiting for Image viewer to launch.")
+                while True:
+                    time.sleep(1)
+                    for proc in psutil.process_iter():
+                        if "/tmp/tmp" in " ".join(proc.cmdline()) and ".PNG" in " ".join(proc.cmdline()):
+                            BREAK = True
+                            break
+                    cnt += 1
+                    if BREAK:
+                       break
+                    if cnt > 60:
+                         break
+
                 Candy("Cowsay", "Ah ! Iv got One !", "good")
                 PRINT("-Tmp Image Number %s"%str(n-2))
                 PRINT("-Tmp Image Width: %s"%TmpIW)
@@ -6653,19 +6715,33 @@ def Double_Check(CType, ChunkLen, LastCType):
 
     Candy("Title", "Double Check:")
 
-    PRINT(
-        "Or maybe am i missing something ?\nJust let me double check again just to be sure..."
-    )
 
+    Candy(
+        "Cowsay",
+        "Or maybe am i missing something ? Just let me double check again just to be sure...",
+        "com",
+    )
     if len(DATAX) / 2 < 67:
         PRINT(
-            "-Wrong File Length.\n\n...\n\nERrr...\nThere are not enough bytes in %s to be a valid png.\n%s is %s bytes long and the very minimum size for a png is 67 bytes so...\ni can't help you much further sorry.\n"
+            "%s: %s is %s bytes long Png minimum size is 67 bytes ."
             % (
+                Candy("Color", "red","-Wrong File Length"),
                 Candy("Color", "white", Sample_Name),
-                Candy("Color", "white", Sample_Name),
-                Candy("Color", "red", int(len(DATAX) / 2)),
+                Candy("Color", "red", str(int(len(DATAX) / 2))),
             )
         )
+
+        Candy(
+            "Cowsay",
+            "ERrr...There are not enought byte in %s to be a valid png."%(Sample_Name),
+            "bad",
+        )
+
+        Candy(
+            "Cowsay",
+            "I can't help you much further sorry.",
+            "com",
+        ) 
         TheEnd()
 
     Candy(
@@ -7335,7 +7411,10 @@ def NameShift():
              Cdata = bytes.fromhex(DATAX[ioff+8:ioff+8+datpart])
              Crc = hex(int.from_bytes(bytes.fromhex(DATAX[ioff+8+datpart:ioff+8+datpart+8]), byteorder="big"))
              checksum = hex(binascii.crc32(Ctype + Cdata))
-
+             if DEBUG:
+                 PRINT("-Crc from file: %s"%(str(Crc)))
+                 PRINT("-Actual Crc: %s\n"%(str(Crc)))
+             
              if checksum == Crc:
                  PRINT(
                 "-Crc Check :"
@@ -7980,6 +8059,10 @@ def Checksum(Ctype, Cdata, Crc, next=None):
     Cdata = bytes.fromhex(Cdata)
     Crc = hex(int.from_bytes(bytes.fromhex(Crc), byteorder="big"))
     checksum = hex(binascii.crc32(Ctype + Cdata))
+    if DEBUG:
+                 PRINT("-Crc from file: %s"%(str(Crc)))
+                 PRINT("-Actual Crc: %s\n"%(str(Crc)))
+
     if checksum == Crc:
         PRINT(
             "-Crc Check :"
@@ -9009,7 +9092,11 @@ def FixItFelix(Chunk=None):
                 if str(key) not in Cornucopia:
                      Candy("Cowsay", "Alright this is a tough one as PLTE is a critical chunk..", "bad")
                      #if not something to get intel about plte nbr and what TODO:
-                     
+                     if not Bad_Crc:
+                         Candy("Cowsay", "Crc is valid ...So this has been made on purpose..", "bad")
+                         Candy("Cowsay", "Fine im just gona fill the gap then.", "com")
+                         #TODO
+
                      Candy("Cowsay", "Since i have no information about what to put in there ill have to bruteforce my way through.", "bad")
                      Candy(
                                 "Cowsay",
@@ -9853,6 +9940,7 @@ LIBPNG_ERR = [
     "is too large for this architecture",
     " in IHDR",
     "bad result",
+    "conversion not supported",
 ]  ## need to sort error and warning in a dict
 
 
