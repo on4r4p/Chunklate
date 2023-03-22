@@ -1,10 +1,15 @@
 #!/usr/bin/python3.11
+from collections.abc import Mapping, MutableMapping
 from argparse import ArgumentParser, SUPPRESS
 from datetime import datetime
 from contextlib import contextmanager
-from PIL import Image,ImageShow
+from PIL import Image,ImageShow,ImageTk
 from inputimeout import inputimeout
 import numpy as np
+import matplotlib
+import tkinter
+matplotlib.use('TkAgg', force=True)
+import matplotlib.pyplot as plt
 import sys, os, binascii, re, random, time, zlib, cv2, ctypes, struct,io, tempfile, inspect, types, difflib, collections, math, itertools, psutil
 
 
@@ -5342,6 +5347,221 @@ def Product(chunk_data,color_type):
 #         input("hold")
 #     input("end")
 
+
+class Gen_Scale_Plte:
+
+    def __init__(self, master=None, label='', value=0,to=None,from_=None,ln=None,afn=None,bfn=None,h=None,w=None,nbr=None):
+        self.var = tkinter.IntVar()
+        self.s = tkinter.Scale(master, 
+                 label=label, 
+                 variable=self.var,
+                 from_=from_, 
+                 to=to, 
+                 length=ln,
+                 command=lambda event: TkImgUpdate_Plte(event,nbr=nbr,bfn=bfn,afn=afn,h=h,w=w),
+                 orient='horizontal')
+        self.var.set(value)
+        self.s.grid(padx=10, pady=5)
+
+
+
+def TkImgUpdate_Plte(event,nbr=None,bfn=None,afn=None,w=None,h=None):  
+    global Plte_Blst 
+    global window,tk_image,frame_img,pil_image,im
+
+    if event != "-1":
+        Plte_Blst[int(nbr)] = event
+    else:
+        Plte_Blst[int(nbr)] = "empty"
+
+    bvalue = b""
+    for i in Plte_Blst:
+       if i != "empty":
+           bvalue += int(i).to_bytes(3, "big")
+
+
+    Lnx_New = len(bvalue).to_bytes(4, "big")
+    checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
+    fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
+    wanabyte = bfn + fullnewdatax + afn
+
+    im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
+    pil_image = Image.fromarray(im)
+
+    new_pil_image = pil_image.resize((w-10,h-10), Image.Resampling.LANCZOS)
+    
+    tk_image = ImageTk.PhotoImage(image=new_pil_image)
+    tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+
+    print("nbr : %s event : %s Plte_Blst[nbr]:%s bvalue: %s Lnx_New : %s"%(nbr,event,Plte_Blst[nbr],bvalue,Lnx_New))
+
+def Randomize_Plte(bfn=None,afn=None,w=None,h=None):
+    global Plte_Blst 
+    global window,tk_image,frame_img,pil_image,im
+
+    print("Randomize_Plte")
+
+    for n,slider in enumerate(slider_list):
+        rval = random.randint(0,16777215)
+        Plte_Blst[int(n)] = rval
+        slider.var.set(rval)
+#    root.after(5, setTemp
+    bvalue = b""
+    for i in Plte_Blst:
+       if i != "empty":
+           bvalue += int(i).to_bytes(3, "big")
+
+
+    Lnx_New = len(bvalue).to_bytes(4, "big")
+    checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
+    fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
+    wanabyte = bfn + fullnewdatax + afn
+
+    im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
+    pil_image = Image.fromarray(im)
+
+    new_pil_image = pil_image.resize((w-10,h-10), Image.Resampling.LANCZOS)
+    
+    tk_image = ImageTk.PhotoImage(image=new_pil_image)
+    tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+
+def update_scrollregion_Plte(event):
+    global canvas_slider
+    canvas_slider.configure(scrollregion=canvas_slider.bbox("all"))
+
+def Save_Plte():
+    print("save")
+
+
+def ManualPlte(
+    File,
+    ChunkName,
+    ChunkLength,
+    DataOffset,
+    FromError
+):
+    global SideNotes
+    global Plte_Blst
+    global window,tk_image,frame_img,pil_image,im,canvas_slider,slider_list
+
+    Candy("Title", "Manually Bruteforcing Chunk Datas:")
+    stdt = datetime.now()
+    PRINT("started at:%s"% stdt)
+
+    try:
+        ChunkName = ChunkName.encode(errors="ignore")
+    except Exception as e:
+        Betterror(e, inspect.stack()[0][3])
+        if DEBUG is True:
+            PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
+
+    if DEBUG is True:
+        PRINT("File:%s"% File)
+        PRINT("ChunkName:%s"% ChunkName)
+        PRINT("DataOffset:%s"% DataOffset)
+        PRINT("ChunkLength:%s"% ChunkLength)
+
+
+    Before_New = bytes.fromhex(DATAX[:DataOffset])
+    ToBrute = ""
+    ToBryte = bytes.fromhex(ToBrute) 
+    After_New = bytes.fromhex(DATAX[DataOffset + 24 :])
+
+    ln = 6
+    Lnx_New = int(int(ln/2)).to_bytes(4, "big")
+#    bvalue += struct.pack(chunk_format[idx],int(j))
+    bvalue  = bytes.fromhex("aaaaab")
+    checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
+    fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
+    wanabyte = Before_New + fullnewdatax + After_New
+
+    name, dir = Naming(FILE_Origin)
+    tmpname =  dir+"/"+"BF-"+str(datetime.now().strftime('-%y%m%d%H%M%S-'))+name
+
+    with open(tmpname, "wb") as f:
+        f.write(wanabyte)
+
+    im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
+    pil_image = Image.fromarray(im)
+
+    window = tkinter.Tk()
+    window.title("PLTE Editor:%s"%FILE_Origin)
+    window.config(bg="skyblue")
+    window.resizable(False, False)
+
+    screen_width = window.winfo_screenwidth()
+    screen_height = window.winfo_screenheight()
+
+    basewidth = int(screen_width/2.10)
+    wpercent = (basewidth/float(pil_image.size[0]))
+    hsize = int((float(pil_image.size[1])*float(wpercent)))
+    new_pil_image = pil_image.resize((basewidth-10,hsize-10), Image.Resampling.LANCZOS)
+    
+    tk_image = ImageTk.PhotoImage(image=new_pil_image)
+    
+    frame_img = tkinter.Frame(window, width=basewidth, height=hsize)
+    frame_img.grid(row=0, column=0, padx=10, pady=5)
+    frame_img.columnconfigure(0, weight=1)
+    frame_img.rowconfigure(0, weight=1)
+
+
+    tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+
+    frame_slider = tkinter.Frame(window, width=basewidth , height=hsize ,bg="green")
+    frame_slider.columnconfigure(0, weight=1)
+    frame_slider.rowconfigure(0, weight=1)
+    frame_slider.grid(row=0, column=1, padx=10, pady=5)
+
+    frame_action = tkinter.Frame(window, width=basewidth , height=int(hsize/10) ,bg="orange")
+    frame_action.columnconfigure(0, weight=1)
+    frame_action.rowconfigure(0, weight=1)
+    frame_action.grid(row=1, column=0, padx=10, pady=5)
+
+    cancel_btn = tkinter.Button(frame_action, text="Cancel", command=window.quit)
+    cancel_btn.grid(row=0, column=0, padx=10, pady=5)
+
+    random_btn = tkinter.Button(frame_action, text="Randomize", command=lambda: Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
+    random_btn.grid(row=0, column=1, padx=10, pady=5)
+
+    save_btn = tkinter.Button(frame_action, text="Save", command=Save_Plte)
+    save_btn.grid(row=0, column=2, padx=10, pady=5)
+
+    canvas_slider=tkinter.Canvas(frame_slider, height=hsize, width=basewidth-15)
+    canvas_slider.grid(row=0, column=1, padx=10, pady=5) # ,sticky="nsew")
+    frame_canvas = tkinter.Frame(canvas_slider, bg="#EBEBEB")
+    canvas_slider.create_window(0,0,window=frame_canvas,anchor="sw")
+
+
+    slider_scroll = tkinter.Scrollbar(frame_slider, orient = 'vertical')
+    slider_scroll.config(command=canvas_slider.yview)
+    canvas_slider.config(yscrollcommand=slider_scroll.set)
+    slider_scroll.grid(row=0, column=0, sticky="ns")
+
+    slider_list = []
+    for i in range(256):
+
+        slider_list.append(
+        Gen_Scale_Plte(master=frame_canvas,from_=-1,to=16777215,ln=basewidth-30,label='Palette %d' % (i+1),nbr=i,bfn=Before_New,afn=After_New,h=hsize,w=basewidth)
+        )
+
+
+
+    if DEBUG :
+        PRINT("-Image saved at:%s\n"%tmpname)
+        PRINT("h:%s"%str(IHDR_Height))
+        PRINT("w:%s"%str(IHDR_Width))
+        PRINT("lnx:%s"%str(Lnx_New.hex()))
+        PRINT("bvalue:%s"%str(bvalue.hex()))
+        PRINT("checksum:%s"%str(checksum.hex()))
+        PRINT("full:%s"%str(fullnewdatax.hex()))
+
+#    window.bind("<Configure>", TkImgUpdate)
+    canvas_slider.bind("<Configure>", update_scrollregion_Plte)
+    window.mainloop()
+
+    TheEnd()
+
+     
 def SmashBruteBrawl(
     File,
     ChunkName,
@@ -5378,6 +5598,8 @@ def SmashBruteBrawl(
     ImageShow.register(ImageShow.DisplayViewer(),-2)
     ImageShow.register(ImageShow.XVViewer(),-1)
     ImageShow.register(ImageShow.GmDisplayViewer(),0)
+
+    ax1 = plt.subplot(1,2,1)
 
 
     if "OldCrc:" in BfMode: 
@@ -5432,6 +5654,8 @@ def SmashBruteBrawl(
 #    f = io.BytesIO()
     for ln in range(minchunklen, maxchunklen, step):
 
+        
+
         Loadingbar(
             max_iter, len_iter, None, True
         )  # TODO need to adapt max/len_iter to ln range According to BruteLength 
@@ -5467,7 +5691,7 @@ def SmashBruteBrawl(
 #        print("beforbrute",bytes.fromhex(DATAX[DataOffset+8:DataOffset+32]))
 #        print("Tobrute:",ToBrute)
  
-
+        FirstRun = True
         shuffle = Product(chunk_data,color_type)
 
         for n, i in enumerate(shuffle):
@@ -5585,6 +5809,25 @@ def SmashBruteBrawl(
 #            input("hold")
             if not any(s in result for s in LIBPNG_ERR):
 
+
+                if ChunkName == b"PLTE":
+                     if FirstRun is True:
+#                        im1 = ax1.imshow(cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1))
+                        img = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
+#                        img = np.asarray(Image.open(io.BytesIO(wanabyte)))
+                        im1 = plt.imshow(img)
+                        FirstRun = False
+                     else:
+                         im1.set_data(cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1))
+#                          im1.set_data(np.asarray(Image.open(io.BytesIO(wanabyte))))
+                     plt.ion()
+                     
+                     plt.show() 
+                     print("bvalue:%s fullnewdatax:%s"%(bvalue.hex(),fullnewdatax.hex()),end="\r")
+                     plt.pause(0.01)
+#                     time.sleep(1)
+#                     Pause("hey")
+                     continue
                 with stderr_redirector(f):
                     try:
                          TmpI = Image.open(io.BytesIO(wanabyte))
@@ -7412,7 +7655,7 @@ def NameShift():
              Crc = hex(int.from_bytes(bytes.fromhex(DATAX[ioff+8+datpart:ioff+8+datpart+8]), byteorder="big"))
              checksum = hex(binascii.crc32(Ctype + Cdata))
              if DEBUG:
-                 PRINT("-Crc from file: %s"%(str(Crc)))
+                 PRINT("-Crc from file: %s"%(str(checksum)))
                  PRINT("-Actual Crc: %s\n"%(str(Crc)))
              
              if checksum == Crc:
@@ -8060,7 +8303,7 @@ def Checksum(Ctype, Cdata, Crc, next=None):
     Crc = hex(int.from_bytes(bytes.fromhex(Crc), byteorder="big"))
     checksum = hex(binascii.crc32(Ctype + Cdata))
     if DEBUG:
-                 PRINT("-Crc from file: %s"%(str(Crc)))
+                 PRINT("-Crc from file: %s"%(str(checksum)))
                  PRINT("-Actual Crc: %s\n"%(str(Crc)))
 
     if checksum == Crc:
@@ -9094,10 +9337,93 @@ def FixItFelix(Chunk=None):
                      #if not something to get intel about plte nbr and what TODO:
                      if not Bad_Crc:
                          Candy("Cowsay", "Crc is valid ...So this has been made on purpose..", "bad")
-                         Candy("Cowsay", "Fine im just gona fill the gap then.", "com")
-                         #TODO
+                         Candy("Cowsay", "Anyway im just gona fill the gap then.", "com")
+                         Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
+                         Candy("Cowsay", "I ll have to bruteforce my way through.", "bad")
+                         Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
+                         Candy("Cowsay", "Perhaps i could just remove that PLTE chunk .", "com")
+                         for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                if ch == b"PLTE":
+                                    #if something EditMode = "replace"TODO
+                                    return ManualPlte(
+                                        Sample_Name,
+                                        b"PLTE",
+                                        int(chi.split(":")[2]),
+                                        int(chi.split(":")[1]),
+                                        "-PLTE Wrong Data",
+                                    )
+                         TheEnd()
+                         Answer = input("Answer(Manually/BruteForce/Remove):").lower()
+                         while Answer != "manually" and Answer != "bruteforce" and Answer != "remove":
+                               Answer = input("Answer(Manually/bruteforce/Remove):").lower()
 
-                     Candy("Cowsay", "Since i have no information about what to put in there ill have to bruteforce my way through.", "bad")
+                         if Answer == "manually":
+                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                if ch == b"PLTE":
+                                    #if something EditMode = "replace"TODO
+                                    return ManualPlte(
+                                        Sample_Name,
+                                        b"PLTE",
+                                        int(chi.split(":")[2]),
+                                        int(chi.split(":")[1]),
+                                        "-PLTE Wrong Data",
+                                    )
+                         elif Answer == "bruteforce":
+                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                if ch == b"PLTE":
+                                    #if something EditMode = "replace"TODO
+                                    return SmashBruteBrawl(
+                                        Sample_Name,
+                                        b"PLTE",
+                                        int(chi.split(":")[2]),
+                                        int(chi.split(":")[1]),
+                                        "-PLTE Wrong Data",
+                                        EditMode = "Insert",
+                                    )
+
+
+
+                            PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                            TheEnd()
+                         elif Answer == "remove":
+                             PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                             TheEnd()
+
+
+                         #TODO
+                     else:
+
+
+                         Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
+                         Candy("Cowsay", "I ll have to bruteforce my way through until i end up with the old Crc.", "bad")
+                         Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
+                         Candy("Cowsay", "Perhaps i could just remove that PLTE chunk .", "com")
+
+                         Answer = input("Answer(Manually/OldCrc/Remove):").lower()
+                         while Answer != "manually" and Answer != "oldcrc" and Answer != "remove":
+                               Answer = input("Answer(Manually/OldCrc/Remove):").lower()
+
+                         if Answer == "oldcrc":
+                            OldCrc = Pandemonium[file][errors][Chunkname + "_Tool_5"]
+                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                if ch == b"PLTE":
+                                    #if something EditMode = "replace" TODO
+                                    return SmashBruteBrawl(
+                                        Sample_Name,
+                                        b"PLTE",
+                                        int(chi.split(":")[2]),
+                                        int(chi.split(":")[1]),
+                                        "-PLTE Wrong Data",
+                                        EditMode = "Insert",
+                                        BfMode="OldCrc:%s"%OldCrc,
+                                    )
+                         elif Answer == "manually":
+                             PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                             TheEnd()
+                         elif Answer == "remove":
+                             PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                             TheEnd()
+
                      Candy(
                                 "Cowsay",
                                 "Shall i give it a try ? Otherwise Chunklate is going to exit.",
@@ -9944,6 +10270,7 @@ LIBPNG_ERR = [
 ]  ## need to sort error and warning in a dict
 
 
+
 IFOP = []
 Chunks_History = []
 IDAT_Bytes_Len_History = []
@@ -9952,6 +10279,7 @@ pCAL_Param = []
 PLTE_R = []
 PLTE_G = []
 PLTE_B = []
+Plte_Blst = ["empty" for i in range(256)]
 sPLT_Name = []
 sPLT_Depht = []
 sPLT_Red = []
