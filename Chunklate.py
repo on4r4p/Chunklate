@@ -5348,7 +5348,7 @@ def Product(chunk_data,color_type):
 #     input("end")
 
 
-class Gen_Scale_Plte:
+class Tk_Gen_Scale_Plte:
 
     def __init__(self, master=None, label='', value=0,to=None,from_=None,ln=None,afn=None,bfn=None,h=None,w=None,nbr=None):
         self.var = tkinter.IntVar()
@@ -5358,16 +5358,16 @@ class Gen_Scale_Plte:
                  from_=from_, 
                  to=to, 
                  length=ln,
-                 command=lambda event: TkImgUpdate_Plte(event,nbr=nbr,bfn=bfn,afn=afn,h=h,w=w),
+                 command=lambda event: Tk_ImgUpdate_Plte(event,nbr=nbr,bfn=bfn,afn=afn,h=h,w=w),
                  orient='horizontal')
         self.var.set(value)
         self.s.grid(padx=10, pady=5)
 
 
 
-def TkImgUpdate_Plte(event,nbr=None,bfn=None,afn=None,w=None,h=None):  
+def Tk_ImgUpdate_Plte(event,nbr=None,bfn=None,afn=None,w=None,h=None):  
     global Plte_Blst 
-    global window,tk_image,frame_img,pil_image,im
+    global window,tk_image,frame_img,pil_image,im,wanabyte
 
     if event != "-1":
         Plte_Blst[int(nbr)] = event
@@ -5393,19 +5393,18 @@ def TkImgUpdate_Plte(event,nbr=None,bfn=None,afn=None,w=None,h=None):
     tk_image = ImageTk.PhotoImage(image=new_pil_image)
     tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
 
-    print("nbr : %s event : %s Plte_Blst[nbr]:%s bvalue: %s Lnx_New : %s"%(nbr,event,Plte_Blst[nbr],bvalue,Lnx_New))
+    if DEBUG:
+        PRINT("PlteId : %s Value : %s Plte_Blst[PlteId]:%s bvalue: %s Lnx_New : %s"%(str(nbr),str(event),str(Plte_Blst[nbr]),str(bvalue),str(Lnx_New)))
 
-def Randomize_Plte(bfn=None,afn=None,w=None,h=None):
+def Tk_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
     global Plte_Blst 
-    global window,tk_image,frame_img,pil_image,im
-
-    print("Randomize_Plte")
+    global window,tk_image,frame_img,pil_image,im,wanabyte
 
     for n,slider in enumerate(slider_list):
         rval = random.randint(0,16777215)
         Plte_Blst[int(n)] = rval
         slider.var.set(rval)
-#    root.after(5, setTemp
+
     bvalue = b""
     for i in Plte_Blst:
        if i != "empty":
@@ -5425,15 +5424,48 @@ def Randomize_Plte(bfn=None,afn=None,w=None,h=None):
     tk_image = ImageTk.PhotoImage(image=new_pil_image)
     tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
 
-def update_scrollregion_Plte(event):
+def Tk_update_scrollregion_Plte(event):
     global canvas_slider
     canvas_slider.configure(scrollregion=canvas_slider.bbox("all"))
 
-def Save_Plte():
-    print("save")
+def Tk_Save_Plte(Tkwin,Cancel,ChunkLength,DataOffset,FromError,wanabyte):
+
+    nplt = 256 - Plte_Blst.count("empty") 
+    Tkwin.destroy()
+
+    if Cancel:
+        return CheckPoint(
+                True,
+                False,
+                "Tk_Save_Plte",
+                b"PLTE",
+                ["-Manually modify PLTE datas has been canceled by user."],
+                wanabyte.hex(),
+                DataOffset,
+                DataOffset + ChunkLength,
+                "-Manually modify PLTE datas has been canceled by user.",
+                b"PLTE",
+                FromError,
+       )
+
+    else:
+        return CheckPoint(
+                True,
+                True,
+                "Tk_Save_Plte",
+                b"PLTE",
+                ["-PLTE Data has been replaced manually."],
+                wanabyte.hex(),
+                DataOffset,
+                DataOffset + ChunkLength,
+                "-PLTE Data has been modified with %s new palettes."
+                %nplt,
+                b"PLTE",
+                FromError,
+       )
 
 
-def ManualPlte(
+def Tk_Manual_Plte(
     File,
     ChunkName,
     ChunkLength,
@@ -5442,11 +5474,9 @@ def ManualPlte(
 ):
     global SideNotes
     global Plte_Blst
-    global window,tk_image,frame_img,pil_image,im,canvas_slider,slider_list
+    global window,tk_image,frame_img,pil_image,im,canvas_slider,slider_list,wanabyte
 
     Candy("Title", "Manually Bruteforcing Chunk Datas:")
-    stdt = datetime.now()
-    PRINT("started at:%s"% stdt)
 
     try:
         ChunkName = ChunkName.encode(errors="ignore")
@@ -5475,11 +5505,10 @@ def ManualPlte(
     fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
     wanabyte = Before_New + fullnewdatax + After_New
 
-    name, dir = Naming(FILE_Origin)
-    tmpname =  dir+"/"+"BF-"+str(datetime.now().strftime('-%y%m%d%H%M%S-'))+name
-
-    with open(tmpname, "wb") as f:
-        f.write(wanabyte)
+#    name, dir = Naming(FILE_Origin)
+#    tmpname =  dir+"/"+"BF-"+str(datetime.now().strftime('-%y%m%d%H%M%S-'))+name
+#    with open(tmpname, "wb") as f:
+#        f.write(wanabyte)
 
     im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
     pil_image = Image.fromarray(im)
@@ -5517,13 +5546,13 @@ def ManualPlte(
     frame_action.rowconfigure(0, weight=1)
     frame_action.grid(row=1, column=0, padx=10, pady=5)
 
-    cancel_btn = tkinter.Button(frame_action, text="Cancel", command=window.quit)
+    cancel_btn = tkinter.Button(frame_action, text="Cancel", command=lambda: Tk_Save_Plte(window,True,ChunkLength,DataOffset,FromError,wanabyte))
     cancel_btn.grid(row=0, column=0, padx=10, pady=5)
 
-    random_btn = tkinter.Button(frame_action, text="Randomize", command=lambda: Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
+    random_btn = tkinter.Button(frame_action, text="Randomize", command=lambda: Tk_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
     random_btn.grid(row=0, column=1, padx=10, pady=5)
 
-    save_btn = tkinter.Button(frame_action, text="Save", command=Save_Plte)
+    save_btn = tkinter.Button(frame_action, text="Save", command=lambda: Tk_Save_Plte(window,False,ChunkLength,DataOffset,FromError,wanabyte))
     save_btn.grid(row=0, column=2, padx=10, pady=5)
 
     canvas_slider=tkinter.Canvas(frame_slider, height=hsize, width=basewidth-15)
@@ -5541,13 +5570,13 @@ def ManualPlte(
     for i in range(256):
 
         slider_list.append(
-        Gen_Scale_Plte(master=frame_canvas,from_=-1,to=16777215,ln=basewidth-30,label='Palette %d' % (i+1),nbr=i,bfn=Before_New,afn=After_New,h=hsize,w=basewidth)
+        Tk_Gen_Scale_Plte(master=frame_canvas,from_=-1,to=16777215,ln=basewidth-30,label='Palette %d' % (i+1),nbr=i,bfn=Before_New,afn=After_New,h=hsize,w=basewidth)
         )
 
 
 
     if DEBUG :
-        PRINT("-Image saved at:%s\n"%tmpname)
+       # PRINT("-Image saved at:%s\n"%tmpname)
         PRINT("h:%s"%str(IHDR_Height))
         PRINT("w:%s"%str(IHDR_Width))
         PRINT("lnx:%s"%str(Lnx_New.hex()))
@@ -5555,11 +5584,8 @@ def ManualPlte(
         PRINT("checksum:%s"%str(checksum.hex()))
         PRINT("full:%s"%str(fullnewdatax.hex()))
 
-#    window.bind("<Configure>", TkImgUpdate)
-    canvas_slider.bind("<Configure>", update_scrollregion_Plte)
+    canvas_slider.bind("<Configure>", Tk_update_scrollregion_Plte)
     window.mainloop()
-
-    TheEnd()
 
      
 def SmashBruteBrawl(
@@ -9342,26 +9368,16 @@ def FixItFelix(Chunk=None):
                          Candy("Cowsay", "I ll have to bruteforce my way through.", "bad")
                          Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
                          Candy("Cowsay", "Perhaps i could just remove that PLTE chunk .", "com")
-                         for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                if ch == b"PLTE":
-                                    #if something EditMode = "replace"TODO
-                                    return ManualPlte(
-                                        Sample_Name,
-                                        b"PLTE",
-                                        int(chi.split(":")[2]),
-                                        int(chi.split(":")[1]),
-                                        "-PLTE Wrong Data",
-                                    )
-                         TheEnd()
-                         Answer = input("Answer(Manually/BruteForce/Remove):").lower()
-                         while Answer != "manually" and Answer != "bruteforce" and Answer != "remove":
-                               Answer = input("Answer(Manually/bruteforce/Remove):").lower()
+
+                         Answer = input("Answer(Manually/BruteForce/Remove/Quit):").lower()
+                         while Answer != "manually" and Answer != "bruteforce" and Answer != "remove" and Answer != "quit":
+                               Answer = input("Answer(Manually/bruteforce/Remove/Quit):").lower()
 
                          if Answer == "manually":
                             for ch, chi in zip(Chunks_History, Chunks_History_Index):
                                 if ch == b"PLTE":
                                     #if something EditMode = "replace"TODO
-                                    return ManualPlte(
+                                    return Tk_Manual_Plte(
                                         Sample_Name,
                                         b"PLTE",
                                         int(chi.split(":")[2]),
@@ -9388,6 +9404,9 @@ def FixItFelix(Chunk=None):
                          elif Answer == "remove":
                              PRINT(Candy("Color", "yellow", "\n-ToDo"))
                              TheEnd()
+                         elif Answer == "quit":
+                             SideNotes.append("-User Chose to quit.")
+                             TheEnd()
 
 
                          #TODO
@@ -9399,9 +9418,9 @@ def FixItFelix(Chunk=None):
                          Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
                          Candy("Cowsay", "Perhaps i could just remove that PLTE chunk .", "com")
 
-                         Answer = input("Answer(Manually/OldCrc/Remove):").lower()
-                         while Answer != "manually" and Answer != "oldcrc" and Answer != "remove":
-                               Answer = input("Answer(Manually/OldCrc/Remove):").lower()
+                         Answer = input("Answer(Manually/OldCrc/Remove/Quit):").lower()
+                         while Answer != "manually" and Answer != "oldcrc" and Answer != "remove" and Answer != "quit":
+                               Answer = input("Answer(Manually/OldCrc/Remove/Quit):").lower()
 
                          if Answer == "oldcrc":
                             OldCrc = Pandemonium[file][errors][Chunkname + "_Tool_5"]
@@ -9422,6 +9441,9 @@ def FixItFelix(Chunk=None):
                              TheEnd()
                          elif Answer == "remove":
                              PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                             TheEnd()
+                         elif Answer == "quit":
+                             SideNotes.append("-User Chose to quit.")
                              TheEnd()
 
                      Candy(
@@ -9556,6 +9578,13 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                Bad_Critical = False
             if "Filling with a dummy chunk" in info:
                 return WriteClone(ToolKit[0])
+
+        if function == "Tk_Save_Plte":
+            if "-PLTE Data has been replaced manually." in info: 
+                SideNotes.append("-CheckPoint: %s" % info)
+                return WriteClone(ToolKit[0])
+            if "-Manually modify PLTE datas has been canceled by user." in info: 
+                SideNotes.append("-CheckPoint: %s" % info)
 
         if function == "SmashBruteBrawl":
             if "Corrupted Data has been replaced" in info: 
