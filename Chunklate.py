@@ -9321,7 +9321,6 @@ def FixItFelix(Chunk=None):
                         if GoodEnding in DATAX:
                                posgoodending = DATAX.index(GoodEnding)
                                cuthere = DATAX.index(GoodEnding)+len(GoodEnding)
-                               tyri
                                cleancut = bytes.fromhex(DATAX[:cuthere])
                                SideNotes.append("-FixitFelix:Removing extra bytes after IEND chunk.")
                           
@@ -9520,8 +9519,21 @@ def FixItFelix(Chunk=None):
                                         BfMode="OldCrc:%s"%OldCrc,
                                     )
                          elif Answer == "manually":
-                             PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                             TheEnd()
+                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                print("ch:%s chi:%s"%(ch,chi))
+                                if ch == b"PLTE":
+                                    print("chi:",chi)
+                                    Pause("joj")
+                                    #if something EditMode = "replace"TODO
+                                    return Tk_Manual_Plte(
+                                        Sample_Name,
+                                        b"PLTE",
+                                        int(chi.split(":")[2]),
+                                        int(chi.split(":")[1]),
+                                        "-PLTE Wrong Data",
+                                    )
+                            Pause("pas glop")
+
                          elif Answer == "remove":
                             for ch, chi in zip(Chunks_History, Chunks_History_Index):
                                 if ch == b"PLTE":
