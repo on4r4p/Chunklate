@@ -5396,6 +5396,65 @@ def Tk_ImgUpdate_Plte(event,nbr=None,bfn=None,afn=None,w=None,h=None):
     if DEBUG:
         PRINT("PlteId : %s Value : %s Plte_Blst[PlteId]:%s bvalue: %s Lnx_New : %s"%(str(nbr),str(event),str(Plte_Blst[nbr]),str(bvalue),str(Lnx_New)))
 
+def Tk_X11_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
+    global Plte_Blst 
+    global window,tk_image,frame_img,pil_image,im,wanabyte
+
+    rnd_x11 = random.sample(X11_Colors,len(X11_Colors))
+
+
+    for n,slider in enumerate(slider_list):
+        rval = int(rnd_x11[int(n)],16)
+        Plte_Blst[int(n)] = rval
+        slider.var.set(rval)
+
+    bvalue = b""
+    for i in Plte_Blst:
+       if i != "empty":
+           bvalue += int(i).to_bytes(3, "big")
+
+
+    Lnx_New = len(bvalue).to_bytes(4, "big")
+    checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
+    fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
+    wanabyte = bfn + fullnewdatax + afn
+
+    im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
+    pil_image = Image.fromarray(im)
+
+    new_pil_image = pil_image.resize((w-10,h-10), Image.Resampling.LANCZOS)
+    
+    tk_image = ImageTk.PhotoImage(image=new_pil_image)
+    tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+
+def Tk_X11_Plte(bfn=None,afn=None,w=None,h=None):
+    global Plte_Blst 
+    global window,tk_image,frame_img,pil_image,im,wanabyte
+
+
+    for n,slider in enumerate(slider_list):
+        rval = int(X11_Colors[int(n)],16)
+        Plte_Blst[int(n)] = rval
+        slider.var.set(rval)
+
+    bvalue = b""
+    for i in Plte_Blst:
+           bvalue += int(i).to_bytes(3, "big")
+
+
+    Lnx_New = len(bvalue).to_bytes(4, "big")
+    checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
+    fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
+    wanabyte = bfn + fullnewdatax + afn
+
+    im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
+    pil_image = Image.fromarray(im)
+
+    new_pil_image = pil_image.resize((w-10,h-10), Image.Resampling.LANCZOS)
+    
+    tk_image = ImageTk.PhotoImage(image=new_pil_image)
+    tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+
 def Tk_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
     global Plte_Blst 
     global window,tk_image,frame_img,pil_image,im,wanabyte
@@ -5492,23 +5551,19 @@ def Tk_Manual_Plte(
         PRINT("ChunkLength:%s"% ChunkLength)
 
 
-    Before_New = bytes.fromhex(DATAX[:DataOffset])
-    ToBrute = ""
-    ToBryte = bytes.fromhex(ToBrute) 
-    After_New = bytes.fromhex(DATAX[DataOffset + 24 :])
+    Plte_Blst = ["empty" for i in range((2 ** int(IHDR_Depht)-1))]
 
-    ln = 6
-    Lnx_New = int(int(ln/2)).to_bytes(4, "big")
-#    bvalue += struct.pack(chunk_format[idx],int(j))
-    bvalue  = bytes.fromhex("aaaaab")
+
+
+
+    Before_New = bytes.fromhex(DATAX[:DataOffset])
+    After_New = bytes.fromhex(DATAX[DataOffset + (ChunkLength-DataOffset) :])
+
+    Lnx_New = int(3).to_bytes(4, "big")
+    bvalue  = bytes.fromhex("deadbf")
     checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
     fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
     wanabyte = Before_New + fullnewdatax + After_New
-
-#    name, dir = Naming(FILE_Origin)
-#    tmpname =  dir+"/"+"BF-"+str(datetime.now().strftime('-%y%m%d%H%M%S-'))+name
-#    with open(tmpname, "wb") as f:
-#        f.write(wanabyte)
 
     im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
     pil_image = Image.fromarray(im)
@@ -5549,11 +5604,19 @@ def Tk_Manual_Plte(
     cancel_btn = tkinter.Button(frame_action, text="Cancel", command=lambda: Tk_Save_Plte(window,True,ChunkLength,DataOffset,FromError,wanabyte))
     cancel_btn.grid(row=0, column=0, padx=10, pady=5)
 
+    x11_btn = tkinter.Button(frame_action, text="X11 Colors", command=lambda: Tk_X11_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
+    x11_btn.grid(row=0, column=1, padx=10, pady=5)
+
+    random_classic_btn = tkinter.Button(frame_action, text="X11 Random", command=lambda: Tk_X11_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
+    random_classic_btn.grid(row=0, column=2, padx=10, pady=5)
+
+
     random_btn = tkinter.Button(frame_action, text="Randomize", command=lambda: Tk_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
-    random_btn.grid(row=0, column=1, padx=10, pady=5)
+    random_btn.grid(row=0, column=3, padx=10, pady=5)
+
 
     save_btn = tkinter.Button(frame_action, text="Save", command=lambda: Tk_Save_Plte(window,False,ChunkLength,DataOffset,FromError,wanabyte))
-    save_btn.grid(row=0, column=2, padx=10, pady=5)
+    save_btn.grid(row=0, column=4, padx=10, pady=5)
 
     canvas_slider=tkinter.Canvas(frame_slider, height=hsize, width=basewidth-15)
     canvas_slider.grid(row=0, column=1, padx=10, pady=5) # ,sticky="nsew")
@@ -5567,8 +5630,7 @@ def Tk_Manual_Plte(
     slider_scroll.grid(row=0, column=0, sticky="ns")
 
     slider_list = []
-    for i in range(256):
-
+    for i in range((2 ** int(IHDR_Depht)-1)):
         slider_list.append(
         Tk_Gen_Scale_Plte(master=frame_canvas,from_=-1,to=16777215,ln=basewidth-30,label='Palette %d' % (i+1),nbr=i,bfn=Before_New,afn=After_New,h=hsize,w=basewidth)
         )
@@ -5580,6 +5642,7 @@ def Tk_Manual_Plte(
         PRINT("h:%s"%str(IHDR_Height))
         PRINT("w:%s"%str(IHDR_Width))
         PRINT("lnx:%s"%str(Lnx_New.hex()))
+        PRINT("Max palettes:%s"%str(2 ** int(IHDR_Depht)-1))
         PRINT("bvalue:%s"%str(bvalue.hex()))
         PRINT("checksum:%s"%str(checksum.hex()))
         PRINT("full:%s"%str(fullnewdatax.hex()))
@@ -8381,6 +8444,14 @@ def Checksum(Ctype, Cdata, Crc, next=None):
         )
 
 
+def RemoveChunk(start,length,infos):
+    Candy("Title", "Removing Chunk")
+    end = length - start
+    Before = DATAX[:start]
+    After = DATAX[start+end:]
+    Fix = Before + After
+    WriteClone(Fix,infos)
+
 def SaveClone(DataFix, start, end, infos):
     global Show_Must_Go_On
     Show_Must_Go_On = True
@@ -8397,18 +8468,18 @@ def SaveClone(DataFix, start, end, infos):
         Betterror(e, inspect.stack()[0][3])
 
 
-    Summarise(infos)
     Before = DATAX[:start]
     After = DATAX[end:]
     Fix = Before + DataFix + After
-    WriteClone(Fix)
+    WriteClone(Fix,infos)
 
 
-def WriteClone(data):
+def WriteClone(data,infos):
     global Sample
     global Have_A_KitKat
     global Pandemonium
     global ArkOfCovenant
+    global SideNotes
 
     Pandemonium[Sample] = PandoraBox
     ArkOfCovenant[Sample] = Cornucopia
@@ -8421,13 +8492,26 @@ def WriteClone(data):
     name, dir = Naming(FILE_Origin)
 
     PRINT(Candy("Color", "green", "-Saving to : %s")% dir + "/" + name)
-    with open(dir + "/" + name, "wb") as f:
-        f.write(data)
-    Sample = dir + "/" + name
+
+    SideNotes.append("-Saving to : %s"% dir + "/" + name)
+
+    try:
+       with open(dir + "/" + name, "wb") as f:
+           f.write(data)
+       Sample = dir + "/" + name
+    except Exception as e:
+        Betterror(e, inspect.stack()[0][3])
+        PRINT(
+                    Candy("Color", "red", "Error WriteClone:%s")%
+                    Candy("Color", "yellow", e),
+                )
+        TheEnd()
     Have_A_KitKat = True
 
     if PAUSE is True:
         Pause("-Saved Press Return to continue:")
+
+    Summarise(infos)
 
     return None
 
@@ -9240,7 +9324,8 @@ def FixItFelix(Chunk=None):
                                tyri
                                cleancut = bytes.fromhex(DATAX[:cuthere])
                                SideNotes.append("-FixitFelix:Removing extra bytes after IEND chunk.")
-                               return(WriteClone(cleancut))
+                          
+                               return(WriteClone(cleancut,"-Saved"))
                         else:
 
                            PRINT(Candy("Color", "yellow", "Not ending with regular IEND\n-ToDo"))
@@ -9362,16 +9447,16 @@ def FixItFelix(Chunk=None):
                      Candy("Cowsay", "Alright this is a tough one as PLTE is a critical chunk..", "bad")
                      #if not something to get intel about plte nbr and what TODO:
                      if not Bad_Crc:
+
                          Candy("Cowsay", "Crc is valid ...So this has been made on purpose..", "bad")
                          Candy("Cowsay", "Anyway im just gona fill the gap then.", "com")
                          Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
-                         Candy("Cowsay", "I ll have to bruteforce my way through.", "bad")
-                         Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
-                         Candy("Cowsay", "Perhaps i could just remove that PLTE chunk .", "com")
+                         Candy("Cowsay", "I will need you to manually click a few buttons for me.", "com")
+                         Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk .", "com") ## no you should not it wont work
 
-                         Answer = input("Answer(Manually/BruteForce/Remove/Quit):").lower()
-                         while Answer != "manually" and Answer != "bruteforce" and Answer != "remove" and Answer != "quit":
-                               Answer = input("Answer(Manually/bruteforce/Remove/Quit):").lower()
+                         Answer = input("Answer(Manually/Remove/Quit):").lower() 
+                         while Answer != "manually" and Answer != "remove" and Answer != "quit":
+                               Answer = input("Answer(Manually/Remove/Quit):").lower()
 
                          if Answer == "manually":
                             for ch, chi in zip(Chunks_History, Chunks_History_Index):
@@ -9384,45 +9469,43 @@ def FixItFelix(Chunk=None):
                                         int(chi.split(":")[1]),
                                         "-PLTE Wrong Data",
                                     )
-                         elif Answer == "bruteforce":
+                         elif Answer == "remove":
                             for ch, chi in zip(Chunks_History, Chunks_History_Index):
                                 if ch == b"PLTE":
-                                    #if something EditMode = "replace"TODO
-                                    return SmashBruteBrawl(
-                                        Sample_Name,
-                                        b"PLTE",
-                                        int(chi.split(":")[2]),
-                                        int(chi.split(":")[1]),
-                                        "-PLTE Wrong Data",
-                                        EditMode = "Insert",
-                                    )
-
-
-
-                            PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                            TheEnd()
-                         elif Answer == "remove":
-                             PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                             TheEnd()
+                                    return(RemoveChunk(int(chi.split(":")[1]),int(chi.split(":")[2]),"-PLTE Chunk Removed."))
                          elif Answer == "quit":
-                             SideNotes.append("-User Chose to quit.")
+                             SideNotes.append("-User has chose to quit.")
                              TheEnd()
 
+#                         elif Answer == "bruteforce":
+#                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
+#                                if ch == b"PLTE":
+                                    #if something EditMode = "replace"TODO
+#                                    return SmashBruteBrawl(
+#                                        Sample_Name,
+#                                        b"PLTE",
+#                                        int(chi.split(":")[2]),
+#                                        int(chi.split(":")[1]),
+#                                        "-PLTE Wrong Data",
+#                                        EditMode = "Insert",
+#                                    )
+#                            PRINT(Candy("Color", "yellow", "\n-ToDo"))
+#                            TheEnd()
 
-                         #TODO
+
                      else:
 
 
                          Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
                          Candy("Cowsay", "I ll have to bruteforce my way through until i end up with the old Crc.", "bad")
                          Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
-                         Candy("Cowsay", "Perhaps i could just remove that PLTE chunk .", "com")
+                         Candy("Cowsay", "Perhaps i could just remove that PLTE chunk .", "com")  ## no you should not it wont work
 
-                         Answer = input("Answer(Manually/OldCrc/Remove/Quit):").lower()
-                         while Answer != "manually" and Answer != "oldcrc" and Answer != "remove" and Answer != "quit":
-                               Answer = input("Answer(Manually/OldCrc/Remove/Quit):").lower()
+                         Answer = input("Answer(Manually/Bruteforce/Remove/Quit):").lower()
+                         while Answer != "manually" and Answer != "bruteforce" and Answer != "remove" and Answer != "quit":
+                               Answer = input("Answer(Manually/bruteforce/Remove/Quit):").lower()
 
-                         if Answer == "oldcrc":
+                         if Answer == "bruteforce":
                             OldCrc = Pandemonium[file][errors][Chunkname + "_Tool_5"]
                             for ch, chi in zip(Chunks_History, Chunks_History_Index):
                                 if ch == b"PLTE":
@@ -9440,10 +9523,12 @@ def FixItFelix(Chunk=None):
                              PRINT(Candy("Color", "yellow", "\n-ToDo"))
                              TheEnd()
                          elif Answer == "remove":
-                             PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                             TheEnd()
+                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                if ch == b"PLTE":
+                                    return(RemoveChunk(int(chi.split(":")[1]),int(chi.split(":")[2]),"-PLTE Chunk Removed."))
+
                          elif Answer == "quit":
-                             SideNotes.append("-User Chose to quit.")
+                             SideNotes.append("-User ha chose to quit.")
                              TheEnd()
 
                      Candy(
@@ -9569,7 +9654,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
 
         if function == "TheGoodPlace":
             if "Found Missing Data" in info:
-                return WriteClone(ToolKit[0])
+                return WriteClone(ToolKit[0],"-About to save.")
             if "Missing Data Has Not Been Found" in info:
                 return DummyChunk(ToolKit[0], ToolKit[1], ToolKit[2], ToolKit[3], info)
 
@@ -9577,19 +9662,19 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
             if chunk == b'IEND':
                Bad_Critical = False
             if "Filling with a dummy chunk" in info:
-                return WriteClone(ToolKit[0])
+                return WriteClone(ToolKit[0],"-About to save.")
 
         if function == "Tk_Save_Plte":
             if "-PLTE Data has been replaced manually." in info: 
                 SideNotes.append("-CheckPoint: %s" % info)
-                return WriteClone(ToolKit[0])
+                return WriteClone(ToolKit[0],"-About to save.")
             if "-Manually modify PLTE datas has been canceled by user." in info: 
                 SideNotes.append("-CheckPoint: %s" % info)
 
         if function == "SmashBruteBrawl":
             if "Corrupted Data has been replaced" in info: 
                 SideNotes.append("-CheckPoint: %s" % info)
-                return WriteClone(ToolKit[0])
+                return WriteClone(ToolKit[0],"-About to save.")
 
             if "Previous Crc checksum" in info: #tmp fix
                 SideNotes.append("-CheckPoint: %s" % info)
@@ -9667,7 +9752,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                     "-File does not start with a png signature.\n-Found a png signature at offset: %s\n-Creating starting with the right signature."
                     % ToolKit[1]
                 )
-                return WriteClone(ToolKit[0])
+                return WriteClone(ToolKit[0],"-About to save.")
 
             if info == "-dig a little bit deeper":
                 SideNotes.append("-CheckPoint: Finding Harder Magic Header")
@@ -9679,14 +9764,14 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                     "-File does not start with a png signature.\n-Found a png signature at offset: %s\n-Creating starting with the right signature."
                     % ToolKit[1]
                 )
-                return WriteClone(ToolKit[0])
+                return WriteClone(ToolKit[0],"-About to save.")
 
             if info == "-Prepending Magic":
                 Summarise(
                     "-File does not start with a png signature.\n-Did prepending a png signature at offset: %s\n-Creating starting with the right signature."
                     % ToolKit[1]
                 )
-                return WriteClone(ToolKit[0])
+                return WriteClone(ToolKit[0],"-About to save.")
 
         if function == "CheckLength":
 
@@ -10308,7 +10393,7 @@ pCAL_Param = []
 PLTE_R = []
 PLTE_G = []
 PLTE_B = []
-Plte_Blst = ["empty" for i in range(256)]
+Plte_Blst = []
 sPLT_Name = []
 sPLT_Depht = []
 sPLT_Red = []
@@ -10500,6 +10585,265 @@ tRNS_TrueB = ""
 zTXt_Key = ""
 zTXt_Meth = ""
 zTXt_Text = ""
+
+X11_Colors =[
+  "000000",
+  "800000",
+  "008000",
+  "808000",
+  "000080",
+  "800080",
+  "008080",
+  "c0c0c0",
+  "808080",
+  "ff0000",
+  "00ff00",
+  "ffff00",
+  "0000ff",
+  "ff00ff",
+  "00ffff",
+  "ffffff",
+  "000000",
+  "00005f",
+  "000087",
+  "0000af",
+  "0000d7",
+  "0000ff",
+  "005f00",
+  "005f5f",
+  "005f87",
+  "005faf",
+  "005fd7",
+  "005fff",
+  "008700",
+  "00875f",
+  "008787",
+  "0087af",
+  "0087d7",
+  "0087ff",
+  "00af00",
+  "00af5f",
+  "00af87",
+  "00afaf",
+  "00afd7",
+  "00afff",
+  "00d700",
+  "00d75f",
+  "00d787",
+  "00d7af",
+  "00d7d7",
+  "00d7ff",
+  "00ff00",
+  "00ff5f",
+  "00ff87",
+  "00ffaf",
+  "00ffd7",
+  "00ffff",
+  "5f0000",
+  "5f005f",
+  "5f0087",
+  "5f00af",
+  "5f00d7",
+  "5f00ff",
+  "5f5f00",
+  "5f5f5f",
+  "5f5f87",
+  "5f5faf",
+  "5f5fd7",
+  "5f5fff",
+  "5f8700",
+  "5f875f",
+  "5f8787",
+  "5f87af",
+  "5f87d7",
+  "5f87ff",
+  "5faf00",
+  "5faf5f",
+  "5faf87",
+  "5fafaf",
+  "5fafd7",
+  "5fafff",
+  "5fd700",
+  "5fd75f",
+  "5fd787",
+  "5fd7af",
+  "5fd7d7",
+  "5fd7ff",
+  "5fff00",
+  "5fff5f",
+  "5fff87",
+  "5fffaf",
+  "5fffd7",
+  "5fffff",
+  "870000",
+  "87005f",
+  "870087",
+  "8700af",
+  "8700d7",
+  "8700ff",
+  "875f00",
+  "875f5f",
+  "875f87",
+  "875faf",
+  "875fd7",
+  "875fff",
+  "878700",
+  "87875f",
+  "878787",
+  "8787af",
+  "8787d7",
+  "8787ff",
+  "87af00",
+  "87af5f",
+  "87af87",
+  "87afaf",
+  "87afd7",
+  "87afff",
+  "87d700",
+  "87d75f",
+  "87d787",
+  "87d7af",
+  "87d7d7",
+  "87d7ff",
+  "87ff00",
+  "87ff5f",
+  "87ff87",
+  "87ffaf",
+  "87ffd7",
+  "87ffff",
+  "af0000",
+  "af005f",
+  "af0087",
+  "af00af",
+  "af00d7",
+  "af00ff",
+  "af5f00",
+  "af5f5f",
+  "af5f87",
+  "af5faf",
+  "af5fd7",
+  "af5fff",
+  "af8700",
+  "af875f",
+  "af8787",
+  "af87af",
+  "af87d7",
+  "af87ff",
+  "afaf00",
+  "afaf5f",
+  "afaf87",
+  "afafaf",
+  "afafd7",
+  "afafff",
+  "afd700",
+  "afd75f",
+  "afd787",
+  "afd7af",
+  "afd7d7",
+  "afd7ff",
+  "afff00",
+  "afff5f",
+  "afff87",
+  "afffaf",
+  "afffd7",
+  "afffff",
+  "d70000",
+  "d7005f",
+  "d70087",
+  "d700af",
+  "d700d7",
+  "d700ff",
+  "d75f00",
+  "d75f5f",
+  "d75f87",
+  "d75faf",
+  "d75fd7",
+  "d75fff",
+  "d78700",
+  "d7875f",
+  "d78787",
+  "d787af",
+  "d787d7",
+  "d787ff",
+  "d7af00",
+  "d7af5f",
+  "d7af87",
+  "d7afaf",
+  "d7afd7",
+  "d7afff",
+  "d7d700",
+  "d7d75f",
+  "d7d787",
+  "d7d7af",
+  "d7d7d7",
+  "d7d7ff",
+  "d7ff00",
+  "d7ff5f",
+  "d7ff87",
+  "d7ffaf",
+  "d7ffd7",
+  "d7ffff",
+  "ff0000",
+  "ff005f",
+  "ff0087",
+  "ff00af",
+  "ff00d7",
+  "ff00ff",
+  "ff5f00",
+  "ff5f5f",
+  "ff5f87",
+  "ff5faf",
+  "ff5fd7",
+  "ff5fff",
+  "ff8700",
+  "ff875f",
+  "ff8787",
+  "ff87af",
+  "ff87d7",
+  "ff87ff",
+  "ffaf00",
+  "ffaf5f",
+  "ffaf87",
+  "ffafaf",
+  "ffafd7",
+  "ffafff",
+  "ffd700",
+  "ffd75f",
+  "ffd787",
+  "ffd7af",
+  "ffd7d7",
+  "ffd7ff",
+  "ffff00",
+  "ffff5f",
+  "ffff87",
+  "ffffaf",
+  "ffffd7",
+  "ffffff",
+  "080808",
+  "121212",
+  "1c1c1c",
+  "262626",
+  "303030",
+  "3a3a3a",
+  "444444",
+  "4e4e4e",
+  "585858",
+  "606060",
+  "666666",
+  "767676",
+  "808080",
+  "8a8a8a",
+  "949494",
+  "9e9e9e",
+  "a8a8a8",
+  "b2b2b2",
+  "bcbcbc",
+  "c6c6c6",
+  "d0d0d0",
+  "dadada",
+  "e4e4e4",
+  "eeeeee"
+]
 
 
 if __name__ == "__main__":
