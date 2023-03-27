@@ -8,9 +8,9 @@ from inputimeout import inputimeout
 import numpy as np
 import matplotlib
 import tkinter
-matplotlib.use('TkAgg', force=True)
-import matplotlib.pyplot as plt
-import sys, os, binascii, re, random, time, zlib, cv2, ctypes, struct,io, tempfile, inspect, types, difflib, collections, math, itertools, psutil
+matplotlib.use('TkAgg', force=True) #Dont really need matplotlib
+import matplotlib.pyplot as plt #just testing stuf
+import sys, os, binascii, re, random, time, zlib, cv2, ctypes, struct,io, tempfile, inspect, types, difflib, collections, math, itertools, psutil,imagehash
 
 
 def Betterror(error_msg, def_name): ##useless since 3.11
@@ -5362,7 +5362,8 @@ class Tk_Gen_Scale_Plte:
                  orient='horizontal')
         self.var.set(value)
         self.s.grid(padx=10, pady=5)
-
+    def clean(self):
+       self.s.destroy()
 
 
 def Tk_ImgUpdate_Plte(event,nbr=None,bfn=None,afn=None,w=None,h=None):  
@@ -5393,8 +5394,8 @@ def Tk_ImgUpdate_Plte(event,nbr=None,bfn=None,afn=None,w=None,h=None):
     tk_image = ImageTk.PhotoImage(image=new_pil_image)
     tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
 
-    if DEBUG:
-        PRINT("PlteId : %s Value : %s Plte_Blst[PlteId]:%s bvalue: %s Lnx_New : %s"%(str(nbr),str(event),str(Plte_Blst[nbr]),str(bvalue),str(Lnx_New)))
+#    if DEBUG:
+#        PRINT("PlteId : %s Value : %s Plte_Blst[PlteId]:%s bvalue: %s Lnx_New : %s"%(str(nbr),str(event),str(Plte_Blst[nbr]),str(bvalue),str(Lnx_New)))
 
 def Tk_X11_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
     global Plte_Blst 
@@ -5488,9 +5489,15 @@ def Tk_update_scrollregion_Plte(event):
     canvas_slider.configure(scrollregion=canvas_slider.bbox("all"))
 
 def Tk_Save_Plte(Tkwin,Cancel,ChunkLength,DataOffset,FromError,wanabyte):
+    global slider_list
 
-    nplt = 256 - Plte_Blst.count("empty") 
+    nplt = 256 - Plte_Blst.count("empty")
+
+    for slider in slider_list:
+         slider.clean()
+ 
     Tkwin.destroy()
+    Tkwin.quit()
 
     if Cancel:
         return CheckPoint(
@@ -5524,6 +5531,52 @@ def Tk_Save_Plte(Tkwin,Cancel,ChunkLength,DataOffset,FromError,wanabyte):
        )
 
 
+def Guess_Palettes_Nbr(bfn,afn):
+    global SideNotes
+
+    Hashs_Lst = []
+    PLTE_Guess_Nbr = None
+    bvalue = b""
+    f = io.BytesIO()
+    for n,colorx in enumerate(X11_Colors):
+        bvalue += bytes.fromhex(colorx)
+        Lnx_New = len(bvalue).to_bytes(4, "big")
+        checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
+        fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
+        wanabyte = bfn + fullnewdatax + afn
+
+        with stderr_redirector(f):
+             try:
+                 im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
+             except:
+                 continue     
+
+        pil_image = Image.fromarray(im)
+#        current_hash = imagehash.colorhash(pil_image)
+#        current_hash = imagehash.dhash(pil_image)
+#        current_hash = imagehash.average_hash(pil_image)
+        current_hash = imagehash.phash(pil_image)
+        Hashs_Lst.append(current_hash)
+        if len(Hashs_Lst) > 1:
+             distance_last = Hashs_Lst[-2] - Hashs_Lst[-1]
+             distance_orig = Hashs_Lst[0] - Hashs_Lst[-1]
+#             print("-Palette:%s len(hlst):last hash:%s current hash:%s distance(last-current):%s distance(first-current):%s"%(n,Hashs_Lst[-2],Hashs_Lst[-1],distance_last,distance_orig))
+#             if current_hash in Hashs_Lst:
+#                 print("        current hash %s already in Hashs_Lst"%(current_hash))
+             if distance_last != 0:
+                     PLTE_Guess_Nbr = n
+
+    if PLTE_Guess_Nbr:
+        PRINT("-PLTE palettes number estimation: %s"% Candy("Color", "green", str(PLTE_Guess_Nbr)))
+        SideNotes.append("-PLTE palettes number estimation: %s"%str(PLTE_Guess_Nbr))
+        return(PLTE_Guess_Nbr)
+    else:
+        PRINT(Candy("Color", "yellow", "Warning:%s")%"Could not estimate palette number.")
+        SideNotes.append("Warning:Could not estimate palette number.Returning Max Palettes number according to IHDR Depht")
+        return(2 ** int(IHDR_Depht)-1)
+
+
+
 def Tk_Manual_Plte(
     File,
     ChunkName,
@@ -5544,26 +5597,31 @@ def Tk_Manual_Plte(
         if DEBUG is True:
             PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
 
-    if DEBUG is True:
-        PRINT("File:%s"% File)
-        PRINT("ChunkName:%s"% ChunkName)
-        PRINT("DataOffset:%s"% DataOffset)
-        PRINT("ChunkLength:%s"% ChunkLength)
-
-
-    Plte_Blst = ["empty" for i in range((2 ** int(IHDR_Depht)-1))]
-
-
-
 
     Before_New = bytes.fromhex(DATAX[:DataOffset])
     After_New = bytes.fromhex(DATAX[DataOffset + (ChunkLength-DataOffset) :])
 
     Lnx_New = int(3).to_bytes(4, "big")
-    bvalue  = bytes.fromhex("deadbf")
+    bvalue  = bytes.fromhex("000000")
     checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
     fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
     wanabyte = Before_New + fullnewdatax + After_New
+
+
+    Palette_nbr = Guess_Palettes_Nbr(Before_New,After_New)
+
+    Plte_Blst = ["empty" for i in range(Palette_nbr)]
+
+    if DEBUG is True:
+        PRINT("File:%s"% File)
+        PRINT("ChunkName:%s"% ChunkName)
+        PRINT("DataOffset:%s"% DataOffset)
+        PRINT("ChunkLength:%s"% ChunkLength)
+        PRINT("Before_New:%s"% Before_New.hex())
+        PRINT("After_New:%s"% After_New[:20].hex())
+        PRINT("fullnewdatax:%s"%fullnewdatax.hex())
+        PRINT("Palette_nbr:%s"%Palette_nbr)
+
 
     im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
     pil_image = Image.fromarray(im)
@@ -5630,22 +5688,12 @@ def Tk_Manual_Plte(
     slider_scroll.grid(row=0, column=0, sticky="ns")
 
     slider_list = []
-    for i in range((2 ** int(IHDR_Depht)-1)):
+    for i in range(Palette_nbr):
+#    for i in range(10):
         slider_list.append(
         Tk_Gen_Scale_Plte(master=frame_canvas,from_=-1,to=16777215,ln=basewidth-30,label='Palette %d' % (i+1),nbr=i,bfn=Before_New,afn=After_New,h=hsize,w=basewidth)
         )
 
-
-
-    if DEBUG :
-       # PRINT("-Image saved at:%s\n"%tmpname)
-        PRINT("h:%s"%str(IHDR_Height))
-        PRINT("w:%s"%str(IHDR_Width))
-        PRINT("lnx:%s"%str(Lnx_New.hex()))
-        PRINT("Max palettes:%s"%str(2 ** int(IHDR_Depht)-1))
-        PRINT("bvalue:%s"%str(bvalue.hex()))
-        PRINT("checksum:%s"%str(checksum.hex()))
-        PRINT("full:%s"%str(fullnewdatax.hex()))
 
     canvas_slider.bind("<Configure>", Tk_update_scrollregion_Plte)
     window.mainloop()
@@ -5729,10 +5777,7 @@ def SmashBruteBrawl(
         PRINT("FromError:%s"% FromError)
         PRINT("chunklen_spec:%s"% str(chunklen_spec))
         PRINT("chunk_format:%s"% str(chunk_format))
-        if len(str(chunk_data)) > MAXCHAR:
-            PRINT("chunk_data:Too Big To be displayed")
-        else:
-            PRINT("chunk_data:%s"% str(chunk_data))
+        PRINT("chunk_data:%s"% str(chunk_data))
 #        print("cdata:\n",chunk_data)
         
         PRINT("max_iter:%s"%max_iter)
@@ -5766,7 +5811,7 @@ def SmashBruteBrawl(
 #                ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ] ## wrong value 
                 ToBrute = ""
                 ToBryte = bytes.fromhex(ToBrute) ## b"wrong value"
-                After_New = bytes.fromhex(DATAX[DataOffset + 24 :])  # +24=chunklen+chunkname+data+crc
+                After_New = bytes.fromhex(DATAX[DataOffset + 24 :])  # +24=chunklen+chunkname+data+crc ##Something odd here ..
 
 #                print("tobrute: ",ToBrute)
 #                print("ln:",ln)
@@ -8458,12 +8503,7 @@ def SaveClone(DataFix, start, end, infos):
 
     Candy("Title", "Saving Clone")
     try:
-        if len(str(DataFix)) > MAXCHAR:
-            PRINT("-Data:Too Big To be displayed")
-        else:
-            PRINT("-Data : %s\n" % bytes.fromhex(DataFix))
-
-
+        PRINT("-Data : %s\n" % bytes.fromhex(DataFix))
     except Exception as e:
         Betterror(e, inspect.stack()[0][3])
 
@@ -9476,7 +9516,7 @@ def FixItFelix(Chunk=None):
                              SideNotes.append("-User has chose to quit.")
                              TheEnd()
 
-#                         elif Answer == "bruteforce":
+#                         elif Answer == "bruteforce": ##there is 4 million time less atoms in the univers than the nbr of results
 #                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
 #                                if ch == b"PLTE":
                                     #if something EditMode = "replace"TODO
@@ -9519,20 +9559,29 @@ def FixItFelix(Chunk=None):
                                         BfMode="OldCrc:%s"%OldCrc,
                                     )
                          elif Answer == "manually":
-                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                print("ch:%s chi:%s"%(ch,chi))
-                                if ch == b"PLTE":
-                                    print("chi:",chi)
-                                    Pause("joj")
-                                    #if something EditMode = "replace"TODO
+
+
                                     return Tk_Manual_Plte(
                                         Sample_Name,
                                         b"PLTE",
-                                        int(chi.split(":")[2]),
-                                        int(chi.split(":")[1]),
+                                        CrcoffI + 8,
+                                        CLoffI,
                                         "-PLTE Wrong Data",
                                     )
-                            Pause("pas glop")
+#                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
+#                                print("ch:%s chi:%s"%(ch,chi))
+#                                if ch == b"PLTE":
+#                                    print("chi:",chi)
+#                                    Pause("joj")
+                                    #if something EditMode = "replace"TODO
+#                                    return Tk_Manual_Plte(
+#                                        Sample_Name,
+#                                        b"PLTE",
+#                                        int(chi.split(":")[2]),
+#                                        int(chi.split(":")[1]),
+#                                        "-PLTE Wrong Data",
+#                                    )
+#                            Pause("pas glop")
 
                          elif Answer == "remove":
                             for ch, chi in zip(Chunks_History, Chunks_History_Index):
@@ -9898,7 +9947,12 @@ def Pause(msg):
 
 def PRINT(msg):
     if NODIALOGUE is False :
-        print(msg)
+
+        if len(str(msg)) > MAXCHAR*2:
+            print("%s ...Too Big To be displayed..."%str(msg[:int(MAXCHAR)-30]))
+        else:
+           print(msg)
+
 #    else:
 #        print("-not print-")
 #        print(msg)
