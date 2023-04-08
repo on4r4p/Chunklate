@@ -171,11 +171,9 @@ def ColorType(GetChunk,Mode):
     if IHDR_Height == 0 or IHDR_Width == 0:
         Safe_val = False
 
-    if "OldCrc" in Mode:
-        Safe_val = False
-
     if Safe_val == False:
-        if GetChunk == b"IHDR" and (Mode in ("Brutus","Custom","Spec") or "OldCrc" in Mode):
+#        if GetChunk == b"IHDR" and (Mode in ("Brutus","Custom","Spec") or "OldCrc" in Mode):
+        if GetChunk == b"IHDR":
             if Brute_LvL == 0:
                 if Mode == "Custom" and not Use_MinRes:
                     ColorType = "nocolortype:minres:custom"
@@ -188,7 +186,7 @@ def ColorType(GetChunk,Mode):
         else:
             ColorType = "nocolortype" #TODO what about [b"tRNS", b"bKGD", b"sBIT"] ??
 
-    elif Mode in ("Brutus","Custom","Spec") or "OldCrc" in Mode:
+    else:
             if Brute_LvL == 0:
                 if Mode == "Custom" and not Use_MinRes:
                     ColorType = "colortype:" + str(IHDR_Color) +":minres:custom"
@@ -198,8 +196,8 @@ def ColorType(GetChunk,Mode):
                 ColorType = "colortype:" + str(IHDR_Color) + ":medres"
             else:
                 ColorType = "colortype:" + str(IHDR_Color) + ":maxres"
-    else:
-         ColorType = "colortype:" + str(IHDR_Color)
+#    else:
+#         ColorType = "colortype:" + str(IHDR_Color)
 
     if DEBUG:
         PRINT("-ColorType set to:%s"% ColorType)
@@ -214,12 +212,12 @@ def Min_Res_Iter(MinRes):
             mri += 2
     return(mri)
 
-def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
+def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
 
     if DEBUG:
          PRINT("GetChunk:%s"%GetChunk)
          PRINT("Mode:%s"%Mode)
-         PRINT("SpecId:%s"%SpecId)
+         PRINT("Fields:%s"%Fields)
 
     ThisYear = datetime.now().year
 
@@ -254,8 +252,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, Mxr)),
-                        (i for i in range(1, Mxr)),
+                        ("i for i in range(1,%s)"%Mxr),
+                        ("i for i in range(1,%s)"%Mxr),
                         (1, 2, 4, 8, 16),
                         (0, 2, 3, 4, 6),
                         ("0"),
@@ -268,8 +266,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, ibn)),
-                        (i for i in range(1, ibn)),
+                        ("i for i in range(1,%s)"%ibn),
+                        ("i for i in range(1,%s)"%ibn),
                         (1, 2, 4, 8, 16),
                         (0, 2, 3, 4, 6),
                         ("0"),
@@ -282,23 +280,23 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, int(IBN / 64))),
-                        (i for i in range(1, int(IBN / 64))),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
                         (1, 2, 4, 8, 16), (0, 2, 3, 4, 6), ("0"), ("0"), (0, 1)),
                 ),
                 "nocolortype:minres": (
                     MnrF * 5 * 5 * 2,
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
-                    ((i for i in range(1,Mnr)), (1, 2, 4, 8, 16), (0, 2, 3, 4, 6), ("0"), ("0"), (0, 1)),
+                    (("i for i in range(1,%s)"%Mnr), (1, 2, 4, 8, 16), (0, 2, 3, 4, 6), ("0"), ("0"), (0, 1)),
                 ),
                 "colortype:0:minres:custom": (
                     MnrF * 10,
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, int(IBN / 64))),
-                        (i for i in range(1, int(IBN / 64))),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
                         (1, 2, 4, 8, 16),
                         ("0"),
                         ("0"),
@@ -312,7 +310,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1,Mnr)),
+                        ("i for i in range(1,%s)"%Mnr),
                         (1, 2, 4, 8, 16),
                         ("0"),
                         ("0"),
@@ -325,8 +323,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, ibn)),
-                        (i for i in range(1, ibn)),
+                        ("i for i in range(1,%s)"%ibn),
+                        ("i for i in range(1,%s)"%ibn),
                         (1, 2, 4, 8, 16),
                         ("0"),
                         ("0"),
@@ -339,8 +337,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, Mxr)),
-                        (i for i in range(1, Mxr)),
+                        ("i for i in range(1,%s)"%Mxr),
+                        ("i for i in range(1,%s)"%Mxr),
                         (1, 2, 4, 8, 16),
                         ("0"),
                         ("0"),
@@ -353,8 +351,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, int(IBN / 64))),
-                        (i for i in range(1, int(IBN / 64))),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
                         (8, 16),
                         ("2"),
                         ("0"),
@@ -368,7 +366,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(Mnr)),
+                        ("i for i in range(0,%s)"%Mnr),
                         (8, 16),
                         ("2"),
                         ("0"),
@@ -381,8 +379,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, ibn)),
-                        (i for i in range(1, ibn)),
+                        ("i for i in range(1,%s)"%ibn),
+                        ("i for i in range(1,%s)"%ibn),
                         (8, 16),
                         ("2"),
                         ("0"),
@@ -395,8 +393,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, Mxr)),
-                        (i for i in range(1, Mxr)),
+                        ("i for i in range(1,%s)"%Mxr),
+                        ("i for i in range(1,%s)"%Mxr),
                         (8, 16),
                         ("2"),
                         ("0"),
@@ -409,8 +407,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, int(IBN / 64))),
-                        (i for i in range(1, int(IBN / 64))),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
                         (1, 2, 4, 8),
                         ("3"),
                         ("0"),
@@ -423,7 +421,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1,Mnr)),
+                        ("i for i in range(1,%s)"%Mnr),
                         (1, 2, 4, 8),
                         ("3"),
                         ("0"),
@@ -436,8 +434,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, ibn)),
-                        (i for i in range(1, ibn)),
+                        ("i for i in range(1,%s)"%ibn),
+                        ("i for i in range(1,%s)"%ibn),
                         (1, 2, 4, 8),
                         ("3"),
                         ("0"),
@@ -450,8 +448,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, Mxr)),
-                        (i for i in range(1, Mxr)),
+                        ("i for i in range(1,%s)"%Mxr),
+                        ("i for i in range(1,%s)"%Mxr),
                         (1, 2, 4, 8),
                         ("3"),
                         ("0"),
@@ -464,8 +462,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, int(IBN / 64))),
-                        (i for i in range(1, int(IBN / 64))),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
                         (8, 16),
                         ("4"),
                         ("0"),
@@ -478,7 +476,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1,Mnr)),
+                        ("i for i in range(1,%s)"%Mnr),
                         (8, 16),
                         ("4"),
                         ("0"),
@@ -491,8 +489,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, ibn)),
-                        (i for i in range(1, ibn)),
+                        ("i for i in range(1,%s)"%ibn),
+                        ("i for i in range(1,%s)"%ibn),
                         (8, 16),
                         ("4"),
                         ("0"),
@@ -505,8 +503,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, Mxr)),
-                        (i for i in range(1, Mxr)),
+                        ("i for i in range(1,%s)"%Mxr),
+                        ("i for i in range(1,%s)"%Mxr),
                         (8, 16),
                         ("4"),
                         ("0"),
@@ -519,8 +517,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, int(IBN / 64))),
-                        (i for i in range(1, int(IBN / 64))),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
                         (8, 16),
                         ("6"),
                         ("0"),
@@ -533,7 +531,7 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1,Mnr)),
+                        ("i for i in range(1,%s)"%Mnr),
                         (8, 16),
                         ("6"),
                         ("0"),
@@ -546,8 +544,8 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, ibn)),
-                        (i for i in range(1, ibn)),
+                        ("i for i in range(1,%s)"%ibn),
+                        ("i for i in range(1,%s)"%ibn),
                         (8, 16),
                         ("6"),
                         ("0"),
@@ -560,15 +558,15 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     26,
                     ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1, Mxr)),
-                        (i for i in range(1, Mxr)),
+                        ("i for i in range(1,%s)"%Mxr),
+                        ("i for i in range(1,%s)"%Mxr),
                         (8, 16),
                         ("6"),
                         ("0"),
                         ("0"),
                         (0, 1),
                     ),
-                ),
+           ),
             },
             b"PLTE": { 
                 "nocolortype": (
@@ -576,67 +574,67 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     (6, 1536),
                     ("!B", "!B", "!B"),
                     (
-                        (i for i in range(256)),
-                        (i for i in range(256)),
-                        (i for i in range(256)),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
                     ),
                 )
             },
             b"tRNS": {
-                "colortype:0": (65535, (4, 1024), ("!H"), (i for i in range(65536))),
+                "colortype:0": (65535, (4, 1024), ("!H"), ("i for i in range(0,65536)")),
                 "colortype:2": (
                     196605,
                     (12, 3072),
                     ("!H", "!H", "!H"),
                     (
-                        (i for i in range(65536)),
-                        (i for i in range(65536)),
-                        (i for i in range(65536)),
+                        ("i for i in range(0,65536)"),
+                        ("i for i in range(0,65536)"),
+                        ("i for i in range(0,65536)"),
                     ),
                 ),
-                "colortype:3": (255, (2, 512), ("!B"), (i for i in range(256))),
+                "colortype:3": (255, (2, 512), ("!B"), ("i for i in range(0,256)")),
             },
-            b"gAMA": {"nocolortype": (100000, 8, ("!I"), (i for i in range(100001)))},
+            b"gAMA": {"nocolortype": (100000, 8, ("!I"), ("i for i in range(0,100001)"))},
             b"cHRM": {
                 "nocolortype": (
                     800000,
                     64,
                     ("!I", "!I", "!I", "!I", "!I", "!I", "!I", "!I"),
                     (
-                        (i for i in range(100001)),
-                        (i for i in range(100001)),
-                        (i for i in range(100001)),
-                        (i for i in range(100001)),
-                        (i for i in range(100001)),
-                        (i for i in range(100001)),
-                        (i for i in range(100001)),
-                        (i for i in range(100001)),
+                        ("i for i in range(0,100001)"),
+                        ("i for i in range(0,100001)"),
+                        ("i for i in range(0,100001)"),
+                        ("i for i in range(0,100001)"),
+                        ("i for i in range(0,100001)"),
+                        ("i for i in range(0,100001)"),
+                        ("i for i in range(0,100001)"),
+                        ("i for i in range(0,100001)"),
                     ),
                 )
             },
             b"sRGB": {"nocolortype": (4, 2, ("!B"), (0, 1, 2, 3))},
             b"bKGD": {
-                "colortype:0": ((65535), 4, ("!H"), (i for i in range(65536))),
+                "colortype:0": ((65535), 4, ("!H"), ("i for i in range(0,65536)")),
                 "colortype:2": (
                     (196605),
                     12,
                     ("!H", "!H", "!H"),
                     (
-                        (i for i in range(65536)),
-                        (i for i in range(65536)),
-                            (i for i in range(65536)),
+                        ("i for i in range(0,65536)"),
+                        ("i for i in range(0,65536)"),
+                        ("i for i in range(0,65536)"),
                     ),
                 ),
-                "colortype:3": ((255), 2, ("!B"), (i for i in range(256))),
-                "colortype:4": ((65535), 4, ("!H"), (i for i in range(65536))),
+                "colortype:3": ((255), 2, ("!B"), ("i for i in range(0,256)")),
+                "colortype:4": ((65535), 4, ("!H"), ("i for i in range(0,65536)")),
                 "colortype:6": (
                     (196605),
                     12,
                     ("!H", "!H", "!H"),
                     (
-                        (i for i in range(65536)),
-                        (i for i in range(65536)),
-                        (i for i in range(65536)),
+                        ("i for i in range(0,65536)"),
+                        ("i for i in range(0,65536)"),
+                        ("i for i in range(0,65536)"),
                     ),
                 ),
             },
@@ -646,22 +644,22 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     18,
                     ("!I", "!I", "!B"),
                     (
-                        (i for i in range(2147483647)),
-                        (i for i in range(2147483647)),
+                        ("i for i in range(0,2147483647)"),
+                        ("i for i in range(0,2147483647)"),
                         (0, 1),
                     ),
                 )
             },
             b"sBIT": {
-                "colortype:0": (255, 2, ("!B"), (i for i in range(256))),
+                "colortype:0": (255, 2, ("!B"), ("i for i in range(0,256)")),
                 "colortype:2": (
                     16581375,
                     6,
                     ("!B", "!B", "!B"),
                     (
-                        (i for i in range(256)),
-                        (i for i in range(256)),
-                        (i for i in range(256)),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
                     ),
                 ),
                 "colortype:3": (
@@ -669,42 +667,42 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                     6,
                     ("!B", "!B", "!B"),
                     (
-                        (i for i in range(256)),
-                        (i for i in range(256)),
-                        (i for i in range(256)),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
                     ),
                 ),
                 "colortype:4": (
                     65025,
                     4,
                     ("!B", "!B"),
-                    ((i for i in range(256)), (i for i in range(256))),
+                    (("i for i in range(0,256)"), ("i for i in range(0,256)")),
                 ),
                 "colortype:6": (
                     16581375,
                     8,
                     ("!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(256)),
-                        (i for i in range(256)),
-                        (i for i in range(256)),
-                        (i for i in range(256)),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
                     ),
                 ),
             },
-            b"hIST": {"nocolortype": (65536, (4, 1024), ("!H"), (i for i in range(65536)))},
+            b"hIST": {"nocolortype": (65536, (4, 1024), ("!H"), ("i for i in range(0,65536)"))},
             b"tIME": {
                 "nocolortype": (
                     ((1970 - ThisYear) * 12 * 31 * 23 * 59 * 60),
                     14,
                     ("!H", "!B", "!B", "!B", "!B", "!B"),
                     (
-                        (i for i in range(1970, ThisYear + 1)),
-                        (i for i in range(1, 13)),
-                        (i for i in range(1, 32)),
-                        (i for i in range(0, 24)),
-                        (i for i in range(0, 60)),
-                        (i for i in range(0, 61)),
+                        ("i for i in range(1970,%s)"%str(ThisYear+1)),
+                        ("i for i in range(1,13)"),
+                        ("i for i in range(1,32)"),
+                        ("i for i in range(0,24)"),
+                        ("i for i in range(0,60)"),
+                        ("i for i in range(0,61)"),
                     ),
                 )
             },
@@ -717,9 +715,34 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
 
                     if color == GetColor:
                         product = bytes_spec[0]
-                        chunklen_spec = bytes_spec[1]
+                        chunklen_spec = bytes_spec[1] * IterNbr
                         chunk_format = bytes_spec[2]
                         chunk_data = bytes_spec[3]
+
+                        tmpcd = []
+                        tmpcf = []
+
+                        for n in range(0,IterNbr):
+                                n += 1
+                                if n > 1:
+                                     product = product * product
+
+                                for s in chunk_format:
+                                      tmpcf.append(s)
+
+                                for t in chunk_data:
+                                    if "i for i in range(" in t:
+                                        start = int(t.split("range(")[1].split(",")[0])
+                                        end = int(t.split(",")[1].split(")")[0])
+                                        tmpcd.append( tuple((i for i in range(start,end))) )
+                                    else:
+
+                                        tmpcd.append(tuple(t))
+
+                        chunk_data = tuple(tmpcd)
+                        chunk_format = tuple(tmpcf)
+
+
 
                         if Mode =="Custom":
                             CustomProduct = []
@@ -737,61 +760,40 @@ def GetSpec(GetChunk,Mode,SpecId="All",StructIndex=None):
                             if 0 in StructIndex and 1 in StructIndex: 
                                  Csprod *= Mnr
 
-                            return (
-                                Csprod,
-                                len(str(Csprod)),
-                                chunklen_spec,
-                                chunk_format,
-                                tuple(CustomStruct),
-                                GetColor,
-                            )
+                            product = Csprod
+                            chunk_data = tuple(CustomStruct)
 
 
-                        elif Mode =="Spec":
-
-                            if SpecId == "All":
-                                return (
+                        to_return = []
+                        for f in Fields:
+                                if f == "All":
+                                    return (
                                     product,
                                     len(str(product)),
                                     chunklen_spec,
                                     chunk_format,
                                     chunk_data,
                                     GetColor,
-                                )
-                            elif SpecId == "Dummy":
-                                return (
-                                    chunklen_spec,
-                                    chunk_format,
-                                    chunk_data,
-                                    GetColor,
-                                )
-                            elif SpecId == "Length":
-                                 return(chunklen_spec)
-                            elif SpecId == "Format":
-                                 return(chunk_format)
-                            elif SpecId == "Data":
-                                 return(chunk_data)
-                            else:
-                                 return(chunk_data[int(SpecId)])
+                                    )
+                                elif f == "Product":
+                                     to_return.append(product)
+                                     to_return.append(len(str(product)))
 
-                        elif Mode == "Brutus":
-                            return (
-                                product,
-                                len(str(product)),
-                                chunklen_spec,
-                                chunk_format,
-                                chunk_data,
-                                GetColor, 
-                            )
-                        elif "OldCrc" in Mode: #tmp
-                            return (
-                                product,
-                                len(str(product)),
-                                chunklen_spec,
-                                chunk_format,
-                                chunk_data,
-                                GetColor, 
-                            )
+                                elif f  == "Length":
+                                     to_return.append(chunklen_spec)
+
+                                elif f == "Format":
+                                    to_return.append(chunk_format)
+
+                                elif f == "Data":
+                                    to_return.append(chunk_data)
+
+                                elif f == "Color":
+                                    to_return.append(GetColor)
+
+                        if len(to_return) > 0:
+                                return (tuple(to_return)) 
+
     PRINT("-Error in GetSpec: Didnt Found matching result")
     PRINT("GetColor:%s"% GetColor)
     PRINT("GetChunk:%s"% GetChunk)
@@ -4494,7 +4496,9 @@ def Loadingbar(fishs, fishsize, loop, build):
     global FishPos
     global LenFishList
 
+
     if build:
+#        Pause("build")
         ThksForTheFish = []
         LenFishList = 0
         FishPos = 0
@@ -4561,6 +4565,7 @@ def Loadingbar(fishs, fishsize, loop, build):
                     CharPos = 0
         LenFishList = len(ThksForTheFish) - 1
     else:
+#        Pause("pas build")
         if loop % 100 == 0:
             if FishPos != LenFishList:
                 FishPos += 1
@@ -5326,8 +5331,9 @@ def stderr_redirector(stream):
         tfile.close()
         os.close(saved_stderr_fd)
 
-def Product(chunk_data,color_type):
-#     print("hey chunk_data:",chunk_data)
+def Product(chunk_data,color_type,gen_nbr=None):
+     tup = ()
+     
      shuffle = itertools.product(*chunk_data)
      for i in shuffle:
 #         print("type(i):%s i:%s ct:%s"%(type(i),i,color_type))
@@ -5709,6 +5715,7 @@ def SmashBruteBrawl(
     BfMode="Brutus",
     BruteCrc=True,
     BruteLength=True,
+    OldCrc=False,
 ):
     global SideNotes
     global CRASH 
@@ -5726,6 +5733,7 @@ def SmashBruteBrawl(
     CNamex_New = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x", "")
 
     Bingo = False
+    TmpSkip = True
     TmpImgLst = []
     result = "bad result"
 
@@ -5738,16 +5746,19 @@ def SmashBruteBrawl(
 
     ax1 = plt.subplot(1,2,1)
 
-
-    if "OldCrc:" in BfMode: 
-        OldCrc = bytes.fromhex(BfMode.split(":")[1])
-    else:
-        OldCrc = False
+     
+    if OldCrc: 
+        OldCrc = bytes.fromhex(OldCrc)
 
     if BfMode == "Custom":
  
          Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
-         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
+         if len(Sti) > 0:
+             max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
+         else:
+             SideNote.append("-SmashBruteBrawl error: Sti empty switched to Brutus mode")
+             max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
+
     else:
          max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
 
@@ -5779,16 +5790,33 @@ def SmashBruteBrawl(
         PRINT("chunk_format:%s"% str(chunk_format))
         PRINT("chunk_data:%s"% str(chunk_data))
 #        print("cdata:\n",chunk_data)
-        
         PRINT("max_iter:%s"%max_iter)
         PRINT("maxchunklen:%s"% maxchunklen)
         PRINT("minchunklen:%s"% minchunklen)
+        PRINT("step:%s"% step)
         if PAUSEDEBUG is True:
             Pause("Pause:SmashBruteBrawl")
-#    f = io.BytesIO()
-    for ln in range(minchunklen, maxchunklen, step):
 
-        
+    f = io.BytesIO()
+    for n,ln in enumerate(range(minchunklen, maxchunklen, step)):
+#        if n < 1:continue
+        if ln > step:
+#            Pause("n:%s ln:%s minchunklen:%s maxchunklen:%s step:%s"%(n,ln,minchunklen,maxchunklen,step))
+
+            if BfMode == "Custom":
+                 Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
+                 if len(Sti) > 0:
+                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti,IterNbr=n+1)
+                 else:
+                     SideNote.append("-SmashBruteBrawl error: Sti empty switched to Brutus mode")
+                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=n+1)
+            else:
+                 max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=n+1)
+
+            lncf = len(chunk_format)-1
+
+
+
 
         Loadingbar(
             max_iter, len_iter, None, True
@@ -5825,18 +5853,19 @@ def SmashBruteBrawl(
 #        print("beforbrute",bytes.fromhex(DATAX[DataOffset+8:DataOffset+32]))
 #        print("Tobrute:",ToBrute)
  
-        FirstRun = True
         shuffle = Product(chunk_data,color_type)
 
         for n, i in enumerate(shuffle):
-
             f = io.BytesIO()
 
+#            if n < 16077200:
+#                 continue
             if CRASH:
                 if n < CRASH:
                      continue
                 else:
                     CRASH = False
+            
 
             if BfMode == "Custom":
                 frm = "!"+"".join(chunk_format).replace("!","")
@@ -5872,8 +5901,9 @@ def SmashBruteBrawl(
                 #for cf, j in zip(chunk_format, i):
                 #     bvalue += struct.pack(cf,int(j))
 
-#            Loadingbar(max_iter, len_iter, n, False)
-
+            Loadingbar(max_iter, len_iter, n, False)
+#            print("bvalue:",bvalue.hex())
+            
             checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
 
             if OldCrc:
@@ -5920,16 +5950,6 @@ def SmashBruteBrawl(
 
             wanabyte = Before_New + fullnewdatax + After_New
             
-#            print("bvalue:%s fullnewdatax:%s"%(bvalue.hex(),fullnewdatax.hex()),end="\r")
-#            print("fullnewdatax:",fullnewdatax.hex())
-#            print("fullnewdatax:",fullnewdatax)
-#            print("bvalue:",bvalue.hex())
-#            print("bvalue:",bvalue)
-#            Pause("pose")
-#            print("len(wanabyte:",len(wanabyte))
-#            print("len(datax:",len(bytes.fromhex(DATAX)))
-#            print("Aftne:\n",After_New)
-#            Pause("Pause")
 
             with stderr_redirector(f):
                 try:
@@ -5944,24 +5964,6 @@ def SmashBruteBrawl(
             if not any(s in result for s in LIBPNG_ERR):
 
 
-                if ChunkName == b"PLTE":
-                     if FirstRun is True:
-#                        im1 = ax1.imshow(cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1))
-                        img = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
-#                        img = np.asarray(Image.open(io.BytesIO(wanabyte)))
-                        im1 = plt.imshow(img)
-                        FirstRun = False
-                     else:
-                         im1.set_data(cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1))
-#                          im1.set_data(np.asarray(Image.open(io.BytesIO(wanabyte))))
-                     plt.ion()
-                     
-                     plt.show() 
-                     print("bvalue:%s fullnewdatax:%s"%(bvalue.hex(),fullnewdatax.hex()),end="\r")
-                     plt.pause(0.01)
-#                     time.sleep(1)
-#                     Pause("hey")
-                     continue
                 with stderr_redirector(f):
                     try:
                          TmpI = Image.open(io.BytesIO(wanabyte))
@@ -6113,7 +6115,7 @@ def SmashBruteBrawl(
 
     else:
         PRINT(
-            "-Bruteforce has %s %s"
+            "\n-Bruteforce has %s %s"
             % (Candy("Color", "red", "Failed!"), Candy("Emoj", "bad"))
         )
 
@@ -7130,6 +7132,23 @@ def Double_Check(CType, ChunkLen, LastCType):
     NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck=True)
 
 
+def RandomSample(data,colortype,chunk_format):
+    generator = Product(data,colortype)
+    bvalue = b""
+    idx = 0
+    lncf = len(chunk_format)-1
+    for g in generator:
+       if random.random() < 0.5:
+              for j in g:
+                  if idx < lncf:
+                          bvalue += struct.pack(chunk_format[idx],int(j))
+                          idx += 1
+                  else:
+                          bvalue += struct.pack(chunk_format[idx],int(j))
+                          idx = 0
+              return(bvalue.hex())
+
+
 def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
     Candy("Title", "Creating DummyChunk:")
 
@@ -7147,10 +7166,11 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
     #TODO
     if Chunkname == b"IHDR":
 
-        chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(Chunkname,"Spec",SpecId = "Dummy")
+        chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(Chunkname,"Spec",Fields = ["Length","Format","Data","Color"])
         DummyLength = SpecLength(Chunkname)
         DummyName = hex(int.from_bytes(Chunkname, byteorder="big")).replace("0x", "")
-        DummyData = "00000010000000100803000000"
+        DummyData = RandomSample(chunk_data,color_type,chunk_format)
+
         DummyCrc = hex(binascii.crc32(Chunkname + bytes.fromhex(DummyData))).replace(
             "0x", ""
         )
@@ -7242,7 +7262,6 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
                 )
                 if PAUSEDEBUG is True or PAUSEERROR is True:
                     Pause("Pause Debug")
-            print("hey")
             TheEnd()
         NeedleI = int(Needle / 2)
         NeedleX = hex(int(Needle / 2))
@@ -8193,98 +8212,44 @@ def SpecLength(chunk_name, chunk_length=None):
         Candy("Title", "Get Length from Spec:")
         Candy("Cowsay", "Kay ..Just Checking if the length part is legit..", "com")
 
-    if chunk_name in [b"tRNS", b"bKGD", b"sBIT"]:
-            GetColor = ColorType(chunk_name,"SpecLength")
+
+    chunklen_spec = GetSpec(chunk_name,"Spec",Fields=["Length"])[0]
+
+    if type(chunklen_spec) == tuple:
+          PRINT(Candy("Color", "yellow", "\n-ToDotuple"))
+          TheEnd()
     else:
-            GetColor = "nocolortype"
+          real_length = hex(int(chunklen_spec/2)).replace("0x", "").zfill(8)
+          if not chunk_length:
+                return real_length
 
-    CHUNKS_LEN = {
-            b"IHDR": {
-                "nocolortype": 26
-            },
-            b"PLTE": {
-                "nocolortype": (6, 1536)
-            },
-            b"tRNS": {
-                "colortype:0": (4, 1024),
-                "colortype:2": (12, 3072),
-                "colortype:3": (2, 512),
-            },
-            b"gAMA": {"nocolortype": 8},
-            b"cHRM": {"nocolortype": 64},
-            b"sRGB": {"nocolortype": 2},
-            b"bKGD": {
-                "colortype:0": 4,
-                "colortype:2": 12,
-                "colortype:3": 2,
-                "colortype:4": 4,
-                "colortype:6": 12},
-            b"pHYs": {
-                "nocolortype": 18},
-            b"sBIT": {
-                "colortype:0": 2,
-                "colortype:2": 6,
-                "colortype:3": 6,
-                "colortype:4": 4,
-                "colortype:6": 8},
-            b"hIST": {"nocolortype":(4, 1024)},
-            b"tIME": {
-                "nocolortype":14},
-            b"IEND": {"nocolortype":0},
-        }
-
-    for key in CHUNKS_LEN:
-            for color, bytes_spec in CHUNKS_LEN[key].items():
-                if key == chunk_name:
-                    if color == GetColor:
-#                        print("key:",chunk_name)
-#                        print("color:",GetColor)
-#                        print("bytes_spec:",bytes_spec)
-#                        print("bytes_spec[0]:",bytes_spec[0])
-                        try:
-                            chunklen_spec = bytes_spec[0]
-                        except:
-                            chunklen_spec = bytes_spec
-
-
-
-                        if type(chunklen_spec) == tuple:
-
-                            PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                            TheEnd()
-                        else:
-                            real_length = hex(int(chunklen_spec/2)).replace("0x", "").zfill(8)
-
-                            if not chunk_length:
-                                return real_length
-
-                            PRINT("-Real %s Length: %s " % (key, real_length))
-                            if real_length == chunk_length:
-                                Candy(
-                                    "Cowsay",
-                                    "Looks good to me !",
-                                    "good",
-                                )
-                                SideNotes.append(
-                                    "-SpecLength:Giving correct length:  %s -"
-                                    % chunk_length
-                                )
-                                return chunk_length
-                            else:
-                                PRINT(
-                                    "-Given %s Length was : %s "
-                                    % (chunk_name, chunk_length)
-                                )
-                                Candy(
-                                    "Cowsay",
-                                    "Length part is corrupted!",
-                                    "bad",
-                                )
-                                SideNotes.append(
-                                    "-SpecLength:Giving correct length:  %s -" % real_length
-                                )
-                                PRINT("\n-Returning correct fixed length :%s"% real_length)
-                                return real_length
+          PRINT("-Real %s Length: %s " % (chunk_name, real_length))
+          if real_length == chunk_length:
+                Candy(
+                    "Cowsay",
+                    "Looks good to me !",
+                    "good",
+                    )
+                SideNotes.append(
+                    "-SpecLength:Giving correct length:  %s -"
+                    % chunk_length
+                    )
+                return chunk_length
+          else:
+                PRINT(
+                    "-Given %s Length was : %s "
+                    % (chunk_name, chunk_length)
+                    )
+                Candy(
+                       "Cowsay",
+                       "Length part is corrupted!",
+                       "bad",
+                        )
+                SideNotes.append(
+                    "-SpecLength:Giving correct length:  %s -" % real_length
+                    )
+                PRINT("\n-Returning correct fixed length :%s"% real_length)
+                return real_length
 
                                 # PRINT("Chunk:%s"%key)
                                 # PRINT("name:%s value:%s"%(name,value))
@@ -8669,7 +8634,7 @@ def Relics(FromError):
                         #PRINT("Chunkname:%s"% Chunkname)
                         # def Checksum(Ctype, Cdata, Crc,next=None):
                         Chunk = Pandemonium[file][errors][Chunkname + "_Tool_3"]
-                        OldCrc = Pandemonium[file][errors][Chunkname + "_Tool_5"]
+                        Crc_to_match = Pandemonium[file][errors][Chunkname + "_Tool_5"]
                         ChunkLength = Pandemonium[file][errors][Chunkname + "_Tool_6"]
                         DataOffset = Pandemonium[file][errors][Chunkname + "_Tool_7"]
                         if nb1 == 0:
@@ -8680,7 +8645,7 @@ def Relics(FromError):
                                 ChunkLength,
                                 DataOffset,
                                 FromError,
-                                BfMode="OldCrc:%s"%OldCrc,
+                                OldCrc=Crc_to_match,
                                 BruteLength=False
                             )
 
@@ -8692,7 +8657,7 @@ def Relics(FromError):
                                 ChunkLength,
                                 DataOffset,
                                 FromError,
-                                BfMode="OldCrc:%s"%OldCrc,
+                                OldCrc=Crc_to_match,
                                 BruteLength=False
                             )
                             return ()
@@ -8825,6 +8790,145 @@ def Relics(FromError):
                             break
                 if ChosenOne:
                     break
+
+
+
+            for key in PandoraBox:
+            
+                if "-PLTE" in str(key): ##Maybe ask Relic() first
+
+                    if not Skip_Bad_Current_Name and not Skip_Bad_Infos and not Skip_Bad_Critical:
+                        if str(key) not in Cornucopia:
+                             Candy("Cowsay", "Alright this is a tough one as PLTE is a critical chunk..", "bad")
+                             #if not something to get intel about plte nbr and what TODO:
+                             if not Bad_Crc:
+
+                                 Candy("Cowsay", "Crc is valid ...So this has been made on purpose..", "bad")
+                                 Candy("Cowsay", "Anyway im just gona fill the gap then.", "com")
+                                 Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
+                                 Candy("Cowsay", "I will need you to manually click a few buttons for me.", "com")
+                                 Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk .", "com") ## no you should not it wont work
+
+                                 Answer = input("Answer(Manually/Remove/Quit):").lower() 
+                                 while Answer != "manually" and Answer != "remove" and Answer != "quit":
+                                       Answer = input("Answer(Manually/Remove/Quit):").lower()
+
+                                 if Answer == "manually":
+                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                        if ch == b"PLTE":
+                                            #if something EditMode = "replace"TODO
+                                            return Tk_Manual_Plte(
+                                                Sample_Name,
+                                                b"PLTE",
+                                                int(chi.split(":")[2]),
+                                                int(chi.split(":")[1]),
+                                                "-PLTE Wrong Data",
+                                            )
+                                 elif Answer == "remove":
+                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                        if ch == b"PLTE":
+                                            return(RemoveChunk(int(chi.split(":")[1]),int(chi.split(":")[2]),"-PLTE Chunk Removed."))
+                                 elif Answer == "quit":
+                                     SideNotes.append("-User has chose to quit.")
+                                     TheEnd()
+
+        #                         elif Answer == "bruteforce": ##there is 4 million time less atoms in the univers than the nbr of results
+        #                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
+        #                                if ch == b"PLTE":
+                                            #if something EditMode = "replace"TODO
+        #                                    return SmashBruteBrawl(
+        #                                        Sample_Name,
+        #                                        b"PLTE",
+        #                                        int(chi.split(":")[2]),
+        #                                        int(chi.split(":")[1]),
+        #                                        "-PLTE Wrong Data",
+        #                                        EditMode = "Insert",
+        #                                    )
+        #                            PRINT(Candy("Color", "yellow", "\n-ToDo"))
+        #                            TheEnd()
+
+
+                             else:
+
+
+                                 Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
+                                 Candy("Cowsay", "I ll have to bruteforce my way through until i end up with the old Crc.", "bad")
+                                 Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
+                                 Candy("Cowsay", "Perhaps i could just remove that PLTE chunk .", "com")  ## no you should not it wont work
+
+                                 Answer = input("Answer(Manually/Bruteforce/Remove/Quit):").lower()
+                                 while Answer != "manually" and Answer != "bruteforce" and Answer != "remove" and Answer != "quit":
+                                       Answer = input("Answer(Manually/bruteforce/Remove/Quit):").lower()
+
+                                 if Answer == "bruteforce": ##Maybe ask Relic() first
+
+                                    Crc_to_match = DATAX[CrcoffI:CrcoffI+8]
+                                    return SmashBruteBrawl(
+                                                Sample_Name,
+                                                b"PLTE",
+                                                CrcoffI + 8,
+                                                CLoffI,
+                                                "-PLTE Wrong Data",
+                                                EditMode = "Insert",
+                                                OldCrc=Crc_to_match,
+                                            )
+                                 elif Answer == "manually":
+
+
+                                            return Tk_Manual_Plte(
+                                                Sample_Name,
+                                                b"PLTE",
+                                                CrcoffI + 8,
+                                                CLoffI,
+                                                "-PLTE Wrong Data",
+                                            )
+        #                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
+        #                                print("ch:%s chi:%s"%(ch,chi))
+        #                                if ch == b"PLTE":
+        #                                    print("chi:",chi)
+        #                                    Pause("joj")
+                                            #if something EditMode = "replace"TODO
+        #                                    return Tk_Manual_Plte(
+        #                                        Sample_Name,
+        #                                        b"PLTE",
+        #                                        int(chi.split(":")[2]),
+        #                                        int(chi.split(":")[1]),
+        #                                        "-PLTE Wrong Data",
+        #                                    )
+        #                            Pause("pas glop")
+
+                                 elif Answer == "remove":
+                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                        if ch == b"PLTE":
+                                            return(RemoveChunk(int(chi.split(":")[1]),int(chi.split(":")[2]),"-PLTE Chunk Removed."))
+
+                                 elif Answer == "quit":
+                                     SideNotes.append("-User ha chose to quit.")
+                                     TheEnd()
+
+                             Candy(
+                                        "Cowsay",
+                                        "Shall i give it a try ? Otherwise Chunklate is going to exit.",
+                                        "com",
+                                    )
+                             Answer = Question()
+                             if Answer is True:
+                                for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                    if ch == b"PLTE":
+                                        return SmashBruteBrawl(
+                                            Sample_Name,
+                                            b"PLTE",
+                                            int(chi.split(":")[2]),
+                                            int(chi.split(":")[1]),
+                                            "-PLTE Wrong Data",
+                                            EditMode = "Insert",
+                                        )
+                             else:
+                                        TheEnd()
+
+
+
+
             if ChosenOne and any(ChosenOne in k and "StructIndex:" in k for k in PandoraBox):
 
                 ChosenErr = [
@@ -9280,7 +9384,7 @@ def FixItFelix(Chunk=None):
 
                         else:
                             Skip_Bad_Next_Name = True
-                            Pause("Else")
+                            #Pause("Else")
                     if Bad_Crc is False:
                         Candy(
                             "Cowsay",
@@ -9415,7 +9519,7 @@ def FixItFelix(Chunk=None):
                           if len(exceeding) > len(iendsample):
                              if iendsample in exceeding:
                                  Candy("Cowsay", "And it seems that the IEND chunk is inside it  ..", "com")
-                                 print("-iendsample:",iendsample)
+                                 print("-iendsample:",iendsample) #TODO use PRINT()
                                  print("-exceeding:",exceeding)
                                  SideNotes.append("-Part or full IEND chunk detected:%s"%(str(exceeding)))
                                  PRINT(Candy("Color", "yellow", "\n-ToDo"))
@@ -9435,7 +9539,7 @@ def FixItFelix(Chunk=None):
                                  SideNotes.append("-Part or full IEND chunk detected:%s"%(str(exceeding)))
                                  print("-iendsample:",iendsample)
                                  print("-exceeding:",exceeding)
-                                 Pause("todo")
+                                 #Pause("todo")
                              else:
                                  Candy("Cowsay", "It doesn't looks like and IEND chunk ..", "bad")
                                  Candy("Cowsay", "And i don't know what to do with those bytes  ..", "com")
@@ -9475,142 +9579,6 @@ def FixItFelix(Chunk=None):
             PandoraBox.pop(key, "key_not_found")
             SideNotes.append("-Found False-Positive :[Error:-%s]." % (str(key)))
             return FixItFelix
-
-        elif "-PLTE" in str(key):
-
-#DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError)
-#            LibpngCheck(Sample_Name)
-
-            if not Skip_Bad_Current_Name and not Skip_Bad_Infos and not Skip_Bad_Critical:
-                if str(key) not in Cornucopia:
-                     Candy("Cowsay", "Alright this is a tough one as PLTE is a critical chunk..", "bad")
-                     #if not something to get intel about plte nbr and what TODO:
-                     if not Bad_Crc:
-
-                         Candy("Cowsay", "Crc is valid ...So this has been made on purpose..", "bad")
-                         Candy("Cowsay", "Anyway im just gona fill the gap then.", "com")
-                         Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
-                         Candy("Cowsay", "I will need you to manually click a few buttons for me.", "com")
-                         Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk .", "com") ## no you should not it wont work
-
-                         Answer = input("Answer(Manually/Remove/Quit):").lower() 
-                         while Answer != "manually" and Answer != "remove" and Answer != "quit":
-                               Answer = input("Answer(Manually/Remove/Quit):").lower()
-
-                         if Answer == "manually":
-                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                if ch == b"PLTE":
-                                    #if something EditMode = "replace"TODO
-                                    return Tk_Manual_Plte(
-                                        Sample_Name,
-                                        b"PLTE",
-                                        int(chi.split(":")[2]),
-                                        int(chi.split(":")[1]),
-                                        "-PLTE Wrong Data",
-                                    )
-                         elif Answer == "remove":
-                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                if ch == b"PLTE":
-                                    return(RemoveChunk(int(chi.split(":")[1]),int(chi.split(":")[2]),"-PLTE Chunk Removed."))
-                         elif Answer == "quit":
-                             SideNotes.append("-User has chose to quit.")
-                             TheEnd()
-
-#                         elif Answer == "bruteforce": ##there is 4 million time less atoms in the univers than the nbr of results
-#                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
-#                                if ch == b"PLTE":
-                                    #if something EditMode = "replace"TODO
-#                                    return SmashBruteBrawl(
-#                                        Sample_Name,
-#                                        b"PLTE",
-#                                        int(chi.split(":")[2]),
-#                                        int(chi.split(":")[1]),
-#                                        "-PLTE Wrong Data",
-#                                        EditMode = "Insert",
-#                                    )
-#                            PRINT(Candy("Color", "yellow", "\n-ToDo"))
-#                            TheEnd()
-
-
-                     else:
-
-
-                         Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
-                         Candy("Cowsay", "I ll have to bruteforce my way through until i end up with the old Crc.", "bad")
-                         Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
-                         Candy("Cowsay", "Perhaps i could just remove that PLTE chunk .", "com")  ## no you should not it wont work
-
-                         Answer = input("Answer(Manually/Bruteforce/Remove/Quit):").lower()
-                         while Answer != "manually" and Answer != "bruteforce" and Answer != "remove" and Answer != "quit":
-                               Answer = input("Answer(Manually/bruteforce/Remove/Quit):").lower()
-
-                         if Answer == "bruteforce":
-                            OldCrc = Pandemonium[file][errors][Chunkname + "_Tool_5"]
-                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                if ch == b"PLTE":
-                                    #if something EditMode = "replace" TODO
-                                    return SmashBruteBrawl(
-                                        Sample_Name,
-                                        b"PLTE",
-                                        int(chi.split(":")[2]),
-                                        int(chi.split(":")[1]),
-                                        "-PLTE Wrong Data",
-                                        EditMode = "Insert",
-                                        BfMode="OldCrc:%s"%OldCrc,
-                                    )
-                         elif Answer == "manually":
-
-
-                                    return Tk_Manual_Plte(
-                                        Sample_Name,
-                                        b"PLTE",
-                                        CrcoffI + 8,
-                                        CLoffI,
-                                        "-PLTE Wrong Data",
-                                    )
-#                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
-#                                print("ch:%s chi:%s"%(ch,chi))
-#                                if ch == b"PLTE":
-#                                    print("chi:",chi)
-#                                    Pause("joj")
-                                    #if something EditMode = "replace"TODO
-#                                    return Tk_Manual_Plte(
-#                                        Sample_Name,
-#                                        b"PLTE",
-#                                        int(chi.split(":")[2]),
-#                                        int(chi.split(":")[1]),
-#                                        "-PLTE Wrong Data",
-#                                    )
-#                            Pause("pas glop")
-
-                         elif Answer == "remove":
-                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                if ch == b"PLTE":
-                                    return(RemoveChunk(int(chi.split(":")[1]),int(chi.split(":")[2]),"-PLTE Chunk Removed."))
-
-                         elif Answer == "quit":
-                             SideNotes.append("-User ha chose to quit.")
-                             TheEnd()
-
-                     Candy(
-                                "Cowsay",
-                                "Shall i give it a try ? Otherwise Chunklate is going to exit.",
-                                "com",
-                            )
-                     Answer = Question()
-                     if Answer is True:
-                        for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                            if ch == b"PLTE":
-                                return SmashBruteBrawl(
-                                    Sample_Name,
-                                    b"PLTE",
-                                    int(chi.split(":")[2]),
-                                    int(chi.split(":")[1]),
-                                    "-PLTE Wrong Data",
-                                    EditMode = "Insert",
-                                )
-                     else:
-                                TheEnd()
 
         else:
 
@@ -9871,9 +9839,16 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
 
             elif "libpng warning:" in info:
                 PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% info)
+
+                if  any(s in info for s in LIBPNG_ERR):
+                          for e in LIBPNG_ERR:
+                                  if e in info:
+                                        Candy("Cowsay", "Ah found something !", "good")
+                                        return(Relics(info))
                 Candy(
-                    "Cowsay", "Bahthat's just a warning who cares ?! !", "good"
+                    "Cowsay", "Bah that's just a warning who cares ?! !", "good"
                 ) ##ME!!!
+#                print("info:",info)
                 Candy(
                     "Cowsay",
                     "im removing it ..",
