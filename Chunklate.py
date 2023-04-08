@@ -6,10 +6,7 @@ from contextlib import contextmanager
 from PIL import Image,ImageShow,ImageTk
 from inputimeout import inputimeout
 import numpy as np
-import matplotlib
 import tkinter
-matplotlib.use('TkAgg', force=True) #Dont really need matplotlib
-import matplotlib.pyplot as plt #just testing stuf
 import sys, os, binascii, re, random, time, zlib, cv2, ctypes, struct,io, tempfile, inspect, types, difflib, collections, math, itertools, psutil,imagehash
 
 
@@ -5744,7 +5741,6 @@ def SmashBruteBrawl(
     ImageShow.register(ImageShow.XVViewer(),-1)
     ImageShow.register(ImageShow.GmDisplayViewer(),0)
 
-    ax1 = plt.subplot(1,2,1)
 
      
     if OldCrc: 
