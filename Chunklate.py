@@ -5459,6 +5459,66 @@ def Tk_X11_Plte(bfn=None,afn=None,w=None,h=None):
     tk_image = ImageTk.PhotoImage(image=new_pil_image)
     tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
 
+
+def Tk_Web_Safe_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
+    global Plte_Blst 
+    global window,tk_image,frame_img,pil_image,im,wanabyte
+
+    rnd_216 = random.sample(Web_Safe_Colors,len(Web_Safe_Colors))
+
+
+    for n,slider in enumerate(slider_list):
+        rval = int(rnd_216[int(n)],16)
+        Plte_Blst[int(n)] = rval
+        slider.var.set(rval)
+
+    bvalue = b""
+    for i in Plte_Blst:
+       if i != "empty":
+           bvalue += int(i).to_bytes(3, "big")
+
+    Lnx_New = len(bvalue).to_bytes(4, "big")
+    checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
+    fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
+    wanabyte = bfn + fullnewdatax + afn
+
+    im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
+    pil_image = Image.fromarray(im)
+
+    new_pil_image = pil_image.resize((w-10,h-10), Image.Resampling.LANCZOS)
+    
+    tk_image = ImageTk.PhotoImage(image=new_pil_image)
+    tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+
+def Tk_Web_Safe_Plte(bfn=None,afn=None,w=None,h=None):
+    global Plte_Blst 
+    global window,tk_image,frame_img,pil_image,im,wanabyte
+
+
+    for n,slider in enumerate(slider_list):
+        rval = int(Web_Safe_Colors[int(n)],16)
+        Plte_Blst[int(n)] = rval
+        slider.var.set(rval)
+
+    bvalue = b""
+    for i in Plte_Blst:
+           bvalue += int(i).to_bytes(3, "big")
+
+
+    Lnx_New = len(bvalue).to_bytes(4, "big")
+    checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
+    fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
+    wanabyte = bfn + fullnewdatax + afn
+
+    im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
+    pil_image = Image.fromarray(im)
+
+    new_pil_image = pil_image.resize((w-10,h-10), Image.Resampling.LANCZOS)
+    
+    tk_image = ImageTk.PhotoImage(image=new_pil_image)
+    tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+
+
 def Tk_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
     global Plte_Blst 
     global window,tk_image,frame_img,pil_image,im,wanabyte
@@ -5547,14 +5607,20 @@ def Guess_Palettes_Nbr(bfn,afn):
         checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
         fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
         wanabyte = bfn + fullnewdatax + afn
-
+        f = io.BytesIO()
         with stderr_redirector(f):
              try:
                  im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
-             except:
+             except Exception as e:
                  continue     
+#        name, dir = Naming(FILE_Origin)
+#        tmpname =  dir+"/"+"BF-TST-"+str(datetime.now().strftime('-%y%m%d%H%M%S-'))+name+".png"
+#        with open(tmpname, "wb") as f:
+#                 f.write(wanabyte)
+#        print("-Saved here:",tmpname)
 
         pil_image = Image.fromarray(im)
+
 #        current_hash = imagehash.colorhash(pil_image)
 #        current_hash = imagehash.dhash(pil_image)
 #        current_hash = imagehash.average_hash(pil_image)
@@ -5657,27 +5723,35 @@ def Tk_Manual_Plte(
     frame_slider.rowconfigure(0, weight=1)
     frame_slider.grid(row=0, column=1, padx=10, pady=5)
 
-    frame_action = tkinter.Frame(window, width=basewidth , height=int(hsize/10) ,bg="orange")
+    frame_action = tkinter.Frame(window, width=basewidth*2 , height=int(hsize/10) ,bg="orange")
     frame_action.columnconfigure(0, weight=1)
     frame_action.rowconfigure(0, weight=1)
     frame_action.grid(row=1, column=0, padx=10, pady=5)
 
-    cancel_btn = tkinter.Button(frame_action, text="Cancel", command=lambda: Tk_Save_Plte(window,True,ChunkLength,DataOffset,FromError,wanabyte))
-    cancel_btn.grid(row=0, column=0, padx=10, pady=5)
+    x216_btn = tkinter.Button(frame_action, text="Web Safe Color", command=lambda: Tk_Web_Safe_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
+    x216_btn.grid(row=0, column=0, padx=10, pady=5)
+
+
+    random_web_btn = tkinter.Button(frame_action, text="Web Random", command=lambda: Tk_Web_Safe_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
+    random_web_btn.grid(row=0, column=1, padx=10, pady=5)
 
     x11_btn = tkinter.Button(frame_action, text="X11 Colors", command=lambda: Tk_X11_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
-    x11_btn.grid(row=0, column=1, padx=10, pady=5)
+    x11_btn.grid(row=0, column=2, padx=10, pady=5)
 
     random_classic_btn = tkinter.Button(frame_action, text="X11 Random", command=lambda: Tk_X11_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
-    random_classic_btn.grid(row=0, column=2, padx=10, pady=5)
+    random_classic_btn.grid(row=0, column=3, padx=10, pady=5)
 
 
     random_btn = tkinter.Button(frame_action, text="Randomize", command=lambda: Tk_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
-    random_btn.grid(row=0, column=3, padx=10, pady=5)
+    random_btn.grid(row=1, column=0, padx=10, pady=5)
 
 
     save_btn = tkinter.Button(frame_action, text="Save", command=lambda: Tk_Save_Plte(window,False,ChunkLength,DataOffset,FromError,wanabyte))
-    save_btn.grid(row=0, column=4, padx=10, pady=5)
+    save_btn.grid(row=1, column=2, padx=10, pady=5)
+
+    cancel_btn = tkinter.Button(frame_action, text="Cancel", command=lambda: Tk_Save_Plte(window,True,ChunkLength,DataOffset,FromError,wanabyte))
+    cancel_btn.grid(row=1, column=3, padx=10, pady=5)
+
 
     canvas_slider=tkinter.Canvas(frame_slider, height=hsize, width=basewidth-15)
     canvas_slider.grid(row=0, column=1, padx=10, pady=5) # ,sticky="nsew")
@@ -5903,6 +5977,7 @@ def SmashBruteBrawl(
             checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
 
             if OldCrc:
+
 
                   if OldCrc != checksum:
                       continue
@@ -8859,39 +8934,54 @@ def Relics(FromError):
                                  if Answer == "bruteforce": ##Maybe ask Relic() first
 
                                     Crc_to_match = DATAX[CrcoffI:CrcoffI+8]
-                                    return SmashBruteBrawl(
+
+
+                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                        if ch == b"PLTE":
+                                            #if something EditMode = "replace"TODO
+                                            return SmashBruteBrawl(
                                                 Sample_Name,
                                                 b"PLTE",
-                                                CrcoffI + 8,
-                                                CLoffI,
+                                                int(chi.split(":")[2]),
+                                                int(chi.split(":")[1]),
                                                 "-PLTE Wrong Data",
                                                 EditMode = "Insert",
                                                 OldCrc=Crc_to_match,
                                             )
+
+#                                    return SmashBruteBrawl(
+#                                                Sample_Name,
+#                                                b"PLTE",
+#                                                CrcoffI + 8,
+#                                                CLoffI,
+#                                                "-PLTE Wrong Data",
+#                                                EditMode = "Insert",
+#                                                OldCrc=Crc_to_match,
+#                                            )
                                  elif Answer == "manually":
 
-
+#
+#                                            return Tk_Manual_Plte(
+#                                                Sample_Name,
+#                                                b"PLTE",
+#                                                CrcoffI + 8,
+#                                                CLoffI,
+#                                                "-PLTE Wrong Data",
+#                                            )
+                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
+        #                                print("ch:%s chi:%s"%(ch,chi))
+                                        if ch == b"PLTE":
+         #                                   print("chi:",chi)
+#                                            Pause("joj")
+                                            #if something EditMode = "replace"TODO
                                             return Tk_Manual_Plte(
                                                 Sample_Name,
                                                 b"PLTE",
-                                                CrcoffI + 8,
-                                                CLoffI,
+                                                int(chi.split(":")[2]),
+                                                int(chi.split(":")[1]),
                                                 "-PLTE Wrong Data",
                                             )
-        #                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
-        #                                print("ch:%s chi:%s"%(ch,chi))
-        #                                if ch == b"PLTE":
-        #                                    print("chi:",chi)
-        #                                    Pause("joj")
-                                            #if something EditMode = "replace"TODO
-        #                                    return Tk_Manual_Plte(
-        #                                        Sample_Name,
-        #                                        b"PLTE",
-        #                                        int(chi.split(":")[2]),
-        #                                        int(chi.split(":")[1]),
-        #                                        "-PLTE Wrong Data",
-        #                                    )
-        #                            Pause("pas glop")
+                                    Pause("pas glop")
 
                                  elif Answer == "remove":
                                     for ch, chi in zip(Chunks_History, Chunks_History_Index):
@@ -10622,6 +10712,8 @@ tRNS_TrueB = ""
 zTXt_Key = ""
 zTXt_Meth = ""
 zTXt_Text = ""
+
+Web_Safe_Colors =['000000', '000033', '000066', '000099', '0000cc', '0000ff', '003300', '003333', '003366', '003399', '0033cc', '0033ff', '006600', '006633', '006666', '006699', '0066cc', '0066ff', '009900', '009933', '009966', '009999', '0099cc', '0099ff', '00cc00', '00cc33', '00cc66', '00cc99', '00cccc', '00ccff', '00ff00', '00ff33', '00ff66', '00ff99', '00ffcc', '00ffff', '330000', '330033', '330066', '330099', '3300cc', '3300ff', '333300', '333333', '333366', '333399', '3333cc', '3333ff', '336600', '336633', '336666', '336699', '3366cc', '3366ff', '339900', '339933', '339966', '339999', '3399cc', '3399ff', '33cc00', '33cc33', '33cc66', '33cc99', '33cccc', '33ccff', '33ff00', '33ff33', '33ff66', '33ff99', '33ffcc', '33ffff', '660000', '660033', '660066', '660099', '6600cc', '6600ff', '663300', '663333', '663366', '663399', '6633cc', '6633ff', '666600', '666633', '666666', '666699', '6666cc', '6666ff', '669900', '669933', '669966', '669999', '6699cc', '6699ff', '66cc00', '66cc33', '66cc66', '66cc99', '66cccc', '66ccff', '66ff00', '66ff33', '66ff66', '66ff99', '66ffcc', '66ffff', '990000', '990033', '990066', '990099', '9900cc', '9900ff', '993300', '993333', '993366', '993399', '9933cc', '9933ff', '996600', '996633', '996666', '996699', '9966cc', '9966ff', '999900', '999933', '999966', '999999', '9999cc', '9999ff', '99cc00', '99cc33', '99cc66', '99cc99', '99cccc', '99ccff', '99ff00', '99ff33', '99ff66', '99ff99', '99ffcc', '99ffff', 'cc0000', 'cc0033', 'cc0066', 'cc0099', 'cc00cc', 'cc00ff', 'cc3300', 'cc3333', 'cc3366', 'cc3399', 'cc33cc', 'cc33ff', 'cc6600', 'cc6633', 'cc6666', 'cc6699', 'cc66cc', 'cc66ff', 'cc9900', 'cc9933', 'cc9966', 'cc9999', 'cc99cc', 'cc99ff', 'cccc00', 'cccc33', 'cccc66', 'cccc99', 'cccccc', 'ccccff', 'ccff00', 'ccff33', 'ccff66', 'ccff99', 'ccffcc', 'ccffff', 'ff0000', 'ff0033', 'ff0066', 'ff0099', 'ff00cc', 'ff00ff', 'ff3300', 'ff3333', 'ff3366', 'ff3399', 'ff33cc', 'ff33ff', 'ff6600', 'ff6633', 'ff6666', 'ff6699', 'ff66cc', 'ff66ff', 'ff9900', 'ff9933', 'ff9966', 'ff9999', 'ff99cc', 'ff99ff', 'ffcc00', 'ffcc33', 'ffcc66', 'ffcc99', 'ffcccc', 'ffccff', 'ffff00', 'ffff33', 'ffff66', 'ffff99', 'ffffcc', 'ffffff']
 
 X11_Colors =[
   "000000",
