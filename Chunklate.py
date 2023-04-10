@@ -5605,22 +5605,33 @@ def Guess_Palettes_Nbr(bfn,afn):
         bvalue += bytes.fromhex(colorx)
         Lnx_New = len(bvalue).to_bytes(4, "big")
         checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
+#        print("Checksumbla:",checksum.hex())
+
         fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
         wanabyte = bfn + fullnewdatax + afn
         f = io.BytesIO()
+        res = None
         with stderr_redirector(f):
              try:
                  im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
              except Exception as e:
-                 continue     
-#        name, dir = Naming(FILE_Origin)
-#        tmpname =  dir+"/"+"BF-TST-"+str(datetime.now().strftime('-%y%m%d%H%M%S-'))+name+".png"
-#        with open(tmpname, "wb") as f:
-#                 f.write(wanabyte)
-#        print("-Saved here:",tmpname)
-
-        pil_image = Image.fromarray(im)
-
+                 res = e
+        if res:
+             print("error res:",res)
+             Pause("Continue")
+             continue
+        name, dir = Naming(FILE_Origin)
+        tmpname =  dir+"/"+"BF-TST-"+str(datetime.now().strftime('-%y%m%d%H%M%S-'))+name
+        with open(tmpname, "wb") as f:
+                 f.write(wanabyte)
+        print("-Saved here:",tmpname)
+         
+        try:
+            pil_image = Image.fromarray(im)
+        except Exception as e:
+           print("-Error Guess_Palettes_Nbr():",e)
+           Pause("continue")
+           continue
 #        current_hash = imagehash.colorhash(pil_image)
 #        current_hash = imagehash.dhash(pil_image)
 #        current_hash = imagehash.average_hash(pil_image)
@@ -5977,7 +5988,9 @@ def SmashBruteBrawl(
             checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
 
             if OldCrc:
-
+#                  with open("crc.plte","a+") as bd:
+#                         save = "Data:%s Crc:%s"%(str(bvalue.hex()),str(checksum.hex()))
+#                         bd.write(save+"\n")
 
                   if OldCrc != checksum:
                       continue
@@ -7315,7 +7328,20 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
         Candy("Cowsay", " ==Safety Off==", "com")
         Excluded = []
 
-    Needle = CLoffI + 16
+    if not any(c == CType for c in CHUNKS):
+          for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                 if ch == LastCType:
+                        Needle = int(chi.split(":")[1]) + 16
+    else:
+         Needle = CLoffI + 16
+
+    if DEBUG:
+        PRINT("CType:%s"%CType)
+        PRINT("LastCtype:%s"%LastCType)
+        PRINT("ChunkLen:%s"%ChunkLen)
+        PRINT("Orig_CT:%s"%Orig_CT)
+        PRINT("Needle:%s"%Needle)
+        PRINT("DATAX[N:N+32]:%s"%DATAX[Needle : Needle + 32])
 
     while Needle < len(DATAX):
         if Needle + 8 > len(DATAX):
@@ -7334,6 +7360,8 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
                 if PAUSEDEBUG is True or PAUSEERROR is True:
                     Pause("Pause Debug")
             TheEnd()
+
+
         NeedleI = int(Needle / 2)
         NeedleX = hex(int(Needle / 2))
         Data_End_OffsetI = NeedleI - 8
@@ -7378,24 +7406,53 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
                     SideNotes.append("-NearbyChunk:Missplaced Chunk")
                     TheEnd()
                 else:
-                    LenCalc = Data_End_OffsetI - CDoffB
+
+                    if not any(c == CType for c in CHUNKS):
+                        for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                            if ch == LastCType:
+                               posn = int(int(chi.split(":")[1])/2) + 8
+                               LenCalc = Data_End_OffsetI - posn
+                               if "-" in str(LenCalc):
+                                     LenCalc = 0
+                               tmpfix = Needle -  8
+                               new_cloffi = int(chi.split(":")[1])
+                               new_orig_cl = DATAX[new_cloffi:new_cloffi+8]
+                               FixedLen = str("0x%08X" % LenCalc)[2::]
+                               PRINT(
+                                    "-Chunk position is %s %s\n"
+                                    % (Candy("Color", "green", "Valid "), Candy("Emoj", "good"))
+                               )
+                               PRINT(
+                                    "-Found Chunk[%s] has Wrong length at offset: %s\n-Replaced with: %s old value was: %s"
+                                    % (LastCType, tmpfix, FixedLen, new_orig_cl)
+                                    )
+                               SolvedMsg = (
+                                    "-Found Chunk[%s] has Wrong length at offset: %s\n-Found next chunk: %s at: %s\n-Replaced with: %s old value was: %s"
+                                    % (LastCType, new_cloffi, Chk, NeedleX, FixedLen, new_orig_cl)
+                               )
+
+                               return CheckPoint(
+                                   True,
+                                   True,
+                                   "NearbyChunk",
+                                   Orig_CT,
+                                   [SolvedMsg],
+                                   FixedLen,
+                                   new_cloffi,
+                                   new_cloffi + 8,
+                                   Orig_CT,
+                                   FromError,
+                              )
+
+
+
+                    else:
+                        LenCalc = Data_End_OffsetI - CDoffB
+
                     if "-" in str(LenCalc):
-                        PRINT(
-                            "-Chunk position is %s %s\n"
-                            % (
-                                Candy("Color", "red", "Not Valid "),
-                                Candy("Emoj", "bad"),
-                            )
-                        )
-                        PRINT(
-                            "-Got Wrong Result for length...:%s"%
-                            Candy("Color", "red", LenCalc),
-                        )
-                        Candy("Cowsay", " Another one byte the dust ...", "bad")
-                        PRINT("dataendofI:%s"% Data_End_OffsetI)
-                        PRINT("CDoffb:%s"% CDoffB)
-                        PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                        TheEnd()
+                         LenCalc = 0
+
+
                     PRINT(
                         "-Chunk position is %s %s\n"
                         % (Candy("Color", "green", "Valid "), Candy("Emoj", "good"))
@@ -7847,7 +7904,7 @@ def NameShift():
             PRINT("With those index: %s"% i)
         if PAUSEDEBUG is True:
             Pause("-Debug Pause Press Return to continue:")
-    for i in range(0,16):
+    for i in range(0,32):
          ioff = CToffI-8+i
          value = bytes.fromhex(DATAX[ioff:CToffI+i])
          if value in ALLCHUNKS:
@@ -8381,7 +8438,9 @@ def CheckLength(Cdata, Clen, Ctype):
         )
 
 
-def Question(id=None, skipauto=False):
+
+
+def Question(id=None,idhash=None, skipauto=False):
     global IFOP
     Candy("Title", "QUESTION!")
 
@@ -8421,12 +8480,13 @@ def Question(id=None, skipauto=False):
 
     if id != None:
         Sondage = (
-            "Infos:" + str(id) + " Answer:" + str(Answer) + " Offset:" + str(CLoffI)
+            "Infos:" + str(id) + " Answer:" + str(Answer) + " Offset:" + str(CLoffI) + " Hash:" +str(idhash)
         )
         if Sondage not in IFOP:
             IFOP.append(Sondage)
             return Answer
         else:
+    #        print("sondage:",Sondage)
             PRINT("-%s\n" % Candy("Color", "red", "Error Already fixed"))
             PRINT("-%s\n" % Candy("Color", "red", "Answer Changed"))
             Candy("Cowsay", "Huh ..? Déja-vu ?", "com")
@@ -8440,7 +8500,7 @@ def Question(id=None, skipauto=False):
 
             Answer = not Answer
             Sondage = (
-                "Infos:" + str(id) + " Answer:" + str(Answer) + " Offset:" + str(CLoffI)
+                "Infos:" + str(id) + " Answer:" + str(Answer) + " Offset:" + str(CLoffI) + " Hash:" +str(idhash)
             )
             if Sondage not in IFOP:
                 IFOP.append(Sondage)
@@ -8669,6 +8729,160 @@ def Relics(FromError):
                             )
                         )
 
+
+        for key in PandoraBox:
+            
+                if "-PLTE" in str(key): ##Maybe ask Relic() first
+
+                    if not Skip_Bad_Current_Name and not Skip_Bad_Infos and not Skip_Bad_Critical:
+                        if str(key) not in Cornucopia:
+                             Candy("Cowsay", "Alright this is a tough one as PLTE is a critical chunk..", "bad")
+                             #if not something to get intel about plte nbr and what TODO:
+                             if not Bad_Crc:
+
+                                 Candy("Cowsay", "Crc is valid ...So this has been made on purpose..", "bad")
+                                 Candy("Cowsay", "Anyway im just gona fill the gap then.", "com")
+                                 Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
+                                 Candy("Cowsay", "I will need you to manually click a few buttons for me.", "com")
+                                 Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk .", "com") ## no you should not it wont work
+
+                                 Answer = input("Answer(Manually/Remove/Quit):").lower() 
+                                 while Answer != "manually" and Answer != "remove" and Answer != "quit":
+                                       Answer = input("Answer(Manually/Remove/Quit):").lower()
+
+                                 if Answer == "manually":
+                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                        if ch == b"PLTE":
+                                            #if something EditMode = "replace"TODO
+                                            return Tk_Manual_Plte(
+                                                Sample_Name,
+                                                b"PLTE",
+                                                int(chi.split(":")[2]),
+                                                int(chi.split(":")[1]),
+                                                "-PLTE Wrong Data",
+                                            )
+                                 elif Answer == "remove":
+                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                        if ch == b"PLTE":
+                                            return(RemoveChunk(int(chi.split(":")[1]),int(chi.split(":")[2]),"-PLTE Chunk Removed."))
+                                 elif Answer == "quit":
+                                     SideNotes.append("-User has chose to quit.")
+                                     TheEnd()
+
+        #                         elif Answer == "bruteforce": ##there is 4 million time less atoms in the univers than the nbr of results
+        #                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
+        #                                if ch == b"PLTE":
+        
+                                    #if something EditMode = "replace"TODO
+        #                                    return SmashBruteBrawl(
+        #                                        Sample_Name,
+        #                                        b"PLTE",
+        #                                        int(chi.split(":")[2]),
+        #                                        int(chi.split(":")[1]),
+        #                                        "-PLTE Wrong Data",
+        #                                        EditMode = "Insert",
+        #                                    )
+        #                            PRINT(Candy("Color", "yellow", "\n-ToDo"))
+        #                            TheEnd()
+
+
+                             else:
+
+
+                                 Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
+                                 Candy("Cowsay", "I ll have to bruteforce my way through until i end up with the old Crc.", "bad")
+                                 Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
+                                 Candy("Cowsay", "Perhaps i could just remove that PLTE chunk .", "com")  ## no you should not it wont work
+
+                                 Answer = input("Answer(Manually/Bruteforce/Remove/Quit):").lower()
+                                 while Answer != "manually" and Answer != "bruteforce" and Answer != "remove" and Answer != "quit":
+                                       Answer = input("Answer(Manually/bruteforce/Remove/Quit):").lower()
+
+                                 if Answer == "bruteforce": ##Maybe ask Relic() first
+
+                                    Crc_to_match = DATAX[CrcoffI:CrcoffI+8]
+
+
+                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                        if ch == b"PLTE":
+                                            #if something EditMode = "replace"TODO
+                                            return SmashBruteBrawl(
+                                                Sample_Name,
+                                                b"PLTE",
+                                                int(chi.split(":")[2]),
+                                                int(chi.split(":")[1]),
+                                                "-PLTE Wrong Data",
+                                                EditMode = "Insert",
+                                                OldCrc=Crc_to_match,
+                                            )
+
+#                                    return SmashBruteBrawl(
+#                                                Sample_Name,
+#                                                b"PLTE",
+#                                                CrcoffI + 8,
+#                                                CLoffI,
+#                                                "-PLTE Wrong Data",
+#                                                EditMode = "Insert",
+#                                                OldCrc=Crc_to_match,
+#                                            )
+                                 elif Answer == "manually":
+
+#
+#                                            return Tk_Manual_Plte(
+#                                                Sample_Name,
+#                                                b"PLTE",
+#                                                CrcoffI + 8,
+#                                                CLoffI,
+#                                                "-PLTE Wrong Data",
+#                                            )
+                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
+        #                                print("ch:%s chi:%s"%(ch,chi))
+                                        if ch == b"PLTE":
+         #                                   print("chi:",chi)
+#                                            Pause("joj")
+                                            #if something EditMode = "replace"TODO
+                                            return Tk_Manual_Plte(
+                                                Sample_Name,
+                                                b"PLTE",
+                                                int(chi.split(":")[2]),
+                                                int(chi.split(":")[1]),
+                                                "-PLTE Wrong Data",
+                                            )
+                                    Pause("pas glop")
+
+                                 elif Answer == "remove":
+                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                        if ch == b"PLTE":
+                                            return(RemoveChunk(int(chi.split(":")[1]),int(chi.split(":")[2]),"-PLTE Chunk Removed."))
+
+                                 elif Answer == "quit":
+                                     SideNotes.append("-User ha chose to quit.")
+                                     TheEnd()
+
+                             Candy(
+                                        "Cowsay",
+                                        "Shall i give it a try ? Otherwise Chunklate is going to exit.",
+                                        "com",
+                                    )
+                             Answer = Question()
+                             if Answer is True:
+                                for ch, chi in zip(Chunks_History, Chunks_History_Index):
+                                    if ch == b"PLTE":
+                                        return SmashBruteBrawl(
+                                            Sample_Name,
+                                            b"PLTE",
+                                            int(chi.split(":")[2]),
+                                            int(chi.split(":")[1]),
+                                            "-PLTE Wrong Data",
+                                            EditMode = "Insert",
+                                        )
+                             else:
+                                        TheEnd()
+
+
+
+
+
         if len(Pandemonium) == 1:
             Candy("Cowsay", "Only one Error,That is short indeed ..", "com")
 
@@ -8861,159 +9075,6 @@ def Relics(FromError):
                             break
                 if ChosenOne:
                     break
-
-
-
-            for key in PandoraBox:
-            
-                if "-PLTE" in str(key): ##Maybe ask Relic() first
-
-                    if not Skip_Bad_Current_Name and not Skip_Bad_Infos and not Skip_Bad_Critical:
-                        if str(key) not in Cornucopia:
-                             Candy("Cowsay", "Alright this is a tough one as PLTE is a critical chunk..", "bad")
-                             #if not something to get intel about plte nbr and what TODO:
-                             if not Bad_Crc:
-
-                                 Candy("Cowsay", "Crc is valid ...So this has been made on purpose..", "bad")
-                                 Candy("Cowsay", "Anyway im just gona fill the gap then.", "com")
-                                 Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
-                                 Candy("Cowsay", "I will need you to manually click a few buttons for me.", "com")
-                                 Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk .", "com") ## no you should not it wont work
-
-                                 Answer = input("Answer(Manually/Remove/Quit):").lower() 
-                                 while Answer != "manually" and Answer != "remove" and Answer != "quit":
-                                       Answer = input("Answer(Manually/Remove/Quit):").lower()
-
-                                 if Answer == "manually":
-                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                        if ch == b"PLTE":
-                                            #if something EditMode = "replace"TODO
-                                            return Tk_Manual_Plte(
-                                                Sample_Name,
-                                                b"PLTE",
-                                                int(chi.split(":")[2]),
-                                                int(chi.split(":")[1]),
-                                                "-PLTE Wrong Data",
-                                            )
-                                 elif Answer == "remove":
-                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                        if ch == b"PLTE":
-                                            return(RemoveChunk(int(chi.split(":")[1]),int(chi.split(":")[2]),"-PLTE Chunk Removed."))
-                                 elif Answer == "quit":
-                                     SideNotes.append("-User has chose to quit.")
-                                     TheEnd()
-
-        #                         elif Answer == "bruteforce": ##there is 4 million time less atoms in the univers than the nbr of results
-        #                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
-        #                                if ch == b"PLTE":
-                                            #if something EditMode = "replace"TODO
-        #                                    return SmashBruteBrawl(
-        #                                        Sample_Name,
-        #                                        b"PLTE",
-        #                                        int(chi.split(":")[2]),
-        #                                        int(chi.split(":")[1]),
-        #                                        "-PLTE Wrong Data",
-        #                                        EditMode = "Insert",
-        #                                    )
-        #                            PRINT(Candy("Color", "yellow", "\n-ToDo"))
-        #                            TheEnd()
-
-
-                             else:
-
-
-                                 Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
-                                 Candy("Cowsay", "I ll have to bruteforce my way through until i end up with the old Crc.", "bad")
-                                 Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
-                                 Candy("Cowsay", "Perhaps i could just remove that PLTE chunk .", "com")  ## no you should not it wont work
-
-                                 Answer = input("Answer(Manually/Bruteforce/Remove/Quit):").lower()
-                                 while Answer != "manually" and Answer != "bruteforce" and Answer != "remove" and Answer != "quit":
-                                       Answer = input("Answer(Manually/bruteforce/Remove/Quit):").lower()
-
-                                 if Answer == "bruteforce": ##Maybe ask Relic() first
-
-                                    Crc_to_match = DATAX[CrcoffI:CrcoffI+8]
-
-
-                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                        if ch == b"PLTE":
-                                            #if something EditMode = "replace"TODO
-                                            return SmashBruteBrawl(
-                                                Sample_Name,
-                                                b"PLTE",
-                                                int(chi.split(":")[2]),
-                                                int(chi.split(":")[1]),
-                                                "-PLTE Wrong Data",
-                                                EditMode = "Insert",
-                                                OldCrc=Crc_to_match,
-                                            )
-
-#                                    return SmashBruteBrawl(
-#                                                Sample_Name,
-#                                                b"PLTE",
-#                                                CrcoffI + 8,
-#                                                CLoffI,
-#                                                "-PLTE Wrong Data",
-#                                                EditMode = "Insert",
-#                                                OldCrc=Crc_to_match,
-#                                            )
-                                 elif Answer == "manually":
-
-#
-#                                            return Tk_Manual_Plte(
-#                                                Sample_Name,
-#                                                b"PLTE",
-#                                                CrcoffI + 8,
-#                                                CLoffI,
-#                                                "-PLTE Wrong Data",
-#                                            )
-                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
-        #                                print("ch:%s chi:%s"%(ch,chi))
-                                        if ch == b"PLTE":
-         #                                   print("chi:",chi)
-#                                            Pause("joj")
-                                            #if something EditMode = "replace"TODO
-                                            return Tk_Manual_Plte(
-                                                Sample_Name,
-                                                b"PLTE",
-                                                int(chi.split(":")[2]),
-                                                int(chi.split(":")[1]),
-                                                "-PLTE Wrong Data",
-                                            )
-                                    Pause("pas glop")
-
-                                 elif Answer == "remove":
-                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                        if ch == b"PLTE":
-                                            return(RemoveChunk(int(chi.split(":")[1]),int(chi.split(":")[2]),"-PLTE Chunk Removed."))
-
-                                 elif Answer == "quit":
-                                     SideNotes.append("-User ha chose to quit.")
-                                     TheEnd()
-
-                             Candy(
-                                        "Cowsay",
-                                        "Shall i give it a try ? Otherwise Chunklate is going to exit.",
-                                        "com",
-                                    )
-                             Answer = Question()
-                             if Answer is True:
-                                for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                    if ch == b"PLTE":
-                                        return SmashBruteBrawl(
-                                            Sample_Name,
-                                            b"PLTE",
-                                            int(chi.split(":")[2]),
-                                            int(chi.split(":")[1]),
-                                            "-PLTE Wrong Data",
-                                            EditMode = "Insert",
-                                        )
-                             else:
-                                        TheEnd()
-
-
-
 
             if ChosenOne and any(ChosenOne in k and "StructIndex:" in k for k in PandoraBox):
 
@@ -9262,7 +9323,11 @@ def FixItFelix(Chunk=None):
                         "This looks like an easy fix since there is no real errors beside the Crc issue.Do you wish to try to fix it ?",
                         "com",
                     )
-                    Answer = Question(key)
+                    try:
+                            uniqh = hash(str(PandoraBox[key][chkd + "0"])+str(PandoraBox[key][chkd + "1"])+str(PandoraBox[key][chkd + "2"]))
+                    except:
+                            uniqh = hash(key)
+                    Answer = Question(id=key,idhash=uniqh)
                     if Answer is True:
                         return SaveClone(
                             PandoraBox[key][chkd + "0"],
@@ -9293,8 +9358,11 @@ def FixItFelix(Chunk=None):
                         "We may want to fix them first before jumping on that Crc what do you think ?",
                         "com",
                     )
-
-                Answer = Question(key)
+                try:
+                            uniqh = hash(str(PandoraBox[key][chkd + "0"])+str(PandoraBox[key][chkd + "1"])+str(PandoraBox[key][chkd + "2"]))
+                except:
+                            uniqh = hash(key)
+                Answer = Question(id=key,idhash=uniqh)
                 if Answer is False:
                     return SaveClone(
                         PandoraBox[key][chkd + "0"],
@@ -9371,8 +9439,11 @@ def FixItFelix(Chunk=None):
                         "Are you agree ? Otherwise Chunklate is going to exit",
                         "com",
                     )
-
-                    Answer = Question(key)
+                    try:
+                        uniqh = hash(str(PandoraBox[key][chkd + "0"])+str(PandoraBox[key][chkd + "1"])+str(PandoraBox[key][chkd + "2"]))
+                    except:
+                        uniqh = hash(key)
+                    Answer = Question(id=key,idhash=uniqh)
                     if Answer is True:
                         Skip_Bad_Libpng = True
                         return Relics(str(key))
@@ -9457,7 +9528,11 @@ def FixItFelix(Chunk=None):
                             "May i suggest to start by checking if this a length problem ?",
                             "good",
                         )
-                        Answer = Question(key)
+                        try:
+                            uniqh = hash(str(PandoraBox[key][chkd + "0"])+str(PandoraBox[key][chkd + "1"])+str(PandoraBox[key][chkd + "2"]))
+                        except:
+                            uniqh = hash(key)
+                        Answer = Question(id=key,idhash=uniqh)
                         if Answer is True:
 
                             return NearbyChunk(
@@ -9484,8 +9559,11 @@ def FixItFelix(Chunk=None):
                             "How about im taking care of the rest ?",
                             "com",
                         )
-
-                    Answer = Question(key)
+                    try:
+                            uniqh = hash(str(PandoraBox[key][chkd + "0"])+str(PandoraBox[key][chkd + "1"])+str(PandoraBox[key][chkd + "2"]))
+                    except:
+                            uniqh = hash(key)
+                    Answer = Question(id=key,idhash=uniqh)
                     if Answer is True:
                         return BruteChunk(
                             PandoraBox[key][chkd + "0"],
@@ -9647,8 +9725,14 @@ def FixItFelix(Chunk=None):
                         "A length error maybe ? Do you want me to have a look ?",
                         "com",
                     )
-
-                    Answer = Question(key)
+#                    print("PandoraBox[key][chkd + 0]",PandoraBox[key][chkd + "0"])
+#                    print("PandoraBox[key][chkd + 1]",PandoraBox[key][chkd + "1"])
+#                    print("PandoraBox[key][chkd + 2]",PandoraBox[key][chkd + "2"])
+                    try:
+                            uniqh = hash(str(PandoraBox[key][chkd + "0"])+str(PandoraBox[key][chkd + "1"])+str(PandoraBox[key][chkd + "2"]))
+                    except:
+                            uniqh = hash(key)
+                    Answer = Question(id=key,idhash=uniqh)
                     if Answer is True:
                         return NearbyChunk(
                             PandoraBox[key][chkd + "0"],
