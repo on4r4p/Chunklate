@@ -4496,23 +4496,24 @@ def Chunklate(sec):
         time.sleep(sec)
 
 
-def Minibar():
+def Minibar(Indication=""):
     global CharPos
     global GoBack
     global Loading_txt
     global Loading_sep
     point = "."
     space = " "
+
     lnt = len(Loading_txt)
-    if lnt < MAXCHAR and GoBack is False:
-        Loading_txt = (point * CharPos) + space
+    if lnt < MAXCHAR - len(Indication)+1 and GoBack is False:
+        Loading_txt = str(Indication)+(point * CharPos) + space
         CharPos += 1
         print(Loading_txt, end="\r")
         lnt = len(Loading_txt)
     else:
-        if lnt > 2:
+        if lnt > len(Indication)+2:
             GoBack = True
-            Loading_txt = (point * CharPos) + space
+            Loading_txt = str(Indication)+(point * CharPos) + space
             CharPos -= 1
             print(Loading_txt, end="\r")
             lnt = len(Loading_txt)
@@ -4601,6 +4602,11 @@ def Loadingbar(fishs, fishsize, loop, build):
                 FishPos += 1
             else:
                 FishPos = 0
+            print(
+                "%s/%s%s" % (str(loop).zfill(fishsize), fishs, ThksForTheFish[FishPos]),
+                end="\r",
+            )
+        else:
             print(
                 "%s/%s%s" % (str(loop).zfill(fishsize), fishs, ThksForTheFish[FishPos]),
                 end="\r",
@@ -6051,7 +6057,7 @@ def SmashBruteBrawl(
                      if needle < len(ToBrute) - (needle2 - 1) and Bingo is False:
 
 #                          Loadingbar(max_iter, len_iter, n, False)
-
+                          Minibar(Indication="%s/%s"%(n,max_iter))
                           newdatax = bytes.fromhex(ToBrute[:needle]) + bvalue + bytes.fromhex(ToBrute[needle+needle2:])
                           Lnx_New = len(newdatax).to_bytes(4, "big")
                           checksum = struct.pack("!I",binascii.crc32(ChunkName + newdatax))
@@ -6063,7 +6069,7 @@ def SmashBruteBrawl(
                               break
 
 
-                          print("bvalue:%s checksum:%s"%(bvalue.hex(),checksum),end="\r")
+#                          print("bvalue:%s checksum:%s"%(bvalue.hex(),checksum),end="\r")
 #                          TheEnd()
 
 #                         for hexa in range(0, 16 ** needle2):
@@ -6085,17 +6091,17 @@ def SmashBruteBrawl(
 #                         needle = 0
 #                         needle2 += needle2
                           break
-                if not Bingo:
+#                if not Bingo:
 #                     print("pls")
-                     continue 
+#                     continue 
 #                TheEnd()
 #                continue
             else:
                  checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
+                 Loadingbar(max_iter, len_iter, n, False)
 
-
-            Loadingbar(max_iter, len_iter, n, False)
-
+#            Loadingbar(max_iter, len_iter, n, False)
+#            print("maxiter:%s len_iter:%s n:%s:"%(max_iter, len_iter, n))
             if OldCrc:
 #                  with open("crc.plte","a+") as bd:
 #                         save = "Data:%s Crc:%s"%(str(bvalue.hex()),str(checksum.hex()))
