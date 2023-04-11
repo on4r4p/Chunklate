@@ -709,17 +709,15 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
             },
             b"IDAT": { 
                 "nocolortype": (
-                    16581375,
-                    6,
-                    ("!B", "!B", "!B"),
+                    256,
+                    (2,6),
+                    ("!B"),
                     (
-                        ("i for i in range(0,256)"),
-                        ("i for i in range(0,256)"),
                         ("i for i in range(0,256)"),
                     ),
                 )
             },
-            b"IEND": {"nocolortype": (1, 8, ("!I"), ("1229278788",""))},
+            b"IEND": {"nocolortype": (1, 8, ("!I"), ("1229278788"))},
 
         }
 
@@ -736,6 +734,23 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
 
                         tmpcd = []
                         tmpcf = []
+
+
+                        if not any(cf in ["!I","!H","!B"] for cf in chunk_format):
+                              for n,cf in enumerate(chunk_format):
+                                  if cf == "!":
+                                        try:
+                                            tmpcf.append("%s%s"%(chunk_format[n],chunk_format[n+1]))
+                                        except (NameError, ValueError) as e:
+                                            Betterror(e, inspect.stack()[0][3])
+                                            if DEBUG is True:
+                                               PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
+                                            if PAUSEDEBUG is True or PAUSEERROR is True:
+                                                 Pause("Pause Debug")
+                                            TheEnd()
+                                        chunk_format = tmpcf
+                                        tmpcf = []
+
 
                         for n in range(0,IterNbr):
                                 n += 1
@@ -5849,23 +5864,10 @@ def SmashBruteBrawl(
     if OldCrc: 
         OldCrc = bytes.fromhex(OldCrc)
 
-    if BfMode == "Custom":
- 
-         Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
-         if len(Sti) > 0:
-             max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
-         else:
-             SideNote.append("-SmashBruteBrawl error: Sti empty switched to Brutus mode")
-             max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
 
-#    elif BfMode == "ThreeBytes":
-#            PRINT(Candy("Color", "yellow", "\n-ToDo")) #ALL THINGS TOO BIG TO BRUTE IN LESS THANT A LIFE TIME GOES HERE
-#            TheEnd()
+    chunklen_spec,chunk_format  =  GetSpec(ChunkName,BfMode,Fields=["Length","Format"])
 
-    else:
-         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
-
-    lncf = len(chunk_format)-1
+    ln_chunk_format = len(chunk_format)-1
 
     if type(chunklen_spec) == tuple:
         maxchunklen = max(chunklen_spec)
@@ -5881,6 +5883,16 @@ def SmashBruteBrawl(
         step = minchunklen
 
     if DEBUG is True:
+
+        if BfMode == "Custom":
+             Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
+             if len(Sti) > 0:
+                 max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
+             else:
+                 max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
+        else:
+             max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
+
         PRINT("File:%s"% File)
         PRINT("ChunkName:%s"% ChunkName)
         PRINT("DataOffset:%s"% DataOffset)
@@ -5892,7 +5904,6 @@ def SmashBruteBrawl(
         PRINT("chunklen_spec:%s"% str(chunklen_spec))
         PRINT("chunk_format:%s"% str(chunk_format))
         PRINT("chunk_data:%s"% str(chunk_data))
-#        print("cdata:\n",chunk_data)
         PRINT("max_iter:%s"%max_iter)
         PRINT("maxchunklen:%s"% maxchunklen)
         PRINT("minchunklen:%s"% minchunklen)
@@ -5902,24 +5913,26 @@ def SmashBruteBrawl(
 
     f = io.BytesIO()
     for n,ln in enumerate(range(minchunklen, maxchunklen, step)):
-#        if n < 1:continue
-        if ln > step:
 #            Pause("n:%s ln:%s minchunklen:%s maxchunklen:%s step:%s"%(n,ln,minchunklen,maxchunklen,step))
 
-            if BfMode == "Custom":
+        if BfMode == "Custom":
                  Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
                  if len(Sti) > 0:
-                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti,IterNbr=n+1)
+                     if ln > step:
+                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti,IterNbr=n+1)
+                     else:
+                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
                  else:
                      SideNote.append("-SmashBruteBrawl error: Sti empty switched to Brutus mode")
+                     if ln > step:
+                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=n+1)
+                     else:
+                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
+        else:
+                 if ln > step:
                      max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=n+1)
-#            elif BfMode == "ThreeBytes":
-#                  PRINT(Candy("Color", "yellow", "\n-ToDo")) #ALL THINGS TOO BIG TO BRUTE IN LESS THANT A LIFE TIME GOES HERE
-#                  TheEnd()
-            else:
-                 max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=n+1)
-
-            lncf = len(chunk_format)-1
+                 else:
+                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
 
 
 
@@ -5930,9 +5943,15 @@ def SmashBruteBrawl(
 
 #        print("ln:",ln)
 
-        Lnx_New = int(int(ln/2)).to_bytes(4, "big")
 
-        if EditMode == "Replace":
+        if EditMode == "FourBytes":
+                Before_New = bytes.fromhex(DATAX[:DataOffset])
+                ToBrute = DATAX[DataOffset : DataOffset + ChunkLength*2 ]
+                ToBryte = bytes.fromhex(ToBrute)
+                After_New = bytes.fromhex(DATAX[DataOffset + ChunkLength*2 +8:]) 
+
+        elif EditMode == "Replace":
+                Lnx_New = int(int(ln/2)).to_bytes(4, "big")
 #            if BruteLength and BruteCrc:
                 Before_New = bytes.fromhex(DATAX[:DataOffset])
                 ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ]
@@ -5940,6 +5959,7 @@ def SmashBruteBrawl(
                 After_New = bytes.fromhex(DATAX[DataOffset + ln + 24 :])  # +24=chunklen+chunkname+data+crc
 #            elif not BruteCrc and BruteLength:
         elif EditMode == "Insert":#TODO
+                Lnx_New = int(int(ln/2)).to_bytes(4, "big")
 #            if BruteLength and BruteCrc:
                 Before_New = bytes.fromhex(DATAX[:DataOffset])
 #                ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ] ## wrong value 
@@ -5965,7 +5985,8 @@ def SmashBruteBrawl(
         for n, i in enumerate(shuffle):
             f = io.BytesIO()
                    #16581375
-#            if n < 16077200:
+#            if n < 16077370:
+#            if n < 254:
 #                 continue
             if CRASH:
                 if n < CRASH:
@@ -5997,7 +6018,7 @@ def SmashBruteBrawl(
                bvalue = b""
                idx = 0
                for j in i:
-                   if idx < lncf:
+                   if idx < ln_chunk_format:
                       bvalue += struct.pack(chunk_format[idx],int(j))
                       idx += 1
                    else:
@@ -6009,16 +6030,63 @@ def SmashBruteBrawl(
                 #     bvalue += struct.pack(cf,int(j))
 
             Loadingbar(max_iter, len_iter, n, False)
+
+
 #            print("bvalue:",bvalue.hex())
             
-            if BfMode == "ThreeBytes":
-                PRINT(Candy("Color", "yellow", "\n-ToDo")) #ALL THINGS TOO BIG TO BRUTE IN LESS THANT A LIFE TIME GOES HERE
-                print("bvalue:",bvalue.hex(),end="\r")
+            if EditMode == "FourBytes":
+#                PRINT(Candy("Color", "yellow", "\n-ToDo")) #ALL THINGS TOO BIG TO BRUTE IN LESS THANT A LIFE TIME GOES HERE
+#                print("bvalue:",bvalue.hex(),end="\r")
+#                print("befor:",Before_New[-8:].hex())
+#                print("befor:",Before_New[-8:])
+#                print("tobrute:",ToBrute[:8])
+#                print("after:",After_New[:8].hex())
+#                print("after:",After_New[:8])
+#                print("lenbv:",len(bvalue))
+#                print("lenbvx:",len(bvalue.hex()))
+#                print("len brute:",len(ToBrute))
+                needle = 0
+                needle2 = len(bvalue.hex())
+                while needle2 <= len(ToBrute) and Bingo is False:
+                     if needle < len(ToBrute) - (needle2 - 1) and Bingo is False:
 
-                TheEnd()
+                          newdatax = bytes.fromhex(ToBrute[:needle]) + bvalue + bytes.fromhex(ToBrute[needle+needle2:])
+                          Lnx_New = len(newdatax).to_bytes(4, "big")
+                          checksum = struct.pack("!I",binascii.crc32(ChunkName + newdatax))
+
+                          if checksum == OldCrc:
+                              bvalue = newdatax
+                              Bingo = True
+#                              print("Bingo")
+                              break
+#                          print("bvalue:%s checksum:%s"%(bvalue.hex(),checksum),end="\r")
+#                          TheEnd()
+
+#                         for hexa in range(0, 16 ** needle2):
+#                             newbyte = (hex(hexa).replace("0x", "")).zfill(needle2)
+#                             newdatax_copy = (
+#                             datax[:needle] + newbyte + datax[needle + len(newbyte) :]
+#                             )
+#                             newdatax = bytes.fromhex(newdatax_copy)
+#                             checksum = (
+#                             hex(binascii.crc32(Chunk + newdatax)).replace("0x", "").zfill(8)
+#                             )
+#                             PRINT(newdatax_copy)
+
+                          needle += 2
+                     else:
+#                         print("back to start")
+#                         print("n:",needle)
+                         break
+#                         needle = 0
+#                         needle2 += needle2
+                if not Bingo:
+                     continue 
+
+#                TheEnd()
 #                continue
-
-            checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
+            else:
+                 checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
 
             if OldCrc:
 #                  with open("crc.plte","a+") as bd:
@@ -8974,9 +9042,8 @@ def Relics(FromError):
                                     ChunkLength,
                                     DataOffset,
                                     FromError,
-                                    BfMode = "ThreeBytes",
+                                    EditMode = "FourBytes",
                                     OldCrc=Crc_to_match,
-                                    BruteLength=False
                                 )
 
 
@@ -8999,9 +9066,8 @@ def Relics(FromError):
                                     ChunkLength,
                                     DataOffset,
                                     FromError,
-                                    BfMode = "ThreeBytes",
+                                    EditMode = "FourBytes",
                                     OldCrc=Crc_to_match,
-                                    BruteLength=False
                                 )
 
                             return ()
