@@ -228,9 +228,13 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
 
 
     ibn = int(IBN / 64)
+
     Mxr = Max_Res()
     Mnr = ibn
 
+    if Mnr > 10000: #tmpguessing
+          Mnr = int(ibn/2)
+   
     if GetColor.endswith(":minres"):
          MnrF = Min_Res_Iter(Mnr)
     else:
@@ -239,7 +243,7 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
     if DEBUG:
             PRINT(
                 "-Smalest resolution estimation based on file size: %s*%s"
-                % (int(IBN / 64), int(IBN / 64))
+                % (Mnr, Mnr)
             )
 
     CHUNKS_SPEC = {
@@ -703,6 +707,20 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
                     ),
                 )
             },
+            b"IDAT": { 
+                "nocolortype": (
+                    16581375,
+                    6,
+                    ("!B", "!B", "!B"),
+                    (
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                    ),
+                )
+            },
+            b"IEND": {"nocolortype": (1, 8, ("!I"), ("1229278788",""))},
+
         }
 
 
@@ -5840,6 +5858,10 @@ def SmashBruteBrawl(
              SideNote.append("-SmashBruteBrawl error: Sti empty switched to Brutus mode")
              max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
 
+#    elif BfMode == "ThreeBytes":
+#            PRINT(Candy("Color", "yellow", "\n-ToDo")) #ALL THINGS TOO BIG TO BRUTE IN LESS THANT A LIFE TIME GOES HERE
+#            TheEnd()
+
     else:
          max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
 
@@ -5891,6 +5913,9 @@ def SmashBruteBrawl(
                  else:
                      SideNote.append("-SmashBruteBrawl error: Sti empty switched to Brutus mode")
                      max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=n+1)
+#            elif BfMode == "ThreeBytes":
+#                  PRINT(Candy("Color", "yellow", "\n-ToDo")) #ALL THINGS TOO BIG TO BRUTE IN LESS THANT A LIFE TIME GOES HERE
+#                  TheEnd()
             else:
                  max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=n+1)
 
@@ -5934,11 +5959,12 @@ def SmashBruteBrawl(
 #        print("beforbrute",bytes.fromhex(DATAX[DataOffset+8:DataOffset+32]))
 #        print("Tobrute:",ToBrute)
  
+
         shuffle = Product(chunk_data,color_type)
 
         for n, i in enumerate(shuffle):
             f = io.BytesIO()
-
+                   #16581375
 #            if n < 16077200:
 #                 continue
             if CRASH:
@@ -5985,6 +6011,13 @@ def SmashBruteBrawl(
             Loadingbar(max_iter, len_iter, n, False)
 #            print("bvalue:",bvalue.hex())
             
+            if BfMode == "ThreeBytes":
+                PRINT(Candy("Color", "yellow", "\n-ToDo")) #ALL THINGS TOO BIG TO BRUTE IN LESS THANT A LIFE TIME GOES HERE
+                print("bvalue:",bvalue.hex(),end="\r")
+
+                TheEnd()
+#                continue
+
             checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
 
             if OldCrc:
@@ -8923,28 +8956,54 @@ def Relics(FromError):
                         ChunkLength = Pandemonium[file][errors][Chunkname + "_Tool_6"]
                         DataOffset = Pandemonium[file][errors][Chunkname + "_Tool_7"]
                         if nb1 == 0:
+                            if Chunkname != "IDAT":
+                                SmashBruteBrawl(
+                                    FILE_Origin,
+                                    Chunk,
+                                    ChunkLength,
+                                    DataOffset,
+                                    FromError,
+                                    OldCrc=Crc_to_match,
+                                    BruteLength=False
+                                )
 
-                            SmashBruteBrawl(
-                                FILE_Origin,
-                                Chunk,
-                                ChunkLength,
-                                DataOffset,
-                                FromError,
-                                OldCrc=Crc_to_match,
-                                BruteLength=False
-                            )
+                            else:
+                                SmashBruteBrawl(
+                                    FILE_Origin,
+                                    Chunk,
+                                    ChunkLength,
+                                    DataOffset,
+                                    FromError,
+                                    BfMode = "ThreeBytes",
+                                    OldCrc=Crc_to_match,
+                                    BruteLength=False
+                                )
+
 
                             return ()
                         else:
-                            SmashBruteBrawl(
-                                os.path.dirname(Sample) + "/" + file,
-                                Chunk,
-                                ChunkLength,
-                                DataOffset,
-                                FromError,
-                                OldCrc=Crc_to_match,
-                                BruteLength=False
-                            )
+                            if Chunkname != "IDAT":
+                                SmashBruteBrawl(
+                                    os.path.dirname(Sample) + "/" + file,
+                                    Chunk,
+                                    ChunkLength,
+                                    DataOffset,
+                                    FromError,
+                                    OldCrc=Crc_to_match,
+                                    BruteLength=False
+                                )
+                            else:
+                                SmashBruteBrawl(
+                                    os.path.dirname(Sample) + "/" + file,
+                                    Chunk,
+                                    ChunkLength,
+                                    DataOffset,
+                                    FromError,
+                                    BfMode = "ThreeBytes",
+                                    OldCrc=Crc_to_match,
+                                    BruteLength=False
+                                )
+
                             return ()
                     # print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),errors))
                     # for nb3,(tools,tools_values) in enumerate(errors_values.items()):
