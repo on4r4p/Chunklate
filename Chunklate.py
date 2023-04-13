@@ -710,7 +710,7 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
             b"IDAT": { 
                 "nocolortype": (
                     256,
-                    (2,6),
+                    (2,4), #limited due to human life time .
                     ("!B"),
                     (
                         ("i for i in range(0,256)"),
@@ -5854,6 +5854,10 @@ def SmashBruteBrawl(
     CNamex_New = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x", "")
 
     Bingo = False
+    ReplaceFlag = False
+    InsertFlag = False
+    RemoveFlag = False
+    Bonus = False
     TmpSkip = True
     TmpImgLst = []
     result = "bad result"
@@ -5950,13 +5954,14 @@ def SmashBruteBrawl(
 #        print("ln:",ln)
 
 
-        if EditMode == "FourBytes":
+        if EditMode == "TwoBytes":
                 Before_New = bytes.fromhex(DATAX[:DataOffset])
                 ToBrute = DATAX[DataOffset : DataOffset + ChunkLength*2 ]
                 ToBryte = bytes.fromhex(ToBrute)
                 After_New = bytes.fromhex(DATAX[DataOffset + ChunkLength*2 +8:]) 
 
         elif EditMode == "Replace":
+                ReplaceFlag = True
                 Lnx_New = int(int(ln/2)).to_bytes(4, "big")
 #            if BruteLength and BruteCrc:
                 Before_New = bytes.fromhex(DATAX[:DataOffset])
@@ -5965,6 +5970,7 @@ def SmashBruteBrawl(
                 After_New = bytes.fromhex(DATAX[DataOffset + ln + 24 :])  # +24=chunklen+chunkname+data+crc
 #            elif not BruteCrc and BruteLength:
         elif EditMode == "Insert":#TODO
+                InsertFlag = True
                 Lnx_New = int(int(ln/2)).to_bytes(4, "big")
 #            if BruteLength and BruteCrc:
                 Before_New = bytes.fromhex(DATAX[:DataOffset])
@@ -6040,7 +6046,7 @@ def SmashBruteBrawl(
 
 #            print("bvalue:",bvalue.hex())
             
-            if EditMode == "FourBytes":
+            if EditMode == "TwoBytes": #TODO Need to handle without OLDCRC
 #                PRINT(Candy("Color", "yellow", "\n-ToDo")) #ALL THINGS TOO BIG TO BRUTE IN LESS THANT A LIFE TIME GOES HERE
 #                print("bvalue:",bvalue.hex(),end="\r")
 #                print("befor:",Before_New[-8:].hex())
@@ -6056,8 +6062,8 @@ def SmashBruteBrawl(
                 while needle2 <= len(ToBrute) and Bingo is False:
                      if needle < len(ToBrute) - (needle2 - 1) and Bingo is False:
 
-#                          Loadingbar(max_iter, len_iter, n, False)
-                          Minibar(Indication="%s/%s"%(n,max_iter))
+                          Minibar(Indication="%s/%s"%(n,max_iter)) 
+                          ##replace
                           newdatax = bytes.fromhex(ToBrute[:needle]) + bvalue + bytes.fromhex(ToBrute[needle+needle2:])
                           Lnx_New = len(newdatax).to_bytes(4, "big")
                           checksum = struct.pack("!I",binascii.crc32(ChunkName + newdatax))
@@ -6065,23 +6071,101 @@ def SmashBruteBrawl(
                           if checksum == OldCrc:
                               bvalue = newdatax
                               Bingo = True
-#                              print("Bingo")
+                              ReplaceFlag= True
+                              print("-Bingo replace")
+                              break
+                          ##Bonus Stage
+                          n1 = 0
+                          n2 = 2
+                          while n1 <= len(newdatax) - (n2 -1):
+                              if n1 == needle:
+                                 n1 += len(bvalue.hex())
+                                 continue
+                              else:
+                                 for hexa in range(0, 16 ** 2):
+                                     Minibar(Indication="%s/%s"%(n,max_iter))
+#                                     hexa = f'{hexa:x}'.zfill(2)
+                                     #TODOfind a way to get rid of bytes conversion
+                                     hexa = int(hexa).to_bytes(1, "big")
+                                     newdataxplus = bytes.fromhex(newdatax.hex()[:n1]) + hexa + bytes.fromhex(newdatax.hex()[n1+n2:]) 
+                                     Lnx_New = len(newdataxplus).to_bytes(4, "big")
+                                     checksum = struct.pack("!I",binascii.crc32(ChunkName + newdataxplus))
+                                     if checksum == OldCrc:
+                                         bvalue = newdataxplus
+                                         Bingo = True
+                                         Bonus = True
+                                         print("-Bingo replace bonus stage")
+                                         break
+                              n1 += 2
+
+                          ##insert
+                          newdatax = bytes.fromhex(ToBrute[:needle]) + bvalue + bytes.fromhex(ToBrute[needle:])
+                          Lnx_New = len(newdatax).to_bytes(4, "big")
+                          checksum = struct.pack("!I",binascii.crc32(ChunkName + newdatax))
+
+                          if checksum == OldCrc:
+                              bvalue = newdatax
+                              Bingo = True
+                              InsertFlag = True
+                              print("-Bingo insert")
+                              break
+                          ##Bonus Stage
+                          n1 = 0
+                          n2 = 2
+                          while n1 <= len(newdatax) - (n2 -1):
+                              if n1 == needle:
+                                 n1 += len(bvalue.hex())
+                                 continue
+                              else:
+                                 for hexa in range(0, 16 ** 2):
+                                     Minibar(Indication="%s/%s"%(n,max_iter))
+                                     #TODOfind a way to get rid of bytes conversion
+                                     hexa = int(hexa).to_bytes(1, "big")
+                                     newdataxplus = bytes.fromhex(newdatax.hex()[:n1]) + hexa + bytes.fromhex(newdatax.hex()[n1+n2:])
+                                     Lnx_New = len(newdataxplus).to_bytes(4, "big")
+                                     checksum = struct.pack("!I",binascii.crc32(ChunkName + newdataxplus))
+                                     if checksum == OldCrc:
+                                         bvalue = newdataxplus
+                                         Bingo = True
+                                         Bonus = True
+                                         print("-Bingo insert bonus stage")
+                                         break
+                              n1 += 2
+
+                          ##remove
+                          newdatax = bytes.fromhex(ToBrute[:needle]) + bvalue + bytes.fromhex(ToBrute[needle+needle2+2:])
+                          Lnx_New = len(newdatax).to_bytes(4, "big")
+                          checksum = struct.pack("!I",binascii.crc32(ChunkName + newdatax))#
+#
+                          if checksum == OldCrc:
+                              bvalue = newdatax
+                              Bingo = True
+                              RemoveFlag = True
+                              print("-Bingo remove")
                               break
 
-
-#                          print("bvalue:%s checksum:%s"%(bvalue.hex(),checksum),end="\r")
-#                          TheEnd()
-
-#                         for hexa in range(0, 16 ** needle2):
-#                             newbyte = (hex(hexa).replace("0x", "")).zfill(needle2)
-#                             newdatax_copy = (
-#                             datax[:needle] + newbyte + datax[needle + len(newbyte) :]
-#                             )
-#                             newdatax = bytes.fromhex(newdatax_copy)
-#                             checksum = (
-#                             hex(binascii.crc32(Chunk + newdatax)).replace("0x", "").zfill(8)
-#                             )
-#                             PRINT(newdatax_copy)
+                          ##Bonus Stage
+                          n1 = 0
+                          n2 = 2
+                          while n1 <= len(newdatax) - (n2 -1):
+                              if n1 == needle:
+                                 n1 += len(bvalue.hex())
+                                 continue
+                              else:
+                                 for hexa in range(0, 16 ** 2):
+                                     Minibar(Indication="%s/%s"%(n,max_iter))
+                                     #TODOfind a way to get rid of bytes conversion
+                                     hexa = int(hexa).to_bytes(1, "big")
+                                     newdataxplus = bytes.fromhex(newdatax.hex()[:n1]) + hexa + bytes.fromhex(newdatax.hex()[n1+n2:])
+                                     Lnx_New = len(newdataxplus).to_bytes(4, "big")
+                                     checksum = struct.pack("!I",binascii.crc32(ChunkName + newdataxplus))
+                                     if checksum == OldCrc:
+                                         bvalue = newdataxplus
+                                         Bingo = True
+                                         Bonus = True
+                                         print("-Bingo remove bonus stage")
+                                         break
+                              n1 += 2
 
                           needle += 2
                      else:
@@ -6175,7 +6259,7 @@ def SmashBruteBrawl(
                                 TmpI = TmpI.convert('RGB')
                                 TmpIW,TmpIH = TmpI.size
                                 TmpI.show()
-                         else:
+                         elif DEBUG:
                                 print("bvalue:%s fullnewdatax:%s error:%s immode:%s"%(bvalue.hex(),fullnewdatax.hex(),str(e),str(TmpI.mode)),end="\r")
 #                         print("bvalue:%s fullnewdatax:%s error:%s immode:%s"%(bvalue.hex(),fullnewdatax.hex(),str(e),str(TmpI.mode)),end="\r")
                 PRINT("")
@@ -6268,17 +6352,52 @@ def SmashBruteBrawl(
             "-Bruteforce was %s %s"
             % (Candy("Color", "green", "Successfull!"), Candy("Emoj", "good"))
         )
-        PRINT(
-            "-Chunk %s has been repaired by changing those bytes:\n"
-            % Candy("Color", "green", ChunkName)
-        )
+
+
+        if Bonus:
+                Candy("Cowsay", "-At least 2 bytes has been corrupted.", "bad")
+                SideNotes.append("-At least 2 bytes has been corrupted.")
+
+        if ReplaceFlag:
+            PRINT(
+                "-Chunk %s has been repaired by changing those bytes:\n"
+                % Candy("Color", "green", ChunkName)
+            )
+
+            SideNotes.append(
+               "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s"
+               % (ChunkName,good)
+            )
+
+        if InsertFlag:
+
+            PRINT(
+                "-Chunk %s has been repaired by adding those bytes:\n"
+                % Candy("Color", "green", ChunkName)
+            )
+
+            SideNotes.append(
+               "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by adding those bytes:\n%s"
+               % (ChunkName,good)
+            )
+
+        if RemoveFlag:
+
+            PRINT(
+                "-Chunk %s has been repaired by removing those bytes:\n"
+                % Candy("Color", "green", ChunkName)
+            )
+
+            SideNotes.append(
+               "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by removi those bytes:\n%s"
+               % (ChunkName,good)
+            )
+
+
         PRINT(good)
+
         Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
 
-        SideNotes.append(
-            "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s"
-            % (ChunkName,fullnewdatax.hex())
-        )
 
         if OldCrc:
             return CheckPoint(
@@ -9056,7 +9175,7 @@ def Relics(FromError):
                                     ChunkLength,
                                     DataOffset,
                                     FromError,
-                                    EditMode = "FourBytes",
+                                    EditMode = "TwoBytes",
                                     OldCrc=Crc_to_match,
                                 )
 
@@ -9080,7 +9199,7 @@ def Relics(FromError):
                                     ChunkLength,
                                     DataOffset,
                                     FromError,
-                                    EditMode = "FourBytes",
+                                    EditMode = "TwoBytes",
                                     OldCrc=Crc_to_match,
                                 )
 
