@@ -5839,7 +5839,9 @@ def SmashBruteBrawl(
     OldCrc=False,
 ):
     global SideNotes
-    global CRASH 
+    global CRASH
+    global DIFF
+    global TmpImgLst
 
     Candy("Title", "Attempting Bruteforce To Repair Corrupted Chunk Data:")
     stdt = datetime.now()
@@ -5851,392 +5853,39 @@ def SmashBruteBrawl(
         if DEBUG is True:
             PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
 
-    CNamex_New = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x", "")
 
-    Bingo = False
-    ReplaceFlag = False
-    InsertFlag = False
-    RemoveFlag = False
-    Bonus = False
-    TmpSkip = True
-    TmpImgLst = []
-    result = "bad result"
+    def BuildFND(LN,BF,CH):
 
-
-    ImageShow.register(ImageShow.EogViewer(),1)
-    ImageShow.register(ImageShow.XDGViewer(),-3)
-    ImageShow.register(ImageShow.DisplayViewer(),-2)
-    ImageShow.register(ImageShow.XVViewer(),-1)
-    ImageShow.register(ImageShow.GmDisplayViewer(),0)
-
-
-     
-    if OldCrc: 
-        OldCrc = bytes.fromhex(OldCrc)
-
-
-    chunklen_spec,chunk_format  =  GetSpec(ChunkName,BfMode,Fields=["Length","Format"])
-
-    ln_chunk_format = len(chunk_format)-1
-
-    if type(chunklen_spec) == tuple:
-        maxchunklen = max(chunklen_spec)
-        minchunklen = min(chunklen_spec)
-    else:
-        maxchunklen = chunklen_spec
-        minchunklen = chunklen_spec
-
-    if maxchunklen == minchunklen:
-        maxchunklen += 1
-        step = 1
-    else:
-        step = minchunklen
-
-    if DEBUG is True:
-
-        if BfMode == "Custom":
-             Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
-             if len(Sti) > 0:
-                 max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
-             else:
-                 max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
+        if OldCrc:
+             if BruteLength and BruteCrc:
+                          fullnewdatax = LN + ChunkName + BF + CH
+             elif not BruteLength and BruteCrc:
+                          fullnewdatax =  BF + CH
+             elif not BruteCrc and BruteLength:
+                          fullnewdatax = LN + ChunkName + BF
+             elif not BruteCrc and not BruteLength:
+                          fullnewdatax = ChunkName + BF
         else:
-             max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
-
-        PRINT("File:%s"% File)
-        PRINT("ChunkName:%s"% ChunkName)
-        PRINT("DataOffset:%s"% DataOffset)
-        PRINT("ChunkLength:%s"% ChunkLength)
-        PRINT("BruteCrc:%s"% BruteCrc)
-        PRINT("BruteLength:%s"%BruteLength)
-        PRINT("EditMode:%s"% EditMode)
-        PRINT("FromError:%s"% FromError)
-        PRINT("chunklen_spec:%s"% str(chunklen_spec))
-        PRINT("chunk_format:%s"% str(chunk_format))
-        PRINT("chunk_data:%s"% str(chunk_data))
-        PRINT("max_iter:%s"%max_iter)
-        PRINT("maxchunklen:%s"% maxchunklen)
-        PRINT("minchunklen:%s"% minchunklen)
-        PRINT("step:%s"% step)
-        if PAUSEDEBUG is True:
-            Pause("Pause:SmashBruteBrawl")
-
-    f = io.BytesIO()
-    for n,ln in enumerate(range(minchunklen, maxchunklen, step)):
-#            Pause("n:%s ln:%s minchunklen:%s maxchunklen:%s step:%s"%(n,ln,minchunklen,maxchunklen,step))
-
-        if BfMode == "Custom":
-                 Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
-                 if len(Sti) > 0:
-                     if ln > step:
-                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti,IterNbr=n+1)
-                     else:
-                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
-                 else:
-                     SideNote.append("-SmashBruteBrawl error: Sti empty switched to Brutus mode")
-                     if ln > step:
-                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=n+1)
-                     else:
-                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
-        else:
-                 if ln > step:
-                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=n+1)
-                 else:
-                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
-
-
-
-
-        Loadingbar(
-            max_iter, len_iter, None, True
-        )  # TODO need to adapt max/len_iter to ln range According to BruteLength 
-
-#        print("ln:",ln)
-
-
-        if EditMode == "TwoBytes":
-                Before_New = bytes.fromhex(DATAX[:DataOffset])
-                ToBrute = DATAX[DataOffset : DataOffset + ChunkLength*2 ]
-                ToBryte = bytes.fromhex(ToBrute)
-                After_New = bytes.fromhex(DATAX[DataOffset + ChunkLength*2 +8:]) 
-
-        elif EditMode == "Replace":
-                ReplaceFlag = True
-                Lnx_New = int(int(ln/2)).to_bytes(4, "big")
-#            if BruteLength and BruteCrc:
-                Before_New = bytes.fromhex(DATAX[:DataOffset])
-                ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ]
-                ToBryte = bytes.fromhex(ToBrute)
-                After_New = bytes.fromhex(DATAX[DataOffset + ln + 24 :])  # +24=chunklen+chunkname+data+crc
-#            elif not BruteCrc and BruteLength:
-        elif EditMode == "Insert":#TODO
-                InsertFlag = True
-                Lnx_New = int(int(ln/2)).to_bytes(4, "big")
-#            if BruteLength and BruteCrc:
-                Before_New = bytes.fromhex(DATAX[:DataOffset])
-#                ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ] ## wrong value 
-                ToBrute = ""
-                ToBryte = bytes.fromhex(ToBrute) ## b"wrong value"
-                After_New = bytes.fromhex(DATAX[DataOffset + 24 :])  # +24=chunklen+chunkname+data+crc ##Something odd here ..
-
-#                print("tobrute: ",ToBrute)
-#                print("ln:",ln)
-#                print("befor:",Before_New[-24:])
-#                print("after:",After_New[:24])
-#                print("lenafter:",len(After_New))
-
-            ##else bla bla #TODO
- 
-#        print("bfn:",Before_New)
-#        print("beforbrute",bytes.fromhex(DATAX[DataOffset+8:DataOffset+32]))
-#        print("Tobrute:",ToBrute)
- 
-
-        shuffle = Product(chunk_data,color_type)
-
-        for n, i in enumerate(shuffle):
-            f = io.BytesIO()
-                   #16581375
-#            if n < 16077370:
-#            if n < 254:
-#                 continue
-            if CRASH:
-                if n < CRASH:
-                     continue
-                else:
-                    CRASH = False
-            
-
-            if BfMode == "Custom":
-                frm = "!"+"".join(chunk_format).replace("!","")
-                unpackTB = struct.unpack(frm,ToBryte)
-                bvalue = b""
-                for enum,(utb,cf) in enumerate(zip(unpackTB,chunk_format)):
-                    if any(s == enum for s in Sti):
-                        for s in Sti:
-                            if s == enum:
-                               try:
-                                   bvalue += struct.pack(cf,int(i[Sti.index(s)]))
-                               except TypeError:
-                                   bvalue += struct.pack(cf,i)
-                               break
-                    else:
-
-                        bvalue += struct.pack(cf,utb)
-
-            else:
-
-
-               bvalue = b""
-               idx = 0
-               for j in i:
-                   if idx < ln_chunk_format:
-                      bvalue += struct.pack(chunk_format[idx],int(j))
-                      idx += 1
-                   else:
-                      bvalue += struct.pack(chunk_format[idx],int(j))
-                      idx = 0
-
-                #bvalue = b""
-                #for cf, j in zip(chunk_format, i):
-                #     bvalue += struct.pack(cf,int(j))
-
-#            Loadingbar(max_iter, len_iter, n, False)
-
-
-#            print("bvalue:",bvalue.hex())
-            
-            if EditMode == "TwoBytes": #TODO Need to handle without OLDCRC
-#                PRINT(Candy("Color", "yellow", "\n-ToDo")) #ALL THINGS TOO BIG TO BRUTE IN LESS THANT A LIFE TIME GOES HERE
-#                print("bvalue:",bvalue.hex(),end="\r")
-#                print("befor:",Before_New[-8:].hex())
-#                print("befor:",Before_New[-8:])
-#                print("tobrute:",ToBrute[:8])
-#                print("after:",After_New[:8].hex())
-#                print("after:",After_New[:8])
-#                print("lenbv:",len(bvalue))
-#                print("lenbvx:",len(bvalue.hex()))
-#                print("len brute:",len(ToBrute))
-                needle = 0
-                needle2 = len(bvalue.hex())
-                while needle2 <= len(ToBrute) and Bingo is False:
-                     if needle < len(ToBrute) - (needle2 - 1) and Bingo is False:
-
-                          Minibar(Indication="%s/%s"%(n,max_iter)) 
-                          ##replace
-                          newdatax = bytes.fromhex(ToBrute[:needle]) + bvalue + bytes.fromhex(ToBrute[needle+needle2:])
-                          Lnx_New = len(newdatax).to_bytes(4, "big")
-                          checksum = struct.pack("!I",binascii.crc32(ChunkName + newdatax))
-
-                          if checksum == OldCrc:
-                              bvalue = newdatax
-                              Bingo = True
-                              ReplaceFlag= True
-                              print("-Bingo replace")
-                              break
-                          ##Bonus Stage
-                          n1 = 0
-                          n2 = 2
-                          while n1 <= len(newdatax) - (n2 -1):
-                              if n1 == needle:
-                                 n1 += len(bvalue.hex())
-                                 continue
-                              else:
-                                 for hexa in range(0, 16 ** 2):
-                                     Minibar(Indication="%s/%s"%(n,max_iter))
-#                                     hexa = f'{hexa:x}'.zfill(2)
-                                     #TODOfind a way to get rid of bytes conversion
-                                     hexa = int(hexa).to_bytes(1, "big")
-                                     newdataxplus = bytes.fromhex(newdatax.hex()[:n1]) + hexa + bytes.fromhex(newdatax.hex()[n1+n2:]) 
-                                     Lnx_New = len(newdataxplus).to_bytes(4, "big")
-                                     checksum = struct.pack("!I",binascii.crc32(ChunkName + newdataxplus))
-                                     if checksum == OldCrc:
-                                         bvalue = newdataxplus
-                                         Bingo = True
-                                         Bonus = True
-                                         print("-Bingo replace bonus stage")
-                                         break
-                              n1 += 2
-
-                          ##insert
-                          newdatax = bytes.fromhex(ToBrute[:needle]) + bvalue + bytes.fromhex(ToBrute[needle:])
-                          Lnx_New = len(newdatax).to_bytes(4, "big")
-                          checksum = struct.pack("!I",binascii.crc32(ChunkName + newdatax))
-
-                          if checksum == OldCrc:
-                              bvalue = newdatax
-                              Bingo = True
-                              InsertFlag = True
-                              print("-Bingo insert")
-                              break
-                          ##Bonus Stage
-                          n1 = 0
-                          n2 = 2
-                          while n1 <= len(newdatax) - (n2 -1):
-                              if n1 == needle:
-                                 n1 += len(bvalue.hex())
-                                 continue
-                              else:
-                                 for hexa in range(0, 16 ** 2):
-                                     Minibar(Indication="%s/%s"%(n,max_iter))
-                                     #TODOfind a way to get rid of bytes conversion
-                                     hexa = int(hexa).to_bytes(1, "big")
-                                     newdataxplus = bytes.fromhex(newdatax.hex()[:n1]) + hexa + bytes.fromhex(newdatax.hex()[n1+n2:])
-                                     Lnx_New = len(newdataxplus).to_bytes(4, "big")
-                                     checksum = struct.pack("!I",binascii.crc32(ChunkName + newdataxplus))
-                                     if checksum == OldCrc:
-                                         bvalue = newdataxplus
-                                         Bingo = True
-                                         Bonus = True
-                                         print("-Bingo insert bonus stage")
-                                         break
-                              n1 += 2
-
-                          ##remove
-                          newdatax = bytes.fromhex(ToBrute[:needle]) + bvalue + bytes.fromhex(ToBrute[needle+needle2+2:])
-                          Lnx_New = len(newdatax).to_bytes(4, "big")
-                          checksum = struct.pack("!I",binascii.crc32(ChunkName + newdatax))#
-#
-                          if checksum == OldCrc:
-                              bvalue = newdatax
-                              Bingo = True
-                              RemoveFlag = True
-                              print("-Bingo remove")
-                              break
-
-                          ##Bonus Stage
-                          n1 = 0
-                          n2 = 2
-                          while n1 <= len(newdatax) - (n2 -1):
-                              if n1 == needle:
-                                 n1 += len(bvalue.hex())
-                                 continue
-                              else:
-                                 for hexa in range(0, 16 ** 2):
-                                     Minibar(Indication="%s/%s"%(n,max_iter))
-                                     #TODOfind a way to get rid of bytes conversion
-                                     hexa = int(hexa).to_bytes(1, "big")
-                                     newdataxplus = bytes.fromhex(newdatax.hex()[:n1]) + hexa + bytes.fromhex(newdatax.hex()[n1+n2:])
-                                     Lnx_New = len(newdataxplus).to_bytes(4, "big")
-                                     checksum = struct.pack("!I",binascii.crc32(ChunkName + newdataxplus))
-                                     if checksum == OldCrc:
-                                         bvalue = newdataxplus
-                                         Bingo = True
-                                         Bonus = True
-                                         print("-Bingo remove bonus stage")
-                                         break
-                              n1 += 2
-
-                          needle += 2
-                     else:
-#                          Loadingbar(max_iter, len_iter, n, False)
-#                         print("back to start")
-#                         print("n:",n)
-#                         needle = 0
-#                         needle2 += needle2
-                          break
-#                if not Bingo:
-#                     print("pls")
-#                     continue 
-#                TheEnd()
-#                continue
-            else:
-                 checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
-                 Loadingbar(max_iter, len_iter, n, False)
-
-#            Loadingbar(max_iter, len_iter, n, False)
-#            print("maxiter:%s len_iter:%s n:%s:"%(max_iter, len_iter, n))
-            if OldCrc:
-#                  with open("crc.plte","a+") as bd:
-#                         save = "Data:%s Crc:%s"%(str(bvalue.hex()),str(checksum.hex()))
-#                         bd.write(save+"\n")
-
-                  if OldCrc != checksum:
-                      continue
-                  else:
-                      if BruteLength and BruteCrc:
-                          fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
-                      elif not BruteLength and BruteCrc:
-                          fullnewdatax =  bvalue + checksum
-                      elif not BruteCrc and BruteLength:
-                          fullnewdatax = Lnx_New + ChunkName + bvalue
-                      elif not BruteCrc and not BruteLength:
-                          fullnewdatax = ChunkName + bvalue
-
-                      wanabyte = Before_New + fullnewdatax + After_New
-                      diffobj = difflib.SequenceMatcher(
-                          None, DATAX[DataOffset:], fullnewdatax.hex()
-                      )
-                      good = ""
-                      for block in diffobj.get_opcodes():
-                          if block[0] != "equal":
-                              good += (
-                                  "\033[1;32;49m%s\033[m"
-                                  % fullnewdatax.hex()[block[1] : block[2]]
-                              )
-                          else:
-                              good += fullnewdatax.hex()[block[1] : block[2]]
-                      Bingo = True
-                      break
-
 
             if BruteLength and BruteCrc:
-                          fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
+                          fullnewdatax = LN + ChunkName + BF + CH
             elif not BruteLength and BruteCrc:
                           fullnewdatax = ChunkName + bvalue + checksum
             elif not BruteCrc and BruteLength:
-                          fullnewdatax = Lnx_New + ChunkName + bvalue 
+                          fullnewdatax = LN + ChunkName + BF 
             elif not BruteCrc and not BruteLength:
-                          fullnewdatax = ChunkName + bvalue
+                          fullnewdatax = ChunkName + BF
+        return(fullnewdatax)
 
+    def ShowPng(bpng,ndx):
+            global DIFF
+            global TmpImgLst
 
-
-            wanabyte = Before_New + fullnewdatax + After_New
-            
+            f = io.BytesIO()
 
             with stderr_redirector(f):
                 try:
-                    cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
+                    cv2.imdecode(np.frombuffer(bpng, np.uint8), -1)
                 except:
                     pass
             result = "{0}".format(f.getvalue().decode("utf-8"))
@@ -6249,7 +5898,7 @@ def SmashBruteBrawl(
 
                 with stderr_redirector(f):
                     try:
-                         TmpI = Image.open(io.BytesIO(wanabyte))
+                         TmpI = Image.open(io.BytesIO(bpng))
                          TmpIW,TmpIH = TmpI.size
                          TmpI.show()
                     except Exception as e:
@@ -6260,7 +5909,7 @@ def SmashBruteBrawl(
                                 TmpIW,TmpIH = TmpI.size
                                 TmpI.show()
                          elif DEBUG:
-                                print("bvalue:%s fullnewdatax:%s error:%s immode:%s"%(bvalue.hex(),fullnewdatax.hex(),str(e),str(TmpI.mode)),end="\r")
+                                print("bvalue:%s ndx:%s error:%s immode:%s"%(bvalue.hex(),ndx.hex(),str(e),str(TmpI.mode)),end="\r")
 #                         print("bvalue:%s fullnewdatax:%s error:%s immode:%s"%(bvalue.hex(),fullnewdatax.hex(),str(e),str(TmpI.mode)),end="\r")
                 PRINT("")
 #                bla = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
@@ -6328,26 +5977,473 @@ def SmashBruteBrawl(
                 if Answer is True:
 
                     diffobj = difflib.SequenceMatcher(
-                        None, DATAX[DataOffset:], fullnewdatax.hex()
+                        None, DATAX[DataOffset:], ndx.hex()
                     )
-                    good = ""
+                    DIFF = ""
                     for block in diffobj.get_opcodes():
                         if block[0] != "equal":
-                            good += (
+                            DIFF += (
                                 "\033[1;32;49m%s\033[m"
-                                % fullnewdatax.hex()[block[1] : block[2]]
+                                % ndx.hex()[block[1] : block[2]]
                             )
                         else:
-                            good += fullnewdatax.hex()[block[1] : block[2]]
-                    Bingo = True
-                    break
+                            DIFF += ndx.hex()[block[1] : block[2]]
+                    return(True)
+
+
                 else:
                     for proc in psutil.process_iter():
                         if "/tmp/tmp" in " ".join(proc.cmdline()) and ".PNG" in " ".join(proc.cmdline()):
                             proc.kill()
                     Candy("Cowsay", "Ok back to work..", "bad")
-                    continue
+                    return(False)
+
+            return(False)
+
+
+
+
+
+    CNamex_New = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x", "")
+
+    Bingo = False
+    ReplaceFlag = False
+    InsertFlag = False
+    RemoveFlag = False
+    Bonus = False
+    TmpSkip = True
+    TmpImgLst = []
+    result = "bad result"
+
+
+    ImageShow.register(ImageShow.EogViewer(),1)
+    ImageShow.register(ImageShow.XDGViewer(),-3)
+    ImageShow.register(ImageShow.DisplayViewer(),-2)
+    ImageShow.register(ImageShow.XVViewer(),-1)
+    ImageShow.register(ImageShow.GmDisplayViewer(),0)
+
+
+     
+    if OldCrc: 
+        OldCrc = bytes.fromhex(OldCrc)
+
+    if BfMode == "Custom":
+             Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
+             if len(Sti) > 0:
+                 max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
+             else:
+                 BfMode = "Brutus"
+                 SideNote.append("-SmashBruteBrawl error: Sti empty switched to Brutus mode")
+                 chunklen_spec,chunk_format  =  GetSpec(ChunkName,BfMode,Fields=["Length","Format"])
+    else:
+         chunklen_spec,chunk_format  =  GetSpec(ChunkName,BfMode,Fields=["Length","Format"])
+
+    ln_chunk_format = len(chunk_format)-1
+
+    if type(chunklen_spec) == tuple:
+        maxchunklen = max(chunklen_spec)
+        minchunklen = min(chunklen_spec)
+    else:
+        maxchunklen = chunklen_spec
+        minchunklen = chunklen_spec
+
+    if maxchunklen == minchunklen:
+        maxchunklen += 1
+        step = 1
+    else:
+        step = minchunklen
+
+    if DEBUG is True:
+
+        if BfMode == "Custom":
+             Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
+             if len(Sti) > 0:
+                 max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
+             else:
+                 BfMode = "Brutus"
+                 SideNote.append("-SmashBruteBrawl error: Sti empty switched to Brutus mode")
+                 max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,"Brutus")
+        else:
+             max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
+
+        PRINT("File:%s"% File)
+        PRINT("ChunkName:%s"% ChunkName)
+        PRINT("DataOffset:%s"% DataOffset)
+        PRINT("ChunkLength:%s"% ChunkLength)
+        PRINT("BruteCrc:%s"% BruteCrc)
+        PRINT("BruteLength:%s"%BruteLength)
+        PRINT("EditMode:%s"% EditMode)
+        PRINT("FromError:%s"% FromError)
+        PRINT("chunklen_spec:%s"% str(chunklen_spec))
+        PRINT("chunk_format:%s"% str(chunk_format))
+        PRINT("chunk_data:%s"% str(chunk_data))
+        PRINT("max_iter:%s"%max_iter)
+        PRINT("maxchunklen:%s"% maxchunklen)
+        PRINT("minchunklen:%s"% minchunklen)
+        PRINT("step:%s"% step)
+        if PAUSEDEBUG is True:
+            Pause("Pause:SmashBruteBrawl")
+
+    for n,ln in enumerate(range(minchunklen, maxchunklen, step)):
+#            Pause("n:%s ln:%s minchunklen:%s maxchunklen:%s step:%s"%(n,ln,minchunklen,maxchunklen,step))
+
+        if BfMode == "Custom":
+                 Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
+                 if len(Sti) > 0:
+                     if ln > step:
+                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti,IterNbr=n+1)
+                     else:
+                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
+                 else:
+                     BfMode = "Brutus"
+                     SideNote.append("-SmashBruteBrawl error: Sti empty switched to Brutus mode")
+                     if ln > step:
+                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=n+1)
+                     else:
+                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
+        else:
+                 if ln > step:
+                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=n+1)
+                 else:
+                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
+
+
+
+
+        Loadingbar(
+            max_iter, len_iter, None, True
+        )  # TODO need to adapt max/len_iter to ln range According to BruteLength 
+
+#        print("ln:",ln)
+
+
+        if BfMode == "TwoBytes":
+                Before_New = bytes.fromhex(DATAX[:DataOffset])
+                ToBrute = DATAX[DataOffset : DataOffset + ChunkLength*2 ]
+                ToBryte = bytes.fromhex(ToBrute)
+                After_New = bytes.fromhex(DATAX[DataOffset + ChunkLength*2 +8:]) 
+
+        elif EditMode == "Replace":
+                ReplaceFlag = True
+                Lnx_New = int(int(ln/2)).to_bytes(4, "big")
+#            if BruteLength and BruteCrc:
+                Before_New = bytes.fromhex(DATAX[:DataOffset])
+                ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ]
+                ToBryte = bytes.fromhex(ToBrute)
+                After_New = bytes.fromhex(DATAX[DataOffset + ln + 24 :])  # +24=chunklen+chunkname+data+crc
+#            elif not BruteCrc and BruteLength:
+        elif EditMode == "Insert":
+                InsertFlag = True
+                Lnx_New = int(int(ln/2)).to_bytes(4, "big")
+#            if BruteLength and BruteCrc:
+                Before_New = bytes.fromhex(DATAX[:DataOffset])
+#                ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ] ## wrong value 
+                ToBrute = ""
+                ToBryte = bytes.fromhex(ToBrute) ## b"wrong value"
+                After_New = bytes.fromhex(DATAX[DataOffset + 24 :])  # +24=chunklen+chunkname+data+crc ##Something odd here ..
+
+#                print("tobrute: ",ToBrute)
+#                print("ln:",ln)
+#                print("befor:",Before_New[-24:])
+#                print("after:",After_New[:24])
+#                print("lenafter:",len(After_New))
+
+            ##else bla bla #TODO
+ 
+#        print("bfn:",Before_New)
+#        print("beforbrute",bytes.fromhex(DATAX[DataOffset+8:DataOffset+32]))
+#        print("Tobrute:",ToBrute)
+ 
+
+        shuffle = Product(chunk_data,color_type)
+
+        for n, i in enumerate(shuffle):
+
+                   #16581375
+#            if n < 16077370:
+#            if n < 254:
+#                 continue
+            if CRASH:
+                if n < CRASH:
+                     continue
+                else:
+                    CRASH = False
+            
+
+            if BfMode == "Custom":
+                frm = "!"+"".join(chunk_format).replace("!","")
+                unpackTB = struct.unpack(frm,ToBryte)
+                bvalue = b""
+                for enum,(utb,cf) in enumerate(zip(unpackTB,chunk_format)):
+                    if any(s == enum for s in Sti):
+                        for s in Sti:
+                            if s == enum:
+                               try:
+                                   bvalue += struct.pack(cf,int(i[Sti.index(s)]))
+                               except TypeError:
+                                   bvalue += struct.pack(cf,i)
+                               break
+                    else:
+
+                        bvalue += struct.pack(cf,utb)
+
+            else:
+
+
+               bvalue = b""
+               idx = 0
+               for j in i:
+                   if idx < ln_chunk_format:
+                      bvalue += struct.pack(chunk_format[idx],int(j))
+                      idx += 1
+                   else:
+                      bvalue += struct.pack(chunk_format[idx],int(j))
+                      idx = 0
+
+                #bvalue = b""
+                #for cf, j in zip(chunk_format, i):
+                #     bvalue += struct.pack(cf,int(j))
+
+#            Loadingbar(max_iter, len_iter, n, False)
+
+
+#            print("bvalue:",bvalue.hex())
+            
+            if BfMode == "TwoBytes": #TODO Need to handle without OLDCRC
+#                PRINT(Candy("Color", "yellow", "\n-ToDo")) #ALL THINGS TOO BIG TO BRUTE IN LESS THANT A LIFE TIME GOES HERE
+#                print("bvalue:",bvalue.hex(),end="\r")
+#                print("befor:",Before_New[-8:].hex())
+#                print("befor:",Before_New[-8:])
+#                print("tobrute:",ToBrute[:8])
+#                print("after:",After_New[:8].hex())
+#                print("after:",After_New[:8])
+#                print("lenbv:",len(bvalue))
+#                print("lenbvx:",len(bvalue.hex()))
+#                print("len brute:",len(ToBrute))
+                needle = 0
+                needle2 = len(bvalue.hex())
+                while needle2 <= len(ToBrute) and Bingo is False:
+                     if needle < len(ToBrute) - (needle2 - 1) and Bingo is False:
+
+                          Minibar(Indication="%s/%s"%(n,max_iter)) 
+                          ##replace
+                          if EditMode == "Replace":
+                              newdatax = bytes.fromhex(ToBrute[:needle]) + bvalue + bytes.fromhex(ToBrute[needle+needle2:])
+                              bonusdatax = ToBrute[:needle] + bvalue.hex() + ToBrute[needle+needle2:]
+                              Lnx_New = len(newdatax).to_bytes(4, "big")
+                              checksum = struct.pack("!I",binascii.crc32(ChunkName + newdatax))
+
+                              if OldCrc:
+                                  if checksum == OldCrc: #TODO handle no oldcrc
+                                      fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
+                                      wanabyte = Before_New + fullnewdatax + After_New
+                                      Bingo = True
+                                      ReplaceFlag= True
+#                                      print("-Bingo replace")
+                                      break
+
+                              else:
+                                  fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
+                                  wanabyte = Before_New + fullnewdatax + After_New
+                                  if ShowPng(wanabyte,fullnewdatax):                                    
+                                      Bingo = True
+                                      ReplaceFlag= True
+#                                      print("-Bingo replace")
+                                      break
+
+                              ##Bonus Stage
+                              if Brute_LvL > 0:
+                                  n1 = 0
+                                  n2 = 2
+                                  while n1 <= len(newdatax) - (n2 -1):
+                                      if n1 == needle:
+                                         n1 += len(bvalue.hex())
+                                         continue
+                                      else:
+                                         for hexa in range(0, 16 ** 2):
+                                             Minibar(Indication="%s/%s"%(n,max_iter))
+        #                                     hexa = f'{hexa:x}'.zfill(2)
+                                             hexa = int(hexa).to_bytes(1, "big")
+                                             newdataxplus = bytes.fromhex(bonusdatax[:n1]) + hexa + bytes.fromhex(bonusdatax[n1+n2:]) 
+                                             Lnx_New = len(newdataxplus).to_bytes(4, "big")
+                                             checksum = struct.pack("!I",binascii.crc32(ChunkName + newdataxplus))
+
+                                             if OldCrc:
+                                                 if checksum == OldCrc:
+                                                     fullnewdatax = BuildFND(Lnx_New,newdataxplus,checksum)
+                                                     wanabyte = Before_New + fullnewdatax + After_New
+                                                     Bingo = True
+                                                     Bonus = True
+                                                     print("-Bingo replace bonus stage")
+                                                     break
+                                             else:
+                                                  fullnewdatax = BuildFND(Lnx_New,newdataxplus,checksum)
+                                                  wanabyte = Before_New + fullnewdatax + After_New
+                                                  if ShowPng(wanabyte,fullnewdatax):                                    
+                                                      Bingo = True
+                                                      ReplaceFlag= True
+                                                      Bonus = True
+                #                                      print("-Bingo replace")
+                                                      break
+                                      n1 += 2
+
+                          ##insert
+                          if EditMode == "Insert":
+                              newdatax = bytes.fromhex(ToBrute[:needle]) + bvalue + bytes.fromhex(ToBrute[needle:])
+                              bonusdatax = ToBrute[:needle] + bvalue.hex() + ToBrute[needle:]
+                              Lnx_New = len(newdatax).to_bytes(4, "big")
+                              checksum = struct.pack("!I",binascii.crc32(ChunkName + newdatax))
+                              if OldCrc:
+                                  if checksum == OldCrc:
+                                      fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
+                                      wanabyte = Before_New + fullnewdatax + After_New
+                                      Bingo = True
+                                      InsertFlag = True
+                                      print("-Bingo insert")
+                                      break
+                              else:
+                                  fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
+                                  wanabyte = Before_New + fullnewdatax + After_New
+                                  if ShowPng(wanabyte,fullnewdatax):                                    
+                                      Bingo = True
+                                      InsertFlag = True
+                                      break
+
+                              ##Bonus Stage
+                              if Brute_LvL > 0:
+                                  n1 = 0
+                                  n2 = 2
+                                  while n1 <= len(newdatax) - (n2 -1):
+                                      if n1 == needle:
+                                         n1 += len(bvalue.hex())
+                                         continue
+                                      else:
+                                         for hexa in range(0, 16 ** 2):
+                                             Minibar(Indication="%s/%s"%(n,max_iter))
+                                             hexa = int(hexa).to_bytes(1, "big")
+                                             newdataxplus = bytes.fromhex(bonusdatax[:n1]) + hexa + bytes.fromhex(bonusdatax[n1+n2:])
+                                             Lnx_New = len(newdataxplus).to_bytes(4, "big")
+                                             checksum = struct.pack("!I",binascii.crc32(ChunkName + newdataxplus))
+                                             if OldCrc:
+                                                 if checksum == OldCrc:
+                                                     fullnewdatax = BuildFND(Lnx_New,newdataxplus,checksum)
+                                                     wanabyte = Before_New + fullnewdatax + After_New
+                                                     Bingo = True
+                                                     Bonus = True
+                                                     InsertFlag = True
+                                                     break
+                                             else:
+                                                  fullnewdatax = BuildFND(Lnx_New,newdataxplus,checksum)
+                                                  wanabyte = Before_New + fullnewdatax + After_New
+                                                  if ShowPng(wanabyte,fullnewdatax):                                    
+                                                      Bingo = True
+                                                      InsertFlag = True
+                                                      Bonus = True
+                #                                      print("-Bingo replace")
+                                                      break
+                                      n1 += 2
+
+                          ##remove
+                          if EditMode == "Remove":
+                              newdatax = bytes.fromhex(ToBrute[:needle]) + bvalue + bytes.fromhex(ToBrute[needle+needle2+2:])
+                              bonusdatax = ToBrute[:needle] + bvalue.hex() + ToBrute[needle+needle2+2:]
+                              Lnx_New = len(newdatax).to_bytes(4, "big")
+                              checksum = struct.pack("!I",binascii.crc32(ChunkName + newdatax))#
+    #
+                              if OldCrc:
+                                  if checksum == OldCrc:
+                                      fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
+                                      wanabyte = Before_New + fullnewdatax + After_New
+                                      Bingo = True
+                                      RemoveFlag = True
+                                      break
+                              else:
+                                  fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
+                                  wanabyte = Before_New + fullnewdatax + After_New
+                                  if ShowPng(wanabyte,fullnewdatax):                                    
+                                      Bingo = True
+                                      RemoveFlag = True
+                                      break
+
+                          ##Bonus Stage
+                              if Brute_LvL > 0:
+                                  n1 = 0
+                                  n2 = 2
+                                  while n1 <= len(newdatax) - (n2 -1):
+                                      if n1 == needle:
+                                         n1 += len(bvalue.hex())
+                                         continue
+                                      else:
+                                         for hexa in range(0, 16 ** 2):
+                                             Minibar(Indication="%s/%s"%(n,max_iter))
+                                             #TODOfind a way to get rid of bytes conversion
+                                             hexa = int(hexa).to_bytes(1, "big")
+                                             newdataxplus = bytes.fromhex(bonusdatax[:n1]) + hexa + bytes.fromhex(bonusdatax[n1+n2:])
+                                             Lnx_New = len(newdataxplus).to_bytes(4, "big")
+                                             checksum = struct.pack("!I",binascii.crc32(ChunkName + newdataxplus))
+
+                                             if OldCrc:
+                                                 if checksum == OldCrc:
+                                                     fullnewdatax = BuildFND(Lnx_New,newdataxplus,checksum)
+                                                     wanabyte = Before_New + fullnewdatax + After_New
+                                                     Bingo = True
+                                                     Bonus = True
+                                                     RemoveFlag = True
+                                                     break
+                                             else:
+                                                  fullnewdatax = BuildFND(Lnx_New,newdataxplus,checksum)
+                                                  wanabyte = Before_New + fullnewdatax + After_New
+                                                  if ShowPng(wanabyte,fullnewdatax):                                    
+                                                      Bingo = True
+                                                      RemoveFlag = True
+                                                      Bonus = True
+                #                                      print("-Bingo replace")
+                                                      break
+                                      n1 += 2
+
+                                  needle += 2
+                     else:
+#                          Loadingbar(max_iter, len_iter, n, False)
+#                         print("back to start")
+#                         print("n:",n)
+#                         needle = 0
+#                         needle2 += needle2
+                          break
+#                if not Bingo:
+#                     print("pls")
+#                     continue 
+#                TheEnd()
+#                continue
+            else:
+                 checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
+                 Loadingbar(max_iter, len_iter, n, False)
+
+                 if OldCrc:
+    #                  with open("crc.plte","a+") as bd:
+    #                         save = "Data:%s Crc:%s"%(str(bvalue.hex()),str(checksum.hex()))
+    #                         bd.write(save+"\n")
+                      if OldCrc != checksum:
+                          continue
+                      else:
+                            fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
+                            wanabyte = Before_New + fullnewdatax + After_New
+                            Bingo = True
+                            break
+
+                 else:
+                    fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
+                    wanabyte = Before_New + fullnewdatax + After_New
+                    if ShowPng(wanabyte,fullnewdatax):
+                       Bingo = True
+                       break
+                    else:
+                       continue
+                
+    ###checkimage
+
     if Bingo is True:
+
+
         PRINT(
             "-Bruteforce was %s %s"
             % (Candy("Color", "green", "Successfull!"), Candy("Emoj", "good"))
@@ -6366,7 +6462,7 @@ def SmashBruteBrawl(
 
             SideNotes.append(
                "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s"
-               % (ChunkName,good)
+               % (ChunkName,DIFF)
             )
 
         if InsertFlag:
@@ -6378,7 +6474,7 @@ def SmashBruteBrawl(
 
             SideNotes.append(
                "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by adding those bytes:\n%s"
-               % (ChunkName,good)
+               % (ChunkName,DIFF)
             )
 
         if RemoveFlag:
@@ -6390,11 +6486,11 @@ def SmashBruteBrawl(
 
             SideNotes.append(
                "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by removi those bytes:\n%s"
-               % (ChunkName,good)
+               % (ChunkName,DIFF)
             )
 
 
-        PRINT(good)
+        PRINT(DIFF)
 
         Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
 
@@ -9175,7 +9271,7 @@ def Relics(FromError):
                                     ChunkLength,
                                     DataOffset,
                                     FromError,
-                                    EditMode = "TwoBytes",
+                                    BfMode = "TwoBytes",
                                     OldCrc=Crc_to_match,
                                 )
 
@@ -9199,7 +9295,7 @@ def Relics(FromError):
                                     ChunkLength,
                                     DataOffset,
                                     FromError,
-                                    EditMode = "TwoBytes",
+                                    BfMode = "TwoBytes",
                                     OldCrc=Crc_to_match,
                                 )
 
