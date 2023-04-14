@@ -6166,8 +6166,7 @@ def SmashBruteBrawl(
 #            if n < 16077370:
 #            if n < 254:
 #                 continue
-            if Brute_LvL == 0:
-                 break
+
             if CRASH:
                 if n < CRASH:
                      continue
