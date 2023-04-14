@@ -6025,7 +6025,10 @@ def SmashBruteBrawl(
 
      
     if OldCrc: 
-        OldCrc = bytes.fromhex(OldCrc)
+        try:
+           OldCrc = bytes.fromhex(OldCrc)
+        except TypeError:
+             pass
 
     if BfMode == "Custom":
              Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
@@ -6157,13 +6160,14 @@ def SmashBruteBrawl(
  
 
         shuffle = Product(chunk_data,color_type)
-
         for n, i in enumerate(shuffle):
 
                    #16581375
 #            if n < 16077370:
 #            if n < 254:
 #                 continue
+            if Brute_LvL == 0:
+                 break
             if CRASH:
                 if n < CRASH:
                      continue
@@ -6535,22 +6539,43 @@ def SmashBruteBrawl(
            for pic in TmpImgLst:
                PRINT("-Saved Valid Image: %s"%pic)
 
-        return CheckPoint(
-            True,
-            False,
-            "SmashBruteBrawl",
-            ChunkName.decode(errors="ignore"),
-            ["-Bruteforcer has Failed"],
-            File,
-            ChunkName,
-            ChunkLength,
-            DataOffset,
-            EditMode,
-            BfMode,
-            BruteCrc,
-            BruteLength,
-            FromError,
-        )
+
+        if OldCrc:
+            return CheckPoint(
+                True,
+                False,
+                "SmashBruteBrawl",
+                ChunkName.decode(errors="ignore"),
+                ["-Bruteforcer has Failed OldCrc"],
+                File,
+                ChunkName,
+                ChunkLength,
+                DataOffset,
+                EditMode,
+                BfMode,
+                BruteCrc,
+                BruteLength,
+                OldCrc,
+                FromError,
+            )
+
+        else:
+            return CheckPoint(
+                True,
+                False,
+                "SmashBruteBrawl",
+                ChunkName.decode(errors="ignore"),
+                ["-Bruteforcer has Failed"],
+                File,
+                ChunkName,
+                ChunkLength,
+                DataOffset,
+                EditMode,
+                BfMode,
+                BruteCrc,
+                BruteLength,
+                FromError,
+            )
 
 
 #def MiniChunkForcerNoCrc(
@@ -10242,12 +10267,53 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                         ToolKit[1],
                         ToolKit[2],
                         ToolKit[3],
-                        ToolKit[7],
-                        ToolKit[4],
-                        ToolKit[5],
-                        ToolKit[6],
-                        ToolKit[8]
+                        ToolKit[8],
+                        EditMode = ToolKit[4],
+                        BfMode = ToolKit[5],
+                        BruteCrc = ToolKit[6],
+                        BruteLength= ToolKit[7]
                     )
+
+                elif Brute_LvL < 1 and ToolKit[5] == "TwoBytes":
+                    Brute_LvL += 1
+                    ##could take a week or 2 need to estimate bf time based on previous Bf elapsed time .
+                    Candy("Cowsay", "Too bad that was the easy way ..", "bad")
+                    Candy(
+                        "Cowsay",
+                        "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/3)"
+                        % Brute_LvL,
+                        "bad",
+                    )
+                    SideNotes.append("-CheckPoint: %s" % info)
+                    if "OldCrc" in info:
+                        SmashBruteBrawl(
+                            ToolKit[0],
+                            ToolKit[1],
+                            ToolKit[2],
+                            ToolKit[3],
+                            ToolKit[9],
+                            EditMode = ToolKit[4],
+                            BfMode = ToolKit[5],
+                            BruteCrc = ToolKit[6],
+                            BruteLength= ToolKit[7],
+                            OldCrc = ToolKit[8],
+                        )
+
+
+                    else:
+                        SmashBruteBrawl(
+                            ToolKit[0],
+                            ToolKit[1],
+                            ToolKit[2],
+                            ToolKit[3],
+                            ToolKit[8],
+                            EditMode = ToolKit[4],
+                            BfMode = ToolKit[5],
+                            BruteCrc = ToolKit[6],
+                            BruteLength= ToolKit[7]
+                        )
+
+
                 else:
                     if ToolKit[5] != "Custom":
                         Candy(
@@ -10269,12 +10335,13 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                                 ToolKit[1],
                                 ToolKit[2],
                                 ToolKit[3],
-                                ToolKit[7],
-                                ToolKit[4],
-                                "Brutus",
-                                ToolKit[6],
-                                ToolKit[8]
+                                ToolKit[8],
+                                EditMode = ToolKit[4],
+                                BfMode = "Brutus",
+                                BruteCrc = ToolKit[6],
+                                BruteLength = ToolKit[7]
                                 )
+
                        else:
                           TheEnd()
 
