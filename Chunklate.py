@@ -6070,6 +6070,7 @@ def SmashBruteBrawl(
         PRINT("ChunkName:%s"% ChunkName)
         PRINT("DataOffset:%s"% DataOffset)
         PRINT("ChunkLength:%s"% ChunkLength)
+        PRINT("Brute_LvL:%s"% Brute_LvL)
         PRINT("BruteCrc:%s"% BruteCrc)
         PRINT("BruteLength:%s"%BruteLength)
         PRINT("EditMode:%s"% EditMode)
@@ -6401,19 +6402,11 @@ def SmashBruteBrawl(
                                                       break
                                       n1 += 2
 
-                                  needle += 2
+                          ##masterloop
+                          needle += 2
                      else:
-#                          Loadingbar(max_iter, len_iter, n, False)
-#                         print("back to start")
-#                         print("n:",n)
-#                         needle = 0
-#                         needle2 += needle2
                           break
-#                if not Bingo:
-#                     print("pls")
-#                     continue 
-#                TheEnd()
-#                continue
+
             else:
                  checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
                  Loadingbar(max_iter, len_iter, n, False)
