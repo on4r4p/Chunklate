@@ -6118,9 +6118,8 @@ def SmashBruteBrawl(
 
         Loadingbar(
             max_iter, len_iter, None, True
-        )  # TODO need to adapt max/len_iter to ln range According to BruteLength 
+        ) 
 
-#        print("ln:",ln)
 
 
         if BfMode == "TwoBytes":
@@ -6148,11 +6147,6 @@ def SmashBruteBrawl(
                 ToBryte = bytes.fromhex(ToBrute) ## b"wrong value"
                 After_New = bytes.fromhex(DATAX[DataOffset + 24 :])  # +24=chunklen+chunkname+data+crc ##Something odd here ..
 
-#                print("tobrute: ",ToBrute)
-#                print("ln:",ln)
-#                print("befor:",Before_New[-24:])
-#                print("after:",After_New[:24])
-#                print("lenafter:",len(After_New))
 
             ##else bla bla #TODO
  
@@ -6168,6 +6162,8 @@ def SmashBruteBrawl(
 #            if n < 16077370:
 #            if n < 254:
 #                 continue
+            if Brute_LvL == 0:
+                   break
 
             if CRASH:
                 if n < CRASH:
@@ -10097,40 +10093,57 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                     Brute_LvL += 1
                     ##could take a week or 2 need to estimate bf time based on previous Bf elapsed time .
                     Candy("Cowsay", "Too bad that was the easy way ..", "bad")
-                    Candy(
-                        "Cowsay",
-                        "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/3)"
-                        % Brute_LvL,
-                        "bad",
-                    )
-                    SideNotes.append("-CheckPoint: %s" % info)
-                    if "OldCrc" in info:
-                        SmashBruteBrawl(
-                            ToolKit[0],
-                            ToolKit[1],
-                            ToolKit[2],
-                            ToolKit[3],
-                            ToolKit[9],
-                            EditMode = ToolKit[4],
-                            BfMode = ToolKit[5],
-                            BruteCrc = ToolKit[6],
-                            BruteLength= ToolKit[7],
-                            OldCrc = ToolKit[8],
-                        )
+                    Candy("Cowsay", "I may increase the BruteForce Level in case there is another corrupted bytes that iv missed.", "com")
+                    Candy("Cowsay", "But this will take litterally forever...i mean ..FOREVER.", "bad")
+                    ##show estimation
+                    Candy("Cowsay", "Do you still want to try ?", "com")
+                    Answer = Question(skipauto=True)
+                    if Answer:
+                        Candy(
+                            "Cowsay",
+                            "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/3)"
+                            % Brute_LvL,
+                            "bad",
+                        ) 
+                        SideNotes.append("-CheckPoint: %s" % info)
+                        if "OldCrc" in info:
+                            SmashBruteBrawl(
+                                ToolKit[0],
+                                ToolKit[1],
+                                ToolKit[2],
+                                ToolKit[3],
+                                ToolKit[9],
+                                EditMode = ToolKit[4],
+                                BfMode = ToolKit[5],
+                                BruteCrc = ToolKit[6],
+                                BruteLength= ToolKit[7],
+                                OldCrc = ToolKit[8],
+                            )
 
 
+                        else:
+                            SmashBruteBrawl(
+                                ToolKit[0],
+                                ToolKit[1],
+                                ToolKit[2],
+                                ToolKit[3],
+                                ToolKit[8],
+                                EditMode = ToolKit[4],
+                                BfMode = ToolKit[5],
+                                BruteCrc = ToolKit[6],
+                                BruteLength= ToolKit[7]
+                            )
                     else:
-                        SmashBruteBrawl(
-                            ToolKit[0],
-                            ToolKit[1],
-                            ToolKit[2],
-                            ToolKit[3],
-                            ToolKit[8],
-                            EditMode = ToolKit[4],
-                            BfMode = ToolKit[5],
-                            BruteCrc = ToolKit[6],
-                            BruteLength= ToolKit[7]
+                        #TODOfind another way
+                        ##TODO Make a function to inspect IDAT
+                        Candy(
+                            "Cowsay",
+                            "Iv tried everything , im out of option sorry ..",
+                            "bad",
                         )
+                        SideNotes.append("-CheckPoint: %s" % info)
+                        TheEnd()
+
 
 
                 else:
