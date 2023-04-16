@@ -6186,7 +6186,7 @@ def SmashBruteBrawl(
                     PRINT("-Bruteforce can last a max of %s"%str(timdeta))
                
                 guess = datetime.now() + timdeta
-                PRINT("-Bruteforce ending date time is estimated at %s\n"%str(guess))
+                PRINT("-Bruteforce ending date time is estimated around %s\n"%str(guess))
 
             if BfMode == "Custom":
                 frm = "!"+"".join(chunk_format).replace("!","")
@@ -7306,7 +7306,7 @@ def RandomSample(data,colortype,chunk_format):
               return(bvalue.hex())
 
 
-def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
+def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_pos is not used well enough
     Candy("Title", "Creating DummyChunk:")
 
     #    for c, i in zip(Chunks_History, Chunks_History_Index):
@@ -7335,6 +7335,68 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
         Todo = False
         Solved = False
 
+
+    elif Chunkname == b"IDAT": ##TODO
+
+        if DEBUG:
+            PRINT("bad_start:%s"% bad_start)
+            PRINT("bad_end:%s"% bad_end)
+            PRINT("bad pos:%s"% bad_pos)
+            PRINT("-Width    :%s"% Candy("Color", "yellow", IHDR_Width))
+            PRINT("-Height   :%s"% Candy("Color", "yellow", IHDR_Height))
+            PRINT("-Depht    :%s"% Candy("Color", "yellow", IHDR_Depht))
+            PRINT("-Color    :%s"% Candy("Color", "yellow", IHDR_Color))
+            PRINT("-Method   :%s"% Candy("Color", "yellow", IHDR_Method))
+            PRINT("-Filter   :%s"% Candy("Color", "yellow", IHDR_Filter))
+            PRINT("-Interlace:%s"% Candy("Color", "yellow", IHDR_Interlace))
+
+        ##TODOTODOTODO
+        if int(IHDR_Depht) > 8:
+#           pix = "1".zfill(4)
+            pix = int(1).to_bytes(2, "little")
+        else:
+#           pix = "1".zfill(2)
+            pix = int(1).to_bytes(1, "big")
+        print("pix:",pix)
+        filter = int(0).to_bytes(1, "big")
+        print("filter:",filter)
+        scanline = filter+(pix*3)
+        print("scanline:",scanline)
+
+        compressor = zlib.compressobj(9,zlib.DEFLATED)
+        compressed = compressor.compress(scanline)+compressor.flush()
+
+        print("compressed:",compressed)
+        print("compessedx:",compressed.hex())
+
+#        cmfflg = int(2077).to_bytes(2,"little")
+
+#        print("cmfflg:",cmfflg.hex())
+
+        adler = zlib.adler32(scanline).to_bytes(4,"big")
+
+        print("adler:",adler.hex())
+
+#        to_decompressed = cmfflg + compressed + adler
+        to_decompressed = compressed + adler
+
+
+
+        print("to_decompressed:",to_decompressed.hex())
+
+        decompressor = zlib.decompressobj()
+        decompressed = decompressor.decompress(to_decompressed)
+#        decompressed = zlib.decompress(to_decompressed, zlib.MAX_WBITS)
+
+        print("decompressed:",decompressed)
+
+
+#        TheEnd()
+
+#        Todo = False
+        Solved = False
+
+
     elif Chunkname == b"IEND":
         DummyLength = SpecLength(Chunkname)
         DummyName = "49454e44"
@@ -7344,7 +7406,9 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError):
         Todo = False
         Solved = True
 
-    if DEBUG is True:
+
+
+    if DEBUG is True and not Todo:
         if Chunkname != b"IEND":
             PRINT("chunklen_spec:%s"%str(chunklen_spec))
             PRINT("chunk_format:%s"%str(chunk_format))
@@ -10120,7 +10184,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                     PRINT("-BruteForce Estimated Time : %s\n"%str(estimation))
                     Candy("Cowsay", "And of course this may fail .. Do you still want to try ?", "com")
                     if ToolKit[1] ==  b'IDAT':
-                       Candy("Cowsay", "Since this is an IDAT chunk i may have another solution answer:'No' then.", "good")
+                       Candy("Cowsay", "Since this is an IDAT chunk i may have another solution just answer: 'No' then.", "good")
                     Answer = Question(skipauto=True)
                     if Answer:
                         Candy(
@@ -10129,7 +10193,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                             % Brute_LvL,
                             "bad",
                         ) 
-                        SideNotes.append("-CheckPoint: %s" % info)
+                        SideNotes.append("-CheckPoint: Increasing BfLvl: %s" % info)
                         if "OldCrc" in info:
                             SmashBruteBrawl(
                                 ToolKit[0],
@@ -10158,17 +10222,38 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                                 BruteLength= ToolKit[7]
                             )
                     else:
-                        #TODOfind another way
+                        #TODOReplace IDAT
                         ##TODO Make a function to inspect IDAT
-                        Candy(
-                            "Cowsay",
-                            "Iv tried everything , im out of option sorry ..",
-                            "bad",
-                        )
+
+
                         if ToolKit[1] ==  b'IDAT':
-                            Candy("Cowsay", "I know iv said i had another solution but its not ready yet ...", "com")
-                        SideNotes.append("-CheckPoint: %s" % info)
-                        TheEnd()
+                            Candy("Cowsay", "So let's face it ..I wont be able to recover that IDAT before one of us die.", "bad")
+                            Candy("Cowsay", "But i could create another one full of black pixels..", "com")
+                            Candy("Cowsay", "This way i hope we could end up with a valid png.", "good")
+                            Candy("Cowsay", "At the cost of one beautiful white rectangle in the middle of that image..", "bad")
+                            Candy("Cowsay", "What do you say ? Otherwise Chunklate is going to exit .", "com")
+                            Answer = Question()
+                            if Answer is True:
+                                    SideNotes.append("-CheckPoint:User choose to replace IDAT: %s" % info)
+                                    if "OldCrc" in info:
+                                        DummyChunk(ToolKit[1], ToolKit[3], ToolKit[3], ToolKit[2], ToolKit[9])
+                                    else:
+                                        DummyChunk(ToolKit[1], ToolKit[3], ToolKit[3], ToolKit[2], ToolKit[8])
+
+                            else:
+                                SideNotes.append("-CheckPoint: %s User has chose to quit." % info)
+                                TheEnd()
+
+                        else:
+                            Candy(
+                                "Cowsay",
+                                "Iv tried everything , im out of option sorry ..",
+                                "bad",
+                            )
+
+
+                            SideNotes.append("-CheckPoint: %s User has chose to quit." % info)
+                            TheEnd()
 
 
 
