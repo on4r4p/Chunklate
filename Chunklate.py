@@ -1,7 +1,7 @@
 #!/usr/bin/python3.11
 from collections.abc import Mapping, MutableMapping
 from argparse import ArgumentParser, SUPPRESS
-from datetime import datetime
+from datetime import datetime,timedelta
 from contextlib import contextmanager
 from PIL import Image,ImageShow,ImageTk
 from inputimeout import inputimeout
@@ -5844,10 +5844,9 @@ def SmashBruteBrawl(
     global CRASH
     global DIFF
     global TmpImgLst
+    global ETA
 
     Candy("Title", "Attempting Bruteforce To Repair Corrupted Chunk Data:")
-    stdt = datetime.now()
-    PRINT("started at:%s"% stdt)
     try:
         ChunkName = ChunkName.encode(errors="ignore")
     except Exception as e:
@@ -6091,8 +6090,9 @@ def SmashBruteBrawl(
             Pause("Pause:SmashBruteBrawl")
 
     for n,ln in enumerate(range(minchunklen, maxchunklen, step)):
-#            Pause("n:%s ln:%s minchunklen:%s maxchunklen:%s step:%s"%(n,ln,minchunklen,maxchunklen,step))
 
+        Std = datetime.now()
+        
         if BfMode == "Custom":
                  Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
                  if len(Sti) > 0:
@@ -6122,7 +6122,7 @@ def SmashBruteBrawl(
 
 
 
-        if BfMode == "TwoBytes":
+        if BfMode == "TwoBytes": ##TwoByte can be more effective 
                 Before_New = bytes.fromhex(DATAX[:DataOffset])
                 ToBrute = DATAX[DataOffset : DataOffset + ChunkLength*2 ]
                 ToBryte = bytes.fromhex(ToBrute)
@@ -6157,13 +6157,12 @@ def SmashBruteBrawl(
 
         shuffle = Product(chunk_data,color_type)
         for n, i in enumerate(shuffle):
-
                    #16581375
 #            if n < 16077370:
 #            if n < 254:
 #                 continue
-            if Brute_LvL == 0:
-                   break
+#            if Brute_LvL == 0:
+#                   break
 
             if CRASH:
                 if n < CRASH:
@@ -6171,6 +6170,23 @@ def SmashBruteBrawl(
                 else:
                     CRASH = False
             
+
+            if n == 10:
+                PRINT("\n\n-BruteForce started at: %s"% Std)
+                endat = datetime.now() - Std
+
+                if endat.seconds != 0:
+                    ETA = int((endat.seconds * max_iter) / 10)
+                    timdeta= timedelta(seconds=ETA)
+                    PRINT("-Bruteforce can last a max of %s"%str(timdeta))
+                else:
+                    ETA = (endat * max_iter) / 10
+                    ETA = ETA.seconds
+                    timdeta= timedelta(seconds=ETA)
+                    PRINT("-Bruteforce can last a max of %s"%str(timdeta))
+               
+                guess = datetime.now() + timdeta
+                PRINT("-Bruteforce ending date time is estimated at %s\n"%str(guess))
 
             if BfMode == "Custom":
                 frm = "!"+"".join(chunk_format).replace("!","")
@@ -6413,7 +6429,9 @@ def SmashBruteBrawl(
                     else:
                        continue
                 
-    ###checkimage
+    ###realeta
+
+    ETA = (datetime.now() - Std).seconds
 
     if Bingo is True:
 
@@ -10091,17 +10109,23 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
 
                 elif Brute_LvL < 1 and ToolKit[5] == "TwoBytes":
                     Brute_LvL += 1
-                    ##could take a week or 2 need to estimate bf time based on previous Bf elapsed time .
                     Candy("Cowsay", "Too bad that was the easy way ..", "bad")
                     Candy("Cowsay", "I may increase the BruteForce Level in case there is another corrupted bytes that iv missed.", "com")
-                    Candy("Cowsay", "But this will take litterally forever...i mean ..FOREVER.", "bad")
-                    ##show estimation
-                    Candy("Cowsay", "Do you still want to try ?", "com")
+                    Candy("Cowsay", "But this will take litterally forever...i mean like this :", "bad")
+#                    ETA = 3600
+                    estimation = ETA * ToolKit[2]
+                    if ToolKit[1] ==  b'IDAT':
+                          estimation *= 3
+                    estimation = timedelta(seconds=estimation)
+                    PRINT("-BruteForce Estimated Time : %s\n"%str(estimation))
+                    Candy("Cowsay", "And of course this may fail .. Do you still want to try ?", "com")
+                    if ToolKit[1] ==  b'IDAT':
+                       Candy("Cowsay", "Since this is an IDAT chunk i may have another solution answer:'No' then.", "good")
                     Answer = Question(skipauto=True)
                     if Answer:
                         Candy(
                             "Cowsay",
-                            "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/3)"
+                            "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/1)"
                             % Brute_LvL,
                             "bad",
                         ) 
@@ -10141,6 +10165,8 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                             "Iv tried everything , im out of option sorry ..",
                             "bad",
                         )
+                        if ToolKit[1] ==  b'IDAT':
+                            Candy("Cowsay", "I know iv said i had another solution but its not ready yet ...", "com")
                         SideNotes.append("-CheckPoint: %s" % info)
                         TheEnd()
 
@@ -10931,6 +10957,7 @@ IBN = 0
 IDAT_Bytes_Len = 0
 IDAT_Datastream = ""
 idatcounter = 0
+ETA = 0
 Old_Bad_Crc = ""
 IDAT_Avg_Len = ""
 FILE_Origin = ""
