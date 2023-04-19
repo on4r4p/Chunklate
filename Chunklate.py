@@ -7350,7 +7350,18 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
             PRINT("-Filter   :%s"% Candy("Color", "yellow", IHDR_Filter))
             PRINT("-Interlace:%s"% Candy("Color", "yellow", IHDR_Interlace))
 
+
         ##TODOTODOTODO
+
+        CINFO0 = ["081d","085b","0899","08d7"]
+        CINFO1 = ["1819","1857","1895","18d3"]
+        CINFO2 = ["2815","2853","2891","28cf"]
+        CINFO3 = ["3811","384f","388d","38cb"]
+        CINFO4 = ["480d","484b","4889","48c7"]
+        CINFO5 = ["5809","5847","5885","58c3"]
+        CINFO6 = ["6805","6843","6881","68de"]
+        CINFO7 = ["7801","785e","789c","78da"]
+
         if int(IHDR_Depht) > 8:
 #           pix = "1".zfill(4)
             pix = int(1).to_bytes(2, "little")
@@ -7363,15 +7374,33 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
         scanline = filter+(pix*3)
         print("scanline:",scanline)
 
-        compressor = zlib.compressobj(9,zlib.DEFLATED)
+#        IDAT_Datastream
+        if IHDR_Interlace != "1":
+            cmfflg = IDAT_Datastream[:4]
+        else:
+              pass ##TODO
+
+        print("cmfflg:",cmfflg)
+
+        if cmfflg in  CINFO7 : #tmp
+           window = 32
+           if CINFO7.index(cmfflg) == 3:
+                flvl = 9
+        else:
+            windows = ""
+            flvl = -1
+
+        print("window:",window)
+        print("flvl:",flvl)
+
+        
+
+        compressor = zlib.compressobj(flvl,zlib.DEFLATED,-zlib.MAX_WBITS)
         compressed = compressor.compress(scanline)+compressor.flush()
 
         print("compressed:",compressed)
         print("compessedx:",compressed.hex())
 
-#        cmfflg = int(2077).to_bytes(2,"little")
-
-#        print("cmfflg:",cmfflg.hex())
 
         adler = zlib.adler32(scanline).to_bytes(4,"big")
 
@@ -7384,12 +7413,18 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
 
         print("to_decompressed:",to_decompressed.hex())
 
-        decompressor = zlib.decompressobj()
+        decompressor = zlib.decompressobj(-zlib.MAX_WBITS)
         decompressed = decompressor.decompress(to_decompressed)
 #        decompressed = zlib.decompress(to_decompressed, zlib.MAX_WBITS)
 
         print("decompressed:",decompressed)
 
+        decompressor = zlib.decompressobj()
+
+        idatdecomp = decompressor.decompress(bytes.fromhex(IDAT_Datastream))
+
+#        print("idat stream:\n",IDAT_Datastream)
+        print("all idat decompressed:", idatdecomp)
 
 #        TheEnd()
 
@@ -7974,22 +8009,34 @@ def CheckChunkOrder(lastchunk, mode):
 
         elif b"IDAT" in Used_Chunks:
             shutup = [
-                Excluded.append(forbid) for forbid in CHUNKS if forbid in BEFORE_IDAT
+                Excluded.append(forbid) for forbid in CHUNKS if forbid in BEFORE_IDAT and forbid not in Excluded
             ]
 
+#            print("Excluded:",Excluded)
+
             if int(IHDR_Color) == 3:
-                shutup = [
-                    Excluded.append(forbid)
-                    for forbid in CHUNKS
-                    if forbid not in BEFORE_PLTE
-                ]
-                Candy(
-                    "Cowsay",
-                    " AH ! I knew this day would come ...You See when Image Header color type is set to 3 (Indexed Colors)..PLTE chunk must be placed before any IDAT chunks so that only means one thing ..More code to write for me.",
-                    "com",
-                )
-                PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                TheEnd()
+                print("excluded:\n",Excluded)
+                if Used_Chunks[Used_Chunks.index(b"IDAT")-1] != b"PLTE":
+
+                    Candy(
+                        "Cowsay",
+                        " AH ! I knew this day would come ...You See when Image Header color type is set to 3 (Indexed Colors)..",
+                        "com",
+                    )
+
+                    Candy(
+                        "Cowsay",
+                        "PLTE chunk must be placed before any IDAT chunks so that only means one thing ..",
+                        "com",
+                    )
+
+                    Candy(
+                        "Cowsay",
+                        "More code to write for me.",
+                        "bad",
+                    )
+                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                    TheEnd()
 
             elif (
                 (int(IHDR_Color) == 2)
@@ -8704,6 +8751,10 @@ def Checksum(Ctype, Cdata, Crc, next=None):
             checksum = "0x" + (checksum[2::].zfill(8))
         PRINT("\nMonkey wanted Banana :%s"%Candy("Color", "green", checksum))
         PRINT("Monkey got Pullover :%s"%Candy("Color", "red", Crc))
+
+        if next == None:
+            ##TODO tmpworkaround need to fix wrong behavor due to this line below
+            ChunkStory("add", Ctype, CLoffI, CrcoffI + 8, int(Orig_CL, 16))
 
         return CheckPoint(
             True,
@@ -10183,7 +10234,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                     estimation = timedelta(seconds=estimation)
                     PRINT("-BruteForce Estimated Time : %s\n"%str(estimation))
                     Candy("Cowsay", "And of course this may fail .. Do you still want to try ?", "com")
-                    if ToolKit[1] ==  b'IDAT':
+                    if ToolKit[1] ==  b'IDAT' and IHDR_Interlace == "1":
                        Candy("Cowsay", "Since this is an IDAT chunk i may have another solution just answer: 'No' then.", "good")
                     Answer = Question(skipauto=True)
                     if Answer:
@@ -10222,11 +10273,12 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                                 BruteLength= ToolKit[7]
                             )
                     else:
-                        #TODOReplace IDAT
-                        ##TODO Make a function to inspect IDAT
+                        #TODOReplace IDAT?
+                        ##TODO Make a function to inspect IDAT?
+                        ###compile zlib with ALLOW_INVALID_DISTANCE_TOOFAR_ARRR ??
 
 
-                        if ToolKit[1] ==  b'IDAT':
+                        if ToolKit[1] ==  b'IDAT' and IHDR_Interlace == "1":
                             Candy("Cowsay", "So let's face it ..I wont be able to recover that IDAT before one of us die.", "bad")
                             Candy("Cowsay", "But i could create another one full of black pixels..", "com")
                             Candy("Cowsay", "This way i hope we could end up with a valid png.", "good")
