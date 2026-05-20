@@ -111,6 +111,18 @@ def test_infer_png_dimensions_from_scanline_size():
     assert dimensions == (477, 599)
 
 
+def test_infer_png_dimensions_prefers_largest_balanced_candidate():
+    dimensions = infer_png_dimensions(
+        decompressed_size=1056,
+        bit_depth=8,
+        color_type=3,
+        current_width=0xFFFFFFE0,
+        current_height=0xFFFFFFE0,
+    )
+
+    assert dimensions == (32, 32)
+
+
 def test_repair_ihdr_from_idat_rebuilds_strict_header():
     repaired = repair_ihdr_from_idat((REPAIR_FIXTURES / "IHDR_Messed_Up_Crc_Valid.png").read_bytes())
 
@@ -177,6 +189,7 @@ def main():
         ("Append complete IEND chunk", test_complete_iend_tail_appends_full_iend_chunk),
         ("Reuse existing IEND suffix", test_complete_iend_tail_reuses_existing_iend_suffix),
         ("Infer dimensions from scanline size", test_infer_png_dimensions_from_scanline_size),
+        ("Prefer largest balanced inferred dimensions", test_infer_png_dimensions_prefers_largest_balanced_candidate),
         ("Rebuild IHDR from IDAT", test_repair_ihdr_from_idat_rebuilds_strict_header),
         ("Repair IHDR while preserving stored CRC", test_repair_ihdr_preserving_crc_keeps_original_checksum),
         ("Prefer CRC-preserving IHDR repair", test_repair_ihdr_uses_crc_preserving_strategy_first),

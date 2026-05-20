@@ -179,6 +179,16 @@ def _unique_dimensions(dimensions: Iterable[tuple[int, int]]) -> list[tuple[int,
     return unique
 
 
+def _dimension_area(dimensions: tuple[int, int]) -> int:
+    width, height = dimensions
+    return width * height
+
+
+def _dimension_aspect_ratio(dimensions: tuple[int, int]) -> float:
+    width, height = dimensions
+    return max(width, height) / min(width, height)
+
+
 def infer_png_dimension_candidates(
     decompressed_size: int,
     bit_depth: int,
@@ -254,19 +264,20 @@ def infer_png_dimensions(
         current_height,
     )
 
+    preferred = None
     signed_width = signed_32bit_abs(current_width)
     signed_height = signed_32bit_abs(current_height)
     if signed_width and signed_height and valid(signed_width, signed_height):
-        return signed_width, signed_height
+        preferred = (signed_width, signed_height)
 
-    if current_width > 0:
+    if preferred is None and current_width > 0:
         row_size = png_scanline_size(current_width, bit_depth, color_type)
         if row_size and decompressed_size % row_size == 0:
             inferred_height = decompressed_size // row_size
             if valid(current_width, inferred_height):
-                return current_width, inferred_height
+                preferred = (current_width, inferred_height)
 
-    if 0 < current_height <= decompressed_size and decompressed_size % current_height == 0:
+    if preferred is None and 0 < current_height <= decompressed_size and decompressed_size % current_height == 0:
         row_data_size = decompressed_size // current_height
         samples = PNG_COLOR_SAMPLES.get(color_type)
         if samples and row_data_size > 1:
@@ -275,14 +286,44 @@ def infer_png_dimensions(
             if denominator and bits % denominator == 0:
                 inferred_width = bits // denominator
                 if valid(inferred_width, current_height):
-                    return inferred_width, current_height
+                    preferred = (inferred_width, current_height)
 
     if len(candidates) == 1:
         return candidates[0]
-    if candidates and 0 < current_width <= 0x7FFFFFFF:
+
+    balanced_candidates = [
+        dimensions
+        for dimensions in candidates
+        if min(dimensions) > 0 and _dimension_aspect_ratio(dimensions) <= 2
+    ]
+
+    if preferred is None and 0 < current_width <= 0x7FFFFFFF:
         candidates.sort(key=lambda dimensions: abs(dimensions[0] - current_width))
         if len(candidates) == 1 or abs(candidates[0][0] - current_width) < abs(candidates[1][0] - current_width):
-            return candidates[0]
+            preferred = candidates[0]
+
+    if preferred is not None:
+        larger_balanced = [
+            dimensions
+            for dimensions in balanced_candidates
+            if dimensions[0] >= preferred[0]
+            and dimensions[1] >= preferred[1]
+            and _dimension_area(dimensions) > _dimension_area(preferred)
+        ]
+        if larger_balanced:
+            larger_balanced.sort(key=_dimension_area, reverse=True)
+            return larger_balanced[0]
+        return preferred
+
+    if balanced_candidates:
+        balanced_candidates.sort(
+            key=lambda dimensions: (
+                _dimension_area(dimensions),
+                -abs(dimensions[0] - dimensions[1]),
+            ),
+            reverse=True,
+        )
+        return balanced_candidates[0]
 
     return None
 
