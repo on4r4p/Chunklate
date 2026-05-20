@@ -8,8 +8,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate.png import (
+    IEND_CHUNK,
     PNG_SIGNATURE,
     PngFormatError,
+    complete_iend_tail,
     chunk_type_crc_matches,
     find_signature_offset,
     iter_chunks,
@@ -64,6 +66,22 @@ def test_chunk_type_crc_matches_finds_original_name():
     assert matches == [b"IDAT"]
 
 
+def test_complete_iend_tail_appends_full_iend_chunk():
+    data = b"prefix"
+
+    repaired = complete_iend_tail(data, len(data))
+
+    assert repaired == b"prefix" + IEND_CHUNK
+
+
+def test_complete_iend_tail_reuses_existing_iend_suffix():
+    data = b"prefix" + IEND_CHUNK[-1:]
+
+    repaired = complete_iend_tail(data, len(b"prefix"))
+
+    assert repaired == b"prefix" + IEND_CHUNK
+
+
 def main():
     checks = [
         ("Read valid PNG chunks from fixture", test_read_valid_png_chunks_from_fixture),
@@ -71,6 +89,8 @@ def main():
         ("Expose CRC mismatch without stopping parse", test_crc_mismatch_is_exposed_without_stopping_parse),
         ("Missing PNG signature raises PngFormatError", test_missing_signature_raises_format_error),
         ("Find original chunk name from CRC", test_chunk_type_crc_matches_finds_original_name),
+        ("Append complete IEND chunk", test_complete_iend_tail_appends_full_iend_chunk),
+        ("Reuse existing IEND suffix", test_complete_iend_tail_reuses_existing_iend_suffix),
     ]
 
     print("Running PNG parser tests")

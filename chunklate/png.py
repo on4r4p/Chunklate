@@ -7,6 +7,7 @@ import zlib
 
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+IEND_CHUNK = b"\x00\x00\x00\x00IEND\xaeB`\x82"
 
 
 class PngFormatError(ValueError):
@@ -88,3 +89,21 @@ def chunk_type_crc_matches(chunk_data: bytes, stored_crc: int, candidates: Itera
         for chunk_type in candidates
         if zlib.crc32(chunk_type + chunk_data) & 0xFFFFFFFF == stored_crc
     ]
+
+
+def complete_iend_tail(data: bytes, insert_offset: int) -> bytes:
+    tail = data[insert_offset:]
+
+    if not tail:
+        return data + IEND_CHUNK
+
+    if tail.startswith(IEND_CHUNK):
+        return data[: insert_offset + len(IEND_CHUNK)]
+
+    if IEND_CHUNK in tail:
+        return data[:insert_offset] + IEND_CHUNK
+
+    if len(tail) < len(IEND_CHUNK) and IEND_CHUNK.endswith(tail):
+        return data[:insert_offset] + IEND_CHUNK[: -len(tail)] + tail
+
+    return data[:insert_offset] + IEND_CHUNK

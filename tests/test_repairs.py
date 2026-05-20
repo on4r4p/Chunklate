@@ -30,6 +30,8 @@ REPAIR_CASES = {
     "IHDR-Wrong-Width-Bad-Crc.png": (1, ("IHDR-Wrong-Width-Bad-Crc.0_Fixed.png",)),
     "IHDR-Wrong-Width.png": (1, ("IHDR-Wrong-Width.0_Fixed.png",)),
     "IHDR_Missplaced.png": (1, ("IHDR_Missplaced.0_Fixed.png",)),
+    "IEND_Missing.png": (1, ("IEND_Missing.0_Fixed.png",)),
+    "IEND_Missing_And_Extra_Bytes.png": (1, ("IEND_Missing_And_Extra_Bytes.0_Fixed.png",)),
     "Missplaced_Ihdr.png": (1, ("Missplaced_Ihdr.0_Fixed.png",)),
     "No_Png_Header.png": (1, ("No_Png_Header.0_Fixed.png",)),
     "No_Png_Header_Corrupted_Length.png": (1, ("No_Png_Header_Corrupted_Length.0_Fixed.png",)),
@@ -55,18 +57,7 @@ PILLOW_LENIENT_REPAIR_CASES = {
 }
 
 
-PILLOW_ONLY_REPAIR_CASES = {
-    "IEND_Missing.png": (
-        1,
-        ("IEND_Missing.0_Fixed.png",),
-        "legacy repair opens in Pillow, but strict chunk parsing still sees incomplete IEND data",
-    ),
-    "IEND_Missing_And_Extra_Bytes.png": (
-        1,
-        ("IEND_Missing_And_Extra_Bytes.0_Fixed.png",),
-        "legacy repair opens in Pillow, but strict chunk parsing still sees incomplete IEND data",
-    ),
-}
+PILLOW_ONLY_REPAIR_CASES = {}
 
 
 NO_NONINTERACTIVE_CLONE = "non-interactive audit exits rc=1 before writing any _Fixed.png"
@@ -166,7 +157,7 @@ def test_repair_cases_produce_expected_valid_pngs(tmp_path):
 
 
 def test_pillow_only_repair_cases_produce_viewable_pngs(tmp_path):
-    if Image is None:
+    if PILLOW_ONLY_REPAIR_CASES and Image is None:
         raise AssertionError("Pillow is required for Pillow-only repair regression tests")
 
     failures = []
@@ -244,6 +235,9 @@ def run_repair_cases_verbose(tmp_path):
 
 
 def run_pillow_only_repair_cases_verbose(tmp_path):
+    if not PILLOW_ONLY_REPAIR_CASES:
+        return
+
     if Image is None:
         raise AssertionError("Pillow is required for Pillow-viewable repair regression tests")
 

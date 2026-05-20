@@ -41,7 +41,7 @@ except ModuleNotFoundError:
     imagehash = None
 
 from chunklate import relics
-from chunklate.png import chunk_type_crc_matches
+from chunklate.png import complete_iend_tail, chunk_type_crc_matches
 
 
 def Betterror(error_msg, def_name): ##useless since 3.11
@@ -7525,7 +7525,7 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
 
 
     elif Chunkname == b"IEND":
-        DummyLength = SpecLength(Chunkname)
+        DummyLength = "00000000"
         DummyName = "49454e44"
         DummyData = ""
         DummyCrc = "ae426082"
@@ -7557,7 +7557,10 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
 #        TheEnd()
 
     if not Todo :
-        DummyFix = DATAX[:bad_start] + DumDum + DATAX[bad_start:]
+        if Chunkname == b"IEND":
+            DummyFix = complete_iend_tail(bytes.fromhex(DATAX), int(bad_start / 2)).hex()
+        else:
+            DummyFix = DATAX[:bad_start] + DumDum + DATAX[bad_start:]
 
         Candy(
             "Cowsay",
