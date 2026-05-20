@@ -18,6 +18,7 @@ from chunklate.png import (
     infer_png_dimensions,
     iter_chunks,
     read_chunks,
+    repair_color_profile_chunks,
     repair_ihdr,
     repair_ihdr_from_idat,
     repair_ihdr_preserving_crc,
@@ -178,6 +179,39 @@ def test_repair_ihdr_falls_back_to_rebuild_when_stored_crc_is_not_original():
     assert first.crc_ok
 
 
+def test_repair_color_profile_chunks_removes_zero_gama():
+    original = (REPAIR_FIXTURES / "gama_zero.png").read_bytes()
+
+    repaired = repair_color_profile_chunks(original)
+
+    assert repaired is not None
+    chunks = list(iter_chunks(repaired.data))
+    assert b"gAMA" not in {chunk.chunk_type for chunk in chunks}
+    assert chunks[-1].chunk_type == b"IEND"
+    assert all(chunk.crc_ok for chunk in chunks)
+
+
+def test_repair_color_profile_chunks_keeps_iccp_without_explicit_signal():
+    original = (REPAIR_FIXTURES / "IncorrectSrgbProfile.png").read_bytes()
+
+    repaired = repair_color_profile_chunks(original)
+
+    assert repaired is None
+
+
+def test_repair_color_profile_chunks_can_remove_known_bad_srgb_iccp_when_requested():
+    original = (REPAIR_FIXTURES / "IncorrectSrgbProfile.png").read_bytes()
+
+    repaired = repair_color_profile_chunks(original, remove_known_bad_srgb_iccp=True)
+
+    assert repaired is not None
+    chunk_types = [chunk.chunk_type for chunk in iter_chunks(repaired.data)]
+    assert b"iCCP" not in chunk_types
+    assert b"gAMA" in chunk_types
+    assert b"cHRM" in chunk_types
+    assert chunk_types[-1] == b"IEND"
+
+
 def main():
     checks = [
         ("Read valid PNG chunks from fixture", test_read_valid_png_chunks_from_fixture),
@@ -196,6 +230,15 @@ def main():
         (
             "Fallback to rebuilt IHDR when stored CRC is not original",
             test_repair_ihdr_falls_back_to_rebuild_when_stored_crc_is_not_original,
+        ),
+        ("Remove zero gAMA chunk", test_repair_color_profile_chunks_removes_zero_gama),
+        (
+            "Keep iCCP profile without explicit signal",
+            test_repair_color_profile_chunks_keeps_iccp_without_explicit_signal,
+        ),
+        (
+            "Remove known bad sRGB iCCP profile when requested",
+            test_repair_color_profile_chunks_can_remove_known_bad_srgb_iccp_when_requested,
         ),
     ]
 

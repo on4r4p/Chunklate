@@ -55,6 +55,7 @@ REPAIR_CASES = {
     "chunk_private_critical_badcrc.png": (2, ("chunk_private_critical_badcrc.1_Fixed.png",)),
     "chunk_private_critical_goodcrc.png": (2, ("chunk_private_critical_goodcrc.1_Fixed.png",)),
     "chunk_type.png": (2, ("chunk_type.1_Fixed.png",)),
+    "gama_zero.png": (1, ("gama_zero.0_Fixed.png",)),
     "ihdr_image_size.png": (1, ("ihdr_image_size.0_Fixed.png",)),
 }
 
@@ -70,15 +71,15 @@ PILLOW_ONLY_REPAIR_CASES = {}
 
 
 NO_NONINTERACTIVE_CLONE = "non-interactive audit exits rc=1 before writing any _Fixed.png"
+NEEDS_EXPLICIT_LIBPNG_PROFILE_WARNING = "needs explicit known incorrect sRGB profile signal before removing iCCP"
 UNCOVERED_REPAIR_CASES = {
     "Good-Chunk-lenght-Missing-Bit.png": NO_NONINTERACTIVE_CLONE,
-    "IncorrectSrgbProfile.png": NO_NONINTERACTIVE_CLONE,
-    "Incorrect_Srgb_Profile.png": NO_NONINTERACTIVE_CLONE,
+    "IncorrectSrgbProfile.png": NEEDS_EXPLICIT_LIBPNG_PROFILE_WARNING,
+    "Incorrect_Srgb_Profile.png": NEEDS_EXPLICIT_LIBPNG_PROFILE_WARNING,
     "PLTE_Empty_Bad_Crc.png": NO_NONINTERACTIVE_CLONE,
     "PLTE_Empty_Good_Crc.png": NO_NONINTERACTIVE_CLONE,
     "Unhandled-Critical-Chunk.png": NO_NONINTERACTIVE_CLONE,
     "chunk_private_critical.png": NO_NONINTERACTIVE_CLONE,
-    "gama_zero.png": NO_NONINTERACTIVE_CLONE,
 }
 
 

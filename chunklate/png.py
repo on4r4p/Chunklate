@@ -51,6 +51,13 @@ class IhdrRepair:
     preserved_crc: bool
 
 
+@dataclass(frozen=True)
+class ColorProfileRepair:
+    data: bytes
+    strategy: str
+    removed_chunks: tuple[str, ...]
+
+
 def find_signature_offset(data: bytes) -> int:
     return data.find(PNG_SIGNATURE)
 
@@ -144,6 +151,118 @@ def complete_iend_tail(data: bytes, insert_offset: int) -> bytes:
         return data[:insert_offset] + IEND_CHUNK[: -len(tail)] + tail
 
     return data[:insert_offset] + IEND_CHUNK
+
+
+def remove_png_chunks(data: bytes, should_remove) -> tuple[bytes, tuple[PngChunk, ...]] | None:
+    signature_offset = find_signature_offset(data)
+    if signature_offset < 0:
+        return None
+
+    output = bytearray(data[: signature_offset + len(PNG_SIGNATURE)])
+    removed = []
+    offset = signature_offset + len(PNG_SIGNATURE)
+
+    while offset < len(data):
+        chunk = chunk_at(data, offset)
+        if chunk is None:
+            return None
+
+        chunk_end = offset + 12 + chunk.length
+        if should_remove(chunk):
+            removed.append(chunk)
+        else:
+            output.extend(data[offset:chunk_end])
+
+        offset = chunk_end
+        if chunk.chunk_type == b"IEND":
+            break
+
+    if not removed:
+        return None
+
+    return bytes(output), tuple(removed)
+
+
+def iccp_profile_name(chunk: PngChunk) -> bytes | None:
+    if chunk.chunk_type != b"iCCP":
+        return None
+
+    try:
+        return chunk.data[: chunk.data.index(0)]
+    except ValueError:
+        return None
+
+
+def iccp_decompressed_profile(chunk: PngChunk) -> bytes | None:
+    if chunk.chunk_type != b"iCCP":
+        return None
+
+    try:
+        null_pos = chunk.data.index(0)
+    except ValueError:
+        return None
+
+    if null_pos + 2 > len(chunk.data):
+        return None
+    if chunk.data[null_pos + 1] != 0:
+        return None
+
+    try:
+        return zlib.decompress(chunk.data[null_pos + 2 :])
+    except zlib.error:
+        return None
+
+
+def is_zero_gama_chunk(chunk: PngChunk) -> bool:
+    return chunk.chunk_type == b"gAMA" and chunk.length == 4 and chunk.data == b"\x00\x00\x00\x00"
+
+
+def is_known_bad_srgb_iccp_chunk(chunk: PngChunk) -> bool:
+    if iccp_profile_name(chunk) != b"Photoshop ICC profile":
+        return False
+
+    profile = iccp_decompressed_profile(chunk)
+    if profile is None:
+        return False
+
+    return b"IEC sRGB" in profile and b"acsp" in profile[:64]
+
+
+def repair_color_profile_chunks(
+    data: bytes,
+    *,
+    remove_zero_gama: bool = True,
+    remove_known_bad_srgb_iccp: bool = False,
+) -> ColorProfileRepair | None:
+    def should_remove(chunk: PngChunk) -> bool:
+        return (
+            remove_zero_gama
+            and is_zero_gama_chunk(chunk)
+        ) or (
+            remove_known_bad_srgb_iccp
+            and is_known_bad_srgb_iccp_chunk(chunk)
+        )
+
+    if not remove_zero_gama and not remove_known_bad_srgb_iccp:
+        return None
+
+    result = remove_png_chunks(data, should_remove)
+    if result is None:
+        return None
+
+    repaired, removed = result
+    removed_names = tuple(chunk.name for chunk in removed)
+    reasons = []
+    if any(chunk.chunk_type == b"gAMA" for chunk in removed):
+        reasons.append("removed zero gAMA chunk")
+    if any(chunk.chunk_type == b"iCCP" for chunk in removed):
+        reasons.append("removed known bad sRGB iCCP profile")
+
+    return ColorProfileRepair(
+        data=repaired,
+        strategy=", ".join(reasons),
+        removed_chunks=removed_names,
+    )
 
 
 def png_scanline_size(width: int, bit_depth: int, color_type: int) -> int | None:

@@ -41,7 +41,7 @@ except ModuleNotFoundError:
     imagehash = None
 
 from chunklate import relics
-from chunklate.png import chunk_at, complete_iend_tail, chunk_type_crc_matches, repair_ihdr
+from chunklate.png import chunk_at, complete_iend_tail, chunk_type_crc_matches, repair_color_profile_chunks, repair_ihdr
 
 
 def Betterror(error_msg, def_name): ##useless since 3.11
@@ -10183,6 +10183,25 @@ def FixItFelix_Critical_Miss(key):
     return False, None
 
 
+def FixItFelix_Try_Color_Profile_Cleanup():
+    remove_zero_gama = any("gAMA Chunk of 0 is Useless" in str(key) for key in PandoraBox)
+    remove_known_bad_srgb_iccp = any("known incorrect sRGB profile" in str(key) for key in PandoraBox)
+    if not remove_zero_gama and not remove_known_bad_srgb_iccp:
+        return None
+
+    repair = repair_color_profile_chunks(
+        bytes.fromhex(DATAX),
+        remove_zero_gama=remove_zero_gama,
+        remove_known_bad_srgb_iccp=remove_known_bad_srgb_iccp,
+    )
+    if repair is None:
+        return None
+
+    SideNotes.append("-FixItFelix:%s." % repair.strategy)
+    WriteClone(repair.data.hex(), "-%s." % repair.strategy)
+    return True
+
+
 def FixItFelix_Try_IHDR_Rebuild():
     if not any("IHDR" in str(key) and ("GetInfo" in str(key) or "Wrong Crc" in str(key)) for key in PandoraBox):
         return None
@@ -10270,6 +10289,10 @@ def FixItFelix(Chunk=None):
         PandoraBox_len = len(PandoraBox)
     else:
         PandoraBox_len = len(PandoraBox) - 1
+
+    ColorProfileCleanup = FixItFelix_Try_Color_Profile_Cleanup()
+    if ColorProfileCleanup is not None:
+        return ColorProfileCleanup
 
     IhdrRebuild = FixItFelix_Try_IHDR_Rebuild()
     if IhdrRebuild is not None:
