@@ -8934,9 +8934,7 @@ def WriteClone(data,infos):
     return None
 
 
-def Relics(FromError):
-    Candy("Title", "Opening the Ark Of The Covenant :")
-
+def Relics_Debug_State():
     if DEBUG is True:
         PRINT("len pandemonium :%s"% len(Pandemonium))
         for nb, key in enumerate(PandoraBox):
@@ -8952,109 +8950,101 @@ def Relics(FromError):
             Pause("-Debug Pause Press Return to continue:")
 
 
+def Relics_Short_Value(tools_values):
+    if type(tools_values) == bytes:
+        return tools_values[0:40] + b"...To big to be displayed ..."
+    if type(tools_values) == str:
+        return tools_values[0:40] + "...To big to be displayed ..."
+    return tools_values
+
+
+def Relics_Print_Tool(nb3, tools, tools_values):
+    if type(tools_values) == str or type(tools_values) == bytes:
+        if len(tools_values) > 100:
+            tools_values = Relics_Short_Value(tools_values)
+
+    PRINT(
+        "%s:%s:%s"
+        % (
+            Candy("Color", "yellow", "        [Tool used :%s]" % nb3),
+            tools,
+            tools_values,
+        )
+    )
+
+
+def Relics_Print_Pandemonium_Summary():
+    Candy("Cowsay", "This is a short summary of what we have done :", "good")
+
+    for nb1, (file, file_value) in enumerate(Pandemonium.items()):
+        PRINT(
+            "%s:-Errors fixed in File %s :"
+            % (Candy("Color", "white", "[File:%s]" % nb1), file)
+        )
+
+        for nb2, (errors, errors_values) in enumerate(file_value.items()):
+            PRINT("%s:%s" % (Candy("Color", "red", "    [-%s]" % nb2), errors))
+            for nb3, (tools, tools_values) in enumerate(errors_values.items()):
+                Relics_Print_Tool(nb3, tools, tools_values)
+
+
+def Relics_Try_Current_Wrong_Crc_Fix():
+    for nb, key in enumerate(PandoraBox):
+
+        if "Wrong Crc" in str(key):
+
+            if str(key) not in Cornucopia:
+
+                PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+                Chunkname = "".join(
+                                [
+                                    chnk.decode(errors="ignore")
+                                    for chnk in ALLCHUNKS
+                                    if chnk.decode(errors="ignore") in str(key)
+                                ])
+                if Chunkname == "IDAT":
+                    chkd = "IDAT_Tool_"
+                    Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
+                    Candy(
+                        "Cowsay",
+                        "Well this one have to be fixed first let's see if replacing that Crc is enough..",
+                        "com",
+                    )
+                    uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+                    Answer = Question(id=key,idhash=uniqh)
+                    if Answer is True:
+                        return True, SaveClone(
+                            PandoraBox_Tool(key, chkd, 0),
+                            PandoraBox_Tool(key, chkd, 1),
+                            PandoraBox_Tool(key, chkd, 2),
+                            (
+                                "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
+                                % (
+                                    PandoraBox_Tool(key, chkd, 3),
+                                    PandoraBox_Tool(key, chkd, 4),
+                                    PandoraBox_Tool(key, chkd, 0),
+                                    PandoraBox_Tool(key, chkd, 5),
+                                )
+                            ),
+                        )
+
+    return False, None
+
+
+def Relics(FromError):
+    Candy("Title", "Opening the Ark Of The Covenant :")
+
+    Relics_Debug_State()
 
     if len(Pandemonium) >= 1:
-        Candy("Cowsay", "This is a short summary of what we have done :", "good")
-
-        for nb1, (file, file_value) in enumerate(Pandemonium.items()):
-            PRINT(
-                "%s:-Errors fixed in File %s :"
-                % (Candy("Color", "white", "[File:%s]" % nb1), file)
-            )
-
-            for nb2, (errors, errors_values) in enumerate(file_value.items()):
-                PRINT("%s:%s" % (Candy("Color", "red", "    [-%s]" % nb2), errors))
-                for nb3, (tools, tools_values) in enumerate(errors_values.items()):
-                    if type(tools_values) == str or type(tools_values) == bytes:
-                        if len(tools_values) > 100:
-                            if type(tools_values) == bytes:
-                                short_value = (
-                                    tools_values[0:40]
-                                    + b"...To big to be displayed ..."
-                                )
-                            if type(tools_values) == str:
-                                short_value = (
-                                    tools_values[0:40] + "...To big to be displayed ..."
-                                )
-                            PRINT(
-                                "%s:%s:%s"
-                                % (
-                                    Candy(
-                                        "Color",
-                                        "yellow",
-                                        "        [Tool used :%s]" % nb3,
-                                    ),
-                                    tools,
-                                    short_value,
-                                )
-                            )
-                        else:
-                            PRINT(
-                                "%s:%s:%s"
-                                % (
-                                    Candy(
-                                        "Color",
-                                        "yellow",
-                                        "        [Tool used :%s]" % nb3,
-                                    ),
-                                    tools,
-                                    tools_values,
-                                )
-                            )
-
-                    else:
-                        PRINT(
-                            "%s:%s:%s"
-                            % (
-                                Candy(
-                                    "Color", "yellow", "        [Tool used :%s]" % nb3
-                                ),
-                                tools,
-                                tools_values,
-                            )
-                        )
+        Relics_Print_Pandemonium_Summary()
 
         ##Find a more efficient way to sort error by severity and behave procedurally 
         ##tmp workaround
     ###
-        for nb, key in enumerate(PandoraBox):
-               
-            if "Wrong Crc" in str(key):
-
-                if str(key) not in Cornucopia:
-
-                    PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-                    Chunkname = "".join(
-                                    [
-                                        chnk.decode(errors="ignore")
-                                        for chnk in ALLCHUNKS
-                                        if chnk.decode(errors="ignore") in str(key)
-                                    ])
-                    if Chunkname == "IDAT":
-                        chkd = "IDAT_Tool_"
-                        Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
-                        Candy(
-                            "Cowsay",
-                            "Well this one have to be fixed first let's see if replacing that Crc is enough..",
-                            "com",
-                        )
-                        uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
-                        Answer = Question(id=key,idhash=uniqh)
-                        if Answer is True:
-                            return SaveClone(
-                                PandoraBox_Tool(key, chkd, 0),
-                                PandoraBox_Tool(key, chkd, 1),
-                                PandoraBox_Tool(key, chkd, 2),
-                                (
-                                    "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
-                                    % (
-                                        PandoraBox_Tool(key, chkd, 3),
-                                        PandoraBox_Tool(key, chkd, 4),
-                                        PandoraBox_Tool(key, chkd, 0),
-                                        PandoraBox_Tool(key, chkd, 5),
-                                    )
-                                ),
-                            )
+        should_return, result = Relics_Try_Current_Wrong_Crc_Fix()
+        if should_return:
+            return result
 
     #            else:
     #                 print("key in cornicopia:",str(key))
