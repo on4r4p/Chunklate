@@ -47,6 +47,8 @@ REPAIR_CASES = {
         2,
         ("No_Png_Header_Missing_Chunk_Corrupted.1_Fixed.png",),
     ),
+    "PLTE_Empty_Bad_Crc.png": (1, ("PLTE_Empty_Bad_Crc.0_Fixed.png",)),
+    "PLTE_Empty_Good_Crc.png": (1, ("PLTE_Empty_Good_Crc.0_Fixed.png",)),
     "Private_Critical_Chunk_Bad_Crc.png": (2, ("Private_Critical_Chunk_Bad_Crc.1_Fixed.png",)),
     "Private_Critical_Chunk_Crc_Valid.png": (2, ("Private_Critical_Chunk_Crc_Valid.1_Fixed.png",)),
     "Wrong-Chunk-Name-Bad-Crc.png": (1, ("Wrong-Chunk-Name-Bad-Crc.0_Fixed.png",)),
@@ -76,8 +78,6 @@ UNCOVERED_REPAIR_CASES = {
     "Good-Chunk-lenght-Missing-Bit.png": NO_NONINTERACTIVE_CLONE,
     "IncorrectSrgbProfile.png": NEEDS_EXPLICIT_LIBPNG_PROFILE_WARNING,
     "Incorrect_Srgb_Profile.png": NEEDS_EXPLICIT_LIBPNG_PROFILE_WARNING,
-    "PLTE_Empty_Bad_Crc.png": NO_NONINTERACTIVE_CLONE,
-    "PLTE_Empty_Good_Crc.png": NO_NONINTERACTIVE_CLONE,
     "Unhandled-Critical-Chunk.png": NO_NONINTERACTIVE_CLONE,
     "chunk_private_critical.png": NO_NONINTERACTIVE_CLONE,
 }

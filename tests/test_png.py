@@ -19,6 +19,7 @@ from chunklate.png import (
     iter_chunks,
     read_chunks,
     repair_color_profile_chunks,
+    repair_empty_plte,
     repair_ihdr,
     repair_ihdr_from_idat,
     repair_ihdr_preserving_crc,
@@ -212,6 +213,33 @@ def test_repair_color_profile_chunks_can_remove_known_bad_srgb_iccp_when_request
     assert chunk_types[-1] == b"IEND"
 
 
+def test_repair_empty_plte_removes_optional_truecolor_palette():
+    original = (REPAIR_FIXTURES / "PLTE_Empty_Bad_Crc.png").read_bytes()
+
+    repaired = repair_empty_plte(original)
+
+    assert repaired is not None
+    chunks = list(iter_chunks(repaired.data))
+    assert b"PLTE" not in {chunk.chunk_type for chunk in chunks}
+    assert chunks[-1].chunk_type == b"IEND"
+    assert all(chunk.crc_ok for chunk in chunks)
+
+
+def test_repair_empty_plte_rebuilds_indexed_palette():
+    original = (REPAIR_FIXTURES / "PLTE_Empty_Good_Crc.png").read_bytes()
+
+    repaired = repair_empty_plte(original)
+
+    assert repaired is not None
+    chunks = list(iter_chunks(repaired.data))
+    plte = next(chunk for chunk in chunks if chunk.chunk_type == b"PLTE")
+    assert plte.length == 768
+    assert plte.data[:3] == b"\x00\x00\x00"
+    assert plte.data[-3:] == b"\xff\xff\xff"
+    assert plte.crc_ok
+    assert chunks[-1].chunk_type == b"IEND"
+
+
 def main():
     checks = [
         ("Read valid PNG chunks from fixture", test_read_valid_png_chunks_from_fixture),
@@ -240,6 +268,8 @@ def main():
             "Remove known bad sRGB iCCP profile when requested",
             test_repair_color_profile_chunks_can_remove_known_bad_srgb_iccp_when_requested,
         ),
+        ("Remove empty optional truecolor PLTE", test_repair_empty_plte_removes_optional_truecolor_palette),
+        ("Rebuild empty indexed PLTE", test_repair_empty_plte_rebuilds_indexed_palette),
     ]
 
     print("Running PNG parser tests")

@@ -58,6 +58,12 @@ class ColorProfileRepair:
     removed_chunks: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class PlteRepair:
+    data: bytes
+    strategy: str
+
+
 def find_signature_offset(data: bytes) -> int:
     return data.find(PNG_SIGNATURE)
 
@@ -135,6 +141,16 @@ def chunk_type_crc_matches(chunk_data: bytes, stored_crc: int, candidates: Itera
     ]
 
 
+def build_png_chunk(chunk_type: bytes, chunk_data: bytes) -> bytes:
+    crc = zlib.crc32(chunk_type + chunk_data) & 0xFFFFFFFF
+    return len(chunk_data).to_bytes(4, "big") + chunk_type + chunk_data + crc.to_bytes(4, "big")
+
+
+def replace_png_chunk(data: bytes, chunk: PngChunk, replacement: bytes) -> bytes:
+    chunk_end = chunk.offset + 12 + chunk.length
+    return data[: chunk.offset] + replacement + data[chunk_end:]
+
+
 def complete_iend_tail(data: bytes, insert_offset: int) -> bytes:
     tail = data[insert_offset:]
 
@@ -151,6 +167,103 @@ def complete_iend_tail(data: bytes, insert_offset: int) -> bytes:
         return data[:insert_offset] + IEND_CHUNK[: -len(tail)] + tail
 
     return data[:insert_offset] + IEND_CHUNK
+
+
+def _paeth_predictor(left: int, up: int, up_left: int) -> int:
+    estimate = left + up - up_left
+    distance_left = abs(estimate - left)
+    distance_up = abs(estimate - up)
+    distance_up_left = abs(estimate - up_left)
+
+    if distance_left <= distance_up and distance_left <= distance_up_left:
+        return left
+    if distance_up <= distance_up_left:
+        return up
+    return up_left
+
+
+def unfilter_scanlines(
+    filtered: bytes,
+    *,
+    width: int,
+    height: int,
+    bit_depth: int,
+    color_type: int,
+) -> bytes | None:
+    row_size = png_scanline_size(width, bit_depth, color_type)
+    if row_size is None:
+        return None
+    if len(filtered) != row_size * height:
+        return None
+
+    row_data_size = row_size - 1
+    bits_per_pixel = PNG_COLOR_SAMPLES[color_type] * bit_depth
+    bytes_per_pixel = max(1, (bits_per_pixel + 7) // 8)
+    previous = bytearray(row_data_size)
+    raw_rows = bytearray()
+
+    for row_index in range(height):
+        row_start = row_index * row_size
+        filter_type = filtered[row_start]
+        filtered_row = filtered[row_start + 1 : row_start + row_size]
+        row = bytearray(row_data_size)
+
+        for index, value in enumerate(filtered_row):
+            left = row[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+            up = previous[index]
+            up_left = previous[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+
+            if filter_type == 0:
+                repaired = value
+            elif filter_type == 1:
+                repaired = value + left
+            elif filter_type == 2:
+                repaired = value + up
+            elif filter_type == 3:
+                repaired = value + ((left + up) // 2)
+            elif filter_type == 4:
+                repaired = value + _paeth_predictor(left, up, up_left)
+            else:
+                return None
+
+            row[index] = repaired & 0xFF
+
+        raw_rows.extend(row)
+        previous = row
+
+    return bytes(raw_rows)
+
+
+def unpack_indexed_scanlines(raw_rows: bytes, *, width: int, height: int, bit_depth: int) -> list[int] | None:
+    if bit_depth not in (1, 2, 4, 8):
+        return None
+
+    row_data_size = (width * bit_depth + 7) // 8
+    if len(raw_rows) != row_data_size * height:
+        return None
+
+    indices = []
+    mask = (1 << bit_depth) - 1
+    for row_index in range(height):
+        row = raw_rows[row_index * row_data_size : (row_index + 1) * row_data_size]
+        row_indices = []
+
+        if bit_depth == 8:
+            row_indices = list(row[:width])
+        else:
+            for value in row:
+                for shift in range(8 - bit_depth, -1, -bit_depth):
+                    row_indices.append((value >> shift) & mask)
+                    if len(row_indices) == width:
+                        break
+                if len(row_indices) == width:
+                    break
+
+        if len(row_indices) != width:
+            return None
+        indices.extend(row_indices)
+
+    return indices
 
 
 def remove_png_chunks(data: bytes, should_remove) -> tuple[bytes, tuple[PngChunk, ...]] | None:
@@ -262,6 +375,107 @@ def repair_color_profile_chunks(
         data=repaired,
         strategy=", ".join(reasons),
         removed_chunks=removed_names,
+    )
+
+
+def _parse_ihdr_data(ihdr: PngChunk) -> tuple[int, int, int, int, int, int, int] | None:
+    if ihdr.chunk_type != b"IHDR" or ihdr.length != 13:
+        return None
+    return struct.unpack("!IIBBBBB", ihdr.data)
+
+
+def indexed_png_indices(data: bytes) -> list[int] | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    if ihdr is None:
+        return None
+
+    ihdr_values = _parse_ihdr_data(ihdr)
+    if ihdr_values is None:
+        return None
+
+    width, height, bit_depth, color_type, _method, _filter_method, interlace = ihdr_values
+    if color_type != 3 or bit_depth not in (1, 2, 4, 8) or interlace != 0:
+        return None
+
+    idat_data = b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
+    if not idat_data:
+        return None
+
+    try:
+        filtered = zlib.decompress(idat_data)
+    except zlib.error:
+        return None
+
+    raw_rows = unfilter_scanlines(
+        filtered,
+        width=width,
+        height=height,
+        bit_depth=bit_depth,
+        color_type=color_type,
+    )
+    if raw_rows is None:
+        return None
+
+    return unpack_indexed_scanlines(raw_rows, width=width, height=height, bit_depth=bit_depth)
+
+
+def grayscale_palette(entry_count: int) -> bytes | None:
+    if not 1 <= entry_count <= 256:
+        return None
+
+    palette = bytearray()
+    for index in range(entry_count):
+        value = 0 if entry_count == 1 else round(index * 255 / (entry_count - 1))
+        palette.extend((value, value, value))
+    return bytes(palette)
+
+
+def repair_empty_plte(data: bytes) -> PlteRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    plte = next((chunk for chunk in chunks if chunk.chunk_type == b"PLTE"), None)
+    if ihdr is None or plte is None or plte.length != 0:
+        return None
+
+    ihdr_values = _parse_ihdr_data(ihdr)
+    if ihdr_values is None:
+        return None
+
+    _width, _height, bit_depth, color_type, _method, _filter_method, _interlace = ihdr_values
+    if color_type in (0, 2, 4, 6):
+        return PlteRepair(
+            data=replace_png_chunk(data, plte, b""),
+            strategy="removed empty non-indexed PLTE chunk",
+        )
+
+    if color_type != 3 or bit_depth not in (1, 2, 4, 8):
+        return None
+
+    indices = indexed_png_indices(data)
+    if indices is None:
+        return None
+
+    max_entries = 2 ** bit_depth
+    entry_count = max(indices, default=0) + 1
+    if entry_count > max_entries:
+        return None
+
+    palette = grayscale_palette(entry_count)
+    if palette is None:
+        return None
+
+    return PlteRepair(
+        data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
+        strategy="rebuilt empty indexed PLTE as grayscale palette",
     )
 
 
