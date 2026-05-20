@@ -23,11 +23,14 @@ FIXTURES = ROOT / "Png_Errors_handled_by_Chunklate_So_Far"
 
 
 REPAIR_CASES = {
+    "Bad-Chunk-Lenght-Missing-Bit.png": (1, ("Bad-Chunk-Lenght-Missing-Bit.0_Fixed.png",)),
     "Bad-Chunk-Length-Missing-Bit.png": (1, ("Bad-Chunk-Length-Missing-Bit.0_Fixed.png",)),
     "Classic-Bad-Chunk-Crc.png": (1, ("Classic-Bad-Chunk-Crc.0_Fixed.png",)),
     "Classic-Bad-Chunk-Length.png": (1, ("Classic-Bad-Chunk-Length.0_Fixed.png",)),
     "IHDR-Wrong-Width-Bad-Crc.png": (1, ("IHDR-Wrong-Width-Bad-Crc.0_Fixed.png",)),
+    "IHDR-Wrong-Width.png": (1, ("IHDR-Wrong-Width.0_Fixed.png",)),
     "IHDR_Missplaced.png": (1, ("IHDR_Missplaced.0_Fixed.png",)),
+    "Missplaced_Ihdr.png": (1, ("Missplaced_Ihdr.0_Fixed.png",)),
     "No_Png_Header.png": (1, ("No_Png_Header.0_Fixed.png",)),
     "No_Png_Header_Corrupted_Length.png": (1, ("No_Png_Header_Corrupted_Length.0_Fixed.png",)),
     "No_Png_Header_Missing_Chunk_Corrupted.png": (
@@ -37,6 +40,10 @@ REPAIR_CASES = {
     "Private_Critical_Chunk_Bad_Crc.png": (2, ("Private_Critical_Chunk_Bad_Crc.1_Fixed.png",)),
     "Private_Critical_Chunk_Crc_Valid.png": (2, ("Private_Critical_Chunk_Crc_Valid.1_Fixed.png",)),
     "Wrong-Chunk-Name-Crc-Valid.png": (2, ("Wrong-Chunk-Name-Crc-Valid.1_Fixed.png",)),
+    "chunk_crc.png": (1, ("chunk_crc.0_Fixed.png",)),
+    "chunk_private_critical_badcrc.png": (2, ("chunk_private_critical_badcrc.1_Fixed.png",)),
+    "chunk_private_critical_goodcrc.png": (2, ("chunk_private_critical_goodcrc.1_Fixed.png",)),
+    "chunk_type.png": (2, ("chunk_type.1_Fixed.png",)),
 }
 
 
@@ -48,21 +55,27 @@ PILLOW_LENIENT_REPAIR_CASES = {
 
 
 UNCOVERED_REPAIR_CASES = {
-    "Bad-Chunk-Length-Exceeding-Bit.png": "writes a clone, but the repaired PNG is not yet structurally valid",
-    "Good-Chunk-lenght-Missing-Bit.png": "does not currently produce a clone in automatic mode",
-    "IEND_Missing.png": "writes a clone, but the repaired PNG is not yet structurally valid",
-    "IEND_Missing_And_Extra_Bytes.png": "writes a clone, but the repaired PNG is not yet structurally valid",
-    "IHDR-Messed-Up-Bad-Crc.png": "does not currently produce a clone in automatic mode",
-    "IHDR-Wrong-Height-Above-Estimated-Max-Resolution.png": (
-        "does not currently produce a clone in automatic mode"
+    "Bad-Chunk-Length-Exceeding-Bit.png": "known repair fixture; current candidate is not strict PNG/CRC-clean yet",
+    "Good-Chunk-lenght-Missing-Bit.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
+    "IEND_Missing.png": "known repair fixture; output opens in Pillow, but strict chunk parsing still sees incomplete IEND data",
+    "IEND_Missing_And_Extra_Bytes.png": (
+        "known repair fixture; output opens in Pillow, but strict chunk parsing still sees incomplete IEND data"
     ),
-    "IHDR_Messed_Up_Crc_Valid.png": "does not currently produce a clone in automatic mode",
-    "Incorrect_Srgb_Profile.png": "does not currently produce a clone in automatic mode",
-    "PLTE_Empty_Bad_Crc.png": "does not currently produce a clone in automatic mode",
-    "PLTE_Empty_Good_Crc.png": "does not currently produce a clone in automatic mode",
-    "Unhandled-Critical-Chunk.png": "does not currently produce a clone in automatic mode",
-    "Wrong-Chunk-Name-Bad-Crc.png": "requires an interactive chunk-name choice",
-    "gama_zero.png": "does not currently produce a clone in automatic mode",
+    "IHDR-Messed-Up-Bad-Crc.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
+    "IHDR-Wrong-Height-Above-Estimated-Max-Resolution.png": (
+        "known repair fixture; deterministic non-interactive regression still needs pinning"
+    ),
+    "IHDR-Wrong-Quick.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
+    "IHDR_Messed_Up_Crc_Valid.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
+    "IncorrectSrgbProfile.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
+    "Incorrect_Srgb_Profile.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
+    "PLTE_Empty_Bad_Crc.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
+    "PLTE_Empty_Good_Crc.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
+    "Unhandled-Critical-Chunk.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
+    "Wrong-Chunk-Name-Bad-Crc.png": "known repair fixture; requires an interactive chunk-name choice",
+    "chunk_private_critical.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
+    "gama_zero.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
+    "ihdr_image_size.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
 }
 
 
@@ -173,7 +186,7 @@ def run_repair_cases_verbose(tmp_path):
                 missing_or_invalid.append(f"missing {fixed_name}")
             elif not is_complete_png_with_valid_crc(fixed_path):
                 missing_or_invalid.append(f"invalid PNG/CRC {fixed_name}")
-            elif not pillow_verify_ok(fixed_path):
+            elif fixture_name not in PILLOW_LENIENT_REPAIR_CASES and not pillow_verify_ok(fixed_path):
                 missing_or_invalid.append(f"Pillow rejected {fixed_name}")
 
         if missing_or_invalid:
