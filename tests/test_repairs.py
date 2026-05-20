@@ -28,8 +28,15 @@ REPAIR_CASES = {
     "Bad-Chunk-Length-Exceeding-Bit.png": (1, ("Bad-Chunk-Length-Exceeding-Bit.0_Fixed.png",)),
     "Classic-Bad-Chunk-Crc.png": (1, ("Classic-Bad-Chunk-Crc.0_Fixed.png",)),
     "Classic-Bad-Chunk-Length.png": (1, ("Classic-Bad-Chunk-Length.0_Fixed.png",)),
+    "IHDR-Messed-Up-Bad-Crc.png": (1, ("IHDR-Messed-Up-Bad-Crc.0_Fixed.png",)),
+    "IHDR-Wrong-Height-Above-Estimated-Max-Resolution.png": (
+        1,
+        ("IHDR-Wrong-Height-Above-Estimated-Max-Resolution.0_Fixed.png",),
+    ),
+    "IHDR-Wrong-Quick.png": (1, ("IHDR-Wrong-Quick.0_Fixed.png",)),
     "IHDR-Wrong-Width-Bad-Crc.png": (1, ("IHDR-Wrong-Width-Bad-Crc.0_Fixed.png",)),
     "IHDR-Wrong-Width.png": (1, ("IHDR-Wrong-Width.0_Fixed.png",)),
+    "IHDR_Messed_Up_Crc_Valid.png": (1, ("IHDR_Messed_Up_Crc_Valid.0_Fixed.png",)),
     "IHDR_Missplaced.png": (1, ("IHDR_Missplaced.0_Fixed.png",)),
     "IEND_Missing.png": (1, ("IEND_Missing.0_Fixed.png",)),
     "IEND_Missing_And_Extra_Bytes.png": (1, ("IEND_Missing_And_Extra_Bytes.0_Fixed.png",)),
@@ -48,6 +55,7 @@ REPAIR_CASES = {
     "chunk_private_critical_badcrc.png": (2, ("chunk_private_critical_badcrc.1_Fixed.png",)),
     "chunk_private_critical_goodcrc.png": (2, ("chunk_private_critical_goodcrc.1_Fixed.png",)),
     "chunk_type.png": (2, ("chunk_type.1_Fixed.png",)),
+    "ihdr_image_size.png": (1, ("ihdr_image_size.0_Fixed.png",)),
 }
 
 
@@ -64,10 +72,6 @@ PILLOW_ONLY_REPAIR_CASES = {}
 NO_NONINTERACTIVE_CLONE = "non-interactive audit exits rc=1 before writing any _Fixed.png"
 UNCOVERED_REPAIR_CASES = {
     "Good-Chunk-lenght-Missing-Bit.png": NO_NONINTERACTIVE_CLONE,
-    "IHDR-Messed-Up-Bad-Crc.png": NO_NONINTERACTIVE_CLONE,
-    "IHDR-Wrong-Height-Above-Estimated-Max-Resolution.png": NO_NONINTERACTIVE_CLONE,
-    "IHDR-Wrong-Quick.png": NO_NONINTERACTIVE_CLONE,
-    "IHDR_Messed_Up_Crc_Valid.png": NO_NONINTERACTIVE_CLONE,
     "IncorrectSrgbProfile.png": NO_NONINTERACTIVE_CLONE,
     "Incorrect_Srgb_Profile.png": NO_NONINTERACTIVE_CLONE,
     "PLTE_Empty_Bad_Crc.png": NO_NONINTERACTIVE_CLONE,
@@ -75,7 +79,6 @@ UNCOVERED_REPAIR_CASES = {
     "Unhandled-Critical-Chunk.png": NO_NONINTERACTIVE_CLONE,
     "chunk_private_critical.png": NO_NONINTERACTIVE_CLONE,
     "gama_zero.png": NO_NONINTERACTIVE_CLONE,
-    "ihdr_image_size.png": NO_NONINTERACTIVE_CLONE,
 }
 
 

@@ -15,12 +15,17 @@ from chunklate.png import (
     complete_iend_tail,
     chunk_type_crc_matches,
     find_signature_offset,
+    infer_png_dimensions,
     iter_chunks,
     read_chunks,
+    repair_ihdr,
+    repair_ihdr_from_idat,
+    repair_ihdr_preserving_crc,
 )
 
 
 FIXTURE = ROOT / "schaik-javapng-samples" / "basn0g01.png"
+REPAIR_FIXTURES = ROOT / "Png_Errors_handled_by_Chunklate_So_Far"
 
 
 def test_read_valid_png_chunks_from_fixture():
@@ -94,6 +99,73 @@ def test_complete_iend_tail_reuses_existing_iend_suffix():
     assert repaired == b"prefix" + IEND_CHUNK
 
 
+def test_infer_png_dimensions_from_scanline_size():
+    dimensions = infer_png_dimensions(
+        decompressed_size=857768,
+        bit_depth=8,
+        color_type=2,
+        current_width=493,
+        current_height=65367,
+    )
+
+    assert dimensions == (477, 599)
+
+
+def test_repair_ihdr_from_idat_rebuilds_strict_header():
+    repaired = repair_ihdr_from_idat((REPAIR_FIXTURES / "IHDR_Messed_Up_Crc_Valid.png").read_bytes())
+
+    assert repaired is not None
+    first = next(iter_chunks(repaired))
+    assert first.chunk_type == b"IHDR"
+    assert first.data[:8] == b"\x00\x00\x00 \x00\x00\x00 "
+    assert first.crc_ok
+
+
+def test_repair_ihdr_preserving_crc_keeps_original_checksum():
+    original = (REPAIR_FIXTURES / "IHDR-Wrong-Width-Bad-Crc.png").read_bytes()
+    original_ihdr = chunk_at(original, len(PNG_SIGNATURE))
+
+    repaired = repair_ihdr_preserving_crc(original)
+
+    assert original_ihdr is not None
+    assert repaired is not None
+    first = next(iter_chunks(repaired))
+    assert first.data[:8] == b"\x00\x00\x01\xdd\x00\x00\x02W"
+    assert first.crc == original_ihdr.crc
+    assert first.crc_ok
+
+
+def test_repair_ihdr_uses_crc_preserving_strategy_first():
+    original = (REPAIR_FIXTURES / "IHDR-Messed-Up-Bad-Crc.png").read_bytes()
+    original_ihdr = chunk_at(original, len(PNG_SIGNATURE))
+
+    repaired = repair_ihdr(original)
+
+    assert original_ihdr is not None
+    assert repaired is not None
+    assert repaired.preserved_crc is True
+    first = next(iter_chunks(repaired.data))
+    assert first.data[:8] == b"\x00\x00\x01\x04\x00\x00\x00\xc3"
+    assert first.data[10:11] == b"\x00"
+    assert first.crc == original_ihdr.crc
+    assert first.crc_ok
+
+
+def test_repair_ihdr_falls_back_to_rebuild_when_stored_crc_is_not_original():
+    original = (REPAIR_FIXTURES / "IHDR_Messed_Up_Crc_Valid.png").read_bytes()
+    original_ihdr = chunk_at(original, len(PNG_SIGNATURE))
+
+    repaired = repair_ihdr(original)
+
+    assert original_ihdr is not None
+    assert repaired is not None
+    assert repaired.preserved_crc is False
+    first = next(iter_chunks(repaired.data))
+    assert first.data[:8] == b"\x00\x00\x00 \x00\x00\x00 "
+    assert first.crc != original_ihdr.crc
+    assert first.crc_ok
+
+
 def main():
     checks = [
         ("Read valid PNG chunks from fixture", test_read_valid_png_chunks_from_fixture),
@@ -104,6 +176,14 @@ def main():
         ("Find original chunk name from CRC", test_chunk_type_crc_matches_finds_original_name),
         ("Append complete IEND chunk", test_complete_iend_tail_appends_full_iend_chunk),
         ("Reuse existing IEND suffix", test_complete_iend_tail_reuses_existing_iend_suffix),
+        ("Infer dimensions from scanline size", test_infer_png_dimensions_from_scanline_size),
+        ("Rebuild IHDR from IDAT", test_repair_ihdr_from_idat_rebuilds_strict_header),
+        ("Repair IHDR while preserving stored CRC", test_repair_ihdr_preserving_crc_keeps_original_checksum),
+        ("Prefer CRC-preserving IHDR repair", test_repair_ihdr_uses_crc_preserving_strategy_first),
+        (
+            "Fallback to rebuilt IHDR when stored CRC is not original",
+            test_repair_ihdr_falls_back_to_rebuild_when_stored_crc_is_not_original,
+        ),
     ]
 
     print("Running PNG parser tests")

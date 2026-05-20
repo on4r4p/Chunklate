@@ -41,7 +41,7 @@ except ModuleNotFoundError:
     imagehash = None
 
 from chunklate import relics
-from chunklate.png import chunk_at, complete_iend_tail, chunk_type_crc_matches
+from chunklate.png import chunk_at, complete_iend_tail, chunk_type_crc_matches, repair_ihdr
 
 
 def Betterror(error_msg, def_name): ##useless since 3.11
@@ -10183,6 +10183,19 @@ def FixItFelix_Critical_Miss(key):
     return False, None
 
 
+def FixItFelix_Try_IHDR_Rebuild():
+    if not any("IHDR" in str(key) and ("GetInfo" in str(key) or "Wrong Crc" in str(key)) for key in PandoraBox):
+        return None
+
+    repair = repair_ihdr(bytes.fromhex(DATAX))
+    if repair is None:
+        return None
+
+    SideNotes.append("-FixItFelix:%s." % repair.strategy)
+    WriteClone(repair.data.hex(), "-%s." % repair.strategy)
+    return True
+
+
 def FixItFelix(Chunk=None):
     Candy("Title", "Fix It Felix: ", Candy("Color", "white", Chunk))
     ##TODOFIND A WAY TO MAKE IT READABLE
@@ -10257,6 +10270,10 @@ def FixItFelix(Chunk=None):
         PandoraBox_len = len(PandoraBox)
     else:
         PandoraBox_len = len(PandoraBox) - 1
+
+    IhdrRebuild = FixItFelix_Try_IHDR_Rebuild()
+    if IhdrRebuild is not None:
+        return IhdrRebuild
 
     for nb, key in enumerate(PandoraBox):
 
