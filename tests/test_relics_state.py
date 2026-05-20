@@ -5,6 +5,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from chunklate import relics
+
 CHUNKLATE = ROOT / "Chunklate.py"
 
 
@@ -40,6 +45,16 @@ def test_relic_build_tools_uses_legacy_tool_names():
         "IDAT_Tool_1": 12,
         "IDAT_Tool_2": 20,
     }
+
+
+def test_relics_module_uses_explicit_state_objects():
+    pandora_box = {}
+    tools = relics.build_tools(b"IDAT", ("newcrc", 12, 20))
+
+    key = relics.add_pandora_error(pandora_box, "Checksum", "Wrong Crc", tools)
+
+    assert key == "Checksum_Error_0:Wrong Crc"
+    assert pandora_box[key] is tools
 
 
 def test_pandorabox_add_keeps_legacy_error_numbering():
@@ -119,6 +134,7 @@ def test_pandemonium_snapshot_preserves_legacy_shared_reference():
 def main():
     checks = [
         ("Relic tools keep legacy key names", test_relic_build_tools_uses_legacy_tool_names),
+        ("Relics module uses explicit state objects", test_relics_module_uses_explicit_state_objects),
         ("PandoraBox keys keep legacy numbering", test_pandorabox_add_keeps_legacy_error_numbering),
         ("CheckPoint records current errors", test_checkpoint_records_current_errors_in_pandorabox),
         ("CheckPoint records fixed items", test_checkpoint_records_fixed_items_in_cornucopia),

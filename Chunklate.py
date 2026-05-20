@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-from collections.abc import Mapping, MutableMapping
 from argparse import ArgumentParser, SUPPRESS
 from datetime import datetime,timedelta
 from contextlib import contextmanager
@@ -40,6 +39,8 @@ try:
     import imagehash
 except ModuleNotFoundError:
     imagehash = None
+
+from chunklate import relics
 
 
 def Betterror(error_msg, def_name): ##useless since 3.11
@@ -89,66 +90,35 @@ def Error_Log(Err_to_log):
 # - WriteClone snapshots those two stores into Pandemonium/ArkOfCovenant so
 #   Relics can react to the repair history when libpng reports a later failure.
 def Relic_Chunk_Label(chunk):
-    if type(chunk) != bytes:
-        return chunk
-    try:
-        return chunk.decode(errors="ignore")
-    except Exception as e:
-        Betterror(e, inspect.stack()[0][3])
-        if DEBUG is True:
-            PRINT(
-                Candy("Color", "red", "Error Relic_Chunk_Label:%s")%
-                Candy("Color", "yellow", e),
-            )
-        return "johnnybytesme"
+    return relics.chunk_label(chunk)
 
 
 def Relic_Tool_Prefix(chunk):
-    return str(Relic_Chunk_Label(chunk)) + "_Tool_"
+    return relics.tool_prefix(chunk)
 
 
 def Relic_Build_Tools(chunk, toolkit):
-    prefix = Relic_Tool_Prefix(chunk)
-    return {prefix + str(Tnum): tool for Tnum, tool in enumerate(toolkit)}
+    return relics.build_tools(chunk, toolkit)
 
 
 def PandoraBox_Next_Error_Number(function):
-    Fnum = 0
-    for key in PandoraBox:
-        while key.startswith(str(function) + "_Error_" + str(Fnum)):
-            Fnum += 1
-    return Fnum
+    return relics.next_error_number(PandoraBox, function)
 
 
 def PandoraBox_Add(function, info, tools):
-    Fnum = PandoraBox_Next_Error_Number(function)
-    key = str(function) + "_Error_" + str(Fnum) + ":" + str(info)
-    PandoraBox[key] = tools
-    return key
+    return relics.add_pandora_error(PandoraBox, function, info, tools)
 
 
 def Cornucopia_Add(key, tools):
-    Cornucopia[key] = tools
-    return key
+    return relics.add_cornucopia_fix(Cornucopia, key, tools)
 
 
 def Pandemonium_Remember_Current_Sample():
-    # Keep the legacy shared-reference behavior for now. Relics currently sees
-    # the exact PandoraBox/Cornucopia objects that existed when the clone was
-    # written; changing this to a deep copy is a later behavioral decision.
-    Pandemonium[Sample] = PandoraBox
-    ArkOfCovenant[Sample] = Cornucopia
+    relics.remember_sample(Pandemonium, ArkOfCovenant, Sample, PandoraBox, Cornucopia)
 
 
 def Relic_Question_Hash(store, key, tool_prefix):
-    try:
-        return hash(
-            str(store[key][tool_prefix + "0"])
-            + str(store[key][tool_prefix + "1"])
-            + str(store[key][tool_prefix + "2"])
-        )
-    except Exception:
-        return hash(key)
+    return relics.question_hash(store, key, tool_prefix)
 
 
 def IDAT_Bytes_Nbr():  # tmpworkaround
