@@ -7,7 +7,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chunklate.png import PNG_SIGNATURE, PngFormatError, find_signature_offset, iter_chunks, read_chunks
+from chunklate.png import (
+    PNG_SIGNATURE,
+    PngFormatError,
+    chunk_type_crc_matches,
+    find_signature_offset,
+    iter_chunks,
+    read_chunks,
+)
 
 
 FIXTURE = ROOT / "schaik-javapng-samples" / "basn0g01.png"
@@ -48,12 +55,22 @@ def test_missing_signature_raises_format_error():
     raise AssertionError("Expected PngFormatError")
 
 
+def test_chunk_type_crc_matches_finds_original_name():
+    chunk_data = b"payload"
+    stored_crc = 0x96166E4F
+
+    matches = chunk_type_crc_matches(chunk_data, stored_crc, [b"IDAT", b"tEXt", b"pHYs"])
+
+    assert matches == [b"IDAT"]
+
+
 def main():
     checks = [
         ("Read valid PNG chunks from fixture", test_read_valid_png_chunks_from_fixture),
         ("Find PNG signature inside prefixed data", test_find_signature_inside_prefixed_data),
         ("Expose CRC mismatch without stopping parse", test_crc_mismatch_is_exposed_without_stopping_parse),
         ("Missing PNG signature raises PngFormatError", test_missing_signature_raises_format_error),
+        ("Find original chunk name from CRC", test_chunk_type_crc_matches_finds_original_name),
     ]
 
     print("Running PNG parser tests")

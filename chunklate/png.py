@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 import zlib
 
 
@@ -80,3 +80,11 @@ def iter_chunks(data: bytes, *, signature_offset: int | None = None) -> Iterator
 
 def read_chunks(path: str | Path) -> list[PngChunk]:
     return list(iter_chunks(Path(path).read_bytes()))
+
+
+def chunk_type_crc_matches(chunk_data: bytes, stored_crc: int, candidates: Iterable[bytes]) -> list[bytes]:
+    return [
+        chunk_type
+        for chunk_type in candidates
+        if zlib.crc32(chunk_type + chunk_data) & 0xFFFFFFFF == stored_crc
+    ]

@@ -41,6 +41,7 @@ except ModuleNotFoundError:
     imagehash = None
 
 from chunklate import relics
+from chunklate.png import chunk_type_crc_matches
 
 
 def Betterror(error_msg, def_name): ##useless since 3.11
@@ -8289,6 +8290,47 @@ def NameShift():
 
     TheEnd()
 
+
+def BruteChunk_Crc_Matches(candidates):
+    try:
+        chunk_data = bytes.fromhex(Raw_Data)
+        stored_crc = int(Raw_Crc, 16)
+    except Exception as e:
+        Betterror(e, inspect.stack()[0][3])
+        return []
+
+    return chunk_type_crc_matches(chunk_data, stored_crc, candidates)
+
+
+def BruteChunk_Save_Auto_Name(CType, FromError, ChunkName, reason):
+    if type(CType) == bytes:
+        CTypeBytes = CType
+    else:
+        CTypeBytes = str(CType).encode(errors="ignore")
+
+    Bchanged = sum(1 for old, new in zip(CTypeBytes, ChunkName) if old != new)
+    ChunkNameText = ChunkName.decode(errors="ignore")
+    SolvedMsg = (
+        "-Found Chunk[%s] has wrong name at offset: %s but BruteChunk changed %s bytes "
+        "turning it into a valid Chunk name: %s (%s)"
+        % (Orig_CT, CToffX, Bchanged, ChunkNameText, reason)
+    )
+
+    return CheckPoint(
+        True,
+        True,
+        "CheckChunkName",
+        Orig_CT,
+        [SolvedMsg],
+        ChunkName.hex(),
+        CToffI,
+        CToffI + 8,
+        Orig_CT,
+        SolvedMsg,
+        FromError,
+    )
+
+
 def BruteChunk(CType, LastCType, ChunkLen, FromError):
     Candy("Title", "Chunk Scrabble Solver:")
     ErrorA = False
@@ -8337,7 +8379,23 @@ def BruteChunk(CType, LastCType, ChunkLen, FromError):
     )
 
     Excluded = CheckChunkOrder(LastCType, "Fix")
-    for name in CHUNKS:
+    Candidates = [name for name in CHUNKS if name not in Excluded]
+    CrcMatches = BruteChunk_Crc_Matches(Candidates)
+    if len(CrcMatches) == 1:
+        ChunkName = CrcMatches[0]
+        PRINT(
+            "-"
+            + str(Candy("Color", "green", "CRC Solved."))
+            + str(Candy("Emoj", "good"))
+        )
+        Candy(
+            "Cowsay",
+            " Stored CRC matches chunk name: %s" % Candy("Color", "green", ChunkName.decode(errors="ignore")),
+            "good",
+        )
+        return BruteChunk_Save_Auto_Name(CType, FromError, ChunkName, "stored CRC matched candidate chunk name")
+
+    for name in Candidates:
         if name not in Excluded:
             Bingo = 0
             ChkLst = [i.lower() for i in name.decode(errors="ignore")]
