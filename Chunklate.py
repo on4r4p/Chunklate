@@ -10210,6 +10210,9 @@ def FixItFelix_Try_Color_Profile_Cleanup():
 
 
 def FixItFelix_Try_PLTE_Cleanup():
+    if not (AUTO or NODIALOGUE or MAX_SAVES is not None):
+        return None
+
     if not any("PLTE" in str(key) for key in PandoraBox):
         return None
 
