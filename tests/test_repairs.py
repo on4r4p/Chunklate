@@ -69,23 +69,25 @@ PILLOW_ONLY_REPAIR_CASES = {
 }
 
 
+NO_NONINTERACTIVE_CLONE = "non-interactive audit exits rc=1 before writing any _Fixed.png"
+INVALID_REPAIR_CANDIDATE = "writes one _Fixed.png candidate, but it fails strict PNG/CRC and Pillow"
+
+
 UNCOVERED_REPAIR_CASES = {
-    "Bad-Chunk-Length-Exceeding-Bit.png": "known repair fixture; current candidate is not strict PNG/CRC-clean yet",
-    "Good-Chunk-lenght-Missing-Bit.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
-    "IHDR-Messed-Up-Bad-Crc.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
-    "IHDR-Wrong-Height-Above-Estimated-Max-Resolution.png": (
-        "known repair fixture; deterministic non-interactive regression still needs pinning"
-    ),
-    "IHDR-Wrong-Quick.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
-    "IHDR_Messed_Up_Crc_Valid.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
-    "IncorrectSrgbProfile.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
-    "Incorrect_Srgb_Profile.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
-    "PLTE_Empty_Bad_Crc.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
-    "PLTE_Empty_Good_Crc.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
-    "Unhandled-Critical-Chunk.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
-    "chunk_private_critical.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
-    "gama_zero.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
-    "ihdr_image_size.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
+    "Bad-Chunk-Length-Exceeding-Bit.png": INVALID_REPAIR_CANDIDATE,
+    "Good-Chunk-lenght-Missing-Bit.png": NO_NONINTERACTIVE_CLONE,
+    "IHDR-Messed-Up-Bad-Crc.png": NO_NONINTERACTIVE_CLONE,
+    "IHDR-Wrong-Height-Above-Estimated-Max-Resolution.png": NO_NONINTERACTIVE_CLONE,
+    "IHDR-Wrong-Quick.png": NO_NONINTERACTIVE_CLONE,
+    "IHDR_Messed_Up_Crc_Valid.png": NO_NONINTERACTIVE_CLONE,
+    "IncorrectSrgbProfile.png": NO_NONINTERACTIVE_CLONE,
+    "Incorrect_Srgb_Profile.png": NO_NONINTERACTIVE_CLONE,
+    "PLTE_Empty_Bad_Crc.png": NO_NONINTERACTIVE_CLONE,
+    "PLTE_Empty_Good_Crc.png": NO_NONINTERACTIVE_CLONE,
+    "Unhandled-Critical-Chunk.png": NO_NONINTERACTIVE_CLONE,
+    "chunk_private_critical.png": NO_NONINTERACTIVE_CLONE,
+    "gama_zero.png": NO_NONINTERACTIVE_CLONE,
+    "ihdr_image_size.png": NO_NONINTERACTIVE_CLONE,
 }
 
 
