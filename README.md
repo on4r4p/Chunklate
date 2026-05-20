@@ -27,16 +27,55 @@
 
 ## Usage
 
+Install the runtime dependencies in a virtual environment:
+
+    python3 -m venv .venv
+    . .venv/bin/activate
+    python -m pip install -e .
+
+Run Chunklate on a PNG file:
+
+    chunklate -f path/to/file.png
+
+Or run it directly from the repository:
+
+    python Chunklate.py -f path/to/file.png
+
+Current CLI:
+
     usage: Chunklate.py [-h] [-f FILE] [-c] [-p] [-d] [-dp] [-ep] [-sp] [-stfu] [-a]
-    
+                       [--output-dir DIR] [--max-saves N]
+
     optional arguments:
       -h, --help            show this help message and exit
       -f FILE, --file FILE  File path.
-      -c, --clear           Clear screen at each saves.
+      -c, --CLEAR, --clear  CLEAR screen at each saves.
       -p, --pause           Pause at each saves.
-	  -d, --debug           Debug stuffs.
-	  -dp, --pause-debug    Pause at Debug stuffs.
-	  -ep, --pause-error    Pause at errors.
-	  -sp, --pause-dialogue Pause at dialogues.
-	  -stfu, --shut-the-fuck-up Show minimal output.
-	  -a, --auto            Auto Choose action.
+      -d, --debug           Debug stuffs.
+      -dp, --pause-debug    Pause at Debug stuffs.
+      -ep, --pause-error    Pause at errors.
+      -sp, --pause-dialogue Pause at dialogues.
+      -stfu, --shut-the-fuck-up Show minimal output.
+      -a, --auto            Auto Choose action.
+      --output-dir DIR      Directory where Folder_* repair outputs are written.
+      --max-saves N         Exit successfully after writing N repaired files.
+
+## Development
+
+Install development dependencies:
+
+    python -m pip install -e ".[dev]"
+
+Run the smoke tests:
+
+    pytest
+
+Run only the repair regression tests:
+
+    pytest tests/test_repairs.py
+
+Or without pytest:
+
+    ./tests/test_cli.py
+    ./tests/test_png.py
+    ./tests/test_repairs.py

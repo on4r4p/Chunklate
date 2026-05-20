@@ -1,13 +1,45 @@
-#!/usr/bin/python3.11
+#!/usr/bin/env python3
 from collections.abc import Mapping, MutableMapping
 from argparse import ArgumentParser, SUPPRESS
 from datetime import datetime,timedelta
 from contextlib import contextmanager
-from PIL import Image,ImageShow,ImageTk
-from inputimeout import inputimeout
-import numpy as np
-import tkinter
-import sys, os, binascii, re, random, time, zlib, cv2, ctypes, struct,io, tempfile, inspect, types, difflib, collections, math, itertools, psutil,imagehash
+try:
+    from PIL import Image,ImageShow,ImageTk
+except ModuleNotFoundError:
+    Image = ImageShow = ImageTk = None
+
+try:
+    from inputimeout import inputimeout
+except ModuleNotFoundError:
+    def inputimeout(prompt="", timeout=None):
+        return input(prompt)
+
+try:
+    import numpy as np
+except ModuleNotFoundError:
+    np = None
+
+try:
+    import tkinter
+except ModuleNotFoundError:
+    tkinter = None
+
+import sys, os, binascii, re, random, time, zlib, ctypes, struct,io, tempfile, inspect, types, difflib, collections, math, itertools, shutil
+
+try:
+    import cv2
+except ModuleNotFoundError:
+    cv2 = None
+
+try:
+    import psutil
+except ModuleNotFoundError:
+    psutil = None
+
+try:
+    import imagehash
+except ModuleNotFoundError:
+    imagehash = None
 
 
 def Betterror(error_msg, def_name): ##useless since 3.11
@@ -4856,7 +4888,7 @@ def Candy(mode, arg, data=None):
     if mode == "Emoj":
         if arg == "good":
             good = [
-                "¯\(◉‿◉)/¯",
+                "¯\\(◉‿◉)/¯",
                 "ᕦ(ò_óˇ)ᕤ",
                 "(ง ͡ʘ ͜ʖ ͡ʘ)ง",
                 "^• ̮•^",
@@ -4982,7 +5014,7 @@ def Candy(mode, arg, data=None):
                 "ヽ(ｏ`皿′ｏ)ﾉ",
                 "凸ಠ益ಠ)凸",
                 "╯‵Д′)╯彡┻━┻",
-                "¯\_(⊙︿⊙)_/¯",
+                "¯\\_(⊙︿⊙)_/¯",
                 "ಠ︵ಠ 凸",
                 "ヽ(`Д´)ﾉ",
                 "(╯°□°）╯︵ ┻━┻",
@@ -5000,7 +5032,7 @@ def Candy(mode, arg, data=None):
                 "┐(￣ヘ￣)┌",
                 "༼☯﹏☯༽",
                 "(° -°） ︵ ┻━┻ ",
-                "┻━┻︵ \(°□°)/ ︵ ┻━┻ ",
+                "┻━┻︵ \\(°□°)/ ︵ ┻━┻ ",
                 "◕ ︵◕ ",
                 "( ◡ ︵◡ )",
                 "(；⌣̀_⌣́)",
@@ -8804,6 +8836,7 @@ def WriteClone(data,infos):
     global Pandemonium
     global ArkOfCovenant
     global SideNotes
+    global SAVE_COUNT
 
     Pandemonium[Sample] = PandoraBox
     ArkOfCovenant[Sample] = Cornucopia
@@ -8823,6 +8856,7 @@ def WriteClone(data,infos):
        with open(dir + "/" + name, "wb") as f:
            f.write(data)
        Sample = dir + "/" + name
+       SAVE_COUNT += 1
     except Exception as e:
         Betterror(e, inspect.stack()[0][3])
         PRINT(
@@ -8836,6 +8870,10 @@ def WriteClone(data,infos):
         Pause("-Saved Press Return to continue:")
 
     Summarise(infos)
+
+    if MAX_SAVES is not None and SAVE_COUNT >= MAX_SAVES:
+        PRINT("-Max saves reached: %s" % MAX_SAVES)
+        sys.exit(0)
 
     return None
 
@@ -10098,7 +10136,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
 
     Candy("Title", "CheckPoint")
     PRINT(
-        """
+        r"""
    ( (
     ) )
   ........
@@ -10285,6 +10323,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                             Candy("Cowsay", "At the cost of one beautiful white rectangle in the middle of that image..", "bad")
                             Candy("Cowsay", "What do you say ? Otherwise Chunklate is going to exit .", "com")
                             Answer = Question()
+                            ###Good luck with that .
                             if Answer is True:
                                     SideNotes.append("-CheckPoint:User choose to replace IDAT: %s" % info)
                                     if "OldCrc" in info:
@@ -10570,6 +10609,8 @@ def main():
     global Sample_Name
     global Have_A_KitKat
     global StopBar
+    global MAX_SAVES
+    global SAVE_COUNT
 
     parser = ArgumentParser()
     parser.add_argument(
@@ -10578,6 +10619,7 @@ def main():
     parser.add_argument(
         "-c",
         "--CLEAR",
+        "--clear",
         dest="CLEAR",
         help="CLEAR screen at each saves.",
         action="store_true",
@@ -10620,6 +10662,21 @@ def main():
     parser.add_argument(
         "-a", "--auto", dest="AUTO", help="Auto Choose action.", action="store_true"
     )
+    parser.add_argument(
+        "--output-dir",
+        dest="OUTPUT_DIR",
+        help="Directory where Folder_* repair outputs are written.",
+        default=None,
+        metavar="DIR",
+    )
+    parser.add_argument(
+        "--max-saves",
+        dest="MAX_SAVES",
+        help="Exit successfully after writing N repaired files.",
+        type=int,
+        default=None,
+        metavar="N",
+    )
 
     Args, unknown = parser.parse_known_args()
     unknown = " ".join([i for i in unknown])
@@ -10639,8 +10696,16 @@ def main():
     if Args.FILENAME is None:
         print("-f,--filename arguments is missing.")
         sys.exit(1)
+    if Args.MAX_SAVES is not None and Args.MAX_SAVES < 1:
+        print("--max-saves arguments must be greater than zero.")
+        sys.exit(1)
 
     FILE_Origin = Args.FILENAME
+    if Args.OUTPUT_DIR is None:
+        FILE_DIR = ""
+    else:
+        FILE_DIR = os.path.join(os.path.abspath(Args.OUTPUT_DIR), "")
+        os.makedirs(FILE_DIR, exist_ok=True)
     CLEAR = Args.CLEAR
     PAUSE = Args.PAUSE
     PAUSEDEBUG = Args.PAUSEDEBUG
@@ -10649,6 +10714,8 @@ def main():
     NODIALOGUE = Args.NODIALOGUE
     DEBUG = Args.DEBUG
     AUTO = Args.AUTO
+    MAX_SAVES = Args.MAX_SAVES
+    SAVE_COUNT = 0
     Sample = FILE_Origin
 
     if PAUSEDEBUG is True:
@@ -11041,7 +11108,7 @@ Pandemonium = {}
 
 libc = ctypes.CDLL(None)
 c_stderr = ctypes.c_void_p.in_dll(libc, "stderr")
-MAXCHAR = int(os.get_terminal_size(0)[0]) - 1
+MAXCHAR = shutil.get_terminal_size(fallback=(120, 24)).columns - 1
 # TMPFIX = False
 
 FirStart = True
@@ -11086,6 +11153,8 @@ PAUSEDIALOGUE = False
 NODIALOGUE = False
 AUTO = False
 CLONESWAR = False
+MAX_SAVES = None
+SAVE_COUNT = 0
 
 FishPos = 0
 LenFishList = 0

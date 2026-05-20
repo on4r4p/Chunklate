@@ -1,0 +1,37 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+.venv/
+venv/
+env/
+.env
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+Chunklate_Errors.log
+Folder_*/
+*_Fixed.png
+png_to_check/*.png
+scratch/
+
+# Local scratch media at repository root. Tracked fixtures are unaffected.
+/*.gif
+/*.jpeg
+/*.jpg
+/*.png
+
+# Historical/research snapshots kept out of the active code path.
+old/
+zlib/
+*.save.py
+*.save.*
+*.solong
+
+dist/
+build/
+*.egg-info/
