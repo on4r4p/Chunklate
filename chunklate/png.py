@@ -83,6 +83,27 @@ def read_chunks(path: str | Path) -> list[PngChunk]:
     return list(iter_chunks(Path(path).read_bytes()))
 
 
+def chunk_at(data: bytes, offset: int) -> PngChunk | None:
+    if offset < 0 or len(data) - offset < 12:
+        return None
+
+    length = int.from_bytes(data[offset : offset + 4], "big")
+    data_start = offset + 8
+    data_end = data_start + length
+    crc_end = data_end + 4
+
+    if crc_end > len(data):
+        return None
+
+    return PngChunk(
+        offset=offset,
+        length=length,
+        chunk_type=data[offset + 4 : offset + 8],
+        data=data[data_start:data_end],
+        crc=int.from_bytes(data[data_end:crc_end], "big"),
+    )
+
+
 def chunk_type_crc_matches(chunk_data: bytes, stored_crc: int, candidates: Iterable[bytes]) -> list[bytes]:
     return [
         chunk_type

@@ -25,6 +25,7 @@ FIXTURES = ROOT / "Png_Errors_handled_by_Chunklate_So_Far"
 REPAIR_CASES = {
     "Bad-Chunk-Lenght-Missing-Bit.png": (1, ("Bad-Chunk-Lenght-Missing-Bit.0_Fixed.png",)),
     "Bad-Chunk-Length-Missing-Bit.png": (1, ("Bad-Chunk-Length-Missing-Bit.0_Fixed.png",)),
+    "Bad-Chunk-Length-Exceeding-Bit.png": (1, ("Bad-Chunk-Length-Exceeding-Bit.0_Fixed.png",)),
     "Classic-Bad-Chunk-Crc.png": (1, ("Classic-Bad-Chunk-Crc.0_Fixed.png",)),
     "Classic-Bad-Chunk-Length.png": (1, ("Classic-Bad-Chunk-Length.0_Fixed.png",)),
     "IHDR-Wrong-Width-Bad-Crc.png": (1, ("IHDR-Wrong-Width-Bad-Crc.0_Fixed.png",)),
@@ -61,11 +62,7 @@ PILLOW_ONLY_REPAIR_CASES = {}
 
 
 NO_NONINTERACTIVE_CLONE = "non-interactive audit exits rc=1 before writing any _Fixed.png"
-INVALID_REPAIR_CANDIDATE = "writes one _Fixed.png candidate, but it fails strict PNG/CRC and Pillow"
-
-
 UNCOVERED_REPAIR_CASES = {
-    "Bad-Chunk-Length-Exceeding-Bit.png": INVALID_REPAIR_CANDIDATE,
     "Good-Chunk-lenght-Missing-Bit.png": NO_NONINTERACTIVE_CLONE,
     "IHDR-Messed-Up-Bad-Crc.png": NO_NONINTERACTIVE_CLONE,
     "IHDR-Wrong-Height-Above-Estimated-Max-Resolution.png": NO_NONINTERACTIVE_CLONE,

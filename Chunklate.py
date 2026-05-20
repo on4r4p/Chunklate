@@ -41,7 +41,7 @@ except ModuleNotFoundError:
     imagehash = None
 
 from chunklate import relics
-from chunklate.png import complete_iend_tail, chunk_type_crc_matches
+from chunklate.png import chunk_at, complete_iend_tail, chunk_type_crc_matches
 
 
 def Betterror(error_msg, def_name): ##useless since 3.11
@@ -7586,6 +7586,39 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
         TheEnd()
 
 
+def Remove_Extra_Bytes_Before_Chunk(CType, LastCType, Excluded):
+    if any(c == CType for c in CHUNKS):
+        return None
+
+    data = bytes.fromhex(DATAX)
+    current_offset = int(CLoffI / 2)
+    candidates = set(ALLCHUNKS) - set(Excluded)
+
+    for extra_bytes in range(1, 9):
+        candidate_offset = current_offset + extra_bytes
+        candidate = chunk_at(data, candidate_offset)
+        if candidate is None:
+            continue
+        if candidate.chunk_type not in candidates:
+            continue
+        if not candidate.crc_ok:
+            continue
+
+        SolvedMsg = (
+            "-Found %s extra byte(s) before Chunk[%s] after Chunk[%s] at offset: %s"
+            % (
+                extra_bytes,
+                candidate.chunk_type.decode(errors="ignore"),
+                LastCType.decode(errors="ignore"),
+                hex(current_offset),
+            )
+        )
+        SideNotes.append("-Remove_Extra_Bytes_Before_Chunk:%s" % SolvedMsg)
+        return SaveClone("", CLoffI, CLoffI + (extra_bytes * 2), SolvedMsg)
+
+    return None
+
+
 def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
     Candy("Title", "Chunk N Destroy:")
     Candy("Cowsay", "Now where shall i start..?", "com")
@@ -7594,6 +7627,10 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
     else:
         Candy("Cowsay", " ==Safety Off==", "com")
         Excluded = []
+
+    CleanExtraBytes = Remove_Extra_Bytes_Before_Chunk(CType, LastCType, Excluded)
+    if CleanExtraBytes is not None:
+        return CleanExtraBytes
 
     if not any(c == CType for c in CHUNKS):
           for ch, chi in zip(Chunks_History, Chunks_History_Index):

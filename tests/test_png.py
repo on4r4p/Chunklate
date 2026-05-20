@@ -11,6 +11,7 @@ from chunklate.png import (
     IEND_CHUNK,
     PNG_SIGNATURE,
     PngFormatError,
+    chunk_at,
     complete_iend_tail,
     chunk_type_crc_matches,
     find_signature_offset,
@@ -57,6 +58,17 @@ def test_missing_signature_raises_format_error():
     raise AssertionError("Expected PngFormatError")
 
 
+def test_chunk_at_reads_one_chunk_without_stream_context():
+    data = FIXTURE.read_bytes()
+
+    chunk = chunk_at(data, len(PNG_SIGNATURE))
+
+    assert chunk is not None
+    assert chunk.chunk_type == b"IHDR"
+    assert chunk.length == 13
+    assert chunk.crc_ok
+
+
 def test_chunk_type_crc_matches_finds_original_name():
     chunk_data = b"payload"
     stored_crc = 0x96166E4F
@@ -88,6 +100,7 @@ def main():
         ("Find PNG signature inside prefixed data", test_find_signature_inside_prefixed_data),
         ("Expose CRC mismatch without stopping parse", test_crc_mismatch_is_exposed_without_stopping_parse),
         ("Missing PNG signature raises PngFormatError", test_missing_signature_raises_format_error),
+        ("Read one chunk at an explicit offset", test_chunk_at_reads_one_chunk_without_stream_context),
         ("Find original chunk name from CRC", test_chunk_type_crc_matches_finds_original_name),
         ("Append complete IEND chunk", test_complete_iend_tail_appends_full_iend_chunk),
         ("Reuse existing IEND suffix", test_complete_iend_tail_reuses_existing_iend_suffix),
