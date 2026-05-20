@@ -55,6 +55,8 @@ def test_relics_module_uses_explicit_state_objects():
 
     assert key == "Checksum_Error_0:Wrong Crc"
     assert pandora_box[key] is tools
+    assert relics.tool_key("IDAT_Tool_", 1) == "IDAT_Tool_1"
+    assert relics.tool_value(tools, "IDAT_Tool_", 1) == 12
 
 
 def test_pandorabox_add_keeps_legacy_error_numbering():

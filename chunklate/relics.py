@@ -25,6 +25,14 @@ def build_tools(chunk: Any, toolkit: tuple[Any, ...]) -> dict[str, Any]:
     return {prefix + str(index): tool for index, tool in enumerate(toolkit)}
 
 
+def tool_key(prefix: str, index: int | str) -> str:
+    return prefix + str(index)
+
+
+def tool_value(tools: Mapping[str, Any], prefix: str, index: int | str) -> Any:
+    return tools[tool_key(prefix, index)]
+
+
 def next_error_number(pandora_box: Mapping[str, Any], function: Any) -> int:
     number = 0
     for key in pandora_box:

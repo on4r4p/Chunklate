@@ -101,6 +101,26 @@ def Relic_Build_Tools(chunk, toolkit):
     return relics.build_tools(chunk, toolkit)
 
 
+def Relic_Tool_Key(tool_prefix, index):
+    return relics.tool_key(tool_prefix, index)
+
+
+def Relic_Tool_Value(tools, tool_prefix, index):
+    return relics.tool_value(tools, tool_prefix, index)
+
+
+def PandoraBox_Tool(key, tool_prefix, index):
+    return Relic_Tool_Value(PandoraBox[key], tool_prefix, index)
+
+
+def Cornucopia_Tool(key, tool_prefix, index):
+    return Relic_Tool_Value(Cornucopia[key], tool_prefix, index)
+
+
+def Pandemonium_Tool(file, error, tool_prefix, index):
+    return Relic_Tool_Value(Pandemonium[file][error], tool_prefix, index)
+
+
 def PandoraBox_Next_Error_Number(function):
     return relics.next_error_number(PandoraBox, function)
 
@@ -9022,16 +9042,16 @@ def Relics(FromError):
                         Answer = Question(id=key,idhash=uniqh)
                         if Answer is True:
                             return SaveClone(
-                                PandoraBox[key][chkd + "0"],
-                                PandoraBox[key][chkd + "1"],
-                                PandoraBox[key][chkd + "2"],
+                                PandoraBox_Tool(key, chkd, 0),
+                                PandoraBox_Tool(key, chkd, 1),
+                                PandoraBox_Tool(key, chkd, 2),
                                 (
                                     "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
                                     % (
-                                        PandoraBox[key][chkd + "3"],
-                                        PandoraBox[key][chkd + "4"],
-                                        PandoraBox[key][chkd + "0"],
-                                        PandoraBox[key][chkd + "5"],
+                                        PandoraBox_Tool(key, chkd, 3),
+                                        PandoraBox_Tool(key, chkd, 4),
+                                        PandoraBox_Tool(key, chkd, 0),
+                                        PandoraBox_Tool(key, chkd, 5),
                                     )
                                 ),
                             )
@@ -9075,10 +9095,11 @@ def Relics(FromError):
                                         "good",
                                         )
 
-                                    Chunk = Pandemonium[file][errors][Chunkname + "_Tool_3"]
-                                    Crc_to_match = Pandemonium[file][errors][Chunkname + "_Tool_5"]
-                                    ChunkLength = Pandemonium[file][errors][Chunkname + "_Tool_6"]
-                                    DataOffset = Pandemonium[file][errors][Chunkname + "_Tool_7"]
+                                    chunk_tool_prefix = Chunkname + "_Tool_"
+                                    Chunk = Pandemonium_Tool(file, errors, chunk_tool_prefix, 3)
+                                    Crc_to_match = Pandemonium_Tool(file, errors, chunk_tool_prefix, 5)
+                                    ChunkLength = Pandemonium_Tool(file, errors, chunk_tool_prefix, 6)
+                                    DataOffset = Pandemonium_Tool(file, errors, chunk_tool_prefix, 7)
 
                                     SmashBruteBrawl(
                                         FILE_Origin,
@@ -9285,10 +9306,11 @@ def Relics(FromError):
                         )
                         #PRINT("Chunkname:%s"% Chunkname)
                         # def Checksum(Ctype, Cdata, Crc,next=None):
-                        Chunk = Pandemonium[file][errors][Chunkname + "_Tool_3"]
-                        Crc_to_match = Pandemonium[file][errors][Chunkname + "_Tool_5"]
-                        ChunkLength = Pandemonium[file][errors][Chunkname + "_Tool_6"]
-                        DataOffset = Pandemonium[file][errors][Chunkname + "_Tool_7"]
+                        chunk_tool_prefix = Chunkname + "_Tool_"
+                        Chunk = Pandemonium_Tool(file, errors, chunk_tool_prefix, 3)
+                        Crc_to_match = Pandemonium_Tool(file, errors, chunk_tool_prefix, 5)
+                        ChunkLength = Pandemonium_Tool(file, errors, chunk_tool_prefix, 6)
+                        DataOffset = Pandemonium_Tool(file, errors, chunk_tool_prefix, 7)
                         if nb1 == 0:
                             if Chunkname != "IDAT":
                                 SmashBruteBrawl(
@@ -9366,16 +9388,13 @@ def Relics(FromError):
                                 ]
                             )
 
-                        ChunkLength = Pandemonium[file][errors][ChunkName + "_Tool_1"]
-                        DataOffset = Pandemonium[file][errors][ChunkName + "_Tool_3"]
+                        chunk_tool_prefix = ChunkName + "_Tool_"
+                        ChunkLength = Pandemonium_Tool(file, errors, chunk_tool_prefix, 1)
+                        DataOffset = Pandemonium_Tool(file, errors, chunk_tool_prefix, 3)
 
                         if ChunkName.encode() in CRITICAL_CHUNKS:
-                            ChunkLength = Pandemonium[file][errors][
-                                ChunkName + "_Tool_1"
-                            ]
-                            DataOffset = Pandemonium[file][errors][
-                                ChunkName + "_Tool_3"
-                            ]
+                            ChunkLength = Pandemonium_Tool(file, errors, chunk_tool_prefix, 1)
+                            DataOffset = Pandemonium_Tool(file, errors, chunk_tool_prefix, 3)
                             Candy(
                                 "Cowsay",
                                 "Ok it's time to brute force that dummy %s chunk .."
@@ -9718,16 +9737,16 @@ def FixItFelix(Chunk=None):
                     Answer = Question(id=key,idhash=uniqh)
                     if Answer is True:
                         return SaveClone(
-                            PandoraBox[key][chkd + "0"],
-                            PandoraBox[key][chkd + "1"],
-                            PandoraBox[key][chkd + "2"],
+                            PandoraBox_Tool(key, chkd, 0),
+                            PandoraBox_Tool(key, chkd, 1),
+                            PandoraBox_Tool(key, chkd, 2),
                             (
                                 "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
                                 % (
-                                    PandoraBox[key][chkd + "3"],
-                                    PandoraBox[key][chkd + "4"],
-                                    PandoraBox[key][chkd + "0"],
-                                    PandoraBox[key][chkd + "5"],
+                                    PandoraBox_Tool(key, chkd, 3),
+                                    PandoraBox_Tool(key, chkd, 4),
+                                    PandoraBox_Tool(key, chkd, 0),
+                                    PandoraBox_Tool(key, chkd, 5),
                                 )
                             ),
                         )
@@ -9750,23 +9769,23 @@ def FixItFelix(Chunk=None):
                 Answer = Question(id=key,idhash=uniqh)
                 if Answer is False:
                     return SaveClone(
-                        PandoraBox[key][chkd + "0"],
-                        PandoraBox[key][chkd + "1"],
-                        PandoraBox[key][chkd + "2"],
+                        PandoraBox_Tool(key, chkd, 0),
+                        PandoraBox_Tool(key, chkd, 1),
+                        PandoraBox_Tool(key, chkd, 2),
                         (
                             "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
                             % (
-                                PandoraBox[key][chkd + "3"],
-                                PandoraBox[key][chkd + "4"],
-                                PandoraBox[key][chkd + "0"],
-                                PandoraBox[key][chkd + "5"],
+                                PandoraBox_Tool(key, chkd, 3),
+                                PandoraBox_Tool(key, chkd, 4),
+                                PandoraBox_Tool(key, chkd, 0),
+                                PandoraBox_Tool(key, chkd, 5),
                             )
                         ),
                     )
                 else:
                     ChunkStory(
                         "add",
-                        PandoraBox[key][chkd + "3"],
+                        PandoraBox_Tool(key, chkd, 3),
                         CLoffI,
                         CrcoffI + 8,
                         int(Orig_CL, 16),
@@ -9787,7 +9806,7 @@ def FixItFelix(Chunk=None):
                     #            int(Orig_CL, 16),
                     #            CDoffI,
                     #        )
-                    Old_Bad_Crc = PandoraBox[key][chkd + "5"]
+                    Old_Bad_Crc = PandoraBox_Tool(key, chkd, 5)
                     Skip_Bad_Crc = True
 
             else:
@@ -9834,12 +9853,12 @@ def FixItFelix(Chunk=None):
                         TheEnd()
 
             else:
-                PRINT("\n-\033[1;32;49mSolved\033[m: %s"% Cornucopia[key][chkd + "3"])
+                PRINT("\n-\033[1;32;49mSolved\033[m: %s"% Cornucopia_Tool(key, chkd, 3))
                 SaveClone(
-                    Cornucopia[key][chkd + "0"],
-                    Cornucopia[key][chkd + "1"],
-                    Cornucopia[key][chkd + "2"],
-                    Cornucopia[key][chkd + "3"],
+                    Cornucopia_Tool(key, chkd, 0),
+                    Cornucopia_Tool(key, chkd, 1),
+                    Cornucopia_Tool(key, chkd, 2),
+                    Cornucopia_Tool(key, chkd, 3),
                 )
 
                 return GroundhogDay(Sample)
@@ -9850,7 +9869,7 @@ def FixItFelix(Chunk=None):
 
                 if str(key) not in Cornucopia:
                     PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-                    Ancillary(PandoraBox[key][chkd + "0"])
+                    Ancillary(PandoraBox_Tool(key, chkd, 0))
 
                     if Bad_Ancillary is True:
                         Candy(
@@ -9915,9 +9934,9 @@ def FixItFelix(Chunk=None):
                         if Answer is True:
 
                             return NearbyChunk(
-                                PandoraBox[key][chkd + "0"],
-                                PandoraBox[key][chkd + "1"],
-                                PandoraBox[key][chkd + "2"],
+                                PandoraBox_Tool(key, chkd, 0),
+                                PandoraBox_Tool(key, chkd, 1),
+                                PandoraBox_Tool(key, chkd, 2),
                                 False,
                                 key,
                             )
@@ -9942,21 +9961,21 @@ def FixItFelix(Chunk=None):
                     Answer = Question(id=key,idhash=uniqh)
                     if Answer is True:
                         return BruteChunk(
-                            PandoraBox[key][chkd + "0"],
-                            PandoraBox[key][chkd + "3"],
-                            PandoraBox[key][chkd + "1"],
+                            PandoraBox_Tool(key, chkd, 0),
+                            PandoraBox_Tool(key, chkd, 3),
+                            PandoraBox_Tool(key, chkd, 1),
                             str(key),
                         )
 
                     else:
                         Skip_Bad_Current_Name = True
                 else:
-                    PRINT("\n-\033[1;32;49mSolved\033[m: %s"% Cornucopia[key][chkd + "4"])
+                    PRINT("\n-\033[1;32;49mSolved\033[m: %s"% Cornucopia_Tool(key, chkd, 4))
                     return SaveClone(
-                        Cornucopia[key][chkd + "0"],
-                        Cornucopia[key][chkd + "1"],
-                        Cornucopia[key][chkd + "2"],
-                        Cornucopia[key][chkd + "3"],
+                        Cornucopia_Tool(key, chkd, 0),
+                        Cornucopia_Tool(key, chkd, 1),
+                        Cornucopia_Tool(key, chkd, 2),
+                        Cornucopia_Tool(key, chkd, 3),
                     )
                     pass
 
@@ -9964,7 +9983,7 @@ def FixItFelix(Chunk=None):
             if Skip_Bad_No_Next_Chunk is False:
                 PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
                 GoodEnding = "0000000049454e44ae426082"
-                if Chunk == b"IEND" and int(PandoraBox[key][chkd + "1"]) == 0:
+                if Chunk == b"IEND" and int(PandoraBox_Tool(key, chkd, 1)) == 0:
                     for key in PandoraBox:
                         if "No NextChunk" in str(key):
                             Candy(
@@ -10016,7 +10035,7 @@ def FixItFelix(Chunk=None):
                            PRINT("-Exceptation: %s"%(str(GoodEnding)))
                            PRINT("-Reality: %s"%(str(DATAX[-len(GoodEnding) :])))
                            TheEnd()
-                elif PandoraBox[key][chkd + "0"] == b"IEND":
+                elif PandoraBox_Tool(key, chkd, 0) == b"IEND":
                     PRINT(
                         "-%s length for IEND %s "
                         % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
@@ -10108,9 +10127,9 @@ def FixItFelix(Chunk=None):
                     Answer = Question(id=key,idhash=uniqh)
                     if Answer is True:
                         return NearbyChunk(
-                            PandoraBox[key][chkd + "0"],
-                            PandoraBox[key][chkd + "1"],
-                            PandoraBox[key][chkd + "2"],
+                            PandoraBox_Tool(key, chkd, 0),
+                            PandoraBox_Tool(key, chkd, 1),
+                            PandoraBox_Tool(key, chkd, 2),
                             False,
                             key,
                         )
