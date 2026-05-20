@@ -9743,6 +9743,358 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
     return False, None
 
 
+def FixItFelix_Libpng_Error(key, chkd):
+    global Skip_Bad_Libpng
+
+    if str(key) not in Cornucopia:
+        PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+
+        if "Not enough image data" in str(key):
+           Candy("Cowsay", "Well this is as far as i could get for now. ", "bad")
+           Candy("Cowsay", "At least i was able to get some pixels out of it ..", "com")
+           PRINT(Candy("Color", "yellow", "\n-ToDo"))
+           TheEnd()
+
+        if Skip_Bad_Libpng is False:
+            Candy(
+                "Cowsay",
+                "The All Mighty Libpng has spoken ...",
+                "com",
+            )
+            Candy("Cowsay", "Damned!! We were so close !", "bad")
+
+            Candy(
+                "Cowsay",
+                "We should go some step back before to see if we can do something else..",
+                "com",
+            )
+            Candy(
+                "Cowsay",
+                "Are you agree ? Otherwise Chunklate is going to exit",
+                "com",
+            )
+            uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+            Answer = Question(id=key,idhash=uniqh)
+            if Answer is True:
+                Skip_Bad_Libpng = True
+                return True, Relics(str(key))
+            else:
+                Candy("Cowsay", "See You Space Cowboy....", "good")
+                TheEnd()
+
+    else:
+        PRINT("\n-\033[1;32;49mSolved\033[m: %s"% Cornucopia_Tool(key, chkd, 3))
+        SaveClone(
+            Cornucopia_Tool(key, chkd, 0),
+            Cornucopia_Tool(key, chkd, 1),
+            Cornucopia_Tool(key, chkd, 2),
+            Cornucopia_Tool(key, chkd, 3),
+        )
+
+        return True, GroundhogDay(Sample)
+
+    return False, None
+
+
+def FixItFelix_Wrong_Chunk_Name(key, chkd):
+    global Skip_Bad_Current_Name
+    global Skip_Bad_Next_Name
+
+    if Skip_Bad_Current_Name is False:
+
+        if str(key) not in Cornucopia:
+            PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+            Ancillary(PandoraBox_Tool(key, chkd, 0))
+
+            if Bad_Ancillary is True:
+                Candy(
+                    "Cowsay",
+                    "I don't know that chunk but it has passed Ancillary nomenclature check ..",
+                    "com",
+                )
+                if Bad_Crc is True:
+                    Candy(
+                        "Cowsay",
+                        "But since Crc is not valid there is more chances that this Chunkname is corrupt.",
+                        "bad",
+                    )
+                else:
+
+                    Candy(
+                        "Cowsay",
+                        "and since Crc is valid too this may be a legit private chunk..",
+                        "com",
+                    )
+
+            else:
+
+                Candy(
+                    "Cowsay",
+                    "I don't know that chunk and it has failed Ancillary nomenclature check ..",
+                    "bad",
+                )
+                if Bad_Crc is True:
+                    Candy(
+                        "Cowsay",
+                        "And since Crc is wrong this definitely looks like a corrupted Chunkname .",
+                        "bad",
+                    )
+                else:
+
+                    Candy(
+                        "Cowsay",
+                        "But the CRC is still Valid !!! Usually this means that it has been made on purpose by someone...",
+                        "bad",
+                    )
+
+                    Candy(
+                        "Cowsay",
+                        "Or....SOMEHTING !!",
+                        "com",
+                    )
+
+            if "and length is not the same than before." in str(key):
+                Candy(
+                    "Cowsay",
+                    "By the way IDAT chunk's length is different from the one usually used for some reason..",
+                    "com",
+                )
+                Candy(
+                    "Cowsay",
+                    "May i suggest to start by checking if this a length problem ?",
+                    "good",
+                )
+                uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+                Answer = Question(id=key,idhash=uniqh)
+                if Answer is True:
+
+                    return True, NearbyChunk(
+                        PandoraBox_Tool(key, chkd, 0),
+                        PandoraBox_Tool(key, chkd, 1),
+                        PandoraBox_Tool(key, chkd, 2),
+                        False,
+                        key,
+                    )
+
+                else:
+                    Skip_Bad_Next_Name = True
+                    #Pause("Else")
+            if Bad_Crc is False:
+                Candy(
+                    "Cowsay",
+                    "Do you want me to try to fix this regardless of CRC's validity ?",
+                    "com",
+                )
+            else:
+
+                Candy(
+                    "Cowsay",
+                    "How about im taking care of the rest ?",
+                    "com",
+                )
+            uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+            Answer = Question(id=key,idhash=uniqh)
+            if Answer is True:
+                return True, BruteChunk(
+                    PandoraBox_Tool(key, chkd, 0),
+                    PandoraBox_Tool(key, chkd, 3),
+                    PandoraBox_Tool(key, chkd, 1),
+                    str(key),
+                )
+
+            else:
+                Skip_Bad_Current_Name = True
+        else:
+            PRINT("\n-\033[1;32;49mSolved\033[m: %s"% Cornucopia_Tool(key, chkd, 4))
+            return True, SaveClone(
+                Cornucopia_Tool(key, chkd, 0),
+                Cornucopia_Tool(key, chkd, 1),
+                Cornucopia_Tool(key, chkd, 2),
+                Cornucopia_Tool(key, chkd, 3),
+            )
+            pass
+
+    return False, None
+
+
+def FixItFelix_No_NextChunk(key, chkd, Chunk):
+    global EOF
+    global Skip_Bad_No_Next_Chunk
+
+    if Skip_Bad_No_Next_Chunk is False:
+        PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+        GoodEnding = "0000000049454e44ae426082"
+        if Chunk == b"IEND" and int(PandoraBox_Tool(key, chkd, 1)) == 0:
+            for key in PandoraBox:
+                if "No NextChunk" in str(key):
+                    Candy(
+                        "Cowsay",
+                        "That one is a false positive im removing it ..",
+                        "good",
+                    )
+                    PandoraBox.pop(key, "key_not_found")
+                    SideNotes.append(
+                        "-Found False-Positive :[Error:-No NextChunk]."
+                    )
+                    Skip_Bad_No_Next_Chunk = True
+                    break
+            ChunkStory("add", b"IEND", CLoffI, CrcoffI + 8, int(Orig_CL, 16))
+
+            if DATAX[-len(GoodEnding) :] == GoodEnding:
+                CheckChunkOrder(b"IEND", "Critical")
+                Candy("Cowsay", "We have reached the end of file.", "good")
+                EOF = True
+                SideNotes.append("-Reached the end of file.")
+
+                if Bad_Missplaced is False:
+                    Candy("Cowsay", "Ok let's feed the Kraken now..", "com")
+                    return True, LibpngCheck(Sample)
+                else:
+                    for nb, key in enumerate(PandoraBox):
+                        if "Missplaced" in str(key) and EOF is True:
+                            rustine = []
+                            for toolkey, keyvalue in PandoraBox[key].items():
+                                rustine.append(keyvalue)
+                            Candy(
+                                "Cowsay", "But the fun isnt over yet..", "com"
+                            )
+                            return True, TheGoodPlace(
+                                rustine[0], rustine[1], rustine[2]
+                            )
+            else:
+                if GoodEnding in DATAX:
+                       posgoodending = DATAX.index(GoodEnding)
+                       cuthere = DATAX.index(GoodEnding)+len(GoodEnding)
+                       cleancut = bytes.fromhex(DATAX[:cuthere])
+                       SideNotes.append("-FixitFelix:Removing extra bytes after IEND chunk.")
+
+                       return True, WriteClone(cleancut,"-Saved")
+                else:
+
+                   PRINT(Candy("Color", "yellow", "Not ending with regular IEND\n-ToDo"))
+                   SideNotes.append("-Not ending with regular IEND Chunk")
+                   PRINT("-Exceptation: %s"%(str(GoodEnding)))
+                   PRINT("-Reality: %s"%(str(DATAX[-len(GoodEnding) :])))
+                   TheEnd()
+        elif PandoraBox_Tool(key, chkd, 0) == b"IEND":
+            PRINT(
+                "-%s length for IEND %s "
+                % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
+            )
+            PRINT(Candy("Color", "yellow", "\n-ToDo"))
+            SideNotes.append("-Wrong length for IEND")  # TODO
+            TheEnd()
+
+        else:
+
+            if Bad_Critical:
+                  Candy("Cowsay", "Well it seems that i need to add that IEND chunk myself after all ..", "bad")
+                  if DEBUG:
+                      print("CrcoffI:",CrcoffI)
+                      print("Raw_Crc:",Raw_Crc)
+                      print("DATAX[crc]:",DATAX[CrcoffI:CrcoffI+8])
+                      if PAUSEDEBUG is True or PAUSEERROR is True:
+                          Pause("Pause Debug")
+
+                  exceeding = ""
+                  iendsample = "0000000049454e44ae426082"
+                  start = 8
+                  end = 9
+                  for i in range(CrcoffI+start,len(DATAX)):
+                       try:
+                            exceeding += DATAX[CrcoffI+start:CrcoffI+end]
+                            start += 1
+                            end += 1
+                       except Exception as e:
+                            print("error:",e)
+                            break
+                  if len(exceeding) > 0:
+                       if int(len(exceeding)/2) == 0:
+
+                          Candy("Cowsay", "Ah there is one bit left after the Crc ..", "com")
+                       else:
+                           Candy("Cowsay", "Ah there are %s bytes left after the Crc .."%(str(int(len(exceeding)/2))), "com")
+                       SideNotes.append("-Extra bits detected:%s"%str(exceeding))
+
+                  if len(exceeding) > len(iendsample):
+                     if iendsample in exceeding:
+                         Candy("Cowsay", "And it seems that the IEND chunk is inside it  ..", "com")
+                         print("-iendsample:",iendsample) #TODO use PRINT()
+                         print("-exceeding:",exceeding)
+                         SideNotes.append("-Part or full IEND chunk detected:%s"%(str(exceeding)))
+                         PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                         TheEnd()
+                     else:
+                         Candy("Cowsay", "But i don't know what to do with those bytes  ..", "com")
+                         Candy("Cowsay", "So..Im just going to append an IEND chunk there for the moment ..", "com")
+                         print("-exceeding:",exceeding)
+                         return True, DummyChunk(b"IEND", CrcoffI+8, CrcoffI+8, CrcoffI+8, str(key))
+
+                         PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                  else:
+
+                     if exceeding.startswith(iendsample[:len(exceeding)]):
+                         Candy("Cowsay", "And it seems that it matches with some part of IEND chunk ..", "com")
+                         Candy("Cowsay", "I don't think this is a coincidence.", "good")
+                         SideNotes.append("-Part or full IEND chunk detected:%s"%(str(exceeding)))
+                         print("-iendsample:",iendsample)
+                         print("-exceeding:",exceeding)
+                         #Pause("todo")
+                     else:
+                         Candy("Cowsay", "It doesn't looks like and IEND chunk ..", "bad")
+                         Candy("Cowsay", "And i don't know what to do with those bytes  ..", "com")
+                         print("-exceeding:",exceeding)
+                         Candy("Cowsay", "So..Im just going to append an IEND chunk there for the moment ..", "com")
+                         return True, DummyChunk(b"IEND", CrcoffI+8, CrcoffI+8, CrcoffI+8, str(key))
+
+                  return True, DummyChunk(b"IEND", len(DATAX), len(DATAX), len(DATAX), str(key))
+
+            PRINT(
+                "\n-End of File Reached but IEND Chunk is %s ! %s"
+                % (Candy("Color", "red", " MISSING! "), Candy("Emoj", "bad"))
+            )
+
+            SideNotes.append("-End of File Reached but IEND Chunk is missing")
+
+            Candy(
+                "Cowsay",
+                "A length error maybe ? Do you want me to have a look ?",
+                "com",
+            )
+#                    print("PandoraBox[key][chkd + 0]",PandoraBox[key][chkd + "0"])
+#                    print("PandoraBox[key][chkd + 1]",PandoraBox[key][chkd + "1"])
+#                    print("PandoraBox[key][chkd + 2]",PandoraBox[key][chkd + "2"])
+            uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+            Answer = Question(id=key,idhash=uniqh)
+            if Answer is True:
+                return True, NearbyChunk(
+                    PandoraBox_Tool(key, chkd, 0),
+                    PandoraBox_Tool(key, chkd, 1),
+                    PandoraBox_Tool(key, chkd, 2),
+                    False,
+                    key,
+                )
+            else:
+                TheEnd()
+
+    return False, None
+
+
+def FixItFelix_Gama_Zero(key):
+    Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good") ##ME !!!
+    PandoraBox.pop(key, "key_not_found")
+    SideNotes.append("-Found False-Positive :[Error:-%s]." % (str(key)))
+    return True, FixItFelix
+
+
+def FixItFelix_Critical_Miss(key):
+    PRINT("\n-\033[1;31;49mCriticalMiss\033[m: %s"%key)
+    if DEBUG is True:
+        if PAUSEDEBUG is True:
+            Pause("Pause:Debug")
+    return False, None
+
+
 def FixItFelix(Chunk=None):
     Candy("Title", "Fix It Felix: ", Candy("Color", "white", Chunk))
     ##TODOFIND A WAY TO MAKE IT READABLE
@@ -9827,338 +10179,34 @@ def FixItFelix(Chunk=None):
             continue
 
         elif "libpng error:" in str(key):
-            if str(key) not in Cornucopia:
-                PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-
-                if "Not enough image data" in str(key):
-                   Candy("Cowsay", "Well this is as far as i could get for now. ", "bad")
-                   Candy("Cowsay", "At least i was able to get some pixels out of it ..", "com")
-                   PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                   TheEnd()
-
-                if Skip_Bad_Libpng is False:
-                    Candy(
-                        "Cowsay",
-                        "The All Mighty Libpng has spoken ...",
-                        "com",
-                    )
-                    Candy("Cowsay", "Damned!! We were so close !", "bad")
-
-                    Candy(
-                        "Cowsay",
-                        "We should go some step back before to see if we can do something else..",
-                        "com",
-                    )
-                    Candy(
-                        "Cowsay",
-                        "Are you agree ? Otherwise Chunklate is going to exit",
-                        "com",
-                    )
-                    uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
-                    Answer = Question(id=key,idhash=uniqh)
-                    if Answer is True:
-                        Skip_Bad_Libpng = True
-                        return Relics(str(key))
-                    else:
-                        Candy("Cowsay", "See You Space Cowboy....", "good")
-                        TheEnd()
-
-            else:
-                PRINT("\n-\033[1;32;49mSolved\033[m: %s"% Cornucopia_Tool(key, chkd, 3))
-                SaveClone(
-                    Cornucopia_Tool(key, chkd, 0),
-                    Cornucopia_Tool(key, chkd, 1),
-                    Cornucopia_Tool(key, chkd, 2),
-                    Cornucopia_Tool(key, chkd, 3),
-                )
-
-                return GroundhogDay(Sample)
+            should_return, result = FixItFelix_Libpng_Error(key, chkd)
+            if should_return:
+                return result
+            continue
 
         elif "has Wrong Chunk name at offset:" in str(key):
-
-            if Skip_Bad_Current_Name is False:
-
-                if str(key) not in Cornucopia:
-                    PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-                    Ancillary(PandoraBox_Tool(key, chkd, 0))
-
-                    if Bad_Ancillary is True:
-                        Candy(
-                            "Cowsay",
-                            "I don't know that chunk but it has passed Ancillary nomenclature check ..",
-                            "com",
-                        )
-                        if Bad_Crc is True:
-                            Candy(
-                                "Cowsay",
-                                "But since Crc is not valid there is more chances that this Chunkname is corrupt.",
-                                "bad",
-                            )
-                        else:
-
-                            Candy(
-                                "Cowsay",
-                                "and since Crc is valid too this may be a legit private chunk..",
-                                "com",
-                            )
-
-                    else:
-
-                        Candy(
-                            "Cowsay",
-                            "I don't know that chunk and it has failed Ancillary nomenclature check ..",
-                            "bad",
-                        )
-                        if Bad_Crc is True:
-                            Candy(
-                                "Cowsay",
-                                "And since Crc is wrong this definitely looks like a corrupted Chunkname .",
-                                "bad",
-                            )
-                        else:
-
-                            Candy(
-                                "Cowsay",
-                                "But the CRC is still Valid !!! Usually this means that it has been made on purpose by someone...",
-                                "bad",
-                            )
-
-                            Candy(
-                                "Cowsay",
-                                "Or....SOMEHTING !!",
-                                "com",
-                            )
-
-                    if "and length is not the same than before." in str(key):
-                        Candy(
-                            "Cowsay",
-                            "By the way IDAT chunk's length is different from the one usually used for some reason..",
-                            "com",
-                        )
-                        Candy(
-                            "Cowsay",
-                            "May i suggest to start by checking if this a length problem ?",
-                            "good",
-                        )
-                        uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
-                        Answer = Question(id=key,idhash=uniqh)
-                        if Answer is True:
-
-                            return NearbyChunk(
-                                PandoraBox_Tool(key, chkd, 0),
-                                PandoraBox_Tool(key, chkd, 1),
-                                PandoraBox_Tool(key, chkd, 2),
-                                False,
-                                key,
-                            )
-
-                        else:
-                            Skip_Bad_Next_Name = True
-                            #Pause("Else")
-                    if Bad_Crc is False:
-                        Candy(
-                            "Cowsay",
-                            "Do you want me to try to fix this regardless of CRC's validity ?",
-                            "com",
-                        )
-                    else:
-
-                        Candy(
-                            "Cowsay",
-                            "How about im taking care of the rest ?",
-                            "com",
-                        )
-                    uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
-                    Answer = Question(id=key,idhash=uniqh)
-                    if Answer is True:
-                        return BruteChunk(
-                            PandoraBox_Tool(key, chkd, 0),
-                            PandoraBox_Tool(key, chkd, 3),
-                            PandoraBox_Tool(key, chkd, 1),
-                            str(key),
-                        )
-
-                    else:
-                        Skip_Bad_Current_Name = True
-                else:
-                    PRINT("\n-\033[1;32;49mSolved\033[m: %s"% Cornucopia_Tool(key, chkd, 4))
-                    return SaveClone(
-                        Cornucopia_Tool(key, chkd, 0),
-                        Cornucopia_Tool(key, chkd, 1),
-                        Cornucopia_Tool(key, chkd, 2),
-                        Cornucopia_Tool(key, chkd, 3),
-                    )
-                    pass
+            should_return, result = FixItFelix_Wrong_Chunk_Name(key, chkd)
+            if should_return:
+                return result
+            continue
 
         elif "No NextChunk" in str(key):
-            if Skip_Bad_No_Next_Chunk is False:
-                PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-                GoodEnding = "0000000049454e44ae426082"
-                if Chunk == b"IEND" and int(PandoraBox_Tool(key, chkd, 1)) == 0:
-                    for key in PandoraBox:
-                        if "No NextChunk" in str(key):
-                            Candy(
-                                "Cowsay",
-                                "That one is a false positive im removing it ..",
-                                "good",
-                            )
-                            PandoraBox.pop(key, "key_not_found")
-                            SideNotes.append(
-                                "-Found False-Positive :[Error:-No NextChunk]."
-                            )
-                            Skip_Bad_No_Next_Chunk = True
-                            break
-                    ChunkStory("add", b"IEND", CLoffI, CrcoffI + 8, int(Orig_CL, 16))
- 
-                    if DATAX[-len(GoodEnding) :] == GoodEnding:
-                        CheckChunkOrder(b"IEND", "Critical")
-                        Candy("Cowsay", "We have reached the end of file.", "good")
-                        EOF = True
-                        SideNotes.append("-Reached the end of file.")
-
-                        if Bad_Missplaced is False:
-                            Candy("Cowsay", "Ok let's feed the Kraken now..", "com")
-                            return LibpngCheck(Sample)
-                        else:
-                            for nb, key in enumerate(PandoraBox):
-                                if "Missplaced" in str(key) and EOF is True:
-                                    rustine = []
-                                    for toolkey, keyvalue in PandoraBox[key].items():
-                                        rustine.append(keyvalue)
-                                    Candy(
-                                        "Cowsay", "But the fun isnt over yet..", "com"
-                                    )
-                                    return TheGoodPlace(
-                                        rustine[0], rustine[1], rustine[2]
-                                    )
-                    else:
-                        if GoodEnding in DATAX:
-                               posgoodending = DATAX.index(GoodEnding)
-                               cuthere = DATAX.index(GoodEnding)+len(GoodEnding)
-                               cleancut = bytes.fromhex(DATAX[:cuthere])
-                               SideNotes.append("-FixitFelix:Removing extra bytes after IEND chunk.")
-                          
-                               return(WriteClone(cleancut,"-Saved"))
-                        else:
-
-                           PRINT(Candy("Color", "yellow", "Not ending with regular IEND\n-ToDo"))
-                           SideNotes.append("-Not ending with regular IEND Chunk")
-                           PRINT("-Exceptation: %s"%(str(GoodEnding)))
-                           PRINT("-Reality: %s"%(str(DATAX[-len(GoodEnding) :])))
-                           TheEnd()
-                elif PandoraBox_Tool(key, chkd, 0) == b"IEND":
-                    PRINT(
-                        "-%s length for IEND %s "
-                        % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
-                    )
-                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                    SideNotes.append("-Wrong length for IEND")  # TODO
-                    TheEnd()
-
-                else:
-
-                    if Bad_Critical:
-                          Candy("Cowsay", "Well it seems that i need to add that IEND chunk myself after all ..", "bad")
-                          if DEBUG:
-                              print("CrcoffI:",CrcoffI)
-                              print("Raw_Crc:",Raw_Crc)
-                              print("DATAX[crc]:",DATAX[CrcoffI:CrcoffI+8])
-                              if PAUSEDEBUG is True or PAUSEERROR is True:
-                                  Pause("Pause Debug")
-
-                          exceeding = ""
-                          iendsample = "0000000049454e44ae426082"
-                          start = 8
-                          end = 9
-                          for i in range(CrcoffI+start,len(DATAX)):
-                               try:
-                                    exceeding += DATAX[CrcoffI+start:CrcoffI+end]
-                                    start += 1
-                                    end += 1
-                               except Exception as e:
-                                    print("error:",e)
-                                    break
-                          if len(exceeding) > 0:
-                               if int(len(exceeding)/2) == 0: 
-
-                                  Candy("Cowsay", "Ah there is one bit left after the Crc ..", "com")
-                               else:
-                                   Candy("Cowsay", "Ah there are %s bytes left after the Crc .."%(str(int(len(exceeding)/2))), "com")
-                               SideNotes.append("-Extra bits detected:%s"%str(exceeding))
-
-                          if len(exceeding) > len(iendsample):
-                             if iendsample in exceeding:
-                                 Candy("Cowsay", "And it seems that the IEND chunk is inside it  ..", "com")
-                                 print("-iendsample:",iendsample) #TODO use PRINT()
-                                 print("-exceeding:",exceeding)
-                                 SideNotes.append("-Part or full IEND chunk detected:%s"%(str(exceeding)))
-                                 PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                                 TheEnd()
-                             else:
-                                 Candy("Cowsay", "But i don't know what to do with those bytes  ..", "com")
-                                 Candy("Cowsay", "So..Im just going to append an IEND chunk there for the moment ..", "com")
-                                 print("-exceeding:",exceeding)
-                                 return(DummyChunk(b"IEND", CrcoffI+8, CrcoffI+8, CrcoffI+8, str(key)))
-
-                                 PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                          else:
-
-                             if exceeding.startswith(iendsample[:len(exceeding)]):
-                                 Candy("Cowsay", "And it seems that it matches with some part of IEND chunk ..", "com")
-                                 Candy("Cowsay", "I don't think this is a coincidence.", "good")
-                                 SideNotes.append("-Part or full IEND chunk detected:%s"%(str(exceeding)))
-                                 print("-iendsample:",iendsample)
-                                 print("-exceeding:",exceeding)
-                                 #Pause("todo")
-                             else:
-                                 Candy("Cowsay", "It doesn't looks like and IEND chunk ..", "bad")
-                                 Candy("Cowsay", "And i don't know what to do with those bytes  ..", "com")
-                                 print("-exceeding:",exceeding)
-                                 Candy("Cowsay", "So..Im just going to append an IEND chunk there for the moment ..", "com")
-                                 return(DummyChunk(b"IEND", CrcoffI+8, CrcoffI+8, CrcoffI+8, str(key)))
-
-                          return(DummyChunk(b"IEND", len(DATAX), len(DATAX), len(DATAX), str(key)))
-                          
-                    PRINT(
-                        "\n-End of File Reached but IEND Chunk is %s ! %s"
-                        % (Candy("Color", "red", " MISSING! "), Candy("Emoj", "bad"))
-                    )
-
-                    SideNotes.append("-End of File Reached but IEND Chunk is missing")
-
-                    Candy(
-                        "Cowsay",
-                        "A length error maybe ? Do you want me to have a look ?",
-                        "com",
-                    )
-#                    print("PandoraBox[key][chkd + 0]",PandoraBox[key][chkd + "0"])
-#                    print("PandoraBox[key][chkd + 1]",PandoraBox[key][chkd + "1"])
-#                    print("PandoraBox[key][chkd + 2]",PandoraBox[key][chkd + "2"])
-                    uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
-                    Answer = Question(id=key,idhash=uniqh)
-                    if Answer is True:
-                        return NearbyChunk(
-                            PandoraBox_Tool(key, chkd, 0),
-                            PandoraBox_Tool(key, chkd, 1),
-                            PandoraBox_Tool(key, chkd, 2),
-                            False,
-                            key,
-                        )
-                    else:
-                        TheEnd()
+            should_return, result = FixItFelix_No_NextChunk(key, chkd, Chunk)
+            if should_return:
+                return result
+            continue
 
         elif "gAMA Chunk of 0 is Useless" in str(key):
-            Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good") ##ME !!!
-            PandoraBox.pop(key, "key_not_found")
-            SideNotes.append("-Found False-Positive :[Error:-%s]." % (str(key)))
-            return FixItFelix
+            should_return, result = FixItFelix_Gama_Zero(key)
+            if should_return:
+                return result
+            continue
 
         else:
-
-            PRINT("\n-\033[1;31;49mCriticalMiss\033[m: %s"%key)
-            if DEBUG is True:
-                if PAUSEDEBUG is True:
-                    Pause("Pause:Debug")
+            should_return, result = FixItFelix_Critical_Miss(key)
+            if should_return:
+                return result
+            continue
     Show_Must_Go_On = True
 
 def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
