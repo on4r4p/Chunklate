@@ -54,13 +54,23 @@ PILLOW_LENIENT_REPAIR_CASES = {
 }
 
 
+PILLOW_ONLY_REPAIR_CASES = {
+    "IEND_Missing.png": (
+        1,
+        ("IEND_Missing.0_Fixed.png",),
+        "legacy repair opens in Pillow, but strict chunk parsing still sees incomplete IEND data",
+    ),
+    "IEND_Missing_And_Extra_Bytes.png": (
+        1,
+        ("IEND_Missing_And_Extra_Bytes.0_Fixed.png",),
+        "legacy repair opens in Pillow, but strict chunk parsing still sees incomplete IEND data",
+    ),
+}
+
+
 UNCOVERED_REPAIR_CASES = {
     "Bad-Chunk-Length-Exceeding-Bit.png": "known repair fixture; current candidate is not strict PNG/CRC-clean yet",
     "Good-Chunk-lenght-Missing-Bit.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
-    "IEND_Missing.png": "known repair fixture; output opens in Pillow, but strict chunk parsing still sees incomplete IEND data",
-    "IEND_Missing_And_Extra_Bytes.png": (
-        "known repair fixture; output opens in Pillow, but strict chunk parsing still sees incomplete IEND data"
-    ),
     "IHDR-Messed-Up-Bad-Crc.png": "known repair fixture; deterministic non-interactive regression still needs pinning",
     "IHDR-Wrong-Height-Above-Estimated-Max-Resolution.png": (
         "known repair fixture; deterministic non-interactive regression still needs pinning"
@@ -153,9 +163,36 @@ def test_repair_cases_produce_expected_valid_pngs(tmp_path):
     assert failures == []
 
 
+def test_pillow_only_repair_cases_produce_viewable_pngs(tmp_path):
+    if Image is None:
+        raise AssertionError("Pillow is required for Pillow-only repair regression tests")
+
+    failures = []
+
+    for fixture_name, (max_saves, expected_fixed_names, reason) in PILLOW_ONLY_REPAIR_CASES.items():
+        result, output_dir = run_chunklate_repair(fixture_name, tmp_path, max_saves)
+
+        if result.returncode != 0:
+            failures.append(f"{fixture_name}: rc={result.returncode}; stderr={result.stderr[-500:]}")
+            continue
+
+        if not output_dir.exists():
+            failures.append(f"{fixture_name}: no output directory; rc={result.returncode}")
+            continue
+
+        for fixed_name in expected_fixed_names:
+            fixed_path = output_dir / fixed_name
+            if not fixed_path.exists():
+                failures.append(f"{fixture_name}: missing {fixed_name}; rc={result.returncode}")
+            elif not pillow_verify_ok(fixed_path):
+                failures.append(f"{fixture_name}: Pillow rejected {fixed_name}; {reason}")
+
+    assert failures == []
+
+
 def test_all_current_repair_fixtures_are_classified():
     fixture_names = {path.name for path in FIXTURES.glob("*.png")}
-    classified_names = set(REPAIR_CASES) | set(UNCOVERED_REPAIR_CASES)
+    classified_names = set(REPAIR_CASES) | set(PILLOW_ONLY_REPAIR_CASES) | set(UNCOVERED_REPAIR_CASES)
 
     assert fixture_names - classified_names == set()
     assert classified_names - fixture_names == set()
@@ -204,6 +241,48 @@ def run_repair_cases_verbose(tmp_path):
         raise AssertionError("repair regression tests failed")
 
 
+def run_pillow_only_repair_cases_verbose(tmp_path):
+    if Image is None:
+        raise AssertionError("Pillow is required for Pillow-viewable repair regression tests")
+
+    failures = []
+
+    print("\nRunning Pillow-viewable repair regression tests")
+    for fixture_name, (max_saves, expected_fixed_names, reason) in PILLOW_ONLY_REPAIR_CASES.items():
+        print(
+            f"  - {fixture_name} -> max_saves={max_saves}, "
+            f"expect={', '.join(expected_fixed_names)} ... ",
+            end="",
+            flush=True,
+        )
+        result, output_dir = run_chunklate_repair(fixture_name, tmp_path, max_saves)
+
+        if result.returncode != 0:
+            failures.append(f"{fixture_name}: rc={result.returncode}; stderr={result.stderr[-500:]}")
+            print("failed")
+            continue
+
+        missing_or_invalid = []
+        for fixed_name in expected_fixed_names:
+            fixed_path = output_dir / fixed_name
+            if not fixed_path.exists():
+                missing_or_invalid.append(f"missing {fixed_name}")
+            elif not pillow_verify_ok(fixed_path):
+                missing_or_invalid.append(f"Pillow rejected {fixed_name}")
+
+        if missing_or_invalid:
+            failures.append(f"{fixture_name}: {', '.join(missing_or_invalid)}")
+            print("failed")
+        else:
+            print(f"ok (Pillow-viewable only; {reason})")
+
+    if failures:
+        print("\nPillow-viewable repair failures:")
+        for failure in failures:
+            print(f"  - {failure}")
+        raise AssertionError("Pillow-viewable repair regression tests failed")
+
+
 def print_uncovered_repair_cases():
     print("\nClassified but not yet covered by green repair tests")
     for fixture_name, reason in sorted(UNCOVERED_REPAIR_CASES.items()):
@@ -213,9 +292,13 @@ def print_uncovered_repair_cases():
 def main():
     with tempfile.TemporaryDirectory(prefix="chunklate-repair-tests-") as tmp:
         run_repair_cases_verbose(Path(tmp))
+        run_pillow_only_repair_cases_verbose(Path(tmp))
     test_all_current_repair_fixtures_are_classified()
     print_uncovered_repair_cases()
-    print(f"\nrepair regression tests passed ({len(REPAIR_CASES)} covered cases)")
+    print(
+        f"\nrepair regression tests passed "
+        f"({len(REPAIR_CASES)} strict cases, {len(PILLOW_ONLY_REPAIR_CASES)} Pillow-viewable cases)"
+    )
 
 
 if __name__ == "__main__":
