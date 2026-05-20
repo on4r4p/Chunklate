@@ -82,6 +82,75 @@ def Error_Log(Err_to_log):
         Betterror(e, inspect.stack()[0][3])
 
 
+# Relics state model:
+# - PandoraBox holds current-file findings that still need a decision or repair.
+#   Keys look like "Function_Error_N:message"; values are "<Chunk>_Tool_N" dicts.
+# - Cornucopia holds fixes already accepted by CheckPoint/FixItFelix.
+# - WriteClone snapshots those two stores into Pandemonium/ArkOfCovenant so
+#   Relics can react to the repair history when libpng reports a later failure.
+def Relic_Chunk_Label(chunk):
+    if type(chunk) != bytes:
+        return chunk
+    try:
+        return chunk.decode(errors="ignore")
+    except Exception as e:
+        Betterror(e, inspect.stack()[0][3])
+        if DEBUG is True:
+            PRINT(
+                Candy("Color", "red", "Error Relic_Chunk_Label:%s")%
+                Candy("Color", "yellow", e),
+            )
+        return "johnnybytesme"
+
+
+def Relic_Tool_Prefix(chunk):
+    return str(Relic_Chunk_Label(chunk)) + "_Tool_"
+
+
+def Relic_Build_Tools(chunk, toolkit):
+    prefix = Relic_Tool_Prefix(chunk)
+    return {prefix + str(Tnum): tool for Tnum, tool in enumerate(toolkit)}
+
+
+def PandoraBox_Next_Error_Number(function):
+    Fnum = 0
+    for key in PandoraBox:
+        while key.startswith(str(function) + "_Error_" + str(Fnum)):
+            Fnum += 1
+    return Fnum
+
+
+def PandoraBox_Add(function, info, tools):
+    Fnum = PandoraBox_Next_Error_Number(function)
+    key = str(function) + "_Error_" + str(Fnum) + ":" + str(info)
+    PandoraBox[key] = tools
+    return key
+
+
+def Cornucopia_Add(key, tools):
+    Cornucopia[key] = tools
+    return key
+
+
+def Pandemonium_Remember_Current_Sample():
+    # Keep the legacy shared-reference behavior for now. Relics currently sees
+    # the exact PandoraBox/Cornucopia objects that existed when the clone was
+    # written; changing this to a deep copy is a later behavioral decision.
+    Pandemonium[Sample] = PandoraBox
+    ArkOfCovenant[Sample] = Cornucopia
+
+
+def Relic_Question_Hash(store, key, tool_prefix):
+    try:
+        return hash(
+            str(store[key][tool_prefix + "0"])
+            + str(store[key][tool_prefix + "1"])
+            + str(store[key][tool_prefix + "2"])
+        )
+    except Exception:
+        return hash(key)
+
+
 def IDAT_Bytes_Nbr():  # tmpworkaround
     global IBN
     BCnt = 0
@@ -8833,13 +8902,10 @@ def SaveClone(DataFix, start, end, infos):
 def WriteClone(data,infos):
     global Sample
     global Have_A_KitKat
-    global Pandemonium
-    global ArkOfCovenant
     global SideNotes
     global SAVE_COUNT
 
-    Pandemonium[Sample] = PandoraBox
-    ArkOfCovenant[Sample] = Cornucopia
+    Pandemonium_Remember_Current_Sample()
 
     try:
         data = bytes.fromhex(data)
@@ -8982,10 +9048,7 @@ def Relics(FromError):
                             "Well this one have to be fixed first let's see if replacing that Crc is enough..",
                             "com",
                         )
-                        try:
-                                uniqh = hash(str(PandoraBox[key][chkd + "0"])+str(PandoraBox[key][chkd + "1"])+str(PandoraBox[key][chkd + "2"]))
-                        except:
-                                uniqh = hash(key)
+                        uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
                         Answer = Question(id=key,idhash=uniqh)
                         if Answer is True:
                             return SaveClone(
@@ -9681,10 +9744,7 @@ def FixItFelix(Chunk=None):
                         "This looks like an easy fix since there is no real errors beside the Crc issue.Do you wish to try to fix it ?",
                         "com",
                     )
-                    try:
-                            uniqh = hash(str(PandoraBox[key][chkd + "0"])+str(PandoraBox[key][chkd + "1"])+str(PandoraBox[key][chkd + "2"]))
-                    except:
-                            uniqh = hash(key)
+                    uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
                     Answer = Question(id=key,idhash=uniqh)
                     if Answer is True:
                         return SaveClone(
@@ -9716,10 +9776,7 @@ def FixItFelix(Chunk=None):
                         "We may want to fix them first before jumping on that Crc what do you think ?",
                         "com",
                     )
-                try:
-                            uniqh = hash(str(PandoraBox[key][chkd + "0"])+str(PandoraBox[key][chkd + "1"])+str(PandoraBox[key][chkd + "2"]))
-                except:
-                            uniqh = hash(key)
+                uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
                 Answer = Question(id=key,idhash=uniqh)
                 if Answer is False:
                     return SaveClone(
@@ -9797,10 +9854,7 @@ def FixItFelix(Chunk=None):
                         "Are you agree ? Otherwise Chunklate is going to exit",
                         "com",
                     )
-                    try:
-                        uniqh = hash(str(PandoraBox[key][chkd + "0"])+str(PandoraBox[key][chkd + "1"])+str(PandoraBox[key][chkd + "2"]))
-                    except:
-                        uniqh = hash(key)
+                    uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
                     Answer = Question(id=key,idhash=uniqh)
                     if Answer is True:
                         Skip_Bad_Libpng = True
@@ -9886,10 +9940,7 @@ def FixItFelix(Chunk=None):
                             "May i suggest to start by checking if this a length problem ?",
                             "good",
                         )
-                        try:
-                            uniqh = hash(str(PandoraBox[key][chkd + "0"])+str(PandoraBox[key][chkd + "1"])+str(PandoraBox[key][chkd + "2"]))
-                        except:
-                            uniqh = hash(key)
+                        uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
                         Answer = Question(id=key,idhash=uniqh)
                         if Answer is True:
 
@@ -9917,10 +9968,7 @@ def FixItFelix(Chunk=None):
                             "How about im taking care of the rest ?",
                             "com",
                         )
-                    try:
-                            uniqh = hash(str(PandoraBox[key][chkd + "0"])+str(PandoraBox[key][chkd + "1"])+str(PandoraBox[key][chkd + "2"]))
-                    except:
-                            uniqh = hash(key)
+                    uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
                     Answer = Question(id=key,idhash=uniqh)
                     if Answer is True:
                         return BruteChunk(
@@ -10086,10 +10134,7 @@ def FixItFelix(Chunk=None):
 #                    print("PandoraBox[key][chkd + 0]",PandoraBox[key][chkd + "0"])
 #                    print("PandoraBox[key][chkd + 1]",PandoraBox[key][chkd + "1"])
 #                    print("PandoraBox[key][chkd + 2]",PandoraBox[key][chkd + "2"])
-                    try:
-                            uniqh = hash(str(PandoraBox[key][chkd + "0"])+str(PandoraBox[key][chkd + "1"])+str(PandoraBox[key][chkd + "2"]))
-                    except:
-                            uniqh = hash(key)
+                    uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
                     Answer = Question(id=key,idhash=uniqh)
                     if Answer is True:
                         return NearbyChunk(
@@ -10170,44 +10215,20 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
         if PAUSEDEBUG is True:
             Pause("Checkpoint pause")
 
-    if type(chunk) != bytes:
-        chunkstr = chunk
-    else:
-        try:
-            chunkstr = chunk.decode(errors="ignore")
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(
-                    Candy("Color", "red", "Error Checkpoint:%s")%
-                    Candy("Color", "yellow", e),
-                )
-
-            chunkstr = "johnnybytesme"
+    chunkstr = Relic_Chunk_Label(chunk)
 #def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
     for info in infos:
         if error is True:
-            TOOLS = {}
-            Fnum = 0
-
-            if fixed is False:
-                for key in PandoraBox:
-                    while key.startswith(str(function) + "_Error_" + str(Fnum)):
-                        Fnum += 1
-
-            for Tnum, tool in enumerate(ToolKit):
-                TOOLS[str(chunkstr) + "_Tool_" + str(Tnum)] = tool
+            TOOLS = Relic_Build_Tools(chunkstr, ToolKit)
 
             if fixed is False:
                 SideNotes.append("Error:" + str(info))
-                PandoraBox[
-                    str(function) + "_Error_" + str(Fnum) + ":" + str(info)
-                ] = TOOLS
+                PandoraBox_Add(function, info, TOOLS)
                 if PAUSEERROR is True:
                     Pause("Pause:Error")
             else:
                 SideNotes.append("Error Fixed:" + str(info))
-                Cornucopia[ToolKit[-1]] = TOOLS
+                Cornucopia_Add(ToolKit[-1], TOOLS)
 
         if function == "TheGoodPlace":
             if "Found Missing Data" in info:
