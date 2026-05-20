@@ -9644,6 +9644,105 @@ def LockDown():
     PRINT(folder)
     
 
+def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
+    global Old_Bad_Crc
+    global Skip_Bad_Crc
+
+    if str(key) not in Cornucopia:
+        PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+
+        if PandoraBox_len <= 1:
+            Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
+            Candy(
+                "Cowsay",
+                "This looks like an easy fix since there is no real errors beside the Crc issue.Do you wish to try to fix it ?",
+                "com",
+            )
+            uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+            Answer = Question(id=key,idhash=uniqh)
+            if Answer is True:
+                return True, SaveClone(
+                    PandoraBox_Tool(key, chkd, 0),
+                    PandoraBox_Tool(key, chkd, 1),
+                    PandoraBox_Tool(key, chkd, 2),
+                    (
+                        "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
+                        % (
+                            PandoraBox_Tool(key, chkd, 3),
+                            PandoraBox_Tool(key, chkd, 4),
+                            PandoraBox_Tool(key, chkd, 0),
+                            PandoraBox_Tool(key, chkd, 5),
+                        )
+                    ),
+                )
+            else:
+                Skip_Bad_Crc = None
+        else:
+            Candy(
+                "Cowsay",
+                "Crc checksum is not valid and there are %s other errors !"
+                % (PandoraBox_len-1),
+                "bad",
+            )
+
+            Candy(
+                "Cowsay",
+                "We may want to fix them first before jumping on that Crc what do you think ?",
+                "com",
+            )
+        uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+        Answer = Question(id=key,idhash=uniqh)
+        if Answer is False:
+            return True, SaveClone(
+                PandoraBox_Tool(key, chkd, 0),
+                PandoraBox_Tool(key, chkd, 1),
+                PandoraBox_Tool(key, chkd, 2),
+                (
+                    "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
+                    % (
+                        PandoraBox_Tool(key, chkd, 3),
+                        PandoraBox_Tool(key, chkd, 4),
+                        PandoraBox_Tool(key, chkd, 0),
+                        PandoraBox_Tool(key, chkd, 5),
+                    )
+                ),
+            )
+        else:
+            ChunkStory(
+                "add",
+                PandoraBox_Tool(key, chkd, 3),
+                CLoffI,
+                CrcoffI + 8,
+                int(Orig_CL, 16),
+            )
+            #                    ChunkStory("add", Ctype, CLoffI, PandoraBox[key][chkd + "2"],PandoraBox[key][chkd + "6"])
+            # return CheckPoint(
+            #            True,
+            #            False,
+            #            "Checksum",
+            #            Ctype,
+            #            ["-Wrong Crc"],
+            #            checksum[2::],
+            #            CrcoffI,
+            #            CrcoffI + 8,
+            #            Orig_CT,
+            #            CrcoffX,
+            #            Orig_CRC,
+            #            int(Orig_CL, 16),
+            #            CDoffI,
+            #        )
+            Old_Bad_Crc = PandoraBox_Tool(key, chkd, 5)
+            Skip_Bad_Crc = True
+
+    else:
+        PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+        if DEBUG is True:
+            if PAUSEDEBUG is True:
+                PRINT("-Cornucopia is True")
+
+    return False, None
+
+
 def FixItFelix(Chunk=None):
     Candy("Title", "Fix It Felix: ", Candy("Color", "white", Chunk))
     ##TODOFIND A WAY TO MAKE IT READABLE
@@ -9722,98 +9821,10 @@ def FixItFelix(Chunk=None):
     for nb, key in enumerate(PandoraBox):
 
         if "Wrong Crc" in str(key) and Skip_Bad_Crc is False:
-
-            if str(key) not in Cornucopia:
-                PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-
-                if PandoraBox_len <= 1:
-                    Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
-                    Candy(
-                        "Cowsay",
-                        "This looks like an easy fix since there is no real errors beside the Crc issue.Do you wish to try to fix it ?",
-                        "com",
-                    )
-                    uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
-                    Answer = Question(id=key,idhash=uniqh)
-                    if Answer is True:
-                        return SaveClone(
-                            PandoraBox_Tool(key, chkd, 0),
-                            PandoraBox_Tool(key, chkd, 1),
-                            PandoraBox_Tool(key, chkd, 2),
-                            (
-                                "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
-                                % (
-                                    PandoraBox_Tool(key, chkd, 3),
-                                    PandoraBox_Tool(key, chkd, 4),
-                                    PandoraBox_Tool(key, chkd, 0),
-                                    PandoraBox_Tool(key, chkd, 5),
-                                )
-                            ),
-                        )
-                    else:
-                        Skip_Bad_Crc = None
-                else:
-                    Candy(
-                        "Cowsay",
-                        "Crc checksum is not valid and there are %s other errors !"
-                        % (PandoraBox_len-1),
-                        "bad",
-                    )
-
-                    Candy(
-                        "Cowsay",
-                        "We may want to fix them first before jumping on that Crc what do you think ?",
-                        "com",
-                    )
-                uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
-                Answer = Question(id=key,idhash=uniqh)
-                if Answer is False:
-                    return SaveClone(
-                        PandoraBox_Tool(key, chkd, 0),
-                        PandoraBox_Tool(key, chkd, 1),
-                        PandoraBox_Tool(key, chkd, 2),
-                        (
-                            "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
-                            % (
-                                PandoraBox_Tool(key, chkd, 3),
-                                PandoraBox_Tool(key, chkd, 4),
-                                PandoraBox_Tool(key, chkd, 0),
-                                PandoraBox_Tool(key, chkd, 5),
-                            )
-                        ),
-                    )
-                else:
-                    ChunkStory(
-                        "add",
-                        PandoraBox_Tool(key, chkd, 3),
-                        CLoffI,
-                        CrcoffI + 8,
-                        int(Orig_CL, 16),
-                    )
-                    #                    ChunkStory("add", Ctype, CLoffI, PandoraBox[key][chkd + "2"],PandoraBox[key][chkd + "6"])
-                    # return CheckPoint(
-                    #            True,
-                    #            False,
-                    #            "Checksum",
-                    #            Ctype,
-                    #            ["-Wrong Crc"],
-                    #            checksum[2::],
-                    #            CrcoffI,
-                    #            CrcoffI + 8,
-                    #            Orig_CT,
-                    #            CrcoffX,
-                    #            Orig_CRC,
-                    #            int(Orig_CL, 16),
-                    #            CDoffI,
-                    #        )
-                    Old_Bad_Crc = PandoraBox_Tool(key, chkd, 5)
-                    Skip_Bad_Crc = True
-
-            else:
-                PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-                if DEBUG is True:
-                    if PAUSEDEBUG is True:
-                        PRINT("-Cornucopia is True")
+            should_return, result = FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len)
+            if should_return:
+                return result
+            continue
 
         elif "libpng error:" in str(key):
             if str(key) not in Cornucopia:
