@@ -78,4 +78,5 @@ Or without pytest:
 
     ./tests/test_cli.py
     ./tests/test_png.py
+    ./tests/test_relics_state.py
     ./tests/test_repairs.py
