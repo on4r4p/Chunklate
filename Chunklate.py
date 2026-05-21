@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import decisions, relics
+from chunklate import decisions, fixit_felix, relics
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -48,12 +48,6 @@ from chunklate.png import (
     chunk_type_crc_matches,
     iter_chunks,
     is_known_bad_srgb_iccp_chunk,
-    repair_color_profile_chunks,
-    repair_empty_plte,
-    repair_ihdr,
-    repair_known_chunk_type_case,
-    repair_missing_chunk_data_byte,
-    repair_unknown_private_critical_chunks,
 )
 
 
@@ -10221,16 +10215,7 @@ def FixItFelix_Critical_Miss(key):
 
 
 def FixItFelix_Try_Color_Profile_Cleanup():
-    remove_zero_gama = any("gAMA Chunk of 0 is Useless" in str(key) for key in PandoraBox)
-    remove_known_bad_srgb_iccp = any("known incorrect sRGB profile" in str(key) for key in PandoraBox)
-    if not remove_zero_gama and not remove_known_bad_srgb_iccp:
-        return None
-
-    repair = repair_color_profile_chunks(
-        bytes.fromhex(DATAX),
-        remove_zero_gama=remove_zero_gama,
-        remove_known_bad_srgb_iccp=remove_known_bad_srgb_iccp,
-    )
+    repair = fixit_felix.color_profile_cleanup(bytes.fromhex(DATAX), PandoraBox)
     if repair is None:
         return None
 
@@ -10240,13 +10225,13 @@ def FixItFelix_Try_Color_Profile_Cleanup():
 
 
 def FixItFelix_Try_PLTE_Cleanup():
-    if not (AUTO or NODIALOGUE or MAX_SAVES is not None):
-        return None
-
-    if not any("PLTE" in str(key) for key in PandoraBox):
-        return None
-
-    repair = repair_empty_plte(bytes.fromhex(DATAX))
+    repair = fixit_felix.plte_cleanup(
+        bytes.fromhex(DATAX),
+        PandoraBox,
+        auto=AUTO,
+        nodialogue=NODIALOGUE,
+        max_saves=MAX_SAVES,
+    )
     if repair is None:
         return None
 
@@ -10256,10 +10241,7 @@ def FixItFelix_Try_PLTE_Cleanup():
 
 
 def FixItFelix_Try_Missing_Chunk_Data_Byte():
-    if not any("Wrong Crc" in str(key) or "No NextChunk" in str(key) for key in PandoraBox):
-        return None
-
-    repair = repair_missing_chunk_data_byte(bytes.fromhex(DATAX))
+    repair = fixit_felix.missing_chunk_data_byte(bytes.fromhex(DATAX), PandoraBox)
     if repair is None:
         return None
 
@@ -10269,10 +10251,7 @@ def FixItFelix_Try_Missing_Chunk_Data_Byte():
 
 
 def FixItFelix_Try_Known_Chunk_Type_Case_Repair():
-    if not any("Wrong Ancillary in known Chunk name" in str(key) for key in PandoraBox):
-        return None
-
-    repair = repair_known_chunk_type_case(bytes.fromhex(DATAX), ALLCHUNKS)
+    repair = fixit_felix.known_chunk_type_case(bytes.fromhex(DATAX), PandoraBox, ALLCHUNKS)
     if repair is None:
         return None
 
@@ -10282,7 +10261,7 @@ def FixItFelix_Try_Known_Chunk_Type_Case_Repair():
 
 
 def FixItFelix_Try_Unknown_Private_Critical_Removal():
-    repair = repair_unknown_private_critical_chunks(bytes.fromhex(DATAX), ALLCHUNKS)
+    repair = fixit_felix.unknown_private_critical_removal(bytes.fromhex(DATAX), ALLCHUNKS)
     if repair is None:
         return None
 
@@ -10292,10 +10271,7 @@ def FixItFelix_Try_Unknown_Private_Critical_Removal():
 
 
 def FixItFelix_Try_IHDR_Rebuild():
-    if not any("IHDR" in str(key) and ("GetInfo" in str(key) or "Wrong Crc" in str(key)) for key in PandoraBox):
-        return None
-
-    repair = repair_ihdr(bytes.fromhex(DATAX))
+    repair = fixit_felix.ihdr_rebuild(bytes.fromhex(DATAX), PandoraBox)
     if repair is None:
         return None
 
