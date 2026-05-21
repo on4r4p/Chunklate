@@ -40,6 +40,14 @@ def test_gama_zero_false_positive_keeps_legacy_note():
     assert fix.note == "-Found False-Positive :[Error:-GetInfo_Error_0:gAMA Chunk of 0 is Useless]."
 
 
+def test_gama_zero_decision_discards_false_positive():
+    decision = fixit_felix.gama_zero_decision("GetInfo_Error_0:gAMA Chunk of 0 is Useless")
+
+    assert decision.action == "discard_false_positive"
+    assert decision.false_positive.finding == "GetInfo_Error_0:gAMA Chunk of 0 is Useless"
+    assert decision.false_positive.note == "-Found False-Positive :[Error:-GetInfo_Error_0:gAMA Chunk of 0 is Useless]."
+
+
 def test_libpng_error_decision_orders_solved_and_terminal_cases():
     assert (
         fixit_felix.libpng_error_decision("libpng error: anything", solved=True, skip_bad_libpng=False).action
@@ -56,6 +64,33 @@ def test_libpng_error_decision_orders_solved_and_terminal_cases():
     assert (
         fixit_felix.libpng_error_decision("libpng error: bad adaptive filter", solved=False, skip_bad_libpng=False).action
         == "ask_relics"
+    )
+
+
+def test_critical_miss_decision_keeps_debug_pause_gate():
+    assert (
+        fixit_felix.critical_miss_decision(
+            "CheckChunkOrder_Error_0:Critical",
+            debug=True,
+            pause_debug=True,
+        ).action
+        == "pause_debug"
+    )
+    assert (
+        fixit_felix.critical_miss_decision(
+            "CheckChunkOrder_Error_0:Critical",
+            debug=True,
+            pause_debug=False,
+        ).action
+        == "continue"
+    )
+    assert (
+        fixit_felix.critical_miss_decision(
+            "CheckChunkOrder_Error_0:Critical",
+            debug=False,
+            pause_debug=True,
+        ).action
+        == "continue"
     )
 
 
@@ -295,7 +330,9 @@ def main():
         ("Route finding keeps legacy handler order", test_route_finding_keeps_legacy_handler_order),
         ("Route finding preserves skip-bad-crc fallthrough", test_route_finding_preserves_skip_bad_crc_fallthrough),
         ("gAMA zero false positive keeps legacy note", test_gama_zero_false_positive_keeps_legacy_note),
+        ("gAMA zero decision discards false positive", test_gama_zero_decision_discards_false_positive),
         ("Libpng error decision orders solved and terminal cases", test_libpng_error_decision_orders_solved_and_terminal_cases),
+        ("Critical miss decision keeps debug pause gate", test_critical_miss_decision_keeps_debug_pause_gate),
         ("Wrong CRC decision keeps easy fix before other errors", test_wrong_crc_decision_keeps_easy_fix_before_other_errors),
         ("Wrong chunk name decision keeps length probe before bruteforce", test_wrong_chunk_name_decision_keeps_length_probe_before_bruteforce),
         ("No-next-chunk decision orders IEND and recovery paths", test_no_next_chunk_decision_orders_iend_and_recovery_paths),

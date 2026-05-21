@@ -28,6 +28,7 @@ echo "==> Python bytecode check"
     tests/test_checkpoint.py \
     tests/test_cli.py \
     tests/test_decisions.py \
+    tests/test_fixit_felix_actions.py \
     tests/test_fixit_felix.py \
     tests/test_output.py \
     tests/test_png.py \

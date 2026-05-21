@@ -10020,63 +10020,83 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
     return False, None
 
 
-def FixItFelix_Libpng_Error(key, chkd):
+def FixItFelix_Libpng_Print_Critical(key):
+    PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+
+
+def FixItFelix_Libpng_Not_Enough_Image_Data(decision, key, chkd):
+    FixItFelix_Libpng_Print_Critical(key)
+    Candy("Cowsay", "Well this is as far as i could get for now. ", "bad")
+    Candy("Cowsay", "At least i was able to get some pixels out of it ..", "com")
+    PRINT(Candy("Color", "yellow", "\n-ToDo"))
+    TheEnd()
+
+
+def FixItFelix_Libpng_Ask_Relics(decision, key, chkd):
     global Skip_Bad_Libpng
 
+    FixItFelix_Libpng_Print_Critical(key)
+    Candy(
+        "Cowsay",
+        "The All Mighty Libpng has spoken ...",
+        "com",
+    )
+    Candy("Cowsay", "Damned!! We were so close !", "bad")
+    Candy(
+        "Cowsay",
+        "We should go some step back before to see if we can do something else..",
+        "com",
+    )
+    Candy(
+        "Cowsay",
+        "Are you agree ? Otherwise Chunklate is going to exit",
+        "com",
+    )
+    uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+    Answer = Question(id=key,idhash=uniqh)
+    if Answer is True:
+        Skip_Bad_Libpng = True
+        return True, Relics(str(key))
+
+    Candy("Cowsay", "See You Space Cowboy....", "good")
+    TheEnd()
+
+
+def FixItFelix_Libpng_Skip(decision, key, chkd):
+    FixItFelix_Libpng_Print_Critical(key)
+    return False, None
+
+
+def FixItFelix_Libpng_Save_Existing_Solution(decision, key, chkd):
+    PRINT("\n-\033[1;32;49mSolved\033[m: %s"% Cornucopia_Tool(key, chkd, 3))
+    SaveClone(
+        Cornucopia_Tool(key, chkd, 0),
+        Cornucopia_Tool(key, chkd, 1),
+        Cornucopia_Tool(key, chkd, 2),
+        Cornucopia_Tool(key, chkd, 3),
+    )
+    return True, GroundhogDay(Sample)
+
+
+FIXIT_FELIX_LIBPNG_ERROR_HANDLERS = {
+    "not_enough_image_data": FixItFelix_Libpng_Not_Enough_Image_Data,
+    "ask_relics": FixItFelix_Libpng_Ask_Relics,
+    "skip": FixItFelix_Libpng_Skip,
+    "save_existing_solution": FixItFelix_Libpng_Save_Existing_Solution,
+}
+
+
+def FixItFelix_Libpng_Error(key, chkd):
     LibpngDecision = fixit_felix.libpng_error_decision(
         key,
         solved=str(key) in Cornucopia,
         skip_bad_libpng=Skip_Bad_Libpng,
     )
 
-    if LibpngDecision.action != "save_existing_solution":
-        PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-
-        if LibpngDecision.action == "not_enough_image_data":
-           Candy("Cowsay", "Well this is as far as i could get for now. ", "bad")
-           Candy("Cowsay", "At least i was able to get some pixels out of it ..", "com")
-           PRINT(Candy("Color", "yellow", "\n-ToDo"))
-           TheEnd()
-
-        if LibpngDecision.action == "ask_relics":
-            Candy(
-                "Cowsay",
-                "The All Mighty Libpng has spoken ...",
-                "com",
-            )
-            Candy("Cowsay", "Damned!! We were so close !", "bad")
-
-            Candy(
-                "Cowsay",
-                "We should go some step back before to see if we can do something else..",
-                "com",
-            )
-            Candy(
-                "Cowsay",
-                "Are you agree ? Otherwise Chunklate is going to exit",
-                "com",
-            )
-            uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
-            Answer = Question(id=key,idhash=uniqh)
-            if Answer is True:
-                Skip_Bad_Libpng = True
-                return True, Relics(str(key))
-            else:
-                Candy("Cowsay", "See You Space Cowboy....", "good")
-                TheEnd()
-
-    if LibpngDecision.action == "save_existing_solution":
-        PRINT("\n-\033[1;32;49mSolved\033[m: %s"% Cornucopia_Tool(key, chkd, 3))
-        SaveClone(
-            Cornucopia_Tool(key, chkd, 0),
-            Cornucopia_Tool(key, chkd, 1),
-            Cornucopia_Tool(key, chkd, 2),
-            Cornucopia_Tool(key, chkd, 3),
-        )
-
-        return True, GroundhogDay(Sample)
-
-    return False, None
+    handler = FIXIT_FELIX_LIBPNG_ERROR_HANDLERS.get(LibpngDecision.action)
+    if handler is None:
+        raise ValueError("Unknown FixItFelix libpng action: %s" % LibpngDecision.action)
+    return handler(LibpngDecision, key, chkd)
 
 
 def FixItFelix_Wrong_Chunk_Name(key, chkd):
@@ -10378,18 +10398,25 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
 
 
 def FixItFelix_Gama_Zero(key):
-    Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good") ##ME !!!
-    FalsePositive = fixit_felix.gama_zero_false_positive(key)
-    PandoraBox_Discard(FalsePositive.finding)
-    SideNotes.append(FalsePositive.note)
-    return True, FixItFelix
+    GamaDecision = fixit_felix.gama_zero_decision(key)
+    if GamaDecision.action == "discard_false_positive":
+        Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good") ##ME !!!
+        PandoraBox_Discard(GamaDecision.false_positive.finding)
+        SideNotes.append(GamaDecision.false_positive.note)
+        return True, FixItFelix
+
+    raise ValueError("Unknown FixItFelix gAMA action: %s" % GamaDecision.action)
 
 
 def FixItFelix_Critical_Miss(key):
+    CriticalMissDecision = fixit_felix.critical_miss_decision(
+        key,
+        debug=DEBUG,
+        pause_debug=PAUSEDEBUG,
+    )
     PRINT("\n-\033[1;31;49mCriticalMiss\033[m: %s"%key)
-    if DEBUG is True:
-        if PAUSEDEBUG is True:
-            Pause("Pause:Debug")
+    if CriticalMissDecision.action == "pause_debug":
+        Pause("Pause:Debug")
     return False, None
 
 

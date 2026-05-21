@@ -26,6 +26,8 @@ FixItFelixHandler = Literal[
 LibpngErrorAction = Literal["not_enough_image_data", "ask_relics", "skip", "save_existing_solution"]
 WrongCrcAction = Literal["already_in_cornucopia", "ask_easy_crc_fix", "ask_other_errors_first"]
 WrongChunkNameAction = Literal["ask_length_probe", "ask_bruteforce", "save_existing_solution"]
+GamaZeroAction = Literal["discard_false_positive"]
+CriticalMissAction = Literal["pause_debug", "continue"]
 NoNextChunkAction = Literal[
     "false_positive_iend",
     "wrong_iend_length",
@@ -73,8 +75,20 @@ class FalsePositiveFix:
 
 
 @dataclass(frozen=True)
+class GamaZeroDecision:
+    action: GamaZeroAction
+    false_positive: FalsePositiveFix
+
+
+@dataclass(frozen=True)
 class LibpngErrorDecision:
     action: LibpngErrorAction
+    finding: object
+
+
+@dataclass(frozen=True)
+class CriticalMissDecision:
+    action: CriticalMissAction
     finding: object
 
 
@@ -191,6 +205,13 @@ def gama_zero_false_positive(finding: object) -> FalsePositiveFix:
     )
 
 
+def gama_zero_decision(finding: object) -> GamaZeroDecision:
+    return GamaZeroDecision(
+        action="discard_false_positive",
+        false_positive=gama_zero_false_positive(finding),
+    )
+
+
 def libpng_error_decision(
     finding: object,
     *,
@@ -204,6 +225,17 @@ def libpng_error_decision(
     if skip_bad_libpng:
         return LibpngErrorDecision("skip", finding)
     return LibpngErrorDecision("ask_relics", finding)
+
+
+def critical_miss_decision(
+    finding: object,
+    *,
+    debug: bool,
+    pause_debug: bool,
+) -> CriticalMissDecision:
+    if debug is True and pause_debug is True:
+        return CriticalMissDecision("pause_debug", finding)
+    return CriticalMissDecision("continue", finding)
 
 
 def wrong_crc_decision(
