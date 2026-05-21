@@ -9,18 +9,23 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import Chunklate
+from chunklate import fixit_felix
 
 
 @contextmanager
 def patched_attrs(module, **attrs):
-    old_values = {name: getattr(module, name) for name in attrs}
+    missing = object()
+    old_values = {name: getattr(module, name, missing) for name in attrs}
     try:
         for name, value in attrs.items():
             setattr(module, name, value)
         yield
     finally:
         for name, value in old_values.items():
-            setattr(module, name, value)
+            if value is missing:
+                delattr(module, name)
+            else:
+                setattr(module, name, value)
 
 
 def reset_fixit_globals():
@@ -28,7 +33,16 @@ def reset_fixit_globals():
     Chunklate.PandoraBox = {}
     Chunklate.Cornucopia = {}
     Chunklate.Skip_Bad_Libpng = False
+    Chunklate.Skip_Bad_No_Next_Chunk = False
+    Chunklate.EOF = False
+    Chunklate.Bad_Critical = False
+    Chunklate.Bad_Missplaced = False
     Chunklate.Sample = "sample.png"
+    Chunklate.DATAX = ""
+    Chunklate.CLoffI = 0
+    Chunklate.CrcoffI = 0
+    Chunklate.Orig_CL = "0"
+    Chunklate.Raw_Crc = ""
 
 
 def test_gama_zero_discards_false_positive():
@@ -168,6 +182,111 @@ def test_libpng_error_skip_only_reports_critical_hit():
     assert result is None
 
 
+def test_no_next_false_positive_iend_feeds_libpng_after_tail_iend():
+    reset_fixit_globals()
+    key = "CheckLength_Error_0:-No NextChunk"
+    chkd = "IEND_Tool_"
+    Chunklate.PandoraBox = {
+        key: {
+            chkd + "0": b"IEND",
+            chkd + "1": "0",
+            chkd + "2": b"IDAT",
+        }
+    }
+    Chunklate.DATAX = "aabbccdd" + fixit_felix.GOOD_IEND_HEX
+    calls = {"chunk_story": [], "check_order": [], "libpng": []}
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        ChunkStory=lambda *args: calls["chunk_story"].append(args),
+        CheckChunkOrder=lambda *args: calls["check_order"].append(args),
+        LibpngCheck=lambda sample: calls["libpng"].append(sample) or "libpng-result",
+    ):
+        should_return, result = Chunklate.FixItFelix_No_NextChunk(key, chkd, b"IEND")
+
+    assert should_return is True
+    assert result == "libpng-result"
+    assert Chunklate.PandoraBox == {}
+    assert Chunklate.Skip_Bad_No_Next_Chunk is True
+    assert Chunklate.EOF is True
+    assert calls["chunk_story"] == [("add", b"IEND", 0, 8, 0)]
+    assert calls["check_order"] == [(b"IEND", "Critical")]
+    assert calls["libpng"] == ["sample.png"]
+    assert Chunklate.SideNotes == [
+        "-Found False-Positive :[Error:-No NextChunk].",
+        "-Reached the end of file.",
+    ]
+
+
+def test_no_next_append_missing_iend_uses_dummy_at_crc_tail():
+    reset_fixit_globals()
+    key = "CheckLength_Error_0:-No NextChunk"
+    chkd = "IDAT_Tool_"
+    Chunklate.Bad_Critical = True
+    Chunklate.CrcoffI = 0
+    Chunklate.DATAX = "aabbccddff"
+    Chunklate.PandoraBox = {
+        key: {
+            chkd + "0": b"IDAT",
+            chkd + "1": "12",
+            chkd + "2": b"IDAT",
+        }
+    }
+    dummy_calls = []
+
+    def fake_dummy_chunk(chunk, data_length, bad_position, bad_start, from_error):
+        dummy_calls.append((chunk, data_length, bad_position, bad_start, from_error))
+        return "dummy-iend"
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        print=lambda *args, **kwargs: None,
+        DummyChunk=fake_dummy_chunk,
+    ):
+        should_return, result = Chunklate.FixItFelix_No_NextChunk(key, chkd, b"IDAT")
+
+    assert should_return is True
+    assert result == "dummy-iend"
+    assert dummy_calls == [(b"IEND", 8, 8, 8, key)]
+    assert Chunklate.SideNotes == ["-Extra bits detected:ff"]
+
+
+def test_no_next_ask_length_probe_routes_to_nearbychunk():
+    reset_fixit_globals()
+    key = "CheckLength_Error_0:-No NextChunk"
+    chkd = "IDAT_Tool_"
+    Chunklate.PandoraBox = {
+        key: {
+            chkd + "0": b"IDAT",
+            chkd + "1": "12",
+            chkd + "2": b"IDAT",
+        }
+    }
+    nearby_calls = []
+
+    def fake_nearby_chunk(chunk_type, chunk_length, previous_chunk, next_flag, finding):
+        nearby_calls.append((chunk_type, chunk_length, previous_chunk, next_flag, finding))
+        return "nearby-result"
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        Question=lambda **kwargs: True,
+        NearbyChunk=fake_nearby_chunk,
+    ):
+        should_return, result = Chunklate.FixItFelix_No_NextChunk(key, chkd, b"IDAT")
+
+    assert should_return is True
+    assert result == "nearby-result"
+    assert nearby_calls == [(b"IDAT", "12", b"IDAT", False, key)]
+    assert Chunklate.SideNotes == ["-End of File Reached but IEND Chunk is missing"]
+
+
 def main():
     checks = [
         ("gAMA zero discards false positive", test_gama_zero_discards_false_positive),
@@ -176,6 +295,9 @@ def main():
         ("Libpng error saves existing solution", test_libpng_error_saves_existing_solution_from_cornucopia),
         ("Libpng error ask relics sets skip", test_libpng_error_ask_relics_sets_skip_and_returns_relics),
         ("Libpng error skip reports only critical hit", test_libpng_error_skip_only_reports_critical_hit),
+        ("No-next false positive feeds libpng", test_no_next_false_positive_iend_feeds_libpng_after_tail_iend),
+        ("No-next append missing IEND uses dummy chunk", test_no_next_append_missing_iend_uses_dummy_at_crc_tail),
+        ("No-next ask length probe routes to NearbyChunk", test_no_next_ask_length_probe_routes_to_nearbychunk),
     ]
 
     print("Running FixItFelix action tests")

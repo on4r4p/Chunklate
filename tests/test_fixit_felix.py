@@ -173,6 +173,80 @@ def test_no_next_chunk_decision_orders_iend_and_recovery_paths():
     )
 
 
+def test_no_next_false_positive_iend_decision_routes_tail_cases():
+    data_hex = "00aa" + fixit_felix.GOOD_IEND_HEX
+
+    assert (
+        fixit_felix.no_next_false_positive_iend_decision(
+            data_hex,
+            bad_missplaced=False,
+            has_missplaced_finding=False,
+        ).action
+        == "libpng_check"
+    )
+    assert (
+        fixit_felix.no_next_false_positive_iend_decision(
+            data_hex,
+            bad_missplaced=True,
+            has_missplaced_finding=True,
+        ).action
+        == "the_good_place"
+    )
+    assert (
+        fixit_felix.no_next_false_positive_iend_decision(
+            data_hex,
+            bad_missplaced=True,
+            has_missplaced_finding=False,
+        ).action
+        == "continue"
+    )
+
+
+def test_no_next_false_positive_iend_decision_cuts_or_ends():
+    extra = "abcdef"
+    cut_decision = fixit_felix.no_next_false_positive_iend_decision(
+        "0011" + fixit_felix.GOOD_IEND_HEX + extra,
+        bad_missplaced=False,
+        has_missplaced_finding=False,
+    )
+    bad_ending = fixit_felix.no_next_false_positive_iend_decision(
+        "001122334455",
+        bad_missplaced=False,
+        has_missplaced_finding=False,
+    )
+
+    assert cut_decision.action == "write_clean_iend_cut"
+    assert cut_decision.cut_hex == "0011" + fixit_felix.GOOD_IEND_HEX
+    assert bad_ending.action == "end_not_regular_iend"
+
+
+def test_no_next_append_iend_decision_routes_exceeding_bytes():
+    empty = fixit_felix.no_next_append_iend_decision("aabbccdd", crc_offset=0)
+    partial_iend = fixit_felix.no_next_append_iend_decision(
+        "aabbccdd" + fixit_felix.GOOD_IEND_HEX[:4],
+        crc_offset=0,
+    )
+    garbage = fixit_felix.no_next_append_iend_decision(
+        "aabbccddff",
+        crc_offset=0,
+    )
+    long_garbage = fixit_felix.no_next_append_iend_decision(
+        "aabbccdd" + ("ff" * 20),
+        crc_offset=0,
+    )
+    iend_inside = fixit_felix.no_next_append_iend_decision(
+        "aabbccdd" + ("ff" * 13) + fixit_felix.GOOD_IEND_HEX,
+        crc_offset=0,
+    )
+
+    assert empty.action == "dummy_at_eof"
+    assert partial_iend.action == "dummy_at_eof"
+    assert partial_iend.exceeding == fixit_felix.GOOD_IEND_HEX[:4]
+    assert garbage.action == "dummy_at_crc_tail"
+    assert long_garbage.action == "dummy_at_crc_tail"
+    assert iend_inside.action == "end_iend_inside_exceeding"
+
+
 def test_applied_repair_formats_legacy_note_and_save_suffix():
     class Repair:
         data = b"\x89PNG"
@@ -336,6 +410,9 @@ def main():
         ("Wrong CRC decision keeps easy fix before other errors", test_wrong_crc_decision_keeps_easy_fix_before_other_errors),
         ("Wrong chunk name decision keeps length probe before bruteforce", test_wrong_chunk_name_decision_keeps_length_probe_before_bruteforce),
         ("No-next-chunk decision orders IEND and recovery paths", test_no_next_chunk_decision_orders_iend_and_recovery_paths),
+        ("No-next false-positive IEND routes tail cases", test_no_next_false_positive_iend_decision_routes_tail_cases),
+        ("No-next false-positive IEND cuts or ends", test_no_next_false_positive_iend_decision_cuts_or_ends),
+        ("No-next append IEND routes exceeding bytes", test_no_next_append_iend_decision_routes_exceeding_bytes),
         ("Applied repair formats legacy note and save suffix", test_applied_repair_formats_legacy_note_and_save_suffix),
         ("Applied repair adds IHDR metadata", test_applied_repair_adds_ihdr_metadata_when_available),
         ("Automatic repair order keeps legacy priority", test_automatic_repair_order_keeps_legacy_priority),

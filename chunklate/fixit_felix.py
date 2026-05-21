@@ -34,6 +34,18 @@ NoNextChunkAction = Literal[
     "append_missing_iend",
     "ask_length_probe",
 ]
+NoNextFalsePositiveIendAction = Literal[
+    "libpng_check",
+    "the_good_place",
+    "write_clean_iend_cut",
+    "end_not_regular_iend",
+    "continue",
+]
+NoNextAppendIendAction = Literal[
+    "dummy_at_crc_tail",
+    "dummy_at_eof",
+    "end_iend_inside_exceeding",
+]
 AutomaticRepairHandler = Literal[
     "color_profile_cleanup",
     "plte_cleanup",
@@ -53,6 +65,7 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "missing_chunk_data_byte",
     "ihdr_rebuild",
 )
+GOOD_IEND_HEX = "0000000049454e44ae426082"
 
 
 @dataclass(frozen=True)
@@ -112,6 +125,18 @@ class NoNextChunkDecision:
     current_chunk: object
     chunk_type: object
     chunk_length: object
+
+
+@dataclass(frozen=True)
+class NoNextFalsePositiveIendDecision:
+    action: NoNextFalsePositiveIendAction
+    cut_hex: str | None = None
+
+
+@dataclass(frozen=True)
+class NoNextAppendIendDecision:
+    action: NoNextAppendIendAction
+    exceeding: str
 
 
 @dataclass(frozen=True)
@@ -278,6 +303,53 @@ def no_next_chunk_decision(
     if bad_critical:
         return NoNextChunkDecision("append_missing_iend", current_chunk, chunk_type, chunk_length)
     return NoNextChunkDecision("ask_length_probe", current_chunk, chunk_type, chunk_length)
+
+
+def no_next_false_positive_iend_decision(
+    data_hex: str,
+    *,
+    bad_missplaced: bool,
+    has_missplaced_finding: bool,
+    good_ending: str = GOOD_IEND_HEX,
+) -> NoNextFalsePositiveIendDecision:
+    if data_hex[-len(good_ending):] == good_ending:
+        if bad_missplaced is False:
+            return NoNextFalsePositiveIendDecision("libpng_check")
+        if has_missplaced_finding:
+            return NoNextFalsePositiveIendDecision("the_good_place")
+        return NoNextFalsePositiveIendDecision("continue")
+
+    if good_ending in data_hex:
+        cut_here = data_hex.index(good_ending) + len(good_ending)
+        return NoNextFalsePositiveIendDecision(
+            "write_clean_iend_cut",
+            cut_hex=data_hex[:cut_here],
+        )
+
+    return NoNextFalsePositiveIendDecision("end_not_regular_iend")
+
+
+def no_next_crc_exceeding(data_hex: str, crc_offset: int) -> str:
+    return data_hex[crc_offset + 8:]
+
+
+def no_next_append_iend_decision(
+    data_hex: str,
+    *,
+    crc_offset: int,
+    good_ending: str = GOOD_IEND_HEX,
+) -> NoNextAppendIendDecision:
+    exceeding = no_next_crc_exceeding(data_hex, crc_offset)
+
+    if len(exceeding) > len(good_ending):
+        if good_ending in exceeding:
+            return NoNextAppendIendDecision("end_iend_inside_exceeding", exceeding)
+        return NoNextAppendIendDecision("dummy_at_crc_tail", exceeding)
+
+    if exceeding.startswith(good_ending[:len(exceeding)]):
+        return NoNextAppendIendDecision("dummy_at_eof", exceeding)
+
+    return NoNextAppendIendDecision("dummy_at_crc_tail", exceeding)
 
 
 def applied_repair(repair: Any) -> AppliedRepair:
