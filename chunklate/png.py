@@ -45,6 +45,32 @@ class PngChunk:
 
 
 @dataclass(frozen=True)
+class LegacyChunkWindow:
+    raw_length: str
+    raw_type: str
+    raw_data: str
+    raw_crc: str
+    raw_next_chunk: str
+    chunk_type: bytes
+    next_chunk_type: bytes
+    length_offset_hex: str
+    length_offset_byte: int
+    length_offset_index: int
+    type_offset_hex: str
+    type_offset_byte: int
+    type_offset_index: int
+    data_offset_hex: str
+    data_offset_byte: int
+    data_offset_index: int
+    crc_offset_hex: str
+    crc_offset_byte: int
+    crc_offset_index: int
+    next_chunk_offset_hex: str
+    next_chunk_offset_byte: int
+    next_chunk_offset_index: int
+
+
+@dataclass(frozen=True)
 class IhdrRepair:
     data: bytes
     strategy: str
@@ -154,6 +180,58 @@ def chunk_at(data: bytes, offset: int) -> PngChunk | None:
         chunk_type=data[offset + 4 : offset + 8],
         data=data[data_start:data_end],
         crc=int.from_bytes(data[data_end:crc_end], "big"),
+    )
+
+
+def legacy_chunk_window(data: bytes, hex_offset: int) -> LegacyChunkWindow:
+    data_hex = data.hex()
+    byte_offset = hex_offset // 2
+    chunk = chunk_at(data, byte_offset)
+
+    if chunk is None:
+        raw_length = data_hex[hex_offset : hex_offset + 8]
+        length = int(raw_length, 16) if raw_length else 0
+        raw_type = data_hex[hex_offset + 8 : hex_offset + 16]
+        raw_data = data_hex[hex_offset + 16 : hex_offset + 16 + (length * 2)]
+        raw_crc = data_hex[hex_offset + 16 + len(raw_data) : hex_offset + 16 + len(raw_data) + 8]
+        chunk_type = bytes.fromhex(raw_type) if raw_type else b""
+    else:
+        length = chunk.length
+        raw_length = chunk.length.to_bytes(4, "big").hex()
+        raw_type = chunk.chunk_type.hex()
+        raw_data = chunk.data.hex()
+        raw_crc = chunk.crc.to_bytes(4, "big").hex()
+        chunk_type = chunk.chunk_type
+
+    raw_next_chunk = data_hex[hex_offset + 32 + len(raw_data) : hex_offset + 32 + len(raw_data) + 8]
+    next_chunk_type = bytes.fromhex(raw_next_chunk) if raw_next_chunk else b""
+
+    crc_byte_offset = byte_offset + length + len(raw_type)
+    next_chunk_offset_byte = byte_offset + length + len(raw_type) + 16
+
+    return LegacyChunkWindow(
+        raw_length=raw_length,
+        raw_type=raw_type,
+        raw_data=raw_data,
+        raw_crc=raw_crc,
+        raw_next_chunk=raw_next_chunk,
+        chunk_type=chunk_type,
+        next_chunk_type=next_chunk_type,
+        length_offset_hex=hex(byte_offset),
+        length_offset_byte=byte_offset,
+        length_offset_index=hex_offset,
+        type_offset_hex=hex(byte_offset + 4),
+        type_offset_byte=byte_offset + 4,
+        type_offset_index=hex_offset + 8,
+        data_offset_hex=hex(byte_offset + 8),
+        data_offset_byte=byte_offset + 8,
+        data_offset_index=hex_offset + 16,
+        crc_offset_hex=hex(crc_byte_offset),
+        crc_offset_byte=crc_byte_offset,
+        crc_offset_index=crc_byte_offset * 2,
+        next_chunk_offset_hex=hex(byte_offset + length + len(raw_type) + len(raw_data)),
+        next_chunk_offset_byte=next_chunk_offset_byte,
+        next_chunk_offset_index=next_chunk_offset_byte * 2,
     )
 
 

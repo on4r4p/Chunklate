@@ -48,6 +48,7 @@ from chunklate.png import (
     chunk_type_crc_matches,
     iter_chunks,
     is_known_bad_srgb_iccp_chunk,
+    legacy_chunk_window,
 )
 
 
@@ -4444,39 +4445,41 @@ def ChunkbyChunk(offset):
     global CrcoffB
     global CrcoffI
 
-    Raw_Length = DATAX[offset : offset + 8]
-    Orig_CL = Raw_Length
-    CLoffX = hex(int(offset / 2))
-    CLoffB = int(offset / 2)
-    CLoffI = offset
+    ChunkWindow = legacy_chunk_window(bytes.fromhex(DATAX), offset)
 
-    Raw_Type = DATAX[offset + 8 : offset + 16]
+    Raw_Length = ChunkWindow.raw_length
+    Orig_CL = Raw_Length
+    CLoffX = ChunkWindow.length_offset_hex
+    CLoffB = ChunkWindow.length_offset_byte
+    CLoffI = ChunkWindow.length_offset_index
+
+    Raw_Type = ChunkWindow.raw_type
 #    Orig_CT = bytes.fromhex(Raw_Type).decode(errors="ignore") #why decode??
 #    print("Orig_CT decode:",Orig_CT)
 #    print("Orig_CT pas decode:",bytes.fromhex(Raw_Type))
 #    Pause("tst")
-    Orig_CT = bytes.fromhex(Raw_Type)
-    CToffX = hex(int(offset / 2) + 4)
-    CToffB = int(offset / 2) + 4
-    CToffI = offset + 8
+    Orig_CT = ChunkWindow.chunk_type
+    CToffX = ChunkWindow.type_offset_hex
+    CToffB = ChunkWindow.type_offset_byte
+    CToffI = ChunkWindow.type_offset_index
 
-    Raw_Data = DATAX[offset + 16 : offset + 16 + (int(Raw_Length, 16) * 2)]
+    Raw_Data = ChunkWindow.raw_data
     Orig_CD = Raw_Data
-    CDoffX = hex(int(offset / 2) + 8)
-    CDoffB = int(offset / 2) + 8
-    CDoffI = offset + 16
+    CDoffX = ChunkWindow.data_offset_hex
+    CDoffB = ChunkWindow.data_offset_byte
+    CDoffI = ChunkWindow.data_offset_index
 
-    Raw_Crc = DATAX[offset + 16 + len(Raw_Data) : offset + 16 + len(Raw_Data) + 8]
+    Raw_Crc = ChunkWindow.raw_crc
     Orig_CRC = Raw_Crc
-    CrcoffX = hex(int(offset / 2) + int(Raw_Length, 16) + len(Raw_Type))
-    CrcoffB = int(offset / 2) + int(Raw_Length, 16) + len(Raw_Type)
-    CrcoffI = (int(offset / 2) + int(Raw_Length, 16) + len(Raw_Type)) * 2
+    CrcoffX = ChunkWindow.crc_offset_hex
+    CrcoffB = ChunkWindow.crc_offset_byte
+    CrcoffI = ChunkWindow.crc_offset_index
 
-    Raw_NextChunk = DATAX[offset + 32 + len(Raw_Data) : offset + 32 + len(Raw_Data) + 8]
-    Orig_NC = bytes.fromhex(Raw_NextChunk)
-    NCoffX = hex(int(offset / 2) + int(Raw_Length, 16) + len(Raw_Type) + len(Raw_Data))
-    NCoffB = int(offset / 2) + int(Raw_Length, 16) + len(Raw_Type) + 16
-    NCoffI = (int(offset / 2) + int(Raw_Length, 16) + len(Raw_Type) + 16) * 2
+    Raw_NextChunk = ChunkWindow.raw_next_chunk
+    Orig_NC = ChunkWindow.next_chunk_type
+    NCoffX = ChunkWindow.next_chunk_offset_hex
+    NCoffB = ChunkWindow.next_chunk_offset_byte
+    NCoffI = ChunkWindow.next_chunk_offset_index
 
     Candy("Title", "Chunk Infos:")
     PRINT(

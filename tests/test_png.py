@@ -19,6 +19,7 @@ from chunklate.png import (
     find_signature_offset,
     infer_png_dimensions,
     iter_chunks,
+    legacy_chunk_window,
     read_chunks,
     repair_color_profile_chunks,
     repair_empty_plte,
@@ -79,6 +80,41 @@ def test_chunk_at_reads_one_chunk_without_stream_context():
     assert chunk.chunk_type == b"IHDR"
     assert chunk.length == 13
     assert chunk.crc_ok
+
+
+def test_legacy_chunk_window_matches_chunkbychunk_offsets():
+    data = FIXTURE.read_bytes()
+    window = legacy_chunk_window(data, len(PNG_SIGNATURE) * 2)
+
+    assert window.raw_length == "0000000d"
+    assert window.raw_type == "49484452"
+    assert window.raw_crc == "5b014759"
+    assert window.raw_next_chunk == "67414d41"
+    assert window.chunk_type == b"IHDR"
+    assert window.next_chunk_type == b"gAMA"
+    assert window.length_offset_hex == "0x8"
+    assert window.length_offset_byte == 8
+    assert window.length_offset_index == 16
+    assert window.type_offset_hex == "0xc"
+    assert window.type_offset_byte == 12
+    assert window.type_offset_index == 24
+    assert window.data_offset_hex == "0x10"
+    assert window.data_offset_byte == 16
+    assert window.data_offset_index == 32
+    assert window.crc_offset_hex == "0x1d"
+    assert window.crc_offset_byte == 29
+    assert window.crc_offset_index == 58
+
+
+def test_legacy_chunk_window_falls_back_to_slices_for_incomplete_chunk():
+    data = PNG_SIGNATURE + b"\x00\x00\x00\x04IDATab"
+    window = legacy_chunk_window(data, len(PNG_SIGNATURE) * 2)
+
+    assert window.raw_length == "00000004"
+    assert window.raw_type == "49444154"
+    assert window.raw_data == "6162"
+    assert window.raw_crc == ""
+    assert window.chunk_type == b"IDAT"
 
 
 def test_chunk_type_crc_matches_finds_original_name():
@@ -334,6 +370,11 @@ def main():
         ("Expose CRC mismatch without stopping parse", test_crc_mismatch_is_exposed_without_stopping_parse),
         ("Missing PNG signature raises PngFormatError", test_missing_signature_raises_format_error),
         ("Read one chunk at an explicit offset", test_chunk_at_reads_one_chunk_without_stream_context),
+        ("Legacy chunk window matches ChunkbyChunk offsets", test_legacy_chunk_window_matches_chunkbychunk_offsets),
+        (
+            "Legacy chunk window falls back to slices for incomplete chunk",
+            test_legacy_chunk_window_falls_back_to_slices_for_incomplete_chunk,
+        ),
         ("Find original chunk name from CRC", test_chunk_type_crc_matches_finds_original_name),
         ("Append complete IEND chunk", test_complete_iend_tail_appends_full_iend_chunk),
         ("Reuse existing IEND suffix", test_complete_iend_tail_reuses_existing_iend_suffix),
