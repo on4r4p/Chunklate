@@ -8,6 +8,11 @@ from typing import Mapping
 
 
 CUSTOM_TO_BRUTUS_NOTE = "-SmashBruteBrawl error: Sti empty switched to Brutus mode"
+TWOBYTES_EDIT_KIND_BY_MODE = {
+    "Replace": "replace",
+    "Insert": "insert",
+    "Remove": "remove",
+}
 
 
 @dataclass(frozen=True)
@@ -252,6 +257,16 @@ def twobytes_candidate_data(
         bonus_hex=bonus_hex,
         length_bytes=len(data).to_bytes(4, "big"),
     )
+
+
+def iter_twobytes_edit_kinds(edit_mode: str, chunk_name: bytes) -> tuple[str, ...]:
+    if chunk_name == b"IDAT":
+        return ("replace", "insert", "remove")
+
+    try:
+        return (TWOBYTES_EDIT_KIND_BY_MODE[edit_mode],)
+    except KeyError as exc:
+        raise ValueError("Unknown TwoBytes edit mode: %s" % edit_mode) from exc
 
 
 def twobytes_bonus_candidate_data(

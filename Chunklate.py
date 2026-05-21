@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, decisions, fixit_felix, output, palette, palette_ui, relics
+from chunklate import bruteforce, checkpoint, chunk_info, decisions, fixit_felix, output, palette, palette_ui, prompts, relics, specs, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -592,81 +592,19 @@ def Max_Res():
 
 
 def ColorType(GetChunk,Mode):
-
-    Safe_val = True
-    Use_MinRes = False
-    Width = False
-    Height = False
-
-    for nb, key in enumerate(PandoraBox):
-        #        PRINT("key:%s"%key)
-        if "IHDR" in str(key):
-            if "Wrong Crc" in str(key) and Skip_Bad_Crc is False:
-                if str(key) not in Cornucopia:
-                    Safe_val = False
-            if "bad adaptive filter" in str(key):
-                if str(key) not in Cornucopia:
-                    Safe_val = False
-            if "-IHDR Color" in str(key):
-                if str(key) not in Cornucopia:
-                    Safe_val = False
-            if "IHDR: CRC error" in str(key):
-                if str(key) not in Cornucopia:
-                    Safe_val = False
-            if "StructIndex:0" in str(key):
-                   Width = True
-            if "StructIndex:1" in str(key):
-                   Height = True
-
-    if Width and Height:
-       Use_MinRes = True
-
-    for nb1, (file, file_value) in enumerate(Pandemonium.items()):
-        for nb2, (errors, errors_values) in enumerate(file_value.items()):
-            if "Filling with a dummy chunk" in errors:
-                for nb3, (tools, tools_values) in enumerate(errors_values.items()):
-                    ChunkName = "".join(
-                        [
-                            chnk.decode(errors="ignore")
-                            for chnk in ALLCHUNKS
-                            if chnk.decode(errors="ignore") in tools
-                        ]
-                    )
-                    if ChunkName == "IHDR":
-                        Safe_val = False
-    if IHDR_Color not in ["0", "2", "3", "4", "6"]:
-        Safe_val = False
-
-    if IHDR_Height == 0 or IHDR_Width == 0:
-        Safe_val = False
-
-    if Safe_val == False:
-#        if GetChunk == b"IHDR" and (Mode in ("Brutus","Custom","Spec") or "OldCrc" in Mode):
-        if GetChunk == b"IHDR":
-            if Brute_LvL == 0:
-                if Mode == "Custom" and not Use_MinRes:
-                    ColorType = "nocolortype:minres:custom"
-                else:
-                    ColorType = "nocolortype:minres"
-            elif Brute_LvL == 1:
-                ColorType = "nocolortype:medres"
-            else:
-                ColorType = "nocolortype:maxres"
-        else:
-            ColorType = "nocolortype" #TODO what about [b"tRNS", b"bKGD", b"sBIT"] ??
-
-    else:
-            if Brute_LvL == 0:
-                if Mode == "Custom" and not Use_MinRes:
-                    ColorType = "colortype:" + str(IHDR_Color) +":minres:custom"
-                else:
-                    ColorType = "colortype:" + str(IHDR_Color) + ":minres"
-            elif Brute_LvL == 1:
-                ColorType = "colortype:" + str(IHDR_Color) + ":medres"
-            else:
-                ColorType = "colortype:" + str(IHDR_Color) + ":maxres"
-#    else:
-#         ColorType = "colortype:" + str(IHDR_Color)
+    ColorType = specs.color_type_label(
+        GetChunk,
+        Mode,
+        Brute_LvL,
+        IHDR_Color,
+        IHDR_Height,
+        IHDR_Width,
+        PandoraBox,
+        Cornucopia,
+        Pandemonium,
+        ALLCHUNKS,
+        Skip_Bad_Crc,
+    )
 
     if DEBUG:
         PRINT("-ColorType set to:%s"% ColorType)
@@ -675,11 +613,7 @@ def ColorType(GetChunk,Mode):
 
 
 def Min_Res_Iter(MinRes):
-    mri = 0
-    for w in range(1,MinRes):
-        for h in range(1,w + 1):
-            mri += 2
-    return(mri)
+    return specs.min_res_iter(MinRes)
 
 def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
 
@@ -1758,42 +1692,19 @@ def GetInfo(Chunk, data, Dummy=False):
         PRINT("-Image Datastream.")
 
     if Chunk == b"pHYs":
-        try:
-            pHYs_Y = str(int(data[:8], 16))
+        pHYs_Info = chunk_info.parse_phys(data)
+        pHYs_Y = pHYs_Info.y
+        pHYs_X = pHYs_Info.x
+        pHYs_Unit = pHYs_Info.unit
+        if len(pHYs_Y) > 0:
             PRINT("-Pixels per unit, Y axis: %s"% Candy("Color", "yellow", pHYs_Y))
-        except (NameError, ValueError) as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-
-            ToFix.append("-Error pHYs Y:" + str(e))
-        try:
-            pHYs_X = str(int(data[8:16], 16))
+        if len(pHYs_X) > 0:
             PRINT("-Pixels per unit, X axis: %s"% Candy("Color", "yellow", pHYs_X))
-        except (NameError, ValueError) as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-
-            ToFix.append("-Error pHYs X:" + str(e))
-        try:
-            pHYs_Unit = str(int(data[16:18], 16))
+        if len(pHYs_Unit) > 0:
             PRINT("-Unit specifier         :%s"% Candy("Color", "yellow", pHYs_Unit))
-        except (NameError, ValueError) as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-
-            ToFix.append("-Error pHYs U:" + str(e))
         try:
             if len(pHYs_Y) > 0:
-                if int(pHYs_Y) > 2147483647:
+                if int(pHYs_Y) > chunk_info.PHYS_MAX_PIXELS_PER_UNIT:
                     PRINT(
                         "-Pixels per unit, Y axis:"
                         + Candy("Color", "red", " Wrong size (Too high)")
@@ -1801,9 +1712,6 @@ def GetInfo(Chunk, data, Dummy=False):
                         + Candy("Emoj", "bad")
                     )
 
-                    ToFix.append(
-                        "-Pixels per unit, Y axis: Wrong size (Too high) Must be between 1 to 2147483647."
-                    )
             else:
                 PRINT(
                     "-Pixels per unit, Y axis :"
@@ -1811,20 +1719,14 @@ def GetInfo(Chunk, data, Dummy=False):
                     + " Must be between 1 to 2147483647."
                     + Candy("Emoj", "bad")
                 )
-                ToFix.append(
-                    "-Pixels per unit, Y axis: Wrong size (Too low) Must be between 1 to 2147483647."
-                )
 
             if len(pHYs_X) > 0:
-                if int(pHYs_X) > 2147483647:
+                if int(pHYs_X) > chunk_info.PHYS_MAX_PIXELS_PER_UNIT:
                     PRINT(
                         "Pixels per unit, X axis"
                         + Candy("Color", "red", " Wrong size (Too high)")
                         + " Must be between 1 to 2147483647."
                         + Candy("Emoj", "bad")
-                    )
-                    ToFix.append(
-                        "-Pixels per unit, X axis: Wrong size (Too high) Must be between 1 to 2147483647."
                     )
             else:
                 PRINT(
@@ -1832,9 +1734,6 @@ def GetInfo(Chunk, data, Dummy=False):
                     + Candy("Color", "red", " Wrong size (Too low)")
                     + " Must be between 1 to 2147483647."
                     + Candy("Emoj", "bad")
-                )
-                ToFix.append(
-                    "-Pixels per unit, X axis: Wrong size (Too low) Must be between 1 to 2147483647."
                 )
 
             if len(pHYs_Unit) > 0:
@@ -1846,9 +1745,7 @@ def GetInfo(Chunk, data, Dummy=False):
                         + Candy("Emoj", "bad")
                     )
 
-                    ToFix.append(
-                        "-Unit specifier :Wrong value Must be between 0 (unknown) or 1(meter)."
-                    )
+            ToFix.extend(pHYs_Info.fixes)
             if len(ToFix) > 0:
                 CheckPoint(True, False, "GetInfo", Chunk, ToFix)
             else:
@@ -2585,87 +2482,22 @@ def GetInfo(Chunk, data, Dummy=False):
             )
 
     if Chunk == b"tIME":
+        tIME_Current_Year = datetime.now().year
+        tIME_Info = chunk_info.parse_time(data, current_year=tIME_Current_Year)
+        tIME_Yr = tIME_Info.year
+        tIME_Mth = tIME_Info.month
+        tIME_Day = tIME_Info.day
+        tIME_Hr = tIME_Info.hour
+        tIME_Min = tIME_Info.minute
+        tIME_Sec = tIME_Info.second
         if len(data) < 14:
             PRINT(
                 "-tIME %s inside tIME data.%s"
                 % (Candy("Color", "red", "Not enough bytes"), Candy("Emoj", "bad"))
             )
-            ToFix.append("-tIME Not enough bytes inside tIME data.")
-
+            ToFix.extend(tIME_Info.fixes)
         else:
-            try:
-                tIME_Yr = str(int(data[:4], 16))
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
-                    PRINT(
-                        Candy("Color", "red", "Error tIME Years:"),
-                        Candy("Color", "yellow", e),
-                    )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
-                ToFix.append("-tIME Year is > than the current year")
-            try:
-                tIME_Mth = str(int(data[4:6], 16))
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
-                    PRINT(
-                        Candy("Color", "red", "Error tIME Months:"),
-                        Candy("Color", "yellow", e),
-                    )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
-                ToFix.append("-tIME Month value is not valid")
-            try:
-                tIME_Day = str(int(data[6:8], 16))
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
-                    PRINT(
-                        Candy("Color", "red", "Error tIME Days:"),
-                        Candy("Color", "yellow", e),
-                    )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
-                ToFix.append("-tIME Day value is not valid")
-            try:
-                tIME_Hr = str(int(data[8:10], 16))
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
-                    PRINT(
-                        Candy("Color", "red", "Error tIME Hours:"),
-                        Candy("Color", "yellow", e),
-                    )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
-                ToFix.append("-tIME Hour value is not valid")
-            try:
-                tIME_Min = str(int(data[10:12], 16))
-            except Exception as e:
-                if DEBUG is True:
-                    PRINT(
-                        Candy("Color", "red", "Error tIME Minutes:"),
-                        Candy("Color", "yellow", e),
-                    )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
-                ToFix.append("-tIME Minute value is not valid")
-            try:
-                tIME_Sec = str(int(data[12:14], 16))
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
-                    PRINT(
-                        Candy("Color", "red", "Error tIME Seconds:"),
-                        Candy("Color", "yellow", e),
-                    )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
-                ToFix.append("-tIME Second value is not valid")
-
-            if len(ToFix) == 0:
+            if tIME_Info.can_print_timestamp:
                 PRINT(
                     "-Last Modified: %s/%s/%s %s:%s:%s"
                     % (
@@ -2678,48 +2510,43 @@ def GetInfo(Chunk, data, Dummy=False):
                     )
                 )
             if len(str(tIME_Yr)) > 0:
-                if int(tIME_Yr) > datetime.now().year:
+                if int(tIME_Yr) > tIME_Current_Year:
                     PRINT(
                         "-Year is > than current year    : %s %s"
                         % (Candy("Color", "red", tIME_Yr), Candy("Emoj", "bad"))
                     )
-                    ToFix.append("-Year is > than current year" + str(tIME_Yr))
             if len(str(tIME_Mth)) > 0:
                 if int(tIME_Mth) not in range(1, 13):
                     PRINT(
                         "-Month value is not valid   : %s %s"
                         % (Candy("Color", "red", tIME_Mth), Candy("Emoj", "bad"))
                     )
-                    ToFix.append("-Month value is not valid " + str(tIME_Mth))
             if len(str(tIME_Day)) > 0:
                 if int(tIME_Day) not in range(1, 32):
                     PRINT(
                         "-Day value is not valid      : %s %s"
                         % (Candy("Color", "red", tIME_Day), Candy("Emoj", "bad"))
                     )
-                    ToFix.append("-Day value is not valid" + str(tIME_Day))
             if len(str(tIME_Hr)) > 0:
                 if int(tIME_Hr) not in range(0, 24):
                     PRINT(
                         "-Hour value is not valid     : %s %s"
                         % (Candy("Color", "red", tIME_Hr), Candy("Emoj", "bad"))
                     )
-                    ToFix.append("-Hour value is not valid " + str(tIME_Hr))
             if len(str(tIME_Min)) > 0:
                 if int(tIME_Min) not in range(0, 60):
                     PRINT(
                         "-Minute value is not valid  : %s %s"
                         % (Candy("Color", "red", tIME_Min), Candy("Emoj", "bad"))
                     )
-                    ToFix.append("-Minute value is not valid" + str(tIME_Min))
             if len(str(tIME_Sec)) > 0:
                 if int(tIME_Sec) not in range(0, 61):
                     PRINT(
                         "-Second  value is not valid : %s %s"
                         % (Candy("Color", "red", tIME_Sec), Candy("Emoj", "bad"))
                     )
-                    ToFix.append("-Second  value is not valid" + str(tIME_Sec))
 
+            ToFix.extend(tIME_Info.fixes)
             if len(ToFix) > 0:
                 CheckPoint(True, False, "GetInfo", Chunk, ToFix)
             else:
@@ -2894,7 +2721,8 @@ def GetInfo(Chunk, data, Dummy=False):
             )
 
     if Chunk == b"sRGB":
-        sRGB = str(int(data[:2], 16))
+        sRGB_Info = chunk_info.parse_srgb(data, has_chrm=b"cHRM" in Chunks_History)
+        sRGB = sRGB_Info.value
         if sRGB == "0":
             PRINT("-Rendering Perceptual :%s"% Candy("Color", "yellow", sRGB))
         elif sRGB == "1":
@@ -2908,7 +2736,6 @@ def GetInfo(Chunk, data, Dummy=False):
                 "-%s sRGB value must be between 0 to 3. %s"
                 % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
             )
-            ToFix.append("-sRGB value must be between 0 to 3.")
 
         if b"cHRM" in Chunks_History:
             PRINT(
@@ -2919,7 +2746,7 @@ def GetInfo(Chunk, data, Dummy=False):
                     Candy("Emoj", "bad"),
                 )
             )
-            ToFix.append("-cHRM is overided by sRGB chunk")
+        ToFix.extend(sRGB_Info.fixes)
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
@@ -2931,145 +2758,34 @@ def GetInfo(Chunk, data, Dummy=False):
             )
 
     if Chunk == b"cHRM":
-        try:
-            cHRM_WhiteX = str(
-                int.from_bytes(bytes.fromhex(data[:8]), byteorder="big", signed=False)
-            )
+        cHRM_Info = chunk_info.parse_chrm(
+            data,
+            has_srgb_or_iccp=b"sRGB" in Chunks_History or b"iCCP" in Chunks_History,
+        )
+        cHRM_WhiteX = cHRM_Info.white_x
+        cHRM_WhiteY = cHRM_Info.white_y
+        cHRM_Redx = cHRM_Info.red_x
+        cHRM_Redy = cHRM_Info.red_y
+        cHRM_Greenx = cHRM_Info.green_x
+        cHRM_Greeny = cHRM_Info.green_y
+        cHRM_Bluex = cHRM_Info.blue_x
+        cHRM_Bluey = cHRM_Info.blue_y
+        if len(cHRM_WhiteX) > 0:
             PRINT("-WhiteX   :%s"% Candy("Color", "white", cHRM_WhiteX))
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(
-                    Candy("Color", "red", "-cHRM WhiteX Error:"),
-                    Candy("Color", "yellow", e),
-                )
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-
-            ToFix.append("-cHRM WhiteX Error:" + str(e))
-        try:
-            cHRM_WhiteY = str(
-                int.from_bytes(bytes.fromhex(data[8:16]), byteorder="big", signed=False)
-            )
+        if len(cHRM_WhiteY) > 0:
             PRINT("-WhiteY   :%s"% Candy("Color", "white", cHRM_WhiteY))
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(
-                    Candy("Color", "red", "-cHRM WhiteY Error:"),
-                    Candy("Color", "yellow", e),
-                )
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            ToFix.append("-cHRM WhiteY Error:" + str(e))
-
-        try:
-            cHRM_Redx = str(
-                int.from_bytes(
-                    bytes.fromhex(data[16:24]), byteorder="big", signed=False
-                )
-            )
+        if len(cHRM_Redx) > 0:
             PRINT("-RedX     :%s"% Candy("Color", "red", cHRM_Redx))
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(
-                    Candy("Color", "red", "-cHRM RedX Error:"),
-                    Candy("Color", "yellow", e),
-                )
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            ToFix.append("-cHRM RedX Error:" + str(e))
-
-        try:
-            cHRM_Redy = str(
-                int.from_bytes(
-                    bytes.fromhex(data[24:32]), byteorder="big", signed=False
-                )
-            )
+        if len(cHRM_Redy) > 0:
             PRINT("-RedY     :%s"% Candy("Color", "red", cHRM_Redy))
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(
-                    Candy("Color", "red", "-cHRM RedY Error:"),
-                    Candy("Color", "yellow", e),
-                )
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            ToFix.append("-cHRM RedY Error:" + str(e))
-
-        try:
-            cHRM_Greenx = str(
-                int.from_bytes(
-                    bytes.fromhex(data[32:40]), byteorder="big", signed=False
-                )
-            )
+        if len(cHRM_Greenx) > 0:
             PRINT("-GreenX   :%s"% Candy("Color", "green", cHRM_Greenx))
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(
-                    Candy("Color", "red", "-cHRM GreenX Error:"),
-                    Candy("Color", "yellow", e),
-                )
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-                ToFix.append("-cHRM GreenX Error:" + str(e))
-
-        try:
-            cHRM_Greeny = str(
-                int.from_bytes(
-                    bytes.fromhex(data[40:48]), byteorder="big", signed=False
-                )
-            )
+        if len(cHRM_Greeny) > 0:
             PRINT("-GreenY   :%s"% Candy("Color", "green", cHRM_Greeny))
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(
-                    Candy("Color", "red", "-cHRM GreenY Error:"),
-                    Candy("Color", "yellow", e),
-                )
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            ToFix.append("-cHRM GreenY Error:" + str(e))
-
-        try:
-            cHRM_Bluex = str(
-                int.from_bytes(
-                    bytes.fromhex(data[48:56]), byteorder="big", signed=False
-                )
-            )
+        if len(cHRM_Bluex) > 0:
             PRINT("-BlueX    :%s"% Candy("Color", "blue", cHRM_Bluex))
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(
-                    Candy("Color", "red", "-cHRM BlueX Error:"),
-                    Candy("Color", "yellow", e),
-                )
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            ToFix.append("-cHRM BlueX Error:" + str(e))
-
-        try:
-            cHRM_Bluey = str(
-                int.from_bytes(
-                    bytes.fromhex(data[56:64]), byteorder="big", signed=False
-                )
-            )
+        if len(cHRM_Bluey) > 0:
             PRINT("-BlueY    :%s"% Candy("Color", "blue", cHRM_Bluey))
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(
-                    Candy("Color", "red", "-cHRM BluY Error:"),
-                    Candy("Color", "yellow", e),
-                )
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            ToFix.append("-cHRM BlueY Error:" + str(e))
 
         if b"sRGB" in Chunks_History or b"iCCP" in Chunks_History:
             PRINT(
@@ -3080,7 +2796,7 @@ def GetInfo(Chunk, data, Dummy=False):
                     Candy("Emoj", "bad"),
                 )
             )
-            ToFix.append("-cHRM is overided by sRGB chunk and iCCP")
+        ToFix.extend(cHRM_Info.fixes)
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
@@ -3092,72 +2808,52 @@ def GetInfo(Chunk, data, Dummy=False):
             )
 
     if Chunk == b"gAMA":
-        try:
-            gAMA = str(int(data[:8], 16))
+        gAMA_Info = chunk_info.parse_gama(data)
+        gAMA = gAMA_Info.value
+        if len(gAMA) > 0:
             PRINT("-Gama   :%s"% Candy("Color", "white", gAMA))
             if gAMA == "0":
                 PRINT("-A gAMA Chunk of %s is Useless." % Candy("Color", "red", "0"))
-                ToFix.append("-A gAMA Chunk of 0 is Useless.")
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            ToFix.append("-Gama value error" + str(e))
+        ToFix.extend(gAMA_Info.fixes)
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
     if Chunk == b"iCCP":
-        null = "00"
-        null_pos = 0
-        badchar = ["badchar"]
-        for i in range(0, len(data), 2):
-            nint = int(data[i : i + 2], 16)
-            nchar = chr(nint)
+        iCCP_Info = chunk_info.parse_iccp(
+            data,
+            raw_length_hex=Orig_CL,
+            has_chrm=b"cHRM" in Chunks_History,
+        )
+        iCCP_Name = iCCP_Info.name
+        iCCP_Method = iCCP_Info.method
+        iCCP_Profile = iCCP_Info.profile
 
-            if data[i : i + 2] == "00":
-                null_pos = i
-                if i > 79:
-                    PRINT(
-                        "-Length of iCCP Profile name is %s :%s"
-                        % (Candy("Color", "red", "not Valid"), Candy("Color", "red", i))
-                    )
-                    ToFix.append("-Length of iCCP Profile name is not valid")
-                break
-            if (int(nint) not in range(32, 127)) and (int(nint) not in range(161, 255)):
-                PRINT(
-                    "-Character %s at index %s in iCCP_Name\n-Replaced by [€]"
-                    % (
-                        Candy("Color", "red", "not allowed [" + nchar + "]"),
-                        Candy("Color", "red", i),
-                    )
+        if "-Length of iCCP Profile name is not valid" in iCCP_Info.fixes:
+            PRINT(
+                "-Length of iCCP Profile name is %s :%s"
+                % (
+                    Candy("Color", "red", "not Valid"),
+                    Candy("Color", "red", iCCP_Info.null_pos),
                 )
-                ToFix.append(
-                    "-Character not allowed %s at index %s in iCCP_Name\n-Replaced by [€]"
-                    % (nchar, i)
+            )
+
+        for bad_char, bad_index in iCCP_Info.bad_chars:
+            PRINT(
+                "-Character %s at index %s in iCCP_Name\n-Replaced by [€]"
+                % (
+                    Candy("Color", "red", "not allowed [" + bad_char + "]"),
+                    Candy("Color", "red", bad_index),
                 )
-                badchar.append(i)
-                iCCP_Name += "€"
-            else:
-                iCCP_Name += nchar
-        if len(badchar) > 1:
-            ToFix.append(badchar)
+            )
 
-        iCCP_Method = int(data[null_pos + 2 : null_pos + 4], 16)
-
-        if iCCP_Method > 0:
+        if isinstance(iCCP_Method, int) and iCCP_Method > 0:
             PRINT(
                 "-Compression method is supposed to be %s but is %s instead ."
-                % (Candy("Color", "green", "0"), Candy("Color", "red", method))
-            )
-            ToFix.append(
-                "-Compression method is supposed to be 0 but is %s instead ." % method
+                % (Candy("Color", "green", "0"), Candy("Color", "red", iCCP_Method))
             )
 
-        iCCP_Profile = data[null_pos + 4 :]
-
-        if int(int(Orig_CL, 16)) - (int(null_pos / 2) + 2) != int(
-            len(iCCP_Profile) / 2
-        ):
+        if "-iCCP Profile length is not Valid" in iCCP_Info.fixes:
             PRINT("-iCCP Profile length is %s" % Candy("Color", "red", "not Valid"))
-            ToFix.append("-iCCP Profile length is not Valid")
 
         if b"cHRM" in Chunks_History:
             PRINT(
@@ -3168,12 +2864,12 @@ def GetInfo(Chunk, data, Dummy=False):
                     Candy("Emoj", "bad"),
                 )
             )
-            ToFix.append(
-                "-cHRM already present cHRM will be overide if reconized by decoders"
-            )
 
-        PRINT("-iCCP Profile Name :%s"% Candy("Color", "yellow", iCCP_Name))
-        PRINT("-iCCP Profile Method :%s"% Candy("Color", "yellow", iCCP_Method))
+        if len(iCCP_Name) > 0:
+            PRINT("-iCCP Profile Name :%s"% Candy("Color", "yellow", iCCP_Name))
+        if len(str(iCCP_Method)) > 0:
+            PRINT("-iCCP Profile Method :%s"% Candy("Color", "yellow", iCCP_Method))
+        ToFix.extend(iCCP_Info.fixes)
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
@@ -3515,51 +3211,30 @@ def GetInfo(Chunk, data, Dummy=False):
             )
 
     if Chunk == b"oFFs":
-        try:
-            oFFSX = str(
-                int.from_bytes(bytes.fromhex(data[:8]), byteorder="big", signed=True)
-            )
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            oFFSX = 2147483649
-        try:
-            oFFSY = str(
-                int.from_bytes(bytes.fromhex(data[8:16]), byteorder="big", signed=True)
-            )
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            oFFSY = 2147483649
-        try:
-            oFFSU = str(int(data[16:18], 16))
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            oFFSU = 2147483649
+        oFFs_Info = chunk_info.parse_offs(data)
+        oFFSX = oFFs_Info.x
+        oFFSY = oFFs_Info.y
+        oFFSU = oFFs_Info.unit
 
         PRINT("-Offset position X    :%s"% Candy("Color", "blue", oFFSX))
         PRINT("-Offset position Y  :%s"% Candy("Color", "purple", oFFSY))
         PRINT("-Offset Unit   :%s"% Candy("Color", "white", oFFSU))
-        if int(oFFSX) not in range(-2147483647, 2147483648):
+        if int(oFFSX) not in range(chunk_info.OFFS_MIN_POSITION, chunk_info.OFFS_MAX_POSITION + 1):
             PRINT(
                 "-%s Offset position X must be between -2,147,483,647 to +2,147,483,647 %s"
                 % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
             )
-            ToFix.append(
-                "-Wrong Offset position X must be between -2,147,483,647 to +2,147,483,647"
-            )
-        if int(oFFSY) not in range(-2147483647, 2147483648):
+        if int(oFFSY) not in range(chunk_info.OFFS_MIN_POSITION, chunk_info.OFFS_MAX_POSITION + 1):
             PRINT(
                 "-%s Offset position Y must be between -2,147,483,647 to +2,147,483,647 %s"
                 % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
-            )
-            ToFix.append(
-                "-Wrong Offset position Y must be between -2,147,483,647 to +2,147,483,647"
             )
         if oFFSU != "0" and oFFSU != "1":
             PRINT(
                 "-%s Offset unit must be between 0 or 1 %s"
                 % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
             )
-            ToFix.append("-Wrong Offset unit must be between 0 or 1")
+        ToFix.extend(oFFs_Info.fixes)
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
         else:
@@ -3663,33 +3338,45 @@ def GetInfo(Chunk, data, Dummy=False):
 
     if Chunk == b"gIFg":
 
-        gIFgM = str(int(data[:2], 16))
-        gIFgU = str(int(data[2:4], 16))
-        gIFgT = str(int(data[4:6], 16))
+        gIFg_Info = chunk_info.parse_gifg(data)
+        gIFgM = gIFg_Info.disposal_method
+        gIFgU = gIFg_Info.user_input_flag
+        gIFgT = gIFg_Info.delay_time
 
-        PRINT("-Disposal Method    :%s"% Candy("Color", "yellow", gIFgM))
-        PRINT("-User Input Flag    :%s"% Candy("Color", "yellow", gIFgT))
-        PRINT("-Delay Time    :%s"% Candy("Color", "yellow", gIFgT))
+        if len(gIFgM) > 0:
+            PRINT("-Disposal Method    :%s"% Candy("Color", "yellow", gIFgM))
+        if len(gIFgT) > 0:
+            PRINT("-User Input Flag    :%s"% Candy("Color", "yellow", gIFgT))
+            PRINT("-Delay Time    :%s"% Candy("Color", "yellow", gIFgT))
+        ToFix.extend(gIFg_Info.fixes)
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
     if Chunk == b"gIFx":
-        gIFID = str(int(data[:16], 16))
-        gIFCD = str(int(data[16:22], 16))
-        gIFDT = str(int(data[22:], 16))
+        gIFx_Info = chunk_info.parse_gifx(data)
+        gIFID = gIFx_Info.application_identifier
+        gIFCD = gIFx_Info.authentication_code
+        gIFDT = gIFx_Info.application_data
 
-        PRINT("-Application Identifier    :%s"% Candy("Color", "yellow", gIFID))
-        PRINT("-Authentication Code    :%s"% Candy("Color", "yellow", gIFCD))
-        PRINT("-Application Data    :%s"% Candy("Color", "yellow", gIFDT))
+        if len(gIFID) > 0:
+            PRINT("-Application Identifier    :%s"% Candy("Color", "yellow", gIFID))
+        if len(gIFCD) > 0:
+            PRINT("-Authentication Code    :%s"% Candy("Color", "yellow", gIFCD))
+        if len(gIFDT) > 0:
+            PRINT("-Application Data    :%s"% Candy("Color", "yellow", gIFDT))
+        ToFix.extend(gIFx_Info.fixes)
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
     if Chunk == b"sTER":
 
-        sTER = str(int(data[:2], 16))
+        sTER_Info = chunk_info.parse_ster(data)
+        sTER = sTER_Info.mode
 
-        PRINT("-Subimage mode    :%s"% Candy("Color", "yellow", sTER))
+        if len(sTER) > 0:
+            PRINT("-Subimage mode    :%s"% Candy("Color", "yellow", sTER))
+        ToFix.extend(sTER_Info.fixes)
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
@@ -3917,10 +3604,8 @@ def GetInfo(Chunk, data, Dummy=False):
                 if PAUSEDEBUG is True or PAUSEERROR is True:
                     Pause("Pause Debug")
     if Chunk == b"eXIf":
-        eXIf_raw = []
-        raw = ""
-        sepcounter = 0
-        eXIf_endian = bytes.fromhex(data[:4]).decode(errors="ignore")
+        eXIf_Info = chunk_info.parse_exif(data)
+        eXIf_endian = eXIf_Info.endian
 
         if eXIf_endian == "II":
             PRINT("-eXif endianess is little-endian : %s"% eXIf_endian)
@@ -3928,19 +3613,12 @@ def GetInfo(Chunk, data, Dummy=False):
             PRINT("-eXif endianess is big-endian : %s"% eXIf_endian)
 
         PRINT("\nRaw values from eXIf data :\n\n")
-        for i in range(0, len(data), 2):
-            raw += data[i : i + 2]
-            if data[i : i + 2] == "00":
-                sepcounter += 1
-                if sepcounter >= 3:
-                    eXIf_raw.append(raw)
-                    raw = ""
-                    sepcounter = 0
-        for raw in eXIf_raw:
+        for raw in eXIf_Info.raw_values:
             if len(raw) < 150:
                 PRINT("- " + bytes.fromhex(raw).decode(errors="ignore"))
             else:
                 PRINT("-Raw data is too long to be displayed")
+        ToFix.extend(eXIf_Info.fixes)
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
@@ -4057,36 +3735,7 @@ def YouShallPass(Chunk, data):
         return True
 
     if Chunk == b"pHYs":
-        try:
-            pHYs_Y = str(int(data[:8], 16))
-        except (NameError, ValueError) as e:
-            return False
-        try:
-            pHYs_X = str(int(data[8:16], 16))
-        except (NameError, ValueError) as e:
-            return False
-        try:
-            pHYs_Unit = str(int(data[16:18], 16))
-        except (NameError, ValueError) as e:
-            return False
-        try:
-            if len(pHYs_Y) > 0:
-                if int(pHYs_Y) > 2147483647:
-                    return False
-            else:
-                return False
-            if len(pHYs_X) > 0:
-                if int(pHYs_X) > 2147483647:
-                    return False
-            else:
-                return False
-            if len(pHYs_Unit) > 0:
-                if pHYs_Unit != "0" and pHYs_Unit != "1":
-                    return False
-        except Exception as e:
-            if DEBUG:
-                PRINT("Error:%s"% e)
-        return True
+        return len(chunk_info.parse_phys(data).fixes) == 0
 
     if Chunk == b"bKGD":
         if IHDR_Color == "0" or IHDR_Color == "4":
@@ -4315,52 +3964,7 @@ def YouShallPass(Chunk, data):
                 return False
         return True
     if Chunk == b"tIME":
-        if len(data) < 14:
-            return False
-        else:
-            try:
-                tIME_Yr = str(int(data[:4], 16))
-            except:
-                return False
-            try:
-                tIME_Mth = str(int(data[4:6], 16))
-            except:
-                return False
-            try:
-                tIME_Day = str(int(data[6:8], 16))
-            except:
-                return False
-            try:
-                tIME_Hr = str(int(data[8:10], 16))
-            except:
-                return False
-            try:
-                tIME_Min = str(int(data[10:12], 16))
-            except:
-                return False
-            try:
-                tIME_Sec = str(int(data[12:14], 16))
-            except:
-                return False
-            if len(str(tIME_Yr)) > 0:
-                if int(tIME_Yr) > datetime.now().year:
-                    return False
-            if len(str(tIME_Mth)) > 0:
-                if int(tIME_Mth) not in range(1, 13):
-                    return False
-            if len(str(tIME_Day)) > 0:
-                if int(tIME_Day) not in range(1, 32):
-                    return False
-            if len(str(tIME_Hr)) > 0:
-                if int(tIME_Hr) not in range(0, 24):
-                    return False
-            if len(str(tIME_Min)) > 0:
-                if int(tIME_Min) not in range(0, 60):
-                    return False
-            if len(str(tIME_Sec)) > 0:
-                if int(tIME_Sec) not in range(0, 61):
-                    return False
-        return True
+        return len(chunk_info.parse_time(data).fixes) == 0
     if Chunk == b"tRNS":
         TRNSNBR = len(data)
         if len(IHDR_Color) == 0:
@@ -4413,119 +4017,24 @@ def YouShallPass(Chunk, data):
                         return False
         return True
     if Chunk == b"sRGB":
-        sRGB = str(int(data[:2], 16))
-        if sRGB not in ["0", "1", "2", "3"]:
-            return False
-        if b"cHRM" in Chunks_History:
-            return False
-        return True
+        return len(chunk_info.parse_srgb(data, has_chrm=b"cHRM" in Chunks_History).fixes) == 0
     if Chunk == b"cHRM":
-        try:
-            cHRM_WhiteX = str(
-                int.from_bytes(bytes.fromhex(data[:8]), byteorder="big", signed=False)
-            )
-        except:
-            return False
-        try:
-            cHRM_WhiteY = str(
-                int.from_bytes(bytes.fromhex(data[8:16]), byteorder="big", signed=False)
-            )
-        except:
-            return False
-
-        try:
-            cHRM_Redx = str(
-                int.from_bytes(
-                    bytes.fromhex(data[16:24]), byteorder="big", signed=False
-                )
-            )
-        except:
-            return False
-        try:
-            cHRM_Redy = str(
-                int.from_bytes(
-                    bytes.fromhex(data[24:32]), byteorder="big", signed=False
-                )
-            )
-        except:
-            return False
-        try:
-            cHRM_Greenx = str(
-                int.from_bytes(
-                    bytes.fromhex(data[32:40]), byteorder="big", signed=False
-                )
-            )
-        except:
-            return False
-
-        try:
-            cHRM_Greeny = str(
-                int.from_bytes(
-                    bytes.fromhex(data[40:48]), byteorder="big", signed=False
-                )
-            )
-        except:
-            return False
-        try:
-            cHRM_Bluex = str(
-                int.from_bytes(
-                    bytes.fromhex(data[48:56]), byteorder="big", signed=False
-                )
-            )
-        except:
-            return False
-        try:
-            cHRM_Bluey = str(
-                int.from_bytes(
-                    bytes.fromhex(data[56:64]), byteorder="big", signed=False
-                )
-            )
-        except:
-            return False
-        if b"sRGB" in Chunks_History or b"iCCP" in Chunks_History:
-            return False
-        return True
+        return len(
+            chunk_info.parse_chrm(
+                data,
+                has_srgb_or_iccp=b"sRGB" in Chunks_History or b"iCCP" in Chunks_History,
+            ).fixes
+        ) == 0
     if Chunk == b"gAMA":
-        try:
-            gAMA = str(int(data[:8], 16))
-            if gAMA == "0":
-                return False
-        except:
-            return False
-        return True
+        return len(chunk_info.parse_gama(data).fixes) == 0
     if Chunk == b"iCCP":
-        null = "00"
-        null_pos = 0
-        for i in range(0, len(data), 2):
-            nint = int(data[i : i + 2], 16)
-            nchar = chr(nint)
-
-            if data[i : i + 2] == "00":
-                null_pos = i
-                if i > 79:
-                    return False
-                break
-            if (int(nint) not in range(32, 127)) and (int(nint) not in range(161, 255)):
-                return False
-                iCCP_Name += "€"
-            else:
-                iCCP_Name += nchar
-
-        iCCP_Method = int(data[null_pos + 2 : null_pos + 4], 16)
-
-        if iCCP_Method > 0:
-            return False
-
-        iCCP_Profile = data[null_pos + 4 :]
-
-        if int(int(Orig_CL, 16)) - (int(null_pos / 2) + 2) != int(
-            len(iCCP_Profile) / 2
-        ):
-            return False
-
-        if b"cHRM" in Chunks_History:
-            return False
-        return True
+        return len(
+            chunk_info.parse_iccp(
+                data,
+                raw_length_hex=Orig_CL,
+                has_chrm=b"cHRM" in Chunks_History,
+            ).fixes
+        ) == 0
     if Chunk == b"sBIT":
         if IHDR_Color == "0":
             sBIT_Gray = str(int(data[:2], 16))
@@ -4591,30 +4100,7 @@ def YouShallPass(Chunk, data):
                 return False
         return True
     if Chunk == b"oFFs":
-        try:
-            oFFSX = str(
-                int.from_bytes(bytes.fromhex(data[:8]), byteorder="big", signed=True)
-            )
-        except:
-            return False
-        try:
-            oFFSY = str(
-                int.from_bytes(bytes.fromhex(data[8:16]), byteorder="big", signed=True)
-            )
-        except:
-            return False
-        try:
-            oFFSU = str(int(data[16:18], 16))
-        except:
-            return False
-
-        if int(oFFSX) not in range(-2147483647, 2147483648):
-            return False
-        if int(oFFSY) not in range(-2147483647, 2147483648):
-            return False
-        if oFFSU != "0" and oFFSU != "1":
-            return False
-        return True
+        return len(chunk_info.parse_offs(data).fixes) == 0
     if Chunk == b"pCAL":
         pCAL_Param = []
         try:
@@ -4658,28 +4144,12 @@ def YouShallPass(Chunk, data):
                 PRINT("Error:%s"% e)
         return True
     if Chunk == b"gIFg":
-        try:
-            gIFgM = str(int(data[:2], 16))
-            gIFgU = str(int(data[2:4], 16))
-            gIFgT = str(int(data[4:6], 16))
-        except:
-            return False
-        return True
+        return len(chunk_info.parse_gifg(data).fixes) == 0
     if Chunk == b"gIFx":
-        try:
-            gIFID = str(int(data[:16], 16))
-            gIFCD = str(int(data[16:22], 16))
-            gIFDT = str(int(data[22:], 16))
-        except:
-            return False
-        return True
+        return len(chunk_info.parse_gifx(data).fixes) == 0
     if Chunk == b"sTER":
 
-        try:
-            sTER = str(int(data[:2], 16))
-        except:
-            return False
-        return True
+        return len(chunk_info.parse_ster(data).fixes) == 0
     if Chunk == b"tEXt":
         tEXt_Key_List = []
         tEXt_Str_List = []
@@ -4719,11 +4189,7 @@ def YouShallPass(Chunk, data):
             return False
         return True
     if Chunk == b"eXIf":
-        eXIf_endian = bytes.fromhex(data[:4]).decode(errors="ignore")
-
-        if eXIf_endian != "II" and eXIf_endian != "MM":
-            return False
-        return True
+        return len(chunk_info.parse_exif(data).fixes) == 0
 
     return True
 
@@ -5840,26 +5306,7 @@ def stderr_redirector(stream):
         os.close(saved_stderr_fd)
 
 def Product(chunk_data,color_type,gen_nbr=None):
-     tup = ()
-     
-     shuffle = itertools.product(*chunk_data)
-     for i in shuffle:
-#         print("type(i):%s i:%s ct:%s"%(type(i),i,color_type))
-         if color_type.endswith("minres"):
-               for w in range(1,i[0]+1):
-                     i2 = tuple([i[0]]+[w]+list(i[1:]))
-                     yield(i2)
-#                     print("type(i2):%s i2:%s"%(type(i2),i2))
-                     i3 = tuple([w]+[i[0]]+list(i[1:]))
-                     if i3 != i2:
-                          yield(i3)
-#                         print("type(i3):%s i3:%s"%(type(i3),i3))
-#                     input("holdd")
-         else:
-              yield(i)
-
-#         input("hold")
-#     input("end")
+     yield from specs.iter_product_values(chunk_data, color_type)
 
 
 class Tk_Gen_Scale_Plte:
@@ -6612,21 +6059,21 @@ def SmashBruteBrawl(
 
                           Minibar(Indication="%s/%s"%(n,max_iter)) 
                            ##TODO maybe it would be better to just check Replace/Insert/Remove all in the same time.
-                          ##replace
-                          if EditMode == "Replace" or ChunkName == b'IDAT':
+                          direct_match = False
+                          for edit_kind in bruteforce.iter_twobytes_edit_kinds(EditMode, ChunkName):
                               candidate_data = bruteforce.twobytes_candidate_data(
                                   ToBrute,
                                   bvalue,
                                   needle,
-                                  "replace",
+                                  edit_kind,
                               )
                               newdatax = candidate_data.data
                               bonusdatax = candidate_data.bonus_hex
                               Lnx_New = candidate_data.length_bytes
                               attempt = BuildAttempt(Lnx_New, bvalue, newdatax, Before_New, After_New)
 
-                              if ValidateAttempt(attempt, "replace"):
-#                                      print("-Bingo replace")
+                              if ValidateAttempt(attempt, edit_kind):
+                                  direct_match = True
                                   break
 
                               ##Bonus Stage
@@ -6646,87 +6093,18 @@ def SmashBruteBrawl(
                                              Lnx_New = len(newdataxplus).to_bytes(4, "big")
                                              attempt = BuildAttempt(Lnx_New, newdataxplus, newdataxplus, Before_New, After_New)
 
-                                             if OldCrc:
+                                             if OldCrc and edit_kind == "replace":
                                                  if ValidateAttempt(attempt, bonus=True):
                                                      print("-Bingo replace bonus stage")
                                                      break
                                              else:
-                                                  if ValidateAttempt(attempt, "replace", bonus=True):
+                                                  if ValidateAttempt(attempt, edit_kind, bonus=True):
                 #                                      print("-Bingo replace")
                                                       break
                                       n1 += 2
 
-                          ##insert
-                          if EditMode == "Insert" or ChunkName == b'IDAT':
-                              candidate_data = bruteforce.twobytes_candidate_data(
-                                  ToBrute,
-                                  bvalue,
-                                  needle,
-                                  "insert",
-                              )
-                              newdatax = candidate_data.data
-                              bonusdatax = candidate_data.bonus_hex
-                              Lnx_New = candidate_data.length_bytes
-                              attempt = BuildAttempt(Lnx_New, bvalue, newdatax, Before_New, After_New)
-                              if ValidateAttempt(attempt, "insert"):
-                                  break
-
-                              ##Bonus Stage
-                              if Brute_LvL > 0:
-                                  n1 = 0
-                                  n2 = 2
-                                  while n1 <= len(newdatax) - (n2 -1):
-                                      if n1 == needle:
-                                         n1 += len(bvalue.hex())
-                                         continue
-                                      else:
-                                         for hexa in range(0, 16 ** 2):
-                                             Minibar(Indication="%s/%s"%(n,max_iter))
-                                             hexa = int(hexa).to_bytes(1, "big")
-                                             newdataxplus = bruteforce.twobytes_bonus_candidate_data(bonusdatax, n1, hexa)
-                                             Lnx_New = len(newdataxplus).to_bytes(4, "big")
-                                             attempt = BuildAttempt(Lnx_New, newdataxplus, newdataxplus, Before_New, After_New)
-                                             if ValidateAttempt(attempt, "insert", bonus=True):
-                #                                      print("-Bingo replace")
-                                                 break
-                                      n1 += 2
-
-                          ##remove
-                          if EditMode == "Remove" or ChunkName == b'IDAT':
-                              candidate_data = bruteforce.twobytes_candidate_data(
-                                  ToBrute,
-                                  bvalue,
-                                  needle,
-                                  "remove",
-                              )
-                              newdatax = candidate_data.data
-                              bonusdatax = candidate_data.bonus_hex
-                              Lnx_New = candidate_data.length_bytes
-                              attempt = BuildAttempt(Lnx_New, bvalue, newdatax, Before_New, After_New)
-    #
-                              if ValidateAttempt(attempt, "remove"):
-                                  break
-
-                          ##Bonus Stage
-                              if Brute_LvL > 0:
-                                  n1 = 0
-                                  n2 = 2
-                                  while n1 <= len(newdatax) - (n2 -1):
-                                      if n1 == needle:
-                                         n1 += len(bvalue.hex())
-                                         continue
-                                      else:
-                                         for hexa in range(0, 16 ** 2):
-                                             Minibar(Indication="%s/%s"%(n,max_iter))
-                                             hexa = int(hexa).to_bytes(1, "big")
-                                             newdataxplus = bruteforce.twobytes_bonus_candidate_data(bonusdatax, n1, hexa)
-                                             Lnx_New = len(newdataxplus).to_bytes(4, "big")
-                                             attempt = BuildAttempt(Lnx_New, newdataxplus, newdataxplus, Before_New, After_New)
-
-                                             if ValidateAttempt(attempt, "remove", bonus=True):
-                #                                      print("-Bingo replace")
-                                                 break
-                                      n1 += 2
+                          if direct_match:
+                              break
 
                           ##masterloop
                           needle += 2
@@ -8788,28 +8166,28 @@ def BruteChunk(CType, LastCType, ChunkLen, FromError):
             "\nIf you feel as lost as me then this might be a Length Problem type : wtf"
         )
         PRINT("\nOr Type quit to ...quit.\n")
-        Choice = input("WHO'S THAT POKEMON !? :")
-        while True:
-            PokemonChoice = decisions.parse_pokemon_choice(Choice, len(BingoLst))
-            if PokemonChoice.action == "select":
-                answer = BingoLst[PokemonChoice.index].split(" ")[1]
-                SaveClone(
-                    answer.encode().hex(),
-                    CToffI,
-                    CToffI+8,
-                    "-Found Chunk[%s] has wrong name at offset: %s\n-Chunk seems corrupted user has decided to choose Chunk[%s] as a replacement."
-                    % (Orig_CT, CToffX, BingoLst[PokemonChoice.index].encode()),
-                )
-                return ()
-            if PokemonChoice.action == "quit":
-                Candy("Cowsay", " Take Care Bye !", "good")
-                TheEnd()
-            if PokemonChoice.action == "length":
-                Candy("Cowsay", " Fine , time to investigate that length..", "com")
-                NearbyChunk(CType, ChunkLen, LastCType, False)
-                return ()
-            PRINT("choice:%s"% Choice)
-            Choice = input("WHO'S THAT POKEMON !? :")
+        PokemonChoice = prompts.ask_pokemon_choice(
+            input,
+            len(BingoLst),
+            on_invalid=lambda choice: PRINT("choice:%s"% choice),
+        )
+        if PokemonChoice.action == "select":
+            answer = BingoLst[PokemonChoice.index].split(" ")[1]
+            SaveClone(
+                answer.encode().hex(),
+                CToffI,
+                CToffI+8,
+                "-Found Chunk[%s] has wrong name at offset: %s\n-Chunk seems corrupted user has decided to choose Chunk[%s] as a replacement."
+                % (Orig_CT, CToffX, BingoLst[PokemonChoice.index].encode()),
+            )
+            return ()
+        if PokemonChoice.action == "quit":
+            Candy("Cowsay", " Take Care Bye !", "good")
+            TheEnd()
+        if PokemonChoice.action == "length":
+            Candy("Cowsay", " Fine , time to investigate that length..", "com")
+            NearbyChunk(CType, ChunkLen, LastCType, False)
+            return ()
 
 
 def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
@@ -9245,22 +8623,27 @@ def WriteClone(data,infos):
     Pandemonium_Remember_Current_Sample()
 
     try:
-        data = output.clone_bytes(data)
+        clone_plan = writer.prepare_clone_write(
+            FILE_Origin,
+            FILE_DIR,
+            data,
+            SAVE_COUNT,
+            MAX_SAVES,
+        )
     except Exception as e:
         Betterror(e, inspect.stack()[0][3])
         TheEnd()
 
-    name, dir = Naming(FILE_Origin)
-    target = output.CloneTarget(name=name, directory=dir, path=os.path.join(dir, name))
+    target = clone_plan.target
 
     PRINT(Candy("Color", "green", "-Saving to : %s")% target.path)
 
     SideNotes.append("-Saving to : %s"% target.path)
 
     try:
-       output.write_clone(target, data)
+       writer.write_prepared_clone(clone_plan)
        Sample = target.path
-       SAVE_COUNT += 1
+       SAVE_COUNT = clone_plan.save_count
     except Exception as e:
         Betterror(e, inspect.stack()[0][3])
         PRINT(
@@ -9275,7 +8658,7 @@ def WriteClone(data,infos):
 
     Summarise(infos)
 
-    if MAX_SAVES is not None and SAVE_COUNT >= MAX_SAVES:
+    if clone_plan.max_saves_reached:
         PRINT("-Max saves reached: %s" % MAX_SAVES)
         sys.exit(0)
 

@@ -231,6 +231,25 @@ def test_twobytes_candidate_data_preserves_replace_insert_remove_slices():
     assert remove.length_bytes == b"\x00\x00\x00\x04"
 
 
+def test_iter_twobytes_edit_kinds_preserves_idat_all_modes():
+    assert bruteforce.iter_twobytes_edit_kinds("Replace", b"IDAT") == (
+        "replace",
+        "insert",
+        "remove",
+    )
+    assert bruteforce.iter_twobytes_edit_kinds("Insert", b"IDAT") == (
+        "replace",
+        "insert",
+        "remove",
+    )
+
+
+def test_iter_twobytes_edit_kinds_preserves_non_idat_requested_mode():
+    assert bruteforce.iter_twobytes_edit_kinds("Replace", b"gAMA") == ("replace",)
+    assert bruteforce.iter_twobytes_edit_kinds("Insert", b"gAMA") == ("insert",)
+    assert bruteforce.iter_twobytes_edit_kinds("Remove", b"gAMA") == ("remove",)
+
+
 def test_iter_twobytes_bonus_data_preserves_legacy_skip_and_byte_range():
     candidates = list(
         islice(
@@ -389,6 +408,8 @@ def main():
         ("Mark unflagged bonus match", test_mark_candidate_match_can_preserve_legacy_unflagged_bonus_match),
         ("Apply candidate attempt match", test_apply_candidate_attempt_match_returns_state_and_attempt_bytes),
         ("TwoBytes candidate data", test_twobytes_candidate_data_preserves_replace_insert_remove_slices),
+        ("TwoBytes IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_idat_all_modes),
+        ("TwoBytes non-IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_non_idat_requested_mode),
         ("TwoBytes bonus candidates", test_iter_twobytes_bonus_data_preserves_legacy_skip_and_byte_range),
         ("TwoBytes bonus candidate data", test_twobytes_bonus_candidate_data_preserves_legacy_hex_replacement),
         ("Build Brutus candidate bytes", test_build_candidate_bytes_preserves_brutus_format_wrapping),

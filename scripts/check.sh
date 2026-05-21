@@ -20,14 +20,19 @@ echo "==> Python bytecode check"
     chunklate/__init__.py \
     chunklate/bruteforce.py \
     chunklate/checkpoint.py \
+    chunklate/chunk_info.py \
     chunklate/decisions.py \
     chunklate/fixit_felix.py \
     chunklate/output.py \
     chunklate/palette.py \
     chunklate/palette_ui.py \
     chunklate/png.py \
+    chunklate/prompts.py \
     chunklate/relics.py \
+    chunklate/specs.py \
+    chunklate/writer.py \
     tests/test_bruteforce.py \
+    tests/test_chunk_info.py \
     tests/test_checkpoint_actions.py \
     tests/test_checkpoint.py \
     tests/test_cli.py \
@@ -38,8 +43,12 @@ echo "==> Python bytecode check"
     tests/test_palette.py \
     tests/test_palette_ui.py \
     tests/test_png.py \
+    tests/test_prompts.py \
     tests/test_relics_state.py \
-    tests/test_repairs.py
+    tests/test_repairs.py \
+    tests/test_specs.py \
+    tests/test_writer.py \
+    tests/test_youshallpass.py
 
 echo "==> pytest"
 if ! "$PYTHON_BIN" -m pytest "$@"; then
