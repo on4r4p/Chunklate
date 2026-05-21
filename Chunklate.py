@@ -46,6 +46,7 @@ from chunklate.png import (
     chunk_at,
     complete_iend_tail,
     chunk_type_crc_matches,
+    detect_png_signature_recovery,
     iter_chunks,
     is_known_bad_srgb_iccp_chunk,
     legacy_chunk_window,
@@ -6885,11 +6886,11 @@ def FindMagic():
     Candy("Title", "Looking for magic header:")
 
     magic = "89504e470d0a1a0a"
-    magc = ["89504e470a1a0a00000004948445200", "89504e470a1a0a0000000d4948445200"]
-
     lenmagic = len(magic)
-    pos = DATAX.find(magic)
-    if pos != -1:
+    MagicRecovery = detect_png_signature_recovery(DATA_BYTES)
+
+    if MagicRecovery.action in ("found_at_start", "cut_at_signature"):
+        pos = MagicRecovery.signature_hex_offset
         ChunkStory("add", "PNG", pos, pos + lenmagic, int(pos / 2))
         PRINT(
             "-%s is Magic : %s\n"
@@ -6909,7 +6910,7 @@ def FindMagic():
                 Candy("Color", "purple", pos),
             )
         )
-        if DATAX.startswith(magic) is False:
+        if MagicRecovery.action == "cut_at_signature":
             PRINT("-File does not start with a png signature.")
             Candy("Cowsay", " Mkay ...Things just keeps better and better ..", "bad")
             PRINT(
@@ -6921,71 +6922,67 @@ def FindMagic():
                     Candy("Color", "blue", hex(int(pos / 2))),
                 )
             )
-            Zankentsu = DATAX[pos::]
             return CheckPoint(
                 False,
                 False,
                 "FindMagic",
                 "PngSig",
                 ["Cutting at Magic"],
-                Zankentsu,
+                MagicRecovery.fixed_data.hex(),
                 hex(int(pos / 2)),
             )
 
-        else:
-            return CheckPoint(
-                False, False, "FindMagic", "PngSig", ["-Found Magic"], pos + lenmagic
-            )
-
-    else:
-        PRINT(
-            "-File %s start with valid png signature .%s\n"
-            % (Candy("Color", "red", "does not"), Candy("Emoj", "bad"))
-        )
-        Candy("Cowsay", " This better be a real png or else ....", "bad")
-        for badnews in magc:
-            pos = DATAX.find(badnews)
-            if pos != -1:
-                if badnews == magc[1]:
-                    PRINT(
-                        "-Some bytes are %s from Png Signature.."
-                        % Candy("Color", "red", "missing")
-                    )
-                    Candy(
-                        "Cowsay",
-                        " %s seems corrupted due to line feed conversion...It doesnt look that bad...But I ll keep that in mind while im on it.."
-                        % (Candy("Color", "white", Sample_Name, "bad")),
-                    )
-                    SideNotes.append(
-                        "-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented."
-                    )
-                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                    # FullChunkForcerWithCrc()
-                    TheEnd()
-
-                if badnews == magc[0]:
-                    Candy(
-                        "Cowsay",
-                        " Hang on a sec....This is bad news i m afraid..",
-                        "com",
-                    )
-                    Candy(
-                        "Cowsay",
-                        " %s is badly corrupted ...I cannot guarantee any results and it may take forever to find a solution..."
-                        % Sample_Name,
-                        "com",
-                    )
-                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                    SideNotes.append(
-                        "-Major Corruption due to line feed conversion\n-File may not be recovered.\n-Not yet implemented."
-                    )
-                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                    TheEnd()
-
-        Candy("Cowsay", " Ok let's dig a little bit deeper..", "bad")
         return CheckPoint(
-            False, False, "FindMagic", "PngSig", ["-dig a little bit deeper"]
+            False, False, "FindMagic", "PngSig", ["-Found Magic"], pos + lenmagic
         )
+
+    PRINT(
+        "-File %s start with valid png signature .%s\n"
+        % (Candy("Color", "red", "does not"), Candy("Emoj", "bad"))
+    )
+    Candy("Cowsay", " This better be a real png or else ....", "bad")
+
+    if MagicRecovery.action == "linefeed_signature_candidate":
+        if MagicRecovery.linefeed_pattern == "minor_linefeed_corruption":
+            PRINT(
+                "-Some bytes are %s from Png Signature.."
+                % Candy("Color", "red", "missing")
+            )
+            Candy(
+                "Cowsay",
+                " %s seems corrupted due to line feed conversion...It doesnt look that bad...But I ll keep that in mind while im on it.."
+                % (Candy("Color", "white", Sample_Name, "bad")),
+            )
+            SideNotes.append(
+                "-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented."
+            )
+            PRINT(Candy("Color", "yellow", "\n-ToDo"))
+            # FullChunkForcerWithCrc()
+            TheEnd()
+
+        if MagicRecovery.linefeed_pattern == "major_linefeed_corruption":
+            Candy(
+                "Cowsay",
+                " Hang on a sec....This is bad news i m afraid..",
+                "com",
+            )
+            Candy(
+                "Cowsay",
+                " %s is badly corrupted ...I cannot guarantee any results and it may take forever to find a solution..."
+                % Sample_Name,
+                "com",
+            )
+            PRINT(Candy("Color", "yellow", "\n-ToDo"))
+            SideNotes.append(
+                "-Major Corruption due to line feed conversion\n-File may not be recovered.\n-Not yet implemented."
+            )
+            PRINT(Candy("Color", "yellow", "\n-ToDo"))
+            TheEnd()
+
+    Candy("Cowsay", " Ok let's dig a little bit deeper..", "bad")
+    return CheckPoint(
+        False, False, "FindMagic", "PngSig", ["-dig a little bit deeper"]
+    )
 
 
 def FindFuckingMagic():

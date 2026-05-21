@@ -80,6 +80,20 @@ class PngValidationResult:
 
 
 @dataclass(frozen=True)
+class PngSignatureRecovery:
+    action: str
+    signature_offset: int | None = None
+    fixed_data: bytes | None = None
+    linefeed_pattern: str | None = None
+
+    @property
+    def signature_hex_offset(self) -> int | None:
+        if self.signature_offset is None:
+            return None
+        return self.signature_offset * 2
+
+
+@dataclass(frozen=True)
 class LegacyLengthStatus:
     declared_length: int
     has_next_chunk: bool
@@ -132,6 +146,34 @@ class ChunkRemovalRepair:
 
 def find_signature_offset(data: bytes) -> int:
     return data.find(PNG_SIGNATURE)
+
+
+def detect_png_signature_recovery(data: bytes) -> PngSignatureRecovery:
+    signature_offset = find_signature_offset(data)
+    if signature_offset == 0:
+        return PngSignatureRecovery("found_at_start", signature_offset=0)
+    if signature_offset > 0:
+        return PngSignatureRecovery(
+            "cut_at_signature",
+            signature_offset=signature_offset,
+            fixed_data=data[signature_offset:],
+        )
+
+    data_hex = data.hex()
+    linefeed_patterns = (
+        ("major_linefeed_corruption", "89504e470a1a0a00000004948445200"),
+        ("minor_linefeed_corruption", "89504e470a1a0a0000000d4948445200"),
+    )
+    for name, pattern in linefeed_patterns:
+        pattern_hex_offset = data_hex.find(pattern)
+        if pattern_hex_offset >= 0:
+            return PngSignatureRecovery(
+                "linefeed_signature_candidate",
+                signature_offset=pattern_hex_offset // 2,
+                linefeed_pattern=name,
+            )
+
+    return PngSignatureRecovery("search_deeper")
 
 
 def iter_chunks(data: bytes, *, signature_offset: int | None = None) -> Iterator[PngChunk]:
@@ -292,6 +334,8 @@ def is_complete_png_with_valid_crc(data: bytes) -> bool:
 
 
 def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) -> PngValidationResult:
+    """Validate a final repaired PNG, not a corrupted input candidate."""
+
     errors: list[str] = []
 
     if not data.startswith(PNG_SIGNATURE):

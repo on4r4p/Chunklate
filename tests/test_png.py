@@ -16,6 +16,7 @@ from chunklate.png import (
     chunk_at,
     complete_iend_tail,
     chunk_type_crc_matches,
+    detect_png_signature_recovery,
     find_signature_offset,
     infer_png_dimensions,
     iter_chunks,
@@ -52,6 +53,47 @@ def test_find_signature_inside_prefixed_data():
     data = b"junk" + PNG_SIGNATURE + b"tail"
 
     assert find_signature_offset(data) == 4
+
+
+def test_detect_png_signature_recovery_accepts_signature_at_start():
+    recovery = detect_png_signature_recovery(PNG_SIGNATURE + b"tail")
+
+    assert recovery.action == "found_at_start"
+    assert recovery.signature_offset == 0
+    assert recovery.signature_hex_offset == 0
+    assert recovery.fixed_data is None
+
+
+def test_detect_png_signature_recovery_cuts_prefixed_data():
+    recovery = detect_png_signature_recovery(b"junk" + PNG_SIGNATURE + b"tail")
+
+    assert recovery.action == "cut_at_signature"
+    assert recovery.signature_offset == 4
+    assert recovery.signature_hex_offset == 8
+    assert recovery.fixed_data == PNG_SIGNATURE + b"tail"
+
+
+def test_detect_png_signature_recovery_classifies_linefeed_candidates():
+    minor = bytes.fromhex("89504e470a1a0a0000000d4948445200")
+    major = bytes.fromhex("89504e470a1a0a000000049484452000")
+
+    minor_recovery = detect_png_signature_recovery(b"xx" + minor)
+    major_recovery = detect_png_signature_recovery(b"xx" + major)
+
+    assert minor_recovery.action == "linefeed_signature_candidate"
+    assert minor_recovery.signature_offset == 2
+    assert minor_recovery.linefeed_pattern == "minor_linefeed_corruption"
+    assert major_recovery.action == "linefeed_signature_candidate"
+    assert major_recovery.signature_offset == 2
+    assert major_recovery.linefeed_pattern == "major_linefeed_corruption"
+
+
+def test_detect_png_signature_recovery_falls_back_to_deep_search():
+    recovery = detect_png_signature_recovery(b"not a png")
+
+    assert recovery.action == "search_deeper"
+    assert recovery.signature_offset is None
+    assert recovery.fixed_data is None
 
 
 def test_crc_mismatch_is_exposed_without_stopping_parse():
@@ -151,6 +193,13 @@ def test_validate_png_structure_accepts_valid_fixture():
 
     assert validation.ok
     assert validation.errors == ()
+
+
+def test_validate_png_structure_rejects_prefixed_png_output():
+    validation = validate_png_structure(b"junk" + FIXTURE.read_bytes())
+
+    assert not validation.ok
+    assert validation.errors == ("PNG signature is not at offset 0",)
 
 
 def test_validate_png_structure_rejects_crc_valid_bad_idat_stream():
@@ -418,6 +467,22 @@ def main():
     checks = [
         ("Read valid PNG chunks from fixture", test_read_valid_png_chunks_from_fixture),
         ("Find PNG signature inside prefixed data", test_find_signature_inside_prefixed_data),
+        (
+            "Detect PNG signature recovery accepts signature at start",
+            test_detect_png_signature_recovery_accepts_signature_at_start,
+        ),
+        (
+            "Detect PNG signature recovery cuts prefixed data",
+            test_detect_png_signature_recovery_cuts_prefixed_data,
+        ),
+        (
+            "Detect PNG signature recovery classifies linefeed candidates",
+            test_detect_png_signature_recovery_classifies_linefeed_candidates,
+        ),
+        (
+            "Detect PNG signature recovery falls back to deep search",
+            test_detect_png_signature_recovery_falls_back_to_deep_search,
+        ),
         ("Expose CRC mismatch without stopping parse", test_crc_mismatch_is_exposed_without_stopping_parse),
         ("Missing PNG signature raises PngFormatError", test_missing_signature_raises_format_error),
         ("Read one chunk at an explicit offset", test_chunk_at_reads_one_chunk_without_stream_context),
@@ -430,6 +495,7 @@ def main():
         ("Legacy length status reports missing next chunk", test_legacy_length_status_reports_missing_next_chunk),
         ("Find original chunk name from CRC", test_chunk_type_crc_matches_finds_original_name),
         ("Validate PNG structure accepts valid fixture", test_validate_png_structure_accepts_valid_fixture),
+        ("Validate PNG structure rejects prefixed PNG output", test_validate_png_structure_rejects_prefixed_png_output),
         (
             "Validate PNG structure rejects CRC-valid bad IDAT stream",
             test_validate_png_structure_rejects_crc_valid_bad_idat_stream,
