@@ -29,9 +29,8 @@
 
 Install the runtime dependencies in a virtual environment:
 
-    python3 -m venv .venv
+    ./scripts/bootstrap_dev.sh
     . .venv/bin/activate
-    python -m pip install -e .
 
 Run Chunklate on a PNG file:
 
@@ -62,17 +61,17 @@ Current CLI:
 
 ## Development
 
-Install development dependencies:
+Install or refresh all runtime and development dependencies:
 
-    python -m pip install -e ".[dev]"
+    ./scripts/bootstrap_dev.sh
 
 Run the smoke tests:
 
-    pytest
+    .venv/bin/python -m pytest
 
 Run only the repair regression tests:
 
-    pytest tests/test_repairs.py
+    .venv/bin/python -m pytest tests/test_repairs.py
 
 Or without pytest:
 
