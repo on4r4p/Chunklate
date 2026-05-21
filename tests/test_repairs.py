@@ -28,6 +28,7 @@ REPAIR_CASES = {
     "Bad-Chunk-Length-Exceeding-Bit.png": (1, ("Bad-Chunk-Length-Exceeding-Bit.0_Fixed.png",)),
     "Classic-Bad-Chunk-Crc.png": (1, ("Classic-Bad-Chunk-Crc.0_Fixed.png",)),
     "Classic-Bad-Chunk-Length.png": (1, ("Classic-Bad-Chunk-Length.0_Fixed.png",)),
+    "Good-Chunk-lenght-Missing-Bit.png": (1, ("Good-Chunk-lenght-Missing-Bit.0_Fixed.png",)),
     "IHDR-Messed-Up-Bad-Crc.png": (1, ("IHDR-Messed-Up-Bad-Crc.0_Fixed.png",)),
     "IHDR-Wrong-Height-Above-Estimated-Max-Resolution.png": (
         1,
@@ -75,7 +76,6 @@ PILLOW_ONLY_REPAIR_CASES = {}
 NO_NONINTERACTIVE_CLONE = "non-interactive audit exits rc=1 before writing any _Fixed.png"
 NEEDS_EXPLICIT_LIBPNG_PROFILE_WARNING = "needs explicit known incorrect sRGB profile signal before removing iCCP"
 UNCOVERED_REPAIR_CASES = {
-    "Good-Chunk-lenght-Missing-Bit.png": NO_NONINTERACTIVE_CLONE,
     "IncorrectSrgbProfile.png": NEEDS_EXPLICIT_LIBPNG_PROFILE_WARNING,
     "Incorrect_Srgb_Profile.png": NEEDS_EXPLICIT_LIBPNG_PROFILE_WARNING,
     "Unhandled-Critical-Chunk.png": NO_NONINTERACTIVE_CLONE,
@@ -89,7 +89,11 @@ def is_complete_png_with_valid_crc(path):
     except PngFormatError:
         return False
 
-    return bool(chunks) and chunks[-1].chunk_type == b"IEND" and all(chunk.crc_ok for chunk in chunks)
+    if not chunks or chunks[-1].chunk_type != b"IEND":
+        return False
+
+    iend_end = chunks[-1].offset + 12 + chunks[-1].length
+    return iend_end == path.stat().st_size and all(chunk.crc_ok for chunk in chunks)
 
 
 def pillow_verify_ok(path):
@@ -186,7 +190,11 @@ def test_pillow_only_repair_cases_produce_viewable_pngs(tmp_path):
 
 def test_all_current_repair_fixtures_are_classified():
     fixture_names = {path.name for path in FIXTURES.glob("*.png")}
-    classified_names = set(REPAIR_CASES) | set(PILLOW_ONLY_REPAIR_CASES) | set(UNCOVERED_REPAIR_CASES)
+    classified_names = (
+        set(REPAIR_CASES)
+        | set(PILLOW_ONLY_REPAIR_CASES)
+        | set(UNCOVERED_REPAIR_CASES)
+    )
 
     assert fixture_names - classified_names == set()
     assert classified_names - fixture_names == set()

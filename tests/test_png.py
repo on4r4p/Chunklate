@@ -23,6 +23,7 @@ from chunklate.png import (
     repair_ihdr,
     repair_ihdr_from_idat,
     repair_ihdr_preserving_crc,
+    repair_missing_chunk_data_byte,
 )
 
 
@@ -240,6 +241,20 @@ def test_repair_empty_plte_rebuilds_indexed_palette():
     assert chunks[-1].chunk_type == b"IEND"
 
 
+def test_repair_missing_chunk_data_byte_uses_shifted_crc():
+    original = (REPAIR_FIXTURES / "Good-Chunk-lenght-Missing-Bit.png").read_bytes()
+
+    repaired = repair_missing_chunk_data_byte(original)
+
+    assert repaired is not None
+    assert repaired.chunk_name == "PLTE"
+    assert repaired.inserted_offset in (99, 100)
+    assert repaired.inserted_value == 0xED
+    chunks = list(iter_chunks(repaired.data))
+    assert [chunk.chunk_type for chunk in chunks] == [b"IHDR", b"gAMA", b"PLTE", b"IDAT", b"IEND"]
+    assert all(chunk.crc_ok for chunk in chunks)
+
+
 def main():
     checks = [
         ("Read valid PNG chunks from fixture", test_read_valid_png_chunks_from_fixture),
@@ -270,6 +285,7 @@ def main():
         ),
         ("Remove empty optional truecolor PLTE", test_repair_empty_plte_removes_optional_truecolor_palette),
         ("Rebuild empty indexed PLTE", test_repair_empty_plte_rebuilds_indexed_palette),
+        ("Repair missing data byte using shifted CRC", test_repair_missing_chunk_data_byte_uses_shifted_crc),
     ]
 
     print("Running PNG parser tests")

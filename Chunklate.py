@@ -42,12 +42,15 @@ except ModuleNotFoundError:
 
 from chunklate import relics
 from chunklate.png import (
+    PngFormatError,
     chunk_at,
     complete_iend_tail,
     chunk_type_crc_matches,
+    iter_chunks,
     repair_color_profile_chunks,
     repair_empty_plte,
     repair_ihdr,
+    repair_missing_chunk_data_byte,
 )
 
 
@@ -7316,10 +7319,28 @@ def NullFind(data, search4=None):
 
 def LibpngCheck(file):
     Candy("Title", "Libpng Returned :%s" % (Candy("Color", "white", Sample_Name)))
-    f = io.BytesIO()
-    with stderr_redirector(f):
-        cv2.imread(file)
-    result = "{0}".format(f.getvalue().decode("utf-8"))
+    if cv2 is not None:
+        f = io.BytesIO()
+        with stderr_redirector(f):
+            cv2.imread(file)
+        result = "{0}".format(f.getvalue().decode("utf-8"))
+    elif Image is not None:
+        try:
+            with Image.open(file) as img:
+                img.verify()
+            result = ""
+        except Exception as e:
+            result = "libpng error: %s" % e
+    else:
+        try:
+            with open(file, "rb") as png_file:
+                chunks = list(iter_chunks(png_file.read()))
+            if not chunks or chunks[-1].chunk_type != b"IEND" or not all(chunk.crc_ok for chunk in chunks):
+                result = "libpng error: invalid PNG chunk stream"
+            else:
+                result = ""
+        except (OSError, PngFormatError) as e:
+            result = "libpng error: %s" % e
     PRINT("Result:%s"%result)
     if not any(s in result for s in LIBPNG_ERR):
         PRINT(
@@ -10225,6 +10246,19 @@ def FixItFelix_Try_PLTE_Cleanup():
     return True
 
 
+def FixItFelix_Try_Missing_Chunk_Data_Byte():
+    if not any("Wrong Crc" in str(key) or "No NextChunk" in str(key) for key in PandoraBox):
+        return None
+
+    repair = repair_missing_chunk_data_byte(bytes.fromhex(DATAX))
+    if repair is None:
+        return None
+
+    SideNotes.append("-FixItFelix:%s." % repair.strategy)
+    WriteClone(repair.data.hex(), "-%s." % repair.strategy)
+    return True
+
+
 def FixItFelix_Try_IHDR_Rebuild():
     if not any("IHDR" in str(key) and ("GetInfo" in str(key) or "Wrong Crc" in str(key)) for key in PandoraBox):
         return None
@@ -10320,6 +10354,10 @@ def FixItFelix(Chunk=None):
     PlteCleanup = FixItFelix_Try_PLTE_Cleanup()
     if PlteCleanup is not None:
         return PlteCleanup
+
+    MissingChunkDataByte = FixItFelix_Try_Missing_Chunk_Data_Byte()
+    if MissingChunkDataByte is not None:
+        return MissingChunkDataByte
 
     IhdrRebuild = FixItFelix_Try_IHDR_Rebuild()
     if IhdrRebuild is not None:

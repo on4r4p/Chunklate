@@ -64,6 +64,15 @@ class PlteRepair:
     strategy: str
 
 
+@dataclass(frozen=True)
+class MissingChunkByteRepair:
+    data: bytes
+    strategy: str
+    chunk_name: str
+    inserted_offset: int
+    inserted_value: int
+
+
 def find_signature_offset(data: bytes) -> int:
     return data.find(PNG_SIGNATURE)
 
@@ -149,6 +158,19 @@ def build_png_chunk(chunk_type: bytes, chunk_data: bytes) -> bytes:
 def replace_png_chunk(data: bytes, chunk: PngChunk, replacement: bytes) -> bytes:
     chunk_end = chunk.offset + 12 + chunk.length
     return data[: chunk.offset] + replacement + data[chunk_end:]
+
+
+def is_complete_png_with_valid_crc(data: bytes) -> bool:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return False
+
+    if not chunks or chunks[-1].chunk_type != b"IEND":
+        return False
+
+    iend_end = chunks[-1].offset + 12 + chunks[-1].length
+    return iend_end == len(data) and all(chunk.crc_ok for chunk in chunks)
 
 
 def complete_iend_tail(data: bytes, insert_offset: int) -> bytes:
@@ -294,6 +316,77 @@ def remove_png_chunks(data: bytes, should_remove) -> tuple[bytes, tuple[PngChunk
         return None
 
     return bytes(output), tuple(removed)
+
+
+def _is_ascii_chunk_type(chunk_type: bytes) -> bool:
+    return len(chunk_type) == 4 and all(65 <= value <= 90 or 97 <= value <= 122 for value in chunk_type)
+
+
+def _repair_missing_data_byte_for_chunk(data: bytes, chunk: PngChunk) -> MissingChunkByteRepair | None:
+    if not _is_ascii_chunk_type(chunk.chunk_type):
+        return None
+    if chunk.length < 1:
+        return None
+
+    data_start = chunk.offset + 8
+    expected_data_end = data_start + chunk.length
+    shifted_crc_start = expected_data_end - 1
+    shifted_crc_end = shifted_crc_start + 4
+    if shifted_crc_start < data_start or shifted_crc_end > len(data):
+        return None
+
+    observed = data[data_start:expected_data_end]
+    if len(observed) != chunk.length:
+        return None
+
+    shifted_crc = int.from_bytes(data[shifted_crc_start:shifted_crc_end], "big")
+    observed_without_crc_leak = observed[:-1]
+
+    for insert_index in range(chunk.length):
+        before = observed_without_crc_leak[:insert_index]
+        after = observed_without_crc_leak[insert_index:]
+        for value in range(256):
+            candidate_chunk_data = before + bytes((value,)) + after
+            if zlib.crc32(chunk.chunk_type + candidate_chunk_data) & 0xFFFFFFFF != shifted_crc:
+                continue
+
+            repaired = data[:data_start] + candidate_chunk_data + data[shifted_crc_start:]
+            if is_complete_png_with_valid_crc(repaired):
+                return MissingChunkByteRepair(
+                    data=repaired,
+                    strategy=(
+                        "recovered missing data byte in %s chunk at relative offset %s"
+                        % (chunk.name, insert_index)
+                    ),
+                    chunk_name=chunk.name,
+                    inserted_offset=insert_index,
+                    inserted_value=value,
+                )
+
+    return None
+
+
+def repair_missing_chunk_data_byte(data: bytes, *, max_chunk_length: int = 65536) -> MissingChunkByteRepair | None:
+    signature_offset = find_signature_offset(data)
+    if signature_offset < 0:
+        return None
+
+    offset = signature_offset + len(PNG_SIGNATURE)
+    while offset < len(data):
+        chunk = chunk_at(data, offset)
+        if chunk is None:
+            return None
+
+        if not chunk.crc_ok:
+            if chunk.length > max_chunk_length:
+                return None
+            return _repair_missing_data_byte_for_chunk(data, chunk)
+
+        offset = chunk.offset + 12 + chunk.length
+        if chunk.chunk_type == b"IEND":
+            return None
+
+    return None
 
 
 def iccp_profile_name(chunk: PngChunk) -> bytes | None:
