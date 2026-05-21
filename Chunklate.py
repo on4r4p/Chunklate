@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import relics
+from chunklate import decisions, relics
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -6090,14 +6090,13 @@ def SmashBruteBrawl(
                 Candy("Cowsay", "Does it looks good or should i keep trying ?", "com")
                 try:
 #                   Answer = Question(None, True)
-                    Answer = None
-                    while Answer != "yes" and Answer != "no":
-                        Answer = inputimeout(prompt='Answer(yes/no) auto answer in 23s:', timeout=23)
-                    if Answer == "yes":
-                        Answer = True
+                    Answer = decisions.ask_yes_no(
+                        lambda prompt: inputimeout(prompt=prompt, timeout=23),
+                        "Answer(yes/no) auto answer in 23s:",
+                    )
+                    if Answer is True:
                         Summarise("-SmashBruteBrawl:User chose yes at tries nbr:%s"%str(n-2))
                     else:
-                        Answer = False
                         Summarise("-SmashBruteBrawl:User chose no at tries nbr:%s"%str(n-2))
                 except EOFError as e:
                     print(e)
@@ -8605,37 +8604,25 @@ def BruteChunk(CType, LastCType, ChunkLen, FromError):
         PRINT("\nOr Type quit to ...quit.\n")
         Choice = input("WHO'S THAT POKEMON !? :")
         while True:
-            try:
-                if (Choice.lower() != "quit" or Choice.lower() != "wtf") and int(Choice) <= len(BingoLst):
-                    if int(Choice) in range(0, len(BingoLst)):
-                        answer = BingoLst[int(Choice)].split(" ")[1]
-                        SaveClone(
-                            answer.encode().hex(),
-                            CToffI,
-                            CToffI+8,
-                            "-Found Chunk[%s] has wrong name at offset: %s\n-Chunk seems corrupted user has decided to choose Chunk[%s] as a replacement."
-                            % (Orig_CT, CToffX, BingoLst[int(Choice)].encode()),
-                        )
-                        return ()
-                    else:
-                         print("choice:",choice)
-                else:
-                     print("FuckChoice:",choice)
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
-                    PRINT("Error WHO'S THAT POKEMON : %s"% e)
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-                pass
-
-            if Choice.lower() == "quit":
+            PokemonChoice = decisions.parse_pokemon_choice(Choice, len(BingoLst))
+            if PokemonChoice.action == "select":
+                answer = BingoLst[PokemonChoice.index].split(" ")[1]
+                SaveClone(
+                    answer.encode().hex(),
+                    CToffI,
+                    CToffI+8,
+                    "-Found Chunk[%s] has wrong name at offset: %s\n-Chunk seems corrupted user has decided to choose Chunk[%s] as a replacement."
+                    % (Orig_CT, CToffX, BingoLst[PokemonChoice.index].encode()),
+                )
+                return ()
+            if PokemonChoice.action == "quit":
                 Candy("Cowsay", " Take Care Bye !", "good")
                 TheEnd()
-            if Choice.lower() == "wtf":
+            if PokemonChoice.action == "length":
                 Candy("Cowsay", " Fine , time to investigate that length..", "com")
                 NearbyChunk(CType, ChunkLen, LastCType, False)
                 return ()
+            PRINT("choice:%s"% Choice)
             Choice = input("WHO'S THAT POKEMON !? :")
 
 
@@ -8916,44 +8903,24 @@ def Question(id=None,idhash=None, skipauto=False):
         PRINT("\nId:%s"% id)
         if PAUSEDEBUG is True:
             Pause("Pause Debug")
-    if NODIALOGUE is False:
-        
-        if AUTO is False or skipauto is True:
 
-            Response = input("Answer(yes/no):").lower()
-            while Response != "yes" and Response != "no":
-                Response = input("Answer(yes/no):").lower()
-            if Response == "yes":
+    Answer = decisions.question_auto_answer(NODIALOGUE, AUTO, skipauto)
+    if Answer is None:
+        Answer = decisions.ask_yes_no(input, decisions.question_prompt(NODIALOGUE, skipauto))
+        if not (NODIALOGUE and skipauto):
+            if Answer is True:
                 Candy("Cowsay", "Fine , let me see what i can do .", "good")
-                Answer = True
-
-            elif Response == "no":
+            else:
                 Candy("Cowsay", "Ok ,just do not make eye contact !", "com")
-                Answer = False
-        else:
-            PRINT("-%s\n" % Candy("Color", "green", "Auto Answer Mode"))
-            Answer = True
-    else:
-           if skipauto:
-                Response = input("-Stop bruteforce and save this png?(yes/no):").lower()
-                while Response != "yes" and Response != "no":
-                    Response = input("Answer(yes/no):").lower()
-                if Response == "yes":
-                    Answer = True
-                elif Response == "no":
-                    Answer = False
-           else:
-               Answer = True
+    elif NODIALOGUE is False and AUTO is True and skipauto is False:
+        PRINT("-%s\n" % Candy("Color", "green", "Auto Answer Mode"))
 
     if id != None:
-        Sondage = (
-            "Infos:" + str(id) + " Answer:" + str(Answer) + " Offset:" + str(CLoffI) + " Hash:" +str(idhash)
-        )
-        if Sondage not in IFOP:
-            IFOP.append(Sondage)
-            return Answer
-        else:
-    #        print("sondage:",Sondage)
+        Memory = decisions.remember_question_answer(IFOP, id, Answer, CLoffI, idhash)
+        if Memory.status == "recorded":
+            return Memory.answer
+
+        if Memory.status == "duplicate_flipped":
             PRINT("-%s\n" % Candy("Color", "red", "Error Already fixed"))
             PRINT("-%s\n" % Candy("Color", "red", "Answer Changed"))
             Candy("Cowsay", "Huh ..? Déja-vu ?", "com")
@@ -8964,32 +8931,29 @@ def Question(id=None,idhash=None, skipauto=False):
                 PRINT("\nAnswer:%s"% Answer)
             if PAUSEDEBUG is True:
                 Pause("Question")
+            return Memory.answer
 
-            Answer = not Answer
-            Sondage = (
-                "Infos:" + str(id) + " Answer:" + str(Answer) + " Offset:" + str(CLoffI) + " Hash:" +str(idhash)
-            )
-            if Sondage not in IFOP:
-                IFOP.append(Sondage)
-                return Answer
-            else:
-                PRINT(
-                    "-%s\n"
-                    % Candy(
-                        "Color",
-                        "red",
-                        "Loop Detected please contact github.com/on4r4p/Chunklate",
-                    )
+        if Memory.status == "loop_detected":
+            PRINT(
+                "-%s\n"
+                % Candy(
+                    "Color",
+                    "red",
+                    "Loop Detected please contact github.com/on4r4p/Chunklate",
                 )
+            )
             if DEBUG is True:
                 PRINT("IFOP:\n")
                 [PRINT(i) for i in IFOP]
                 PRINT("\nId:%s"% id)
-                PRINT("\nAnswer:%s"% Answer)
+                PRINT("\nAnswer:%s"% Memory.answer)
             if PAUSEDEBUG is True:
                 Pause("Pause Question")
                 TheEnd()
-    # TheEnd()
+            return Memory.answer
+    else:
+        return Answer
+
     return Answer
 
 
@@ -9301,9 +9265,11 @@ def Relics(FromError):
                                  Candy("Cowsay", "I will need you to manually click a few buttons for me.", "com")
                                  Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk but trust me this is useless as it wont work..", "com") ## no you should not it wont work
 
-                                 Answer = input("Answer(Manually/Remove/Quit):").lower() 
-                                 while Answer != "manually" and Answer != "remove" and Answer != "quit":
-                                       Answer = input("Answer(Manually/Remove/Quit):").lower()
+                                 Answer = decisions.ask_choice(
+                                     input,
+                                     "Answer(Manually/Remove/Quit):",
+                                     ("manually", "remove", "quit"),
+                                 )
 
                                  if Answer == "manually":
                                     for ch, chi in zip(Chunks_History, Chunks_History_Index):
@@ -9352,9 +9318,12 @@ def Relics(FromError):
                                  Candy("Cowsay", "And even there we would not be near to get every combination for a PLTE Chunk.", "bad")
                                  Candy("Cowsay", "Perhaps i could just remove that PLTE chunk but no it just wont work ..", "com")  ## no you should not it wont work
 
-                                 Answer = input("Answer(Manually/Bruteforce/Remove/Quit):").lower()
-                                 while Answer != "manually" and Answer != "bruteforce" and Answer != "remove" and Answer != "quit":
-                                       Answer = input("Answer(Manually/bruteforce/Remove/Quit):").lower()
+                                 Answer = decisions.ask_choice(
+                                     input,
+                                     "Answer(Manually/Bruteforce/Remove/Quit):",
+                                     ("manually", "bruteforce", "remove", "quit"),
+                                     "Answer(Manually/bruteforce/Remove/Quit):",
+                                 )
 
                                  if Answer == "bruteforce": ##Maybe ask Relic() first
 
