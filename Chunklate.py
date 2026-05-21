@@ -211,6 +211,100 @@ def CheckPoint_Record_Finding(registration):
     return relics.record_checkpoint_registration(PandoraBox, Cornucopia, registration)
 
 
+def CheckPoint_Apply_Flags(flags):
+    if not flags:
+        return
+    globals().update(flags)
+
+
+def CheckPoint_Print_Libpng_Critical(info):
+    PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s" % info)
+
+
+def CheckPoint_Discard_Libpng_Warning():
+    for nb, key in enumerate(PandoraBox):
+        if "libpng warning:" in str(key):
+            PandoraBox_Discard(key)
+            SideNotes.append("-Found False-Positive :[Error:-%s]." % (str(key)))
+            break
+
+
+def CheckPoint_Libpng_End_Success(message):
+    Candy(
+        "Cowsay",
+        message,
+        "good",
+    )
+    Candy("Cowsay", "Your file is here :", "good")
+    name, sample_dir = Naming(FILE_Origin)
+    PRINT(Candy("Color", "green", "-Saved in : %s/%s") % (sample_dir, Sample_Name))
+    Candy("Cowsay", "See you Space Cowboy...", "good")
+    TheEnd()
+
+
+def CheckPoint_Apply_Action_Decision(decision, chunk, info, toolkit):
+    if decision.side_note is not None:
+        SideNotes.append(decision.side_note)
+
+    CheckPoint_Apply_Flags(decision.flags)
+
+    if decision.action is None:
+        return False, None
+
+    if decision.action == "write_clone":
+        return True, WriteClone(toolkit[0], "-About to save.")
+
+    if decision.action == "dummy_chunk_from_the_good_place":
+        return True, DummyChunk(toolkit[0], toolkit[1], toolkit[2], toolkit[3], info)
+
+    if decision.action == "return_value":
+        return True, decision.return_value
+
+    if decision.action == "summarise_and_write_clone":
+        Summarise(decision.summary)
+        return True, WriteClone(toolkit[0], "-About to save.")
+
+    if decision.action == "find_fucking_magic":
+        return True, FindFuckingMagic()
+
+    if decision.action == "check_chunk_name":
+        return True, CheckChunkName(Raw_NextChunk, int(toolkit[0], 16), chunk, True)
+
+    if decision.action == "save_clone":
+        return True, SaveClone(toolkit[0], toolkit[1], toolkit[2], toolkit[3])
+
+    if decision.action == "fix_it_felix_continue":
+        FixItFelix(decision.return_value)
+        return False, None
+
+    if decision.action == "fix_it_felix_return":
+        return True, FixItFelix(decision.return_value)
+
+    if decision.action == "libpng_warning_relics":
+        CheckPoint_Print_Libpng_Critical(info)
+        Candy("Cowsay", "Ah found something !", "good")
+        return True, Relics(info)
+
+    if decision.action in ("discard_libpng_warning", "discard_libpng_warning_and_end"):
+        CheckPoint_Print_Libpng_Critical(info)
+        Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good")
+        Candy("Cowsay", "im removing it ..", "good")
+        CheckPoint_Discard_Libpng_Warning()
+        if decision.action == "discard_libpng_warning_and_end":
+            CheckPoint_Libpng_End_Success(
+                "Well maybe i am missing something but as for my abilities my job is done here!"
+            )
+        return False, None
+
+    if decision.action == "libpng_end_success":
+        CheckPoint_Libpng_End_Success(
+            "Well maybe i am missing something but as far as my current abilities goes the job is done for me here!"
+        )
+        return False, None
+
+    raise ValueError("Unknown CheckPoint action decision: %s" % decision.action)
+
+
 def Pandemonium_Remember_Current_Sample():
     relics.remember_sample(Pandemonium, ArkOfCovenant, Sample, PandoraBox, Cornucopia)
 
@@ -10522,24 +10616,25 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
             if Registration.store == "pandora_box" and PAUSEERROR is True:
                 Pause("Pause:Error")
 
-        if function == "TheGoodPlace":
-            if "Found Missing Data" in info:
-                return WriteClone(ToolKit[0],"-About to save.")
-            if "Missing Data Has Not Been Found" in info:
-                return DummyChunk(ToolKit[0], ToolKit[1], ToolKit[2], ToolKit[3], info)
-
-        if function == "DummyChunk":
-            if chunk == b'IEND':
-               Bad_Critical = False
-            if "Filling with a dummy chunk" in info:
-                return WriteClone(ToolKit[0],"-About to save.")
-
-        if function == "Tk_Save_Plte":
-            if "-PLTE Data has been replaced manually." in info: 
-                SideNotes.append("-CheckPoint: %s" % info)
-                return WriteClone(ToolKit[0],"-About to save.")
-            if "-Manually modify PLTE datas has been canceled by user." in info: 
-                SideNotes.append("-CheckPoint: %s" % info)
+        ActionDecision = checkpoint.action_decision(
+            error=error,
+            function=function,
+            chunk=chunk,
+            info=info,
+            toolkit=ToolKit,
+            libpng_errors=LIBPNG_ERR,
+            libpng_finished_at_iend=(
+                bool(Chunks_History) and Chunks_History[-1] == b"IEND" and EOF is True
+            ),
+        )
+        should_return, result = CheckPoint_Apply_Action_Decision(
+            ActionDecision,
+            chunk,
+            info,
+            ToolKit,
+        )
+        if should_return:
+            return result
 
         if function == "SmashBruteBrawl":
             if "Corrupted Data has been replaced" in info: 
@@ -10696,130 +10791,6 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
             else:
 
                 SideNotes.append("-CheckPoint: %s" % info)
-                TheEnd()
-
-        if function == "FindMagic":
-            if info == "-Found Magic":
-                offset = ToolKit[0]
-                SideNotes.append(
-                    "-CheckPoint: Returning next position based on Magic Offset %s"
-                    % ToolKit[0]
-                )
-                return offset
-
-            if info == "-Cutting at Magic":
-                Summarise(
-                    "-File does not start with a png signature.\n-Found a png signature at offset: %s\n-Creating starting with the right signature."
-                    % ToolKit[1]
-                )
-                return WriteClone(ToolKit[0],"-About to save.")
-
-            if info == "-dig a little bit deeper":
-                SideNotes.append("-CheckPoint: Finding Harder Magic Header")
-                return FindFuckingMagic()
-
-        if function == "FindFuckingMagic":
-            if info == "-Cutting at Magic":
-                Summarise(
-                    "-File does not start with a png signature.\n-Found a png signature at offset: %s\n-Creating starting with the right signature."
-                    % ToolKit[1]
-                )
-                return WriteClone(ToolKit[0],"-About to save.")
-
-            if info == "-Prepending Magic":
-                Summarise(
-                    "-File does not start with a png signature.\n-Did prepending a png signature at offset: %s\n-Creating starting with the right signature."
-                    % ToolKit[1]
-                )
-                return WriteClone(ToolKit[0],"-About to save.")
-
-        if function == "CheckLength":
-
-            if info == "-Found NextChunk":
-                SideNotes.append(
-                    "-CheckPoint:From Chunk [%s] Found NextChunk at length previously indicated for checking [%s]."
-                    % (chunk, ToolKit[0])
-                )
-                return CheckChunkName(Raw_NextChunk, int(ToolKit[0], 16), chunk, True)
-            else:
-                Bad_No_Next_Chunk = error
-
-        if function == "NearbyChunk":
-
-            return SaveClone(
-                ToolKit[0],
-                ToolKit[1],
-                ToolKit[2],
-                ToolKit[3],
-            )
-        if function == "CheckChunkOrder":
-            if chunk == "Critical":
-                Bad_Critical = error
-            if "Missplaced" in info:
-                Bad_Missplaced = error
-
-        if function == "Checksum":
-
-            if "Wrong Crc" in info:
-                Bad_Crc = error
-
-        if function == "LibpngCheck":
-            if "libpng error:" in info:
-                Bad_Libpng = error
-                FixItFelix("LibpngCheck")
-
-            elif "libpng warning:" in info:
-                if "known incorrect sRGB profile" in info:
-                    Bad_Libpng = error
-                    return FixItFelix("LibpngCheck")
-
-                PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% info)
-
-                if  any(s in info for s in LIBPNG_ERR):
-                          for e in LIBPNG_ERR:
-                                  if e in info:
-                                        Candy("Cowsay", "Ah found something !", "good")
-                                        return(Relics(info))
-                Candy(
-                    "Cowsay", "Bah that's just a warning who cares ?! !", "good"
-                ) ##ME!!!
-#                print("info:",info)
-                Candy(
-                    "Cowsay",
-                    "im removing it ..",
-                    "good",
-                )
-                for nb, key in enumerate(PandoraBox):
-
-                    if "libpng warning:" in str(key):
-                        PandoraBox_Discard(key)
-                        SideNotes.append(
-                            "-Found False-Positive :[Error:-%s]." % (str(key))
-                        )
-                        break
-
-                if Chunks_History[-1] == b"IEND" and EOF is True:
-                    Candy(
-                        "Cowsay",
-                        "Well maybe i am missing something but as for my abilities my job is done here!",
-                        "good",
-                    )
-                    Candy("Cowsay", "Your file is here :","good")
-                    name, dir = Naming(FILE_Origin)
-                    PRINT(Candy("Color", "green", "-Saved in : %s/%s")%(dir,Sample_Name))
-                    Candy("Cowsay", "See you Space Cowboy...", "good")
-                    TheEnd()
-
-            else:
-                Candy(
-                    "Cowsay",
-                    "Well maybe i am missing something but as far as my current abilities goes the job is done for me here!",
-                    "good",
-                )
-                Candy("Cowsay", "Your file is here :","good")
-                name, dir = Naming(FILE_Origin)
-                PRINT(Candy("Color", "green", "-Saved in : %s/%s")%(dir,Sample_Name))
-                Candy("Cowsay", "See you Space Cowboy...", "good")
                 TheEnd()
 
         if function == "CheckChunkName":
