@@ -132,6 +132,101 @@ def test_relics_module_exposes_dummy_chunk_tools_by_name():
     assert dummy_tools.from_error == "No NextChunk"
 
 
+def test_relics_module_routes_current_wrong_crc_errors():
+    pandora_box = {
+        "Checksum_Error_0:Wrong Crc b'IDAT'": relics.build_tools(
+            b"IDAT",
+            ("newcrc", 12, 20, b"IDAT", "0x2a", "oldcrc", 433, 100),
+        ),
+        "Checksum_Error_1:Wrong Crc b'PLTE'": relics.build_tools(
+            b"PLTE",
+            ("newcrc", 12, 20, b"PLTE", "0x2a", "oldcrc", 768, 100),
+        ),
+        "GetInfo_Error_0:Other": {},
+    }
+    cornucopia = {"Checksum_Error_1:Wrong Crc b'PLTE'": {}}
+
+    routes = relics.current_wrong_crc_routes(pandora_box, cornucopia, [b"IDAT", b"PLTE"])
+
+    assert routes == [
+        relics.WrongCrcRoute(
+            source=None,
+            error="Checksum_Error_0:Wrong Crc b'IDAT'",
+            chunk_name="IDAT",
+            tool_prefix="IDAT_Tool_",
+        )
+    ]
+    assert routes[0].is_current_file is True
+
+
+def test_relics_module_routes_remembered_wrong_crc_errors():
+    pandemonium = {
+        "sample.0_Fixed.png": {
+            "Checksum_Error_0:Wrong Crc": relics.build_tools(
+                b"IDAT",
+                ("newcrc", 12, 20, b"IDAT", "0x2a", "oldcrc", 433, 100),
+            ),
+            "GetInfo_Error_0:Other": {},
+        }
+    }
+
+    routes = relics.remembered_wrong_crc_routes(pandemonium, [b"IDAT", b"PLTE"])
+
+    assert routes == [
+        relics.WrongCrcRoute(
+            source="sample.0_Fixed.png",
+            error="Checksum_Error_0:Wrong Crc",
+            chunk_name="IDAT",
+            tool_prefix="IDAT_Tool_",
+        )
+    ]
+    assert routes[0].is_current_file is False
+
+
+def test_relics_module_routes_remembered_dummy_chunks():
+    pandemonium = {
+        "sample.0_Fixed.png": {
+            "DummyChunk_Error_0:Filling with a dummy chunk": relics.build_tools(
+                b"IHDR",
+                ("fixed-data", 13, 128, 128, 152, "No NextChunk"),
+            ),
+            "Checksum_Error_0:Wrong Crc": relics.build_tools(
+                b"IDAT",
+                ("newcrc", 12, 20, b"IDAT", "0x2a", "oldcrc", 433, 100),
+            ),
+        },
+        "sample.1_Fixed.png": {
+            "DummyChunk_Error_1:Filling with a dummy chunk": relics.build_tools(
+                b"tEXt",
+                ("fixed-data", 4, 256, 256, 280, "No NextChunk"),
+            ),
+        },
+    }
+
+    routes = relics.remembered_dummy_chunk_routes(
+        pandemonium,
+        [b"IHDR", b"IDAT", b"IEND", b"tEXt"],
+        [b"IHDR", b"PLTE", b"IDAT", b"IEND"],
+    )
+
+    assert routes == [
+        relics.DummyChunkRoute(
+            source="sample.0_Fixed.png",
+            error="DummyChunk_Error_0:Filling with a dummy chunk",
+            chunk_name="IHDR",
+            tool_prefix="IHDR_Tool_",
+            is_critical=True,
+        ),
+        relics.DummyChunkRoute(
+            source="sample.1_Fixed.png",
+            error="DummyChunk_Error_1:Filling with a dummy chunk",
+            chunk_name="tEXt",
+            tool_prefix="tEXt_Tool_",
+            is_critical=False,
+        ),
+    ]
+
+
 def test_pandorabox_add_keeps_legacy_error_numbering():
     reset_relic_state()
 
@@ -282,6 +377,9 @@ def main():
             test_relics_module_exposes_no_next_chunk_tools_by_name,
         ),
         ("Relics module exposes dummy chunk tools by name", test_relics_module_exposes_dummy_chunk_tools_by_name),
+        ("Relics module routes current wrong CRC errors", test_relics_module_routes_current_wrong_crc_errors),
+        ("Relics module routes remembered wrong CRC errors", test_relics_module_routes_remembered_wrong_crc_errors),
+        ("Relics module routes remembered dummy chunks", test_relics_module_routes_remembered_dummy_chunks),
         ("PandoraBox keys keep legacy numbering", test_pandorabox_add_keeps_legacy_error_numbering),
         (
             "Relics records CheckPoint registration in PandoraBox",

@@ -46,6 +46,27 @@ class DummyChunkTools:
     from_error: Any
 
 
+@dataclass(frozen=True)
+class WrongCrcRoute:
+    source: Any
+    error: Any
+    chunk_name: str
+    tool_prefix: str
+
+    @property
+    def is_current_file(self) -> bool:
+        return self.source is None
+
+
+@dataclass(frozen=True)
+class DummyChunkRoute:
+    source: Any
+    error: Any
+    chunk_name: str
+    tool_prefix: str
+    is_critical: bool
+
+
 def chunk_label(chunk: Any) -> Any:
     if type(chunk) != bytes:
         return chunk
@@ -134,6 +155,82 @@ def chunk_name_from_text(text: Any, known_chunks: list[bytes] | tuple[bytes, ...
 
 def chunk_name_from_tool_keys(tools: Mapping[str, Any], known_chunks: list[bytes] | tuple[bytes, ...]) -> str:
     return chunk_name_from_text(" ".join(str(tool) for tool in tools), known_chunks)
+
+
+def current_wrong_crc_routes(
+    pandora_box: Mapping[Any, Mapping[str, Any]],
+    cornucopia: Mapping[Any, Any],
+    known_chunks: list[bytes] | tuple[bytes, ...],
+) -> list[WrongCrcRoute]:
+    routes = []
+    for key in pandora_box:
+        if "Wrong Crc" not in str(key):
+            continue
+        if str(key) in cornucopia:
+            continue
+
+        chunk_name = chunk_name_from_text(key, known_chunks)
+        if not chunk_name:
+            continue
+        routes.append(
+            WrongCrcRoute(
+                source=None,
+                error=key,
+                chunk_name=chunk_name,
+                tool_prefix=chunk_name + "_Tool_",
+            )
+        )
+    return routes
+
+
+def remembered_wrong_crc_routes(
+    pandemonium: Mapping[Any, Mapping[Any, Mapping[str, Any]]],
+    known_chunks: list[bytes] | tuple[bytes, ...],
+) -> list[WrongCrcRoute]:
+    routes = []
+    for sample, sample_errors in pandemonium.items():
+        for error, tools in sample_errors.items():
+            if "Wrong Crc" not in str(error):
+                continue
+
+            chunk_name = chunk_name_from_tool_keys(tools, known_chunks)
+            if not chunk_name:
+                continue
+            routes.append(
+                WrongCrcRoute(
+                    source=sample,
+                    error=error,
+                    chunk_name=chunk_name,
+                    tool_prefix=chunk_name + "_Tool_",
+                )
+            )
+    return routes
+
+
+def remembered_dummy_chunk_routes(
+    pandemonium: Mapping[Any, Mapping[Any, Mapping[str, Any]]],
+    known_chunks: list[bytes] | tuple[bytes, ...],
+    critical_chunks: list[bytes] | tuple[bytes, ...],
+) -> list[DummyChunkRoute]:
+    routes = []
+    for sample, sample_errors in pandemonium.items():
+        for error, tools in sample_errors.items():
+            if "Filling with a dummy chunk" not in str(error):
+                continue
+
+            chunk_name = chunk_name_from_tool_keys(tools, known_chunks)
+            if not chunk_name:
+                continue
+            routes.append(
+                DummyChunkRoute(
+                    source=sample,
+                    error=error,
+                    chunk_name=chunk_name,
+                    tool_prefix=chunk_name + "_Tool_",
+                    is_critical=chunk_name.encode() in critical_chunks,
+                )
+            )
+    return routes
 
 
 def next_error_number(pandora_box: Mapping[str, Any], function: Any) -> int:

@@ -145,6 +145,18 @@ def Relic_Chunk_Name_From_Tool_Keys(tools):
     return relics.chunk_name_from_tool_keys(tools, ALLCHUNKS)
 
 
+def Relic_Current_Wrong_Crc_Routes():
+    return relics.current_wrong_crc_routes(PandoraBox, Cornucopia, ALLCHUNKS)
+
+
+def Relic_Remembered_Wrong_Crc_Routes():
+    return relics.remembered_wrong_crc_routes(Pandemonium, ALLCHUNKS)
+
+
+def Relic_Remembered_Dummy_Chunk_Routes():
+    return relics.remembered_dummy_chunk_routes(Pandemonium, ALLCHUNKS, CRITICAL_CHUNKS)
+
+
 def PandoraBox_Tool(key, tool_prefix, index):
     return Relic_Tool_Value(PandoraBox[key], tool_prefix, index)
 
@@ -9171,40 +9183,37 @@ def Relics_Print_Pandemonium_Summary():
 
 
 def Relics_Try_Current_Wrong_Crc_Fix():
-    for nb, key in enumerate(PandoraBox):
+    for WrongCrcRoute in Relic_Current_Wrong_Crc_Routes():
+        key = WrongCrcRoute.error
+        Chunkname = WrongCrcRoute.chunk_name
 
-        if "Wrong Crc" in str(key):
-
-            if str(key) not in Cornucopia:
-
-                PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-                Chunkname = Relic_Chunk_Name_From_Text(key)
-                if Chunkname == "IDAT":
-                    chkd = "IDAT_Tool_"
-                    CrcTools = PandoraBox_Wrong_Crc_Tools(key, chkd)
-                    Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
-                    Candy(
-                        "Cowsay",
-                        "Well this one have to be fixed first let's see if replacing that Crc is enough..",
-                        "com",
-                    )
-                    uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
-                    Answer = Question(id=key,idhash=uniqh)
-                    if Answer is True:
-                        return True, SaveClone(
+        PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+        if Chunkname == "IDAT":
+            chkd = WrongCrcRoute.tool_prefix
+            CrcTools = PandoraBox_Wrong_Crc_Tools(key, chkd)
+            Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
+            Candy(
+                "Cowsay",
+                "Well this one have to be fixed first let's see if replacing that Crc is enough..",
+                "com",
+            )
+            uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+            Answer = Question(id=key,idhash=uniqh)
+            if Answer is True:
+                return True, SaveClone(
+                    CrcTools.replacement_crc,
+                    CrcTools.start,
+                    CrcTools.end,
+                    (
+                        "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
+                        % (
+                            CrcTools.chunk,
+                            CrcTools.offset,
                             CrcTools.replacement_crc,
-                            CrcTools.start,
-                            CrcTools.end,
-                            (
-                                "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
-                                % (
-                                    CrcTools.chunk,
-                                    CrcTools.offset,
-                                    CrcTools.replacement_crc,
-                                    CrcTools.old_crc,
-                                )
-                            ),
+                            CrcTools.old_crc,
                         )
+                    ),
+                )
 
     return False, None
 
@@ -9229,46 +9238,40 @@ def Relics(FromError):
     #                 Pause("")
     #                 continue
 
-        for nb1, (file, file_value) in enumerate(Pandemonium.items()):
-                    for nb2, (errors, errors_values) in enumerate(file_value.items()):
-                        if "Wrong Crc" in errors:
-                            for nb3, (tools, tools_values) in enumerate(
-                                errors_values.items()
-                            ):
-                                Chunkname = Relic_Chunk_Name_From_Tool_Keys(errors_values)
+        for WrongCrcRoute in Relic_Remembered_Wrong_Crc_Routes():
+            if WrongCrcRoute.chunk_name == "IDAT":
+                Candy(
+                    "Cowsay",
+                    "Perhaps that wasn't a Crc problem after all..",
+                    "com",
+                )
+                Candy(
+                    "Cowsay",
+                    "Maybe the culprit was in fact the %s Data itself!"
+                    % WrongCrcRoute.chunk_name,
+                    "bad",
+                )
+                Candy(
+                    "Cowsay",
+                    "How about taking a coffee break while im taking care of something?",
+                    "good",
+                )
 
+                CrcTools = Pandemonium_Wrong_Crc_Tools(
+                    WrongCrcRoute.source,
+                    WrongCrcRoute.error,
+                    WrongCrcRoute.tool_prefix,
+                )
 
-
-                                if Chunkname == "IDAT":
-                                    Candy(
-                                        "Cowsay",
-                                        "Perhaps that wasn't a Crc problem after all..",
-                                        "com",
-                                    )
-                                    Candy(
-                                        "Cowsay",
-                                        "Maybe the culprit was in fact the %s Data itself!"
-                                        % Chunkname,
-                                        "bad",
-                                    )
-                                    Candy(
-                                        "Cowsay",
-                                        "How about taking a coffee break while im taking care of something?",
-                                        "good",
-                                    )
-
-                                    chunk_tool_prefix = Chunkname + "_Tool_"
-                                    CrcTools = Pandemonium_Wrong_Crc_Tools(file, errors, chunk_tool_prefix)
-
-                                    SmashBruteBrawl(
-                                        FILE_Origin,
-                                        CrcTools.chunk,
-                                        CrcTools.chunk_length,
-                                        CrcTools.data_offset,
-                                        FromError,
-                                        BfMode = "TwoBytes",
-                                        OldCrc=CrcTools.old_crc,
-                                    )
+                SmashBruteBrawl(
+                    FILE_Origin,
+                    CrcTools.chunk,
+                    CrcTools.chunk_length,
+                    CrcTools.data_offset,
+                    FromError,
+                    BfMode = "TwoBytes",
+                    OldCrc=CrcTools.old_crc,
+                )
     #                            else:
     #                                 print("error:",errors)
     #                                 print("chname:",Chunkname)
@@ -9529,84 +9532,81 @@ def Relics(FromError):
 
         if len(Pandemonium) > 1:
 
-            for nb1, (file, file_value) in enumerate(Pandemonium.items()):
-                for nb2, (errors, errors_values) in enumerate(file_value.items()):
-                    if "Filling with a dummy chunk" in errors:
-                        for nb3, (tools, tools_values) in enumerate(
-                            errors_values.items()
-                        ):
-                            ChunkName = Relic_Chunk_Name_From_Tool_Keys(errors_values)
+            for DummyRoute in Relic_Remembered_Dummy_Chunk_Routes():
+                DummyTools = Pandemonium_Dummy_Chunk_Tools(
+                    DummyRoute.source,
+                    DummyRoute.error,
+                    DummyRoute.tool_prefix,
+                )
+                ChunkName = DummyRoute.chunk_name
+                ChunkLength = DummyTools.dummy_data_length
+                DataOffset = DummyTools.bad_start
 
-                        chunk_tool_prefix = ChunkName + "_Tool_"
-                        DummyTools = Pandemonium_Dummy_Chunk_Tools(file, errors, chunk_tool_prefix)
-                        ChunkLength = DummyTools.dummy_data_length
-                        DataOffset = DummyTools.bad_start
+                if DummyRoute.is_critical:
+                    Candy(
+                        "Cowsay",
+                        "Ok it's time to brute force that dummy %s chunk .."
+                        % (ChunkName),
+                        "good",
+                    )
+                    Candy(
+                        "Cowsay",
+                        "I mean we have to since it is a critical chunk..",
+                        "com",
+                    )
+                    Candy(
+                        "Cowsay",
+                        "I hope you brought a book...A big one ..Cause it may takes forever.",
+                        "bad",
+                    )
+                    Candy(
+                        "Cowsay",
+                        "Shall i begin ? Otherwise Chunklate is going to close.",
+                        "bad",
+                    )
 
-                        if ChunkName.encode() in CRITICAL_CHUNKS:
-                            Candy(
-                                "Cowsay",
-                                "Ok it's time to brute force that dummy %s chunk .."
-                                % (ChunkName),
-                                "good",
-                            )
-                            Candy(
-                                "Cowsay",
-                                "I mean we have to since it is a critical chunk..",
-                                "com",
-                            )
-                            Candy(
-                                "Cowsay",
-                                "I hope you brought a book...A big one ..Cause it may takes forever.",
-                                "bad",
-                            )
-                            Candy(
-                                "Cowsay",
-                                "Shall i begin ? Otherwise Chunklate is going to close.",
-                                "bad",
-                            )
+                    Answer = Question()
+                    if Answer is True:
+                        return SmashBruteBrawl(
+                            DummyRoute.source,
+                            ChunkName,
+                            ChunkLength,
+                            DataOffset,
+                            FromError
+                        )
+                    else:
+                        TheEnd()
+                else:
+                    Candy(
+                        "Cowsay",
+                        "We better remove that %s chunk than trying to bruteforce it"
+                        % (ChunkName),
+                        "com",
+                    )
+                    Candy(
+                        "Cowsay",
+                        "I mean it would be less time consuming since it is not a critical chunk",
+                        "com",
+                    )
+                    Candy(
+                        "Cowsay",
+                        "Do you still want to bruteforce this chunk ?",
+                        "com",
+                    )
+                    Answer = Question()
+                    if Answer is True:
+                        return SmashBruteBrawl(
+                            DummyRoute.source,
+                            ChunkName,
+                            ChunkLength,
+                            DataOffset,
+                            FromError
+                        )
 
-                            Answer = Question()
-                            if Answer is True:
-                                return SmashBruteBrawl(
-                                    file,
-                                    ChunkName,
-                                    ChunkLength,
-                                    DataOffset,
-                                    FromError
-                                )
-                            else:
-                                TheEnd()
-                        else:
-                            Candy(
-                                "Cowsay",
-                                "We better remove that %s chunk than trying to bruteforce it"
-                                % (ChunkName),
-                                "com",
-                            )
-                            Candy(
-                                "Cowsay",
-                                "I mean it would be less time consuming since it is not a critical chunk",
-                                "com",
-                            )
-                            Candy(
-                                "Cowsay",
-                                "Do you still want to bruteforce this chunk ?",
-                                "com",
-                            )
-                            Answer = Question()
-                            if Answer is True:
-                                return SmashBruteBrawl(
-                                    file,
-                                    ChunkName,
-                                    ChunkLength,
-                                    DataOffset,
-                                    FromError
-                                )
-
-                            else:
-                                ##TODO
-                                PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                                TheEnd()
+                    else:
+                        ##TODO
+                        PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                        TheEnd()
 
             TheEnd()
 
