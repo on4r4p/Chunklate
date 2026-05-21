@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import checkpoint, decisions, fixit_felix, output, relics
+from chunklate import bruteforce, checkpoint, decisions, fixit_felix, output, relics
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -6328,27 +6328,15 @@ def SmashBruteBrawl(
 
 
     def BuildFND(LN,BF,CH):
-
-        if OldCrc:
-             if BruteLength and BruteCrc:
-                          fullnewdatax = LN + ChunkName + BF + CH
-             elif not BruteLength and BruteCrc:
-                          fullnewdatax =  BF + CH
-             elif not BruteCrc and BruteLength:
-                          fullnewdatax = LN + ChunkName + BF
-             elif not BruteCrc and not BruteLength:
-                          fullnewdatax = ChunkName + BF
-        else:
-
-            if BruteLength and BruteCrc:
-                          fullnewdatax = LN + ChunkName + BF + CH
-            elif not BruteLength and BruteCrc:
-                          fullnewdatax = ChunkName + bvalue + checksum
-            elif not BruteCrc and BruteLength:
-                          fullnewdatax = LN + ChunkName + BF 
-            elif not BruteCrc and not BruteLength:
-                          fullnewdatax = ChunkName + BF
-        return(fullnewdatax)
+        return bruteforce.build_full_new_data(
+            ChunkName,
+            LN,
+            BF,
+            CH,
+            brute_length=BruteLength,
+            brute_crc=BruteCrc,
+            old_crc=OldCrc,
+        )
 
     def ShowPng(bpng,ndx):
             global DIFF
@@ -6496,48 +6484,30 @@ def SmashBruteBrawl(
 
 
      
-    if OldCrc: 
-        try:
-           OldCrc = bytes.fromhex(OldCrc)
-        except TypeError:
-             pass
+    OldCrc = bruteforce.normalize_old_crc(OldCrc)
+
+    ModePlan = bruteforce.resolve_mode(BfMode, ChunkName, PandoraBox)
+    BfMode = ModePlan.mode
+    Sti = list(ModePlan.struct_indexes)
+    if ModePlan.side_note is not None:
+        SideNotes.append(ModePlan.side_note)
 
     if BfMode == "Custom":
-             Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
-             if len(Sti) > 0:
-                 max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
-             else:
-                 BfMode = "Brutus"
-                 SideNote.append("-SmashBruteBrawl error: Sti empty switched to Brutus mode")
-                 chunklen_spec,chunk_format  =  GetSpec(ChunkName,BfMode,Fields=["Length","Format"])
+             max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
     else:
          chunklen_spec,chunk_format  =  GetSpec(ChunkName,BfMode,Fields=["Length","Format"])
 
     ln_chunk_format = len(chunk_format)-1
 
-    if type(chunklen_spec) == tuple:
-        maxchunklen = max(chunklen_spec)
-        minchunklen = min(chunklen_spec)
-    else:
-        maxchunklen = chunklen_spec
-        minchunklen = chunklen_spec
-
-    if maxchunklen == minchunklen:
-        maxchunklen += 1
-        step = 1
-    else:
-        step = minchunklen
+    LengthRange = bruteforce.length_range(chunklen_spec)
+    maxchunklen = LengthRange.max_length
+    minchunklen = LengthRange.min_length
+    step = LengthRange.step
 
     if DEBUG is True:
 
         if BfMode == "Custom":
-             Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
-             if len(Sti) > 0:
-                 max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
-             else:
-                 BfMode = "Brutus"
-                 SideNote.append("-SmashBruteBrawl error: Sti empty switched to Brutus mode")
-                 max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,"Brutus")
+             max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
         else:
              max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
 
@@ -6564,23 +6534,22 @@ def SmashBruteBrawl(
 
         Std = datetime.now()
         
+        ModePlan = bruteforce.resolve_mode(BfMode, ChunkName, PandoraBox)
+        BfMode = ModePlan.mode
+        Sti = list(ModePlan.struct_indexes)
+        if ModePlan.side_note is not None:
+            SideNotes.append(ModePlan.side_note)
+
+        IterNbr = bruteforce.iter_nbr_for_length(ln, step, n)
+
         if BfMode == "Custom":
-                 Sti = sorted(set([int(p.split("StructIndex:")[1]) for p in PandoraBox if ChunkName.decode() in p and "StructIndex:" in p]))
-                 if len(Sti) > 0:
-                     if ln > step:
-                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti,IterNbr=n+1)
-                     else:
-                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
+                 if IterNbr is not None:
+                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti,IterNbr=IterNbr)
                  else:
-                     BfMode = "Brutus"
-                     SideNote.append("-SmashBruteBrawl error: Sti empty switched to Brutus mode")
-                     if ln > step:
-                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=n+1)
-                     else:
-                         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
+                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
         else:
-                 if ln > step:
-                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=n+1)
+                 if IterNbr is not None:
+                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=IterNbr)
                  else:
                      max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
 
@@ -6593,33 +6562,25 @@ def SmashBruteBrawl(
 
 
 
-        if BfMode == "TwoBytes": ##TwoByte can be more effective 
-                Before_New = bytes.fromhex(DATAX[:DataOffset])
-                ToBrute = DATAX[DataOffset : DataOffset + ChunkLength*2 ]
-                ToBryte = bytes.fromhex(ToBrute)
-                After_New = bytes.fromhex(DATAX[DataOffset + ChunkLength*2 +8:]) 
+        EditWindow = bruteforce.edit_window(
+            DATAX,
+            DataOffset,
+            ChunkLength,
+            EditMode,
+            BfMode,
+            ln,
+        )
+        Before_New = EditWindow.before
+        ToBrute = EditWindow.to_brute
+        ToBryte = EditWindow.to_bryte
+        After_New = EditWindow.after
 
-        elif EditMode == "Replace":
+        if EditWindow.replace_flag:
                 ReplaceFlag = True
-                Lnx_New = int(int(ln/2)).to_bytes(4, "big")
-#            if BruteLength and BruteCrc:
-                Before_New = bytes.fromhex(DATAX[:DataOffset])
-                ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ]
-                ToBryte = bytes.fromhex(ToBrute)
-                After_New = bytes.fromhex(DATAX[DataOffset + ln + 24 :])  # +24=chunklen+chunkname+data+crc
-#            elif not BruteCrc and BruteLength:
-        elif EditMode == "Insert":
+                Lnx_New = EditWindow.length_bytes
+        elif EditWindow.insert_flag:
                 InsertFlag = True
-                Lnx_New = int(int(ln/2)).to_bytes(4, "big")
-#            if BruteLength and BruteCrc:
-                Before_New = bytes.fromhex(DATAX[:DataOffset])
-#                ToBrute = DATAX[DataOffset+16 : DataOffset+16 + ln ] ## wrong value 
-                ToBrute = ""
-                ToBryte = bytes.fromhex(ToBrute) ## b"wrong value"
-                After_New = bytes.fromhex(DATAX[DataOffset + 24 :])  # +24=chunklen+chunkname+data+crc ##Something odd here ..
-
-
-            ##else bla bla #TODO
+                Lnx_New = EditWindow.length_bytes
  
 #        print("bfn:",Before_New)
 #        print("beforbrute",bytes.fromhex(DATAX[DataOffset+8:DataOffset+32]))

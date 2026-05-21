@@ -18,12 +18,14 @@ echo "==> Python bytecode check"
 "$PYTHON_BIN" -m py_compile \
     Chunklate.py \
     chunklate/__init__.py \
+    chunklate/bruteforce.py \
     chunklate/checkpoint.py \
     chunklate/decisions.py \
     chunklate/fixit_felix.py \
     chunklate/output.py \
     chunklate/png.py \
     chunklate/relics.py \
+    tests/test_bruteforce.py \
     tests/test_checkpoint_actions.py \
     tests/test_checkpoint.py \
     tests/test_cli.py \
