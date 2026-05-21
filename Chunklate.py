@@ -273,6 +273,14 @@ def CheckPoint_Apply_Action_Decision(decision, chunk, info, toolkit):
     if decision.action == "save_clone":
         return True, SaveClone(toolkit[0], toolkit[1], toolkit[2], toolkit[3])
 
+    if decision.action == "save_clone_missing_bytes":
+        return True, SaveClone(
+            toolkit[0],
+            toolkit[2],
+            toolkit[1] + toolkit[2],
+            "Fixing Missing bytes corruption",
+        )
+
     if decision.action == "fix_it_felix_continue":
         FixItFelix(decision.return_value)
         return False, None
@@ -10637,15 +10645,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
             return result
 
         if function == "SmashBruteBrawl":
-            if "Corrupted Data has been replaced" in info: 
-                SideNotes.append("-CheckPoint: %s" % info)
-                return WriteClone(ToolKit[0],"-About to save.")
-
-            if "Previous Crc checksum" in info: #tmp fix
-                SideNotes.append("-CheckPoint: %s" % info)
-                return SaveClone(ToolKit[0], ToolKit[1] , ToolKit[2], ToolKit[3])
-
-            elif "-Bruteforcer has Failed" in info:
+            if "-Bruteforcer has Failed" in info:
                 if Brute_LvL < 3 and chunk == "IHDR":  # tmp workaround
                     Brute_LvL += 1
                     Candy(
@@ -10793,26 +10793,6 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                 SideNotes.append("-CheckPoint: %s" % info)
                 TheEnd()
 
-        if function == "CheckChunkName":
-            if "turning it into a valid Chunk name" in info:
-
-                SideNotes.append("-%s: %s" % (function, info))
-                FixItFelix(ToolKit[3])
-
-            if "Wrong Ancillary in known Chunk name at offset" in info:
-                if ToolKit[5] != None:
-                    Bad_Next_Ancillary = error
-                else:
-                    Bad_Ancillary = error
-
-            if "has Wrong Chunk name at offset:" in info:
-                Bad_Current_Name = error
-
-            if "has Wrong Chunk name after Chunk[" in info:
-                Bad_Next_Name = error
-            if "corrupted due to some missing bytes." in info:
-                
-                return SaveClone(ToolKit[0], ToolKit[2], ToolKit[1] + ToolKit[2], "Fixing Missing bytes corruption")
     return ()
 
 

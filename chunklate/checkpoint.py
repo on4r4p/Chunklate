@@ -177,6 +177,17 @@ def action_decision(
             finished_at_iend=libpng_finished_at_iend,
         )
 
+    if function == "CheckChunkName":
+        return check_chunk_name_decision(
+            error=error,
+            function=function,
+            info=info,
+            toolkit=toolkit,
+        )
+
+    if function == "SmashBruteBrawl":
+        return smash_brute_brawl_decision(info=info)
+
     return CheckPointActionDecision()
 
 
@@ -211,3 +222,50 @@ def libpng_check_decision(
         return CheckPointActionDecision(action="discard_libpng_warning")
 
     return CheckPointActionDecision(action="libpng_end_success")
+
+
+def check_chunk_name_decision(
+    *,
+    error: bool,
+    function: Any,
+    info: Any,
+    toolkit: tuple[Any, ...],
+) -> CheckPointActionDecision:
+    if "turning it into a valid Chunk name" in info:
+        return CheckPointActionDecision(
+            action="fix_it_felix_continue",
+            side_note="-%s: %s" % (function, info),
+            return_value=toolkit[3],
+        )
+
+    if "Wrong Ancillary in known Chunk name at offset" in info:
+        if toolkit[5] is not None:
+            return CheckPointActionDecision(flags={"Bad_Next_Ancillary": error})
+        return CheckPointActionDecision(flags={"Bad_Ancillary": error})
+
+    if "has Wrong Chunk name at offset:" in info:
+        return CheckPointActionDecision(flags={"Bad_Current_Name": error})
+
+    if "has Wrong Chunk name after Chunk[" in info:
+        return CheckPointActionDecision(flags={"Bad_Next_Name": error})
+
+    if "corrupted due to some missing bytes." in info:
+        return CheckPointActionDecision(action="save_clone_missing_bytes")
+
+    return CheckPointActionDecision()
+
+
+def smash_brute_brawl_decision(*, info: Any) -> CheckPointActionDecision:
+    if "Corrupted Data has been replaced" in info:
+        return CheckPointActionDecision(
+            action="write_clone",
+            side_note="-CheckPoint: %s" % info,
+        )
+
+    if "Previous Crc checksum" in info:
+        return CheckPointActionDecision(
+            action="save_clone",
+            side_note="-CheckPoint: %s" % info,
+        )
+
+    return CheckPointActionDecision()

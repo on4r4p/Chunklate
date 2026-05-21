@@ -196,6 +196,90 @@ def test_checkpoint_action_decision_handles_libpng_warning_classification():
     assert final_false_positive.action == "discard_libpng_warning_and_end"
 
 
+def test_checkpoint_action_decision_handles_chunk_name_fixes():
+    decision = checkpoint.action_decision(
+        error=True,
+        function="CheckChunkName",
+        chunk=b"bADR",
+        info="turning it into a valid Chunk name",
+        toolkit=(b"data", b"bad", b"fixed", "chunk_type", None, None),
+    )
+
+    assert decision.action == "fix_it_felix_continue"
+    assert decision.side_note == "-CheckChunkName: turning it into a valid Chunk name"
+    assert decision.return_value == "chunk_type"
+
+
+def test_checkpoint_action_decision_handles_chunk_name_flags():
+    current_name = checkpoint.action_decision(
+        error=True,
+        function="CheckChunkName",
+        chunk=b"bADR",
+        info="Chunk has Wrong Chunk name at offset: 42",
+        toolkit=(),
+    )
+    next_name = checkpoint.action_decision(
+        error=True,
+        function="CheckChunkName",
+        chunk=b"bADR",
+        info="Chunk has Wrong Chunk name after Chunk[b'IHDR']",
+        toolkit=(),
+    )
+    ancillary = checkpoint.action_decision(
+        error=True,
+        function="CheckChunkName",
+        chunk=b"gAMA",
+        info="Wrong Ancillary in known Chunk name at offset 12",
+        toolkit=(None, None, None, None, None, None),
+    )
+    next_ancillary = checkpoint.action_decision(
+        error=True,
+        function="CheckChunkName",
+        chunk=b"gAMA",
+        info="Wrong Ancillary in known Chunk name at offset 12",
+        toolkit=(None, None, None, None, None, b"IHDR"),
+    )
+
+    assert current_name.flags == {"Bad_Current_Name": True}
+    assert next_name.flags == {"Bad_Next_Name": True}
+    assert ancillary.flags == {"Bad_Ancillary": True}
+    assert next_ancillary.flags == {"Bad_Next_Ancillary": True}
+
+
+def test_checkpoint_action_decision_handles_chunk_name_missing_bytes():
+    decision = checkpoint.action_decision(
+        error=True,
+        function="CheckChunkName",
+        chunk=b"IDAT",
+        info="Chunk name corrupted due to some missing bytes.",
+        toolkit=(b"prefix", b"missing", b"suffix", None),
+    )
+
+    assert decision.action == "save_clone_missing_bytes"
+
+
+def test_checkpoint_action_decision_handles_simple_smash_brute_brawl_paths():
+    replaced = checkpoint.action_decision(
+        error=True,
+        function="SmashBruteBrawl",
+        chunk=b"IDAT",
+        info="Corrupted Data has been replaced",
+        toolkit=(b"fixed",),
+    )
+    old_crc = checkpoint.action_decision(
+        error=True,
+        function="SmashBruteBrawl",
+        chunk=b"IDAT",
+        info="Previous Crc checksum has been restored",
+        toolkit=(b"fixed", b"IDAT", 12, 20),
+    )
+
+    assert replaced.action == "write_clone"
+    assert replaced.side_note == "-CheckPoint: Corrupted Data has been replaced"
+    assert old_crc.action == "save_clone"
+    assert old_crc.side_note == "-CheckPoint: Previous Crc checksum has been restored"
+
+
 def main():
     checks = [
         ("Checkpoint registration ignores non errors", test_checkpoint_registration_ignores_non_errors),
@@ -208,6 +292,10 @@ def main():
         ("Checkpoint action handles libpng error", test_checkpoint_action_decision_handles_libpng_error),
         ("Checkpoint action handles known sRGB warning", test_checkpoint_action_decision_handles_known_srgb_warning),
         ("Checkpoint action handles libpng warning classification", test_checkpoint_action_decision_handles_libpng_warning_classification),
+        ("Checkpoint action handles chunk name fixes", test_checkpoint_action_decision_handles_chunk_name_fixes),
+        ("Checkpoint action handles chunk name flags", test_checkpoint_action_decision_handles_chunk_name_flags),
+        ("Checkpoint action handles chunk name missing bytes", test_checkpoint_action_decision_handles_chunk_name_missing_bytes),
+        ("Checkpoint action handles simple SmashBruteBrawl paths", test_checkpoint_action_decision_handles_simple_smash_brute_brawl_paths),
     ]
 
     print("Running CheckPoint tests")
