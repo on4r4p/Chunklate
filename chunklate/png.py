@@ -71,6 +71,22 @@ class LegacyChunkWindow:
 
 
 @dataclass(frozen=True)
+class PngValidationResult:
+    errors: tuple[str, ...]
+
+    @property
+    def ok(self) -> bool:
+        return len(self.errors) == 0
+
+
+@dataclass(frozen=True)
+class LegacyLengthStatus:
+    declared_length: int
+    has_next_chunk: bool
+    next_chunk_type: bytes
+
+
+@dataclass(frozen=True)
 class IhdrRepair:
     data: bytes
     strategy: str
@@ -235,6 +251,15 @@ def legacy_chunk_window(data: bytes, hex_offset: int) -> LegacyChunkWindow:
     )
 
 
+def legacy_length_status(data: bytes, hex_offset: int) -> LegacyLengthStatus:
+    window = legacy_chunk_window(data, hex_offset)
+    return LegacyLengthStatus(
+        declared_length=int(window.raw_length, 16) if window.raw_length else 0,
+        has_next_chunk=len(window.next_chunk_type) == 4,
+        next_chunk_type=window.next_chunk_type,
+    )
+
+
 def chunk_type_crc_matches(chunk_data: bytes, stored_crc: int, candidates: Iterable[bytes]) -> list[bytes]:
     return [
         chunk_type
@@ -264,6 +289,117 @@ def is_complete_png_with_valid_crc(data: bytes) -> bool:
 
     iend_end = chunks[-1].offset + 12 + chunks[-1].length
     return iend_end == len(data) and all(chunk.crc_ok for chunk in chunks)
+
+
+def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) -> PngValidationResult:
+    errors: list[str] = []
+
+    if not data.startswith(PNG_SIGNATURE):
+        return PngValidationResult(("PNG signature is not at offset 0",))
+
+    try:
+        chunks = list(iter_chunks(data, signature_offset=0))
+    except PngFormatError as error:
+        return PngValidationResult((str(error),))
+
+    if not chunks:
+        return PngValidationResult(("PNG has no chunks",))
+
+    iend_end = chunks[-1].offset + 12 + chunks[-1].length
+    if iend_end != len(data):
+        errors.append("PNG has trailing bytes after IEND")
+
+    for chunk in chunks:
+        if not _is_ascii_chunk_type(chunk.chunk_type):
+            errors.append("Chunk type %r is not ASCII alphabetic" % chunk.chunk_type)
+            continue
+        if chunk.chunk_type[2] & 0x20:
+            errors.append("Chunk %s has invalid reserved lowercase bit" % chunk.name)
+        if not chunk.crc_ok:
+            errors.append("Chunk %s has invalid CRC" % chunk.name)
+        if _is_critical_chunk(chunk.chunk_type) and chunk.chunk_type not in {b"IHDR", b"PLTE", b"IDAT", b"IEND"}:
+            errors.append("Unknown critical chunk %s" % chunk.name)
+
+    chunk_types = [chunk.chunk_type for chunk in chunks]
+    if chunk_types[0] != b"IHDR":
+        errors.append("IHDR is not the first chunk")
+    if chunk_types[-1] != b"IEND":
+        errors.append("IEND is not the last chunk")
+    if chunk_types.count(b"IHDR") != 1:
+        errors.append("PNG must contain exactly one IHDR chunk")
+    if chunk_types.count(b"IEND") != 1:
+        errors.append("PNG must contain exactly one IEND chunk")
+    if b"IDAT" not in chunk_types:
+        errors.append("PNG must contain at least one IDAT chunk")
+
+    ihdr = chunks[0] if chunks[0].chunk_type == b"IHDR" else next(
+        (chunk for chunk in chunks if chunk.chunk_type == b"IHDR"),
+        None,
+    )
+    ihdr_values = _parse_ihdr_data(ihdr) if ihdr is not None else None
+    if ihdr is None or ihdr_values is None:
+        errors.append("IHDR chunk is missing or malformed")
+        return PngValidationResult(tuple(errors))
+
+    width, height, bit_depth, color_type, compression, filter_method, interlace = ihdr_values
+    if width <= 0 or height <= 0:
+        errors.append("IHDR width and height must be greater than zero")
+    if not valid_png_color_depth(bit_depth, color_type):
+        errors.append("IHDR bit depth/color type combination is invalid")
+    if compression != 0:
+        errors.append("IHDR compression method must be 0")
+    if filter_method != 0:
+        errors.append("IHDR filter method must be 0")
+    if interlace not in (0, 1):
+        errors.append("IHDR interlace method must be 0 or 1")
+
+    idat_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"IDAT"]
+    plte_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"PLTE"]
+
+    if idat_indices:
+        first_idat = idat_indices[0]
+        last_idat = idat_indices[-1]
+        if idat_indices != list(range(first_idat, last_idat + 1)):
+            errors.append("IDAT chunks must be consecutive")
+        if plte_indices and plte_indices[0] > first_idat:
+            errors.append("PLTE chunk must appear before the first IDAT chunk")
+
+    if len(plte_indices) > 1:
+        errors.append("PNG must not contain multiple PLTE chunks")
+    if plte_indices:
+        plte = chunks[plte_indices[0]]
+        if not png_chunk_data_is_coherent(b"PLTE", plte.data):
+            errors.append("PLTE chunk is malformed")
+        if color_type in (0, 4):
+            errors.append("PLTE chunk is not allowed for grayscale color types")
+        if color_type == 3 and (plte.length // 3) > (2 ** bit_depth):
+            errors.append("PLTE has too many entries for indexed bit depth")
+    elif color_type == 3:
+        errors.append("Indexed-color PNG requires a PLTE chunk")
+
+    iend = chunks[-1]
+    if iend.chunk_type == b"IEND" and iend.length != 0:
+        errors.append("IEND chunk length must be zero")
+
+    if require_decodable_idat and idat_indices:
+        idat_data = b"".join(chunks[index].data for index in idat_indices)
+        try:
+            decompressed = zlib.decompress(idat_data)
+        except zlib.error:
+            errors.append("IDAT zlib stream is invalid")
+        else:
+            if interlace == 0:
+                row_size = png_scanline_size(width, bit_depth, color_type)
+                if row_size is None:
+                    errors.append("Could not compute expected scanline size")
+                elif len(decompressed) != row_size * height:
+                    errors.append("IDAT decompressed size does not match IHDR dimensions")
+
+    return PngValidationResult(tuple(errors))
+
+
+def _is_critical_chunk(chunk_type: bytes) -> bool:
+    return len(chunk_type) == 4 and not bool(chunk_type[0] & 0x20)
 
 
 def complete_iend_tail(data: bytes, insert_offset: int) -> bytes:

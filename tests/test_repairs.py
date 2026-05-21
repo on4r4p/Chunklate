@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chunklate.png import PngFormatError, iter_chunks
+from chunklate.png import is_complete_png_with_valid_crc, validate_png_structure
 
 try:
     from PIL import Image
@@ -46,10 +46,6 @@ REPAIR_CASES = {
     "Missplaced_Ihdr.png": (1, ("Missplaced_Ihdr.0_Fixed.png",)),
     "No_Png_Header.png": (1, ("No_Png_Header.0_Fixed.png",)),
     "No_Png_Header_Corrupted_Length.png": (1, ("No_Png_Header_Corrupted_Length.0_Fixed.png",)),
-    "No_Png_Header_Missing_Chunk_Corrupted.png": (
-        2,
-        ("No_Png_Header_Missing_Chunk_Corrupted.1_Fixed.png",),
-    ),
     "PLTE_Empty_Bad_Crc.png": (1, ("PLTE_Empty_Bad_Crc.0_Fixed.png",)),
     "PLTE_Empty_Good_Crc.png": (1, ("PLTE_Empty_Good_Crc.0_Fixed.png",)),
     "Private_Critical_Chunk_Bad_Crc.png": (2, ("Private_Critical_Chunk_Bad_Crc.1_Fixed.png",)),
@@ -67,9 +63,14 @@ REPAIR_CASES = {
 }
 
 
-PILLOW_LENIENT_REPAIR_CASES = {
+PILLOW_LENIENT_REPAIR_CASES = {}
+
+
+LEGACY_CRC_ONLY_REPAIR_CASES = {
     "No_Png_Header_Missing_Chunk_Corrupted.png": (
-        "legacy repair can generate multiple CRC-valid variants; Pillow is not deterministic yet"
+        2,
+        ("No_Png_Header_Missing_Chunk_Corrupted.1_Fixed.png",),
+        "legacy repair is CRC-valid but still rejected by strict PNG structure validation"
     ),
 }
 
@@ -80,17 +81,8 @@ PILLOW_ONLY_REPAIR_CASES = {}
 UNCOVERED_REPAIR_CASES = {}
 
 
-def is_complete_png_with_valid_crc(path):
-    try:
-        chunks = list(iter_chunks(path.read_bytes()))
-    except PngFormatError:
-        return False
-
-    if not chunks or chunks[-1].chunk_type != b"IEND":
-        return False
-
-    iend_end = chunks[-1].offset + 12 + chunks[-1].length
-    return iend_end == path.stat().st_size and all(chunk.crc_ok for chunk in chunks)
+def repair_validation_errors(path):
+    return validate_png_structure(path.read_bytes()).errors
 
 
 def pillow_verify_ok(path):
@@ -150,10 +142,16 @@ def test_repair_cases_produce_expected_valid_pngs(tmp_path):
             fixed_path = output_dir / fixed_name
             if not fixed_path.exists():
                 failures.append(f"{fixture_name}: missing {fixed_name}; rc={result.returncode}")
-            elif not is_complete_png_with_valid_crc(fixed_path):
-                failures.append(f"{fixture_name}: invalid repaired PNG {fixed_name}")
-            elif fixture_name not in PILLOW_LENIENT_REPAIR_CASES and not pillow_verify_ok(fixed_path):
-                failures.append(f"{fixture_name}: Pillow rejected repaired PNG {fixed_name}")
+            else:
+                validation_errors = repair_validation_errors(fixed_path)
+                if validation_errors:
+                    failures.append(
+                        f"{fixture_name}: invalid repaired PNG {fixed_name}: "
+                        f"{'; '.join(validation_errors)}"
+                    )
+                    continue
+                if fixture_name not in PILLOW_LENIENT_REPAIR_CASES and not pillow_verify_ok(fixed_path):
+                    failures.append(f"{fixture_name}: Pillow rejected repaired PNG {fixed_name}")
 
     assert failures == []
 
@@ -185,10 +183,44 @@ def test_pillow_only_repair_cases_produce_viewable_pngs(tmp_path):
     assert failures == []
 
 
+def test_legacy_crc_only_repair_cases_are_not_counted_as_strict_repairs(tmp_path):
+    failures = []
+
+    for fixture_name, (max_saves, expected_fixed_names, reason) in LEGACY_CRC_ONLY_REPAIR_CASES.items():
+        result, output_dir = run_chunklate_repair(fixture_name, tmp_path, max_saves)
+
+        if result.returncode != 0:
+            failures.append(f"{fixture_name}: rc={result.returncode}; stderr={result.stderr[-500:]}")
+            continue
+
+        if not output_dir.exists():
+            failures.append(f"{fixture_name}: no output directory; rc={result.returncode}")
+            continue
+
+        for fixed_name in expected_fixed_names:
+            fixed_path = output_dir / fixed_name
+            if not fixed_path.exists():
+                failures.append(f"{fixture_name}: missing {fixed_name}; rc={result.returncode}")
+                continue
+
+            if not is_complete_png_with_valid_crc(fixed_path.read_bytes()):
+                failures.append(f"{fixture_name}: legacy output is not even PNG/CRC-valid: {fixed_name}")
+                continue
+
+            validation_errors = repair_validation_errors(fixed_path)
+            if not validation_errors:
+                failures.append(f"{fixture_name}: move back to REPAIR_CASES; strict validation now passes")
+            elif not reason:
+                failures.append(f"{fixture_name}: missing reason for legacy CRC-only classification")
+
+    assert failures == []
+
+
 def test_all_current_repair_fixtures_are_classified():
     fixture_names = {path.name for path in FIXTURES.glob("*.png")}
     classified_names = (
         set(REPAIR_CASES)
+        | set(LEGACY_CRC_ONLY_REPAIR_CASES)
         | set(PILLOW_ONLY_REPAIR_CASES)
         | set(UNCOVERED_REPAIR_CASES)
     )
@@ -220,10 +252,14 @@ def run_repair_cases_verbose(tmp_path):
             fixed_path = output_dir / fixed_name
             if not fixed_path.exists():
                 missing_or_invalid.append(f"missing {fixed_name}")
-            elif not is_complete_png_with_valid_crc(fixed_path):
-                missing_or_invalid.append(f"invalid PNG/CRC {fixed_name}")
-            elif fixture_name not in PILLOW_LENIENT_REPAIR_CASES and not pillow_verify_ok(fixed_path):
-                missing_or_invalid.append(f"Pillow rejected {fixed_name}")
+            else:
+                validation_errors = repair_validation_errors(fixed_path)
+                if validation_errors:
+                    missing_or_invalid.append(
+                        f"invalid repaired PNG {fixed_name}: {'; '.join(validation_errors)}"
+                    )
+                elif fixture_name not in PILLOW_LENIENT_REPAIR_CASES and not pillow_verify_ok(fixed_path):
+                    missing_or_invalid.append(f"Pillow rejected {fixed_name}")
 
         if missing_or_invalid:
             failures.append(f"{fixture_name}: {', '.join(missing_or_invalid)}")
@@ -285,6 +321,56 @@ def run_pillow_only_repair_cases_verbose(tmp_path):
         raise AssertionError("Pillow-viewable repair regression tests failed")
 
 
+def run_legacy_crc_only_repair_cases_verbose(tmp_path):
+    if not LEGACY_CRC_ONLY_REPAIR_CASES:
+        return
+
+    failures = []
+
+    print("\nRunning legacy CRC-only repair regression tests")
+    for fixture_name, (max_saves, expected_fixed_names, reason) in LEGACY_CRC_ONLY_REPAIR_CASES.items():
+        print(
+            f"  - {fixture_name} -> max_saves={max_saves}, "
+            f"expect={', '.join(expected_fixed_names)} ... ",
+            end="",
+            flush=True,
+        )
+        result, output_dir = run_chunklate_repair(fixture_name, tmp_path, max_saves)
+
+        if result.returncode != 0:
+            failures.append(f"{fixture_name}: rc={result.returncode}; stderr={result.stderr[-500:]}")
+            print("failed")
+            continue
+
+        missing_or_invalid = []
+        strict_errors = []
+        for fixed_name in expected_fixed_names:
+            fixed_path = output_dir / fixed_name
+            if not fixed_path.exists():
+                missing_or_invalid.append(f"missing {fixed_name}")
+                continue
+            if not is_complete_png_with_valid_crc(fixed_path.read_bytes()):
+                missing_or_invalid.append(f"not PNG/CRC-valid {fixed_name}")
+                continue
+            validation_errors = repair_validation_errors(fixed_path)
+            if not validation_errors:
+                missing_or_invalid.append(f"{fixed_name} is now strict; move it to REPAIR_CASES")
+            else:
+                strict_errors.extend(validation_errors)
+
+        if missing_or_invalid:
+            failures.append(f"{fixture_name}: {', '.join(missing_or_invalid)}")
+            print("failed")
+        else:
+            print(f"ok (legacy CRC-only; {reason}; strict errors: {'; '.join(sorted(set(strict_errors)))})")
+
+    if failures:
+        print("\nLegacy CRC-only repair failures:")
+        for failure in failures:
+            print(f"  - {failure}")
+        raise AssertionError("legacy CRC-only repair regression tests failed")
+
+
 def print_uncovered_repair_cases():
     print("\nClassified but not yet covered by green repair tests")
     for fixture_name, reason in sorted(UNCOVERED_REPAIR_CASES.items()):
@@ -295,11 +381,14 @@ def main():
     with tempfile.TemporaryDirectory(prefix="chunklate-repair-tests-") as tmp:
         run_repair_cases_verbose(Path(tmp))
         run_pillow_only_repair_cases_verbose(Path(tmp))
+        run_legacy_crc_only_repair_cases_verbose(Path(tmp))
     test_all_current_repair_fixtures_are_classified()
     print_uncovered_repair_cases()
     print(
         f"\nrepair regression tests passed "
-        f"({len(REPAIR_CASES)} strict cases, {len(PILLOW_ONLY_REPAIR_CASES)} Pillow-viewable cases)"
+        f"({len(REPAIR_CASES)} strict cases, "
+        f"{len(PILLOW_ONLY_REPAIR_CASES)} Pillow-viewable cases, "
+        f"{len(LEGACY_CRC_ONLY_REPAIR_CASES)} legacy CRC-only cases)"
     )
 
 

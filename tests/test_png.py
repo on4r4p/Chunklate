@@ -19,7 +19,9 @@ from chunklate.png import (
     find_signature_offset,
     infer_png_dimensions,
     iter_chunks,
+    is_complete_png_with_valid_crc,
     legacy_chunk_window,
+    legacy_length_status,
     read_chunks,
     repair_color_profile_chunks,
     repair_empty_plte,
@@ -29,6 +31,7 @@ from chunklate.png import (
     repair_known_chunk_type_case,
     repair_missing_chunk_data_byte,
     repair_unknown_private_critical_chunks,
+    validate_png_structure,
 )
 
 
@@ -117,6 +120,23 @@ def test_legacy_chunk_window_falls_back_to_slices_for_incomplete_chunk():
     assert window.chunk_type == b"IDAT"
 
 
+def test_legacy_length_status_reports_declared_next_chunk():
+    status = legacy_length_status(FIXTURE.read_bytes(), len(PNG_SIGNATURE) * 2)
+
+    assert status.declared_length == 13
+    assert status.has_next_chunk is True
+    assert status.next_chunk_type == b"gAMA"
+
+
+def test_legacy_length_status_reports_missing_next_chunk():
+    data = PNG_SIGNATURE + b"\x00\x00\x00\x04IDATab"
+    status = legacy_length_status(data, len(PNG_SIGNATURE) * 2)
+
+    assert status.declared_length == 4
+    assert status.has_next_chunk is False
+    assert status.next_chunk_type == b""
+
+
 def test_chunk_type_crc_matches_finds_original_name():
     chunk_data = b"payload"
     stored_crc = 0x96166E4F
@@ -124,6 +144,37 @@ def test_chunk_type_crc_matches_finds_original_name():
     matches = chunk_type_crc_matches(chunk_data, stored_crc, [b"IDAT", b"tEXt", b"pHYs"])
 
     assert matches == [b"IDAT"]
+
+
+def test_validate_png_structure_accepts_valid_fixture():
+    validation = validate_png_structure(FIXTURE.read_bytes())
+
+    assert validation.ok
+    assert validation.errors == ()
+
+
+def test_validate_png_structure_rejects_crc_valid_bad_idat_stream():
+    ihdr = build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
+    idat = build_png_chunk(b"IDAT", b"not-zlib-data")
+    data = PNG_SIGNATURE + ihdr + idat + IEND_CHUNK
+
+    assert is_complete_png_with_valid_crc(data)
+
+    validation = validate_png_structure(data)
+
+    assert not validation.ok
+    assert "IDAT zlib stream is invalid" in validation.errors
+
+
+def test_validate_png_structure_rejects_unknown_critical_chunk():
+    ihdr = build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
+    idat = build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+    data = PNG_SIGNATURE + ihdr + build_png_chunk(b"QpZZ", b"") + idat + IEND_CHUNK
+
+    validation = validate_png_structure(data)
+
+    assert not validation.ok
+    assert "Unknown critical chunk QpZZ" in validation.errors
 
 
 def test_complete_iend_tail_appends_full_iend_chunk():
@@ -375,7 +426,18 @@ def main():
             "Legacy chunk window falls back to slices for incomplete chunk",
             test_legacy_chunk_window_falls_back_to_slices_for_incomplete_chunk,
         ),
+        ("Legacy length status reports declared next chunk", test_legacy_length_status_reports_declared_next_chunk),
+        ("Legacy length status reports missing next chunk", test_legacy_length_status_reports_missing_next_chunk),
         ("Find original chunk name from CRC", test_chunk_type_crc_matches_finds_original_name),
+        ("Validate PNG structure accepts valid fixture", test_validate_png_structure_accepts_valid_fixture),
+        (
+            "Validate PNG structure rejects CRC-valid bad IDAT stream",
+            test_validate_png_structure_rejects_crc_valid_bad_idat_stream,
+        ),
+        (
+            "Validate PNG structure rejects unknown critical chunk",
+            test_validate_png_structure_rejects_unknown_critical_chunk,
+        ),
         ("Append complete IEND chunk", test_complete_iend_tail_appends_full_iend_chunk),
         ("Reuse existing IEND suffix", test_complete_iend_tail_reuses_existing_iend_suffix),
         ("Infer dimensions from scanline size", test_infer_png_dimensions_from_scanline_size),

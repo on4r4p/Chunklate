@@ -49,6 +49,7 @@ from chunklate.png import (
     iter_chunks,
     is_known_bad_srgb_iccp_chunk,
     legacy_chunk_window,
+    legacy_length_status,
 )
 
 
@@ -4412,6 +4413,7 @@ def YouShallPass(Chunk, data):
 
 def ChunkbyChunk(offset):
     global Have_A_KitKat
+    global DATA_BYTES
 
     global Raw_Length
     global Raw_Data
@@ -4445,7 +4447,7 @@ def ChunkbyChunk(offset):
     global CrcoffB
     global CrcoffI
 
-    ChunkWindow = legacy_chunk_window(bytes.fromhex(DATAX), offset)
+    ChunkWindow = legacy_chunk_window(DATA_BYTES, offset)
 
     Raw_Length = ChunkWindow.raw_length
     Orig_CL = Raw_Length
@@ -8848,26 +8850,27 @@ def SpecLength(chunk_name, chunk_length=None):
 def CheckLength(Cdata, Clen, Ctype):
 
     Candy("Title", "Checking Data Length:", Candy("Color", "white", str(Clen)))
+    LengthStatus = legacy_length_status(DATA_BYTES, CLoffI)
 
     Candy(
         "Cowsay",
         " So ..The length part is saying that data is %s bytes long."
-        % Candy("Color", "yellow", int(Clen, 16)),
+        % Candy("Color", "yellow", LengthStatus.declared_length),
         "com",
     )
 
     #    ToBitstory(int(Clen, 16))
 
-    if int(Clen, 16) > 26736:
+    if LengthStatus.declared_length > 26736:
         Candy("Cowsay", " Really!? That much ?", "com")
 
     if Chunks_History[-1] == b"IDAT":
-        if IDAT_Avg_Len != int(Clen, 16):
+        if IDAT_Avg_Len != LengthStatus.declared_length:
             Candy(
                 "Cowsay", "Weird why does the length is not the same as before ?", "com"
             )
 
-    if len(Orig_NC) != 4:
+    if not LengthStatus.has_next_chunk:
         Candy(
             "Cowsay",
             " ..And this is what iv found there ... : "
@@ -8885,10 +8888,11 @@ def CheckLength(Cdata, Clen, Ctype):
             Chunks_History[-1],
         )
     else:
+        NextChunk = LengthStatus.next_chunk_type
         Candy(
             "Cowsay",
             " ..So depending on that the next chunk seems to be : "
-            + Candy("Color", "yellow", Orig_NC),
+            + Candy("Color", "yellow", NextChunk),
             "com",
         )
         return CheckPoint(
@@ -10243,7 +10247,7 @@ def FixItFelix_Apply_Repair(repair):
 
 
 def FixItFelix_Try_Color_Profile_Cleanup():
-    repair = fixit_felix.color_profile_cleanup(bytes.fromhex(DATAX), PandoraBox)
+    repair = fixit_felix.color_profile_cleanup(DATA_BYTES, PandoraBox)
     if repair is None:
         return None
 
@@ -10252,7 +10256,7 @@ def FixItFelix_Try_Color_Profile_Cleanup():
 
 def FixItFelix_Try_PLTE_Cleanup():
     repair = fixit_felix.plte_cleanup(
-        bytes.fromhex(DATAX),
+        DATA_BYTES,
         PandoraBox,
         auto=AUTO,
         nodialogue=NODIALOGUE,
@@ -10265,7 +10269,7 @@ def FixItFelix_Try_PLTE_Cleanup():
 
 
 def FixItFelix_Try_Missing_Chunk_Data_Byte():
-    repair = fixit_felix.missing_chunk_data_byte(bytes.fromhex(DATAX), PandoraBox)
+    repair = fixit_felix.missing_chunk_data_byte(DATA_BYTES, PandoraBox)
     if repair is None:
         return None
 
@@ -10273,7 +10277,7 @@ def FixItFelix_Try_Missing_Chunk_Data_Byte():
 
 
 def FixItFelix_Try_Known_Chunk_Type_Case_Repair():
-    repair = fixit_felix.known_chunk_type_case(bytes.fromhex(DATAX), PandoraBox, ALLCHUNKS)
+    repair = fixit_felix.known_chunk_type_case(DATA_BYTES, PandoraBox, ALLCHUNKS)
     if repair is None:
         return None
 
@@ -10281,7 +10285,7 @@ def FixItFelix_Try_Known_Chunk_Type_Case_Repair():
 
 
 def FixItFelix_Try_Unknown_Private_Critical_Removal():
-    repair = fixit_felix.unknown_private_critical_removal(bytes.fromhex(DATAX), ALLCHUNKS)
+    repair = fixit_felix.unknown_private_critical_removal(DATA_BYTES, ALLCHUNKS)
     if repair is None:
         return None
 
@@ -10289,7 +10293,7 @@ def FixItFelix_Try_Unknown_Private_Critical_Removal():
 
 
 def FixItFelix_Try_IHDR_Rebuild():
-    repair = fixit_felix.ihdr_rebuild(bytes.fromhex(DATAX), PandoraBox)
+    repair = fixit_felix.ihdr_rebuild(DATA_BYTES, PandoraBox)
     if repair is None:
         return None
 
@@ -10866,6 +10870,7 @@ def main():
     global Bad_Ancillary
     global FILE_DIR
     global DATAX
+    global DATA_BYTES
     global ERRORSFLAG
     global PandoraBox
     global Cornucopia
@@ -11092,6 +11097,7 @@ def main():
             PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
             sys.exit(1)
 
+        DATA_BYTES = data
         DATAX = data.hex()
 
         Candy("Cowsay", " %s is loaded!" % Candy("Color", "green", Sample_Name), "good")
@@ -11467,6 +11473,7 @@ FILE_Origin = ""
 FILE_DIR = ""
 Loading_txt = ""
 DATAX = ""
+DATA_BYTES = b""
 Sample_Name = ""
 Sample = ""
 
