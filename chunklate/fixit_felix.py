@@ -23,12 +23,62 @@ FixItFelixHandler = Literal[
     "gama_zero",
     "critical_miss",
 ]
+LibpngErrorAction = Literal["not_enough_image_data", "ask_relics", "skip", "save_existing_solution"]
+WrongCrcAction = Literal["already_in_cornucopia", "ask_easy_crc_fix", "ask_other_errors_first"]
+WrongChunkNameAction = Literal["ask_length_probe", "ask_bruteforce", "save_existing_solution"]
+NoNextChunkAction = Literal[
+    "false_positive_iend",
+    "wrong_iend_length",
+    "append_missing_iend",
+    "ask_length_probe",
+]
 
 
 @dataclass(frozen=True)
 class FixItFelixRoute:
     handler: FixItFelixHandler
     finding: object
+
+
+@dataclass(frozen=True)
+class FalsePositiveFix:
+    finding: object
+    note: str
+
+
+@dataclass(frozen=True)
+class LibpngErrorDecision:
+    action: LibpngErrorAction
+    finding: object
+
+
+@dataclass(frozen=True)
+class WrongCrcDecision:
+    action: WrongCrcAction
+    finding: object
+    other_error_count: int
+
+
+@dataclass(frozen=True)
+class WrongChunkNameDecision:
+    action: WrongChunkNameAction
+    finding: object
+    bad_crc: bool
+
+
+@dataclass(frozen=True)
+class NoNextChunkDecision:
+    action: NoNextChunkAction
+    current_chunk: object
+    chunk_type: object
+    chunk_length: object
+
+
+@dataclass(frozen=True)
+class AppliedRepair:
+    data_hex: str
+    note: str
+    save_suffix: str
 
 
 def has_finding(findings: Iterable[object], *needles: str) -> bool:
@@ -48,6 +98,78 @@ def route_finding(finding: object, *, skip_bad_crc: bool) -> FixItFelixRoute:
     if "gAMA Chunk of 0 is Useless" in text:
         return FixItFelixRoute("gama_zero", finding)
     return FixItFelixRoute("critical_miss", finding)
+
+
+def gama_zero_false_positive(finding: object) -> FalsePositiveFix:
+    return FalsePositiveFix(
+        finding=finding,
+        note="-Found False-Positive :[Error:-%s]." % str(finding),
+    )
+
+
+def libpng_error_decision(
+    finding: object,
+    *,
+    solved: bool,
+    skip_bad_libpng: bool,
+) -> LibpngErrorDecision:
+    if solved:
+        return LibpngErrorDecision("save_existing_solution", finding)
+    if "Not enough image data" in str(finding):
+        return LibpngErrorDecision("not_enough_image_data", finding)
+    if skip_bad_libpng:
+        return LibpngErrorDecision("skip", finding)
+    return LibpngErrorDecision("ask_relics", finding)
+
+
+def wrong_crc_decision(
+    finding: object,
+    *,
+    solved: bool,
+    pandora_box_len: int,
+) -> WrongCrcDecision:
+    if solved:
+        return WrongCrcDecision("already_in_cornucopia", finding, 0)
+    if pandora_box_len <= 1:
+        return WrongCrcDecision("ask_easy_crc_fix", finding, 0)
+    return WrongCrcDecision("ask_other_errors_first", finding, pandora_box_len - 1)
+
+
+def wrong_chunk_name_decision(
+    finding: object,
+    *,
+    solved: bool,
+    bad_crc: bool,
+) -> WrongChunkNameDecision:
+    if solved:
+        return WrongChunkNameDecision("save_existing_solution", finding, bad_crc)
+    if "and length is not the same than before." in str(finding):
+        return WrongChunkNameDecision("ask_length_probe", finding, bad_crc)
+    return WrongChunkNameDecision("ask_bruteforce", finding, bad_crc)
+
+
+def no_next_chunk_decision(
+    *,
+    current_chunk: object,
+    chunk_type: object,
+    chunk_length: object,
+    bad_critical: bool,
+) -> NoNextChunkDecision:
+    if current_chunk == b"IEND" and int(chunk_length) == 0:
+        return NoNextChunkDecision("false_positive_iend", current_chunk, chunk_type, chunk_length)
+    if chunk_type == b"IEND":
+        return NoNextChunkDecision("wrong_iend_length", current_chunk, chunk_type, chunk_length)
+    if bad_critical:
+        return NoNextChunkDecision("append_missing_iend", current_chunk, chunk_type, chunk_length)
+    return NoNextChunkDecision("ask_length_probe", current_chunk, chunk_type, chunk_length)
+
+
+def applied_repair(repair: Any) -> AppliedRepair:
+    return AppliedRepair(
+        data_hex=repair.data.hex(),
+        note="-FixItFelix:%s." % repair.strategy,
+        save_suffix="-%s." % repair.strategy,
+    )
 
 
 def color_profile_cleanup(data: bytes, findings: Iterable[object]) -> Any | None:

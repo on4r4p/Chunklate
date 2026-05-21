@@ -9764,11 +9764,17 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
     global Old_Bad_Crc
     global Skip_Bad_Crc
 
-    if str(key) not in Cornucopia:
+    CrcDecision = fixit_felix.wrong_crc_decision(
+        key,
+        solved=str(key) in Cornucopia,
+        pandora_box_len=PandoraBox_len,
+    )
+
+    if CrcDecision.action != "already_in_cornucopia":
         PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
         CrcTools = PandoraBox_Wrong_Crc_Tools(key, chkd)
 
-        if PandoraBox_len <= 1:
+        if CrcDecision.action == "ask_easy_crc_fix":
             Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
             Candy(
                 "Cowsay",
@@ -9798,7 +9804,7 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
             Candy(
                 "Cowsay",
                 "Crc checksum is not valid and there are %s other errors !"
-                % (PandoraBox_len-1),
+                % CrcDecision.other_error_count,
                 "bad",
             )
 
@@ -9863,16 +9869,22 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
 def FixItFelix_Libpng_Error(key, chkd):
     global Skip_Bad_Libpng
 
-    if str(key) not in Cornucopia:
+    LibpngDecision = fixit_felix.libpng_error_decision(
+        key,
+        solved=str(key) in Cornucopia,
+        skip_bad_libpng=Skip_Bad_Libpng,
+    )
+
+    if LibpngDecision.action != "save_existing_solution":
         PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
 
-        if "Not enough image data" in str(key):
+        if LibpngDecision.action == "not_enough_image_data":
            Candy("Cowsay", "Well this is as far as i could get for now. ", "bad")
            Candy("Cowsay", "At least i was able to get some pixels out of it ..", "com")
            PRINT(Candy("Color", "yellow", "\n-ToDo"))
            TheEnd()
 
-        if Skip_Bad_Libpng is False:
+        if LibpngDecision.action == "ask_relics":
             Candy(
                 "Cowsay",
                 "The All Mighty Libpng has spoken ...",
@@ -9899,7 +9911,7 @@ def FixItFelix_Libpng_Error(key, chkd):
                 Candy("Cowsay", "See You Space Cowboy....", "good")
                 TheEnd()
 
-    else:
+    if LibpngDecision.action == "save_existing_solution":
         PRINT("\n-\033[1;32;49mSolved\033[m: %s"% Cornucopia_Tool(key, chkd, 3))
         SaveClone(
             Cornucopia_Tool(key, chkd, 0),
@@ -9919,7 +9931,13 @@ def FixItFelix_Wrong_Chunk_Name(key, chkd):
 
     if Skip_Bad_Current_Name is False:
 
-        if str(key) not in Cornucopia:
+        NameDecision = fixit_felix.wrong_chunk_name_decision(
+            key,
+            solved=str(key) in Cornucopia,
+            bad_crc=Bad_Crc,
+        )
+
+        if NameDecision.action != "save_existing_solution":
             PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
             NameTools = PandoraBox_Wrong_Chunk_Name_Tools(key, chkd)
             Ancillary(NameTools.chunk_type)
@@ -9971,7 +9989,7 @@ def FixItFelix_Wrong_Chunk_Name(key, chkd):
                         "com",
                     )
 
-            if "and length is not the same than before." in str(key):
+            if NameDecision.action == "ask_length_probe":
                 Candy(
                     "Cowsay",
                     "By the way IDAT chunk's length is different from the one usually used for some reason..",
@@ -9997,7 +10015,7 @@ def FixItFelix_Wrong_Chunk_Name(key, chkd):
                 else:
                     Skip_Bad_Next_Name = True
                     #Pause("Else")
-            if Bad_Crc is False:
+            if NameDecision.bad_crc is False:
                 Candy(
                     "Cowsay",
                     "Do you want me to try to fix this regardless of CRC's validity ?",
@@ -10042,8 +10060,14 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
     if Skip_Bad_No_Next_Chunk is False:
         PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
         NoNextTools = PandoraBox_No_Next_Chunk_Tools(key, chkd)
+        NoNextDecision = fixit_felix.no_next_chunk_decision(
+            current_chunk=Chunk,
+            chunk_type=NoNextTools.chunk_type,
+            chunk_length=NoNextTools.chunk_length,
+            bad_critical=Bad_Critical,
+        )
         GoodEnding = "0000000049454e44ae426082"
-        if Chunk == b"IEND" and int(NoNextTools.chunk_length) == 0:
+        if NoNextDecision.action == "false_positive_iend":
             for key in PandoraBox:
                 if "No NextChunk" in str(key):
                     Candy(
@@ -10095,7 +10119,7 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
                    PRINT("-Exceptation: %s"%(str(GoodEnding)))
                    PRINT("-Reality: %s"%(str(DATAX[-len(GoodEnding) :])))
                    TheEnd()
-        elif NoNextTools.chunk_type == b"IEND":
+        elif NoNextDecision.action == "wrong_iend_length":
             PRINT(
                 "-%s length for IEND %s "
                 % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
@@ -10106,7 +10130,7 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
 
         else:
 
-            if Bad_Critical:
+            if NoNextDecision.action == "append_missing_iend":
                   Candy("Cowsay", "Well it seems that i need to add that IEND chunk myself after all ..", "bad")
                   if DEBUG:
                       print("CrcoffI:",CrcoffI)
@@ -10201,8 +10225,9 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
 
 def FixItFelix_Gama_Zero(key):
     Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good") ##ME !!!
-    PandoraBox.pop(key, "key_not_found")
-    SideNotes.append("-Found False-Positive :[Error:-%s]." % (str(key)))
+    FalsePositive = fixit_felix.gama_zero_false_positive(key)
+    PandoraBox.pop(FalsePositive.finding, "key_not_found")
+    SideNotes.append(FalsePositive.note)
     return True, FixItFelix
 
 
@@ -10214,14 +10239,19 @@ def FixItFelix_Critical_Miss(key):
     return False, None
 
 
+def FixItFelix_Apply_Repair(repair):
+    AppliedRepair = fixit_felix.applied_repair(repair)
+    SideNotes.append(AppliedRepair.note)
+    WriteClone(AppliedRepair.data_hex, AppliedRepair.save_suffix)
+    return True
+
+
 def FixItFelix_Try_Color_Profile_Cleanup():
     repair = fixit_felix.color_profile_cleanup(bytes.fromhex(DATAX), PandoraBox)
     if repair is None:
         return None
 
-    SideNotes.append("-FixItFelix:%s." % repair.strategy)
-    WriteClone(repair.data.hex(), "-%s." % repair.strategy)
-    return True
+    return FixItFelix_Apply_Repair(repair)
 
 
 def FixItFelix_Try_PLTE_Cleanup():
@@ -10235,9 +10265,7 @@ def FixItFelix_Try_PLTE_Cleanup():
     if repair is None:
         return None
 
-    SideNotes.append("-FixItFelix:%s." % repair.strategy)
-    WriteClone(repair.data.hex(), "-%s." % repair.strategy)
-    return True
+    return FixItFelix_Apply_Repair(repair)
 
 
 def FixItFelix_Try_Missing_Chunk_Data_Byte():
@@ -10245,9 +10273,7 @@ def FixItFelix_Try_Missing_Chunk_Data_Byte():
     if repair is None:
         return None
 
-    SideNotes.append("-FixItFelix:%s." % repair.strategy)
-    WriteClone(repair.data.hex(), "-%s." % repair.strategy)
-    return True
+    return FixItFelix_Apply_Repair(repair)
 
 
 def FixItFelix_Try_Known_Chunk_Type_Case_Repair():
@@ -10255,9 +10281,7 @@ def FixItFelix_Try_Known_Chunk_Type_Case_Repair():
     if repair is None:
         return None
 
-    SideNotes.append("-FixItFelix:%s." % repair.strategy)
-    WriteClone(repair.data.hex(), "-%s." % repair.strategy)
-    return True
+    return FixItFelix_Apply_Repair(repair)
 
 
 def FixItFelix_Try_Unknown_Private_Critical_Removal():
@@ -10265,9 +10289,7 @@ def FixItFelix_Try_Unknown_Private_Critical_Removal():
     if repair is None:
         return None
 
-    SideNotes.append("-FixItFelix:%s." % repair.strategy)
-    WriteClone(repair.data.hex(), "-%s." % repair.strategy)
-    return True
+    return FixItFelix_Apply_Repair(repair)
 
 
 def FixItFelix_Try_IHDR_Rebuild():
@@ -10275,9 +10297,7 @@ def FixItFelix_Try_IHDR_Rebuild():
     if repair is None:
         return None
 
-    SideNotes.append("-FixItFelix:%s." % repair.strategy)
-    WriteClone(repair.data.hex(), "-%s." % repair.strategy)
-    return True
+    return FixItFelix_Apply_Repair(repair)
 
 
 def FixItFelix(Chunk=None):
