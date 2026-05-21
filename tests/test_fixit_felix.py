@@ -150,6 +150,17 @@ def test_applied_repair_formats_legacy_note_and_save_suffix():
     assert applied.save_suffix == "-Some repair strategy."
 
 
+def test_automatic_repair_order_keeps_legacy_priority():
+    assert fixit_felix.automatic_repair_order() == (
+        "color_profile_cleanup",
+        "plte_cleanup",
+        "known_chunk_type_case",
+        "unknown_private_critical_removal",
+        "missing_chunk_data_byte",
+        "ihdr_rebuild",
+    )
+
+
 def test_color_profile_cleanup_requires_matching_finding():
     original = read_fixture("IncorrectSrgbProfile.png")
 
@@ -230,6 +241,7 @@ def main():
         ("Wrong chunk name decision keeps length probe before bruteforce", test_wrong_chunk_name_decision_keeps_length_probe_before_bruteforce),
         ("No-next-chunk decision orders IEND and recovery paths", test_no_next_chunk_decision_orders_iend_and_recovery_paths),
         ("Applied repair formats legacy note and save suffix", test_applied_repair_formats_legacy_note_and_save_suffix),
+        ("Automatic repair order keeps legacy priority", test_automatic_repair_order_keeps_legacy_priority),
         ("Color profile cleanup requires matching finding", test_color_profile_cleanup_requires_matching_finding),
         ("PLTE cleanup requires noninteractive mode and PLTE finding", test_plte_cleanup_requires_noninteractive_mode_and_plte_finding),
         ("Missing chunk data byte requires CRC or no-next finding", test_missing_chunk_data_byte_requires_crc_or_no_next_finding),

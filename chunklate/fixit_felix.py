@@ -32,6 +32,24 @@ NoNextChunkAction = Literal[
     "append_missing_iend",
     "ask_length_probe",
 ]
+AutomaticRepairHandler = Literal[
+    "color_profile_cleanup",
+    "plte_cleanup",
+    "known_chunk_type_case",
+    "unknown_private_critical_removal",
+    "missing_chunk_data_byte",
+    "ihdr_rebuild",
+]
+
+
+AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
+    "color_profile_cleanup",
+    "plte_cleanup",
+    "known_chunk_type_case",
+    "unknown_private_critical_removal",
+    "missing_chunk_data_byte",
+    "ihdr_rebuild",
+)
 
 
 @dataclass(frozen=True)
@@ -170,6 +188,10 @@ def applied_repair(repair: Any) -> AppliedRepair:
         note="-FixItFelix:%s." % repair.strategy,
         save_suffix="-%s." % repair.strategy,
     )
+
+
+def automatic_repair_order() -> tuple[AutomaticRepairHandler, ...]:
+    return AUTOMATIC_REPAIR_ORDER
 
 
 def color_profile_cleanup(data: bytes, findings: Iterable[object]) -> Any | None:

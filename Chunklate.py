@@ -10300,6 +10300,22 @@ def FixItFelix_Try_IHDR_Rebuild():
     return FixItFelix_Apply_Repair(repair)
 
 
+def FixItFelix_Try_Automatic_Repair(name):
+    if name == "color_profile_cleanup":
+        return FixItFelix_Try_Color_Profile_Cleanup()
+    if name == "plte_cleanup":
+        return FixItFelix_Try_PLTE_Cleanup()
+    if name == "known_chunk_type_case":
+        return FixItFelix_Try_Known_Chunk_Type_Case_Repair()
+    if name == "unknown_private_critical_removal":
+        return FixItFelix_Try_Unknown_Private_Critical_Removal()
+    if name == "missing_chunk_data_byte":
+        return FixItFelix_Try_Missing_Chunk_Data_Byte()
+    if name == "ihdr_rebuild":
+        return FixItFelix_Try_IHDR_Rebuild()
+    raise ValueError("Unknown FixItFelix automatic repair: %s" % name)
+
+
 def FixItFelix(Chunk=None):
     Candy("Title", "Fix It Felix: ", Candy("Color", "white", Chunk))
     ##TODOFIND A WAY TO MAKE IT READABLE
@@ -10375,29 +10391,10 @@ def FixItFelix(Chunk=None):
     else:
         PandoraBox_len = len(PandoraBox) - 1
 
-    ColorProfileCleanup = FixItFelix_Try_Color_Profile_Cleanup()
-    if ColorProfileCleanup is not None:
-        return ColorProfileCleanup
-
-    PlteCleanup = FixItFelix_Try_PLTE_Cleanup()
-    if PlteCleanup is not None:
-        return PlteCleanup
-
-    KnownChunkTypeCaseRepair = FixItFelix_Try_Known_Chunk_Type_Case_Repair()
-    if KnownChunkTypeCaseRepair is not None:
-        return KnownChunkTypeCaseRepair
-
-    UnknownPrivateCriticalRemoval = FixItFelix_Try_Unknown_Private_Critical_Removal()
-    if UnknownPrivateCriticalRemoval is not None:
-        return UnknownPrivateCriticalRemoval
-
-    MissingChunkDataByte = FixItFelix_Try_Missing_Chunk_Data_Byte()
-    if MissingChunkDataByte is not None:
-        return MissingChunkDataByte
-
-    IhdrRebuild = FixItFelix_Try_IHDR_Rebuild()
-    if IhdrRebuild is not None:
-        return IhdrRebuild
+    for AutomaticRepair in fixit_felix.automatic_repair_order():
+        RepairResult = FixItFelix_Try_Automatic_Repair(AutomaticRepair)
+        if RepairResult is not None:
+            return RepairResult
 
     for nb, key in enumerate(PandoraBox):
         Route = fixit_felix.route_finding(key, skip_bad_crc=Skip_Bad_Crc)
