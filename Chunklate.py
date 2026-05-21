@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, decisions, fixit_felix, output, relics
+from chunklate import bruteforce, checkpoint, decisions, fixit_felix, output, palette_ui, relics
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -5884,21 +5884,8 @@ def Tk_ImgUpdate_Plte(event,nbr=None,bfn=None,afn=None,w=None,h=None):
     global Plte_Blst 
     global window,tk_image,frame_img,pil_image,im,wanabyte
 
-    if event != "-1":
-        Plte_Blst[int(nbr)] = event
-    else:
-        Plte_Blst[int(nbr)] = "empty"
-
-    bvalue = b""
-    for i in Plte_Blst:
-       if i != "empty":
-           bvalue += int(i).to_bytes(3, "big")
-
-
-    Lnx_New = len(bvalue).to_bytes(4, "big")
-    checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
-    fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
-    wanabyte = bfn + fullnewdatax + afn
+    palette_ui.set_palette_value(Plte_Blst, int(nbr), event)
+    wanabyte = palette_ui.build_palette_png(bfn, Plte_Blst, afn)
 
     im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
     pil_image = Image.fromarray(im)
@@ -5918,21 +5905,8 @@ def Tk_X11_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
     rnd_x11 = random.sample(X11_Colors,len(X11_Colors))
 
 
-    for n,slider in enumerate(slider_list):
-        rval = int(rnd_x11[int(n)],16)
-        Plte_Blst[int(n)] = rval
-        slider.var.set(rval)
-
-    bvalue = b""
-    for i in Plte_Blst:
-       if i != "empty":
-           bvalue += int(i).to_bytes(3, "big")
-
-
-    Lnx_New = len(bvalue).to_bytes(4, "big")
-    checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
-    fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
-    wanabyte = bfn + fullnewdatax + afn
+    palette_ui.apply_color_table(Plte_Blst, slider_list, rnd_x11)
+    wanabyte = palette_ui.build_palette_png(bfn, Plte_Blst, afn)
 
     im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
     pil_image = Image.fromarray(im)
@@ -5947,20 +5921,8 @@ def Tk_X11_Plte(bfn=None,afn=None,w=None,h=None):
     global window,tk_image,frame_img,pil_image,im,wanabyte
 
 
-    for n,slider in enumerate(slider_list):
-        rval = int(X11_Colors[int(n)],16)
-        Plte_Blst[int(n)] = rval
-        slider.var.set(rval)
-
-    bvalue = b""
-    for i in Plte_Blst:
-           bvalue += int(i).to_bytes(3, "big")
-
-
-    Lnx_New = len(bvalue).to_bytes(4, "big")
-    checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
-    fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
-    wanabyte = bfn + fullnewdatax + afn
+    palette_ui.apply_color_table(Plte_Blst, slider_list, X11_Colors)
+    wanabyte = palette_ui.build_palette_png(bfn, Plte_Blst, afn)
 
     im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
     pil_image = Image.fromarray(im)
@@ -5978,20 +5940,8 @@ def Tk_Web_Safe_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
     rnd_216 = random.sample(Web_Safe_Colors,len(Web_Safe_Colors))
 
 
-    for n,slider in enumerate(slider_list):
-        rval = int(rnd_216[int(n)],16)
-        Plte_Blst[int(n)] = rval
-        slider.var.set(rval)
-
-    bvalue = b""
-    for i in Plte_Blst:
-       if i != "empty":
-           bvalue += int(i).to_bytes(3, "big")
-
-    Lnx_New = len(bvalue).to_bytes(4, "big")
-    checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
-    fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
-    wanabyte = bfn + fullnewdatax + afn
+    palette_ui.apply_color_table(Plte_Blst, slider_list, rnd_216)
+    wanabyte = palette_ui.build_palette_png(bfn, Plte_Blst, afn)
 
     im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
     pil_image = Image.fromarray(im)
@@ -6006,20 +5956,8 @@ def Tk_Web_Safe_Plte(bfn=None,afn=None,w=None,h=None):
     global window,tk_image,frame_img,pil_image,im,wanabyte
 
 
-    for n,slider in enumerate(slider_list):
-        rval = int(Web_Safe_Colors[int(n)],16)
-        Plte_Blst[int(n)] = rval
-        slider.var.set(rval)
-
-    bvalue = b""
-    for i in Plte_Blst:
-           bvalue += int(i).to_bytes(3, "big")
-
-
-    Lnx_New = len(bvalue).to_bytes(4, "big")
-    checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
-    fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
-    wanabyte = bfn + fullnewdatax + afn
+    palette_ui.apply_color_table(Plte_Blst, slider_list, Web_Safe_Colors)
+    wanabyte = palette_ui.build_palette_png(bfn, Plte_Blst, afn)
 
     im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
     pil_image = Image.fromarray(im)
@@ -6034,21 +5972,8 @@ def Tk_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
     global Plte_Blst 
     global window,tk_image,frame_img,pil_image,im,wanabyte
 
-    for n,slider in enumerate(slider_list):
-        rval = random.randint(0,16777215)
-        Plte_Blst[int(n)] = rval
-        slider.var.set(rval)
-
-    bvalue = b""
-    for i in Plte_Blst:
-       if i != "empty":
-           bvalue += int(i).to_bytes(3, "big")
-
-
-    Lnx_New = len(bvalue).to_bytes(4, "big")
-    checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
-    fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
-    wanabyte = bfn + fullnewdatax + afn
+    palette_ui.random_palette_values(Plte_Blst, slider_list, random.randint)
+    wanabyte = palette_ui.build_palette_png(bfn, Plte_Blst, afn)
 
     im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
     pil_image = Image.fromarray(im)
@@ -6065,44 +5990,28 @@ def Tk_update_scrollregion_Plte(event):
 def Tk_Save_Plte(Tkwin,Cancel,ChunkLength,DataOffset,FromError,wanabyte):
     global slider_list
 
-    nplt = 256 - Plte_Blst.count("empty")
-
     for slider in slider_list:
          slider.clean()
  
     Tkwin.destroy()
     Tkwin.quit()
 
-    if Cancel:
-        return CheckPoint(
-                True,
-                False,
-                "Tk_Save_Plte",
-                b"PLTE",
-                ["-Manually modify PLTE datas has been canceled by user."],
-                wanabyte.hex(),
-                DataOffset,
-                DataOffset + ChunkLength,
-                "-Manually modify PLTE datas has been canceled by user.",
-                b"PLTE",
-                FromError,
-       )
-
-    else:
-        return CheckPoint(
-                True,
-                True,
-                "Tk_Save_Plte",
-                b"PLTE",
-                ["-PLTE Data has been replaced manually."],
-                wanabyte.hex(),
-                DataOffset,
-                DataOffset + ChunkLength,
-                "-PLTE Data has been modified with %s new palettes."
-                %nplt,
-                b"PLTE",
-                FromError,
-       )
+    CheckpointCall = palette_ui.save_checkpoint(
+        cancel=Cancel,
+        palette_values=Plte_Blst,
+        wanabyte=wanabyte,
+        chunk_length=ChunkLength,
+        data_offset=DataOffset,
+        from_error=FromError,
+    )
+    return CheckPoint(
+        CheckpointCall.error,
+        CheckpointCall.fixed,
+        CheckpointCall.function,
+        CheckpointCall.chunk,
+        list(CheckpointCall.infos),
+        *CheckpointCall.toolkit,
+    )
 
 
 def Guess_Palettes_Nbr(bfn,afn):
@@ -6110,16 +6019,11 @@ def Guess_Palettes_Nbr(bfn,afn):
 
     Hashs_Lst = []
     PLTE_Guess_Nbr = None
-    bvalue = b""
+    palette_values = []
     f = io.BytesIO()
     for n,colorx in enumerate(X11_Colors):
-        bvalue += bytes.fromhex(colorx)
-        Lnx_New = len(bvalue).to_bytes(4, "big")
-        checksum = struct.pack("!I",binascii.crc32(b"PLTE" + bvalue))
-#        print("Checksumbla:",checksum.hex())
-
-        fullnewdatax = Lnx_New + b"PLTE" + bvalue + checksum
-        wanabyte = bfn + fullnewdatax + afn
+        palette_values.append(int(colorx, 16))
+        wanabyte = palette_ui.build_palette_png(bfn, palette_values, afn)
         f = io.BytesIO()
 
         with stderr_redirector(f):
@@ -6194,11 +6098,7 @@ def Tk_Manual_Plte(
     Before_New = bytes.fromhex(DATAX[:DataOffset])
     After_New = bytes.fromhex(DATAX[DataOffset + (ChunkLength-DataOffset) :])
 
-    Lnx_New = int(3).to_bytes(4, "big")
-    bvalue  = bytes.fromhex("000000")
-    checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
-    fullnewdatax = Lnx_New + ChunkName + bvalue + checksum
-    wanabyte = Before_New + fullnewdatax + After_New
+    wanabyte = palette_ui.initial_manual_palette_png(Before_New, ChunkName, After_New)
 
 
     Palette_nbr = Guess_Palettes_Nbr(Before_New,After_New)
@@ -6206,6 +6106,11 @@ def Tk_Manual_Plte(
     Plte_Blst = ["empty" for i in range(Palette_nbr)]
 
     if DEBUG is True:
+        fullnewdatax = (
+            wanabyte[len(Before_New):len(wanabyte) - len(After_New)]
+            if After_New
+            else wanabyte[len(Before_New):]
+        )
         PRINT("File:%s"% File)
         PRINT("ChunkName:%s"% ChunkName)
         PRINT("DataOffset:%s"% DataOffset)
