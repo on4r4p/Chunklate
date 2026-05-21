@@ -127,6 +127,18 @@ def Relic_Wrong_Crc_Tools(tools, tool_prefix):
     return relics.wrong_crc_tools(tools, tool_prefix)
 
 
+def Relic_Wrong_Chunk_Name_Tools(tools, tool_prefix):
+    return relics.wrong_chunk_name_tools(tools, tool_prefix)
+
+
+def Relic_No_Next_Chunk_Tools(tools, tool_prefix):
+    return relics.no_next_chunk_tools(tools, tool_prefix)
+
+
+def Relic_Dummy_Chunk_Tools(tools, tool_prefix):
+    return relics.dummy_chunk_tools(tools, tool_prefix)
+
+
 def Relic_Chunk_Name_From_Text(text):
     return relics.chunk_name_from_text(text, ALLCHUNKS)
 
@@ -153,6 +165,18 @@ def PandoraBox_Wrong_Crc_Tools(key, tool_prefix):
 
 def Pandemonium_Wrong_Crc_Tools(file, error, tool_prefix):
     return Relic_Wrong_Crc_Tools(Pandemonium[file][error], tool_prefix)
+
+
+def PandoraBox_Wrong_Chunk_Name_Tools(key, tool_prefix):
+    return Relic_Wrong_Chunk_Name_Tools(PandoraBox[key], tool_prefix)
+
+
+def PandoraBox_No_Next_Chunk_Tools(key, tool_prefix):
+    return Relic_No_Next_Chunk_Tools(PandoraBox[key], tool_prefix)
+
+
+def Pandemonium_Dummy_Chunk_Tools(file, error, tool_prefix):
+    return Relic_Dummy_Chunk_Tools(Pandemonium[file][error], tool_prefix)
 
 
 def PandoraBox_Next_Error_Number(function):
@@ -9519,12 +9543,11 @@ def Relics(FromError):
                             ChunkName = Relic_Chunk_Name_From_Tool_Keys(errors_values)
 
                         chunk_tool_prefix = ChunkName + "_Tool_"
-                        ChunkLength = Pandemonium_Tool(file, errors, chunk_tool_prefix, 1)
-                        DataOffset = Pandemonium_Tool(file, errors, chunk_tool_prefix, 3)
+                        DummyTools = Pandemonium_Dummy_Chunk_Tools(file, errors, chunk_tool_prefix)
+                        ChunkLength = DummyTools.dummy_data_length
+                        DataOffset = DummyTools.bad_start
 
                         if ChunkName.encode() in CRITICAL_CHUNKS:
-                            ChunkLength = Pandemonium_Tool(file, errors, chunk_tool_prefix, 1)
-                            DataOffset = Pandemonium_Tool(file, errors, chunk_tool_prefix, 3)
                             Candy(
                                 "Cowsay",
                                 "Ok it's time to brute force that dummy %s chunk .."
@@ -9935,7 +9958,8 @@ def FixItFelix_Wrong_Chunk_Name(key, chkd):
 
         if str(key) not in Cornucopia:
             PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-            Ancillary(PandoraBox_Tool(key, chkd, 0))
+            NameTools = PandoraBox_Wrong_Chunk_Name_Tools(key, chkd)
+            Ancillary(NameTools.chunk_type)
 
             if Bad_Ancillary is True:
                 Candy(
@@ -10000,9 +10024,9 @@ def FixItFelix_Wrong_Chunk_Name(key, chkd):
                 if Answer is True:
 
                     return True, NearbyChunk(
-                        PandoraBox_Tool(key, chkd, 0),
-                        PandoraBox_Tool(key, chkd, 1),
-                        PandoraBox_Tool(key, chkd, 2),
+                        NameTools.chunk_type,
+                        NameTools.chunk_length,
+                        NameTools.chunk_type_offset,
                         False,
                         key,
                     )
@@ -10027,9 +10051,9 @@ def FixItFelix_Wrong_Chunk_Name(key, chkd):
             Answer = Question(id=key,idhash=uniqh)
             if Answer is True:
                 return True, BruteChunk(
-                    PandoraBox_Tool(key, chkd, 0),
-                    PandoraBox_Tool(key, chkd, 3),
-                    PandoraBox_Tool(key, chkd, 1),
+                    NameTools.chunk_type,
+                    NameTools.previous_chunk,
+                    NameTools.chunk_length,
                     str(key),
                 )
 
@@ -10054,8 +10078,9 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
 
     if Skip_Bad_No_Next_Chunk is False:
         PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+        NoNextTools = PandoraBox_No_Next_Chunk_Tools(key, chkd)
         GoodEnding = "0000000049454e44ae426082"
-        if Chunk == b"IEND" and int(PandoraBox_Tool(key, chkd, 1)) == 0:
+        if Chunk == b"IEND" and int(NoNextTools.chunk_length) == 0:
             for key in PandoraBox:
                 if "No NextChunk" in str(key):
                     Candy(
@@ -10107,7 +10132,7 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
                    PRINT("-Exceptation: %s"%(str(GoodEnding)))
                    PRINT("-Reality: %s"%(str(DATAX[-len(GoodEnding) :])))
                    TheEnd()
-        elif PandoraBox_Tool(key, chkd, 0) == b"IEND":
+        elif NoNextTools.chunk_type == b"IEND":
             PRINT(
                 "-%s length for IEND %s "
                 % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
@@ -10199,9 +10224,9 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
             Answer = Question(id=key,idhash=uniqh)
             if Answer is True:
                 return True, NearbyChunk(
-                    PandoraBox_Tool(key, chkd, 0),
-                    PandoraBox_Tool(key, chkd, 1),
-                    PandoraBox_Tool(key, chkd, 2),
+                    NoNextTools.chunk_type,
+                    NoNextTools.chunk_length,
+                    NoNextTools.previous_chunk,
                     False,
                     key,
                 )

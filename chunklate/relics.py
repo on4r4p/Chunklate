@@ -20,6 +20,32 @@ class WrongCrcTools:
     data_offset: Any = None
 
 
+@dataclass(frozen=True)
+class WrongChunkNameTools:
+    chunk_type: Any
+    chunk_length: Any
+    chunk_type_offset: Any
+    previous_chunk: Any
+    next_marker: Any = None
+
+
+@dataclass(frozen=True)
+class NoNextChunkTools:
+    chunk_type: Any
+    chunk_length: Any
+    previous_chunk: Any
+
+
+@dataclass(frozen=True)
+class DummyChunkTools:
+    fixed_data: Any
+    dummy_data_length: Any
+    bad_position: Any
+    bad_start: Any
+    bad_end: Any
+    from_error: Any
+
+
 def chunk_label(chunk: Any) -> Any:
     if type(chunk) != bytes:
         return chunk
@@ -65,6 +91,35 @@ def wrong_crc_tools(tools: Mapping[str, Any], prefix: str) -> WrongCrcTools:
         old_crc=tool_value(tools, prefix, 5),
         chunk_length=optional_tool_value(tools, prefix, 6),
         data_offset=optional_tool_value(tools, prefix, 7),
+    )
+
+
+def wrong_chunk_name_tools(tools: Mapping[str, Any], prefix: str) -> WrongChunkNameTools:
+    return WrongChunkNameTools(
+        chunk_type=tool_value(tools, prefix, 0),
+        chunk_length=tool_value(tools, prefix, 1),
+        chunk_type_offset=tool_value(tools, prefix, 2),
+        previous_chunk=tool_value(tools, prefix, 3),
+        next_marker=optional_tool_value(tools, prefix, 4),
+    )
+
+
+def no_next_chunk_tools(tools: Mapping[str, Any], prefix: str) -> NoNextChunkTools:
+    return NoNextChunkTools(
+        chunk_type=tool_value(tools, prefix, 0),
+        chunk_length=tool_value(tools, prefix, 1),
+        previous_chunk=tool_value(tools, prefix, 2),
+    )
+
+
+def dummy_chunk_tools(tools: Mapping[str, Any], prefix: str) -> DummyChunkTools:
+    return DummyChunkTools(
+        fixed_data=tool_value(tools, prefix, 0),
+        dummy_data_length=tool_value(tools, prefix, 1),
+        bad_position=tool_value(tools, prefix, 2),
+        bad_start=tool_value(tools, prefix, 3),
+        bad_end=tool_value(tools, prefix, 4),
+        from_error=tool_value(tools, prefix, 5),
     )
 
 

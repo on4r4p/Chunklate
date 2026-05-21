@@ -88,6 +88,50 @@ def test_relics_module_exposes_wrong_crc_tools_by_name():
     assert crc_tools.data_offset == 100
 
 
+def test_relics_module_exposes_wrong_chunk_name_tools_by_name():
+    tools = relics.build_tools(
+        b"bad!",
+        (b"bad!", "00000004", 42, b"IDAT", None),
+    )
+
+    name_tools = relics.wrong_chunk_name_tools(tools, "bad!_Tool_")
+
+    assert name_tools.chunk_type == b"bad!"
+    assert name_tools.chunk_length == "00000004"
+    assert name_tools.chunk_type_offset == 42
+    assert name_tools.previous_chunk == b"IDAT"
+    assert name_tools.next_marker is None
+
+
+def test_relics_module_exposes_no_next_chunk_tools_by_name():
+    tools = relics.build_tools(
+        b"IDAT",
+        (b"IDAT", "00000000", b"PLTE"),
+    )
+
+    no_next_tools = relics.no_next_chunk_tools(tools, "IDAT_Tool_")
+
+    assert no_next_tools.chunk_type == b"IDAT"
+    assert no_next_tools.chunk_length == "00000000"
+    assert no_next_tools.previous_chunk == b"PLTE"
+
+
+def test_relics_module_exposes_dummy_chunk_tools_by_name():
+    tools = relics.build_tools(
+        b"IEND",
+        ("fixed-data", 0, 128, 128, 152, "No NextChunk"),
+    )
+
+    dummy_tools = relics.dummy_chunk_tools(tools, "IEND_Tool_")
+
+    assert dummy_tools.fixed_data == "fixed-data"
+    assert dummy_tools.dummy_data_length == 0
+    assert dummy_tools.bad_position == 128
+    assert dummy_tools.bad_start == 128
+    assert dummy_tools.bad_end == 152
+    assert dummy_tools.from_error == "No NextChunk"
+
+
 def test_pandorabox_add_keeps_legacy_error_numbering():
     reset_relic_state()
 
@@ -171,6 +215,15 @@ def main():
             test_relics_module_finds_chunk_names_in_legacy_text_and_tool_keys,
         ),
         ("Relics module exposes wrong CRC tools by name", test_relics_module_exposes_wrong_crc_tools_by_name),
+        (
+            "Relics module exposes wrong chunk name tools by name",
+            test_relics_module_exposes_wrong_chunk_name_tools_by_name,
+        ),
+        (
+            "Relics module exposes no-next-chunk tools by name",
+            test_relics_module_exposes_no_next_chunk_tools_by_name,
+        ),
+        ("Relics module exposes dummy chunk tools by name", test_relics_module_exposes_dummy_chunk_tools_by_name),
         ("PandoraBox keys keep legacy numbering", test_pandorabox_add_keeps_legacy_error_numbering),
         ("CheckPoint records current errors", test_checkpoint_records_current_errors_in_pandorabox),
         ("CheckPoint records fixed items", test_checkpoint_records_fixed_items_in_cornucopia),
