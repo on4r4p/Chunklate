@@ -22,6 +22,7 @@ from chunklate.png import (
     iter_chunks,
     is_complete_png_with_valid_crc,
     legacy_chunk_window,
+    legacy_length_decision,
     legacy_length_status,
     read_chunks,
     repair_color_profile_chunks,
@@ -30,6 +31,7 @@ from chunklate.png import (
     repair_ihdr_from_idat,
     repair_ihdr_preserving_crc,
     repair_known_chunk_type_case,
+    repair_missing_ihdr_from_idat,
     repair_missing_chunk_data_byte,
     repair_unknown_private_critical_chunks,
     validate_png_structure,
@@ -179,6 +181,38 @@ def test_legacy_length_status_reports_missing_next_chunk():
     assert status.next_chunk_type == b""
 
 
+def test_legacy_length_decision_reports_found_next_chunk():
+    decision = legacy_length_decision(
+        FIXTURE.read_bytes(),
+        len(PNG_SIGNATURE) * 2,
+        previous_chunk=b"IHDR",
+        idat_average_length=0,
+    )
+
+    assert decision.declared_length == 13
+    assert decision.has_next_chunk is True
+    assert decision.next_chunk_type == b"gAMA"
+    assert decision.checkpoint_error is False
+    assert decision.checkpoint_info == "-Found NextChunk"
+
+
+def test_legacy_length_decision_reports_no_next_chunk_and_idat_delta():
+    data = PNG_SIGNATURE + b"\x00\x00\x00\x04IDATab"
+    decision = legacy_length_decision(
+        data,
+        len(PNG_SIGNATURE) * 2,
+        previous_chunk=b"IDAT",
+        idat_average_length=12,
+    )
+
+    assert decision.declared_length == 4
+    assert decision.has_next_chunk is False
+    assert decision.next_chunk_type == b""
+    assert decision.idat_length_differs is True
+    assert decision.checkpoint_error is True
+    assert decision.checkpoint_info == "-No NextChunk"
+
+
 def test_chunk_type_crc_matches_finds_original_name():
     chunk_data = b"payload"
     stored_crc = 0x96166E4F
@@ -213,6 +247,17 @@ def test_validate_png_structure_rejects_crc_valid_bad_idat_stream():
 
     assert not validation.ok
     assert "IDAT zlib stream is invalid" in validation.errors
+
+
+def test_validate_png_structure_rejects_invalid_scanline_filter():
+    ihdr = build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
+    idat = build_png_chunk(b"IDAT", zlib.compress(b"\x05\x00"))
+    data = PNG_SIGNATURE + ihdr + idat + IEND_CHUNK
+
+    validation = validate_png_structure(data)
+
+    assert not validation.ok
+    assert "IDAT scanline filter type is invalid" in validation.errors
 
 
 def test_validate_png_structure_rejects_unknown_critical_chunk():
@@ -270,9 +315,10 @@ def test_repair_ihdr_from_idat_rebuilds_strict_header():
     repaired = repair_ihdr_from_idat((REPAIR_FIXTURES / "IHDR_Messed_Up_Crc_Valid.png").read_bytes())
 
     assert repaired is not None
+    assert validate_png_structure(repaired).ok
     first = next(iter_chunks(repaired))
     assert first.chunk_type == b"IHDR"
-    assert first.data[:8] == b"\x00\x00\x00 \x00\x00\x00 "
+    assert first.data[8:10] == b"\x08\x03"
     assert first.crc_ok
 
 
@@ -316,8 +362,65 @@ def test_repair_ihdr_falls_back_to_rebuild_when_stored_crc_is_not_original():
     assert repaired is not None
     assert repaired.preserved_crc is False
     first = next(iter_chunks(repaired.data))
-    assert first.data[:8] == b"\x00\x00\x00 \x00\x00\x00 "
+    assert validate_png_structure(repaired.data).ok
+    assert first.data[8:10] == b"\x08\x03"
     assert first.crc != original_ihdr.crc
+    assert first.crc_ok
+
+
+def test_repair_ihdr_rebuilds_indexed_header_when_plte_and_idat_disagree():
+    bad_ihdr = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x01\x01\x03\x00\x00\x00",
+    )
+    palette = bytes(range(256)) * 3
+    scanlines = b"".join(b"\x00" + bytes([row]) * 32 for row in range(32))
+    original = (
+        PNG_SIGNATURE
+        + bad_ihdr
+        + build_png_chunk(b"PLTE", palette)
+        + build_png_chunk(b"IDAT", zlib.compress(scanlines))
+        + IEND_CHUNK
+    )
+
+    repaired = repair_ihdr_from_idat(original)
+    described = repair_ihdr(original)
+
+    assert repaired is not None
+    assert described is not None
+    assert described.width == 32
+    assert described.height == 32
+    assert described.bit_depth == 8
+    assert described.color_type == 3
+    assert described.strict_candidate_count > 1
+    assert described.selection_score is not None
+    assert validate_png_structure(repaired).ok
+    first = next(iter_chunks(repaired))
+    width = int.from_bytes(first.data[:4], "big")
+    height = int.from_bytes(first.data[4:8], "big")
+    assert (width, height) == (32, 32)
+    assert first.data[8:10] == b"\x08\x03"
+    assert first.crc_ok
+
+
+def test_repair_missing_ihdr_from_idat_inserts_strict_indexed_header():
+    original = (REPAIR_FIXTURES / "No_Png_Header_Missing_Chunk_Corrupted.png").read_bytes()
+    with_signature = PNG_SIGNATURE + b"\x00" + original
+
+    repaired = repair_missing_ihdr_from_idat(with_signature)
+
+    assert repaired is not None
+    assert repaired.width == 32
+    assert repaired.height == 32
+    assert repaired.bit_depth == 8
+    assert repaired.color_type == 3
+    assert repaired.strict_candidate_count > 1
+    assert repaired.selection_score is not None
+    assert validate_png_structure(repaired.data).ok
+    first = next(iter_chunks(repaired.data))
+    assert first.chunk_type == b"IHDR"
+    assert first.data[:8] == b"\x00\x00\x00 \x00\x00\x00 "
+    assert first.data[8:10] == b"\x08\x03"
     assert first.crc_ok
 
 
@@ -493,12 +596,21 @@ def main():
         ),
         ("Legacy length status reports declared next chunk", test_legacy_length_status_reports_declared_next_chunk),
         ("Legacy length status reports missing next chunk", test_legacy_length_status_reports_missing_next_chunk),
+        ("Legacy length decision reports found next chunk", test_legacy_length_decision_reports_found_next_chunk),
+        (
+            "Legacy length decision reports missing next chunk and IDAT delta",
+            test_legacy_length_decision_reports_no_next_chunk_and_idat_delta,
+        ),
         ("Find original chunk name from CRC", test_chunk_type_crc_matches_finds_original_name),
         ("Validate PNG structure accepts valid fixture", test_validate_png_structure_accepts_valid_fixture),
         ("Validate PNG structure rejects prefixed PNG output", test_validate_png_structure_rejects_prefixed_png_output),
         (
             "Validate PNG structure rejects CRC-valid bad IDAT stream",
             test_validate_png_structure_rejects_crc_valid_bad_idat_stream,
+        ),
+        (
+            "Validate PNG structure rejects invalid scanline filter",
+            test_validate_png_structure_rejects_invalid_scanline_filter,
         ),
         (
             "Validate PNG structure rejects unknown critical chunk",
@@ -514,6 +626,14 @@ def main():
         (
             "Fallback to rebuilt IHDR when stored CRC is not original",
             test_repair_ihdr_falls_back_to_rebuild_when_stored_crc_is_not_original,
+        ),
+        (
+            "Rebuild indexed IHDR when PLTE and IDAT disagree",
+            test_repair_ihdr_rebuilds_indexed_header_when_plte_and_idat_disagree,
+        ),
+        (
+            "Insert strict indexed IHDR when missing",
+            test_repair_missing_ihdr_from_idat_inserts_strict_indexed_header,
         ),
         ("Remove zero gAMA chunk", test_repair_color_profile_chunks_removes_zero_gama),
         (

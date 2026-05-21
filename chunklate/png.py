@@ -101,10 +101,38 @@ class LegacyLengthStatus:
 
 
 @dataclass(frozen=True)
+class LegacyLengthDecision:
+    declared_length: int
+    has_next_chunk: bool
+    next_chunk_type: bytes
+    is_huge: bool
+    idat_length_differs: bool
+    checkpoint_error: bool
+    checkpoint_info: str
+
+
+@dataclass(frozen=True)
 class IhdrRepair:
     data: bytes
     strategy: str
     preserved_crc: bool
+    width: int | None = None
+    height: int | None = None
+    bit_depth: int | None = None
+    color_type: int | None = None
+    strict_candidate_count: int = 0
+    selection_score: tuple[int, int, int, int, int] | None = None
+
+
+@dataclass(frozen=True)
+class IhdrRebuildCandidate:
+    data: bytes
+    ihdr_data: bytes
+    width: int
+    height: int
+    bit_depth: int
+    color_type: int
+    score: tuple[int, int, int, int, int]
 
 
 @dataclass(frozen=True)
@@ -302,6 +330,32 @@ def legacy_length_status(data: bytes, hex_offset: int) -> LegacyLengthStatus:
     )
 
 
+def legacy_length_decision(
+    data: bytes,
+    hex_offset: int,
+    *,
+    previous_chunk: bytes,
+    idat_average_length: int,
+    huge_threshold: int = 26736,
+) -> LegacyLengthDecision:
+    status = legacy_length_status(data, hex_offset)
+    idat_length_differs = (
+        previous_chunk == b"IDAT"
+        and idat_average_length != status.declared_length
+    )
+    checkpoint_error = not status.has_next_chunk
+
+    return LegacyLengthDecision(
+        declared_length=status.declared_length,
+        has_next_chunk=status.has_next_chunk,
+        next_chunk_type=status.next_chunk_type,
+        is_huge=status.declared_length > huge_threshold,
+        idat_length_differs=idat_length_differs,
+        checkpoint_error=checkpoint_error,
+        checkpoint_info="-No NextChunk" if checkpoint_error else "-Found NextChunk",
+    )
+
+
 def chunk_type_crc_matches(chunk_data: bytes, stored_crc: int, candidates: Iterable[bytes]) -> list[bytes]:
     return [
         chunk_type
@@ -438,6 +492,17 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
                     errors.append("Could not compute expected scanline size")
                 elif len(decompressed) != row_size * height:
                     errors.append("IDAT decompressed size does not match IHDR dimensions")
+                else:
+                    invalid_filter_row = next(
+                        (
+                            row
+                            for row in range(height)
+                            if decompressed[row * row_size] not in range(5)
+                        ),
+                        None,
+                    )
+                    if invalid_filter_row is not None:
+                        errors.append("IDAT scanline filter type is invalid")
 
     return PngValidationResult(tuple(errors))
 
@@ -1139,7 +1204,7 @@ def infer_png_dimensions(
         if min(dimensions) > 0 and _dimension_aspect_ratio(dimensions) <= 2
     ]
 
-    if preferred is None and 0 < current_width <= 0x7FFFFFFF:
+    if candidates and preferred is None and 0 < current_width <= 0x7FFFFFFF:
         candidates.sort(key=lambda dimensions: abs(dimensions[0] - current_width))
         if len(candidates) == 1 or abs(candidates[0][0] - current_width) < abs(candidates[1][0] - current_width):
             preferred = candidates[0]
@@ -1243,6 +1308,124 @@ def _ihdr_candidate_data_from_idat(
                 yield struct.pack("!IIBBBBB", width, height, bit_depth, color_type, 0, 0, 0)
 
 
+def _has_plte_chunk(data: bytes) -> bool:
+    try:
+        return any(chunk.chunk_type == b"PLTE" for chunk in iter_chunks(data))
+    except PngFormatError:
+        return False
+
+
+def _ihdr_rebuild_score(
+    ihdr_data: bytes,
+    *,
+    has_plte: bool,
+    current_bit_depth: int,
+    current_color_type: int,
+) -> tuple[int, int, int, int, int]:
+    width, height, bit_depth, color_type, _method, _filter_method, _interlace = struct.unpack(
+        "!IIBBBBB",
+        ihdr_data,
+    )
+    area = width * height
+    aspect_penalty = abs(width - height)
+    plte_coherent = (has_plte and color_type == 3) or (not has_plte and color_type != 3)
+    preserves_mode = bit_depth == current_bit_depth and color_type == current_color_type
+    balanced = min(width, height) > 0 and _dimension_aspect_ratio((width, height)) <= 2
+
+    return (
+        int(plte_coherent),
+        int(preserves_mode),
+        int(balanced),
+        area,
+        -aspect_penalty,
+    )
+
+
+def _ihdr_repair_from_candidate(
+    candidate: IhdrRebuildCandidate,
+    *,
+    strategy: str,
+    candidate_count: int,
+) -> IhdrRepair:
+    return IhdrRepair(
+        data=candidate.data,
+        strategy=strategy,
+        preserved_crc=False,
+        width=candidate.width,
+        height=candidate.height,
+        bit_depth=candidate.bit_depth,
+        color_type=candidate.color_type,
+        strict_candidate_count=candidate_count,
+        selection_score=candidate.score,
+    )
+
+
+def _rebuilt_ihdr_candidates(
+    data: bytes,
+    *,
+    insert_offset: int | None,
+    replace_ihdr: PngChunk | None,
+    decompressed_size: int,
+    current_width: int,
+    current_height: int,
+    current_bit_depth: int,
+    current_color_type: int,
+) -> list[IhdrRebuildCandidate]:
+    has_plte = _has_plte_chunk(data)
+    strict_candidates: list[IhdrRebuildCandidate] = []
+    seen_candidates: set[bytes] = set()
+
+    for fixed_ihdr_data in _ihdr_candidate_data_from_idat(
+        decompressed_size,
+        current_width,
+        current_height,
+        current_bit_depth,
+        current_color_type,
+    ):
+        if fixed_ihdr_data in seen_candidates:
+            continue
+        seen_candidates.add(fixed_ihdr_data)
+
+        replacement = build_png_chunk(b"IHDR", fixed_ihdr_data)
+        if replace_ihdr is not None:
+            fixed = replace_png_chunk(data, replace_ihdr, replacement)
+            original_chunk = data[replace_ihdr.offset : replace_ihdr.offset + 12 + replace_ihdr.length]
+            if replacement == original_chunk:
+                continue
+        elif insert_offset is not None:
+            fixed = data[:insert_offset] + replacement + data[insert_offset:]
+        else:
+            continue
+
+        if not validate_png_structure(fixed).ok:
+            continue
+
+        width, height, bit_depth, color_type, _method, _filter_method, _interlace = struct.unpack(
+            "!IIBBBBB",
+            fixed_ihdr_data,
+        )
+        score = _ihdr_rebuild_score(
+            fixed_ihdr_data,
+            has_plte=has_plte,
+            current_bit_depth=current_bit_depth,
+            current_color_type=current_color_type,
+        )
+        strict_candidates.append(
+            IhdrRebuildCandidate(
+                data=fixed,
+                ihdr_data=fixed_ihdr_data,
+                width=width,
+                height=height,
+                bit_depth=bit_depth,
+                color_type=color_type,
+                score=score,
+            )
+        )
+
+    strict_candidates.sort(key=lambda candidate: candidate.score, reverse=True)
+    return strict_candidates
+
+
 def repair_ihdr_preserving_crc(data: bytes) -> bytes | None:
     context = _ihdr_and_idat_data(data)
     if context is None:
@@ -1272,7 +1455,7 @@ def repair_ihdr_preserving_crc(data: bytes) -> bytes | None:
     return None
 
 
-def rebuild_ihdr_from_idat(data: bytes) -> bytes | None:
+def _best_rebuild_ihdr_candidate_from_idat(data: bytes) -> tuple[IhdrRebuildCandidate, int] | None:
     context = _ihdr_and_idat_data(data)
     if context is None:
         return None
@@ -1293,23 +1476,28 @@ def rebuild_ihdr_from_idat(data: bytes) -> bytes | None:
     except zlib.error:
         return None
 
-    dimensions = infer_png_dimensions(len(decompressed), bit_depth, color_type, width, height)
-    if dimensions is None:
+    strict_candidates = _rebuilt_ihdr_candidates(
+        data,
+        insert_offset=None,
+        replace_ihdr=ihdr,
+        decompressed_size=len(decompressed),
+        current_width=width,
+        current_height=height,
+        current_bit_depth=bit_depth,
+        current_color_type=color_type,
+    )
+    if not strict_candidates:
         return None
 
-    fixed_width, fixed_height = dimensions
-    fixed_ihdr_data = struct.pack(
-        "!IIBBBBB",
-        fixed_width,
-        fixed_height,
-        bit_depth,
-        color_type,
-        0,
-        0,
-        interlace,
-    )
-    fixed_crc = zlib.crc32(b"IHDR" + fixed_ihdr_data) & 0xFFFFFFFF
-    return _replace_ihdr_chunk(data, ihdr, fixed_ihdr_data, fixed_crc)
+    return strict_candidates[0], len(strict_candidates)
+
+
+def rebuild_ihdr_from_idat(data: bytes) -> bytes | None:
+    candidate = _best_rebuild_ihdr_candidate_from_idat(data)
+    if candidate is None:
+        return None
+
+    return candidate[0].data
 
 
 def repair_ihdr(data: bytes) -> IhdrRepair | None:
@@ -1321,12 +1509,13 @@ def repair_ihdr(data: bytes) -> IhdrRepair | None:
             preserved_crc=True,
         )
 
-    fixed = rebuild_ihdr_from_idat(data)
-    if fixed is not None:
-        return IhdrRepair(
-            data=fixed,
+    rebuilt = _best_rebuild_ihdr_candidate_from_idat(data)
+    if rebuilt is not None:
+        candidate, candidate_count = rebuilt
+        return _ihdr_repair_from_candidate(
+            candidate,
             strategy="rebuilt IHDR from IDAT scanline size",
-            preserved_crc=False,
+            candidate_count=candidate_count,
         )
 
     return None
@@ -1337,3 +1526,47 @@ def repair_ihdr_from_idat(data: bytes) -> bytes | None:
     if result is None:
         return None
     return result.data
+
+
+def repair_missing_ihdr_from_idat(data: bytes) -> IhdrRepair | None:
+    signature_offset = find_signature_offset(data)
+    if signature_offset != 0:
+        return None
+
+    try:
+        chunks = list(iter_chunks(data, signature_offset=0))
+    except PngFormatError:
+        return None
+
+    if not chunks or chunks[0].chunk_type == b"IHDR":
+        return None
+
+    idat_data = b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
+    if not idat_data:
+        return None
+
+    try:
+        decompressed = zlib.decompress(idat_data)
+    except zlib.error:
+        return None
+
+    preferred_color_type = 3 if any(chunk.chunk_type == b"PLTE" for chunk in chunks) else 2
+    preferred_bit_depth = 8
+    strict_candidates = _rebuilt_ihdr_candidates(
+        data,
+        insert_offset=len(PNG_SIGNATURE),
+        replace_ihdr=None,
+        decompressed_size=len(decompressed),
+        current_width=0,
+        current_height=0,
+        current_bit_depth=preferred_bit_depth,
+        current_color_type=preferred_color_type,
+    )
+    if not strict_candidates:
+        return None
+
+    return _ihdr_repair_from_candidate(
+        strict_candidates[0],
+        strategy="rebuilt missing IHDR from IDAT scanline size",
+        candidate_count=len(strict_candidates),
+    )

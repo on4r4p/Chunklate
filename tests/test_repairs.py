@@ -46,6 +46,10 @@ REPAIR_CASES = {
     "Missplaced_Ihdr.png": (1, ("Missplaced_Ihdr.0_Fixed.png",)),
     "No_Png_Header.png": (1, ("No_Png_Header.0_Fixed.png",)),
     "No_Png_Header_Corrupted_Length.png": (1, ("No_Png_Header_Corrupted_Length.0_Fixed.png",)),
+    "No_Png_Header_Missing_Chunk_Corrupted.png": (
+        2,
+        ("No_Png_Header_Missing_Chunk_Corrupted.1_Fixed.png",),
+    ),
     "PLTE_Empty_Bad_Crc.png": (1, ("PLTE_Empty_Bad_Crc.0_Fixed.png",)),
     "PLTE_Empty_Good_Crc.png": (1, ("PLTE_Empty_Good_Crc.0_Fixed.png",)),
     "Private_Critical_Chunk_Bad_Crc.png": (2, ("Private_Critical_Chunk_Bad_Crc.1_Fixed.png",)),
@@ -66,13 +70,7 @@ REPAIR_CASES = {
 PILLOW_LENIENT_REPAIR_CASES = {}
 
 
-LEGACY_CRC_ONLY_REPAIR_CASES = {
-    "No_Png_Header_Missing_Chunk_Corrupted.png": (
-        2,
-        ("No_Png_Header_Missing_Chunk_Corrupted.1_Fixed.png",),
-        "legacy repair is CRC-valid but still rejected by strict PNG structure validation"
-    ),
-}
+LEGACY_CRC_ONLY_REPAIR_CASES = {}
 
 
 PILLOW_ONLY_REPAIR_CASES = {}
@@ -229,6 +227,22 @@ def test_all_current_repair_fixtures_are_classified():
     assert classified_names - fixture_names == set()
 
 
+def test_missing_ihdr_repair_summary_includes_selected_candidate(tmp_path):
+    result, output_dir = run_chunklate_repair(
+        "No_Png_Header_Missing_Chunk_Corrupted.png",
+        tmp_path,
+        2,
+    )
+    summary = output_dir / "Summary_Of_No_Png_Header_Missing_Chunk_Corrupted"
+
+    assert result.returncode == 0
+    assert summary.exists()
+    summary_text = summary.read_text()
+    assert "Selected IHDR 32x32, bit depth 8, color type 3" in summary_text
+    assert "strict candidates:" in summary_text
+    assert "selection score:" in summary_text
+
+
 def run_repair_cases_verbose(tmp_path):
     failures = []
 
@@ -383,6 +397,8 @@ def main():
         run_pillow_only_repair_cases_verbose(Path(tmp))
         run_legacy_crc_only_repair_cases_verbose(Path(tmp))
     test_all_current_repair_fixtures_are_classified()
+    with tempfile.TemporaryDirectory(prefix="chunklate-repair-summary-") as tmp:
+        test_missing_ihdr_repair_summary_includes_selected_candidate(Path(tmp))
     print_uncovered_repair_cases()
     print(
         f"\nrepair regression tests passed "

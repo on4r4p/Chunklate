@@ -50,7 +50,8 @@ from chunklate.png import (
     iter_chunks,
     is_known_bad_srgb_iccp_chunk,
     legacy_chunk_window,
-    legacy_length_status,
+    legacy_length_decision,
+    repair_missing_ihdr_from_idat,
 )
 
 
@@ -7507,6 +7508,22 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
 
     #TODO
     if Chunkname == b"IHDR":
+        StrictIhdrRepair = repair_missing_ihdr_from_idat(bytes.fromhex(DATAX))
+        if StrictIhdrRepair is not None:
+            SideNotes.append(fixit_felix.repair_note(StrictIhdrRepair))
+            return CheckPoint(
+                True,
+                True,
+                "DummyChunk",
+                Chunkname,
+                ["Filling with a dummy chunk"],
+                StrictIhdrRepair.data.hex(),
+                13,
+                bad_pos,
+                bad_start,
+                bad_end,
+                FromError,
+            )
 
         chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(Chunkname,"Spec",Fields = ["Length","Format","Data","Color"])
         DummyLength = SpecLength(Chunkname)
@@ -8847,27 +8864,31 @@ def SpecLength(chunk_name, chunk_length=None):
 def CheckLength(Cdata, Clen, Ctype):
 
     Candy("Title", "Checking Data Length:", Candy("Color", "white", str(Clen)))
-    LengthStatus = legacy_length_status(DATA_BYTES, CLoffI)
+    LengthDecision = legacy_length_decision(
+        DATA_BYTES,
+        CLoffI,
+        previous_chunk=Chunks_History[-1],
+        idat_average_length=IDAT_Avg_Len,
+    )
 
     Candy(
         "Cowsay",
         " So ..The length part is saying that data is %s bytes long."
-        % Candy("Color", "yellow", LengthStatus.declared_length),
+        % Candy("Color", "yellow", LengthDecision.declared_length),
         "com",
     )
 
     #    ToBitstory(int(Clen, 16))
 
-    if LengthStatus.declared_length > 26736:
+    if LengthDecision.is_huge:
         Candy("Cowsay", " Really!? That much ?", "com")
 
-    if Chunks_History[-1] == b"IDAT":
-        if IDAT_Avg_Len != LengthStatus.declared_length:
-            Candy(
-                "Cowsay", "Weird why does the length is not the same as before ?", "com"
-            )
+    if LengthDecision.idat_length_differs:
+        Candy(
+            "Cowsay", "Weird why does the length is not the same as before ?", "com"
+        )
 
-    if not LengthStatus.has_next_chunk:
+    if LengthDecision.checkpoint_error:
         Candy(
             "Cowsay",
             " ..And this is what iv found there ... : "
@@ -8879,21 +8900,20 @@ def CheckLength(Cdata, Clen, Ctype):
             False,
             "CheckLength",
             Ctype,
-            ["-No NextChunk"],
+            [LengthDecision.checkpoint_info],
             Ctype,
             Clen,
             Chunks_History[-1],
         )
     else:
-        NextChunk = LengthStatus.next_chunk_type
         Candy(
             "Cowsay",
             " ..So depending on that the next chunk seems to be : "
-            + Candy("Color", "yellow", NextChunk),
+            + Candy("Color", "yellow", LengthDecision.next_chunk_type),
             "com",
         )
         return CheckPoint(
-            False, False, "CheckLength", Ctype, ["-Found NextChunk"], Clen
+            False, False, "CheckLength", Ctype, [LengthDecision.checkpoint_info], Clen
         )
 
 

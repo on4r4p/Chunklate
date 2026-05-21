@@ -99,6 +99,41 @@ class AppliedRepair:
     save_suffix: str
 
 
+def repair_metadata_note(repair: Any) -> str:
+    width = getattr(repair, "width", None)
+    height = getattr(repair, "height", None)
+    bit_depth = getattr(repair, "bit_depth", None)
+    color_type = getattr(repair, "color_type", None)
+
+    parts = []
+    if None not in (width, height, bit_depth, color_type):
+        parts.append(
+            "Selected IHDR %sx%s, bit depth %s, color type %s"
+            % (width, height, bit_depth, color_type)
+        )
+
+    strict_candidate_count = getattr(repair, "strict_candidate_count", 0)
+    if strict_candidate_count:
+        parts.append("strict candidates: %s" % strict_candidate_count)
+
+    selection_score = getattr(repair, "selection_score", None)
+    if selection_score is not None:
+        parts.append("selection score: %s" % (selection_score,))
+
+    if not parts:
+        return ""
+
+    return " ".join("-FixItFelix:%s." % part for part in parts)
+
+
+def repair_note(repair: Any) -> str:
+    note = "-FixItFelix:%s." % repair.strategy
+    metadata = repair_metadata_note(repair)
+    if metadata:
+        note += "\n" + metadata
+    return note
+
+
 def has_finding(findings: Iterable[object], *needles: str) -> bool:
     return any(all(needle in str(finding) for needle in needles) for finding in findings)
 
@@ -185,7 +220,7 @@ def no_next_chunk_decision(
 def applied_repair(repair: Any) -> AppliedRepair:
     return AppliedRepair(
         data_hex=repair.data.hex(),
-        note="-FixItFelix:%s." % repair.strategy,
+        note=repair_note(repair),
         save_suffix="-%s." % repair.strategy,
     )
 
