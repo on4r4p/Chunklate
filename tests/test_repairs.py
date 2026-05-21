@@ -41,6 +41,8 @@ REPAIR_CASES = {
     "IHDR_Missplaced.png": (1, ("IHDR_Missplaced.0_Fixed.png",)),
     "IEND_Missing.png": (1, ("IEND_Missing.0_Fixed.png",)),
     "IEND_Missing_And_Extra_Bytes.png": (1, ("IEND_Missing_And_Extra_Bytes.0_Fixed.png",)),
+    "IncorrectSrgbProfile.png": (1, ("IncorrectSrgbProfile.0_Fixed.png",)),
+    "Incorrect_Srgb_Profile.png": (1, ("Incorrect_Srgb_Profile.0_Fixed.png",)),
     "Missplaced_Ihdr.png": (1, ("Missplaced_Ihdr.0_Fixed.png",)),
     "No_Png_Header.png": (1, ("No_Png_Header.0_Fixed.png",)),
     "No_Png_Header_Corrupted_Length.png": (1, ("No_Png_Header_Corrupted_Length.0_Fixed.png",)),
@@ -74,10 +76,7 @@ PILLOW_ONLY_REPAIR_CASES = {}
 
 
 NO_NONINTERACTIVE_CLONE = "non-interactive audit exits rc=1 before writing any _Fixed.png"
-NEEDS_EXPLICIT_LIBPNG_PROFILE_WARNING = "needs explicit known incorrect sRGB profile signal before removing iCCP"
 UNCOVERED_REPAIR_CASES = {
-    "IncorrectSrgbProfile.png": NEEDS_EXPLICIT_LIBPNG_PROFILE_WARNING,
-    "Incorrect_Srgb_Profile.png": NEEDS_EXPLICIT_LIBPNG_PROFILE_WARNING,
     "Unhandled-Critical-Chunk.png": NO_NONINTERACTIVE_CLONE,
     "chunk_private_critical.png": NO_NONINTERACTIVE_CLONE,
 }

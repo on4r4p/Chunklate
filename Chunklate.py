@@ -47,6 +47,7 @@ from chunklate.png import (
     complete_iend_tail,
     chunk_type_crc_matches,
     iter_chunks,
+    is_known_bad_srgb_iccp_chunk,
     repair_color_profile_chunks,
     repair_empty_plte,
     repair_ihdr,
@@ -7341,6 +7342,9 @@ def LibpngCheck(file):
                 result = ""
         except (OSError, PngFormatError) as e:
             result = "libpng error: %s" % e
+    known_bad_srgb_warning = KnownBadSrgbProfileWarning(file)
+    if known_bad_srgb_warning and "known incorrect sRGB profile" not in result:
+        result = (result + "\n" if result else "") + known_bad_srgb_warning
     PRINT("Result:%s"%result)
     if not any(s in result for s in LIBPNG_ERR):
         PRINT(
@@ -7365,6 +7369,19 @@ def LibpngCheck(file):
         )
 
         return CheckPoint(True, False, "LibpngCheck", file, ["-" + result])
+
+
+def KnownBadSrgbProfileWarning(file):
+    try:
+        with open(file, "rb") as png_file:
+            chunks = list(iter_chunks(png_file.read()))
+    except (OSError, PngFormatError):
+        return ""
+
+    if any(is_known_bad_srgb_iccp_chunk(chunk) for chunk in chunks):
+        return "libpng warning: iCCP: known incorrect sRGB profile"
+
+    return ""
 
 
 def Double_Check(CType, ChunkLen, LastCType):
@@ -10718,6 +10735,10 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                 FixItFelix("LibpngCheck")
 
             elif "libpng warning:" in info:
+                if "known incorrect sRGB profile" in info:
+                    Bad_Libpng = error
+                    return FixItFelix("LibpngCheck")
+
                 PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% info)
 
                 if  any(s in info for s in LIBPNG_ERR):
@@ -11330,6 +11351,7 @@ LIBPNG_ERR = [
     " in IHDR",
     "bad result",
     "conversion not supported",
+    "known incorrect sRGB profile",
 ]  ## need to sort error and warning in a dict
 
 
