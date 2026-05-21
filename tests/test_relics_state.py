@@ -70,6 +70,24 @@ def test_relics_module_finds_chunk_names_in_legacy_text_and_tool_keys():
     assert from_tools == "IDAT"
 
 
+def test_relics_module_exposes_wrong_crc_tools_by_name():
+    tools = relics.build_tools(
+        b"IDAT",
+        ("newcrc", 12, 20, b"IDAT", "0x2a", "oldcrc", 433, 100),
+    )
+
+    crc_tools = relics.wrong_crc_tools(tools, "IDAT_Tool_")
+
+    assert crc_tools.replacement_crc == "newcrc"
+    assert crc_tools.start == 12
+    assert crc_tools.end == 20
+    assert crc_tools.chunk == b"IDAT"
+    assert crc_tools.offset == "0x2a"
+    assert crc_tools.old_crc == "oldcrc"
+    assert crc_tools.chunk_length == 433
+    assert crc_tools.data_offset == 100
+
+
 def test_pandorabox_add_keeps_legacy_error_numbering():
     reset_relic_state()
 
@@ -152,6 +170,7 @@ def main():
             "Relics module finds chunk names in legacy text and tool keys",
             test_relics_module_finds_chunk_names_in_legacy_text_and_tool_keys,
         ),
+        ("Relics module exposes wrong CRC tools by name", test_relics_module_exposes_wrong_crc_tools_by_name),
         ("PandoraBox keys keep legacy numbering", test_pandorabox_add_keeps_legacy_error_numbering),
         ("CheckPoint records current errors", test_checkpoint_records_current_errors_in_pandorabox),
         ("CheckPoint records fixed items", test_checkpoint_records_fixed_items_in_cornucopia),

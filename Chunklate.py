@@ -123,6 +123,10 @@ def Relic_Tool_Value(tools, tool_prefix, index):
     return relics.tool_value(tools, tool_prefix, index)
 
 
+def Relic_Wrong_Crc_Tools(tools, tool_prefix):
+    return relics.wrong_crc_tools(tools, tool_prefix)
+
+
 def Relic_Chunk_Name_From_Text(text):
     return relics.chunk_name_from_text(text, ALLCHUNKS)
 
@@ -141,6 +145,14 @@ def Cornucopia_Tool(key, tool_prefix, index):
 
 def Pandemonium_Tool(file, error, tool_prefix, index):
     return Relic_Tool_Value(Pandemonium[file][error], tool_prefix, index)
+
+
+def PandoraBox_Wrong_Crc_Tools(key, tool_prefix):
+    return Relic_Wrong_Crc_Tools(PandoraBox[key], tool_prefix)
+
+
+def Pandemonium_Wrong_Crc_Tools(file, error, tool_prefix):
+    return Relic_Wrong_Crc_Tools(Pandemonium[file][error], tool_prefix)
 
 
 def PandoraBox_Next_Error_Number(function):
@@ -9155,6 +9167,7 @@ def Relics_Try_Current_Wrong_Crc_Fix():
                 Chunkname = Relic_Chunk_Name_From_Text(key)
                 if Chunkname == "IDAT":
                     chkd = "IDAT_Tool_"
+                    CrcTools = PandoraBox_Wrong_Crc_Tools(key, chkd)
                     Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
                     Candy(
                         "Cowsay",
@@ -9165,16 +9178,16 @@ def Relics_Try_Current_Wrong_Crc_Fix():
                     Answer = Question(id=key,idhash=uniqh)
                     if Answer is True:
                         return True, SaveClone(
-                            PandoraBox_Tool(key, chkd, 0),
-                            PandoraBox_Tool(key, chkd, 1),
-                            PandoraBox_Tool(key, chkd, 2),
+                            CrcTools.replacement_crc,
+                            CrcTools.start,
+                            CrcTools.end,
                             (
                                 "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
                                 % (
-                                    PandoraBox_Tool(key, chkd, 3),
-                                    PandoraBox_Tool(key, chkd, 4),
-                                    PandoraBox_Tool(key, chkd, 0),
-                                    PandoraBox_Tool(key, chkd, 5),
+                                    CrcTools.chunk,
+                                    CrcTools.offset,
+                                    CrcTools.replacement_crc,
+                                    CrcTools.old_crc,
                                 )
                             ),
                         )
@@ -9228,22 +9241,19 @@ def Relics(FromError):
                                         "Cowsay",
                                         "How about taking a coffee break while im taking care of something?",
                                         "good",
-                                        )
+                                    )
 
                                     chunk_tool_prefix = Chunkname + "_Tool_"
-                                    Chunk = Pandemonium_Tool(file, errors, chunk_tool_prefix, 3)
-                                    Crc_to_match = Pandemonium_Tool(file, errors, chunk_tool_prefix, 5)
-                                    ChunkLength = Pandemonium_Tool(file, errors, chunk_tool_prefix, 6)
-                                    DataOffset = Pandemonium_Tool(file, errors, chunk_tool_prefix, 7)
+                                    CrcTools = Pandemonium_Wrong_Crc_Tools(file, errors, chunk_tool_prefix)
 
                                     SmashBruteBrawl(
                                         FILE_Origin,
-                                        Chunk,
-                                        ChunkLength,
-                                        DataOffset,
+                                        CrcTools.chunk,
+                                        CrcTools.chunk_length,
+                                        CrcTools.data_offset,
                                         FromError,
                                         BfMode = "TwoBytes",
-                                        OldCrc=Crc_to_match,
+                                        OldCrc=CrcTools.old_crc,
                                     )
     #                            else:
     #                                 print("error:",errors)
@@ -9436,31 +9446,28 @@ def Relics(FromError):
                         #PRINT("Chunkname:%s"% Chunkname)
                         # def Checksum(Ctype, Cdata, Crc,next=None):
                         chunk_tool_prefix = Chunkname + "_Tool_"
-                        Chunk = Pandemonium_Tool(file, errors, chunk_tool_prefix, 3)
-                        Crc_to_match = Pandemonium_Tool(file, errors, chunk_tool_prefix, 5)
-                        ChunkLength = Pandemonium_Tool(file, errors, chunk_tool_prefix, 6)
-                        DataOffset = Pandemonium_Tool(file, errors, chunk_tool_prefix, 7)
+                        CrcTools = Pandemonium_Wrong_Crc_Tools(file, errors, chunk_tool_prefix)
                         if nb1 == 0:
                             if Chunkname != "IDAT":
                                 SmashBruteBrawl(
                                     FILE_Origin,
-                                    Chunk,
-                                    ChunkLength,
-                                    DataOffset,
+                                    CrcTools.chunk,
+                                    CrcTools.chunk_length,
+                                    CrcTools.data_offset,
                                     FromError,
-                                    OldCrc=Crc_to_match,
+                                    OldCrc=CrcTools.old_crc,
                                     BruteLength=False
                                 )
 
                             else:
                                 SmashBruteBrawl(
                                     FILE_Origin,
-                                    Chunk,
-                                    ChunkLength,
-                                    DataOffset,
+                                    CrcTools.chunk,
+                                    CrcTools.chunk_length,
+                                    CrcTools.data_offset,
                                     FromError,
                                     BfMode = "TwoBytes",
-                                    OldCrc=Crc_to_match,
+                                    OldCrc=CrcTools.old_crc,
                                 )
 
 
@@ -9469,22 +9476,22 @@ def Relics(FromError):
                             if Chunkname != "IDAT":
                                 SmashBruteBrawl(
                                     os.path.dirname(Sample) + "/" + file,
-                                    Chunk,
-                                    ChunkLength,
-                                    DataOffset,
+                                    CrcTools.chunk,
+                                    CrcTools.chunk_length,
+                                    CrcTools.data_offset,
                                     FromError,
-                                    OldCrc=Crc_to_match,
+                                    OldCrc=CrcTools.old_crc,
                                     BruteLength=False
                                 )
                             else:
                                 SmashBruteBrawl(
                                     os.path.dirname(Sample) + "/" + file,
-                                    Chunk,
-                                    ChunkLength,
-                                    DataOffset,
+                                    CrcTools.chunk,
+                                    CrcTools.chunk_length,
+                                    CrcTools.data_offset,
                                     FromError,
                                     BfMode = "TwoBytes",
-                                    OldCrc=Crc_to_match,
+                                    OldCrc=CrcTools.old_crc,
                                 )
 
                             return ()
@@ -9773,6 +9780,7 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
 
     if str(key) not in Cornucopia:
         PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+        CrcTools = PandoraBox_Wrong_Crc_Tools(key, chkd)
 
         if PandoraBox_len <= 1:
             Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
@@ -9785,16 +9793,16 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
             Answer = Question(id=key,idhash=uniqh)
             if Answer is True:
                 return True, SaveClone(
-                    PandoraBox_Tool(key, chkd, 0),
-                    PandoraBox_Tool(key, chkd, 1),
-                    PandoraBox_Tool(key, chkd, 2),
+                    CrcTools.replacement_crc,
+                    CrcTools.start,
+                    CrcTools.end,
                     (
                         "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
                         % (
-                            PandoraBox_Tool(key, chkd, 3),
-                            PandoraBox_Tool(key, chkd, 4),
-                            PandoraBox_Tool(key, chkd, 0),
-                            PandoraBox_Tool(key, chkd, 5),
+                            CrcTools.chunk,
+                            CrcTools.offset,
+                            CrcTools.replacement_crc,
+                            CrcTools.old_crc,
                         )
                     ),
                 )
@@ -9817,23 +9825,23 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
         Answer = Question(id=key,idhash=uniqh)
         if Answer is False:
             return True, SaveClone(
-                PandoraBox_Tool(key, chkd, 0),
-                PandoraBox_Tool(key, chkd, 1),
-                PandoraBox_Tool(key, chkd, 2),
+                CrcTools.replacement_crc,
+                CrcTools.start,
+                CrcTools.end,
                 (
                     "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
                     % (
-                        PandoraBox_Tool(key, chkd, 3),
-                        PandoraBox_Tool(key, chkd, 4),
-                        PandoraBox_Tool(key, chkd, 0),
-                        PandoraBox_Tool(key, chkd, 5),
+                        CrcTools.chunk,
+                        CrcTools.offset,
+                        CrcTools.replacement_crc,
+                        CrcTools.old_crc,
                     )
                 ),
             )
         else:
             ChunkStory(
                 "add",
-                PandoraBox_Tool(key, chkd, 3),
+                CrcTools.chunk,
                 CLoffI,
                 CrcoffI + 8,
                 int(Orig_CL, 16),
@@ -9854,7 +9862,7 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
             #            int(Orig_CL, 16),
             #            CDoffI,
             #        )
-            Old_Bad_Crc = PandoraBox_Tool(key, chkd, 5)
+            Old_Bad_Crc = CrcTools.old_crc
             Skip_Bad_Crc = True
 
     else:

@@ -1,10 +1,23 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, MutableMapping
+from dataclasses import dataclass
 from typing import Any
 
 
 LEGACY_BAD_CHUNK_LABEL = "johnnybytesme"
+
+
+@dataclass(frozen=True)
+class WrongCrcTools:
+    replacement_crc: Any
+    start: Any
+    end: Any
+    chunk: Any
+    offset: Any
+    old_crc: Any
+    chunk_length: Any = None
+    data_offset: Any = None
 
 
 def chunk_label(chunk: Any) -> Any:
@@ -31,6 +44,28 @@ def tool_key(prefix: str, index: int | str) -> str:
 
 def tool_value(tools: Mapping[str, Any], prefix: str, index: int | str) -> Any:
     return tools[tool_key(prefix, index)]
+
+
+def optional_tool_value(
+    tools: Mapping[str, Any],
+    prefix: str,
+    index: int | str,
+    default: Any = None,
+) -> Any:
+    return tools.get(tool_key(prefix, index), default)
+
+
+def wrong_crc_tools(tools: Mapping[str, Any], prefix: str) -> WrongCrcTools:
+    return WrongCrcTools(
+        replacement_crc=tool_value(tools, prefix, 0),
+        start=tool_value(tools, prefix, 1),
+        end=tool_value(tools, prefix, 2),
+        chunk=tool_value(tools, prefix, 3),
+        offset=tool_value(tools, prefix, 4),
+        old_crc=tool_value(tools, prefix, 5),
+        chunk_length=optional_tool_value(tools, prefix, 6),
+        data_offset=optional_tool_value(tools, prefix, 7),
+    )
 
 
 def chunk_name_from_text(text: Any, known_chunks: list[bytes] | tuple[bytes, ...]) -> str:
