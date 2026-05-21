@@ -27,6 +27,9 @@ def patched_attrs(module, **attrs):
 def reset_checkpoint_globals():
     Chunklate.SideNotes = []
     Chunklate.PandoraBox = {}
+    Chunklate.Brute_LvL = 0
+    Chunklate.ETA = 1
+    Chunklate.IHDR_Interlace = "0"
     Chunklate.Bad_Libpng = False
     Chunklate.Bad_Current_Name = False
     Chunklate.Bad_Next_Name = False
@@ -217,6 +220,193 @@ def test_apply_action_routes_simple_smash_brute_brawl_save_clone():
     ]
 
 
+def test_apply_smash_brute_brawl_retry_ihdr_relaunches_with_higher_level():
+    reset_checkpoint_globals()
+    calls = []
+    toolkit = ("sample.png", b"IHDR", 13, 8, "edit", "Bytes", "crc", "length", "from-error")
+    decision = checkpoint.CheckPointActionDecision("smash_brute_brawl_retry_ihdr_harder")
+
+    def fake_smash_brute_brawl(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    with patched_attrs(
+        Chunklate,
+        Candy=lambda *args, **kwargs: "",
+        SmashBruteBrawl=fake_smash_brute_brawl,
+    ):
+        should_return, result = Chunklate.CheckPoint_Apply_Action_Decision(
+            decision,
+            "IHDR",
+            "-Bruteforcer has Failed",
+            toolkit,
+        )
+
+    assert should_return is False
+    assert result is None
+    assert Chunklate.Brute_LvL == 1
+    assert Chunklate.SideNotes == ["-CheckPoint: -Bruteforcer has Failed"]
+    assert calls == [
+        (
+            ("sample.png", b"IHDR", 13, 8, "from-error"),
+            {
+                "EditMode": "edit",
+                "BfMode": "Bytes",
+                "BruteCrc": "crc",
+                "BruteLength": "length",
+            },
+        )
+    ]
+
+
+def test_apply_smash_brute_brawl_twobytes_retry_preserves_old_crc_route():
+    reset_checkpoint_globals()
+    calls = []
+    questions = []
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "edit",
+        "TwoBytes",
+        "crc",
+        "length",
+        "old-crc",
+        "from-error",
+    )
+    decision = checkpoint.CheckPointActionDecision("smash_brute_brawl_ask_twobytes_retry")
+
+    def fake_question(*args, **kwargs):
+        questions.append((args, kwargs))
+        return True
+
+    def fake_smash_brute_brawl(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    with patched_attrs(
+        Chunklate,
+        Candy=lambda *args, **kwargs: "",
+        PRINT=lambda *args, **kwargs: None,
+        Question=fake_question,
+        SmashBruteBrawl=fake_smash_brute_brawl,
+    ):
+        should_return, result = Chunklate.CheckPoint_Apply_Action_Decision(
+            decision,
+            "IDAT",
+            "-Bruteforcer has Failed OldCrc",
+            toolkit,
+        )
+
+    assert should_return is False
+    assert result is None
+    assert Chunklate.Brute_LvL == 1
+    assert questions == [((), {"skipauto": True})]
+    assert Chunklate.SideNotes == [
+        "-CheckPoint: Increasing BfLvl: -Bruteforcer has Failed OldCrc"
+    ]
+    assert calls == [
+        (
+            ("sample.png", b"IDAT", 4, 100, "from-error"),
+            {
+                "EditMode": "edit",
+                "BfMode": "TwoBytes",
+                "BruteCrc": "crc",
+                "BruteLength": "length",
+                "OldCrc": "old-crc",
+            },
+        )
+    ]
+
+
+def test_apply_smash_brute_brawl_twobytes_decline_can_dummy_interlaced_idat():
+    reset_checkpoint_globals()
+    dummy_calls = []
+    answers = iter([False, True])
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "edit",
+        "TwoBytes",
+        "crc",
+        "length",
+        "from-error",
+    )
+    decision = checkpoint.CheckPointActionDecision("smash_brute_brawl_ask_twobytes_retry")
+
+    def fake_question(*args, **kwargs):
+        return next(answers)
+
+    def fake_dummy_chunk(*args):
+        dummy_calls.append(args)
+
+    with patched_attrs(
+        Chunklate,
+        Candy=lambda *args, **kwargs: "",
+        PRINT=lambda *args, **kwargs: None,
+        Question=fake_question,
+        DummyChunk=fake_dummy_chunk,
+        IHDR_Interlace="1",
+    ):
+        should_return, result = Chunklate.CheckPoint_Apply_Action_Decision(
+            decision,
+            "IDAT",
+            "-Bruteforcer has Failed",
+            toolkit,
+        )
+
+    assert should_return is False
+    assert result is None
+    assert Chunklate.Brute_LvL == 1
+    assert Chunklate.SideNotes == [
+        "-CheckPoint:User choose to replace IDAT: -Bruteforcer has Failed"
+    ]
+    assert dummy_calls == [(b"IDAT", 100, 100, 4, "from-error")]
+
+
+def test_apply_smash_brute_brawl_custom_can_switch_to_brutus():
+    reset_checkpoint_globals()
+    Chunklate.Brute_LvL = 5
+    calls = []
+    toolkit = ("sample.png", b"IDAT", 4, 100, "edit", "Custom", "crc", "length", "from-error")
+    decision = checkpoint.CheckPointActionDecision("smash_brute_brawl_ask_custom_brutus")
+
+    def fake_smash_brute_brawl(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    with patched_attrs(
+        Chunklate,
+        Candy=lambda *args, **kwargs: "",
+        Question=lambda *args, **kwargs: True,
+        SmashBruteBrawl=fake_smash_brute_brawl,
+    ):
+        should_return, result = Chunklate.CheckPoint_Apply_Action_Decision(
+            decision,
+            "IDAT",
+            "-Bruteforcer has Failed",
+            toolkit,
+        )
+
+    assert should_return is False
+    assert result is None
+    assert Chunklate.Brute_LvL == 0
+    assert Chunklate.SideNotes == [
+        "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!(CUSTOM END)"
+    ]
+    assert calls == [
+        (
+            ("sample.png", b"IDAT", 4, 100, "from-error"),
+            {
+                "EditMode": "edit",
+                "BfMode": "Brutus",
+                "BruteCrc": "crc",
+                "BruteLength": "length",
+            },
+        )
+    ]
+
+
 def main():
     checks = [
         ("Apply known sRGB warning with FixItFelix", test_apply_action_routes_known_srgb_warning_to_fixitfelix),
@@ -225,6 +415,10 @@ def main():
         ("Apply chunk-name flags", test_apply_action_sets_chunk_name_flags),
         ("Apply simple SmashBruteBrawl WriteClone", test_apply_action_routes_simple_smash_brute_brawl_write_clone),
         ("Apply simple SmashBruteBrawl SaveClone", test_apply_action_routes_simple_smash_brute_brawl_save_clone),
+        ("Apply SmashBruteBrawl IHDR retry", test_apply_smash_brute_brawl_retry_ihdr_relaunches_with_higher_level),
+        ("Apply SmashBruteBrawl TwoBytes retry", test_apply_smash_brute_brawl_twobytes_retry_preserves_old_crc_route),
+        ("Apply SmashBruteBrawl interlaced IDAT dummy fallback", test_apply_smash_brute_brawl_twobytes_decline_can_dummy_interlaced_idat),
+        ("Apply SmashBruteBrawl Custom Brutus fallback", test_apply_smash_brute_brawl_custom_can_switch_to_brutus),
     ]
 
     print("Running CheckPoint action application tests")

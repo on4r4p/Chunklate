@@ -280,6 +280,67 @@ def test_checkpoint_action_decision_handles_simple_smash_brute_brawl_paths():
     assert old_crc.side_note == "-CheckPoint: Previous Crc checksum has been restored"
 
 
+def test_smash_brute_brawl_failure_decision_routes_retry_paths():
+    ihdr_retry = checkpoint.smash_brute_brawl_failure_decision(
+        info="-Bruteforcer has Failed",
+        chunk="IHDR",
+        brute_level=2,
+        bf_mode="Bytes",
+    )
+    twobytes_retry = checkpoint.smash_brute_brawl_failure_decision(
+        info="-Bruteforcer has Failed",
+        chunk="IDAT",
+        brute_level=0,
+        bf_mode="TwoBytes",
+    )
+    noncustom_end = checkpoint.smash_brute_brawl_failure_decision(
+        info="-Bruteforcer has Failed",
+        chunk="IDAT",
+        brute_level=1,
+        bf_mode="Bytes",
+    )
+    custom_brutus = checkpoint.smash_brute_brawl_failure_decision(
+        info="-Bruteforcer has Failed",
+        chunk="IDAT",
+        brute_level=1,
+        bf_mode="Custom",
+    )
+    unhandled = checkpoint.smash_brute_brawl_failure_decision(
+        info="-Something else happened",
+        chunk="IDAT",
+        brute_level=0,
+        bf_mode=None,
+    )
+
+    assert ihdr_retry.action == "smash_brute_brawl_retry_ihdr_harder"
+    assert twobytes_retry.action == "smash_brute_brawl_ask_twobytes_retry"
+    assert noncustom_end.action == "smash_brute_brawl_end_failed_noncustom"
+    assert custom_brutus.action == "smash_brute_brawl_ask_custom_brutus"
+    assert unhandled.action == "smash_brute_brawl_end_unhandled"
+
+
+def test_checkpoint_action_decision_handles_smash_brute_brawl_failures():
+    ihdr_retry = checkpoint.action_decision(
+        error=True,
+        function="SmashBruteBrawl",
+        chunk="IHDR",
+        info="-Bruteforcer has Failed",
+        toolkit=("sample.png", b"IHDR", 13, 8, "edit", "Bytes", "crc", "length", "from-error"),
+        brute_level=2,
+    )
+    custom_brutus = checkpoint.action_decision(
+        error=True,
+        function="SmashBruteBrawl",
+        chunk="IDAT",
+        info="-Bruteforcer has Failed",
+        toolkit=("sample.png", b"IDAT", 4, 100, "edit", "Custom", "crc", "length", "from-error"),
+        brute_level=1,
+    )
+
+    assert ihdr_retry.action == "smash_brute_brawl_retry_ihdr_harder"
+    assert custom_brutus.action == "smash_brute_brawl_ask_custom_brutus"
+
+
 def main():
     checks = [
         ("Checkpoint registration ignores non errors", test_checkpoint_registration_ignores_non_errors),
@@ -296,6 +357,8 @@ def main():
         ("Checkpoint action handles chunk name flags", test_checkpoint_action_decision_handles_chunk_name_flags),
         ("Checkpoint action handles chunk name missing bytes", test_checkpoint_action_decision_handles_chunk_name_missing_bytes),
         ("Checkpoint action handles simple SmashBruteBrawl paths", test_checkpoint_action_decision_handles_simple_smash_brute_brawl_paths),
+        ("SmashBruteBrawl failure decision routes retry paths", test_smash_brute_brawl_failure_decision_routes_retry_paths),
+        ("Checkpoint action handles SmashBruteBrawl failures", test_checkpoint_action_decision_handles_smash_brute_brawl_failures),
     ]
 
     print("Running CheckPoint tests")

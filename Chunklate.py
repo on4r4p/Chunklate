@@ -314,6 +314,167 @@ def CheckPoint_Action_Libpng_End_Success(decision, chunk, info, toolkit):
     return False, None
 
 
+def CheckPoint_SmashBruteBrawl_Relaunch(
+    toolkit,
+    from_error,
+    *,
+    bf_mode=None,
+    has_old_crc=False,
+    old_crc=None,
+):
+    kwargs = {
+        "EditMode": toolkit[4],
+        "BfMode": bf_mode if bf_mode is not None else toolkit[5],
+        "BruteCrc": toolkit[6],
+        "BruteLength": toolkit[7],
+    }
+    if has_old_crc:
+        kwargs["OldCrc"] = old_crc
+    return SmashBruteBrawl(
+        toolkit[0],
+        toolkit[1],
+        toolkit[2],
+        toolkit[3],
+        from_error,
+        **kwargs,
+    )
+
+
+def CheckPoint_Action_SmashBruteBrawl_Retry_IHDR(decision, chunk, info, toolkit):
+    global Brute_LvL
+
+    Brute_LvL += 1
+    Candy(
+        "Cowsay",
+        "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/3)"
+        % Brute_LvL,
+        "bad",
+    )
+    SideNotes.append("-CheckPoint: %s" % info)
+    CheckPoint_SmashBruteBrawl_Relaunch(toolkit, toolkit[8])
+    return False, None
+
+
+def CheckPoint_Action_SmashBruteBrawl_Ask_TwoBytes_Retry(decision, chunk, info, toolkit):
+    global Brute_LvL
+
+    Brute_LvL += 1
+    Candy("Cowsay", "Too bad that was the easy way ..", "bad")
+    Candy(
+        "Cowsay",
+        "I may increase the BruteForce Level in case there is another corrupted bytes that iv missed.",
+        "com",
+    )
+    Candy("Cowsay", "But this will take litterally forever...i mean like this :", "bad")
+    estimation = ETA * toolkit[2]
+    if toolkit[1] == b"IDAT":
+        estimation *= 3
+    PRINT("-BruteForce Estimated Time : %s\n" % str(timedelta(seconds=estimation)))
+    Candy("Cowsay", "And of course this may fail .. Do you still want to try ?", "com")
+    if toolkit[1] == b"IDAT" and IHDR_Interlace == "1":
+        Candy(
+            "Cowsay",
+            "Since this is an IDAT chunk i may have another solution just answer: 'No' then.",
+            "good",
+        )
+
+    Answer = Question(skipauto=True)
+    if Answer:
+        Candy(
+            "Cowsay",
+            "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/1)"
+            % Brute_LvL,
+            "bad",
+        )
+        SideNotes.append("-CheckPoint: Increasing BfLvl: %s" % info)
+        if "OldCrc" in info:
+            CheckPoint_SmashBruteBrawl_Relaunch(
+                toolkit,
+                toolkit[9],
+                has_old_crc=True,
+                old_crc=toolkit[8],
+            )
+        else:
+            CheckPoint_SmashBruteBrawl_Relaunch(toolkit, toolkit[8])
+        return False, None
+
+    return CheckPoint_SmashBruteBrawl_Handle_TwoBytes_Decline(info, toolkit)
+
+
+def CheckPoint_SmashBruteBrawl_Handle_TwoBytes_Decline(info, toolkit):
+    if toolkit[1] == b"IDAT" and IHDR_Interlace == "1":
+        Candy(
+            "Cowsay",
+            "So let's face it ..I wont be able to recover that IDAT before one of us die.",
+            "bad",
+        )
+        Candy("Cowsay", "But i could create another one full of black pixels..", "com")
+        Candy("Cowsay", "This way i hope we could end up with a valid png.", "good")
+        Candy(
+            "Cowsay",
+            "At the cost of one beautiful white rectangle in the middle of that image..",
+            "bad",
+        )
+        Candy(
+            "Cowsay",
+            "What do you say ? Otherwise Chunklate is going to exit .",
+            "com",
+        )
+        Answer = Question()
+        if Answer is True:
+            SideNotes.append("-CheckPoint:User choose to replace IDAT: %s" % info)
+            if "OldCrc" in info:
+                DummyChunk(toolkit[1], toolkit[3], toolkit[3], toolkit[2], toolkit[9])
+            else:
+                DummyChunk(toolkit[1], toolkit[3], toolkit[3], toolkit[2], toolkit[8])
+            return False, None
+
+        SideNotes.append("-CheckPoint: %s User has chose to quit." % info)
+        TheEnd()
+        return False, None
+
+    return CheckPoint_Action_SmashBruteBrawl_End_Failed_NonCustom(
+        None,
+        None,
+        info,
+        toolkit,
+    )
+
+
+def CheckPoint_Action_SmashBruteBrawl_End_Failed_NonCustom(decision, chunk, info, toolkit):
+    Candy(
+        "Cowsay",
+        "Iv tried everything , im out of option sorry ..",
+        "bad",
+    )
+    SideNotes.append("-CheckPoint: %s" % info)
+    TheEnd()
+    return False, None
+
+
+def CheckPoint_Action_SmashBruteBrawl_Ask_Custom_Brutus(decision, chunk, info, toolkit):
+    global Brute_LvL
+
+    Candy("Cowsay", "Too bad that was the easy way ..", "bad")
+    SideNotes.append(
+        "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!(CUSTOM END)"
+    )
+    Candy("Cowsay", "Wanna try to bruteforce the entire chunk instead ?", "com")
+    Answer = Question()
+    if Answer is True:
+        Brute_LvL = 0
+        CheckPoint_SmashBruteBrawl_Relaunch(toolkit, toolkit[8], bf_mode="Brutus")
+    else:
+        TheEnd()
+    return False, None
+
+
+def CheckPoint_Action_SmashBruteBrawl_End_Unhandled(decision, chunk, info, toolkit):
+    SideNotes.append("-CheckPoint: %s" % info)
+    TheEnd()
+    return False, None
+
+
 CHECKPOINT_ACTION_HANDLERS = {
     "write_clone": CheckPoint_Action_Write_Clone,
     "dummy_chunk_from_the_good_place": CheckPoint_Action_Dummy_Chunk_From_The_Good_Place,
@@ -329,6 +490,11 @@ CHECKPOINT_ACTION_HANDLERS = {
     "discard_libpng_warning": CheckPoint_Action_Discard_Libpng_Warning,
     "discard_libpng_warning_and_end": CheckPoint_Action_Discard_Libpng_Warning,
     "libpng_end_success": CheckPoint_Action_Libpng_End_Success,
+    "smash_brute_brawl_retry_ihdr_harder": CheckPoint_Action_SmashBruteBrawl_Retry_IHDR,
+    "smash_brute_brawl_ask_twobytes_retry": CheckPoint_Action_SmashBruteBrawl_Ask_TwoBytes_Retry,
+    "smash_brute_brawl_end_failed_noncustom": CheckPoint_Action_SmashBruteBrawl_End_Failed_NonCustom,
+    "smash_brute_brawl_ask_custom_brutus": CheckPoint_Action_SmashBruteBrawl_Ask_Custom_Brutus,
+    "smash_brute_brawl_end_unhandled": CheckPoint_Action_SmashBruteBrawl_End_Unhandled,
 }
 
 
@@ -10753,6 +10919,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
             chunk=chunk,
             info=info,
             toolkit=ToolKit,
+            brute_level=Brute_LvL,
             libpng_errors=LIBPNG_ERR,
             libpng_finished_at_iend=(
                 bool(Chunks_History) and Chunks_History[-1] == b"IEND" and EOF is True
@@ -10766,155 +10933,6 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
         )
         if should_return:
             return result
-
-        if function == "SmashBruteBrawl":
-            if "-Bruteforcer has Failed" in info:
-                if Brute_LvL < 3 and chunk == "IHDR":  # tmp workaround
-                    Brute_LvL += 1
-                    Candy(
-                        "Cowsay",
-                        "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/3)"
-                        % Brute_LvL,
-                        "bad",
-                    )
-
-                    SideNotes.append("-CheckPoint: %s" % info)
-                    SmashBruteBrawl(
-                        ToolKit[0],
-                        ToolKit[1],
-                        ToolKit[2],
-                        ToolKit[3],
-                        ToolKit[8],
-                        EditMode = ToolKit[4],
-                        BfMode = ToolKit[5],
-                        BruteCrc = ToolKit[6],
-                        BruteLength= ToolKit[7]
-                    )
-
-                elif Brute_LvL < 1 and ToolKit[5] == "TwoBytes":
-                    Brute_LvL += 1
-                    Candy("Cowsay", "Too bad that was the easy way ..", "bad")
-                    Candy("Cowsay", "I may increase the BruteForce Level in case there is another corrupted bytes that iv missed.", "com")
-                    Candy("Cowsay", "But this will take litterally forever...i mean like this :", "bad")
-#                    ETA = 3600
-                    estimation = ETA * ToolKit[2]
-                    if ToolKit[1] ==  b'IDAT':
-                          estimation *= 3
-                    estimation = timedelta(seconds=estimation)
-                    PRINT("-BruteForce Estimated Time : %s\n"%str(estimation))
-                    Candy("Cowsay", "And of course this may fail .. Do you still want to try ?", "com")
-                    if ToolKit[1] ==  b'IDAT' and IHDR_Interlace == "1":
-                       Candy("Cowsay", "Since this is an IDAT chunk i may have another solution just answer: 'No' then.", "good")
-                    Answer = Question(skipauto=True)
-                    if Answer:
-                        Candy(
-                            "Cowsay",
-                            "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/1)"
-                            % Brute_LvL,
-                            "bad",
-                        ) 
-                        SideNotes.append("-CheckPoint: Increasing BfLvl: %s" % info)
-                        if "OldCrc" in info:
-                            SmashBruteBrawl(
-                                ToolKit[0],
-                                ToolKit[1],
-                                ToolKit[2],
-                                ToolKit[3],
-                                ToolKit[9],
-                                EditMode = ToolKit[4],
-                                BfMode = ToolKit[5],
-                                BruteCrc = ToolKit[6],
-                                BruteLength= ToolKit[7],
-                                OldCrc = ToolKit[8],
-                            )
-
-
-                        else:
-                            SmashBruteBrawl(
-                                ToolKit[0],
-                                ToolKit[1],
-                                ToolKit[2],
-                                ToolKit[3],
-                                ToolKit[8],
-                                EditMode = ToolKit[4],
-                                BfMode = ToolKit[5],
-                                BruteCrc = ToolKit[6],
-                                BruteLength= ToolKit[7]
-                            )
-                    else:
-                        #TODOReplace IDAT?
-                        ##TODO Make a function to inspect IDAT?
-                        ###compile zlib with ALLOW_INVALID_DISTANCE_TOOFAR_ARRR ??
-
-
-                        if ToolKit[1] ==  b'IDAT' and IHDR_Interlace == "1":
-                            Candy("Cowsay", "So let's face it ..I wont be able to recover that IDAT before one of us die.", "bad")
-                            Candy("Cowsay", "But i could create another one full of black pixels..", "com")
-                            Candy("Cowsay", "This way i hope we could end up with a valid png.", "good")
-                            Candy("Cowsay", "At the cost of one beautiful white rectangle in the middle of that image..", "bad")
-                            Candy("Cowsay", "What do you say ? Otherwise Chunklate is going to exit .", "com")
-                            Answer = Question()
-                            ###Good luck with that .
-                            if Answer is True:
-                                    SideNotes.append("-CheckPoint:User choose to replace IDAT: %s" % info)
-                                    if "OldCrc" in info:
-                                        DummyChunk(ToolKit[1], ToolKit[3], ToolKit[3], ToolKit[2], ToolKit[9])
-                                    else:
-                                        DummyChunk(ToolKit[1], ToolKit[3], ToolKit[3], ToolKit[2], ToolKit[8])
-
-                            else:
-                                SideNotes.append("-CheckPoint: %s User has chose to quit." % info)
-                                TheEnd()
-
-                        else:
-                            Candy(
-                                "Cowsay",
-                                "Iv tried everything , im out of option sorry ..",
-                                "bad",
-                            )
-
-
-                            SideNotes.append("-CheckPoint: %s User has chose to quit." % info)
-                            TheEnd()
-
-
-
-                else:
-                    if ToolKit[5] != "Custom":
-                        Candy(
-                            "Cowsay",
-                            "Iv tried everything , im out of option sorry ..",
-                            "bad",
-                        )
-                        SideNotes.append("-CheckPoint: %s" % info)
-                        TheEnd()
-                    else:
-                       Candy("Cowsay", "Too bad that was the easy way ..", "bad")
-                       SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!(CUSTOM END)")
-                       Candy("Cowsay", "Wanna try to bruteforce the entire chunk instead ?", "com")
-                       Answer = Question()
-                       if Answer is True:
-                            Brute_LvL = 0
-                            SmashBruteBrawl(
-                                ToolKit[0],
-                                ToolKit[1],
-                                ToolKit[2],
-                                ToolKit[3],
-                                ToolKit[8],
-                                EditMode = ToolKit[4],
-                                BfMode = "Brutus",
-                                BruteCrc = ToolKit[6],
-                                BruteLength = ToolKit[7]
-                                )
-
-                       else:
-                          TheEnd()
-
-
-            else:
-
-                SideNotes.append("-CheckPoint: %s" % info)
-                TheEnd()
 
     return ()
 

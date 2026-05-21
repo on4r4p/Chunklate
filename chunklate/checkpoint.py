@@ -73,6 +73,7 @@ def action_decision(
     chunk: Any,
     info: Any,
     toolkit: tuple[Any, ...],
+    brute_level: int = 0,
     libpng_errors: Iterable[str] = (),
     libpng_finished_at_iend: bool = False,
 ) -> CheckPointActionDecision:
@@ -186,7 +187,15 @@ def action_decision(
         )
 
     if function == "SmashBruteBrawl":
-        return smash_brute_brawl_decision(info=info)
+        bf_mode = None
+        if "-Bruteforcer has Failed" in info and len(toolkit) > 5:
+            bf_mode = toolkit[5]
+        return smash_brute_brawl_decision(
+            info=info,
+            chunk=chunk,
+            brute_level=brute_level,
+            bf_mode=bf_mode,
+        )
 
     return CheckPointActionDecision()
 
@@ -255,7 +264,13 @@ def check_chunk_name_decision(
     return CheckPointActionDecision()
 
 
-def smash_brute_brawl_decision(*, info: Any) -> CheckPointActionDecision:
+def smash_brute_brawl_decision(
+    *,
+    info: Any,
+    chunk: Any = None,
+    brute_level: int = 0,
+    bf_mode: Any = None,
+) -> CheckPointActionDecision:
     if "Corrupted Data has been replaced" in info:
         return CheckPointActionDecision(
             action="write_clone",
@@ -268,4 +283,31 @@ def smash_brute_brawl_decision(*, info: Any) -> CheckPointActionDecision:
             side_note="-CheckPoint: %s" % info,
         )
 
-    return CheckPointActionDecision()
+    return smash_brute_brawl_failure_decision(
+        info=info,
+        chunk=chunk,
+        brute_level=brute_level,
+        bf_mode=bf_mode,
+    )
+
+
+def smash_brute_brawl_failure_decision(
+    *,
+    info: Any,
+    chunk: Any,
+    brute_level: int,
+    bf_mode: Any,
+) -> CheckPointActionDecision:
+    if "-Bruteforcer has Failed" not in info:
+        return CheckPointActionDecision("smash_brute_brawl_end_unhandled")
+
+    if brute_level < 3 and chunk == "IHDR":
+        return CheckPointActionDecision("smash_brute_brawl_retry_ihdr_harder")
+
+    if brute_level < 1 and bf_mode == "TwoBytes":
+        return CheckPointActionDecision("smash_brute_brawl_ask_twobytes_retry")
+
+    if bf_mode != "Custom":
+        return CheckPointActionDecision("smash_brute_brawl_end_failed_noncustom")
+
+    return CheckPointActionDecision("smash_brute_brawl_ask_custom_brutus")
