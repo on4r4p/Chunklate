@@ -242,6 +242,96 @@ def CheckPoint_Libpng_End_Success(message):
     TheEnd()
 
 
+def CheckPoint_Action_Write_Clone(decision, chunk, info, toolkit):
+    return True, WriteClone(toolkit[0], "-About to save.")
+
+
+def CheckPoint_Action_Dummy_Chunk_From_The_Good_Place(decision, chunk, info, toolkit):
+    return True, DummyChunk(toolkit[0], toolkit[1], toolkit[2], toolkit[3], info)
+
+
+def CheckPoint_Action_Return_Value(decision, chunk, info, toolkit):
+    return True, decision.return_value
+
+
+def CheckPoint_Action_Summarise_And_Write_Clone(decision, chunk, info, toolkit):
+    Summarise(decision.summary)
+    return True, WriteClone(toolkit[0], "-About to save.")
+
+
+def CheckPoint_Action_Find_Fucking_Magic(decision, chunk, info, toolkit):
+    return True, FindFuckingMagic()
+
+
+def CheckPoint_Action_Check_Chunk_Name(decision, chunk, info, toolkit):
+    return True, CheckChunkName(Raw_NextChunk, int(toolkit[0], 16), chunk, True)
+
+
+def CheckPoint_Action_Save_Clone(decision, chunk, info, toolkit):
+    return True, SaveClone(toolkit[0], toolkit[1], toolkit[2], toolkit[3])
+
+
+def CheckPoint_Action_Save_Clone_Missing_Bytes(decision, chunk, info, toolkit):
+    return True, SaveClone(
+        toolkit[0],
+        toolkit[2],
+        toolkit[1] + toolkit[2],
+        "Fixing Missing bytes corruption",
+    )
+
+
+def CheckPoint_Action_Fix_It_Felix_Continue(decision, chunk, info, toolkit):
+    FixItFelix(decision.return_value)
+    return False, None
+
+
+def CheckPoint_Action_Fix_It_Felix_Return(decision, chunk, info, toolkit):
+    return True, FixItFelix(decision.return_value)
+
+
+def CheckPoint_Action_Libpng_Warning_Relics(decision, chunk, info, toolkit):
+    CheckPoint_Print_Libpng_Critical(info)
+    Candy("Cowsay", "Ah found something !", "good")
+    return True, Relics(info)
+
+
+def CheckPoint_Action_Discard_Libpng_Warning(decision, chunk, info, toolkit):
+    CheckPoint_Print_Libpng_Critical(info)
+    Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good")
+    Candy("Cowsay", "im removing it ..", "good")
+    CheckPoint_Discard_Libpng_Warning()
+    if decision.action == "discard_libpng_warning_and_end":
+        CheckPoint_Libpng_End_Success(
+            "Well maybe i am missing something but as for my abilities my job is done here!"
+        )
+    return False, None
+
+
+def CheckPoint_Action_Libpng_End_Success(decision, chunk, info, toolkit):
+    CheckPoint_Libpng_End_Success(
+        "Well maybe i am missing something but as far as my current abilities goes the job is done for me here!"
+    )
+    return False, None
+
+
+CHECKPOINT_ACTION_HANDLERS = {
+    "write_clone": CheckPoint_Action_Write_Clone,
+    "dummy_chunk_from_the_good_place": CheckPoint_Action_Dummy_Chunk_From_The_Good_Place,
+    "return_value": CheckPoint_Action_Return_Value,
+    "summarise_and_write_clone": CheckPoint_Action_Summarise_And_Write_Clone,
+    "find_fucking_magic": CheckPoint_Action_Find_Fucking_Magic,
+    "check_chunk_name": CheckPoint_Action_Check_Chunk_Name,
+    "save_clone": CheckPoint_Action_Save_Clone,
+    "save_clone_missing_bytes": CheckPoint_Action_Save_Clone_Missing_Bytes,
+    "fix_it_felix_continue": CheckPoint_Action_Fix_It_Felix_Continue,
+    "fix_it_felix_return": CheckPoint_Action_Fix_It_Felix_Return,
+    "libpng_warning_relics": CheckPoint_Action_Libpng_Warning_Relics,
+    "discard_libpng_warning": CheckPoint_Action_Discard_Libpng_Warning,
+    "discard_libpng_warning_and_end": CheckPoint_Action_Discard_Libpng_Warning,
+    "libpng_end_success": CheckPoint_Action_Libpng_End_Success,
+}
+
+
 def CheckPoint_Apply_Action_Decision(decision, chunk, info, toolkit):
     if decision.side_note is not None:
         SideNotes.append(decision.side_note)
@@ -251,64 +341,9 @@ def CheckPoint_Apply_Action_Decision(decision, chunk, info, toolkit):
     if decision.action is None:
         return False, None
 
-    if decision.action == "write_clone":
-        return True, WriteClone(toolkit[0], "-About to save.")
-
-    if decision.action == "dummy_chunk_from_the_good_place":
-        return True, DummyChunk(toolkit[0], toolkit[1], toolkit[2], toolkit[3], info)
-
-    if decision.action == "return_value":
-        return True, decision.return_value
-
-    if decision.action == "summarise_and_write_clone":
-        Summarise(decision.summary)
-        return True, WriteClone(toolkit[0], "-About to save.")
-
-    if decision.action == "find_fucking_magic":
-        return True, FindFuckingMagic()
-
-    if decision.action == "check_chunk_name":
-        return True, CheckChunkName(Raw_NextChunk, int(toolkit[0], 16), chunk, True)
-
-    if decision.action == "save_clone":
-        return True, SaveClone(toolkit[0], toolkit[1], toolkit[2], toolkit[3])
-
-    if decision.action == "save_clone_missing_bytes":
-        return True, SaveClone(
-            toolkit[0],
-            toolkit[2],
-            toolkit[1] + toolkit[2],
-            "Fixing Missing bytes corruption",
-        )
-
-    if decision.action == "fix_it_felix_continue":
-        FixItFelix(decision.return_value)
-        return False, None
-
-    if decision.action == "fix_it_felix_return":
-        return True, FixItFelix(decision.return_value)
-
-    if decision.action == "libpng_warning_relics":
-        CheckPoint_Print_Libpng_Critical(info)
-        Candy("Cowsay", "Ah found something !", "good")
-        return True, Relics(info)
-
-    if decision.action in ("discard_libpng_warning", "discard_libpng_warning_and_end"):
-        CheckPoint_Print_Libpng_Critical(info)
-        Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good")
-        Candy("Cowsay", "im removing it ..", "good")
-        CheckPoint_Discard_Libpng_Warning()
-        if decision.action == "discard_libpng_warning_and_end":
-            CheckPoint_Libpng_End_Success(
-                "Well maybe i am missing something but as for my abilities my job is done here!"
-            )
-        return False, None
-
-    if decision.action == "libpng_end_success":
-        CheckPoint_Libpng_End_Success(
-            "Well maybe i am missing something but as far as my current abilities goes the job is done for me here!"
-        )
-        return False, None
+    handler = CHECKPOINT_ACTION_HANDLERS.get(decision.action)
+    if handler is not None:
+        return handler(decision, chunk, info, toolkit)
 
     raise ValueError("Unknown CheckPoint action decision: %s" % decision.action)
 
