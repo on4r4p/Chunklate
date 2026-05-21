@@ -182,6 +182,44 @@ def test_automatic_repair_order_keeps_legacy_priority():
     )
 
 
+def test_effective_pandora_box_len_preserves_bad_next_name_adjustment():
+    findings = {
+        "CheckChunkName_Error_0:has Wrong Chunk name after Chunk[b'IHDR']": {},
+        "Checksum_Error_0:Wrong Crc": {},
+    }
+
+    assert fixit_felix.effective_pandora_box_len(findings, bad_next_name=False) == 2
+    assert fixit_felix.effective_pandora_box_len(findings, bad_next_name=True) == 1
+
+
+def test_repair_work_items_runs_automatic_repairs_before_pandorabox_routes():
+    findings = {
+        "Checksum_Error_0:Wrong Crc": {},
+        "Libpng_Error_0:libpng error: bad adaptive filter": {},
+        "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42": {},
+    }
+
+    items = fixit_felix.repair_work_items(findings, skip_bad_crc=False)
+
+    assert [item.kind for item in items[:6]] == ["automatic_repair"] * 6
+    assert [item.handler for item in items[:6]] == list(fixit_felix.automatic_repair_order())
+    assert [(item.kind, item.handler, item.finding) for item in items[6:]] == [
+        ("finding", "wrong_crc", "Checksum_Error_0:Wrong Crc"),
+        ("finding", "libpng_error", "Libpng_Error_0:libpng error: bad adaptive filter"),
+        ("finding", "wrong_chunk_name", "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"),
+    ]
+
+
+def test_repair_work_items_respects_skip_bad_crc_route_fallthrough():
+    findings = {"Checksum_Error_0:Wrong Crc": {}}
+
+    items = fixit_felix.repair_work_items(findings, skip_bad_crc=True)
+
+    assert items[-1].kind == "finding"
+    assert items[-1].handler == "critical_miss"
+    assert items[-1].finding == "Checksum_Error_0:Wrong Crc"
+
+
 def test_color_profile_cleanup_requires_matching_finding():
     original = read_fixture("IncorrectSrgbProfile.png")
 
@@ -264,6 +302,9 @@ def main():
         ("Applied repair formats legacy note and save suffix", test_applied_repair_formats_legacy_note_and_save_suffix),
         ("Applied repair adds IHDR metadata", test_applied_repair_adds_ihdr_metadata_when_available),
         ("Automatic repair order keeps legacy priority", test_automatic_repair_order_keeps_legacy_priority),
+        ("Effective PandoraBox len preserves Bad_Next_Name adjustment", test_effective_pandora_box_len_preserves_bad_next_name_adjustment),
+        ("Repair work items run automatic repairs first", test_repair_work_items_runs_automatic_repairs_before_pandorabox_routes),
+        ("Repair work items respect skip-bad-crc fallthrough", test_repair_work_items_respects_skip_bad_crc_route_fallthrough),
         ("Color profile cleanup requires matching finding", test_color_profile_cleanup_requires_matching_finding),
         ("PLTE cleanup requires noninteractive mode and PLTE finding", test_plte_cleanup_requires_noninteractive_mode_and_plte_finding),
         ("Missing chunk data byte requires CRC or no-next finding", test_missing_chunk_data_byte_requires_crc_or_no_next_finding),

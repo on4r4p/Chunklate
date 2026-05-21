@@ -10470,6 +10470,47 @@ def FixItFelix_Try_Automatic_Repair(name):
     raise ValueError("Unknown FixItFelix automatic repair: %s" % name)
 
 
+def FixItFelix_Handle_Wrong_Crc(work_item, chkd, pandora_box_len, Chunk):
+    return FixItFelix_Wrong_Crc(work_item.finding, chkd, pandora_box_len)
+
+
+def FixItFelix_Handle_Libpng_Error(work_item, chkd, pandora_box_len, Chunk):
+    return FixItFelix_Libpng_Error(work_item.finding, chkd)
+
+
+def FixItFelix_Handle_Wrong_Chunk_Name(work_item, chkd, pandora_box_len, Chunk):
+    return FixItFelix_Wrong_Chunk_Name(work_item.finding, chkd)
+
+
+def FixItFelix_Handle_No_NextChunk(work_item, chkd, pandora_box_len, Chunk):
+    return FixItFelix_No_NextChunk(work_item.finding, chkd, Chunk)
+
+
+def FixItFelix_Handle_Gama_Zero(work_item, chkd, pandora_box_len, Chunk):
+    return FixItFelix_Gama_Zero(work_item.finding)
+
+
+def FixItFelix_Handle_Critical_Miss(work_item, chkd, pandora_box_len, Chunk):
+    return FixItFelix_Critical_Miss(work_item.finding)
+
+
+FIXIT_FELIX_FINDING_HANDLERS = {
+    "wrong_crc": FixItFelix_Handle_Wrong_Crc,
+    "libpng_error": FixItFelix_Handle_Libpng_Error,
+    "wrong_chunk_name": FixItFelix_Handle_Wrong_Chunk_Name,
+    "no_next_chunk": FixItFelix_Handle_No_NextChunk,
+    "gama_zero": FixItFelix_Handle_Gama_Zero,
+    "critical_miss": FixItFelix_Handle_Critical_Miss,
+}
+
+
+def FixItFelix_Apply_Finding_Work_Item(work_item, chkd, pandora_box_len, Chunk):
+    handler = FIXIT_FELIX_FINDING_HANDLERS.get(work_item.handler)
+    if handler is None:
+        raise ValueError("Unknown FixItFelix finding handler: %s" % work_item.handler)
+    return handler(work_item, chkd, pandora_box_len, Chunk)
+
+
 def FixItFelix(Chunk=None):
     Candy("Title", "Fix It Felix: ", Candy("Color", "white", Chunk))
     ##TODOFIND A WAY TO MAKE IT READABLE
@@ -10540,54 +10581,29 @@ def FixItFelix(Chunk=None):
         if PAUSEDEBUG is True:
             Pause("FixItFelix Debug Pause:")
 
-    if Bad_Next_Name is False:
-        PandoraBox_len = len(PandoraBox)
-    else:
-        PandoraBox_len = len(PandoraBox) - 1
+    PandoraBox_len = fixit_felix.effective_pandora_box_len(
+        PandoraBox,
+        bad_next_name=Bad_Next_Name,
+    )
 
-    for AutomaticRepair in fixit_felix.automatic_repair_order():
-        RepairResult = FixItFelix_Try_Automatic_Repair(AutomaticRepair)
-        if RepairResult is not None:
-            return RepairResult
-
-    for nb, key in enumerate(PandoraBox):
-        Route = fixit_felix.route_finding(key, skip_bad_crc=Skip_Bad_Crc)
-
-        if Route.handler == "wrong_crc":
-            should_return, result = FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len)
-            if should_return:
-                return result
+    for WorkItem in fixit_felix.repair_work_items(
+        PandoraBox,
+        skip_bad_crc=Skip_Bad_Crc,
+    ):
+        if WorkItem.kind == "automatic_repair":
+            RepairResult = FixItFelix_Try_Automatic_Repair(WorkItem.handler)
+            if RepairResult is not None:
+                return RepairResult
             continue
 
-        elif Route.handler == "libpng_error":
-            should_return, result = FixItFelix_Libpng_Error(key, chkd)
-            if should_return:
-                return result
-            continue
-
-        elif Route.handler == "wrong_chunk_name":
-            should_return, result = FixItFelix_Wrong_Chunk_Name(key, chkd)
-            if should_return:
-                return result
-            continue
-
-        elif Route.handler == "no_next_chunk":
-            should_return, result = FixItFelix_No_NextChunk(key, chkd, Chunk)
-            if should_return:
-                return result
-            continue
-
-        elif Route.handler == "gama_zero":
-            should_return, result = FixItFelix_Gama_Zero(key)
-            if should_return:
-                return result
-            continue
-
-        else:
-            should_return, result = FixItFelix_Critical_Miss(key)
-            if should_return:
-                return result
-            continue
+        should_return, result = FixItFelix_Apply_Finding_Work_Item(
+            WorkItem,
+            chkd,
+            PandoraBox_len,
+            Chunk,
+        )
+        if should_return:
+            return result
     Show_Must_Go_On = True
 
 def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):

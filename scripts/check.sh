@@ -24,6 +24,7 @@ echo "==> Python bytecode check"
     chunklate/output.py \
     chunklate/png.py \
     chunklate/relics.py \
+    tests/test_checkpoint_actions.py \
     tests/test_checkpoint.py \
     tests/test_cli.py \
     tests/test_decisions.py \

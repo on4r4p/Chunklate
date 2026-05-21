@@ -40,6 +40,7 @@ AutomaticRepairHandler = Literal[
     "missing_chunk_data_byte",
     "ihdr_rebuild",
 ]
+FixItFelixWorkKind = Literal["automatic_repair", "finding"]
 
 
 AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
@@ -56,6 +57,13 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
 class FixItFelixRoute:
     handler: FixItFelixHandler
     finding: object
+
+
+@dataclass(frozen=True)
+class FixItFelixWorkItem:
+    kind: FixItFelixWorkKind
+    handler: AutomaticRepairHandler | FixItFelixHandler
+    finding: object | None = None
 
 
 @dataclass(frozen=True)
@@ -151,6 +159,29 @@ def route_finding(finding: object, *, skip_bad_crc: bool) -> FixItFelixRoute:
     if "gAMA Chunk of 0 is Useless" in text:
         return FixItFelixRoute("gama_zero", finding)
     return FixItFelixRoute("critical_miss", finding)
+
+
+def effective_pandora_box_len(findings: Iterable[object], *, bad_next_name: bool) -> int:
+    length = len(findings)
+    if bad_next_name is False:
+        return length
+    return length - 1
+
+
+def repair_work_items(findings: Iterable[object], *, skip_bad_crc: bool) -> tuple[FixItFelixWorkItem, ...]:
+    items: list[FixItFelixWorkItem] = [
+        FixItFelixWorkItem("automatic_repair", handler)
+        for handler in automatic_repair_order()
+    ]
+    items.extend(
+        FixItFelixWorkItem(
+            "finding",
+            route_finding(finding, skip_bad_crc=skip_bad_crc).handler,
+            finding,
+        )
+        for finding in findings
+    )
+    return tuple(items)
 
 
 def gama_zero_false_positive(finding: object) -> FalsePositiveFix:
