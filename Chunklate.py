@@ -123,6 +123,14 @@ def Relic_Tool_Value(tools, tool_prefix, index):
     return relics.tool_value(tools, tool_prefix, index)
 
 
+def Relic_Chunk_Name_From_Text(text):
+    return relics.chunk_name_from_text(text, ALLCHUNKS)
+
+
+def Relic_Chunk_Name_From_Tool_Keys(tools):
+    return relics.chunk_name_from_tool_keys(tools, ALLCHUNKS)
+
+
 def PandoraBox_Tool(key, tool_prefix, index):
     return Relic_Tool_Value(PandoraBox[key], tool_prefix, index)
 
@@ -9144,12 +9152,7 @@ def Relics_Try_Current_Wrong_Crc_Fix():
             if str(key) not in Cornucopia:
 
                 PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-                Chunkname = "".join(
-                                [
-                                    chnk.decode(errors="ignore")
-                                    for chnk in ALLCHUNKS
-                                    if chnk.decode(errors="ignore") in str(key)
-                                ])
+                Chunkname = Relic_Chunk_Name_From_Text(key)
                 if Chunkname == "IDAT":
                     chkd = "IDAT_Tool_"
                     Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
@@ -9205,13 +9208,7 @@ def Relics(FromError):
                             for nb3, (tools, tools_values) in enumerate(
                                 errors_values.items()
                             ):
-                                Chunkname = "".join(
-                                    [
-                                        chnk.decode(errors="ignore")
-                                        for chnk in ALLCHUNKS
-                                        if chnk.decode(errors="ignore") in tools
-                                    ]
-                                )
+                                Chunkname = Relic_Chunk_Name_From_Tool_Keys(errors_values)
 
 
 
@@ -9418,13 +9415,7 @@ def Relics(FromError):
                         for nb3, (tools, tools_values) in enumerate(
                             errors_values.items()
                         ):
-                            Chunkname = "".join(
-                                [
-                                    chnk.decode(errors="ignore")
-                                    for chnk in ALLCHUNKS
-                                    if chnk.decode(errors="ignore") in tools
-                                ]
-                            )
+                            Chunkname = Relic_Chunk_Name_From_Tool_Keys(errors_values)
 
                         Candy(
                             "Cowsay",
@@ -9518,13 +9509,7 @@ def Relics(FromError):
                         for nb3, (tools, tools_values) in enumerate(
                             errors_values.items()
                         ):
-                            ChunkName = "".join(
-                                [
-                                    chnk.decode(errors="ignore")
-                                    for chnk in ALLCHUNKS
-                                    if chnk.decode(errors="ignore") in tools
-                                ]
-                            )
+                            ChunkName = Relic_Chunk_Name_From_Tool_Keys(errors_values)
 
                         chunk_tool_prefix = ChunkName + "_Tool_"
                         ChunkLength = Pandemonium_Tool(file, errors, chunk_tool_prefix, 1)

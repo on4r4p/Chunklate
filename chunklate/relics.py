@@ -33,6 +33,19 @@ def tool_value(tools: Mapping[str, Any], prefix: str, index: int | str) -> Any:
     return tools[tool_key(prefix, index)]
 
 
+def chunk_name_from_text(text: Any, known_chunks: list[bytes] | tuple[bytes, ...]) -> str:
+    text = str(text)
+    return "".join(
+        chunk.decode(errors="ignore")
+        for chunk in known_chunks
+        if chunk.decode(errors="ignore") in text
+    )
+
+
+def chunk_name_from_tool_keys(tools: Mapping[str, Any], known_chunks: list[bytes] | tuple[bytes, ...]) -> str:
+    return chunk_name_from_text(" ".join(str(tool) for tool in tools), known_chunks)
+
+
 def next_error_number(pandora_box: Mapping[str, Any], function: Any) -> int:
     number = 0
     for key in pandora_box:

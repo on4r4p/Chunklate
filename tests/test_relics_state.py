@@ -59,6 +59,17 @@ def test_relics_module_uses_explicit_state_objects():
     assert relics.tool_value(tools, "IDAT_Tool_", 1) == 12
 
 
+def test_relics_module_finds_chunk_names_in_legacy_text_and_tool_keys():
+    known_chunks = [b"IHDR", b"IDAT", b"IEND"]
+    tools = relics.build_tools(b"IDAT", ("newcrc", 12, 20))
+
+    from_text = relics.chunk_name_from_text("Checksum_Error_0:-Found Chunk[IDAT] has Wrong Crc", known_chunks)
+    from_tools = relics.chunk_name_from_tool_keys(tools, known_chunks)
+
+    assert from_text == "IDAT"
+    assert from_tools == "IDAT"
+
+
 def test_pandorabox_add_keeps_legacy_error_numbering():
     reset_relic_state()
 
@@ -137,6 +148,10 @@ def main():
     checks = [
         ("Relic tools keep legacy key names", test_relic_build_tools_uses_legacy_tool_names),
         ("Relics module uses explicit state objects", test_relics_module_uses_explicit_state_objects),
+        (
+            "Relics module finds chunk names in legacy text and tool keys",
+            test_relics_module_finds_chunk_names_in_legacy_text_and_tool_keys,
+        ),
         ("PandoraBox keys keep legacy numbering", test_pandorabox_add_keeps_legacy_error_numbering),
         ("CheckPoint records current errors", test_checkpoint_records_current_errors_in_pandorabox),
         ("CheckPoint records fixed items", test_checkpoint_records_fixed_items_in_cornucopia),
