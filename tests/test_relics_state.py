@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chunklate import relics
+from chunklate import checkpoint, relics
 
 CHUNKLATE = ROOT / "Chunklate.py"
 
@@ -143,6 +143,64 @@ def test_pandorabox_add_keeps_legacy_error_numbering():
     assert list(chunklate.PandoraBox) == [first, second]
 
 
+def test_relics_records_checkpoint_registration_in_pandorabox():
+    pandora_box = {}
+    cornucopia = {}
+    registration = checkpoint.finding_registration(
+        error=True,
+        fixed=False,
+        function="Checksum",
+        chunk=b"IDAT",
+        info="Wrong Crc",
+        toolkit=("newcrc", 12, 20),
+    )
+
+    key = relics.record_checkpoint_registration(pandora_box, cornucopia, registration)
+
+    assert key == "Checksum_Error_0:Wrong Crc"
+    assert pandora_box[key] == {
+        "IDAT_Tool_0": "newcrc",
+        "IDAT_Tool_1": 12,
+        "IDAT_Tool_2": 20,
+    }
+    assert cornucopia == {}
+
+
+def test_relics_records_checkpoint_registration_in_cornucopia():
+    pandora_box = {}
+    cornucopia = {}
+    registration = checkpoint.finding_registration(
+        error=True,
+        fixed=True,
+        function="UnitTest",
+        chunk=b"PLTE",
+        info="Fixed Data",
+        toolkit=("fixed", "solution-key"),
+    )
+
+    key = relics.record_checkpoint_registration(pandora_box, cornucopia, registration)
+
+    assert key == "solution-key"
+    assert pandora_box == {}
+    assert cornucopia == {
+        "solution-key": {
+            "PLTE_Tool_0": "fixed",
+            "PLTE_Tool_1": "solution-key",
+        }
+    }
+
+
+def test_relics_discards_pandora_error_by_key():
+    pandora_box = {"error": {"IDAT_Tool_0": "newcrc"}}
+
+    removed = relics.discard_pandora_error(pandora_box, "error")
+    missing = relics.discard_pandora_error(pandora_box, "missing")
+
+    assert removed == {"IDAT_Tool_0": "newcrc"}
+    assert missing == "key_not_found"
+    assert pandora_box == {}
+
+
 def test_checkpoint_records_current_errors_in_pandorabox():
     reset_relic_state()
 
@@ -225,6 +283,15 @@ def main():
         ),
         ("Relics module exposes dummy chunk tools by name", test_relics_module_exposes_dummy_chunk_tools_by_name),
         ("PandoraBox keys keep legacy numbering", test_pandorabox_add_keeps_legacy_error_numbering),
+        (
+            "Relics records CheckPoint registration in PandoraBox",
+            test_relics_records_checkpoint_registration_in_pandorabox,
+        ),
+        (
+            "Relics records CheckPoint registration in Cornucopia",
+            test_relics_records_checkpoint_registration_in_cornucopia,
+        ),
+        ("Relics discards PandoraBox errors by key", test_relics_discards_pandora_error_by_key),
         ("CheckPoint records current errors", test_checkpoint_records_current_errors_in_pandorabox),
         ("CheckPoint records fixed items", test_checkpoint_records_fixed_items_in_cornucopia),
         ("Pandemonium snapshot keeps legacy references", test_pandemonium_snapshot_preserves_legacy_shared_reference),

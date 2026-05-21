@@ -165,6 +165,33 @@ def add_cornucopia_fix(
     return key
 
 
+def record_checkpoint_registration(
+    pandora_box: MutableMapping[str, Any],
+    cornucopia: MutableMapping[Any, Any],
+    registration: Any,
+) -> Any:
+    if not registration.should_record:
+        return None
+    if registration.store == "pandora_box":
+        return add_pandora_error(
+            pandora_box,
+            registration.function,
+            registration.info,
+            registration.tools,
+        )
+    if registration.store == "cornucopia":
+        return add_cornucopia_fix(cornucopia, registration.store_key, registration.tools)
+    raise ValueError("Unknown CheckPoint registration store: %s" % registration.store)
+
+
+def discard_pandora_error(
+    pandora_box: MutableMapping[str, Any],
+    key: Any,
+    default: Any = "key_not_found",
+) -> Any:
+    return pandora_box.pop(key, default)
+
+
 def remember_sample(
     pandemonium: MutableMapping[Any, Any],
     ark_of_covenant: MutableMapping[Any, Any],

@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import decisions, fixit_felix, relics
+from chunklate import checkpoint, decisions, fixit_felix, output, relics
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -181,8 +181,18 @@ def PandoraBox_Add(function, info, tools):
     return relics.add_pandora_error(PandoraBox, function, info, tools)
 
 
+def PandoraBox_Discard(key):
+    return relics.discard_pandora_error(PandoraBox, key)
+
+
 def Cornucopia_Add(key, tools):
     return relics.add_cornucopia_fix(Cornucopia, key, tools)
+
+
+def CheckPoint_Record_Finding(registration):
+    if registration.side_note is not None:
+        SideNotes.append(registration.side_note)
+    return relics.record_checkpoint_registration(PandoraBox, Cornucopia, registration)
 
 
 def Pandemonium_Remember_Current_Sample():
@@ -4773,15 +4783,11 @@ def Summarise(infos, Summary_Footer=False):
     global Summary_Header
     global SideNotes
 
-    folder = FILE_DIR + "Folder_" + str(os.path.basename(FILE_Origin))
-    folder = os.path.splitext(folder)[0] + "/"
+    folder = output.ensure_clone_folder(FILE_Origin, FILE_DIR)
     sep = "\n\n『" + Sample_Name + " :』\n"
     title = Sumform("▇ ▆ =|C|h|u|n|k|l|a|t|e| |S|u|m|m|a|r|y|= ▆ ▇", True)
     eof = Sumform("_,-=|S|u|m|m|a|r|y| |E|n|d|=-,_", False)
     tmp = ""
-    if not os.path.exists(folder):
-        os.mkdir(folder)
-
     if infos is not None:
         if len(SideNotes) > 0:
             for note in SideNotes:
@@ -4794,8 +4800,9 @@ def Summarise(infos, Summary_Footer=False):
             tmp += "\n" + str(note) + "\n"
         infos = tmp
 
-    filename = (
-        folder + "Summary_Of_" + os.path.splitext(os.path.basename(FILE_Origin))[0]
+    filename = os.path.join(
+        folder,
+        "Summary_Of_" + os.path.splitext(os.path.basename(FILE_Origin))[0],
     )
     print(Candy("Color", "green", "-Saving Summary : "), filename)
     with open(filename, "a+") as f:
@@ -9048,20 +9055,21 @@ def WriteClone(data,infos):
     Pandemonium_Remember_Current_Sample()
 
     try:
-        data = bytes.fromhex(data)
+        data = output.clone_bytes(data)
     except Exception as e:
         Betterror(e, inspect.stack()[0][3])
+        TheEnd()
 
     name, dir = Naming(FILE_Origin)
+    target = output.CloneTarget(name=name, directory=dir, path=os.path.join(dir, name))
 
-    PRINT(Candy("Color", "green", "-Saving to : %s")% dir + "/" + name)
+    PRINT(Candy("Color", "green", "-Saving to : %s")% target.path)
 
-    SideNotes.append("-Saving to : %s"% dir + "/" + name)
+    SideNotes.append("-Saving to : %s"% target.path)
 
     try:
-       with open(dir + "/" + name, "wb") as f:
-           f.write(data)
-       Sample = dir + "/" + name
+       output.write_clone(target, data)
+       Sample = target.path
        SAVE_COUNT += 1
     except Exception as e:
         Betterror(e, inspect.stack()[0][3])
@@ -9733,30 +9741,15 @@ def Relics(FromError):
 
 def Naming(filename):
 
-    newdir = FILE_DIR + "Folder_" + str(os.path.basename(filename))
-    newdir = os.path.splitext(newdir)[0]
-    if not os.path.exists(newdir):
-        os.mkdir(newdir)
-    filename = os.path.basename(filename)
-
-    if "." in filename:
-        filename = os.path.splitext(filename)[0]
-    filename += "."
-    fileid = 0
-    check = os.path.exists(newdir + "/" + filename + str(fileid) + "_Fixed.png")
-    while check == True:
-        fileid += 1
-        check = os.path.exists(newdir + "/" + filename + str(fileid) + "_Fixed.png")
-    filename = filename + str(fileid) + "_Fixed.png"
-
-    return (filename, newdir)
+    target = output.next_clone_target(filename, FILE_DIR)
+    return (target.name, target.directory)
 
 def LockDown():
     Candy("Title", "LockDown: ", Candy("Color", "white", Chunk))
 
-    folder = FILE_DIR + "Folder_" + str(os.path.basename(FILE_Origin))
+    folder = output.clone_folder(FILE_Origin, FILE_DIR)
     PRINT(folder)
-    folder = os.path.splitext(folder)[0] + "/"
+    folder = folder + "/"
     PRINT(folder)
     
 
@@ -10075,7 +10068,7 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
                         "That one is a false positive im removing it ..",
                         "good",
                     )
-                    PandoraBox.pop(key, "key_not_found")
+                    PandoraBox_Discard(key)
                     SideNotes.append(
                         "-Found False-Positive :[Error:-No NextChunk]."
                     )
@@ -10226,7 +10219,7 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
 def FixItFelix_Gama_Zero(key):
     Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good") ##ME !!!
     FalsePositive = fixit_felix.gama_zero_false_positive(key)
-    PandoraBox.pop(FalsePositive.finding, "key_not_found")
+    PandoraBox_Discard(FalsePositive.finding)
     SideNotes.append(FalsePositive.note)
     return True, FixItFelix
 
@@ -10490,20 +10483,20 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
         if PAUSEDEBUG is True:
             Pause("Checkpoint pause")
 
-    chunkstr = Relic_Chunk_Label(chunk)
 #def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
     for info in infos:
-        if error is True:
-            TOOLS = Relic_Build_Tools(chunkstr, ToolKit)
-
-            if fixed is False:
-                SideNotes.append("Error:" + str(info))
-                PandoraBox_Add(function, info, TOOLS)
-                if PAUSEERROR is True:
-                    Pause("Pause:Error")
-            else:
-                SideNotes.append("Error Fixed:" + str(info))
-                Cornucopia_Add(ToolKit[-1], TOOLS)
+        Registration = checkpoint.finding_registration(
+            error=error,
+            fixed=fixed,
+            function=function,
+            chunk=chunk,
+            info=info,
+            toolkit=ToolKit,
+        )
+        if Registration.should_record:
+            CheckPoint_Record_Finding(Registration)
+            if Registration.store == "pandora_box" and PAUSEERROR is True:
+                Pause("Pause:Error")
 
         if function == "TheGoodPlace":
             if "Found Missing Data" in info:
@@ -10775,7 +10768,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
                 for nb, key in enumerate(PandoraBox):
 
                     if "libpng warning:" in str(key):
-                        PandoraBox.pop(key, "key_not_found")
+                        PandoraBox_Discard(key)
                         SideNotes.append(
                             "-Found False-Positive :[Error:-%s]." % (str(key))
                         )

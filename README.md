@@ -69,6 +69,10 @@ Run the smoke tests:
 
     .venv/bin/python -m pytest
 
+Run the full local validation:
+
+    ./scripts/check.sh
+
 Run only the repair regression tests:
 
     .venv/bin/python -m pytest tests/test_repairs.py
@@ -76,6 +80,8 @@ Run only the repair regression tests:
 Or without pytest:
 
     ./tests/test_cli.py
+    ./tests/test_checkpoint.py
     ./tests/test_png.py
+    ./tests/test_output.py
     ./tests/test_relics_state.py
     ./tests/test_repairs.py
