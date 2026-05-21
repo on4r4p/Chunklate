@@ -18,6 +18,21 @@ def read_fixture(name):
     return (REPAIR_FIXTURES / name).read_bytes()
 
 
+def test_route_finding_keeps_legacy_handler_order():
+    assert fixit_felix.route_finding("Checksum_Error_0:Wrong Crc", skip_bad_crc=False).handler == "wrong_crc"
+    assert fixit_felix.route_finding("Libpng_Error_0:libpng error: bad adaptive filter", skip_bad_crc=False).handler == "libpng_error"
+    assert fixit_felix.route_finding("CheckChunkName_Error_0:has Wrong Chunk name at offset: 42", skip_bad_crc=False).handler == "wrong_chunk_name"
+    assert fixit_felix.route_finding("CheckLength_Error_0:-No NextChunk", skip_bad_crc=False).handler == "no_next_chunk"
+    assert fixit_felix.route_finding("GetInfo_Error_0:gAMA Chunk of 0 is Useless", skip_bad_crc=False).handler == "gama_zero"
+    assert fixit_felix.route_finding("CheckChunkOrder_Error_0:Critical", skip_bad_crc=False).handler == "critical_miss"
+
+
+def test_route_finding_preserves_skip_bad_crc_fallthrough():
+    route = fixit_felix.route_finding("Checksum_Error_0:Wrong Crc", skip_bad_crc=True)
+
+    assert route.handler == "critical_miss"
+
+
 def test_color_profile_cleanup_requires_matching_finding():
     original = read_fixture("IncorrectSrgbProfile.png")
 
@@ -90,6 +105,8 @@ def test_ihdr_rebuild_requires_ihdr_finding():
 
 def main():
     checks = [
+        ("Route finding keeps legacy handler order", test_route_finding_keeps_legacy_handler_order),
+        ("Route finding preserves skip-bad-crc fallthrough", test_route_finding_preserves_skip_bad_crc_fallthrough),
         ("Color profile cleanup requires matching finding", test_color_profile_cleanup_requires_matching_finding),
         ("PLTE cleanup requires noninteractive mode and PLTE finding", test_plte_cleanup_requires_noninteractive_mode_and_plte_finding),
         ("Missing chunk data byte requires CRC or no-next finding", test_missing_chunk_data_byte_requires_crc_or_no_next_finding),

@@ -10380,32 +10380,33 @@ def FixItFelix(Chunk=None):
         return IhdrRebuild
 
     for nb, key in enumerate(PandoraBox):
+        Route = fixit_felix.route_finding(key, skip_bad_crc=Skip_Bad_Crc)
 
-        if "Wrong Crc" in str(key) and Skip_Bad_Crc is False:
+        if Route.handler == "wrong_crc":
             should_return, result = FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len)
             if should_return:
                 return result
             continue
 
-        elif "libpng error:" in str(key):
+        elif Route.handler == "libpng_error":
             should_return, result = FixItFelix_Libpng_Error(key, chkd)
             if should_return:
                 return result
             continue
 
-        elif "has Wrong Chunk name at offset:" in str(key):
+        elif Route.handler == "wrong_chunk_name":
             should_return, result = FixItFelix_Wrong_Chunk_Name(key, chkd)
             if should_return:
                 return result
             continue
 
-        elif "No NextChunk" in str(key):
+        elif Route.handler == "no_next_chunk":
             should_return, result = FixItFelix_No_NextChunk(key, chkd, Chunk)
             if should_return:
                 return result
             continue
 
-        elif "gAMA Chunk of 0 is Useless" in str(key):
+        elif Route.handler == "gama_zero":
             should_return, result = FixItFelix_Gama_Zero(key)
             if should_return:
                 return result

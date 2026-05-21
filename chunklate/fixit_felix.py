@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
+from typing import Literal
 
 from .png import (
     repair_color_profile_chunks,
@@ -13,8 +15,39 @@ from .png import (
 )
 
 
+FixItFelixHandler = Literal[
+    "wrong_crc",
+    "libpng_error",
+    "wrong_chunk_name",
+    "no_next_chunk",
+    "gama_zero",
+    "critical_miss",
+]
+
+
+@dataclass(frozen=True)
+class FixItFelixRoute:
+    handler: FixItFelixHandler
+    finding: object
+
+
 def has_finding(findings: Iterable[object], *needles: str) -> bool:
     return any(all(needle in str(finding) for needle in needles) for finding in findings)
+
+
+def route_finding(finding: object, *, skip_bad_crc: bool) -> FixItFelixRoute:
+    text = str(finding)
+    if "Wrong Crc" in text and not skip_bad_crc:
+        return FixItFelixRoute("wrong_crc", finding)
+    if "libpng error:" in text:
+        return FixItFelixRoute("libpng_error", finding)
+    if "has Wrong Chunk name at offset:" in text:
+        return FixItFelixRoute("wrong_chunk_name", finding)
+    if "No NextChunk" in text:
+        return FixItFelixRoute("no_next_chunk", finding)
+    if "gAMA Chunk of 0 is Useless" in text:
+        return FixItFelixRoute("gama_zero", finding)
+    return FixItFelixRoute("critical_miss", finding)
 
 
 def color_profile_cleanup(data: bytes, findings: Iterable[object]) -> Any | None:
