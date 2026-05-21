@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+import struct
 import sys
 from pathlib import Path
+from itertools import islice
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,6 +85,239 @@ def test_build_full_new_data_preserves_brutecfg_combinations():
     ) == brute + crc
 
 
+def test_chunk_crc_matches_legacy_struct_crc32():
+    assert bruteforce.chunk_crc(b"gAMA", b"\x00\x01\x86\xa0") == bytes.fromhex("31e8965f")
+
+
+def test_assemble_candidate_png_preserves_legacy_concatenation():
+    assert bruteforce.assemble_candidate_png(b"before", b"chunk", b"after") == b"beforechunkafter"
+
+
+def test_prepare_candidate_attempt_builds_crc_full_data_and_png_bytes():
+    attempt = bruteforce.prepare_candidate_attempt(
+        b"gAMA",
+        b"\x00\x00\x00\x04",
+        b"\x00\x01\x86\xa0",
+        b"\x00\x01\x86\xa0",
+        b"before",
+        b"after",
+        brute_length=True,
+        brute_crc=True,
+        old_crc=False,
+    )
+
+    assert attempt.checksum == bytes.fromhex("31e8965f")
+    assert attempt.full_new_data == bytes.fromhex("0000000467414d41000186a031e8965f")
+    assert attempt.png_bytes == b"before" + attempt.full_new_data + b"after"
+    assert attempt.old_crc_match is False
+
+
+def test_prepare_candidate_attempt_preserves_separate_payload_and_crc_data():
+    old_crc = bruteforce.chunk_crc(b"gAMA", b"\x00\x01\x86\xa0")
+
+    attempt = bruteforce.prepare_candidate_attempt(
+        b"gAMA",
+        b"\x00\x00\x00\x04",
+        payload_data=b"\xaa",
+        crc_data=b"\x00\x01\x86\xa0",
+        before=b"",
+        after=b"",
+        brute_length=True,
+        brute_crc=True,
+        old_crc=old_crc,
+    )
+
+    assert attempt.checksum == old_crc
+    assert attempt.full_new_data == b"\x00\x00\x00\x04" + b"gAMA" + b"\xaa" + old_crc
+    assert attempt.png_bytes == attempt.full_new_data
+    assert attempt.old_crc_match is True
+
+
+def test_match_state_from_edit_window_preserves_legacy_initial_flags():
+    replace_window = bruteforce.BruteForceEditWindow(
+        before=b"",
+        to_brute="",
+        to_bryte=b"",
+        after=b"",
+        replace_flag=True,
+    )
+    insert_window = bruteforce.BruteForceEditWindow(
+        before=b"",
+        to_brute="",
+        to_bryte=b"",
+        after=b"",
+        insert_flag=True,
+    )
+
+    assert bruteforce.match_state_from_edit_window(replace_window) == bruteforce.BruteForceMatchState(
+        replace_flag=True,
+    )
+    assert bruteforce.match_state_from_edit_window(insert_window) == bruteforce.BruteForceMatchState(
+        insert_flag=True,
+    )
+
+
+def test_mark_candidate_match_sets_bingo_and_preserves_existing_flags():
+    state = bruteforce.BruteForceMatchState(replace_flag=True)
+
+    matched = bruteforce.mark_candidate_match(state, "insert", bonus=True)
+
+    assert matched == bruteforce.BruteForceMatchState(
+        bingo=True,
+        replace_flag=True,
+        insert_flag=True,
+        bonus=True,
+    )
+
+
+def test_mark_candidate_match_can_preserve_legacy_unflagged_bonus_match():
+    state = bruteforce.mark_candidate_match(
+        bruteforce.BruteForceMatchState(),
+        bonus=True,
+    )
+
+    assert state == bruteforce.BruteForceMatchState(
+        bingo=True,
+        bonus=True,
+    )
+
+
+def test_apply_candidate_attempt_match_returns_state_and_attempt_bytes():
+    attempt = bruteforce.BruteForceCandidateAttempt(
+        checksum=b"crc",
+        full_new_data=b"full",
+        png_bytes=b"png",
+        old_crc_match=True,
+    )
+
+    applied = bruteforce.apply_candidate_attempt_match(
+        bruteforce.BruteForceMatchState(insert_flag=True),
+        attempt,
+        "remove",
+        bonus=True,
+    )
+
+    assert applied == bruteforce.BruteForceAppliedAttempt(
+        state=bruteforce.BruteForceMatchState(
+            bingo=True,
+            insert_flag=True,
+            remove_flag=True,
+            bonus=True,
+        ),
+        full_new_data=b"full",
+        png_bytes=b"png",
+    )
+
+
+def test_twobytes_candidate_data_preserves_replace_insert_remove_slices():
+    to_brute = "0011223344"
+    brute_bytes = b"\xaa"
+    needle = 2
+
+    replace = bruteforce.twobytes_candidate_data(to_brute, brute_bytes, needle, "replace")
+    insert = bruteforce.twobytes_candidate_data(to_brute, brute_bytes, needle, "insert")
+    remove = bruteforce.twobytes_candidate_data(to_brute, brute_bytes, needle, "remove")
+
+    assert replace.data == bytes.fromhex("00aa223344")
+    assert replace.bonus_hex == "00aa223344"
+    assert replace.length_bytes == b"\x00\x00\x00\x05"
+
+    assert insert.data == bytes.fromhex("00aa11223344")
+    assert insert.bonus_hex == "00aa11223344"
+    assert insert.length_bytes == b"\x00\x00\x00\x06"
+
+    assert remove.data == bytes.fromhex("00aa3344")
+    assert remove.bonus_hex == "00aa3344"
+    assert remove.length_bytes == b"\x00\x00\x00\x04"
+
+
+def test_iter_twobytes_bonus_data_preserves_legacy_skip_and_byte_range():
+    candidates = list(
+        islice(
+            bruteforce.iter_twobytes_bonus_data(
+                "00aa223344",
+                new_data_len=5,
+                skipped_hex_offset=2,
+                skipped_hex_len=2,
+            ),
+            3,
+        )
+    )
+
+    assert candidates == [
+        bytes.fromhex("00aa223344"),
+        bytes.fromhex("01aa223344"),
+        bytes.fromhex("02aa223344"),
+    ]
+
+    skipped_first_byte = list(
+        islice(
+            bruteforce.iter_twobytes_bonus_data(
+                "00aa223344",
+                new_data_len=5,
+                skipped_hex_offset=0,
+                skipped_hex_len=2,
+            ),
+            3,
+        )
+    )
+
+    assert skipped_first_byte == [
+        bytes.fromhex("0000223344"),
+        bytes.fromhex("0001223344"),
+        bytes.fromhex("0002223344"),
+    ]
+
+
+def test_twobytes_bonus_candidate_data_preserves_legacy_hex_replacement():
+    assert bruteforce.twobytes_bonus_candidate_data(
+        "00aa223344",
+        hex_offset=4,
+        replacement_byte=b"\xff",
+    ) == bytes.fromhex("00aaff3344")
+
+
+def test_build_candidate_bytes_preserves_brutus_format_wrapping():
+    candidate = (1, 0x0203, 4, 0x0506)
+
+    brute_bytes = bruteforce.build_candidate_bytes(
+        candidate,
+        ["B", "H"],
+        "Brutus",
+    )
+
+    assert brute_bytes == (
+        struct.pack("B", 1)
+        + struct.pack("H", 0x0203)
+        + struct.pack("B", 4)
+        + struct.pack("H", 0x0506)
+    )
+
+
+def test_build_candidate_bytes_preserves_custom_struct_replacement():
+    brute_bytes = bruteforce.build_candidate_bytes(
+        (9,),
+        ["B", "B", "B"],
+        "Custom",
+        struct_indexes=(1,),
+        to_bryte=bytes([1, 2, 3]),
+    )
+
+    assert brute_bytes == bytes([1, 9, 3])
+
+
+def test_build_candidate_bytes_preserves_custom_scalar_candidate_fallback():
+    brute_bytes = bruteforce.build_candidate_bytes(
+        7,
+        ["B", "B"],
+        "Custom",
+        struct_indexes=(0,),
+        to_bryte=bytes([1, 2]),
+    )
+
+    assert brute_bytes == bytes([7, 2])
+
+
 def test_edit_window_preserves_twobytes_slicing():
     data_hex = "aabbccddeeff00112233445566778899"
 
@@ -145,6 +380,20 @@ def main():
         ("Length ranges", test_length_range_preserves_legacy_single_and_tuple_specs),
         ("IterNbr threshold", test_iter_nbr_for_length_preserves_legacy_threshold),
         ("Build full new data", test_build_full_new_data_preserves_brutecfg_combinations),
+        ("Chunk CRC", test_chunk_crc_matches_legacy_struct_crc32),
+        ("Assemble candidate PNG", test_assemble_candidate_png_preserves_legacy_concatenation),
+        ("Prepare candidate attempt", test_prepare_candidate_attempt_builds_crc_full_data_and_png_bytes),
+        ("Prepare candidate attempt separate payload/crc", test_prepare_candidate_attempt_preserves_separate_payload_and_crc_data),
+        ("Initial match state", test_match_state_from_edit_window_preserves_legacy_initial_flags),
+        ("Mark candidate match", test_mark_candidate_match_sets_bingo_and_preserves_existing_flags),
+        ("Mark unflagged bonus match", test_mark_candidate_match_can_preserve_legacy_unflagged_bonus_match),
+        ("Apply candidate attempt match", test_apply_candidate_attempt_match_returns_state_and_attempt_bytes),
+        ("TwoBytes candidate data", test_twobytes_candidate_data_preserves_replace_insert_remove_slices),
+        ("TwoBytes bonus candidates", test_iter_twobytes_bonus_data_preserves_legacy_skip_and_byte_range),
+        ("TwoBytes bonus candidate data", test_twobytes_bonus_candidate_data_preserves_legacy_hex_replacement),
+        ("Build Brutus candidate bytes", test_build_candidate_bytes_preserves_brutus_format_wrapping),
+        ("Build Custom candidate bytes", test_build_candidate_bytes_preserves_custom_struct_replacement),
+        ("Build Custom scalar candidate", test_build_candidate_bytes_preserves_custom_scalar_candidate_fallback),
         ("TwoBytes edit window", test_edit_window_preserves_twobytes_slicing),
         ("Replace/Insert edit windows", test_edit_window_preserves_replace_and_insert_slicing),
     ]

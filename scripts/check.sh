@@ -23,6 +23,7 @@ echo "==> Python bytecode check"
     chunklate/decisions.py \
     chunklate/fixit_felix.py \
     chunklate/output.py \
+    chunklate/palette.py \
     chunklate/palette_ui.py \
     chunklate/png.py \
     chunklate/relics.py \
@@ -34,6 +35,7 @@ echo "==> Python bytecode check"
     tests/test_fixit_felix_actions.py \
     tests/test_fixit_felix.py \
     tests/test_output.py \
+    tests/test_palette.py \
     tests/test_palette_ui.py \
     tests/test_png.py \
     tests/test_relics_state.py \

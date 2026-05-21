@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import binascii
-import struct
 from dataclasses import dataclass
 from typing import Any
 from typing import Iterable
 
-
-EMPTY_PALETTE_ENTRY = "empty"
+from chunklate import palette
 
 
 @dataclass(frozen=True)
@@ -20,29 +17,298 @@ class PaletteSaveCheckpoint:
     toolkit: tuple[Any, ...]
 
 
-def palette_values_to_bytes(values: Iterable[Any]) -> bytes:
-    palette_data = b""
-    for value in values:
-        if value != EMPTY_PALETTE_ENTRY:
-            palette_data += int(value).to_bytes(3, "big")
-    return palette_data
+@dataclass(frozen=True)
+class PaletteEditorLayout:
+    basewidth: int
+    hsize: int
+    action_width: int
+    action_height: int
+    canvas_width: int
+    slider_length: int
 
 
-def build_plte_chunk(palette_data: bytes) -> bytes:
-    length = len(palette_data).to_bytes(4, "big")
-    checksum = struct.pack("!I", binascii.crc32(b"PLTE" + palette_data))
-    return length + b"PLTE" + palette_data + checksum
+@dataclass(frozen=True)
+class PaletteScaleWidget:
+    var: Any
+    scale: Any
 
 
-def build_palette_png(before: bytes, palette_values: Iterable[Any], after: bytes) -> bytes:
-    return before + build_plte_chunk(palette_values_to_bytes(palette_values)) + after
+@dataclass(frozen=True)
+class PaletteSliderCanvas:
+    canvas: Any
+    frame: Any
+    scrollbar: Any
 
 
-def set_palette_value(values: list[Any], index: int, raw_value: Any) -> None:
-    if raw_value == "-1":
-        values[index] = EMPTY_PALETTE_ENTRY
-    else:
-        values[index] = raw_value
+@dataclass(frozen=True)
+class PaletteActionButtonSpec:
+    name: str
+    text: str
+    command: Any
+    row: int
+    column: int
+
+
+@dataclass(frozen=True)
+class PaletteEditorFrames:
+    img: Any
+    slider: Any
+    action: Any
+
+
+@dataclass
+class PaletteEditorState:
+    values: list[Any]
+    sliders: list[Any]
+    wanabyte: bytes
+
+
+def create_palette_editor_state(palette_count: int, wanabyte: bytes) -> PaletteEditorState:
+    return PaletteEditorState(
+        values=[palette.EMPTY_PALETTE_ENTRY for _ in range(palette_count)],
+        sliders=[],
+        wanabyte=wanabyte,
+    )
+
+
+def set_palette_state_sliders(state: PaletteEditorState, sliders: list[Any]) -> None:
+    state.sliders = sliders
+
+
+def update_palette_state_value(
+    state: PaletteEditorState,
+    *,
+    index: int,
+    raw_value: Any,
+    before: bytes,
+    after: bytes,
+) -> bytes:
+    palette.set_palette_value(state.values, index, raw_value)
+    state.wanabyte = palette.build_palette_png(before, state.values, after)
+    return state.wanabyte
+
+
+def apply_palette_state_colors(
+    state: PaletteEditorState,
+    *,
+    colors: Iterable[str],
+    before: bytes,
+    after: bytes,
+) -> bytes:
+    apply_color_table(state.values, state.sliders, colors)
+    state.wanabyte = palette.build_palette_png(before, state.values, after)
+    return state.wanabyte
+
+
+def randomize_palette_state(
+    state: PaletteEditorState,
+    *,
+    random_int: Any,
+    before: bytes,
+    after: bytes,
+) -> bytes:
+    random_palette_values(state.values, state.sliders, random_int)
+    state.wanabyte = palette.build_palette_png(before, state.values, after)
+    return state.wanabyte
+
+
+def preview_dimensions(width: int, height: int) -> tuple[int, int]:
+    return width - 10, height - 10
+
+
+def build_editor_layout(screen_width: int, image_size: tuple[int, int]) -> PaletteEditorLayout:
+    basewidth = int(screen_width / 2.10)
+    wpercent = basewidth / float(image_size[0])
+    hsize = int(float(image_size[1]) * float(wpercent))
+    return PaletteEditorLayout(
+        basewidth=basewidth,
+        hsize=hsize,
+        action_width=basewidth * 2,
+        action_height=int(hsize / 10),
+        canvas_width=basewidth - 15,
+        slider_length=basewidth - 30,
+    )
+
+
+def create_palette_editor_window(
+    *,
+    tkinter_module: Any,
+    title: str,
+    bg: str = "skyblue",
+    resizable: tuple[bool, bool] = (False, False),
+) -> Any:
+    window = tkinter_module.Tk()
+    window.title(title)
+    window.config(bg=bg)
+    window.resizable(*resizable)
+    return window
+
+
+def create_palette_editor_frames(
+    *,
+    tkinter_module: Any,
+    window: Any,
+    layout: PaletteEditorLayout,
+) -> PaletteEditorFrames:
+    frame_img = tkinter_module.Frame(window, width=layout.basewidth, height=layout.hsize)
+    frame_img.grid(row=0, column=0, padx=10, pady=5)
+    frame_img.columnconfigure(0, weight=1)
+    frame_img.rowconfigure(0, weight=1)
+
+    frame_slider = tkinter_module.Frame(window, width=layout.basewidth, height=layout.hsize, bg="green")
+    frame_slider.columnconfigure(0, weight=1)
+    frame_slider.rowconfigure(0, weight=1)
+    frame_slider.grid(row=0, column=1, padx=10, pady=5)
+
+    frame_action = tkinter_module.Frame(
+        window,
+        width=layout.action_width,
+        height=layout.action_height,
+        bg="orange",
+    )
+    frame_action.columnconfigure(0, weight=1)
+    frame_action.rowconfigure(0, weight=1)
+    frame_action.grid(row=1, column=0, padx=10, pady=5)
+
+    return PaletteEditorFrames(img=frame_img, slider=frame_slider, action=frame_action)
+
+
+def render_preview_label(
+    wanabyte: bytes,
+    frame_img: Any,
+    width: int,
+    height: int,
+    *,
+    cv2_module: Any,
+    numpy_module: Any,
+    image_module: Any,
+    image_tk_module: Any,
+    tkinter_module: Any,
+) -> tuple[Any, Any, Any]:
+    im = cv2_module.imdecode(numpy_module.frombuffer(wanabyte, numpy_module.uint8), -1)
+    pil_image = image_module.fromarray(im)
+    new_pil_image = pil_image.resize(
+        preview_dimensions(width, height),
+        image_module.Resampling.LANCZOS,
+    )
+    tk_image = image_tk_module.PhotoImage(image=new_pil_image)
+    tkinter_module.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+    return im, pil_image, tk_image
+
+
+def create_palette_scale(
+    *,
+    tkinter_module: Any,
+    master: Any,
+    label: str,
+    value: int,
+    from_: int,
+    to: int,
+    length: int,
+    command: Any,
+    orient: str = "horizontal",
+    grid_options: dict[str, Any] | None = None,
+) -> PaletteScaleWidget:
+    var = tkinter_module.IntVar()
+    scale = tkinter_module.Scale(
+        master,
+        label=label,
+        variable=var,
+        from_=from_,
+        to=to,
+        length=length,
+        command=command,
+        orient=orient,
+    )
+    var.set(value)
+    scale.grid(**(grid_options or {}))
+    return PaletteScaleWidget(var=var, scale=scale)
+
+
+def create_palette_slider_canvas(
+    *,
+    tkinter_module: Any,
+    master: Any,
+    height: int,
+    width: int,
+    frame_bg: str = "#EBEBEB",
+    canvas_grid_options: dict[str, Any] | None = None,
+    scrollbar_grid_options: dict[str, Any] | None = None,
+) -> PaletteSliderCanvas:
+    canvas = tkinter_module.Canvas(master, height=height, width=width)
+    canvas.grid(**(canvas_grid_options or {}))
+    frame = tkinter_module.Frame(canvas, bg=frame_bg)
+    canvas.create_window(0, 0, window=frame, anchor="sw")
+
+    scrollbar = tkinter_module.Scrollbar(master, orient="vertical")
+    scrollbar.config(command=canvas.yview)
+    canvas.config(yscrollcommand=scrollbar.set)
+    scrollbar.grid(**(scrollbar_grid_options or {}))
+    return PaletteSliderCanvas(canvas=canvas, frame=frame, scrollbar=scrollbar)
+
+
+def create_palette_action_buttons(
+    *,
+    tkinter_module: Any,
+    master: Any,
+    specs: Iterable[PaletteActionButtonSpec],
+    grid_options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    buttons = {}
+    for spec in specs:
+        button = tkinter_module.Button(master, text=spec.text, command=spec.command)
+        button.grid(row=spec.row, column=spec.column, **(grid_options or {}))
+        buttons[spec.name] = button
+    return buttons
+
+
+def build_palette_action_button_specs(
+    *,
+    web_safe: Any,
+    web_random: Any,
+    x11: Any,
+    x11_random: Any,
+    randomize: Any,
+    save: Any,
+    cancel: Any,
+) -> tuple[PaletteActionButtonSpec, ...]:
+    return (
+        PaletteActionButtonSpec("x216_btn", "Web Safe Color", web_safe, 0, 0),
+        PaletteActionButtonSpec("random_web_btn", "Web Random", web_random, 0, 1),
+        PaletteActionButtonSpec("x11_btn", "X11 Colors", x11, 0, 2),
+        PaletteActionButtonSpec("random_classic_btn", "X11 Random", x11_random, 0, 3),
+        PaletteActionButtonSpec("random_btn", "Randomize", randomize, 1, 0),
+        PaletteActionButtonSpec("save_btn", "Save", save, 1, 2),
+        PaletteActionButtonSpec("cancel_btn", "Cancel", cancel, 1, 3),
+    )
+
+
+def create_palette_sliders(
+    *,
+    palette_count: int,
+    scale_factory: Any,
+    master: Any,
+    before: bytes,
+    after: bytes,
+    height: int,
+    width: int,
+    slider_length: int,
+) -> list[Any]:
+    return [
+        scale_factory(
+            master=master,
+            from_=-1,
+            to=16777215,
+            ln=slider_length,
+            label="Palette %d" % (index + 1),
+            nbr=index,
+            bfn=before,
+            afn=after,
+            h=height,
+            w=width,
+        )
+        for index in range(palette_count)
+    ]
 
 
 def apply_color_table(values: list[Any], sliders: Iterable[Any], colors: Iterable[str]) -> None:
@@ -57,17 +323,6 @@ def random_palette_values(values: list[Any], sliders: Iterable[Any], random_int)
         color_value = random_int(0, 16777215)
         values[index] = color_value
         slider.var.set(color_value)
-
-
-def legacy_palette_count(values: Iterable[Any]) -> int:
-    return 256 - list(values).count(EMPTY_PALETTE_ENTRY)
-
-
-def initial_manual_palette_png(before: bytes, chunk_name: bytes, after: bytes) -> bytes:
-    palette_data = bytes.fromhex("000000")
-    length = int(3).to_bytes(4, "big")
-    checksum = struct.pack("!I", binascii.crc32(chunk_name + palette_data))
-    return before + length + chunk_name + palette_data + checksum + after
 
 
 def save_checkpoint(
@@ -107,7 +362,7 @@ def save_checkpoint(
             data_offset,
             data_offset + chunk_length,
             "-PLTE Data has been modified with %s new palettes."
-            % legacy_palette_count(palette_values),
+            % palette.legacy_palette_count(palette_values),
             b"PLTE",
             from_error,
         ),

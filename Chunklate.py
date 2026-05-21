@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, decisions, fixit_felix, output, palette_ui, relics
+from chunklate import bruteforce, checkpoint, decisions, fixit_felix, output, palette, palette_ui, relics
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -5865,123 +5865,176 @@ def Product(chunk_data,color_type,gen_nbr=None):
 class Tk_Gen_Scale_Plte:
 
     def __init__(self, master=None, label='', value=0,to=None,from_=None,ln=None,afn=None,bfn=None,h=None,w=None,nbr=None):
-        self.var = tkinter.IntVar()
-        self.s = tkinter.Scale(master, 
-                 label=label, 
-                 variable=self.var,
-                 from_=from_, 
-                 to=to, 
-                 length=ln,
-                 command=lambda event: Tk_ImgUpdate_Plte(event,nbr=nbr,bfn=bfn,afn=afn,h=h,w=w),
-                 orient='horizontal')
-        self.var.set(value)
-        self.s.grid(padx=10, pady=5)
+        widget = palette_ui.create_palette_scale(
+            tkinter_module=tkinter,
+            master=master,
+            label=label,
+            value=value,
+            from_=from_,
+            to=to,
+            length=ln,
+            command=lambda event: Tk_ImgUpdate_Plte(event,nbr=nbr,bfn=bfn,afn=afn,h=h,w=w),
+            grid_options={"padx": 10, "pady": 5},
+        )
+        self.var = widget.var
+        self.s = widget.scale
     def clean(self):
        self.s.destroy()
 
 
+def Tk_Render_Plte_Preview(wanabyte, w, h):
+    global frame_img
+    global im, pil_image, tk_image
+
+    im, pil_image, tk_image = palette_ui.render_preview_label(
+        wanabyte,
+        frame_img,
+        w,
+        h,
+        cv2_module=cv2,
+        numpy_module=np,
+        image_module=Image,
+        image_tk_module=ImageTk,
+        tkinter_module=tkinter,
+    )
+
+
+def Sync_Palette_Legacy_State():
+    global Plte_Blst, slider_list, wanabyte
+
+    if palette_state is not None:
+        Plte_Blst = palette_state.values
+        slider_list = palette_state.sliders
+        wanabyte = palette_state.wanabyte
+
+
 def Tk_ImgUpdate_Plte(event,nbr=None,bfn=None,afn=None,w=None,h=None):  
-    global Plte_Blst 
+    global Plte_Blst
+    global palette_state
     global window,tk_image,frame_img,pil_image,im,wanabyte
 
-    palette_ui.set_palette_value(Plte_Blst, int(nbr), event)
-    wanabyte = palette_ui.build_palette_png(bfn, Plte_Blst, afn)
+    if palette_state is not None:
+        wanabyte = palette_ui.update_palette_state_value(
+            palette_state,
+            index=int(nbr),
+            raw_value=event,
+            before=bfn,
+            after=afn,
+        )
+        Sync_Palette_Legacy_State()
+    else:
+        palette.set_palette_value(Plte_Blst, int(nbr), event)
+        wanabyte = palette.build_palette_png(bfn, Plte_Blst, afn)
 
-    im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
-    pil_image = Image.fromarray(im)
-
-    new_pil_image = pil_image.resize((w-10,h-10), Image.Resampling.LANCZOS)
-    
-    tk_image = ImageTk.PhotoImage(image=new_pil_image)
-    tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+    Tk_Render_Plte_Preview(wanabyte, w, h)
 
 #    if DEBUG:
 #        PRINT("PlteId : %s Value : %s Plte_Blst[PlteId]:%s bvalue: %s Lnx_New : %s"%(str(nbr),str(event),str(Plte_Blst[nbr]),str(bvalue),str(Lnx_New)))
 
 def Tk_X11_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
-    global Plte_Blst 
+    global Plte_Blst
+    global palette_state
     global window,tk_image,frame_img,pil_image,im,wanabyte
 
     rnd_x11 = random.sample(X11_Colors,len(X11_Colors))
 
 
-    palette_ui.apply_color_table(Plte_Blst, slider_list, rnd_x11)
-    wanabyte = palette_ui.build_palette_png(bfn, Plte_Blst, afn)
+    if palette_state is not None:
+        wanabyte = palette_ui.apply_palette_state_colors(
+            palette_state,
+            colors=rnd_x11,
+            before=bfn,
+            after=afn,
+        )
+        Sync_Palette_Legacy_State()
+    else:
+        palette_ui.apply_color_table(Plte_Blst, slider_list, rnd_x11)
+        wanabyte = palette.build_palette_png(bfn, Plte_Blst, afn)
 
-    im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
-    pil_image = Image.fromarray(im)
-
-    new_pil_image = pil_image.resize((w-10,h-10), Image.Resampling.LANCZOS)
-    
-    tk_image = ImageTk.PhotoImage(image=new_pil_image)
-    tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+    Tk_Render_Plte_Preview(wanabyte, w, h)
 
 def Tk_X11_Plte(bfn=None,afn=None,w=None,h=None):
-    global Plte_Blst 
+    global Plte_Blst
+    global palette_state
     global window,tk_image,frame_img,pil_image,im,wanabyte
 
 
-    palette_ui.apply_color_table(Plte_Blst, slider_list, X11_Colors)
-    wanabyte = palette_ui.build_palette_png(bfn, Plte_Blst, afn)
+    if palette_state is not None:
+        wanabyte = palette_ui.apply_palette_state_colors(
+            palette_state,
+            colors=X11_Colors,
+            before=bfn,
+            after=afn,
+        )
+        Sync_Palette_Legacy_State()
+    else:
+        palette_ui.apply_color_table(Plte_Blst, slider_list, X11_Colors)
+        wanabyte = palette.build_palette_png(bfn, Plte_Blst, afn)
 
-    im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
-    pil_image = Image.fromarray(im)
-
-    new_pil_image = pil_image.resize((w-10,h-10), Image.Resampling.LANCZOS)
-    
-    tk_image = ImageTk.PhotoImage(image=new_pil_image)
-    tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+    Tk_Render_Plte_Preview(wanabyte, w, h)
 
 
 def Tk_Web_Safe_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
-    global Plte_Blst 
+    global Plte_Blst
+    global palette_state
     global window,tk_image,frame_img,pil_image,im,wanabyte
 
     rnd_216 = random.sample(Web_Safe_Colors,len(Web_Safe_Colors))
 
 
-    palette_ui.apply_color_table(Plte_Blst, slider_list, rnd_216)
-    wanabyte = palette_ui.build_palette_png(bfn, Plte_Blst, afn)
+    if palette_state is not None:
+        wanabyte = palette_ui.apply_palette_state_colors(
+            palette_state,
+            colors=rnd_216,
+            before=bfn,
+            after=afn,
+        )
+        Sync_Palette_Legacy_State()
+    else:
+        palette_ui.apply_color_table(Plte_Blst, slider_list, rnd_216)
+        wanabyte = palette.build_palette_png(bfn, Plte_Blst, afn)
 
-    im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
-    pil_image = Image.fromarray(im)
-
-    new_pil_image = pil_image.resize((w-10,h-10), Image.Resampling.LANCZOS)
-    
-    tk_image = ImageTk.PhotoImage(image=new_pil_image)
-    tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+    Tk_Render_Plte_Preview(wanabyte, w, h)
 
 def Tk_Web_Safe_Plte(bfn=None,afn=None,w=None,h=None):
-    global Plte_Blst 
+    global Plte_Blst
+    global palette_state
     global window,tk_image,frame_img,pil_image,im,wanabyte
 
 
-    palette_ui.apply_color_table(Plte_Blst, slider_list, Web_Safe_Colors)
-    wanabyte = palette_ui.build_palette_png(bfn, Plte_Blst, afn)
+    if palette_state is not None:
+        wanabyte = palette_ui.apply_palette_state_colors(
+            palette_state,
+            colors=Web_Safe_Colors,
+            before=bfn,
+            after=afn,
+        )
+        Sync_Palette_Legacy_State()
+    else:
+        palette_ui.apply_color_table(Plte_Blst, slider_list, Web_Safe_Colors)
+        wanabyte = palette.build_palette_png(bfn, Plte_Blst, afn)
 
-    im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
-    pil_image = Image.fromarray(im)
-
-    new_pil_image = pil_image.resize((w-10,h-10), Image.Resampling.LANCZOS)
-    
-    tk_image = ImageTk.PhotoImage(image=new_pil_image)
-    tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+    Tk_Render_Plte_Preview(wanabyte, w, h)
 
 
 def Tk_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
-    global Plte_Blst 
+    global Plte_Blst
+    global palette_state
     global window,tk_image,frame_img,pil_image,im,wanabyte
 
-    palette_ui.random_palette_values(Plte_Blst, slider_list, random.randint)
-    wanabyte = palette_ui.build_palette_png(bfn, Plte_Blst, afn)
+    if palette_state is not None:
+        wanabyte = palette_ui.randomize_palette_state(
+            palette_state,
+            random_int=random.randint,
+            before=bfn,
+            after=afn,
+        )
+        Sync_Palette_Legacy_State()
+    else:
+        palette_ui.random_palette_values(Plte_Blst, slider_list, random.randint)
+        wanabyte = palette.build_palette_png(bfn, Plte_Blst, afn)
 
-    im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
-    pil_image = Image.fromarray(im)
-
-    new_pil_image = pil_image.resize((w-10,h-10), Image.Resampling.LANCZOS)
-    
-    tk_image = ImageTk.PhotoImage(image=new_pil_image)
-    tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+    Tk_Render_Plte_Preview(wanabyte, w, h)
 
 def Tk_update_scrollregion_Plte(event):
     global canvas_slider
@@ -5989,8 +6042,13 @@ def Tk_update_scrollregion_Plte(event):
 
 def Tk_Save_Plte(Tkwin,Cancel,ChunkLength,DataOffset,FromError,wanabyte):
     global slider_list
+    global palette_state
 
-    for slider in slider_list:
+    active_sliders = palette_state.sliders if palette_state is not None else slider_list
+    active_values = palette_state.values if palette_state is not None else Plte_Blst
+    active_wanabyte = palette_state.wanabyte if palette_state is not None else wanabyte
+
+    for slider in active_sliders:
          slider.clean()
  
     Tkwin.destroy()
@@ -5998,8 +6056,8 @@ def Tk_Save_Plte(Tkwin,Cancel,ChunkLength,DataOffset,FromError,wanabyte):
 
     CheckpointCall = palette_ui.save_checkpoint(
         cancel=Cancel,
-        palette_values=Plte_Blst,
-        wanabyte=wanabyte,
+        palette_values=active_values,
+        wanabyte=active_wanabyte,
         chunk_length=ChunkLength,
         data_offset=DataOffset,
         from_error=FromError,
@@ -6023,7 +6081,7 @@ def Guess_Palettes_Nbr(bfn,afn):
     f = io.BytesIO()
     for n,colorx in enumerate(X11_Colors):
         palette_values.append(int(colorx, 16))
-        wanabyte = palette_ui.build_palette_png(bfn, palette_values, afn)
+        wanabyte = palette.build_palette_png(bfn, palette_values, afn)
         f = io.BytesIO()
 
         with stderr_redirector(f):
@@ -6083,6 +6141,7 @@ def Tk_Manual_Plte(
 ):
     global SideNotes
     global Plte_Blst
+    global palette_state
     global window,tk_image,frame_img,pil_image,im,canvas_slider,slider_list,wanabyte
 
     Candy("Title", "Manually Bruteforcing Chunk Datas:")
@@ -6098,12 +6157,13 @@ def Tk_Manual_Plte(
     Before_New = bytes.fromhex(DATAX[:DataOffset])
     After_New = bytes.fromhex(DATAX[DataOffset + (ChunkLength-DataOffset) :])
 
-    wanabyte = palette_ui.initial_manual_palette_png(Before_New, ChunkName, After_New)
+    wanabyte = palette.initial_manual_palette_png(Before_New, ChunkName, After_New)
 
 
     Palette_nbr = Guess_Palettes_Nbr(Before_New,After_New)
 
-    Plte_Blst = ["empty" for i in range(Palette_nbr)]
+    palette_state = palette_ui.create_palette_editor_state(Palette_nbr, wanabyte)
+    Plte_Blst = palette_state.values
 
     if DEBUG is True:
         fullnewdatax = (
@@ -6124,81 +6184,74 @@ def Tk_Manual_Plte(
     im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
     pil_image = Image.fromarray(im)
 
-    window = tkinter.Tk()
-    window.title("PLTE Editor:%s"%FILE_Origin)
-    window.config(bg="skyblue")
-    window.resizable(False, False)
+    window = palette_ui.create_palette_editor_window(
+        tkinter_module=tkinter,
+        title="PLTE Editor:%s"%FILE_Origin,
+    )
 
-    screen_width = window.winfo_screenwidth()
-    screen_height = window.winfo_screenheight()
+    layout = palette_ui.build_editor_layout(window.winfo_screenwidth(), pil_image.size)
+    basewidth = layout.basewidth
+    hsize = layout.hsize
 
-    basewidth = int(screen_width/2.10)
-    wpercent = (basewidth/float(pil_image.size[0]))
-    hsize = int((float(pil_image.size[1])*float(wpercent)))
-    new_pil_image = pil_image.resize((basewidth-10,hsize-10), Image.Resampling.LANCZOS)
-    
-    tk_image = ImageTk.PhotoImage(image=new_pil_image)
-    
-    frame_img = tkinter.Frame(window, width=basewidth, height=hsize)
-    frame_img.grid(row=0, column=0, padx=10, pady=5)
-    frame_img.columnconfigure(0, weight=1)
-    frame_img.rowconfigure(0, weight=1)
+    editor_frames = palette_ui.create_palette_editor_frames(
+        tkinter_module=tkinter,
+        window=window,
+        layout=layout,
+    )
+    frame_img = editor_frames.img
 
+    Tk_Render_Plte_Preview(wanabyte, basewidth, hsize)
 
-    tkinter.Label(frame_img, image=tk_image).grid(row=1, column=0, padx=5, pady=5)
+    frame_slider = editor_frames.slider
+    frame_action = editor_frames.action
 
-    frame_slider = tkinter.Frame(window, width=basewidth , height=hsize ,bg="green")
-    frame_slider.columnconfigure(0, weight=1)
-    frame_slider.rowconfigure(0, weight=1)
-    frame_slider.grid(row=0, column=1, padx=10, pady=5)
-
-    frame_action = tkinter.Frame(window, width=basewidth*2 , height=int(hsize/10) ,bg="orange")
-    frame_action.columnconfigure(0, weight=1)
-    frame_action.rowconfigure(0, weight=1)
-    frame_action.grid(row=1, column=0, padx=10, pady=5)
-
-    x216_btn = tkinter.Button(frame_action, text="Web Safe Color", command=lambda: Tk_Web_Safe_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
-    x216_btn.grid(row=0, column=0, padx=10, pady=5)
-
-
-    random_web_btn = tkinter.Button(frame_action, text="Web Random", command=lambda: Tk_Web_Safe_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
-    random_web_btn.grid(row=0, column=1, padx=10, pady=5)
-
-    x11_btn = tkinter.Button(frame_action, text="X11 Colors", command=lambda: Tk_X11_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
-    x11_btn.grid(row=0, column=2, padx=10, pady=5)
-
-    random_classic_btn = tkinter.Button(frame_action, text="X11 Random", command=lambda: Tk_X11_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
-    random_classic_btn.grid(row=0, column=3, padx=10, pady=5)
+    action_buttons = palette_ui.create_palette_action_buttons(
+        tkinter_module=tkinter,
+        master=frame_action,
+        specs=palette_ui.build_palette_action_button_specs(
+            web_safe=lambda: Tk_Web_Safe_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth),
+            web_random=lambda: Tk_Web_Safe_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth),
+            x11=lambda: Tk_X11_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth),
+            x11_random=lambda: Tk_X11_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth),
+            randomize=lambda: Tk_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth),
+            save=lambda: Tk_Save_Plte(window,False,ChunkLength,DataOffset,FromError,wanabyte),
+            cancel=lambda: Tk_Save_Plte(window,True,ChunkLength,DataOffset,FromError,wanabyte),
+        ),
+        grid_options={"padx": 10, "pady": 5},
+    )
+    x216_btn = action_buttons["x216_btn"]
+    random_web_btn = action_buttons["random_web_btn"]
+    x11_btn = action_buttons["x11_btn"]
+    random_classic_btn = action_buttons["random_classic_btn"]
+    random_btn = action_buttons["random_btn"]
+    save_btn = action_buttons["save_btn"]
+    cancel_btn = action_buttons["cancel_btn"]
 
 
-    random_btn = tkinter.Button(frame_action, text="Randomize", command=lambda: Tk_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth))
-    random_btn.grid(row=1, column=0, padx=10, pady=5)
+    slider_canvas = palette_ui.create_palette_slider_canvas(
+        tkinter_module=tkinter,
+        master=frame_slider,
+        height=hsize,
+        width=layout.canvas_width,
+        canvas_grid_options={"row": 0, "column": 1, "padx": 10, "pady": 5},
+        scrollbar_grid_options={"row": 0, "column": 0, "sticky": "ns"},
+    )
+    canvas_slider = slider_canvas.canvas
+    frame_canvas = slider_canvas.frame
+    slider_scroll = slider_canvas.scrollbar
 
-
-    save_btn = tkinter.Button(frame_action, text="Save", command=lambda: Tk_Save_Plte(window,False,ChunkLength,DataOffset,FromError,wanabyte))
-    save_btn.grid(row=1, column=2, padx=10, pady=5)
-
-    cancel_btn = tkinter.Button(frame_action, text="Cancel", command=lambda: Tk_Save_Plte(window,True,ChunkLength,DataOffset,FromError,wanabyte))
-    cancel_btn.grid(row=1, column=3, padx=10, pady=5)
-
-
-    canvas_slider=tkinter.Canvas(frame_slider, height=hsize, width=basewidth-15)
-    canvas_slider.grid(row=0, column=1, padx=10, pady=5) # ,sticky="nsew")
-    frame_canvas = tkinter.Frame(canvas_slider, bg="#EBEBEB")
-    canvas_slider.create_window(0,0,window=frame_canvas,anchor="sw")
-
-
-    slider_scroll = tkinter.Scrollbar(frame_slider, orient = 'vertical')
-    slider_scroll.config(command=canvas_slider.yview)
-    canvas_slider.config(yscrollcommand=slider_scroll.set)
-    slider_scroll.grid(row=0, column=0, sticky="ns")
-
-    slider_list = []
-    for i in range(Palette_nbr):
-#    for i in range(10):
-        slider_list.append(
-        Tk_Gen_Scale_Plte(master=frame_canvas,from_=-1,to=16777215,ln=basewidth-30,label='Palette %d' % (i+1),nbr=i,bfn=Before_New,afn=After_New,h=hsize,w=basewidth)
-        )
+    slider_list = palette_ui.create_palette_sliders(
+        palette_count=Palette_nbr,
+        scale_factory=Tk_Gen_Scale_Plte,
+        master=frame_canvas,
+        before=Before_New,
+        after=After_New,
+        height=hsize,
+        width=basewidth,
+        slider_length=layout.slider_length,
+    )
+    palette_ui.set_palette_state_sliders(palette_state, slider_list)
+    Sync_Palette_Legacy_State()
 
 
     canvas_slider.bind("<Configure>", Tk_update_scrollregion_Plte)
@@ -6232,12 +6285,14 @@ def SmashBruteBrawl(
             PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
 
 
-    def BuildFND(LN,BF,CH):
-        return bruteforce.build_full_new_data(
+    def BuildAttempt(LN, payload_data, crc_data, before, after):
+        return bruteforce.prepare_candidate_attempt(
             ChunkName,
             LN,
-            BF,
-            CH,
+            payload_data,
+            crc_data,
+            before,
+            after,
             brute_length=BruteLength,
             brute_crc=BruteCrc,
             old_crc=OldCrc,
@@ -6371,14 +6426,35 @@ def SmashBruteBrawl(
 
     CNamex_New = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x", "")
 
-    Bingo = False
-    ReplaceFlag = False
-    InsertFlag = False
-    RemoveFlag = False
-    Bonus = False
+    BrawlState = bruteforce.BruteForceMatchState()
+    fullnewdatax = b""
+    wanabyte = b""
     TmpSkip = True
     TmpImgLst = []
     result = "bad result"
+
+    def ValidateAttempt(attempt, edit_kind=None, bonus=False):
+        nonlocal BrawlState, fullnewdatax, wanabyte
+
+        if OldCrc:
+            if not attempt.old_crc_match:
+                return False
+        else:
+            fullnewdatax = attempt.full_new_data
+            wanabyte = attempt.png_bytes
+            if not ShowPng(wanabyte, fullnewdatax):
+                return False
+
+        applied_attempt = bruteforce.apply_candidate_attempt_match(
+            BrawlState,
+            attempt,
+            edit_kind,
+            bonus=bonus,
+        )
+        BrawlState = applied_attempt.state
+        fullnewdatax = applied_attempt.full_new_data
+        wanabyte = applied_attempt.png_bytes
+        return True
 
 
     ImageShow.register(ImageShow.EogViewer(),1)
@@ -6401,8 +6477,6 @@ def SmashBruteBrawl(
              max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
     else:
          chunklen_spec,chunk_format  =  GetSpec(ChunkName,BfMode,Fields=["Length","Format"])
-
-    ln_chunk_format = len(chunk_format)-1
 
     LengthRange = bruteforce.length_range(chunklen_spec)
     maxchunklen = LengthRange.max_length
@@ -6480,11 +6554,8 @@ def SmashBruteBrawl(
         ToBryte = EditWindow.to_bryte
         After_New = EditWindow.after
 
-        if EditWindow.replace_flag:
-                ReplaceFlag = True
-                Lnx_New = EditWindow.length_bytes
-        elif EditWindow.insert_flag:
-                InsertFlag = True
+        if EditWindow.replace_flag or EditWindow.insert_flag:
+                BrawlState = bruteforce.match_state_from_edit_window(EditWindow)
                 Lnx_New = EditWindow.length_bytes
  
 #        print("bfn:",Before_New)
@@ -6525,68 +6596,38 @@ def SmashBruteBrawl(
                 guess = datetime.now() + timdeta
                 PRINT("-Bruteforce ending date time is estimated around %s\n"%str(guess))
 
-            if BfMode == "Custom":
-                frm = "!"+"".join(chunk_format).replace("!","")
-                unpackTB = struct.unpack(frm,ToBryte)
-                bvalue = b""
-                for enum,(utb,cf) in enumerate(zip(unpackTB,chunk_format)):
-                    if any(s == enum for s in Sti):
-                        for s in Sti:
-                            if s == enum:
-                               try:
-                                   bvalue += struct.pack(cf,int(i[Sti.index(s)]))
-                               except TypeError:
-                                   bvalue += struct.pack(cf,i)
-                               break
-                    else:
-
-                        bvalue += struct.pack(cf,utb)
-
-            else:
-
-
-               bvalue = b""
-               idx = 0
-               for j in i:
-                   if idx < ln_chunk_format:
-                      bvalue += struct.pack(chunk_format[idx],int(j))
-                      idx += 1
-                   else:
-                      bvalue += struct.pack(chunk_format[idx],int(j))
-                      idx = 0
+            bvalue = bruteforce.build_candidate_bytes(
+                i,
+                chunk_format,
+                BfMode,
+                struct_indexes=tuple(Sti),
+                to_bryte=ToBryte,
+            )
 
             if BfMode == "TwoBytes": 
                 needle = 0
                 needle2 = len(bvalue.hex())
-                while needle2 <= len(ToBrute) and Bingo is False:
-                     if needle < len(ToBrute) - (needle2 - 1) and Bingo is False:
+                while needle2 <= len(ToBrute) and BrawlState.bingo is False:
+                     if needle < len(ToBrute) - (needle2 - 1) and BrawlState.bingo is False:
 
                           Minibar(Indication="%s/%s"%(n,max_iter)) 
                            ##TODO maybe it would be better to just check Replace/Insert/Remove all in the same time.
                           ##replace
                           if EditMode == "Replace" or ChunkName == b'IDAT':
-                              newdatax = bytes.fromhex(ToBrute[:needle]) + bvalue + bytes.fromhex(ToBrute[needle+needle2:])
-                              bonusdatax = ToBrute[:needle] + bvalue.hex() + ToBrute[needle+needle2:]
-                              Lnx_New = len(newdatax).to_bytes(4, "big")
-                              checksum = struct.pack("!I",binascii.crc32(ChunkName + newdatax))
+                              candidate_data = bruteforce.twobytes_candidate_data(
+                                  ToBrute,
+                                  bvalue,
+                                  needle,
+                                  "replace",
+                              )
+                              newdatax = candidate_data.data
+                              bonusdatax = candidate_data.bonus_hex
+                              Lnx_New = candidate_data.length_bytes
+                              attempt = BuildAttempt(Lnx_New, bvalue, newdatax, Before_New, After_New)
 
-                              if OldCrc:
-                                  if checksum == OldCrc: 
-                                      fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
-                                      wanabyte = Before_New + fullnewdatax + After_New
-                                      Bingo = True
-                                      ReplaceFlag= True
+                              if ValidateAttempt(attempt, "replace"):
 #                                      print("-Bingo replace")
-                                      break
-
-                              else:
-                                  fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
-                                  wanabyte = Before_New + fullnewdatax + After_New
-                                  if ShowPng(wanabyte,fullnewdatax):                                    
-                                      Bingo = True
-                                      ReplaceFlag= True
-#                                      print("-Bingo replace")
-                                      break
+                                  break
 
                               ##Bonus Stage
                               if Brute_LvL > 0:
@@ -6601,49 +6642,34 @@ def SmashBruteBrawl(
                                              Minibar(Indication="%s/%s"%(n,max_iter))
         #                                     hexa = f'{hexa:x}'.zfill(2)
                                              hexa = int(hexa).to_bytes(1, "big")
-                                             newdataxplus = bytes.fromhex(bonusdatax[:n1]) + hexa + bytes.fromhex(bonusdatax[n1+n2:]) 
+                                             newdataxplus = bruteforce.twobytes_bonus_candidate_data(bonusdatax, n1, hexa)
                                              Lnx_New = len(newdataxplus).to_bytes(4, "big")
-                                             checksum = struct.pack("!I",binascii.crc32(ChunkName + newdataxplus))
+                                             attempt = BuildAttempt(Lnx_New, newdataxplus, newdataxplus, Before_New, After_New)
 
                                              if OldCrc:
-                                                 if checksum == OldCrc:
-                                                     fullnewdatax = BuildFND(Lnx_New,newdataxplus,checksum)
-                                                     wanabyte = Before_New + fullnewdatax + After_New
-                                                     Bingo = True
-                                                     Bonus = True
+                                                 if ValidateAttempt(attempt, bonus=True):
                                                      print("-Bingo replace bonus stage")
                                                      break
                                              else:
-                                                  fullnewdatax = BuildFND(Lnx_New,newdataxplus,checksum)
-                                                  wanabyte = Before_New + fullnewdatax + After_New
-                                                  if ShowPng(wanabyte,fullnewdatax):                                    
-                                                      Bingo = True
-                                                      ReplaceFlag= True
-                                                      Bonus = True
+                                                  if ValidateAttempt(attempt, "replace", bonus=True):
                 #                                      print("-Bingo replace")
                                                       break
                                       n1 += 2
 
                           ##insert
                           if EditMode == "Insert" or ChunkName == b'IDAT':
-                              newdatax = bytes.fromhex(ToBrute[:needle]) + bvalue + bytes.fromhex(ToBrute[needle:])
-                              bonusdatax = ToBrute[:needle] + bvalue.hex() + ToBrute[needle:]
-                              Lnx_New = len(newdatax).to_bytes(4, "big")
-                              checksum = struct.pack("!I",binascii.crc32(ChunkName + newdatax))
-                              if OldCrc:
-                                  if checksum == OldCrc:
-                                      fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
-                                      wanabyte = Before_New + fullnewdatax + After_New
-                                      Bingo = True
-                                      InsertFlag = True
-                                      break
-                              else:
-                                  fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
-                                  wanabyte = Before_New + fullnewdatax + After_New
-                                  if ShowPng(wanabyte,fullnewdatax):                                    
-                                      Bingo = True
-                                      InsertFlag = True
-                                      break
+                              candidate_data = bruteforce.twobytes_candidate_data(
+                                  ToBrute,
+                                  bvalue,
+                                  needle,
+                                  "insert",
+                              )
+                              newdatax = candidate_data.data
+                              bonusdatax = candidate_data.bonus_hex
+                              Lnx_New = candidate_data.length_bytes
+                              attempt = BuildAttempt(Lnx_New, bvalue, newdatax, Before_New, After_New)
+                              if ValidateAttempt(attempt, "insert"):
+                                  break
 
                               ##Bonus Stage
                               if Brute_LvL > 0:
@@ -6657,49 +6683,29 @@ def SmashBruteBrawl(
                                          for hexa in range(0, 16 ** 2):
                                              Minibar(Indication="%s/%s"%(n,max_iter))
                                              hexa = int(hexa).to_bytes(1, "big")
-                                             newdataxplus = bytes.fromhex(bonusdatax[:n1]) + hexa + bytes.fromhex(bonusdatax[n1+n2:])
+                                             newdataxplus = bruteforce.twobytes_bonus_candidate_data(bonusdatax, n1, hexa)
                                              Lnx_New = len(newdataxplus).to_bytes(4, "big")
-                                             checksum = struct.pack("!I",binascii.crc32(ChunkName + newdataxplus))
-                                             if OldCrc:
-                                                 if checksum == OldCrc:
-                                                     fullnewdatax = BuildFND(Lnx_New,newdataxplus,checksum)
-                                                     wanabyte = Before_New + fullnewdatax + After_New
-                                                     Bingo = True
-                                                     Bonus = True
-                                                     InsertFlag = True
-                                                     break
-                                             else:
-                                                  fullnewdatax = BuildFND(Lnx_New,newdataxplus,checksum)
-                                                  wanabyte = Before_New + fullnewdatax + After_New
-                                                  if ShowPng(wanabyte,fullnewdatax):                                    
-                                                      Bingo = True
-                                                      InsertFlag = True
-                                                      Bonus = True
+                                             attempt = BuildAttempt(Lnx_New, newdataxplus, newdataxplus, Before_New, After_New)
+                                             if ValidateAttempt(attempt, "insert", bonus=True):
                 #                                      print("-Bingo replace")
-                                                      break
+                                                 break
                                       n1 += 2
 
                           ##remove
                           if EditMode == "Remove" or ChunkName == b'IDAT':
-                              newdatax = bytes.fromhex(ToBrute[:needle]) + bvalue + bytes.fromhex(ToBrute[needle+needle2+2:])
-                              bonusdatax = ToBrute[:needle] + bvalue.hex() + ToBrute[needle+needle2+2:]
-                              Lnx_New = len(newdatax).to_bytes(4, "big")
-                              checksum = struct.pack("!I",binascii.crc32(ChunkName + newdatax))#
+                              candidate_data = bruteforce.twobytes_candidate_data(
+                                  ToBrute,
+                                  bvalue,
+                                  needle,
+                                  "remove",
+                              )
+                              newdatax = candidate_data.data
+                              bonusdatax = candidate_data.bonus_hex
+                              Lnx_New = candidate_data.length_bytes
+                              attempt = BuildAttempt(Lnx_New, bvalue, newdatax, Before_New, After_New)
     #
-                              if OldCrc:
-                                  if checksum == OldCrc:
-                                      fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
-                                      wanabyte = Before_New + fullnewdatax + After_New
-                                      Bingo = True
-                                      RemoveFlag = True
-                                      break
-                              else:
-                                  fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
-                                  wanabyte = Before_New + fullnewdatax + After_New
-                                  if ShowPng(wanabyte,fullnewdatax):                                    
-                                      Bingo = True
-                                      RemoveFlag = True
-                                      break
+                              if ValidateAttempt(attempt, "remove"):
+                                  break
 
                           ##Bonus Stage
                               if Brute_LvL > 0:
@@ -6713,27 +6719,13 @@ def SmashBruteBrawl(
                                          for hexa in range(0, 16 ** 2):
                                              Minibar(Indication="%s/%s"%(n,max_iter))
                                              hexa = int(hexa).to_bytes(1, "big")
-                                             newdataxplus = bytes.fromhex(bonusdatax[:n1]) + hexa + bytes.fromhex(bonusdatax[n1+n2:])
+                                             newdataxplus = bruteforce.twobytes_bonus_candidate_data(bonusdatax, n1, hexa)
                                              Lnx_New = len(newdataxplus).to_bytes(4, "big")
-                                             checksum = struct.pack("!I",binascii.crc32(ChunkName + newdataxplus))
+                                             attempt = BuildAttempt(Lnx_New, newdataxplus, newdataxplus, Before_New, After_New)
 
-                                             if OldCrc:
-                                                 if checksum == OldCrc:
-                                                     fullnewdatax = BuildFND(Lnx_New,newdataxplus,checksum)
-                                                     wanabyte = Before_New + fullnewdatax + After_New
-                                                     Bingo = True
-                                                     Bonus = True
-                                                     RemoveFlag = True
-                                                     break
-                                             else:
-                                                  fullnewdatax = BuildFND(Lnx_New,newdataxplus,checksum)
-                                                  wanabyte = Before_New + fullnewdatax + After_New
-                                                  if ShowPng(wanabyte,fullnewdatax):                                    
-                                                      Bingo = True
-                                                      RemoveFlag = True
-                                                      Bonus = True
+                                             if ValidateAttempt(attempt, "remove", bonus=True):
                 #                                      print("-Bingo replace")
-                                                      break
+                                                 break
                                       n1 += 2
 
                           ##masterloop
@@ -6742,26 +6734,19 @@ def SmashBruteBrawl(
                           break
 
             else:
-                 checksum = struct.pack("!I",binascii.crc32(ChunkName + bvalue))
+                 attempt = BuildAttempt(Lnx_New, bvalue, bvalue, Before_New, After_New)
                  Loadingbar(max_iter, len_iter, n, False)
 
                  if OldCrc:
     #                  with open("crc.plte","a+") as bd:
     #                         save = "Data:%s Crc:%s"%(str(bvalue.hex()),str(checksum.hex()))
     #                         bd.write(save+"\n")
-                      if OldCrc != checksum:
-                          continue
-                      else:
-                            fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
-                            wanabyte = Before_New + fullnewdatax + After_New
-                            Bingo = True
-                            break
+                      if ValidateAttempt(attempt):
+                          break
+                      continue
 
                  else:
-                    fullnewdatax = BuildFND(Lnx_New,bvalue,checksum)
-                    wanabyte = Before_New + fullnewdatax + After_New
-                    if ShowPng(wanabyte,fullnewdatax):
-                       Bingo = True
+                    if ValidateAttempt(attempt):
                        break
                     else:
                        continue
@@ -6770,7 +6755,7 @@ def SmashBruteBrawl(
 
     ETA = (datetime.now() - Std).seconds
 
-    if Bingo is True:
+    if BrawlState.bingo is True:
 
 
         PRINT(
@@ -6779,11 +6764,11 @@ def SmashBruteBrawl(
         )
 
 
-        if Bonus:
+        if BrawlState.bonus:
                 Candy("Cowsay", "-At least 2 bytes has been corrupted.", "bad")
                 SideNotes.append("-At least 2 bytes has been corrupted.")
 
-        if ReplaceFlag:
+        if BrawlState.replace_flag:
             PRINT(
                 "-Chunk %s has been repaired by changing those bytes:\n"
                 % Candy("Color", "green", ChunkName)
@@ -6794,7 +6779,7 @@ def SmashBruteBrawl(
                % (ChunkName,DIFF)
             )
 
-        if InsertFlag:
+        if BrawlState.insert_flag:
 
             PRINT(
                 "-Chunk %s has been repaired by adding those bytes:\n"
@@ -6806,7 +6791,7 @@ def SmashBruteBrawl(
                % (ChunkName,DIFF)
             )
 
-        if RemoveFlag:
+        if BrawlState.remove_flag:
 
             PRINT(
                 "-Chunk %s has been repaired by removing those bytes:\n"
@@ -11359,6 +11344,9 @@ PLTE_R = []
 PLTE_G = []
 PLTE_B = []
 Plte_Blst = []
+palette_state = None
+slider_list = []
+wanabyte = b""
 sPLT_Name = []
 sPLT_Depht = []
 sPLT_Red = []
