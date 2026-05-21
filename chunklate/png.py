@@ -73,6 +73,21 @@ class MissingChunkByteRepair:
     inserted_value: int
 
 
+@dataclass(frozen=True)
+class ChunkTypeRepair:
+    data: bytes
+    strategy: str
+    original_name: str
+    repaired_name: str
+
+
+@dataclass(frozen=True)
+class ChunkRemovalRepair:
+    data: bytes
+    strategy: str
+    removed_chunks: tuple[str, ...]
+
+
 def find_signature_offset(data: bytes) -> int:
     return data.find(PNG_SIGNATURE)
 
@@ -387,6 +402,149 @@ def repair_missing_chunk_data_byte(data: bytes, *, max_chunk_length: int = 65536
             return None
 
     return None
+
+
+def png_chunk_data_is_coherent(chunk_type: bytes, chunk_data: bytes) -> bool:
+    length = len(chunk_data)
+
+    if chunk_type == b"IHDR":
+        if length != 13:
+            return False
+        width, height, bit_depth, color_type, compression, filter_method, interlace = struct.unpack(
+            "!IIBBBBB", chunk_data
+        )
+        return (
+            width > 0
+            and height > 0
+            and valid_png_color_depth(bit_depth, color_type)
+            and compression == 0
+            and filter_method == 0
+            and interlace in (0, 1)
+        )
+
+    if chunk_type == b"IEND":
+        return length == 0
+
+    if chunk_type == b"PLTE":
+        entries = length // 3
+        return length % 3 == 0 and 1 <= entries <= 256
+
+    if chunk_type == b"gAMA":
+        return length == 4 and int.from_bytes(chunk_data, "big") > 0
+
+    if chunk_type == b"cHRM":
+        return length == 32
+
+    if chunk_type == b"sRGB":
+        return length == 1 and chunk_data[0] in (0, 1, 2, 3)
+
+    if chunk_type == b"pHYs":
+        return length == 9 and chunk_data[8] in (0, 1)
+
+    if chunk_type == b"tIME":
+        if length != 7:
+            return False
+        year = int.from_bytes(chunk_data[:2], "big")
+        month, day, hour, minute, second = chunk_data[2:]
+        return year > 0 and 1 <= month <= 12 and 1 <= day <= 31 and hour <= 23 and minute <= 59 and second <= 60
+
+    if chunk_type == b"iCCP":
+        return iccp_decompressed_profile(PngChunk(0, length, chunk_type, chunk_data, 0)) is not None
+
+    if chunk_type == b"zTXt":
+        try:
+            null_pos = chunk_data.index(0)
+        except ValueError:
+            return False
+        if not 1 <= null_pos <= 79 or null_pos + 2 > length or chunk_data[null_pos + 1] != 0:
+            return False
+        try:
+            zlib.decompress(chunk_data[null_pos + 2 :])
+        except zlib.error:
+            return False
+        return True
+
+    if chunk_type == b"sPLT":
+        try:
+            null_pos = chunk_data.index(0)
+        except ValueError:
+            return False
+        if not 1 <= null_pos <= 79 or null_pos + 1 >= length:
+            return False
+        sample_depth = chunk_data[null_pos + 1]
+        entries_length = length - null_pos - 2
+        return (sample_depth == 8 and entries_length % 6 == 0) or (sample_depth == 16 and entries_length % 10 == 0)
+
+    if chunk_type == b"IDAT":
+        return length > 0
+
+    return False
+
+
+def repair_known_chunk_type_case(data: bytes, known_chunk_types: Iterable[bytes]) -> ChunkTypeRepair | None:
+    canonical_by_lower = {chunk_type.lower(): chunk_type for chunk_type in known_chunk_types}
+
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    for chunk in chunks:
+        canonical = canonical_by_lower.get(chunk.chunk_type.lower())
+        if canonical is None or canonical == chunk.chunk_type:
+            continue
+        if not png_chunk_data_is_coherent(canonical, chunk.data):
+            continue
+
+        repaired_chunk = build_png_chunk(canonical, chunk.data)
+        repaired = replace_png_chunk(data, chunk, repaired_chunk)
+        if not is_complete_png_with_valid_crc(repaired):
+            continue
+
+        return ChunkTypeRepair(
+            data=repaired,
+            strategy="renamed known chunk %s to %s and rebuilt CRC" % (chunk.name, canonical.decode("ascii")),
+            original_name=chunk.name,
+            repaired_name=canonical.decode("ascii"),
+        )
+
+    return None
+
+
+def is_unknown_private_critical_unsafe_chunk(chunk: PngChunk, known_chunk_types: Iterable[bytes]) -> bool:
+    if not _is_ascii_chunk_type(chunk.chunk_type):
+        return False
+
+    canonical_by_lower = {chunk_type.lower(): chunk_type for chunk_type in known_chunk_types}
+    if chunk.chunk_type.lower() in canonical_by_lower:
+        return False
+
+    critical = not bool(chunk.chunk_type[0] & 0x20)
+    private = bool(chunk.chunk_type[1] & 0x20)
+    reserved_ok = not bool(chunk.chunk_type[2] & 0x20)
+    unsafe_to_copy = not bool(chunk.chunk_type[3] & 0x20)
+    return critical and private and reserved_ok and unsafe_to_copy
+
+
+def repair_unknown_private_critical_chunks(
+    data: bytes,
+    known_chunk_types: Iterable[bytes],
+) -> ChunkRemovalRepair | None:
+    known_chunk_types = tuple(known_chunk_types)
+    result = remove_png_chunks(data, lambda chunk: is_unknown_private_critical_unsafe_chunk(chunk, known_chunk_types))
+    if result is None:
+        return None
+
+    repaired, removed = result
+    if not is_complete_png_with_valid_crc(repaired):
+        return None
+
+    removed_names = tuple(chunk.name for chunk in removed)
+    return ChunkRemovalRepair(
+        data=repaired,
+        strategy="removed unknown private critical unsafe-to-copy chunk(s): %s" % ", ".join(removed_names),
+        removed_chunks=removed_names,
+    )
 
 
 def iccp_profile_name(chunk: PngChunk) -> bytes | None:

@@ -51,7 +51,9 @@ from chunklate.png import (
     repair_color_profile_chunks,
     repair_empty_plte,
     repair_ihdr,
+    repair_known_chunk_type_case,
     repair_missing_chunk_data_byte,
+    repair_unknown_private_critical_chunks,
 )
 
 
@@ -8536,6 +8538,9 @@ def BruteChunk(CType, LastCType, ChunkLen, FromError):
             FromError,
         )
     else:
+        UnknownPrivateCriticalRemoval = FixItFelix_Try_Unknown_Private_Critical_Removal()
+        if UnknownPrivateCriticalRemoval is not None:
+            return UnknownPrivateCriticalRemoval
 
         Candy("Title", "WHO'S THAT POKEMON !?:")
         Candy("Cowsay", " Arg that's all gibberish ...", "com")
@@ -10276,6 +10281,29 @@ def FixItFelix_Try_Missing_Chunk_Data_Byte():
     return True
 
 
+def FixItFelix_Try_Known_Chunk_Type_Case_Repair():
+    if not any("Wrong Ancillary in known Chunk name" in str(key) for key in PandoraBox):
+        return None
+
+    repair = repair_known_chunk_type_case(bytes.fromhex(DATAX), ALLCHUNKS)
+    if repair is None:
+        return None
+
+    SideNotes.append("-FixItFelix:%s." % repair.strategy)
+    WriteClone(repair.data.hex(), "-%s." % repair.strategy)
+    return True
+
+
+def FixItFelix_Try_Unknown_Private_Critical_Removal():
+    repair = repair_unknown_private_critical_chunks(bytes.fromhex(DATAX), ALLCHUNKS)
+    if repair is None:
+        return None
+
+    SideNotes.append("-FixItFelix:%s." % repair.strategy)
+    WriteClone(repair.data.hex(), "-%s." % repair.strategy)
+    return True
+
+
 def FixItFelix_Try_IHDR_Rebuild():
     if not any("IHDR" in str(key) and ("GetInfo" in str(key) or "Wrong Crc" in str(key)) for key in PandoraBox):
         return None
@@ -10371,6 +10399,14 @@ def FixItFelix(Chunk=None):
     PlteCleanup = FixItFelix_Try_PLTE_Cleanup()
     if PlteCleanup is not None:
         return PlteCleanup
+
+    KnownChunkTypeCaseRepair = FixItFelix_Try_Known_Chunk_Type_Case_Repair()
+    if KnownChunkTypeCaseRepair is not None:
+        return KnownChunkTypeCaseRepair
+
+    UnknownPrivateCriticalRemoval = FixItFelix_Try_Unknown_Private_Critical_Removal()
+    if UnknownPrivateCriticalRemoval is not None:
+        return UnknownPrivateCriticalRemoval
 
     MissingChunkDataByte = FixItFelix_Try_Missing_Chunk_Data_Byte()
     if MissingChunkDataByte is not None:

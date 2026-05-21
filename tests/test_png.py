@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import zlib
 from pathlib import Path
 
 
@@ -11,6 +12,7 @@ from chunklate.png import (
     IEND_CHUNK,
     PNG_SIGNATURE,
     PngFormatError,
+    build_png_chunk,
     chunk_at,
     complete_iend_tail,
     chunk_type_crc_matches,
@@ -23,7 +25,9 @@ from chunklate.png import (
     repair_ihdr,
     repair_ihdr_from_idat,
     repair_ihdr_preserving_crc,
+    repair_known_chunk_type_case,
     repair_missing_chunk_data_byte,
+    repair_unknown_private_critical_chunks,
 )
 
 
@@ -255,6 +259,74 @@ def test_repair_missing_chunk_data_byte_uses_shifted_crc():
     assert all(chunk.crc_ok for chunk in chunks)
 
 
+def test_repair_known_chunk_type_case_rebuilds_crc():
+    original = (REPAIR_FIXTURES / "chunk_private_critical.png").read_bytes()
+
+    repaired = repair_known_chunk_type_case(original, [b"gAMA"])
+
+    assert repaired is not None
+    assert repaired.original_name == "GaMA"
+    assert repaired.repaired_name == "gAMA"
+    chunks = list(iter_chunks(repaired.data))
+    assert [chunk.chunk_type for chunk in chunks] == [b"IHDR", b"gAMA", b"PLTE", b"IDAT", b"IEND"]
+    assert all(chunk.crc_ok for chunk in chunks)
+
+
+def minimal_gray_png_with_chunk(chunk_type, chunk_data):
+    ihdr = build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
+    idat = build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+    return PNG_SIGNATURE + ihdr + build_png_chunk(chunk_type, chunk_data) + idat + IEND_CHUNK
+
+
+def test_repair_known_chunk_type_case_requires_coherent_data():
+    broken = minimal_gray_png_with_chunk(b"GaMA", b"\x00\x00\x00\x00")
+
+    repaired = repair_known_chunk_type_case(broken, [b"gAMA"])
+
+    assert repaired is None
+
+
+def test_repair_known_chunk_type_case_accepts_other_coherent_chunks():
+    broken = minimal_gray_png_with_chunk(b"SrGB", b"\x00")
+
+    repaired = repair_known_chunk_type_case(broken, [b"sRGB"])
+
+    assert repaired is not None
+    assert repaired.original_name == "SrGB"
+    assert repaired.repaired_name == "sRGB"
+    chunks = list(iter_chunks(repaired.data))
+    assert [chunk.chunk_type for chunk in chunks] == [b"IHDR", b"sRGB", b"IDAT", b"IEND"]
+    assert all(chunk.crc_ok for chunk in chunks)
+
+
+def test_repair_known_chunk_type_case_ignores_true_unknown_private_critical_chunk():
+    original = (REPAIR_FIXTURES / "Unhandled-Critical-Chunk.png").read_bytes()
+
+    repaired = repair_known_chunk_type_case(original, [b"gAMA"])
+
+    assert repaired is None
+
+
+def test_repair_unknown_private_critical_chunks_removes_unsafe_chunk():
+    original = (REPAIR_FIXTURES / "Unhandled-Critical-Chunk.png").read_bytes()
+
+    repaired = repair_unknown_private_critical_chunks(original, [b"IHDR", b"gAMA", b"PLTE", b"IDAT", b"IEND"])
+
+    assert repaired is not None
+    assert repaired.removed_chunks == ("QpZZ",)
+    chunks = list(iter_chunks(repaired.data))
+    assert [chunk.chunk_type for chunk in chunks] == [b"IHDR", b"PLTE", b"IDAT", b"IEND"]
+    assert all(chunk.crc_ok for chunk in chunks)
+
+
+def test_repair_unknown_private_critical_chunks_keeps_known_case_candidate():
+    original = (REPAIR_FIXTURES / "chunk_private_critical.png").read_bytes()
+
+    repaired = repair_unknown_private_critical_chunks(original, [b"gAMA"])
+
+    assert repaired is None
+
+
 def main():
     checks = [
         ("Read valid PNG chunks from fixture", test_read_valid_png_chunks_from_fixture),
@@ -286,6 +358,21 @@ def main():
         ("Remove empty optional truecolor PLTE", test_repair_empty_plte_removes_optional_truecolor_palette),
         ("Rebuild empty indexed PLTE", test_repair_empty_plte_rebuilds_indexed_palette),
         ("Repair missing data byte using shifted CRC", test_repair_missing_chunk_data_byte_uses_shifted_crc),
+        ("Repair known chunk type case and CRC", test_repair_known_chunk_type_case_rebuilds_crc),
+        ("Reject known chunk type case with incoherent data", test_repair_known_chunk_type_case_requires_coherent_data),
+        ("Repair coherent sRGB chunk type case", test_repair_known_chunk_type_case_accepts_other_coherent_chunks),
+        (
+            "Ignore true unknown private critical chunk",
+            test_repair_known_chunk_type_case_ignores_true_unknown_private_critical_chunk,
+        ),
+        (
+            "Remove unknown private critical unsafe-to-copy chunk",
+            test_repair_unknown_private_critical_chunks_removes_unsafe_chunk,
+        ),
+        (
+            "Keep known chunk type case candidate during unknown critical removal",
+            test_repair_unknown_private_critical_chunks_keeps_known_case_candidate,
+        ),
     ]
 
     print("Running PNG parser tests")

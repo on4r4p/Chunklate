@@ -57,11 +57,13 @@ REPAIR_CASES = {
     "Wrong-Chunk-Name-Bad-Crc.png": (1, ("Wrong-Chunk-Name-Bad-Crc.0_Fixed.png",)),
     "Wrong-Chunk-Name-Crc-Valid.png": (2, ("Wrong-Chunk-Name-Crc-Valid.1_Fixed.png",)),
     "chunk_crc.png": (1, ("chunk_crc.0_Fixed.png",)),
+    "chunk_private_critical.png": (1, ("chunk_private_critical.0_Fixed.png",)),
     "chunk_private_critical_badcrc.png": (2, ("chunk_private_critical_badcrc.1_Fixed.png",)),
     "chunk_private_critical_goodcrc.png": (2, ("chunk_private_critical_goodcrc.1_Fixed.png",)),
     "chunk_type.png": (2, ("chunk_type.1_Fixed.png",)),
     "gama_zero.png": (1, ("gama_zero.0_Fixed.png",)),
     "ihdr_image_size.png": (1, ("ihdr_image_size.0_Fixed.png",)),
+    "Unhandled-Critical-Chunk.png": (1, ("Unhandled-Critical-Chunk.0_Fixed.png",)),
 }
 
 
@@ -75,11 +77,7 @@ PILLOW_LENIENT_REPAIR_CASES = {
 PILLOW_ONLY_REPAIR_CASES = {}
 
 
-NO_NONINTERACTIVE_CLONE = "non-interactive audit exits rc=1 before writing any _Fixed.png"
-UNCOVERED_REPAIR_CASES = {
-    "Unhandled-Critical-Chunk.png": NO_NONINTERACTIVE_CLONE,
-    "chunk_private_critical.png": NO_NONINTERACTIVE_CLONE,
-}
+UNCOVERED_REPAIR_CASES = {}
 
 
 def is_complete_png_with_valid_crc(path):
