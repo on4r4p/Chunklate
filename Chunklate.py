@@ -1351,331 +1351,32 @@ def GetInfo(Chunk, data, Dummy=False):
             "Cowsay", " Well ..That's a start ..At least it looks like a png.", "good"
         )
     if Chunk == b"IHDR":
-        try:
-            IHDR_Width = str(int(data[:8], 16))
+        IHDR_Info = chunk_info.parse_ihdr(data, max_resolution=Max_Res())
+        IHDR_Width = IHDR_Info.width
+        IHDR_Height = IHDR_Info.height
+        IHDR_Depht = IHDR_Info.depth
+        IHDR_Color = IHDR_Info.color
+        IHDR_Method = IHDR_Info.method
+        IHDR_Filter = IHDR_Info.filter_method
+        IHDR_Interlace = IHDR_Info.interlace
 
-        except (NameError, ValueError) as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            ToFix.append("-Error IHDR Height:%s  StructIndex:1"%str(e))
-        try:
-            IHDR_Height = str(int(data[8:16], 16))
-        except (NameError, ValueError) as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            ToFix.append("-Error IHDR Width:%s StructIndex:0"% str(e))
-        try:
-            IHDR_Depht = str(int(data[16:18], 16))
-        except (NameError, ValueError) as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-            ToFix.append("-Error IHDR Depht:%s StructIndex:2"%str(e))
+        PRINT("-Width    :%s"% Candy("Color", "yellow", IHDR_Width))
+        PRINT("-Height   :%s"% Candy("Color", "yellow", IHDR_Height))
+        PRINT("-Depht    :%s"% Candy("Color", "yellow", IHDR_Depht))
+        PRINT("-Color    :%s"% Candy("Color", "yellow", IHDR_Color))
+        PRINT("-Method   :%s"% Candy("Color", "yellow", IHDR_Method))
+        PRINT("-Filter   :%s"% Candy("Color", "yellow", IHDR_Filter))
+        PRINT("-Interlace:%s"% Candy("Color", "yellow", IHDR_Interlace))
 
-        try:
-            IHDR_Color = str(int(data[18:20], 16))
-        except (NameError, ValueError) as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            ToFix.append("-Error IHDR Color:%s StructIndex:3"%str(e))
-        try:
-            IHDR_Method = str(int(data[20:22], 16))
-        except (NameError, ValueError) as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            ToFix.append("-Error IHDR Method:%s StructIndex:4"%str(e))
-
-        try:
-            IHDR_Filter = str(int(data[22:24], 16))
-        except (NameError, ValueError) as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            ToFix.append("-Error IHDR Filter:%s StructIndex:5"%str(e))
-        try:
-            IHDR_Interlace = str(int(data[24:26], 16))
-        except (NameError, ValueError) as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            ToFix.append("-Error IHDR Interlace:%s StructIndex:6"%str(e))
-        try:
-            PRINT("-Width    :%s"% Candy("Color", "yellow", IHDR_Width))
-            PRINT("-Height   :%s"% Candy("Color", "yellow", IHDR_Height))
-            PRINT("-Depht    :%s"% Candy("Color", "yellow", IHDR_Depht))
-            PRINT("-Color    :%s"% Candy("Color", "yellow", IHDR_Color))
-            PRINT("-Method   :%s"% Candy("Color", "yellow", IHDR_Method))
-            PRINT("-Filter   :%s"% Candy("Color", "yellow", IHDR_Filter))
-            PRINT("-Interlace:%s"% Candy("Color", "yellow", IHDR_Interlace))
-
-            if len(data) != 26:
-                PRINT(
-                    "-Bytes number :"
-                    + Candy("Color", "red", " Wrong size")
-                    + "IHDR size have to always be 13 bytes."
-                    + Candy("Emoj", "bad")
-                )
-                #    PRINT(data)
-                ToFix.append("-IHDR size have to always be 13 bytes")
-
-            MxRs = Max_Res()
-
-            if len(str(IHDR_Height)) > 0:
-                if int(IHDR_Height) > 2147483647:
-                    PRINT(
-                        "-Height :"
-                        + Candy("Color", "red", " Wrong size (Too high)")
-                        + " Must be between 1 to 2147483647."
-                        + Candy("Emoj", "bad")
-                    )
-                    ToFix.append(
-                        "-IHDR Height Must be between 1 to 2147483647. StructIndex:1"
-                    )
-                elif int(IHDR_Height) < 1:
-                    PRINT(
-                        "-Height :"
-                        + Candy("Color", "red", " Wrong size (Too low)")
-                        + " Must be between 1 to 2147483647."
-                        + Candy("Emoj", "bad")
-                    )
-                    ToFix.append(
-                        "-IHDR Height Must be between 1 to 2147483647. StructIndex:1"
-                    )
-                if int(IHDR_Height) > (MxRs*2):
-                    PRINT(
-                        "-Height :"
-                        + Candy("Color", "red", " (Error) superior to max resolution for this file: ")
-                        + str(MxRs*2)
-                        + Candy("Emoj", "bad")
-                    )
-                    ToFix.append(
-                        "-IHDR Height Error %s Above estimated max resolution(*2):%s. StructIndex:1"%(IHDR_Height,MxRs*2)
-                    )
-                elif int(IHDR_Height) > MxRs:
-                    PRINT(
-                        "-Height :"
-                        + Candy("Color", "yellow", " (Warning) Above estimated max resolution: ")
-                        + str(MxRs)
-                        + Candy("Emoj", "bad")
-                    )
-                    ToFix.append(
-                        "-IHDR Height Warning %s Above estimated max resolution:%s. StructIndex:1"%(IHDR_Height,MxRs)
-                    )
-
-
-            else:
-                PRINT(
-                    "-Height :"
-                    + Candy("Color", "red", " is empty")
-                    + " Must be between 1 to 2147483647."
-                    + Candy("Emoj", "bad")
-                )
-                ToFix.append(
-                    "-Height is empty. StructIndex:1"
-                )
-
-            if len(str(IHDR_Width)) > 0:
-                if int(IHDR_Width) > 2147483647:
-                    PRINT(
-                        "-Width :"
-                        + Candy("Color", "red", " Wrong size (Too high)")
-                        + " Must be between 1 to 2147483647."
-                        + Candy("Emoj", "bad")
-                    )
-                    ToFix.append(
-                        "-IHDR Width Must be between 1 to 2147483647. StructIndex:0"
-                    )
-
-                elif int(IHDR_Width) < 1:
-                    PRINT(
-                        "-Width :"
-                        + Candy("Color", "red", " Wrong size (Too low)")
-                        + " Must be between 1 to 2147483647."
-                        + Candy("Emoj", "bad")
-                    )
-                    ToFix.append(
-                        "-IHDR Width Must be between 1 to 2147483647. StructIndex:0"
-                    )
-
-                if int(IHDR_Width) > (MxRs*2):
-                    PRINT(
-                        "-Width :"
-                        + Candy("Color", "red", " (Error) Above estimated max resolution(*2): ")
-                        + str(MxRs*2)
-                        + Candy("Emoj", "bad")
-                    )
-                    ToFix.append(
-                        "-IHDR Width Error %s Above estimated max resolution(*2):%s. StructIndex:0"%(IHDR_Width,MxRs*2)
-                    )
-                elif int(IHDR_Width) > MxRs:
-                    PRINT(
-                        "-Width :"
-                        + Candy("Color", "yellow", " (Warning) Above estimated max resolution: ")
-                        + str(MxRs)
-                        + Candy("Emoj", "bad")
-                    )
-                    ToFix.append(
-                        "-IHDR Width Warning %s Above estimated max resolution:%s. StructIndex:0"%(IHDR_Width,MxRs)
-                    )
-
-
-            else:
-                PRINT(
-                    "-Width :"
-                    + Candy("Color", "red", " is empty")
-                    + " Must be between 1 to 2147483647."
-                    + Candy("Emoj", "bad")
-                )
-                ToFix.append(
-                    "-IHDR Width is empty. StructIndex:0"
-                )
-
-            if len(IHDR_Depht) > 0:
-                if IHDR_Depht not in ["1", "2", "4", "8", "16"]:
-                    PRINT(
-                        "-Bit depht :"
-                        + Candy("Color", "red", " Wrong bit value")
-                        + " Must be 1,2,4,8 or 16 "
-                        + Candy("Emoj", "bad")
-                    )
-                    ToFix.append(
-                        "-IHDR Depht: Wrong bit depht (depht must be 1,2,4,8 or 16). StructIndex:2"
-                    )
-            else:
-                PRINT(
-                    "-Bit depht :"
-                    + Candy("Color", "red", " Wrong bit value")
-                    + " Must not be empty "
-                    + Candy("Emoj", "bad")
-                )
-                ToFix.append("-IHDR Depht Must not be empty. StructIndex:2")
-
-            if len(IHDR_Color) > 0:
-                if IHDR_Color not in ["0", "2", "3", "4", "6"]:
-                    PRINT(
-                        "-IHDR Color :"
-                        + Candy("Color", "red", " Wrong bit value")
-                        + " Must be 0,2,3,4 or 6 "
-                        + Candy("Emoj", "bad")
-                    )
-                    ToFix.append("-IHDR Color Must be 0,2,3,4 or 6. StructIndex:3")
-                if IHDR_Color == "2" or IHDR_Color == "4" or IHDR_Color == "6":
-                    if IHDR_Depht not in ["8", "16"]:
-                        PRINT(
-                            "-IHDR Color :"
-                            + Candy("Color", "red", " Wrong bit depht ")
-                            + "for IHDR Color "
-                            + IHDR_Color
-                            + " must be 8 or 16 "
-                            + Candy("Emoj", "bad")
-                        )
-                        ToFix.append(
-                            "-IHDR Color :Wrong bit depht must be 8 or 16. StructIndex:3"
-                        )
-                if IHDR_Color == "3":
-                    if IHDR_Depht not in ["1", "2", "4", "8"]:
-                        PRINT(
-                            "-IHDR Color :"
-                            + Candy("Color", "red", " Wrong bit depht ")
-                            + "for IHDR Color 3 must be 1,2,4 or 8"
-                            + Candy("Emoj", "bad")
-                        )
-                        ToFix.append(
-                            "-IHDR Color 3: Wrong bit depht with IHDR Color type 3 (depht must be 1,2,4 or 8). StructIndex:3"
-                        )
-            else:
-                PRINT(
-                    "-IHDR Color %s "
-                    % (Candy("Color", "red", "Must not be empty"), Candy("Emoj", "bad"))
-                )
-                ToFix.append("-IHDR Color Must not be empty. StructIndex:3")
-
-            if len(IHDR_Filter) > 0 and IHDR_Filter != "0":
-                PRINT(
-                    "-Filter Method :"
-                    + Candy("Color", "red", " Wrong value")
-                    + " must be 0."
-                    + Candy("Emoj", "bad")
-                )
-                ToFix.append(
-                    "-IHDR Filter Method Wrong value must be 0. StructIndex:4"
-                )
-            elif len(IHDR_Filter) == 0:
-                PRINT(
-                    "-Filter Method %s %s "
-                    % (Candy("Color", "red", "Must not be empty"), Candy("Emoj", "bad"))
-                )
-                ToFix.append("-IHDR Filter Method Must not be empty. StructIndex:4")
-            if len(IHDR_Method) > 0 and IHDR_Method != "0":
-                PRINT(
-                    "-Compression Algorithms :"
-                    + Candy("Color", "red", " Wrong value")
-                    + " must be 0."
-                    + Candy("Emoj", "bad")
-                )
-                ToFix.append(
-                    "-IHDR Compression Algorithms : Wrong value must be 0. StructIndex:5"
-                )
-            elif len(IHDR_Method) == 0:
-                PRINT(
-                    "-Compression Algorithms must not be empty %s %s "
-                    % (Candy("Color", "red", "Must not be empty"), Candy("Emoj", "bad"))
-                )
-                ToFix.append(
-                    "-IHDR Compression Algorithms must not be empty. StructIndex:5"
-                )
-            if len(IHDR_Interlace) > 0 and (
-                IHDR_Interlace != "0" and IHDR_Interlace != "1"
-            ):
-                PRINT(
-                    "-Interlace Method :"
-                    + Candy("Color", "red", " Wrong value")
-                    + " must be 0 (no interlace) or 1 (Adam7 interlace)."
-                    + Candy("Emoj", "bad")
-                )
-                ToFix.append(
-                    "-IHDR Interlace Method :Wrong value must be 0 (no interlace) or 1 (Adam7 interlace). StructIndex:6"
-                )
-            elif len(IHDR_Interlace) == 0:
-                PRINT(
-                    "-Interlace %s %s "
-                    % (Candy("Color", "red", "Must not be empty"), Candy("Emoj", "bad"))
-                )
-                ToFix.append("-IHDR Interlace Must not be empty. StructIndex:6")
-
-            if len(ToFix) > 0:
-                CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-            else:
-                PRINT(
-                    "\n-Errors Check :"
-                    + Candy("Color", "green", " OK ")
-                    + Candy("Emoj", "good")
-                )
-
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            ToFix.append("-Error IHDR:" + str(e))
+        ToFix.extend(IHDR_Info.fixes)
+        if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+        else:
+            PRINT(
+                "\n-Errors Check :"
+                + Candy("Color", "green", " OK ")
+                + Candy("Emoj", "good")
+            )
 
     if Chunk == b"IDAT":
         IDAT_Bytes_Len_History.append(int(Raw_Length, 16))
@@ -1766,318 +1467,48 @@ def GetInfo(Chunk, data, Dummy=False):
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
     if Chunk == b"bKGD":
-        if IHDR_Color == "0" or IHDR_Color == "4":
-            try:
-                bKGD_Gray = str(int(data[:4], 16))
-                PRINT("-Gray    :%s"% Candy("Color", "yellow", bKGD_Gray))
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                ToFix.append("-Error bKGD Gray:" + str(e))
-                if DEBUG is True:
-                    PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
+        bKGD_Info = chunk_info.parse_bkgd(data, IHDR_Color, IHDR_Depht)
+        bKGD_Gray = bKGD_Info.gray
+        bKGD_Red = bKGD_Info.red
+        bKGD_Green = bKGD_Info.green
+        bKGD_Blue = bKGD_Info.blue
+        bKGD_Index = bKGD_Info.index
 
-            if len(bKGD_Gray) > 0:
-                if int(bKGD_Gray) > (2 ** int(IHDR_Depht)) - 1:
-                    PRINT(
-                        "-Gray level :"
-                        + Candy("Color", "red", " Wrong value")
-                        + " Must be less than "
-                        + str((2 ** int(IHDR_Depht)) - 1)
-                    ) + Candy("Emoj", "bad")
-                    ToFix.append(
-                        "-Gray level : Wrong value Must be less than"
-                        + str((2 ** int(IHDR_Depht)) - 1)
-                    )
+        if len(bKGD_Gray) > 0:
+            PRINT("-Gray    :%s"% Candy("Color", "yellow", bKGD_Gray))
+        if len(bKGD_Red) > 0:
+            PRINT("-Red    :%s"% Candy("Color", "red", bKGD_Red))
+        if len(bKGD_Green) > 0:
+            PRINT("-Green  :%s"% Candy("Color", "green", bKGD_Green))
+        if len(bKGD_Blue) > 0:
+            PRINT("-Blue   :%s"% Candy("Color", "blue", bKGD_Blue))
+        if len(bKGD_Index) > 0:
+            PRINT("-Palette    :%s"% Candy("Color", "yellow", bKGD_Index))
 
-        if IHDR_Color == "2" or IHDR_Color == "6":
-            try:
-                try:
-                    bKGD_Red = str(int(data[:4], 16))
-                    PRINT("-Red    :%s"% Candy("Color", "red", bKGD_Red))
-                except Exception as e:
-                    Betterror(e, inspect.stack()[0][3])
-                    ToFix.append("-Error bKGD Red:" + str(e))
-
-                    if DEBUG is True:
-                        PRINT(
-                            Candy("Color", "red", "Error bKGD Red:"),
-                            Candy("Color", "yellow", e),
-                        )
-                        if PAUSEDEBUG is True or PAUSEERROR is True:
-                            Pause("Pause Debug")
-
-                try:
-                    bKGD_Green = str(int(data[4:8], 16))
-                    PRINT("-Green  :%s"% Candy("Color", "green", bKGD_Green))
-                except Exception as e:
-                    Betterror(e, inspect.stack()[0][3])
-                    ToFix.append("-Error bKGD Green:" + str(e))
-                    if DEBUG is True:
-                        PRINT(
-                            Candy("Color", "red", "Error bKGD Green:"),
-                            Candy("Color", "yellow", e),
-                        )
-
-                        if PAUSEDEBUG is True or PAUSEERROR is True:
-                            Pause("Pause Debug")
-
-                try:
-                    bKGD_Blue = str(int(data[8:12], 16))
-                    PRINT("-Blue   :%s"% Candy("Color", "blue", bKGD_Blue))
-                except Exception as e:
-                    Betterror(e, inspect.stack()[0][3])
-                    ToFix.append("-Error bKGD Blue:" + str(e))
-                    if DEBUG is True:
-                        PRINT(
-                            Candy("Color", "red", "Error bKGD Blue:"),
-                            Candy("Color", "yellow", e),
-                        )
-                        if PAUSEDEBUG is True or PAUSEERROR is True:
-                            Pause("Pause Debug")
-
-                if len(bKGD_Red) > 0:
-                    if int(bKGD_Red) > (2 ** int(IHDR_Depht)) - 1:
-                        PRINT(
-                            "-Red level :"
-                            + Candy("Color", "red", " Wrong value")
-                            + " Must be less than "
-                            + str((2 ** int(IHDR_Depht)) - 1)
-                        ) + Candy("Emoj", "bad")
-                        ToFix.append(
-                            "-Red level : Wrong value Must be less than "
-                            + str((2 ** int(IHDR_Depht)) - 1)
-                        )
-                if len(bKGD_Green) > 0:
-                    if int(bKGD_Green) > (2 ** int(IHDR_Depht)) - 1:
-                        PRINT(
-                            ""
-                            + Candy("Color", "red", "")
-                            + " Must be less than "
-                            + str((2 ** int(IHDR_Depht)) - 1)
-                        ) + Candy("Emoj", "bad")
-                        ToFix.append(
-                            "-Bkgd_Green Wrong value Must be less than "
-                            + str((2 ** int(IHDR_Depht)) - 1)
-                        )
-                if len(bKGD_Blue) > 0:
-                    if int(bKGD_Blue) > (2 ** int(IHDR_Depht)) - 1:
-                        PRINT(
-                            "-Blue level :"
-                            + Candy("Color", "red", " Wrong value")
-                            + " Must be less than "
-                            + str((2 ** int(IHDR_Depht)) - 1)
-                        ) + Candy("Emoj", "bad")
-                        ToFix.append(
-                            "-Blue level : Wrong value Must be less than "
-                            + str((2 ** int(IHDR_Depht)) - 1)
-                        )
-
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                ToFix.append("-Error Bkgd:" + str(e))
-
-                if DEBUG is True:
-                    PRINT(
-                        Candy("Color", "red", "Error bKGD:"),
-                        Candy("Color", "yellow", e),
-                    )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
-
-        if IHDR_Color == "3":
-            try:
-                bKGD_Index = str(int(data[:2], 16))
-                PRINT("-Palette    :%s"% Candy("Color", "yellow", bKGD_Index))
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
-                    PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                    if PAUSEDEBUG:
-                        Pause("Pause Debug")
+        ToFix.extend(bKGD_Info.fixes)
+        if len(ToFix) > 0:
+            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
         else:
             PRINT(
                 "\n-Errors Check :"
                 + Candy("Color", "green", " OK ")
                 + Candy("Emoj", "good")
             )
-
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
     if Chunk == b"PLTE":
-
-        PLTE_R = []
-        PLTE_G = []
-        PLTE_B = []
-
-        PLTNbr = len(data)
-
-        if not str(int(PLTNbr) / 3).endswith(".0"):
-            PRINT(
-                "-%s PLTE length: %s/3= %s (not divisible by 3). %s"
-                % (
-                    Candy("Color", "red", "Wrong"),
-                    PLTNbr,
-                    Candy("Color", "red", PLTNbr),
-                    Candy("Emoj", "bad"),
-                )
-            )
-            ToFix.append("-PLTE Total palettes number must be divisible by 3")
-
-        for i in range(0, PLTNbr, 6):
-            pltr = data[i : i + 2]
-            try:
-                int(pltr, 16)
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
-                    PRINT(
-                        Candy(
-                            "Color", "red", "Error palettes red number " + str(i) + ":"
-                        ),
-                        Candy("Color", "yellow", e),
-                    )
-                ToFix.append("-Error PLTER wrong value at" + str(i) + ":" + str(e))
-
-            pltg = data[i + 2 : i + 4]
-            try:
-                int(pltg, 16)
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
-                    PRINT(
-                        Candy(
-                            "Color",
-                            "red",
-                            "Error palettes green number " + str(i + 2) + ":",
-                        ),
-                        Candy("Color", "yellow", e),
-                    )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
-                ToFix.append("-Error PLTEG wrong value at " + str(i + 2) + ":" + str(e))
-
-            pltb = data[i + 4 : i + 6]
-
-            try:
-                int(pltb, 16)
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
-                    PRINT(
-                        Candy(
-                            "Color",
-                            "red",
-                            "Error palettes blue number " + str(i + 4) + ":",
-                        ),
-                        Candy("Color", "yellow", e),
-                    )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
-                ToFix.append("-Error PLTEB wrong value at " + str(i + 4) + ":" + str(e))
-
-            PLTE_R.append(str(pltr))
-            PLTE_G.append(str(pltg))
-            PLTE_B.append(str(pltb))
+        PLTE_Info = chunk_info.parse_plte(data, IHDR_Depht)
+        PLTE_R = list(PLTE_Info.red)
+        PLTE_G = list(PLTE_Info.green)
+        PLTE_B = list(PLTE_Info.blue)
 
         PRINT("-%s Red palettes are stored." % Candy("Color", "yellow", len(PLTE_R)))
-        if len(PLTE_R) > 256:
-            Candy(
-                "Color",
-                "red",
-                "Error palettes red Total number must be < 256 but is : %s"
-                % len(PLTE_R),
-            )
-            ToFix.append("-Error PLTER > 256 :%s" % len(PLTE_R))
-
         PRINT("-%s Green palettes are stored." % Candy("Color", "yellow", len(PLTE_G)))
-        if len(PLTE_G) > 256:
-            Candy(
-                "Color",
-                "red",
-                "Error palettes green Total number must be < 256 but is : %s"
-                % len(PLTE_G),
-            )
-            ToFix.append("-Error PLTER > 256 :%s" % len(PLTE_R))
         PRINT("-%s Blue palettes are stored." % Candy("Color", "yellow", len(PLTE_B)))
-        if len(PLTE_B) > 256:
-            Candy(
-                "Color",
-                "red",
-                "Error palettes blue Total number must be < 256 but is : %s"
-                % len(PLTE_B),
-            )
-            ToFix.append("-Error PLTER > 256 :%s" % len(PLTE_R))
         PRINT(
             "-%s RGB palettes are stored."
             % Candy("Color", "yellow", len(PLTE_R) + len(PLTE_G) + len(PLTE_B))
         )
 
-        if len(IHDR_Depht) > 0:
-            if len(PLTE_R) > 2 ** int(IHDR_Depht):
-                PRINT(
-                    "-PLTE %s Red palettes not in bitdepht range: (must not be > 2 power of image Depht:%s).%s"
-                    % (
-                        Candy("Color", "red", str(len(pltb) - 1) + " Wrong"),
-                        Candy("Color", "yellow", 2 ** int(IHDR_Depht)),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append(
-                    "-PLTE Wrong RED %s palettes not in bitdepht range (must not be > 2 power of image Depht:%s)"
-                    % (str(len(pltb) - 1), 2 ** int(IHDR_Depht))
-                )
-            elif len(PLTE_R) == 0:
-                PRINT(
-                    "-PLTE RED palettes entry must %s . %s"
-                    % (Candy("Color", "red", "Not be empty"), Candy("Emoj", "bad"))
-                )
-                ToFix.append("-PLTE Wrong RED palettes entry must Not be empty")
-
-            if len(PLTE_G) > 2 ** int(IHDR_Depht):
-                PRINT(
-                    "-PLTE %s  Green palettes not in bitdepht range: (must not be > 2 power of image Depht:%s).%s"
-                    % (
-                        Candy("Color", "red", str(len(pltb)) + " Wrong"),
-                        Candy("Color", "yellow", 2 ** int(IHDR_Depht)),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append(
-                    "-PLTE %s Wrong Green palettes not in bitdepht range: (must not be > 2 power of image Depht:%s)"
-                    % (str(len(pltb)), 2 ** int(IHDR_Depht))
-                )
-            elif len(PLTE_G) == 0:
-                PRINT(
-                    "-PLTE Green palettes entry must %s . %s"
-                    % (Candy("Color", "red", "Not be empty"), Candy("Emoj", "bad"))
-                )
-                ToFix.append("-PLTE Wrong Green palettes entry must Not be empty")
-
-            if len(PLTE_B) > 2 ** int(IHDR_Depht):
-                PRINT(
-                    "-PLTE %s Blue palettes not in bitdepht range: (must not be > 2 power of image Depht:%s). %s"
-                    % (
-                        Candy("Color", "red", str(len(pltb)) + " Wrong"),
-                        Candy("Color", "yellow", 2 ** int(IHDR_Depht)),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append("-PLTE Blue palettes not in bitdepht range")
-            elif len(PLTE_G) == 0:
-                PRINT(
-                    "-PLTE Blue palettes entry must %s . %s"
-                    % (Candy("Color", "red", "Not be empty"), Candy("Emoj", "bad"))
-                )
-                ToFix.append("-PLTE Wrong Blue palettes entry must Not be empty")
-        else:
-            PRINT(
-                "-IHDR Depht value %s first.%s"
-                % (Candy("Color", "red", "have to be fixed"), Candy("Emoj", "bad"))
-            )
-            ToFix.append("-IHDR Depht value have to be fixed first")
-
+        ToFix.extend(PLTE_Info.fixes)
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
         else:
@@ -2087,319 +1518,43 @@ def GetInfo(Chunk, data, Dummy=False):
                 + Candy("Emoj", "good")
             )
 
+
     if Chunk == b"sPLT":
-        sPLT_Red = []
-        sPLT_Green = []
-        sPLT_Blue = []
-        sPLT_Alpha = []
-        sPLT_Freq = []
-        sPLT_Depht = []
-        sPLT_Name = []
-        sPLT_Ln = len(data)
-        if sPLT_Ln <= 0:
-            PRINT(
-                "-sPLT entries must %s . %s"
-                % (Candy("Color", "red", "Not be empty"), Candy("Emoj", "bad"))
-            )
-            ToFix.append("-sPLT entries must Not be empty")
+        sPLT_Info = chunk_info.parse_splt(data, previous_names=tuple(sPLT_Name))
+        sPLT_Red = list(sPLT_Info.red)
+        sPLT_Green = list(sPLT_Info.green)
+        sPLT_Blue = list(sPLT_Info.blue)
+        sPLT_Alpha = list(sPLT_Info.alpha)
+        sPLT_Freq = list(sPLT_Info.freq)
+        sPLT_Depht = [sPLT_Info.depth] if len(sPLT_Info.depth) > 0 else []
+        sPLT_Name = [sPLT_Info.name] if len(sPLT_Info.name) > 0 else []
 
-        elif NullFind(data) is False:
-            PRINT(
-                "-sPLT %s any Null Bytes !%s . %s"
-                % (Candy("Color", "red", "haven't found"), Candy("Emoj", "bad"))
-            )
-            ToFix.append("-sPLT haven't found any Null Bytes !")
-        elif sPLT_Ln > 0 and NullFind(data) is not False:
-            null_pos = NullFind(data)
-            Name = data[:null_pos]
-            ChrName = ""
-            badchar = ["badchar"]
+        if len(sPLT_Info.decoded_name) > 0:
+            PRINT("-sPLT name : %s"% Candy("Color", "white", sPLT_Info.decoded_name))
+        PRINT(
+            "-%s Suggested Red palettes are stored."
+            % Candy("Color", "yellow", len(sPLT_Red))
+        )
+        PRINT(
+            "-%s Suggested Green palettes are stored."
+            % Candy("Color", "yellow", len(sPLT_Green))
+        )
+        PRINT(
+            "-%s Suggested Blue palettes are stored."
+            % Candy("Color", "yellow", len(sPLT_Blue))
+        )
+        PRINT(
+            "-%s Suggested Alpha palettes are stored."
+            % Candy("Color", "yellow", len(sPLT_Alpha))
+        )
+        PRINT(
+            "-%s Suggested Frequency values are stored."
+            % Candy("Color", "yellow", len(sPLT_Freq))
+        )
 
-            for i in range(0, len(Name), 2):
-                try:
-                    nint = int(data[i : i + 2], 16)
-                    nchar = chr(nint)
-                except Exception as e:
-                    Betterror(e, inspect.stack()[0][3])
-                    if DEBUG is True:
-                        PRINT(
-                            Candy("Color", "red", "Error sPLt Name :"),
-                            Candy("Color", "yellow", e),
-                        )
-                        if PAUSEDEBUG is True or PAUSEERROR is True:
-                            Pause("Pause Debug")
-                    nint = 258
-                    nchar = chr(nint)
-
-                if (nint not in range(32, 127)) and (nint not in range(161, 256)):
-                    PRINT(
-                        "-Character %s at index %s in sPLT_Name\n-Replaced by [€] %s"
-                        % (
-                            Candy("Color", "red", "not allowed [" + nchar + "]"),
-                            Candy("Color", "red", i),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-Character not allowed %s at index %s in sPLT_Name\n-Replaced by [€] "
-                        % (nchar, i)
-                    )
-                    ChrName += "€"
-                    badchar.append(i)
-                else:
-                    ChrName += nchar
-
-            if len(badchar) > 1:
-                ToFix.append(badchar)
-
-            Depht = str(int(data[null_pos + 2 : null_pos + 4], 16))
-            if Depht != "8" and Depht != "16":
-                PRINT(
-                    "-Sample depth is %s it must be 8 or 16 :%s %s"
-                    % (
-                        Candy("Color", "red", "not correct"),
-                        Candy("Color", "red", Depht),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append("-Sample depth is not correct it must be 8 or 16")
-            pos = 0
-            for i in range(sPLT_Ln):
-                if Depht == "8":
-                    sPLT_Red.append(data[:pos])
-                    sPLT_Green.append(data[pos : pos + 2])
-                    sPLT_Blue.append(data[pos + 2 : pos + 4])
-                    sPLT_Alpha.append(data[pos + 4 : pos + 6])
-                    sPLT_Freq.append(data[pos + 6 : pos + 8])
-                    pos += 8
-
-                if Depht == "16":
-                    sPLT_Red.append(data[:pos])
-                    sPLT_Green.append(data[pos : pos + 4])
-                    sPLT_Blue.append(data[pos + 4 : pos + 8])
-                    sPLT_Alpha.append(data[pos + 8 : pos + 16])
-                    sPLT_Freq.append(data[pos + 16 : pos + 24])
-                    pos += 24
-                else:
-                    break
-
-            if len(Name) > 79:
-                PRINT(
-                    "-Length of sPLT name is %s :%s %s"
-                    % (
-                        Candy("Color", "red", "not Valid (Too long >79)"),
-                        Candy("Color", "red", i),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append("-Length of sPLT name is not Valid (Too long >79)")
-
-            PRINT("-sPLT name : %s"% Candy("Color", "white", ChrName))
-
-            PRINT(
-                "-%s Suggested Red palettes are stored."
-                % Candy("Color", "yellow", len(sPLT_Red))
-            )
-
-            if Depht == "8":
-                if not str(int(len(sPLT_Red)) / 6).endswith(".0"):
-                    PRINT(
-                        "-%s Red sPLT length: %s /6= %s (not divisible by 6). %s"
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", len(sPLT_Red)),
-                            str(len(sPLT_Red) / 6),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-Wrong Red sPLT length: %s /6= %s (not divisible by 6)."
-                        % (len(sPLT_Red), str(len(sPLT_Red) / 6))
-                    )
-
-            elif Depht == "16":
-                if not str(int(len(sPLT_Red)) / 10).endswith(".0"):
-                    PRINT(
-                        "-%s Red sPLT length: %s/10= %s (not divisible by 10). %s"
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", len(sPLT_Red)),
-                            str(len(sPLT_Red) / 10),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-Wrong Red sPLT length: %s /10= %s (not divisible by 10)."
-                        % (len(sPLT_Red), str(len(sPLT_Red) / 10))
-                    )
-
-            PRINT(
-                "-%s Suggested Green palettes are stored."
-                % Candy("Color", "yellow", len(sPLT_Green))
-            )
-
-            if Depht == "8":
-                if not str(int(len(sPLT_Green)) / 6).endswith(".0"):
-                    PRINT(
-                        "-%s Green sPLT length: %s /6= %s (not divisible by 6). %s"
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", len(sPLT_Green)),
-                            str(len(sPLT_Green) / 6),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-Wrong Green sPLT length: %s /6= %s (not divisible by 6)."
-                        % (len(sPLT_Green), str(len(sPLT_Green) / 6))
-                    )
-
-            elif Depht == "16":
-                if not str(int(len(sPLT_Green)) / 10).endswith(".0"):
-                    PRINT(
-                        "-%s Green sPLT length: %s/10= %s (not divisible by 10). %s"
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", len(sPLT_Green)),
-                            str(len(sPLT_Green) / 10),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-Wrong Red sPLT length: %s /10= %s (not divisible by 10)."
-                        % (len(sPLT_Green), str(len(sPLT_Green) / 10))
-                    )
-
-            PRINT(
-                "-%s Suggested Blue palettes are stored."
-                % Candy("Color", "yellow", len(sPLT_Blue))
-            )
-
-            if Depht == "8":
-                if not str(int(len(sPLT_Blue)) / 6).endswith(".0"):
-                    PRINT(
-                        "-%s Blue sPLT length: %s /6= %s (not divisible by 6). %s "
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", len(sPLT_Blue)),
-                            str(len(sPLT_Blue) / 6),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-Wrong Green sPLT length: %s /6= %s (not divisible by 6)."
-                        % (len(sPLT_Blue), str(len(sPLT_Blue) / 6))
-                    )
-
-            elif Depht == "16":
-                if not str(int(len(sPLT_Blue)) / 10).endswith(".0"):
-                    PRINT(
-                        "-%s Blue sPLT length:%s /10= %s (not divisible by 10). %s "
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", len(sPLT_Blue)),
-                            str(len(sPLT_Blue) / 10),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-Wrong Red sPLT length: %s /10= %s (not divisible by 10)."
-                        % (len(sPLT_Blue), str(len(sPLT_Blue) / 10))
-                    )
-
-            PRINT(
-                "-%s Suggested Alpha palettes are stored."
-                % Candy("Color", "yellow", len(sPLT_Alpha))
-            )
-
-            if Depht == "8":
-                if not str(int(len(sPLT_Alpha)) / 6).endswith(".0"):
-                    PRINT(
-                        "-%s Alpha sPLT length: %s /6= %s (not divisible by 6). %s"
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", len(sPLT_Alpha)),
-                            str(len(sPLT_Alpha) / 6),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-Wrong Alpha sPLT length: %s /6= %s (not divisible by 6)."
-                        % (len(sPLT_Alpha), str(len(sPLT_Alpha) / 6))
-                    )
-
-            elif Depht == "16":
-                if not str(int(len(sPLT_Alpha)) / 10).endswith(".0"):
-                    PRINT(
-                        "-%s Aplha sPLT length:%s /10= %s (not divisible by 10). %s"
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", len(sPLT_Alpha)),
-                            str(len(sPLT_Alpha) / 10),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-Wrong Alpha sPLT length: %s /10= %s (not divisible by 10)."
-                        % (len(sPLT_Alpha), str(len(sPLT_Alpha) / 10))
-                    )
-
-            PRINT(
-                "-%s Suggested Frequency values are stored."
-                % Candy("Color", "yellow", len(sPLT_Freq))
-            )
-
-            if Depht == "8":
-                if not str(int(len(sPLT_Freq)) / 6).endswith(".0"):
-                    PRINT(
-                        "-%s Frequency sPLT length: %s /6= %s (not divisible by 6). %s"
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", len(sPLT_Freq)),
-                            str(len(sPLT_Freq) / 6),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-Wrong Frequency sPLT length: %s /6= %s (not divisible by 6)."
-                        % (len(sPLT_Freq), str(len(sPLT_Freq) / 6))
-                    )
-
-            elif Depht == "16":
-                if not str(int(len(sPLT_Freq)) / 10).endswith(".0"):
-                    PRINT(
-                        "-%s Frequency sPLT length:%s /10= %s (not divisible by 10). %s"
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", len(sPLT_Freq)),
-                            str(len(sPLT_Freq) / 10),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-Wrong Frequency sPLT length: %s /10= %s (not divisible by 10)."
-                        % (len(sPLT_Freq), str(len(sPLT_Freq) / 10))
-                    )
-
-            sPLT_Depht.append(Depht)
-            sPLT_Name.append(Name)
-            lastnm = ""
-            for nm in sPLT_Name:
-                if sPLT_Name.count(nm) > 1 and nm != lastnm:
-                    PRINT(
-                        "-sPLT can be used multiple times %s share the same name. %s "
-                        % (Candy("Color", "red", "but cannot"), Candy("Emoj", "bad"))
-                    )
-                    lastnm = nm
-                    ToFix.append(
-                        "-sPLT can be used multiple times but cannot share the same name."
-                    )
-
+        ToFix.extend(sPLT_Info.fixes)
         if len(ToFix) > 0:
-            if len(badchar) > 1:
-                CheckPoint(True, False, "GetInfo", Chunk, ToFix, data)
-            else:
-                CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+            CheckPoint(True, False, "GetInfo", Chunk, ToFix, data)
         else:
             PRINT(
                 "\n-Errors Check :"
@@ -2407,71 +1562,23 @@ def GetInfo(Chunk, data, Dummy=False):
                 + Candy("Emoj", "good")
             )
 
+
     if Chunk == b"hIST":
-        hIST = []
-        if len(data) <= 0:
+        hIST_Info = chunk_info.parse_hist(
+            data,
+            has_plte=b"PLTE" in Chunks_History,
+            has_splt=b"sPLT" in Chunks_History,
+            plte_entries=int((len(PLTE_R) + len(PLTE_G) + len(PLTE_B)) / 3),
+            splt_entries=len(sPLT_Red) + len(sPLT_Green) + len(sPLT_Blue) + len(sPLT_Alpha),
+        )
+        hIST = list(hIST_Info.entries)
+        if len(hIST) > 0:
             PRINT(
-                "-hIST must %s . %s"
-                % (Candy("Color", "red", "Not be empty"), Candy("Emoj", "bad"))
+                "-%s Histogram frequencies are stored."
+                % Candy("Color", "yellow", len(hIST))
             )
-            ToFix.append("-hIST must Not be empty")
 
-        elif len(data) > 0:
-
-            if b"PLTE" not in Chunks_History and b"sPLT" not in Chunks_History:
-                PRINT(
-                    "-%s Chunk or %s is missing.(hIST must be used after one of them)"
-                    % (Candy("Color", "red", "PLTE"), Candy("Color", "red", "sPLT"))
-                )
-                ToFix.append(
-                    "-PLTE Chunk sPLT is missing.(hIST must be used after one of them)"
-                )
-            try:
-                pos = 0
-                for plt in range(0, len(data), 4):
-                    hIST.append(data[plt : plt + 4])
-                    pos = plt
-                PRINT(
-                    "-%s Histogram frequencies are stored."
-                    % Candy("Color", "yellow", len(hIST))
-                )
-
-                if b"PLTE" in Chunks_History:
-
-                    if len(hIST) != int((len(PLTE_R) + len(PLTE_G) + len(PLTE_B)) / 3):
-                        PRINT(
-                            "-Histogram frequencies entries %s PLTE entries number %s"
-                            % (
-                                Candy("Color", "red", "must match"),
-                                Candy("Emoj", "bad"),
-                            )
-                        )
-                        ToFix.append(
-                            "-Histogram frequencies entries must match PLTE entries number"
-                        )
-
-                if b"sPLT" in Chunks_History:
-                    if len(hIST) != len(sPLT_Red) + len(sPLT_Green) + len(
-                        sPLT_Blue
-                    ) + len(sPLT_Aplha):
-                        PRINT(
-                            "-Histogram frequencies entries %s sPLT entries number %s"
-                            % (
-                                Candy("Color", "red", "must match"),
-                                Candy("Emoj", "bad"),
-                            )
-                        )
-                        ToFix.append(
-                            "-Histogram frequencies entries must match sPLT entries number"
-                        )
-
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
-                    PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
-
+        ToFix.extend(hIST_Info.fixes)
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix, data)
         else:
@@ -2557,160 +1664,35 @@ def GetInfo(Chunk, data, Dummy=False):
                 )
 
     if Chunk == b"tRNS":
-        TRNSNBR = len(data)
-        if len(IHDR_Color) == 0:
+        tRNS_Info = chunk_info.parse_trns(
+            data,
+            IHDR_Color,
+            has_plte=b"PLTE" in Chunks_History,
+            has_splt=b"sPLT" in Chunks_History,
+            plte_entries=len(PLTE_R),
+            splt_entries=len(sPLT_Red),
+        )
+        tRNS_Gray = tRNS_Info.gray
+        tRNS_TrueR = tRNS_Info.true_r
+        tRNS_TrueG = tRNS_Info.true_g
+        tRNS_TrueB = tRNS_Info.true_b
+        tRNS_Index = list(tRNS_Info.indexes)
+
+        if len(tRNS_Gray) > 0:
+            PRINT("-Gray    :%s"% Candy("Color", "yellow", tRNS_Gray))
+        if len(tRNS_TrueR) > 0:
+            PRINT("-Red    :%s"% Candy("Color", "red", tRNS_TrueR))
+        if len(tRNS_TrueG) > 0:
+            PRINT("-Green  :%s"% Candy("Color", "green", tRNS_TrueG))
+        if len(tRNS_TrueB) > 0:
+            PRINT("-Blue   :%s"% Candy("Color", "blue", tRNS_TrueB))
+        if len(tRNS_Index) > 0:
             PRINT(
-                "-IHDR Color value %s first.%s"
-                % (Candy("Color", "red", "have to be fixed"), Candy("Emoj", "bad"))
+                "-%s Alpha indexes are stored."
+                % Candy("Color", "yellow", len(tRNS_Index))
             )
-            ToFix.append("-IHDR Color Have to be either 0,2 or 3 when used with tRNS")
-        elif len(data) == 0:
-            PRINT(
-                "-tRNS Chunk %s "
-                % (Candy("Color", "red", "Must not be empty"), Candy("Emoj", "bad"))
-            )
-            ToFix.append("-tRNS Chunk Must not be empty")
-        elif str(IHDR_Color) not in ["0", "2", "3"]:
-            PRINT(
-                "-IHDR Color %s either 0,2 or 3 when used with tRNS %s"
-                % (Candy("Color", "red", "Have to be"), Candy("Emoj", "bad"))
-            )
-            PRINT(
-                "-IHDR Color value %s first.%s"
-                % (Candy("Color", "red", "have to be fixed"), Candy("Emoj", "bad"))
-            )
-            ToFix.append(
-                "-IHDR Color IHDR Color Have to be either 0,2 or 3 when used with tRNS"
-            )
-        elif len(data) > 0 and str(IHDR_Color) in ["0", "2", "3"]:
-            if IHDR_Color == "0":
-                try:
-                    tRNS_Gray = str(int(data[:4], 16))
-                    PRINT("-Gray    :%s"% Candy("Color", "yellow", tRNS_Gray))
-                except Exception as e:
-                    Betterror(e, inspect.stack()[0][3])
-                    if DEBUG is True:
-                        PRINT(
-                            Candy("Color", "red", "Error tRNS gray:"),
-                            Candy("Color", "yellow", e),
-                        )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
-                    ToFix.append("-Error tRNS_Gray:" + str(e))
 
-            if IHDR_Color == "2":
-                try:
-                    tRNS_TrueR = str(int(data[:4], 16))
-                    PRINT("-Red    :%s"% Candy("Color", "red", tRNS_TrueR))
-                except Exception as e:
-                    Betterror(e, inspect.stack()[0][3])
-                    if DEBUG is True:
-                        PRINT(
-                            Candy("Color", "red", "Error tRNS_TrueR:"),
-                            Candy("Color", "yellow", e),
-                        )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
-
-                    ToFix.append("-Error tRNS_TrueR:" + str(e))
-                try:
-                    tRNS_TrueG = str(int(data[4:8], 16))
-                    PRINT("-Green  :%s"% Candy("Color", "green", tRNS_TrueG))
-                except Exception as e:
-                    Betterror(e, inspect.stack()[0][3])
-                    if DEBUG is True:
-                        PRINT(
-                            Candy("Color", "red", "Error tRNS_TrueG:"),
-                            Candy("Color", "yellow", e),
-                        )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
-
-                    ToFix.append("-Error tRNS_TrueG:" + str(e))
-                try:
-                    tRNS_TrueB = str(int(data[8:16], 16))
-                    PRINT("-Blue   :%s"% Candy("Color", "blue", tRNS_TrueB))
-                except Exception as e:
-                    Betterror(e, inspect.stack()[0][3])
-                    if DEBUG is True:
-                        PRINT(
-                            Candy("Color", "red", "Error tRNS_TrueB:"),
-                            Candy("Color", "yellow", e),
-                        )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
-
-                    ToFix.append("-Error tRNS_TrueB:" + str(e))
-
-            if IHDR_Color == "3":
-                if b"PLTE" not in Chunks_History and b"sPLT" not in Chunks_History:
-                    PRINT(
-                        "-%s Chunk or %s is missing.(tRNS must be used after one of them) %s"
-                        % (
-                            Candy("Color", "red", "PLTE"),
-                            Candy("Color", "red", "sPLT"),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-PLTE Chunk or sPLT is missing.(tRNS must be used after one of them)"
-                    )
-
-                for i in range(0, TRNSNBR, 2):
-                    try:
-                        tRNS_Index.append(str(int(data[i : i + 2], 16)))
-                    except Exception as e:
-                        Betterror(e, inspect.stack()[0][3])
-                        if DEBUG is True:
-                            PRINT(
-                                Candy("Color", "red", "Error tRNS_Index:"),
-                                Candy("Color", "yellow", e),
-                            )
-                            if PAUSEDEBUG is True or PAUSEERROR is True:
-                                Pause("Pause Debug")
-
-                        ToFix.append("-Error tRNS_Index:" + str(e))
-
-                PRINT(
-                    "-%s Alpha indexes are stored."
-                    % Candy("Color", "yellow", len(tRNS_Index))
-                )
-
-                if b"PLTE" in Chunks_History:
-                    if (
-                        (len(tRNS_Index) > len(PLTE_R))
-                        or (len(tRNS_Index) > len(PLTE_G))
-                        or (len(tRNS_Index) > len(PLTE_B))
-                    ):
-                        PRINT(
-                            "-tRNS Alpha indexes palettes entries %s PLTE entries number %s"
-                            % (
-                                Candy("Color", "red", "must not be superior to"),
-                                Candy("Emoj", "bad"),
-                            )
-                        )
-                        ToFix.append(
-                            "-tRNS Alpha indexes palettes entries must not be superior to PLTE entries"
-                        )
-
-                if b"sPLT" in Chunks_History:
-                    if (
-                        (len(hIST) > len(sPLT_Red))
-                        or (len(hIST) > len(sPLT_Green))
-                        or (len(hIST) > len(sPLT_Blue))
-                        or (len(hIST) > len(sPLT_Aplha))
-                    ):
-                        PRINT(
-                            "-tRNS Alpha indexes palettes entries %s sPLT entries number %s"
-                            % (
-                                Candy("Color", "red", "must not be superior to"),
-                                Candy("Emoj", "bad"),
-                            )
-                        )
-                        ToFix.append(
-                            "-tRNS Alpha indexes palettes entries must not be superior to sPLT entries"
-                        )
-
+        ToFix.extend(tRNS_Info.fixes)
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
         else:
@@ -2881,326 +1863,40 @@ def GetInfo(Chunk, data, Dummy=False):
             )
 
     if Chunk == b"sBIT":
-        if IHDR_Color == "0":
-            sBIT_Gray = str(int(data[:2], 16))
-            PRINT(
-                "-Significant greyscale bits    :%s"% Candy("Color", "yellow", sBIT_Gray)
-            )
-            if sBIT_Gray == "0":
-                PRINT(
-                    "-%s sBit value (must be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "0"),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append("-Significant greyscale bits (must be greater than 0) ")
+        sBIT_Info = chunk_info.parse_sbit(data, IHDR_Color, IHDR_Depht)
+        sBIT_Gray = sBIT_Info.gray
+        sBIT_TrueR = sBIT_Info.true_r
+        sBIT_TrueG = sBIT_Info.true_g
+        sBIT_TrueB = sBIT_Info.true_b
+        sBIT_GrayScale = sBIT_Info.gray_scale
+        sBIT_GrayAlpha = sBIT_Info.gray_alpha
+        sBIT_TrueAlphaR = sBIT_Info.true_alpha_r
+        sBIT_TrueAlphaG = sBIT_Info.true_alpha_g
+        sBIT_TrueAlphaB = sBIT_Info.true_alpha_b
+        sBIT_TrueAlpha = sBIT_Info.true_alpha
 
-        if IHDR_Color == "2" or IHDR_Color == "3":
-            sBIT_TrueR = str(int(data[:2], 16))
-            sBIT_TrueG = str(int(data[2:4], 16))
-            sBIT_TrueB = str(int(data[4:6], 16))
+        if len(sBIT_Gray) > 0:
+            PRINT("-Significant greyscale bits    :%s"% Candy("Color", "yellow", sBIT_Gray))
+        if len(sBIT_TrueR) > 0:
             PRINT("-significant bits Red    :%s"% Candy("Color", "red", sBIT_TrueR))
+        if len(sBIT_TrueG) > 0:
             PRINT("-significant bits Green  :%s"% Candy("Color", "green", sBIT_TrueG))
+        if len(sBIT_TrueB) > 0:
             PRINT("-significant bits Blue   :%s"% Candy("Color", "blue", sBIT_TrueB))
-            if sBIT_TrueR == "0":
-                PRINT(
-                    "-%s sBit red value (must be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "0"),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append("-sBit red value (must be greater than 0")
+        if len(sBIT_GrayScale) > 0:
+            PRINT("-Gray scale significant bit:%s"% Candy("Color", "white", sBIT_GrayScale))
+        if len(sBIT_GrayAlpha) > 0:
+            PRINT("-Gray alpha significant bit:%s"% Candy("Color", "white", sBIT_GrayAlpha))
+        if len(sBIT_TrueAlphaR) > 0:
+            PRINT("-significant bits Alpha Red    :%s"% Candy("Color", "red", sBIT_TrueAlphaR))
+        if len(sBIT_TrueAlphaG) > 0:
+            PRINT("-significant bits Alpha Green  :%s"% Candy("Color", "green", sBIT_TrueAlphaG))
+        if len(sBIT_TrueAlphaB) > 0:
+            PRINT("-significant bits Alpha Blue   :%s"% Candy("Color", "blue", sBIT_TrueAlphaB))
+        if len(sBIT_TrueAlpha) > 0:
+            PRINT("-significant bits Alpha        :%s"% Candy("Color", "white", sBIT_TrueAlpha))
 
-            if sBIT_TrueG == "0":
-                PRINT(
-                    "-%s sBit green value (must be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "0"),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append("-sBit green value (must be greater than 0")
-
-            if sBIT_TrueB == "0":
-                PRINT(
-                    "-%s sBit blue value (must be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "0"),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append("-sBit blue value (must be greater than 0")
-
-            if IHDR_Color == "3":
-                if int(sBIT_TrueR) > 8:
-                    PRINT(
-                        "-%s sBit red value (must %s be greater than %s) %s"
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", "not"),
-                            Candy("Color", "red", "8"),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append("-sBit red value (must be greater than 0")
-                if int(sBIT_TrueG) > 8:
-                    PRINT(
-                        "-%s sBit green value (must %s be greater than %s) %s"
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", "not"),
-                            Candy("Color", "red", "8"),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append("-sBit green value (must not be greater than 8)")
-                if int(sBIT_TrueB) > 8:
-                    PRINT(
-                        "-%s sBit blue value (must %s be greater than %s) %s"
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", "not"),
-                            Candy("Color", "red", "8"),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append("-sBit blue value (must not be greater than 8)")
-            else:
-                if int(sBIT_TrueR) > int(IHDR_Depht):
-                    PRINT(
-                        "-%s sBit red value (must %s be greater than %s) %s"
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", "not"),
-                            Candy("Color", "red", IHDR_Depht),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-sBit red value (must not be greater than %s)" % IHDR_Depht
-                    )
-
-                if int(sBIT_TrueG) > int(IHDR_Depht):
-                    PRINT(
-                        "-%s sBit green value (must %s be greater than %s) %s"
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", "not"),
-                            Candy("Color", "red", IHDR_Depht),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-sBit green value (must not be greater than %s)" % IHDR_Depht
-                    )
-
-                if int(sBIT_TrueB) > int(IHDR_Depht):
-                    PRINT(
-                        "-%s sBit blue value (must %s be greater than %s) %s"
-                        % (
-                            Candy("Color", "red", "Wrong"),
-                            Candy("Color", "red", "not"),
-                            Candy("Color", "red", IHDR_Depht),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    ToFix.append(
-                        "-sBit blue value (must not be greater than %s)" % IHDR_Depht
-                    )
-
-        if IHDR_Color == "4":
-            sBIT_GrayScale = str(int(data[:pos], 16))
-            sBIT_GrayAlpha = str(int(data[:pos], 16))
-            PRINT(
-                "-Gray scale significant bit:%s"% Candy("Color", "white", sBIT_GrayScale)
-            )
-            PRINT(
-                "-Gray alpha significant bit:%s"% Candy("Color", "white", sBIT_GrayAlpha)
-            )
-            if sBIT_GrayScale == "0":
-                PRINT(
-                    "-%s sBit Grayscale value (must be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "0"),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append("-sBit Grayscale value (must not be greater than 0)")
-
-            if sBIT_GrayAlpha == "0":
-                PRINT(
-                    "-%s sBit Grayscale alpha value (must be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "0"),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append("-sBit Grayscale alpha value (must not be greater than 0)")
-
-            if int(sBIT_GrayScale) > int(IHDR_Depht):
-                PRINT(
-                    "-%s sBit Grayscale value (must %s be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "not"),
-                        Candy("Color", "red", IHDR_Depht),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append(
-                    "-sBit Grayscale value (must not be greater than %s)" % IHDR_Depht
-                )
-
-            if int(sBIT_GrayScale) > int(IHDR_Depht):
-                PRINT(
-                    "-%s sBit Grayscale alpha value (must %s be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "not"),
-                        Candy("Color", "red", IHDR_Depht),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append(
-                    "-sBit Grayscale alpha value (must not be greater than %s)"
-                    % IHDR_Depht
-                )
-
-        if IHDR_Color == "6":
-            sBIT_TrueAlphaR = str(int(data[:2], 16))
-            sBIT_TrueAlphaG = str(int(data[2:4], 16))
-            sBIT_TrueAlphaB = str(int(data[4:6], 16))
-            sBIT_TrueAlpha = str(int(data[6:8], 16))
-            PRINT(
-                "-significant bits Alpha Red    :%s"%
-                Candy("Color", "red", sBIT_TrueAlphaR),
-            )
-            PRINT(
-                "-significant bits Alpha Green  :%s"%
-                Candy("Color", "green", sBIT_TrueAlphaG),
-            )
-            PRINT(
-                "-significant bits Alpha Blue   :%s"%
-                Candy("Color", "blue", sBIT_TrueAlphaB),
-            )
-            PRINT(
-                "-significant bits Alpha        :%s"%
-                Candy("Color", "white", sBIT_TrueAlpha),
-            )
-
-            if sBIT_TrueAlphaR == "0":
-                PRINT(
-                    "-%s sBit True alpha red value (must be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "0"),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append("-sBit True alpha red value (must not be greater than 0)")
-
-            if sBIT_TrueAlphaG == "0":
-                PRINT(
-                    "-%s sBit True alpha green value (must be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "0"),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append(
-                    "-sBit True alpha green value (must not be greater than 0)"
-                )
-
-            if sBIT_TrueAlphaB == "0":
-                PRINT(
-                    "-%s sBit True alpha blue value (must be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "0"),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append("-sBit True alpha blue value (must not be greater than 0)")
-
-            if sBIT_TrueAlpha == "0":
-                PRINT(
-                    "-%s sBit True alpha value (must be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "0"),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append("-sBit True alpha value (must not be greater than 0)")
-
-            if int(sBIT_TrueAlphaR) > int(IHDR_Depht):
-                PRINT(
-                    "-%s sBit True alpha red value (must %s be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "not"),
-                        Candy("Color", "red", IHDR_Depht),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append(
-                    "-sBit True alpha red value (must not be greater than %s)"
-                    % IHDR_Depht
-                )
-
-            if int(sBIT_TrueAlphaG) > int(IHDR_Depht):
-                PRINT(
-                    "-%s sBit True alpha green value (must %s be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "not"),
-                        Candy("Color", "red", IHDR_Depht),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append(
-                    "-sBit True alpha green value (must not be greater than %s)"
-                    % IHDR_Depht
-                )
-
-            if int(sBIT_TrueAlphaB) > int(IHDR_Depht):
-                PRINT(
-                    "-%s sBit True alpha blue value (must %s be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "not"),
-                        Candy("Color", "red", IHDR_Depht),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append(
-                    "-sBit True alpha blue value (must not be greater than %s)"
-                    % IHDR_Depht
-                )
-
-            if int(sBIT_TrueAlpha) > int(IHDR_Depht):
-                PRINT(
-                    "-%s sBit True alpha value (must %s be greater than %s) %s"
-                    % (
-                        Candy("Color", "red", "Wrong"),
-                        Candy("Color", "red", "not"),
-                        Candy("Color", "red", IHDR_Depht),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                ToFix.append(
-                    "-sBit True alpha  value (must not be greater than %s)" % IHDR_Depht
-                )
-
+        ToFix.extend(sBIT_Info.fixes)
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
         else:
@@ -3209,6 +1905,7 @@ def GetInfo(Chunk, data, Dummy=False):
                 + Candy("Color", "green", " OK ")
                 + Candy("Emoj", "good")
             )
+
 
     if Chunk == b"oFFs":
         oFFs_Info = chunk_info.parse_offs(data)
@@ -3382,227 +2079,69 @@ def GetInfo(Chunk, data, Dummy=False):
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
     if Chunk == b"tEXt":
+        tEXt_Info = chunk_info.parse_text(data)
         tEXt_Key_List = []
         tEXt_Str_List = []
-        try:
-            null_pos = NullFind(data)
-            tEXt_Key = data[:null_pos]
-            tEXt_Text = data[null_pos + 2 :]
+        tEXt_Key = tEXt_Info.keyword
+        tEXt_Text = tEXt_Info.text
+        if len(tEXt_Info.decoded_keyword) > 0:
+            tEXt_Key_List.append(tEXt_Info.decoded_keyword)
+        if len(tEXt_Info.decoded_text) > 0:
+            tEXt_Str_List.append(tEXt_Info.decoded_text)
 
-            for i in range(0, len(data), 2):
-                if int(data[i : i + 2], 16) not in range(32, 127) and int(
-                    data[i : i + 2], 16
-                ) not in range(161, 256):
-                    if data[i : i + 2] != "00" and data[i : i + 2] != "0a":
-                        PRINT(
-                            "-Character %s at index %s in tEXt Keyword (must be between 32-126 and 161-255 but is %s)"
-                            % (
-                                Candy(
-                                    "Color",
-                                    "red",
-                                    "not allowed [" + data[i : i + 2] + "]",
-                                ),
-                                Candy("Color", "red", i),
-                                Candy("Color", "red", int(data[i : i + 2], 16)),
-                            )
-                        )
-                        ToFix.append(
-                            "-Character not allowed %s at index %s in tEXt Keyword (must be between 32-126 and 161-255 but is %s)"
-                            % (data[i : i + 2], i, int(data[i : i + 2], 16))
-                        )
+        PRINT("-Keyword : %s"% Candy("Color", "green", tEXt_Info.decoded_keyword))
+        PRINT("-String  : %s"% Candy("Color", "green", tEXt_Info.decoded_text))
 
-            if len(tEXt_Key) >= 79:
-                PRINT(
-                    "-tEXt Keyword length is %s :%s"
-                    % (
-                        Candy("Color", "red", "not Valid"),
-                        Candy("Color", "red", len(tEXt_Key)),
-                    )
-                )
-                ToFix.append("-tEXt Keyword length is not Valid :%s" % (len(tEXt_Key)))
-            tEXt_Key_List.append(bytes.fromhex(tEXt_Key).decode(errors="replace"))
-            tEXt_Str_List.append(bytes.fromhex(tEXt_Text).decode(errors="ignore"))
+        ToFix.extend(tEXt_Info.fixes)
+        if len(ToFix) > 0:
+            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
-            PRINT(
-                "-Keyword : ",
-                Candy(
-                    "Color", "green", bytes.fromhex(tEXt_Key).decode(errors="replace")
-                ),
-            )
-            PRINT(
-                "-String  : ",
-                Candy(
-                    "Color", "green", bytes.fromhex(tEXt_Text).decode(errors="replace")
-                ),
-            )
-
-            if len(ToFix) > 0:
-                CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
 
     if Chunk == b"zTXt":
+        zTXt_Info = chunk_info.parse_ztxt(data)
         zTXt_Key_List = []
         zTXt_Str_List = []
-        try:
-            null_pos = NullFind(data)
-            zTXt_Key = data[:null_pos]
-            zTXt_Text = zlib.decompress(bytes.fromhex(data[null_pos + 4 :]))
-            for i in range(0, len(zTXt_Key), 2):
-                if int(zTXt_Key[i : i + 2], 16) not in range(32, 127) and int(
-                    zTXt_Key[i : i + 2], 16
-                ) not in range(161, 256):
-                    if zTXt_Key[i : i + 2] != "00" and zTXt_Key[i : i + 2] != "0a":
-                        PRINT(
-                            "-Character %s at index %s in zTXt Keyword (must be between 32-126 and 161-255 but is %s)"
-                            % (
-                                Candy(
-                                    "Color",
-                                    "red",
-                                    "not allowed [" + zTXt_Key[i : i + 2] + "]",
-                                ),
-                                Candy("Color", "red", i),
-                                Candy("Color", "red", int(zTXt_Key[i : i + 2], 16)),
-                            )
-                        )
+        zTXt_Key = zTXt_Info.keyword
+        zTXt_Text = zTXt_Info.text
+        if len(zTXt_Info.decoded_keyword) > 0:
+            zTXt_Key_List.append(zTXt_Info.decoded_keyword)
+        if len(zTXt_Info.decoded_text) > 0:
+            zTXt_Str_List.append(zTXt_Info.decoded_text)
 
-            if len(zTXt_Key) >= 79:
-                PRINT(
-                    "-zTXt Keyword length is %s :%s"
-                    % (
-                        Candy("Color", "red", "not Valid"),
-                        Candy("Color", "red", len(zTXt_Key)),
-                    )
-                )
-                ToFix.append("-tEXt Keyword length is not Valid :%s" % (len(zTXt_Key)))
-            zTXt_Key_List.append(bytes.fromhex(zTXt_Key).decode(errors="replace"))
-            zTXt_Str_List.append(zTXt_Text.decode(errors="ignore"))
+        PRINT("-Keyword : %s"% Candy("Color", "green", zTXt_Info.decoded_keyword))
+        PRINT("-String  : %s"% Candy("Color", "green", zTXt_Info.decoded_text))
 
-            PRINT(
-                "-Keyword : ",
-                Candy(
-                    "Color", "green", bytes.fromhex(zTXt_Key).decode(errors="replace")
-                ),
-            )
-            PRINT(
-                "-String  : ",
-                Candy("Color", "green", zTXt_Text.decode(errors="ignore")),
-            )
+        ToFix.extend(zTXt_Info.fixes)
+        if len(ToFix) > 0:
+            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
-            if len(ToFix) > 0:
-                CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
     if Chunk == b"iTXt":
+        iTXt_Info = chunk_info.parse_itxt(data)
         iTXt_Key_List = []
         iTXt_String_List = []
-        try:
-            null_pos = NullFind(data)
-            iTXt_Key = data[:null_pos]
-
-            for i in range(0, len(iTXt_Key), 2):
-                if int(iTXt_Key[i : i + 2], 16) not in range(32, 127) and int(
-                    iTXt_Key[i : i + 2], 16
-                ) not in range(161, 256):
-                    if iTXt_Key[i : i + 2] != "00" and iTXt_Key[i : i + 2] != "0a":
-                        PRINT(
-                            "-Character %s at index %s in iTXt Keyword (must be between 32-126 and 161-255 but is %s)"
-                            % (
-                                Candy(
-                                    "Color",
-                                    "red",
-                                    "not allowed [" + iTXt_Key[i : i + 2] + "]",
-                                ),
-                                Candy("Color", "red", i),
-                                Candy("Color", "red", int(iTXt_Key[i : i + 2], 16)),
-                            )
-                        )
-
-            if len(iTXt_Key) >= 79:
-                PRINT(
-                    "-iTXt Keyword length is %s :%s"
-                    % (
-                        Candy("Color", "red", "not Valid"),
-                        Candy("Color", "red", len(iTXt_Key)),
-                    )
-                )
-                ToFix.append("-tEXt Keyword length is not Valid :%s" % (len(iTXt_Key)))
-
-            iTXt_Flag = data[len(iTXt_Key) + 2 : len(iTXt_Key) + 4]
-            iTXt_Compression = data[len(iTXt_Key) + 4 : len(iTXt_Key) + 6]
-
-            newpos = len(iTXt_Key) + len(iTXt_Flag) + len(iTXt_Compression) + 2
-
-            if data[newpos : newpos + 2] == "00":
-                iTXt_Lang = ""
-            else:
-                null_pos = NullFind(data[newpos:])
-                iTXt_Lang = data[newpos : newpos + null_pos]
-
-            newpos = newpos + len(iTXt_Lang) + 2
-
-            if iTXt_Lang == "00":
-                iTXt_Key_Trad = ""
-            else:
-                null_pos = NullFind(data[newpos:])
-                iTXt_Key_Trad = data[newpos : +newpos + null_pos]
-
-            newpos = newpos + len(iTXt_Key_Trad) + 2
-            iTXt_String = data[newpos:]
-
-            if iTXt_Flag == "01":
-                iTXt_String = zlib.decompress(bytes.fromhex(iTXt_String)).decode(
-                    errors="ignore"
-                )
-            elif iTXt_Flag == "00":
-                iTXt_String = bytes.fromhex(iTXt_String).decode(errors="replace")
-
-            iTXt_Key_List.append(bytes.fromhex(iTXt_Key).decode(errors="replace"))
+        iTXt_Key = iTXt_Info.keyword
+        iTXt_String = iTXt_Info.text
+        if len(iTXt_Info.decoded_keyword) > 0:
+            iTXt_Key_List.append(iTXt_Info.decoded_keyword)
+        if len(iTXt_String) > 0:
             iTXt_String_List.append(iTXt_String)
 
-            PRINT(
-                "-Keyword             : ",
-                Candy(
-                    "Color", "green", bytes.fromhex(iTXt_Key).decode(errors="replace")
-                ),
-            )
-            PRINT("-Compression Flag    : %s"% Candy("Color", "green", iTXt_Flag))
-            PRINT("-Compression Method  : %s"% Candy("Color", "green", iTXt_Compression))
-            PRINT(
-                "-Language            : %s"%
-                Candy(
-                    "Color", "green", bytes.fromhex(iTXt_Lang).decode(errors="replace")
-                ),
-            )
-            PRINT(
-                "-Keyword Traduction  : %s"%
-                Candy(
-                    "Color",
-                    "green",
-                    bytes.fromhex(iTXt_Key_Trad).decode(errors="replace"),
-                ),
-            )
-            PRINT("-String              : %s"% Candy("Color", "green", iTXt_String))
+        PRINT("-Keyword             : %s"% Candy("Color", "green", iTXt_Info.decoded_keyword))
+        PRINT("-Compression Flag    : %s"% Candy("Color", "green", iTXt_Info.compression_flag))
+        PRINT("-Compression Method  : %s"% Candy("Color", "green", iTXt_Info.compression_method))
+        PRINT("-Language            : %s"% Candy("Color", "green", iTXt_Info.decoded_language))
+        PRINT(
+            "-Keyword Traduction  : %s"%
+            Candy("Color", "green", iTXt_Info.decoded_translated_keyword)
+        )
+        PRINT("-String              : %s"% Candy("Color", "green", iTXt_String))
 
-            if len(ToFix) > 0:
-                CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+        ToFix.extend(iTXt_Info.fixes)
+        if len(ToFix) > 0:
+            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
+
     if Chunk == b"eXIf":
         eXIf_Info = chunk_info.parse_exif(data)
         eXIf_endian = eXIf_Info.endian
@@ -3651,371 +2190,59 @@ def GetInfo(Chunk, data, Dummy=False):
 
 
 def YouShallPass(Chunk, data):
+    global Chunks_History
+    global IHDR_Color
+    global IHDR_Depht
+    global Orig_CL
+    global PLTE_R
+    global PLTE_G
+    global PLTE_B
+    global sPLT_Name
+    global sPLT_Red
+    global sPLT_Green
+    global sPLT_Blue
+    global sPLT_Alpha
 
     if Chunk == b"IHDR":
-        try:
-            IHDR_Height = str(int(data[:8], 16))
-
-        except:
-            return False
-        try:
-            IHDR_Width = str(int(data[8:16], 16))
-        except:
-            return False
-        try:
-            IHDR_Depht = str(int(data[16:18], 16))
-        except:
-            return False
-        try:
-            IHDR_Color = str(int(data[18:20], 16))
-        except:
-            return False
-        try:
-            IHDR_Method = str(int(data[20:22], 16))
-        except:
-            return False
-        try:
-            IHDR_Filter = str(int(data[22:24], 16))
-        except:
-            return False
-        try:
-            IHDR_Interlace = str(int(data[24:26], 16))
-        except:
-            return False
-        try:
-            if len(data) != 26:
-                return False
-            if len(str(IHDR_Height)) > 0:
-                if int(IHDR_Height) > 2147483647:
-                    return False
-            else:
-                return False
-
-            if len(str(IHDR_Width)) > 0:
-                if int(IHDR_Width) > 2147483647:
-                    return False
-            else:
-                return False
-
-            if len(str(IHDR_Depht)) > 0:
-                if IHDR_Depht not in ["1", "2", "4", "8", "16"]:
-                    return False
-            else:
-                return False
-            if len(IHDR_Color) > 0:
-                if IHDR_Color not in ["0", "2", "3", "4", "6"]:
-                    return False
-                if IHDR_Color == "2" or IHDR_Color == "4" or IHDR_Color == "6":
-                    if IHDR_Depht not in ["8", "16"]:
-                        return False
-                if IHDR_Color == "3":
-                    if IHDR_Depht not in ["1", "2", "4", "8"]:
-                        return False
-            else:
-                return False
-
-            if len(IHDR_Filter) > 0 and IHDR_Filter != "0":
-                return False
-            elif len(IHDR_Filter) == 0:
-                return False
-            if len(IHDR_Method) > 0 and IHDR_Method != "0":
-                return False
-            elif len(IHDR_Method) == 0:
-                return False
-            if len(IHDR_Interlace) > 0 and (
-                IHDR_Interlace != "0" and IHDR_Interlace != "1"
-            ):
-                return False
-            elif len(IHDR_Interlace) == 0:
-                return False
-
-        except Exception as e:
-            if DEBUG:
-                PRINT("Error:%s"% e)
-        return True
+        return len(chunk_info.parse_ihdr(data).fixes) == 0
 
     if Chunk == b"pHYs":
         return len(chunk_info.parse_phys(data).fixes) == 0
 
     if Chunk == b"bKGD":
-        if IHDR_Color == "0" or IHDR_Color == "4":
-            try:
-                bKGD_Gray = str(int(data[:4], 16))
-            except:
-                return False
-            if len(bKGD_Gray) > 0:
-                if int(bKGD_Gray) > (2 ** int(IHDR_Depht)) - 1:
-                    return False
-        if IHDR_Color == "2" or IHDR_Color == "6":
-            try:
-                try:
-                    bKGD_Red = str(int(data[:4], 16))
-                except Exception as e:
-                    return False
-                try:
-                    bKGD_Green = str(int(data[4:8], 16))
-                except Exception as e:
-                    return False
-                try:
-                    bKGD_Blue = str(int(data[8:12], 16))
-                except Exception as e:
-                    return False
-                if len(bKGD_Red) > 0:
-                    if int(bKGD_Red) > (2 ** int(IHDR_Depht)) - 1:
-                        return False
-                if len(bKGD_Green) > 0:
-                    if int(bKGD_Green) > (2 ** int(IHDR_Depht)) - 1:
-                        return False
-                if len(bKGD_Blue) > 0:
-                    if int(bKGD_Blue) > (2 ** int(IHDR_Depht)) - 1:
-                        return False
-            except:
-                if DEBUG:
-                    PRINT("Error:%s"% e)
-                return False
-        if IHDR_Color == "3":
-            try:
-                bKGD_Index = str(int(data[:2], 16))
-            except:
-                return False
-        return True
+        return len(chunk_info.parse_bkgd(data, IHDR_Color, IHDR_Depht).fixes) == 0
 
     if Chunk == b"PLTE":
+        return len(chunk_info.parse_plte(data, IHDR_Depht).fixes) == 0
 
-        PLTE_R = []
-        PLTE_G = []
-        PLTE_B = []
-
-        PLTNbr = len(data)
-
-        if not str(int(PLTNbr) / 3).endswith(".0"):
-            return False
-
-        for i in range(0, PLTNbr, 6):
-            pltr = data[i : i + 2]
-            try:
-                int(pltr, 16)
-            except:
-                return False
-
-            pltg = data[i + 2 : i + 4]
-            try:
-                int(pltg, 16)
-            except:
-                return False
-            pltb = data[i + 4 : i + 6]
-
-            try:
-                int(pltb, 16)
-            except:
-                return False
-
-            PLTE_R.append(str(pltr))
-            PLTE_G.append(str(pltg))
-            PLTE_B.append(str(pltb))
-
-        if len(PLTE_R) > 256:
-            return False
-
-        if len(PLTE_G) > 256:
-            return False
-        if len(PLTE_B) > 256:
-            return False
-        if len(IHDR_Depht) > 0:
-            if len(PLTE_R) > 2 ** int(IHDR_Depht):
-                return False
-            elif len(PLTE_R) == 0:
-                return False
-
-            if len(PLTE_G) > 2 ** int(IHDR_Depht):
-                return False
-            elif len(PLTE_G) == 0:
-                return False
-
-            if len(PLTE_B) > 2 ** int(IHDR_Depht):
-                return False
-            elif len(PLTE_G) == 0:
-                return False
-        else:
-            return False
-        return True
 
     if Chunk == b"sPLT":
-        sPLT_Red = []
-        sPLT_Green = []
-        sPLT_Blue = []
-        sPLT_Alpha = []
-        sPLT_Freq = []
-        sPLT_Depht = []
-        sPLT_Name = []
-        sPLT_Ln = len(data)
-        Name = ""
-        if sPLT_Ln <= 0:
-            return False
+        return len(chunk_info.parse_splt(data, previous_names=tuple(sPLT_Name)).fixes) == 0
 
-        elif NullFind(data) is False:
-            return False
-        elif sPLT_Ln > 0 and NullFind(data) is not False:
-            null_pos = NullFind(data)
-            Name = data[:null_pos]
-            ChrName = ""
 
-            for i in range(0, len(Name), 2):
-                try:
-                    nint = int(data[i : i + 2], 16)
-                    nchar = chr(nint)
-                except:
-                    nint = 258
-                    nchar = chr(nint)
-
-                if (nint not in range(32, 127)) and (nint not in range(161, 256)):
-                    ChrName += "€"
-                else:
-                    ChrName += nchar
-
-            Depht = str(int(data[null_pos + 2 : null_pos + 4], 16))
-            if Depht != "8" and Depht != "16":
-                return False
-            pos = 0
-            for i in range(sPLT_Ln):
-                if Depht == "8":
-                    sPLT_Red.append(data[:pos])
-                    sPLT_Green.append(data[pos : pos + 2])
-                    sPLT_Blue.append(data[pos + 2 : pos + 4])
-                    sPLT_Alpha.append(data[pos + 4 : pos + 6])
-                    sPLT_Freq.append(data[pos + 6 : pos + 8])
-                    pos += 8
-
-                if Depht == "16":
-                    sPLT_Red.append(data[:pos])
-                    sPLT_Green.append(data[pos : pos + 4])
-                    sPLT_Blue.append(data[pos + 4 : pos + 8])
-                    sPLT_Alpha.append(data[pos + 8 : pos + 16])
-                    sPLT_Freq.append(data[pos + 16 : pos + 24])
-                    pos += 24
-                else:
-                    break
-
-            if len(Name) > 79:
-                return False
-
-            if Depht == "8":
-                if not str(int(len(sPLT_Red)) / 6).endswith(".0"):
-                    return False
-            elif Depht == "16":
-                if not str(int(len(sPLT_Red)) / 10).endswith(".0"):
-                    return False
-            if Depht == "8":
-                if not str(int(len(sPLT_Green)) / 6).endswith(".0"):
-                    return False
-            elif Depht == "16":
-                if not str(int(len(sPLT_Green)) / 10).endswith(".0"):
-                    return False
-            if Depht == "8":
-                if not str(int(len(sPLT_Blue)) / 6).endswith(".0"):
-                    return False
-            elif Depht == "16":
-                if not str(int(len(sPLT_Blue)) / 10).endswith(".0"):
-                    return False
-            if Depht == "8":
-                if not str(int(len(sPLT_Alpha)) / 6).endswith(".0"):
-                    return False
-            elif Depht == "16":
-                if not str(int(len(sPLT_Alpha)) / 10).endswith(".0"):
-                    return False
-            if Depht == "8":
-                if not str(int(len(sPLT_Freq)) / 6).endswith(".0"):
-                    return False
-            elif Depht == "16":
-                if not str(int(len(sPLT_Freq)) / 10).endswith(".0"):
-                    return False
-            sPLT_Depht.append(Depht)
-            sPLT_Name.append(Name)
-
-            for nm in sPLT_Name:
-                if sPLT_Name.count(nm) > 1 and nm != lastnm:
-                    lastnm = nm
-                    return False
-        return True
     if Chunk == b"hIST":
-        hIST = []
-        if len(data) <= 0:
-            return False
-        elif len(data) > 0:
-
-            if b"PLTE" not in Chunks_History and b"sPLT" not in Chunks_History:
-                return False
-            try:
-                pos = 0
-                for plt in range(0, len(data), 4):
-                    hIST.append(data[plt : plt + 4])
-                    pos = plt
-                if b"PLTE" in Chunks_History:
-                    if len(hIST) != int((len(PLTE_R) + len(PLTE_G) + len(PLTE_B)) / 3):
-                        return False
-                if b"sPLT" in Chunks_History:
-                    if len(hIST) != len(sPLT_Red) + len(sPLT_Green) + len(
-                        sPLT_Blue
-                    ) + len(sPLT_Aplha):
-                        return False
-            except:
-                if DEBUG:
-                    PRINT("Error:%s"% e)
-                return False
-        return True
+        return len(
+            chunk_info.parse_hist(
+                data,
+                has_plte=b"PLTE" in Chunks_History,
+                has_splt=b"sPLT" in Chunks_History,
+                plte_entries=int((len(PLTE_R) + len(PLTE_G) + len(PLTE_B)) / 3),
+                splt_entries=len(sPLT_Red) + len(sPLT_Green) + len(sPLT_Blue) + len(sPLT_Alpha),
+            ).fixes
+        ) == 0
     if Chunk == b"tIME":
         return len(chunk_info.parse_time(data).fixes) == 0
     if Chunk == b"tRNS":
-        TRNSNBR = len(data)
-        if len(IHDR_Color) == 0:
-            return False
-        elif len(data) == 0:
-            return False
-        elif str(IHDR_Color) not in ["0", "2", "3"]:
-            return False
-        elif len(data) > 0 and str(IHDR_Color) in ["0", "2", "3"]:
-            if IHDR_Color == "0":
-                try:
-                    tRNS_Gray = str(int(data[:4], 16))
-                except:
-                    return False
-            if IHDR_Color == "2":
-                try:
-                    tRNS_TrueR = str(int(data[:4], 16))
-                except:
-                    return False
-                try:
-                    tRNS_TrueG = str(int(data[4:8], 16))
-                except:
-                    return False
-                try:
-                    tRNS_TrueB = str(int(data[8:16], 16))
-                except:
-                    return False
-            if IHDR_Color == "3":
-                if b"PLTE" not in Chunks_History and b"sPLT" not in Chunks_History:
-                    return False
-                for i in range(0, TRNSNBR, 2):
-                    try:
-                        tRNS_Index.append(str(int(data[i : i + 2], 16)))
-                    except:
-                        return False
-                if b"PLTE" in Chunks_History:
-                    if (
-                        (len(tRNS_Index) > len(PLTE_R))
-                        or (len(tRNS_Index) > len(PLTE_G))
-                        or (len(tRNS_Index) > len(PLTE_B))
-                    ):
-                        return False
-                if b"sPLT" in Chunks_History:
-                    if (
-                        (len(hIST) > len(sPLT_Red))
-                        or (len(hIST) > len(sPLT_Green))
-                        or (len(hIST) > len(sPLT_Blue))
-                        or (len(hIST) > len(sPLT_Aplha))
-                    ):
-                        return False
-        return True
+        return len(
+            chunk_info.parse_trns(
+                data,
+                IHDR_Color,
+                has_plte=b"PLTE" in Chunks_History,
+                has_splt=b"sPLT" in Chunks_History,
+                plte_entries=len(PLTE_R),
+                splt_entries=len(sPLT_Red),
+            ).fixes
+        ) == 0
     if Chunk == b"sRGB":
         return len(chunk_info.parse_srgb(data, has_chrm=b"cHRM" in Chunks_History).fixes) == 0
     if Chunk == b"cHRM":
@@ -4036,69 +2263,7 @@ def YouShallPass(Chunk, data):
             ).fixes
         ) == 0
     if Chunk == b"sBIT":
-        if IHDR_Color == "0":
-            sBIT_Gray = str(int(data[:2], 16))
-            if sBIT_Gray == "0":
-                return False
-
-        if IHDR_Color == "2" or IHDR_Color == "3":
-            sBIT_TrueR = str(int(data[:2], 16))
-            sBIT_TrueG = str(int(data[2:4], 16))
-            sBIT_TrueB = str(int(data[4:6], 16))
-            if sBIT_TrueR == "0":
-                return False
-            if sBIT_TrueG == "0":
-                return False
-
-            if sBIT_TrueB == "0":
-                return False
-            if IHDR_Color == "3":
-                if int(sBIT_TrueR) > 8:
-                    return False
-                if int(sBIT_TrueG) > 8:
-                    return False
-                if int(sBIT_TrueB) > 8:
-                    return False
-            else:
-                if int(sBIT_TrueR) > int(IHDR_Depht):
-                    return False
-                if int(sBIT_TrueG) > int(IHDR_Depht):
-                    return False
-                if int(sBIT_TrueB) > int(IHDR_Depht):
-                    return False
-        if IHDR_Color == "4":
-            sBIT_GrayScale = str(int(data[:pos], 16))
-            sBIT_GrayAlpha = str(int(data[:pos], 16))
-            if sBIT_GrayScale == "0":
-                return False
-            if sBIT_GrayAlpha == "0":
-                return False
-            if int(sBIT_GrayScale) > int(IHDR_Depht):
-                return False
-            if int(sBIT_GrayScale) > int(IHDR_Depht):
-                return False
-        if IHDR_Color == "6":
-            sBIT_TrueAlphaR = str(int(data[:2], 16))
-            sBIT_TrueAlphaG = str(int(data[2:4], 16))
-            sBIT_TrueAlphaB = str(int(data[4:6], 16))
-            sBIT_TrueAlpha = str(int(data[6:8], 16))
-            if sBIT_TrueAlphaR == "0":
-                return False
-            if sBIT_TrueAlphaG == "0":
-                return False
-            if sBIT_TrueAlphaB == "0":
-                return False
-            if sBIT_TrueAlpha == "0":
-                return False
-            if int(sBIT_TrueAlphaR) > int(IHDR_Depht):
-                return False
-            if int(sBIT_TrueAlphaG) > int(IHDR_Depht):
-                return False
-            if int(sBIT_TrueAlphaB) > int(IHDR_Depht):
-                return False
-            if int(sBIT_TrueAlpha) > int(IHDR_Depht):
-                return False
-        return True
+        return len(chunk_info.parse_sbit(data, IHDR_Color, IHDR_Depht).fixes) == 0
     if Chunk == b"oFFs":
         return len(chunk_info.parse_offs(data).fixes) == 0
     if Chunk == b"pCAL":
@@ -4151,43 +2316,11 @@ def YouShallPass(Chunk, data):
 
         return len(chunk_info.parse_ster(data).fixes) == 0
     if Chunk == b"tEXt":
-        tEXt_Key_List = []
-        tEXt_Str_List = []
-        try:
-            null_pos = NullFind(data)
-            tEXt_Key = data[:null_pos]
-            tEXt_Text = data[null_pos + 2 :]
-
-            if len(tEXt_Key) >= 79:
-                return False
-        except:
-            return False
-        return True
+        return len(chunk_info.parse_text(data).fixes) == 0
     if Chunk == b"zTXt":
-        zTXt_Key_List = []
-        zTXt_Str_List = []
-        try:
-            null_pos = NullFind(data)
-            zTXt_Key = data[:null_pos]
-            zTXt_Text = zlib.decompress(bytes.fromhex(data[null_pos + 4 :]))
-
-            if len(zTXt_Key) >= 79:
-                return False
-        except:
-            return False
-        return True
+        return len(chunk_info.parse_ztxt(data).fixes) == 0
     if Chunk == b"iTXt":
-        iTXt_Key_List = []
-        iTXt_String_List = []
-        try:
-            null_pos = NullFind(data)
-            iTXt_Key = data[:null_pos]
-
-            if len(iTXt_Key) >= 79:
-                return False
-        except:
-            return False
-        return True
+        return len(chunk_info.parse_itxt(data).fixes) == 0
     if Chunk == b"eXIf":
         return len(chunk_info.parse_exif(data).fixes) == 0
 

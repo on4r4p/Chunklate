@@ -31,6 +31,23 @@ def with_iccp_state(chunks, raw_length, check):
         Chunklate.Orig_CL = old_orig_cl
 
 
+def with_chunk_state(check, **updates):
+    old_values = {name: getattr(Chunklate, name) for name in updates}
+    try:
+        for name, value in updates.items():
+            setattr(Chunklate, name, value)
+        check()
+    finally:
+        for name, value in old_values.items():
+            setattr(Chunklate, name, value)
+
+
+def test_youshallpass_uses_ihdr_parser():
+    assert Chunklate.YouShallPass(b"IHDR", "00000020000000100802000000") is True
+    assert Chunklate.YouShallPass(b"IHDR", "00000000000000100802000000") is False
+    assert Chunklate.YouShallPass(b"IHDR", "00000020000000100303010202") is False
+
+
 def test_youshallpass_uses_phys_parser():
     assert Chunklate.YouShallPass(b"pHYs", "000000010000000201") is True
     assert Chunklate.YouShallPass(b"pHYs", "000000010000000202") is False
@@ -126,6 +143,64 @@ def test_youshallpass_uses_iccp_parser():
     with_iccp_state([b"cHRM"], "00000007", check_with_chrm)
 
 
+def test_youshallpass_uses_color_dependent_parsers():
+    def check():
+        assert Chunklate.YouShallPass(b"bKGD", "0007") is True
+        assert Chunklate.YouShallPass(b"bKGD", "0100") is False
+        assert Chunklate.YouShallPass(b"sBIT", "08") is True
+        assert Chunklate.YouShallPass(b"sBIT", "00") is False
+        assert Chunklate.YouShallPass(b"tRNS", "0007") is True
+        assert Chunklate.YouShallPass(b"tRNS", "") is False
+
+    with_chunk_state(
+        check,
+        IHDR_Color="0",
+        IHDR_Depht="8",
+        Chunks_History=[],
+        PLTE_R=[],
+        PLTE_G=[],
+        PLTE_B=[],
+    )
+
+
+def test_youshallpass_uses_palette_dependent_parsers():
+    def check():
+        assert Chunklate.YouShallPass(b"PLTE", "000102030405") is True
+        assert Chunklate.YouShallPass(b"hIST", "00010002") is True
+        assert Chunklate.YouShallPass(b"tRNS", "0001") is True
+        assert Chunklate.YouShallPass(b"tRNS", "000102") is False
+
+    with_chunk_state(
+        check,
+        IHDR_Color="3",
+        IHDR_Depht="8",
+        Chunks_History=[b"PLTE"],
+        PLTE_R=["00", "03"],
+        PLTE_G=["01", "04"],
+        PLTE_B=["02", "05"],
+    )
+
+
+def test_youshallpass_uses_splt_parser():
+    payload = "70616c0008" + ("01" * 13)
+
+    assert Chunklate.YouShallPass(b"sPLT", payload) is True
+
+    def check_duplicate():
+        assert Chunklate.YouShallPass(b"sPLT", payload) is False
+
+    with_chunk_state(check_duplicate, sPLT_Name=["70616c"])
+
+
+def test_youshallpass_uses_text_parsers():
+    assert Chunklate.YouShallPass(b"tEXt", "5469746c650048656c6c6f") is True
+    assert Chunklate.YouShallPass(b"tEXt", ("41" * 80) + "00") is False
+    assert Chunklate.YouShallPass(b"zTXt", "4b65790000789cf348cdc9c90700058c01f5") is True
+    assert Chunklate.YouShallPass(b"zTXt", "4b65790000ff") is False
+    assert Chunklate.YouShallPass(b"iTXt", "4b6579000000000048656c6c6f") is True
+    assert Chunklate.YouShallPass(b"iTXt", "4b6579000200000048656c6c6f") is False
+
+
 def test_youshallpass_uses_exif_parser():
     assert Chunklate.YouShallPass(b"eXIf", "494900000000") is True
     assert Chunklate.YouShallPass(b"eXIf", "4d4d") is True
@@ -135,6 +210,7 @@ def test_youshallpass_uses_exif_parser():
 
 def main():
     checks = [
+        ("IHDR parser", test_youshallpass_uses_ihdr_parser),
         ("pHYs parser", test_youshallpass_uses_phys_parser),
         ("tIME parser", test_youshallpass_uses_time_parser),
         ("gAMA parser", test_youshallpass_uses_gama_parser),
@@ -145,6 +221,10 @@ def main():
         ("gIFg parser", test_youshallpass_uses_gifg_parser),
         ("gIFx parser", test_youshallpass_uses_gifx_parser),
         ("iCCP parser", test_youshallpass_uses_iccp_parser),
+        ("color dependent parsers", test_youshallpass_uses_color_dependent_parsers),
+        ("palette dependent parsers", test_youshallpass_uses_palette_dependent_parsers),
+        ("sPLT parser", test_youshallpass_uses_splt_parser),
+        ("text parsers", test_youshallpass_uses_text_parsers),
         ("eXIf parser", test_youshallpass_uses_exif_parser),
     ]
 

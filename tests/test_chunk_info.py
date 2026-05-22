@@ -10,6 +10,180 @@ if str(ROOT) not in sys.path:
 from chunklate import chunk_info
 
 
+def test_parse_ihdr_reads_valid_fields():
+    info = chunk_info.parse_ihdr("00000020000000100802000000")
+
+    assert info.width == "32"
+    assert info.height == "16"
+    assert info.depth == "8"
+    assert info.color == "2"
+    assert info.method == "0"
+    assert info.filter_method == "0"
+    assert info.interlace == "0"
+    assert info.fixes == ()
+
+
+def test_parse_ihdr_reports_size_dimensions_and_estimated_resolution():
+    zero = chunk_info.parse_ihdr("00000000000000100802000000")
+    huge = chunk_info.parse_ihdr("000000150000000a0802000000", max_resolution=10)
+    short = chunk_info.parse_ihdr("00000020")
+
+    assert zero.fixes == (
+        "-IHDR Width Must be between 1 to 2147483647. StructIndex:0",
+    )
+    assert huge.fixes == (
+        "-IHDR Width Error 21 Above estimated max resolution(*2):20. StructIndex:0",
+    )
+    assert "-IHDR size have to always be 13 bytes" in short.fixes
+    assert any(fix.startswith("-Error IHDR Width:") for fix in short.fixes)
+
+
+def test_parse_ihdr_reports_depth_color_method_filter_and_interlace():
+    info = chunk_info.parse_ihdr("00000001000000010303010202")
+
+    assert info.fixes == (
+        "-IHDR Depht: Wrong bit depht (depht must be 1,2,4,8 or 16). StructIndex:2",
+        "-IHDR Color 3: Wrong bit depht with IHDR Color type 3 (depht must be 1,2,4 or 8). StructIndex:3",
+        "-IHDR Filter Method Wrong value must be 0. StructIndex:4",
+        "-IHDR Compression Algorithms : Wrong value must be 0. StructIndex:5",
+        "-IHDR Interlace Method :Wrong value must be 0 (no interlace) or 1 (Adam7 interlace). StructIndex:6",
+    )
+
+
+def test_parse_bkgd_uses_color_type_and_depth():
+    gray = chunk_info.parse_bkgd("0007", ihdr_color="0", ihdr_depth="8")
+    rgb = chunk_info.parse_bkgd("00ff01000001", ihdr_color="2", ihdr_depth="8")
+    indexed = chunk_info.parse_bkgd("02", ihdr_color="3", ihdr_depth="8")
+
+    assert gray.gray == "7"
+    assert gray.fixes == ()
+    assert rgb.red == "255"
+    assert rgb.green == "256"
+    assert rgb.blue == "1"
+    assert rgb.fixes == ("-Bkgd_Green Wrong value Must be less than 255",)
+    assert indexed.index == "2"
+    assert indexed.fixes == ()
+
+
+def test_parse_hist_matches_palette_entry_count():
+    valid = chunk_info.parse_hist("00010002", has_plte=True, plte_entries=2)
+    missing_palette = chunk_info.parse_hist("0001")
+    wrong_count = chunk_info.parse_hist("00010002", has_plte=True, plte_entries=1)
+
+    assert valid.entries == ("0001", "0002")
+    assert valid.fixes == ()
+    assert missing_palette.fixes == (
+        "-PLTE Chunk sPLT is missing.(hIST must be used after one of them)",
+    )
+    assert wrong_count.fixes == (
+        "-Histogram frequencies entries must match PLTE entries number",
+    )
+
+
+def test_parse_trns_uses_color_type_and_palette_count():
+    gray = chunk_info.parse_trns("0007", ihdr_color="0")
+    truecolor = chunk_info.parse_trns("000100020003", ihdr_color="2")
+    indexed = chunk_info.parse_trns(
+        "000102",
+        ihdr_color="3",
+        has_plte=True,
+        plte_entries=2,
+    )
+
+    assert gray.gray == "7"
+    assert gray.fixes == ()
+    assert truecolor.true_r == "1"
+    assert truecolor.true_g == "2"
+    assert truecolor.true_b == "3"
+    assert truecolor.fixes == ()
+    assert indexed.indexes == ("0", "1", "2")
+    assert indexed.fixes == (
+        "-tRNS Alpha indexes palettes entries must not be superior to PLTE entries",
+    )
+
+
+def test_parse_sbit_covers_color_dependent_shapes():
+    gray = chunk_info.parse_sbit("08", ihdr_color="0", ihdr_depth="8")
+    indexed = chunk_info.parse_sbit("090807", ihdr_color="3", ihdr_depth="8")
+    gray_alpha = chunk_info.parse_sbit("0900", ihdr_color="4", ihdr_depth="8")
+    true_alpha = chunk_info.parse_sbit("08080809", ihdr_color="6", ihdr_depth="8")
+
+    assert gray.gray == "8"
+    assert gray.fixes == ()
+    assert indexed.fixes == ("-sBit red value (must be greater than 0",)
+    assert gray_alpha.gray_scale == "9"
+    assert gray_alpha.gray_alpha == "0"
+    assert gray_alpha.fixes == (
+        "-sBit Grayscale alpha value (must not be greater than 0)",
+        "-sBit Grayscale value (must not be greater than 8)",
+    )
+    assert true_alpha.fixes == ("-sBit True alpha  value (must not be greater than 8)",)
+
+
+def test_parse_plte_reads_entries_and_checks_depth_limit():
+    valid = chunk_info.parse_plte("000102030405", ihdr_depth="8")
+    too_many = chunk_info.parse_plte("000102030405060708", ihdr_depth="1")
+
+    assert valid.red == ("00", "03")
+    assert valid.green == ("01", "04")
+    assert valid.blue == ("02", "05")
+    assert valid.fixes == ()
+    assert too_many.fixes == (
+        "-PLTE Wrong RED 1 palettes not in bitdepht range (must not be > 2 power of image Depht:2)",
+        "-PLTE 2 Wrong Green palettes not in bitdepht range: (must not be > 2 power of image Depht:2)",
+        "-PLTE Blue palettes not in bitdepht range",
+    )
+
+
+def test_parse_splt_keeps_legacy_entry_slicing_and_name_checks():
+    payload = "70616c0008" + ("01" * 13)
+    valid = chunk_info.parse_splt(payload)
+    duplicate = chunk_info.parse_splt(payload, previous_names=("70616c",))
+
+    assert valid.name == "70616c"
+    assert valid.decoded_name == "pal"
+    assert valid.depth == "8"
+    assert len(valid.red) == len(payload)
+    assert valid.fixes == ()
+    assert duplicate.fixes == (
+        "-sPLT can be used multiple times but cannot share the same name.",
+    )
+
+
+def test_parse_text_reads_keyword_and_payload():
+    info = chunk_info.parse_text("5469746c650048656c6c6f")
+    long_key = chunk_info.parse_text(("41" * 80) + "00")
+
+    assert info.keyword == "5469746c65"
+    assert info.decoded_keyword == "Title"
+    assert info.decoded_text == "Hello"
+    assert info.fixes == ()
+    assert long_key.fixes == ("-tEXt Keyword length is not Valid :160",)
+
+
+def test_parse_ztxt_decompresses_payload():
+    payload = "789cf348cdc9c90700058c01f5"
+    info = chunk_info.parse_ztxt("4b65790000" + payload)
+    malformed = chunk_info.parse_ztxt("4b65790000ff")
+
+    assert info.decoded_keyword == "Key"
+    assert info.decoded_text == "Hello"
+    assert info.fixes == ()
+    assert malformed.fixes[0].startswith("-zTXt Text Error:")
+
+
+def test_parse_itxt_reads_uncompressed_payload():
+    info = chunk_info.parse_itxt("4b6579000000000048656c6c6f")
+    invalid_flag = chunk_info.parse_itxt("4b6579000200000048656c6c6f")
+
+    assert info.decoded_keyword == "Key"
+    assert info.compression_flag == "00"
+    assert info.compression_method == "00"
+    assert info.text == "Hello"
+    assert info.fixes == ()
+    assert invalid_flag.fixes == ("-iTXt Compression Flag must be 0 or 1",)
+
+
 def test_parse_gama_keeps_zero_as_useless_fix():
     info = chunk_info.parse_gama("00000000")
 
@@ -238,6 +412,18 @@ def test_parse_exif_rejects_unknown_or_malformed_endian():
 
 def main():
     checks = [
+        ("IHDR valid", test_parse_ihdr_reads_valid_fields),
+        ("IHDR dimensions", test_parse_ihdr_reports_size_dimensions_and_estimated_resolution),
+        ("IHDR modes", test_parse_ihdr_reports_depth_color_method_filter_and_interlace),
+        ("bKGD fields", test_parse_bkgd_uses_color_type_and_depth),
+        ("hIST entries", test_parse_hist_matches_palette_entry_count),
+        ("tRNS fields", test_parse_trns_uses_color_type_and_palette_count),
+        ("sBIT fields", test_parse_sbit_covers_color_dependent_shapes),
+        ("PLTE fields", test_parse_plte_reads_entries_and_checks_depth_limit),
+        ("sPLT fields", test_parse_splt_keeps_legacy_entry_slicing_and_name_checks),
+        ("tEXt fields", test_parse_text_reads_keyword_and_payload),
+        ("zTXt fields", test_parse_ztxt_decompresses_payload),
+        ("iTXt fields", test_parse_itxt_reads_uncompressed_payload),
         ("gAMA zero", test_parse_gama_keeps_zero_as_useless_fix),
         ("pHYs fields", test_parse_phys_preserves_legacy_field_order_and_unit_validation),
         ("pHYs limits", test_parse_phys_reports_high_and_missing_values),
