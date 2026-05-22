@@ -9,6 +9,7 @@ POKEMON_PROMPT = "WHO'S THAT POKEMON !? :"
 
 InputFunc = Callable[[str], str]
 InvalidChoiceCallback = Callable[[str], None]
+PauseEofCallback = Callable[[EOFError], None]
 
 
 def ask_pokemon_choice(
@@ -25,3 +26,12 @@ def ask_pokemon_choice(
             return choice
         if on_invalid is not None:
             on_invalid(str(raw_choice))
+
+
+def pause(asker: InputFunc, msg: str, *, on_eof: PauseEofCallback | None = None) -> str | None:
+    try:
+        return asker(msg)
+    except EOFError as exc:
+        if on_eof is not None:
+            on_eof(exc)
+        return None

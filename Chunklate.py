@@ -7013,13 +7013,12 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
 
 
 def Pause(msg):
-    try:
-        pause = input(msg)
-    except EOFError as e:
+    def on_eof(e):
         print("Error:",e)
         f = io.BytesIO()
         with stderr_redirector(f):
              pass
+    prompts.pause(input, msg, on_eof=on_eof)
     return ()
 
 def PRINT(msg):
