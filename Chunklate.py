@@ -23,7 +23,7 @@ try:
 except ModuleNotFoundError:
     tkinter = None
 
-import sys, os, binascii, re, random, time, zlib, ctypes, struct,io, tempfile, inspect, types, difflib, collections, itertools, shutil
+import sys, os, binascii, random, time, zlib, ctypes, struct,io, tempfile, inspect, types, difflib, collections, itertools, shutil
 
 try:
     import cv2
@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, decisions, dummy_chunk, fixit_felix, output, palette, palette_ui, prompts, relics, specs, ui, writer
+from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, decisions, dummy_chunk, fixit_felix, output, palette, palette_ui, prompts, relics, sorting, specs, ui, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -2252,11 +2252,11 @@ def Candy(mode, arg, data=None):
 
 
 def SplitDigits(lst):
-    return [DigDigits(k) for k in re.split(r"(\d+)", lst)]
+    return sorting.natural_sort_key(lst)
 
 
 def DigDigits(dig):
-    return int(dig) if dig.isdigit() else dig
+    return sorting.digit_or_text(dig)
 
 
 def ChunkStory(action, Chunk, start, end, chuck_length):
