@@ -181,6 +181,17 @@ def resolution_iteration_bounds(idat_byte_count: int, color_type_label: str) -> 
     return min_resolution, min_resolution * min_resolution
 
 
+def normalize_chunk_format(chunk_format: Any) -> Any:
+    if any(item in ["!I", "!H", "!B"] for item in chunk_format):
+        return chunk_format
+
+    normalized = []
+    for index, item in enumerate(chunk_format):
+        if item == "!":
+            normalized.append("%s%s" % (chunk_format[index], chunk_format[index + 1]))
+    return normalized
+
+
 def estimate_idat_bytes_from_hex(data_hex: str, known_chunks: tuple[bytes, ...] = CHUNKS) -> int:
     byte_count = 0
     last_byte_count = 0

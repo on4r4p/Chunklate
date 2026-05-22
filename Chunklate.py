@@ -1081,20 +1081,15 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
                         tmpcf = []
 
 
-                        if not any(cf in ["!I","!H","!B"] for cf in chunk_format):
-                              for n,cf in enumerate(chunk_format):
-                                  if cf == "!":
-                                        try:
-                                            tmpcf.append("%s%s"%(chunk_format[n],chunk_format[n+1]))
-                                        except (NameError, ValueError) as e:
-                                            Betterror(e, inspect.stack()[0][3])
-                                            if DEBUG is True:
-                                               PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                                            if PAUSEDEBUG is True or PAUSEERROR is True:
-                                                 Pause("Pause Debug")
-                                            TheEnd()
-                                        chunk_format = tmpcf
-                                        tmpcf = []
+                        try:
+                            chunk_format = specs.normalize_chunk_format(chunk_format)
+                        except (NameError, ValueError) as e:
+                            Betterror(e, inspect.stack()[0][3])
+                            if DEBUG is True:
+                               PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
+                            if PAUSEDEBUG is True or PAUSEERROR is True:
+                                 Pause("Pause Debug")
+                            TheEnd()
 
 
                         for n in range(0,IterNbr):

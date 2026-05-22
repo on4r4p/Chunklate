@@ -48,6 +48,12 @@ def test_resolution_iteration_bounds_preserves_legacy_minres_logic():
     assert specs.resolution_iteration_bounds(1280000, "nocolortype") == (10000, 100000000)
 
 
+def test_normalize_chunk_format_preserves_legacy_string_and_tuple_modes():
+    assert specs.normalize_chunk_format("!H") == ["!H"]
+    assert specs.normalize_chunk_format("!B") == ["!B"]
+    assert specs.normalize_chunk_format(("!I", "!B")) == ("!I", "!B")
+
+
 def test_estimate_idat_bytes_from_hex_preserves_legacy_scan():
     single = PNG_SIGNATURE + build_png_chunk(b"IDAT", b"abc") + IEND_CHUNK
     multiple = (
@@ -165,6 +171,7 @@ def main():
         ("Max resolution estimate", test_estimate_max_resolution_preserves_legacy_formula),
         ("Max resolution estimate from file", lambda: test_estimate_max_resolution_from_file_uses_file_size(tmp_path)),
         ("Resolution iteration bounds", test_resolution_iteration_bounds_preserves_legacy_minres_logic),
+        ("Normalize chunk format", test_normalize_chunk_format_preserves_legacy_string_and_tuple_modes),
         ("IDAT bytes estimate", test_estimate_idat_bytes_from_hex_preserves_legacy_scan),
         ("Regular product", test_iter_product_values_preserves_regular_product),
         ("Minres product", test_iter_product_values_expands_minres_width_height_pairs),
