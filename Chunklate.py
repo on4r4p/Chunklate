@@ -2473,132 +2473,15 @@ def Candy(mode, arg, data=None):
         return ui.colorize(arg, data, use_color=False)
 
     if mode == "Cowsay":
-        BotL = "╰─"
-        BotR = "─╯"
-        mult = 0
-        #       PRINT("arg:%s"%arg)
-        #       PRINT("barg:%s"%arg.encode(errors='ignore'))
-        for chr in arg:
-            mult += 1
-
-        if b"\x1b[1;31;49m" in arg.encode(errors="ignore"):
-            mult = mult - (
-                len(b"\x1b[1;31;49m")
-                * arg.encode(errors="ignore").count(b"\x1b[1;31;49m")
+        PRINT(
+            ui.render_dialogue(
+                arg,
+                data,
+                max_columns=MAXCHAR,
+                emoji_provider=lambda name: Candy("Emoj", name),
+                use_color=os.name != "nt",
             )
-            Moj = str(Candy("Emoj", "com"))
-        if b"\x1b[1;32;49m" in arg.encode(errors="ignore"):
-            mult = mult - (
-                len(b"\x1b[1;32;49m")
-                * arg.encode(errors="ignore").count(b"\x1b[1;32;49m")
-            )
-        if b"\x1b[1;33;49m" in arg.encode(errors="ignore"):
-            mult = mult - (
-                len(b"\x1b[1;33;49m")
-                * arg.encode(errors="ignore").count(b"\x1b[1;33;49m")
-            )
-        if b"\x1b[1;34;49m" in arg.encode(errors="ignore"):
-            mult = mult - (
-                len(b"\x1b[1;34;49m")
-                * arg.encode(errors="ignore").count(b"\x1b[1;34;49m")
-            )
-        if b"\x1b[1;35;49m" in arg.encode(errors="ignore"):
-            mult = mult - (
-                len(b"\x1b[1;35;49m")
-                * arg.encode(errors="ignore").count(b"\x1b[1;35;49m")
-            )
-        if b"\x1b[1;37;49m" in arg.encode(errors="ignore"):
-            mult = mult - (
-                len(b"\x1b[1;37;49m")
-                * arg.encode(errors="ignore").count(b"\x1b[1;37;49m")
-            )
-        if b"\x1b[m" in arg.encode(errors="ignore"):
-            mult = mult - (
-                len(b"\x1b[m") * arg.encode(errors="ignore").count(b"\x1b[m")
-            )
-        if b"\x0A" in arg.encode(errors="ignore"):
-            mult = mult - (len(b"\x0A") * arg.encode(errors="ignore").count(b"\x0A"))
-
-        Sep = "━" * mult
-        if data == "com":
-            Moj = str(Candy("Emoj", "com"))
-            lnMoj = len(Moj)
-        elif data == "good":
-            Moj = str(Candy("Emoj", "good"))
-            lnMoj = len(Moj)
-        else:
-            Moj = str(Candy("Emoj", "bad"))
-            lnMoj = len(Moj)
-        CowSep = " " * lnMoj
-        CowSep += "/\n"
-        CowSep += str(Moj)
-
-        Botrnp = BotL + Sep + BotR
-        prnt = " " + str(arg)
-        if len(prnt) >= MAXCHAR:
-            fullprnt = prnt
-            prnt = " "
-            mult = int(mult / 2) + 5
-            Sep = "━" * mult
-            Botrnp = BotL + Sep + BotR
-            for i in range(0, len(fullprnt), mult):
-                if len(arg[i:]) > mult:
-                    prnt += "  " + str(arg[i : i + mult]) + "\n"
-                else:
-                    prnt += "  " + str(arg[i:])
-        if data == "com" and os.name != "nt":
-            Cowsay = """
-%s
-\033[1;33;49m%s
-%s
-\033[m""" % (
-                prnt,
-                Botrnp,
-                CowSep,
-            )
-        elif data == "good" and os.name != "nt":
-            Cowsay = """
-%s
-\033[1;32;49m%s
-%s
-\033[m""" % (
-                prnt,
-                Botrnp,
-                CowSep,
-            )
-        elif data == "bad" and os.name != "nt":
-            Cowsay = """
-%s
-\033[1;31;49m%s
-%s
-\033[m""" % (
-                prnt,
-                Botrnp,
-                CowSep,
-            )
-        elif os.name == "nt":
-            Cowsay = """
-%s
-%s
-%s
-""" % (
-                prnt,
-                Botrnp,
-                CowSep,
-            )
-
-        else:
-            Cowsay = """
-%s
-%s
-%s
-""" % (
-                prnt,
-                Botrnp,
-                CowSep,
-            )
-
-        PRINT(Cowsay)
+        )
         if PAUSEDIALOGUE is True:
             pause = input("-Pause Dialogue-")
 
