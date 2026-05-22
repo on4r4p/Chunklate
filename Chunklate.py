@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, chunk_info, decisions, fixit_felix, output, palette, palette_ui, prompts, relics, specs, writer
+from chunklate import bruteforce, checkpoint, chunk_info, chunk_state, decisions, fixit_felix, output, palette, palette_ui, prompts, relics, specs, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -1237,6 +1237,82 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
     return
 
 
+def Sync_Chunk_Info_Legacy_State(section=None):
+    global IDAT_Bytes_Len
+    global IDAT_Datastream
+    global idatcounter
+    global IDAT_Bytes_Len_History
+    global IDAT_Avg_Len
+    global IHDR_Height
+    global IHDR_Width
+    global IHDR_Depht
+    global IHDR_Color
+    global IHDR_Method
+    global IHDR_Filter
+    global IHDR_Interlace
+    global PLTE_R
+    global PLTE_G
+    global PLTE_B
+    global sPLT_Name
+    global sPLT_Depht
+    global sPLT_Red
+    global sPLT_Green
+    global sPLT_Blue
+    global sPLT_Alpha
+    global sPLT_Freq
+    global tRNS_Index
+    global pCAL_Param
+    global pCAL_Key
+    global pCAL_Zero
+    global pCAL_Max
+    global pCAL_Eq
+    global pCAL_PNBR
+
+    sections = {section} if isinstance(section, str) else set(section or ())
+    sync_all = section is None
+
+    if sync_all or "ihdr" in sections:
+        IHDR_Width = CHUNK_INFO_STATE.ihdr_width
+        IHDR_Height = CHUNK_INFO_STATE.ihdr_height
+        IHDR_Depht = CHUNK_INFO_STATE.ihdr_depth
+        IHDR_Color = CHUNK_INFO_STATE.ihdr_color
+        IHDR_Method = CHUNK_INFO_STATE.ihdr_method
+        IHDR_Filter = CHUNK_INFO_STATE.ihdr_filter
+        IHDR_Interlace = CHUNK_INFO_STATE.ihdr_interlace
+
+    if sync_all or "idat" in sections:
+        IDAT_Bytes_Len = CHUNK_INFO_STATE.idat_bytes_len
+        IDAT_Datastream = CHUNK_INFO_STATE.idat_datastream
+        idatcounter = CHUNK_INFO_STATE.idat_counter
+        IDAT_Bytes_Len_History = list(CHUNK_INFO_STATE.idat_bytes_len_history)
+        IDAT_Avg_Len = CHUNK_INFO_STATE.idat_avg_len
+
+    if sync_all or "plte" in sections:
+        PLTE_R = list(CHUNK_INFO_STATE.plte_r)
+        PLTE_G = list(CHUNK_INFO_STATE.plte_g)
+        PLTE_B = list(CHUNK_INFO_STATE.plte_b)
+
+    if sync_all or "splt" in sections:
+        sPLT_Name = list(CHUNK_INFO_STATE.splt_name)
+        sPLT_Depht = list(CHUNK_INFO_STATE.splt_depth)
+        sPLT_Red = list(CHUNK_INFO_STATE.splt_red)
+        sPLT_Green = list(CHUNK_INFO_STATE.splt_green)
+        sPLT_Blue = list(CHUNK_INFO_STATE.splt_blue)
+        sPLT_Alpha = list(CHUNK_INFO_STATE.splt_alpha)
+        sPLT_Freq = list(CHUNK_INFO_STATE.splt_freq)
+
+    if sync_all or "trns" in sections:
+        tRNS_Index = list(CHUNK_INFO_STATE.trns_index)
+
+    if sync_all or "pcal" in sections:
+        pCAL_Param = list(CHUNK_INFO_STATE.pcal_param)
+        pCAL_Key = CHUNK_INFO_STATE.pcal_key
+        pCAL_Zero = CHUNK_INFO_STATE.pcal_zero
+        pCAL_Max = CHUNK_INFO_STATE.pcal_max
+        pCAL_Eq = CHUNK_INFO_STATE.pcal_eq
+        pCAL_PNBR = CHUNK_INFO_STATE.pcal_pnbr
+
+
 ####
 def GetInfo(Chunk, data, Dummy=False):
     global SideNotes
@@ -1352,13 +1428,8 @@ def GetInfo(Chunk, data, Dummy=False):
         )
     if Chunk == b"IHDR":
         IHDR_Info = chunk_info.parse_ihdr(data, max_resolution=Max_Res())
-        IHDR_Width = IHDR_Info.width
-        IHDR_Height = IHDR_Info.height
-        IHDR_Depht = IHDR_Info.depth
-        IHDR_Color = IHDR_Info.color
-        IHDR_Method = IHDR_Info.method
-        IHDR_Filter = IHDR_Info.filter_method
-        IHDR_Interlace = IHDR_Info.interlace
+        CHUNK_INFO_STATE.apply_ihdr(IHDR_Info)
+        Sync_Chunk_Info_Legacy_State("ihdr")
 
         PRINT("-Width    :%s"% Candy("Color", "yellow", IHDR_Width))
         PRINT("-Height   :%s"% Candy("Color", "yellow", IHDR_Height))
@@ -1379,19 +1450,9 @@ def GetInfo(Chunk, data, Dummy=False):
             )
 
     if Chunk == b"IDAT":
-        IDAT_Info = chunk_info.parse_idat(
-            data,
-            Raw_Length,
-            length_history=tuple(IDAT_Bytes_Len_History),
-            bytes_len=IDAT_Bytes_Len,
-            datastream=IDAT_Datastream,
-            counter=idatcounter,
-        )
-        IDAT_Bytes_Len_History = list(IDAT_Info.length_history)
-        IDAT_Avg_Len = IDAT_Info.average_length
-        IDAT_Bytes_Len = IDAT_Info.bytes_len
-        IDAT_Datastream = IDAT_Info.datastream
-        idatcounter = IDAT_Info.counter
+        IDAT_Info = CHUNK_INFO_STATE.next_idat(data, Raw_Length)
+        CHUNK_INFO_STATE.apply_idat(IDAT_Info)
+        Sync_Chunk_Info_Legacy_State("idat")
         PRINT("-Image Datastream.")
         ToFix.extend(IDAT_Info.fixes)
         if len(ToFix) > 0:
@@ -1501,9 +1562,8 @@ def GetInfo(Chunk, data, Dummy=False):
             )
     if Chunk == b"PLTE":
         PLTE_Info = chunk_info.parse_plte(data, IHDR_Depht)
-        PLTE_R = list(PLTE_Info.red)
-        PLTE_G = list(PLTE_Info.green)
-        PLTE_B = list(PLTE_Info.blue)
+        CHUNK_INFO_STATE.apply_plte(PLTE_Info)
+        Sync_Chunk_Info_Legacy_State("plte")
 
         PRINT("-%s Red palettes are stored." % Candy("Color", "yellow", len(PLTE_R)))
         PRINT("-%s Green palettes are stored." % Candy("Color", "yellow", len(PLTE_G)))
@@ -1525,14 +1585,12 @@ def GetInfo(Chunk, data, Dummy=False):
 
 
     if Chunk == b"sPLT":
-        sPLT_Info = chunk_info.parse_splt(data, previous_names=tuple(sPLT_Name))
-        sPLT_Red = list(sPLT_Info.red)
-        sPLT_Green = list(sPLT_Info.green)
-        sPLT_Blue = list(sPLT_Info.blue)
-        sPLT_Alpha = list(sPLT_Info.alpha)
-        sPLT_Freq = list(sPLT_Info.freq)
-        sPLT_Depht = [sPLT_Info.depth] if len(sPLT_Info.depth) > 0 else []
-        sPLT_Name = [sPLT_Info.name] if len(sPLT_Info.name) > 0 else []
+        sPLT_Info = chunk_info.parse_splt(
+            data,
+            previous_names=tuple(CHUNK_INFO_STATE.splt_name),
+        )
+        CHUNK_INFO_STATE.apply_splt(sPLT_Info)
+        Sync_Chunk_Info_Legacy_State("splt")
 
         if len(sPLT_Info.decoded_name) > 0:
             PRINT("-sPLT name : %s"% Candy("Color", "white", sPLT_Info.decoded_name))
@@ -1573,8 +1631,8 @@ def GetInfo(Chunk, data, Dummy=False):
             data,
             has_plte=b"PLTE" in Chunks_History,
             has_splt=b"sPLT" in Chunks_History,
-            plte_entries=int((len(PLTE_R) + len(PLTE_G) + len(PLTE_B)) / 3),
-            splt_entries=len(sPLT_Red) + len(sPLT_Green) + len(sPLT_Blue) + len(sPLT_Alpha),
+            plte_entries=CHUNK_INFO_STATE.plte_entry_count(),
+            splt_entries=CHUNK_INFO_STATE.splt_entry_count(),
         )
         hIST = list(hIST_Info.entries)
         if len(hIST) > 0:
@@ -1674,14 +1732,15 @@ def GetInfo(Chunk, data, Dummy=False):
             IHDR_Color,
             has_plte=b"PLTE" in Chunks_History,
             has_splt=b"sPLT" in Chunks_History,
-            plte_entries=len(PLTE_R),
-            splt_entries=len(sPLT_Red),
+            plte_entries=len(CHUNK_INFO_STATE.plte_r),
+            splt_entries=len(CHUNK_INFO_STATE.splt_red),
         )
         tRNS_Gray = tRNS_Info.gray
         tRNS_TrueR = tRNS_Info.true_r
         tRNS_TrueG = tRNS_Info.true_g
         tRNS_TrueB = tRNS_Info.true_b
-        tRNS_Index = list(tRNS_Info.indexes)
+        CHUNK_INFO_STATE.apply_trns(tRNS_Info)
+        Sync_Chunk_Info_Legacy_State("trns")
 
         if len(tRNS_Gray) > 0:
             PRINT("-Gray    :%s"% Candy("Color", "yellow", tRNS_Gray))
@@ -1948,12 +2007,8 @@ def GetInfo(Chunk, data, Dummy=False):
 
     if Chunk == b"pCAL":
         pCAL_Info = chunk_info.parse_pcal(data)
-        pCAL_Param = list(pCAL_Info.parameters)
-        pCAL_Key = pCAL_Info.keyword
-        pCAL_Zero = pCAL_Info.zero
-        pCAL_Max = pCAL_Info.maximum
-        pCAL_Eq = pCAL_Info.equation
-        pCAL_PNBR = pCAL_Info.parameter_count
+        CHUNK_INFO_STATE.apply_pcal(pCAL_Info)
+        Sync_Chunk_Info_Legacy_State("pcal")
 
         if len(pCAL_Info.decoded_keyword) > 0:
             PRINT(
@@ -8422,6 +8477,8 @@ def main():
         IBN = 0
         IDAT_Bytes_Len = 0
         IDAT_Datastream = ""
+        CHUNK_INFO_STATE.reset_idat()
+        Sync_Chunk_Info_Legacy_State("idat")
         Bad_Current_Name = False
         Bad_Ancillary = False
         Bad_No_Next_Chunk = False
@@ -8448,6 +8505,8 @@ def main():
         TmpFixIHDR = False
         IDAT_Bytes_Len_History = []
         IDAT_Avg_Len = ""
+        CHUNK_INFO_STATE.reset_idat()
+        Sync_Chunk_Info_Legacy_State("idat")
         Chunks_History = []
         Chunks_History_Index = []
         Bytes_History = []
@@ -8788,6 +8847,7 @@ PandoraBox = {}
 Cornucopia = {}
 ArkOfCovenant = {}
 Pandemonium = {}
+CHUNK_INFO_STATE = chunk_state.ChunkInfoState()
 
 
 libc = ctypes.CDLL(None)

@@ -1,6 +1,17 @@
 """Core helpers for Chunklate."""
 
-from . import checkpoint, chunk_info, decisions, fixit_felix, output, prompts, relics, specs, writer
+from . import (
+    checkpoint,
+    chunk_info,
+    chunk_state,
+    decisions,
+    fixit_felix,
+    output,
+    prompts,
+    relics,
+    specs,
+    writer,
+)
 from .png import PNG_SIGNATURE, PngChunk, PngFormatError, find_signature_offset, iter_chunks
 
 __all__ = [
@@ -9,6 +20,7 @@ __all__ = [
     "PngFormatError",
     "checkpoint",
     "chunk_info",
+    "chunk_state",
     "decisions",
     "fixit_felix",
     "find_signature_offset",
