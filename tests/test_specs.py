@@ -42,6 +42,12 @@ def test_estimate_max_resolution_from_file_uses_file_size(tmp_path):
     assert specs.estimate_max_resolution_from_file(str(sample)) == (16, 78)
 
 
+def test_resolution_iteration_bounds_preserves_legacy_minres_logic():
+    assert specs.resolution_iteration_bounds(640, "colortype:2:minres") == (10, 90)
+    assert specs.resolution_iteration_bounds(640, "nocolortype") == (10, 100)
+    assert specs.resolution_iteration_bounds(1280000, "nocolortype") == (10000, 100000000)
+
+
 def test_estimate_idat_bytes_from_hex_preserves_legacy_scan():
     single = PNG_SIGNATURE + build_png_chunk(b"IDAT", b"abc") + IEND_CHUNK
     multiple = (
@@ -158,6 +164,7 @@ def main():
         ("Min resolution iterator", test_min_res_iter_preserves_legacy_counting),
         ("Max resolution estimate", test_estimate_max_resolution_preserves_legacy_formula),
         ("Max resolution estimate from file", lambda: test_estimate_max_resolution_from_file_uses_file_size(tmp_path)),
+        ("Resolution iteration bounds", test_resolution_iteration_bounds_preserves_legacy_minres_logic),
         ("IDAT bytes estimate", test_estimate_idat_bytes_from_hex_preserves_legacy_scan),
         ("Regular product", test_iter_product_values_preserves_regular_product),
         ("Minres product", test_iter_product_values_expands_minres_width_height_pairs),

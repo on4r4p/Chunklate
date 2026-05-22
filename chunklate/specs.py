@@ -172,6 +172,15 @@ def estimate_max_resolution_from_file(file_path: str) -> tuple[int, int]:
     return estimate_max_resolution(file_size), file_size
 
 
+def resolution_iteration_bounds(idat_byte_count: int, color_type_label: str) -> tuple[int, int]:
+    min_resolution = int(idat_byte_count / 64)
+    if min_resolution > 10000:
+        min_resolution = int(min_resolution / 2)
+    if color_type_label.endswith(":minres"):
+        return min_resolution, min_res_iter(min_resolution)
+    return min_resolution, min_resolution * min_resolution
+
+
 def estimate_idat_bytes_from_hex(data_hex: str, known_chunks: tuple[bytes, ...] = CHUNKS) -> int:
     byte_count = 0
     last_byte_count = 0

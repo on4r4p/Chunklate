@@ -582,17 +582,8 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
 
 
     ibn = int(IBN / 64)
-
     Mxr = Max_Res()
-    Mnr = ibn
-
-    if Mnr > 10000: #tmpguessing
-          Mnr = int(ibn/2)
-   
-    if GetColor.endswith(":minres"):
-         MnrF = Min_Res_Iter(Mnr)
-    else:
-         MnrF = Mnr * Mnr
+    Mnr, MnrF = specs.resolution_iteration_bounds(IBN, GetColor)
 
     if DEBUG:
             PRINT(
