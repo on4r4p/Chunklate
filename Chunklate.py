@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from argparse import ArgumentParser, SUPPRESS
 from datetime import datetime,timedelta
-from contextlib import contextmanager
 try:
     from PIL import Image,ImageShow,ImageTk
 except ModuleNotFoundError:
@@ -23,7 +22,7 @@ try:
 except ModuleNotFoundError:
     tkinter = None
 
-import sys, os, binascii, random, time, zlib, ctypes, struct,io, tempfile, inspect, types, difflib, collections, itertools, shutil
+import sys, os, binascii, random, time, zlib, struct,io, inspect, types, difflib, collections, itertools, shutil
 
 try:
     import cv2
@@ -40,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, output, palette, palette_ui, prompts, relics, sorting, specs, ui, writer
+from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, output, palette, palette_ui, prompts, relics, sorting, specs, stdio, ui, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -2297,29 +2296,8 @@ def ToBitstory(bytenbr):
     history.append_byte_history(Bytes_History, bytenbr)
 
 
-@contextmanager
 def stderr_redirector(stream):
-    original_stderr_fd = sys.stderr.fileno()
-
-    def _redirect_stderr(to_fd):
-        """Redirect stderr to the given file descriptor."""
-        libc.fflush(c_stderr)
-        sys.stderr.close()
-        os.dup2(to_fd, original_stderr_fd)
-        sys.stderr = io.TextIOWrapper(os.fdopen(original_stderr_fd, "wb"))
-
-    saved_stderr_fd = os.dup(original_stderr_fd)
-    try:
-        tfile = tempfile.TemporaryFile(mode="w+b")
-        _redirect_stderr(tfile.fileno())
-        yield
-        _redirect_stderr(saved_stderr_fd)
-        tfile.flush()
-        tfile.seek(0, io.SEEK_SET)
-        stream.write(tfile.read())
-    finally:
-        tfile.close()
-        os.close(saved_stderr_fd)
+    return stdio.stderr_redirector(stream)
 
 def Product(chunk_data,color_type,gen_nbr=None):
      yield from specs.iter_product_values(chunk_data, color_type)
@@ -7367,8 +7345,6 @@ Pandemonium = {}
 CHUNK_INFO_STATE = chunk_state.ChunkInfoState()
 
 
-libc = ctypes.CDLL(None)
-c_stderr = ctypes.c_void_p.in_dll(libc, "stderr")
 MAXCHAR = shutil.get_terminal_size(fallback=(120, 24)).columns - 1
 # TMPFIX = False
 
