@@ -524,8 +524,7 @@ def IDAT_Bytes_Nbr():  # tmpworkaround
 
 def Max_Res():
     try:
-        size = os.path.getsize(FILE_Origin)
-        MaxRes = specs.estimate_max_resolution(size)
+        MaxRes, size = specs.estimate_max_resolution_from_file(FILE_Origin)
         if DEBUG:
             PRINT("Size:%s"%str(size))
             PRINT(

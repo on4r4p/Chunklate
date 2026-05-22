@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 import math
+import os
 from typing import Any
 
 
@@ -164,6 +165,11 @@ def estimate_max_resolution(file_size: int) -> int:
     else:
         calc = math.floor(((file_size - 77) * 8 - 1) / 2) * 86 + 1
     return int(math.sqrt(calc))
+
+
+def estimate_max_resolution_from_file(file_path: str) -> tuple[int, int]:
+    file_size = os.path.getsize(file_path)
+    return estimate_max_resolution(file_size), file_size
 
 
 def estimate_idat_bytes_from_hex(data_hex: str, known_chunks: tuple[bytes, ...] = CHUNKS) -> int:

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -32,6 +33,13 @@ def test_estimate_max_resolution_preserves_legacy_formula():
     assert specs.estimate_max_resolution(10) == 57
     assert specs.estimate_max_resolution(78) == 16
     assert specs.estimate_max_resolution(1000) == 563
+
+
+def test_estimate_max_resolution_from_file_uses_file_size(tmp_path):
+    sample = tmp_path / "sample.bin"
+    sample.write_bytes(b"x" * 78)
+
+    assert specs.estimate_max_resolution_from_file(str(sample)) == (16, 78)
 
 
 def test_estimate_idat_bytes_from_hex_preserves_legacy_scan():
@@ -143,10 +151,13 @@ def test_color_type_label_falls_back_when_ihdr_is_unsafe():
 
 
 def main():
+    tmp = tempfile.TemporaryDirectory()
+    tmp_path = Path(tmp.name)
     checks = [
         ("Chunk constant groups", test_chunk_constant_groups_preserve_legacy_sets_and_order),
         ("Min resolution iterator", test_min_res_iter_preserves_legacy_counting),
         ("Max resolution estimate", test_estimate_max_resolution_preserves_legacy_formula),
+        ("Max resolution estimate from file", lambda: test_estimate_max_resolution_from_file_uses_file_size(tmp_path)),
         ("IDAT bytes estimate", test_estimate_idat_bytes_from_hex_preserves_legacy_scan),
         ("Regular product", test_iter_product_values_preserves_regular_product),
         ("Minres product", test_iter_product_values_expands_minres_width_height_pairs),
@@ -155,13 +166,16 @@ def main():
         ("Unsafe color type", test_color_type_label_falls_back_when_ihdr_is_unsafe),
     ]
 
-    print("Running specs tests")
-    for label, check in checks:
-        print(f"  - {label} ... ", end="", flush=True)
-        check()
-        print("ok")
+    try:
+        print("Running specs tests")
+        for label, check in checks:
+            print(f"  - {label} ... ", end="", flush=True)
+            check()
+            print("ok")
 
-    print(f"specs tests passed ({len(checks)} checks)")
+        print(f"specs tests passed ({len(checks)} checks)")
+    finally:
+        tmp.cleanup()
 
 
 if __name__ == "__main__":
