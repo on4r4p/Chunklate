@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, chunk_info, chunk_report, chunk_state, decisions, fixit_felix, idat, output, palette, palette_ui, prompts, relics, specs, writer
+from chunklate import bruteforce, checkpoint, chunk_info, chunk_report, chunk_state, decisions, dummy_chunk, fixit_felix, output, palette, palette_ui, prompts, relics, specs, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -4810,24 +4810,45 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
     )
 
     #TODO
-    if Chunkname == b"IHDR":
-        StrictIhdrRepair = repair_missing_ihdr_from_idat(bytes.fromhex(DATAX))
-        if StrictIhdrRepair is not None:
-            SideNotes.append(fixit_felix.repair_note(StrictIhdrRepair))
+    DummyDecision = dummy_chunk.decide_dummy_chunk(Chunkname, DATAX, bad_start)
+    if DummyDecision.action in ("strict_ihdr_repair", "partial_idat_blackfill"):
+            if DummyDecision.repair is not None:
+                SideNotes.append(fixit_felix.repair_note(DummyDecision.repair))
             return CheckPoint(
                 True,
                 True,
                 "DummyChunk",
                 Chunkname,
                 ["Filling with a dummy chunk"],
-                StrictIhdrRepair.data.hex(),
-                13,
+                DummyDecision.fixed_data_hex,
+                DummyDecision.dummy_data_length,
                 bad_pos,
                 bad_start,
                 bad_end,
                 FromError,
             )
 
+    if DummyDecision.action == "complete_iend":
+        Candy(
+            "Cowsay",
+            "Fake datas ready to be served! Bonne appetit !",
+            "good",
+        )
+        return CheckPoint(
+            True,
+            DummyDecision.solved,
+            "DummyChunk",
+            Chunkname,
+            ["Filling with a dummy chunk"],
+            DummyDecision.fixed_data_hex,
+            DummyDecision.dummy_data_length,
+            bad_pos,
+            bad_start,
+            bad_end,
+            FromError,
+        )
+
+    if Chunkname == b"IHDR":
         chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(Chunkname,"Spec",Fields = ["Length","Format","Data","Color"])
         DummyLength = SpecLength(Chunkname)
         DummyName = hex(int.from_bytes(Chunkname, byteorder="big")).replace("0x", "")
@@ -4842,59 +4863,12 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
 
 
     elif Chunkname == b"IDAT": ##TODO
-
-        if DEBUG:
-            PRINT("bad_start:%s"% bad_start)
-            PRINT("bad_end:%s"% bad_end)
-            PRINT("bad pos:%s"% bad_pos)
-            PRINT("-Width    :%s"% Candy("Color", "yellow", IHDR_Width))
-            PRINT("-Height   :%s"% Candy("Color", "yellow", IHDR_Height))
-            PRINT("-Depht    :%s"% Candy("Color", "yellow", IHDR_Depht))
-            PRINT("-Color    :%s"% Candy("Color", "yellow", IHDR_Color))
-            PRINT("-Method   :%s"% Candy("Color", "yellow", IHDR_Method))
-            PRINT("-Filter   :%s"% Candy("Color", "yellow", IHDR_Filter))
-            PRINT("-Interlace:%s"% Candy("Color", "yellow", IHDR_Interlace))
-
-
-        ##TODOTODOTODO
-
-        DummyIdat = idat.build_dummy_idat_probe(
-            IDAT_Datastream,
-            bit_depth=IHDR_Depht,
-            interlace=IHDR_Interlace,
-        )
-
-        print("pix:", DummyIdat.pixel)
-        print("filter:", DummyIdat.filter_byte)
-        print("scanline:", DummyIdat.scanline)
-        print("cmfflg:", DummyIdat.header)
-        print("window:", DummyIdat.header_info.window_kb)
-        print("flvl:", DummyIdat.header_info.compression_level)
-        print("compressed:", DummyIdat.compressed)
-        print("compessedx:", DummyIdat.compressed.hex())
-        print("adler:", DummyIdat.adler.hex())
-        print("to_decompressed:", DummyIdat.raw_deflate_with_adler.hex())
-        print("decompressed:", DummyIdat.decompressed)
-
-        if DummyIdat.idat_decompressed_error:
-            print("all idat decompressed error:", DummyIdat.idat_decompressed_error)
-        else:
-            print("all idat decompressed:", DummyIdat.idat_decompressed)
-
-#        TheEnd()
-
-#        Todo = False
         Solved = False
 
 
     elif Chunkname == b"IEND":
-        DummyLength = "00000000"
-        DummyName = "49454e44"
-        DummyData = ""
-        DummyCrc = "ae426082"
-        DumDum = DummyLength + DummyName + DummyData + DummyCrc
-        Todo = False
-        Solved = True
+        PRINT(Candy("Color", "yellow", "\n-ToDo"))
+        TheEnd()
 
 
 
@@ -6416,15 +6390,15 @@ def Relics_Print_Tool(nb3, tools, tools_values):
 def Relics_Print_Pandemonium_Summary():
     Candy("Cowsay", "This is a short summary of what we have done :", "good")
 
-    for nb1, (file, file_value) in enumerate(Pandemonium.items()):
+    for nb1, sample_summary in enumerate(relics.pandemonium_summary(Pandemonium)):
         PRINT(
             "%s:-Errors fixed in File %s :"
-            % (Candy("Color", "white", "[File:%s]" % nb1), file)
+            % (Candy("Color", "white", "[File:%s]" % nb1), sample_summary.sample)
         )
 
-        for nb2, (errors, errors_values) in enumerate(file_value.items()):
-            PRINT("%s:%s" % (Candy("Color", "red", "    [-%s]" % nb2), errors))
-            for nb3, (tools, tools_values) in enumerate(errors_values.items()):
+        for nb2, error_summary in enumerate(sample_summary.errors):
+            PRINT("%s:%s" % (Candy("Color", "red", "    [-%s]" % nb2), error_summary.error))
+            for nb3, (tools, tools_values) in enumerate(error_summary.tools):
                 Relics_Print_Tool(nb3, tools, tools_values)
 
 
@@ -6484,8 +6458,7 @@ def Relics(FromError):
     #                 Pause("")
     #                 continue
 
-        for WrongCrcRoute in Relic_Remembered_Wrong_Crc_Routes():
-            if WrongCrcRoute.chunk_name == "IDAT":
+        for WrongCrcRoute in relics.idat_wrong_crc_routes(Relic_Remembered_Wrong_Crc_Routes()):
                 Candy(
                     "Cowsay",
                     "Perhaps that wasn't a Crc problem after all..",
@@ -6543,7 +6516,7 @@ def Relics(FromError):
                                  Answer = decisions.ask_choice(
                                      input,
                                      "Answer(Manually/Remove/Quit):",
-                                     ("manually", "remove", "quit"),
+                                     relics.plte_repair_choices(False),
                                  )
 
                                  if Answer == "manually":
@@ -6596,7 +6569,7 @@ def Relics(FromError):
                                  Answer = decisions.ask_choice(
                                      input,
                                      "Answer(Manually/Bruteforce/Remove/Quit):",
-                                     ("manually", "bruteforce", "remove", "quit"),
+                                     relics.plte_repair_choices(True),
                                      "Answer(Manually/bruteforce/Remove/Quit):",
                                  )
 
@@ -7581,18 +7554,12 @@ def FixItFelix_Apply_Repair(repair):
     return True
 
 
-def FixItFelix_Try_Color_Profile_Cleanup():
-    repair = fixit_felix.color_profile_cleanup(DATA_BYTES, PandoraBox)
-    if repair is None:
-        return None
-
-    return FixItFelix_Apply_Repair(repair)
-
-
-def FixItFelix_Try_PLTE_Cleanup():
-    repair = fixit_felix.plte_cleanup(
+def FixItFelix_Try_Automatic_Repair(name):
+    repair = fixit_felix.automatic_repair(
+        name,
         DATA_BYTES,
         PandoraBox,
+        known_chunk_types=ALLCHUNKS,
         auto=AUTO,
         nodialogue=NODIALOGUE,
         max_saves=MAX_SAVES,
@@ -7601,64 +7568,6 @@ def FixItFelix_Try_PLTE_Cleanup():
         return None
 
     return FixItFelix_Apply_Repair(repair)
-
-
-def FixItFelix_Try_Missing_Chunk_Data_Byte():
-    repair = fixit_felix.missing_chunk_data_byte(DATA_BYTES, PandoraBox)
-    if repair is None:
-        return None
-
-    return FixItFelix_Apply_Repair(repair)
-
-
-def FixItFelix_Try_Known_Chunk_Type_Case_Repair():
-    repair = fixit_felix.known_chunk_type_case(DATA_BYTES, PandoraBox, ALLCHUNKS)
-    if repair is None:
-        return None
-
-    return FixItFelix_Apply_Repair(repair)
-
-
-def FixItFelix_Try_Unknown_Private_Critical_Removal():
-    repair = fixit_felix.unknown_private_critical_removal(DATA_BYTES, ALLCHUNKS)
-    if repair is None:
-        return None
-
-    return FixItFelix_Apply_Repair(repair)
-
-
-def FixItFelix_Try_IHDR_Rebuild():
-    repair = fixit_felix.ihdr_rebuild(DATA_BYTES, PandoraBox)
-    if repair is None:
-        return None
-
-    return FixItFelix_Apply_Repair(repair)
-
-
-def FixItFelix_Try_Partial_IDAT_Blackfill():
-    repair = fixit_felix.partial_idat_blackfill(DATA_BYTES, PandoraBox)
-    if repair is None:
-        return None
-
-    return FixItFelix_Apply_Repair(repair)
-
-
-def FixItFelix_Try_Automatic_Repair(name):
-    if name == "color_profile_cleanup":
-        return FixItFelix_Try_Color_Profile_Cleanup()
-    if name == "plte_cleanup":
-        return FixItFelix_Try_PLTE_Cleanup()
-    if name == "known_chunk_type_case":
-        return FixItFelix_Try_Known_Chunk_Type_Case_Repair()
-    if name == "unknown_private_critical_removal":
-        return FixItFelix_Try_Unknown_Private_Critical_Removal()
-    if name == "missing_chunk_data_byte":
-        return FixItFelix_Try_Missing_Chunk_Data_Byte()
-    if name == "ihdr_rebuild":
-        return FixItFelix_Try_IHDR_Rebuild()
-    if name == "partial_idat_blackfill":
-        return FixItFelix_Try_Partial_IDAT_Blackfill()
-    raise ValueError("Unknown FixItFelix automatic repair: %s" % name)
 
 
 def FixItFelix_Handle_Wrong_Crc(work_item, chkd, pandora_box_len, Chunk):

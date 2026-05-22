@@ -81,7 +81,21 @@ Or without pytest:
 
     ./tests/test_cli.py
     ./tests/test_checkpoint.py
+    ./tests/test_dummy_chunk.py
     ./tests/test_png.py
     ./tests/test_output.py
     ./tests/test_relics_state.py
     ./tests/test_repairs.py
+
+## Repair Notes
+
+`partial-idat-blackfill` is an explicit fallback repair for non-interlaced PNGs
+whose IDAT zlib stream can be decompressed only partially. Chunklate keeps the
+complete scanlines recovered before the zlib failure, fills the remaining
+scanlines with black or transparent bytes, recompresses a new IDAT stream, and
+recalculates length and CRC. This makes a valid salvage PNG; it is not a claim
+that the original image content was faithfully reconstructed.
+
+Current v1 limits: Adam7/interlaced PNGs are not repaired by this path, partial
+rows are discarded, and PNG filter reconstruction is not guessed beyond the
+complete filtered scanlines already recovered from zlib.

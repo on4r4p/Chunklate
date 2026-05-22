@@ -435,3 +435,36 @@ def partial_idat_blackfill(data: bytes, findings: Iterable[object]) -> Any | Non
         return None
 
     return rebuild_partial_idat_blackfill(data)
+
+
+def automatic_repair(
+    name: AutomaticRepairHandler,
+    data: bytes,
+    findings: Iterable[object],
+    *,
+    known_chunk_types: Iterable[bytes],
+    auto: bool,
+    nodialogue: bool,
+    max_saves: int | None,
+) -> Any | None:
+    if name == "color_profile_cleanup":
+        return color_profile_cleanup(data, findings)
+    if name == "plte_cleanup":
+        return plte_cleanup(
+            data,
+            findings,
+            auto=auto,
+            nodialogue=nodialogue,
+            max_saves=max_saves,
+        )
+    if name == "known_chunk_type_case":
+        return known_chunk_type_case(data, findings, known_chunk_types)
+    if name == "unknown_private_critical_removal":
+        return unknown_private_critical_removal(data, known_chunk_types)
+    if name == "missing_chunk_data_byte":
+        return missing_chunk_data_byte(data, findings)
+    if name == "ihdr_rebuild":
+        return ihdr_rebuild(data, findings)
+    if name == "partial_idat_blackfill":
+        return partial_idat_blackfill(data, findings)
+    raise ValueError("Unknown FixItFelix automatic repair: %s" % name)

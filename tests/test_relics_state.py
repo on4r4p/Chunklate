@@ -183,6 +183,48 @@ def test_relics_module_routes_remembered_wrong_crc_errors():
     assert routes[0].is_current_file is False
 
 
+def test_relics_module_filters_idat_wrong_crc_routes():
+    routes = (
+        relics.WrongCrcRoute(None, "idat", "IDAT", "IDAT_Tool_"),
+        relics.WrongCrcRoute(None, "plte", "PLTE", "PLTE_Tool_"),
+    )
+
+    assert relics.idat_wrong_crc_routes(routes) == (routes[0],)
+
+
+def test_relics_module_summarises_pandemonium_without_formatting():
+    pandemonium = {
+        "sample.0_Fixed.png": {
+            "Checksum_Error_0:Wrong Crc": {
+                "IDAT_Tool_0": "newcrc",
+                "IDAT_Tool_1": 12,
+            }
+        }
+    }
+
+    assert relics.pandemonium_summary(pandemonium) == (
+        relics.RelicSampleSummary(
+            sample="sample.0_Fixed.png",
+            errors=(
+                relics.RelicErrorSummary(
+                    error="Checksum_Error_0:Wrong Crc",
+                    tools=(("IDAT_Tool_0", "newcrc"), ("IDAT_Tool_1", 12)),
+                ),
+            ),
+        ),
+    )
+
+
+def test_relics_module_exposes_plte_interactive_choices():
+    assert relics.plte_repair_choices(False) == ("manually", "remove", "quit")
+    assert relics.plte_repair_choices(True) == (
+        "manually",
+        "bruteforce",
+        "remove",
+        "quit",
+    )
+
+
 def test_relics_module_routes_remembered_dummy_chunks():
     pandemonium = {
         "sample.0_Fixed.png": {
@@ -379,6 +421,9 @@ def main():
         ("Relics module exposes dummy chunk tools by name", test_relics_module_exposes_dummy_chunk_tools_by_name),
         ("Relics module routes current wrong CRC errors", test_relics_module_routes_current_wrong_crc_errors),
         ("Relics module routes remembered wrong CRC errors", test_relics_module_routes_remembered_wrong_crc_errors),
+        ("Relics module filters IDAT wrong CRC routes", test_relics_module_filters_idat_wrong_crc_routes),
+        ("Relics module summarises Pandemonium", test_relics_module_summarises_pandemonium_without_formatting),
+        ("Relics module exposes PLTE choices", test_relics_module_exposes_plte_interactive_choices),
         ("Relics module routes remembered dummy chunks", test_relics_module_routes_remembered_dummy_chunks),
         ("PandoraBox keys keep legacy numbering", test_pandorabox_add_keeps_legacy_error_numbering),
         (

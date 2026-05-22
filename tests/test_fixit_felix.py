@@ -436,6 +436,41 @@ def test_partial_idat_blackfill_requires_idat_finding_and_partial_stream():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_automatic_repair_dispatches_partial_idat_blackfill_last_handler():
+    original = read_fixture("IDAT_Partial_Blackfill.png")
+
+    repaired = fixit_felix.automatic_repair(
+        "partial_idat_blackfill",
+        original,
+        ["Checksum_Error_0:Wrong Crc b'IDAT'"],
+        known_chunk_types=[b"IHDR", b"IDAT", b"IEND"],
+        auto=False,
+        nodialogue=False,
+        max_saves=None,
+    )
+
+    assert repaired is not None
+    assert "partial-idat-blackfill" in repaired.strategy
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_automatic_repair_dispatch_rejects_unknown_handler():
+    try:
+        fixit_felix.automatic_repair(
+            "unknown",
+            b"",
+            [],
+            known_chunk_types=[],
+            auto=False,
+            nodialogue=False,
+            max_saves=None,
+        )
+    except ValueError as exc:
+        assert "Unknown FixItFelix automatic repair" in str(exc)
+    else:
+        raise AssertionError("automatic_repair accepted an unknown handler")
+
+
 def main():
     checks = [
         ("Route finding keeps legacy handler order", test_route_finding_keeps_legacy_handler_order),
@@ -465,6 +500,14 @@ def main():
         (
             "Partial IDAT blackfill requires IDAT finding",
             test_partial_idat_blackfill_requires_idat_finding_and_partial_stream,
+        ),
+        (
+            "Automatic repair dispatches partial IDAT blackfill",
+            test_automatic_repair_dispatches_partial_idat_blackfill_last_handler,
+        ),
+        (
+            "Automatic repair dispatch rejects unknown handler",
+            test_automatic_repair_dispatch_rejects_unknown_handler,
         ),
     ]
 

@@ -67,6 +67,18 @@ class DummyChunkRoute:
     is_critical: bool
 
 
+@dataclass(frozen=True)
+class RelicErrorSummary:
+    error: Any
+    tools: tuple[tuple[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class RelicSampleSummary:
+    sample: Any
+    errors: tuple[RelicErrorSummary, ...]
+
+
 def chunk_label(chunk: Any) -> Any:
     if type(chunk) != bytes:
         return chunk
@@ -231,6 +243,31 @@ def remembered_dummy_chunk_routes(
                 )
             )
     return routes
+
+
+def idat_wrong_crc_routes(routes: list[WrongCrcRoute] | tuple[WrongCrcRoute, ...]) -> tuple[WrongCrcRoute, ...]:
+    return tuple(route for route in routes if route.chunk_name == "IDAT")
+
+
+def pandemonium_summary(
+    pandemonium: Mapping[Any, Mapping[Any, Mapping[str, Any]]],
+) -> tuple[RelicSampleSummary, ...]:
+    return tuple(
+        RelicSampleSummary(
+            sample=sample,
+            errors=tuple(
+                RelicErrorSummary(error=error, tools=tuple(tools.items()))
+                for error, tools in sample_errors.items()
+            ),
+        )
+        for sample, sample_errors in pandemonium.items()
+    )
+
+
+def plte_repair_choices(has_bad_crc: bool) -> tuple[str, ...]:
+    if has_bad_crc:
+        return ("manually", "bruteforce", "remove", "quit")
+    return ("manually", "remove", "quit")
 
 
 def next_error_number(pandora_box: Mapping[str, Any], function: Any) -> int:
