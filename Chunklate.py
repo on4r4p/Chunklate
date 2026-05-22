@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, output, palette, palette_ui, prompts, relics, sorting, specs, ui, writer
+from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, output, palette, palette_ui, prompts, relics, sorting, specs, ui, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -2294,7 +2294,7 @@ def TheEnd():
 
 def ToBitstory(bytenbr):
     global Bytes_History
-    Bytes_History.append(bytenbr)
+    history.append_byte_history(Bytes_History, bytenbr)
 
 
 @contextmanager
