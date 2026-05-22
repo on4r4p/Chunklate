@@ -112,6 +112,28 @@ class LegacyLengthDecision:
 
 
 @dataclass(frozen=True)
+class LegacyCrcDecision:
+    chunk_type: bytes
+    chunk_data: bytes
+    stored_crc_hex: str
+    computed_crc_hex: str
+
+    @property
+    def ok(self) -> bool:
+        return self.computed_crc_hex == self.stored_crc_hex
+
+    @property
+    def normalized_computed_crc(self) -> str:
+        if len(self.computed_crc_hex) < 10:
+            return "0x" + self.computed_crc_hex[2:].zfill(8)
+        return self.computed_crc_hex
+
+    @property
+    def normalized_computed_crc_no_prefix(self) -> str:
+        return self.normalized_computed_crc[2:]
+
+
+@dataclass(frozen=True)
 class IhdrRepair:
     data: bytes
     strategy: str
@@ -353,6 +375,19 @@ def legacy_length_decision(
         idat_length_differs=idat_length_differs,
         checkpoint_error=checkpoint_error,
         checkpoint_info="-No NextChunk" if checkpoint_error else "-Found NextChunk",
+    )
+
+
+def legacy_crc_decision(raw_type_hex: str, raw_data_hex: str, raw_crc_hex: str) -> LegacyCrcDecision:
+    chunk_type = bytes.fromhex(raw_type_hex)
+    chunk_data = bytes.fromhex(raw_data_hex)
+    stored_crc = hex(int.from_bytes(bytes.fromhex(raw_crc_hex), byteorder="big"))
+    computed_crc = hex(zlib.crc32(chunk_type + chunk_data))
+    return LegacyCrcDecision(
+        chunk_type=chunk_type,
+        chunk_data=chunk_data,
+        stored_crc_hex=stored_crc,
+        computed_crc_hex=computed_crc,
     )
 
 

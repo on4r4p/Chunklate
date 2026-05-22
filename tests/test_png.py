@@ -21,6 +21,7 @@ from chunklate.png import (
     infer_png_dimensions,
     iter_chunks,
     is_complete_png_with_valid_crc,
+    legacy_crc_decision,
     legacy_chunk_window,
     legacy_length_decision,
     legacy_length_status,
@@ -211,6 +212,20 @@ def test_legacy_length_decision_reports_no_next_chunk_and_idat_delta():
     assert decision.idat_length_differs is True
     assert decision.checkpoint_error is True
     assert decision.checkpoint_info == "-No NextChunk"
+
+
+def test_legacy_crc_decision_matches_checksum_wrapper_values():
+    stored_crc = zlib.crc32(b"IDAT" + b"abc").to_bytes(4, "big").hex()
+    valid = legacy_crc_decision("49444154", "616263", stored_crc)
+    invalid = legacy_crc_decision("49444154", "616263", "00000000")
+
+    assert valid.chunk_type == b"IDAT"
+    assert valid.chunk_data == b"abc"
+    assert valid.ok is True
+    assert valid.stored_crc_hex == valid.computed_crc_hex
+    assert invalid.ok is False
+    assert invalid.normalized_computed_crc.startswith("0x")
+    assert len(invalid.normalized_computed_crc_no_prefix) == 8
 
 
 def test_chunk_type_crc_matches_finds_original_name():
@@ -601,6 +616,7 @@ def main():
             "Legacy length decision reports missing next chunk and IDAT delta",
             test_legacy_length_decision_reports_no_next_chunk_and_idat_delta,
         ),
+        ("Legacy CRC decision matches checksum wrapper values", test_legacy_crc_decision_matches_checksum_wrapper_values),
         ("Find original chunk name from CRC", test_chunk_type_crc_matches_finds_original_name),
         ("Validate PNG structure accepts valid fixture", test_validate_png_structure_accepts_valid_fixture),
         ("Validate PNG structure rejects prefixed PNG output", test_validate_png_structure_rejects_prefixed_png_output),

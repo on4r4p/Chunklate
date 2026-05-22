@@ -49,6 +49,7 @@ from chunklate.png import (
     detect_png_signature_recovery,
     iter_chunks,
     is_known_bad_srgb_iccp_chunk,
+    legacy_crc_decision,
     legacy_chunk_window,
     legacy_length_decision,
     repair_missing_ihdr_from_idat,
@@ -5864,15 +5865,16 @@ def Question(id=None,idhash=None, skipauto=False):
 
 def Checksum(Ctype, Cdata, Crc, next=None):
     Candy("Title", "Check Crc Validity:")
-    Ctype = bytes.fromhex(Ctype)
-    Cdata = bytes.fromhex(Cdata)
-    Crc = hex(int.from_bytes(bytes.fromhex(Crc), byteorder="big"))
-    checksum = hex(binascii.crc32(Ctype + Cdata))
+    CrcDecision = legacy_crc_decision(Ctype, Cdata, Crc)
+    Ctype = CrcDecision.chunk_type
+    Cdata = CrcDecision.chunk_data
+    Crc = CrcDecision.stored_crc_hex
+    checksum = CrcDecision.computed_crc_hex
     if DEBUG:
                  PRINT("-Crc from file: %s"%(str(checksum)))
                  PRINT("-Actual Crc: %s\n"%(str(Crc)))
 
-    if checksum == Crc:
+    if CrcDecision.ok:
         PRINT(
             "-Crc Check :"
             + Candy("Color", "green", " OK ")
@@ -5899,8 +5901,7 @@ def Checksum(Ctype, Cdata, Crc, next=None):
             PRINT("")
             TheEnd()
 
-        if len(checksum) < 10:
-            checksum = "0x" + (checksum[2::].zfill(8))
+        checksum = CrcDecision.normalized_computed_crc
         PRINT("\nMonkey wanted Banana :%s"%Candy("Color", "green", checksum))
         PRINT("Monkey got Pullover :%s"%Candy("Color", "red", Crc))
 
@@ -5914,7 +5915,7 @@ def Checksum(Ctype, Cdata, Crc, next=None):
             "Checksum",
             Ctype,
             ["-Wrong Crc %s"%str(Ctype)],
-            checksum[2::],
+            CrcDecision.normalized_computed_crc_no_prefix,
             CrcoffI,
             CrcoffI + 8,
             Orig_CT,
