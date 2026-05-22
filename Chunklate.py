@@ -6438,6 +6438,33 @@ def Relics_Try_Current_Wrong_Crc_Fix():
     return False, None
 
 
+def Relics_Run_Wrong_Crc_Brawl_Plan(BrawlPlan):
+    kwargs = {"OldCrc": BrawlPlan.old_crc}
+    if BrawlPlan.bf_mode is not None:
+        kwargs["BfMode"] = BrawlPlan.bf_mode
+    if BrawlPlan.brute_length is not None:
+        kwargs["BruteLength"] = BrawlPlan.brute_length
+
+    return SmashBruteBrawl(
+        BrawlPlan.target_file,
+        BrawlPlan.chunk,
+        BrawlPlan.chunk_length,
+        BrawlPlan.data_offset,
+        BrawlPlan.from_error,
+        **kwargs,
+    )
+
+
+def Relics_Run_Dummy_Chunk_Brawl_Plan(BrawlPlan):
+    return SmashBruteBrawl(
+        BrawlPlan.target_file,
+        BrawlPlan.chunk,
+        BrawlPlan.chunk_length,
+        BrawlPlan.data_offset,
+        BrawlPlan.from_error,
+    )
+
+
 def Relics(FromError):
     Candy("Title", "Opening the Ark Of The Covenant :")
 
@@ -6482,14 +6509,13 @@ def Relics(FromError):
                     WrongCrcRoute.tool_prefix,
                 )
 
-                SmashBruteBrawl(
-                    FILE_Origin,
-                    CrcTools.chunk,
-                    CrcTools.chunk_length,
-                    CrcTools.data_offset,
-                    FromError,
-                    BfMode = "TwoBytes",
-                    OldCrc=CrcTools.old_crc,
+                Relics_Run_Wrong_Crc_Brawl_Plan(
+                    relics.wrong_crc_brawl_plan(
+                        WrongCrcRoute,
+                        CrcTools,
+                        target_file=FILE_Origin,
+                        from_error=FromError,
+                    )
                 )
     #                            else:
     #                                 print("error:",errors)
@@ -6688,54 +6714,25 @@ def Relics(FromError):
                         # def Checksum(Ctype, Cdata, Crc,next=None):
                         chunk_tool_prefix = Chunkname + "_Tool_"
                         CrcTools = Pandemonium_Wrong_Crc_Tools(file, errors, chunk_tool_prefix)
-                        if nb1 == 0:
-                            if Chunkname != "IDAT":
-                                SmashBruteBrawl(
-                                    FILE_Origin,
-                                    CrcTools.chunk,
-                                    CrcTools.chunk_length,
-                                    CrcTools.data_offset,
-                                    FromError,
-                                    OldCrc=CrcTools.old_crc,
-                                    BruteLength=False
-                                )
-
-                            else:
-                                SmashBruteBrawl(
-                                    FILE_Origin,
-                                    CrcTools.chunk,
-                                    CrcTools.chunk_length,
-                                    CrcTools.data_offset,
-                                    FromError,
-                                    BfMode = "TwoBytes",
-                                    OldCrc=CrcTools.old_crc,
-                                )
-
-
-                            return ()
-                        else:
-                            if Chunkname != "IDAT":
-                                SmashBruteBrawl(
-                                    os.path.dirname(Sample) + "/" + file,
-                                    CrcTools.chunk,
-                                    CrcTools.chunk_length,
-                                    CrcTools.data_offset,
-                                    FromError,
-                                    OldCrc=CrcTools.old_crc,
-                                    BruteLength=False
-                                )
-                            else:
-                                SmashBruteBrawl(
-                                    os.path.dirname(Sample) + "/" + file,
-                                    CrcTools.chunk,
-                                    CrcTools.chunk_length,
-                                    CrcTools.data_offset,
-                                    FromError,
-                                    BfMode = "TwoBytes",
-                                    OldCrc=CrcTools.old_crc,
-                                )
-
-                            return ()
+                        Relics_Run_Wrong_Crc_Brawl_Plan(
+                            relics.wrong_crc_brawl_plan(
+                                relics.WrongCrcRoute(
+                                    source=file,
+                                    error=errors,
+                                    chunk_name=Chunkname,
+                                    tool_prefix=chunk_tool_prefix,
+                                ),
+                                CrcTools,
+                                target_file=relics.remembered_sample_target(
+                                    nb1,
+                                    file,
+                                    file_origin=FILE_Origin,
+                                    current_sample=Sample,
+                                ),
+                                from_error=FromError,
+                            )
+                        )
+                        return ()
                     # print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),errors))
                     # for nb3,(tools,tools_values) in enumerate(errors_values.items()):
                     #    print("%s:%s:%s"%(Candy("Color","yellow","        [Tool:%s]"%nb3),tools,tools_values))
@@ -6758,8 +6755,11 @@ def Relics(FromError):
                     DummyRoute.tool_prefix,
                 )
                 ChunkName = DummyRoute.chunk_name
-                ChunkLength = DummyTools.dummy_data_length
-                DataOffset = DummyTools.bad_start
+                BrawlPlan = relics.dummy_chunk_brawl_plan(
+                    DummyRoute,
+                    DummyTools,
+                    from_error=FromError,
+                )
 
                 if DummyRoute.is_critical:
                     Candy(
@@ -6786,13 +6786,7 @@ def Relics(FromError):
 
                     Answer = Question()
                     if Answer is True:
-                        return SmashBruteBrawl(
-                            DummyRoute.source,
-                            ChunkName,
-                            ChunkLength,
-                            DataOffset,
-                            FromError
-                        )
+                        return Relics_Run_Dummy_Chunk_Brawl_Plan(BrawlPlan)
                     else:
                         TheEnd()
                 else:
@@ -6814,17 +6808,11 @@ def Relics(FromError):
                     )
                     Answer = Question()
                     if Answer is True:
-                        return SmashBruteBrawl(
-                            DummyRoute.source,
-                            ChunkName,
-                            ChunkLength,
-                            DataOffset,
-                            FromError
-                        )
+                        return Relics_Run_Dummy_Chunk_Brawl_Plan(BrawlPlan)
 
                     else:
-                        ##TODO
-                        PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                        if relics.dummy_chunk_decline_action(DummyRoute) == "todo_end":
+                            PRINT(Candy("Color", "yellow", "\n-ToDo"))
                         TheEnd()
 
             TheEnd()

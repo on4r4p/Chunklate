@@ -225,6 +225,147 @@ def test_relics_module_exposes_plte_interactive_choices():
     )
 
 
+def test_relics_module_builds_idat_wrong_crc_brawl_plan():
+    route = relics.WrongCrcRoute(
+        source="sample.0_Fixed.png",
+        error="Checksum_Error_0:Wrong Crc",
+        chunk_name="IDAT",
+        tool_prefix="IDAT_Tool_",
+    )
+    tools = relics.WrongCrcTools(
+        replacement_crc="newcrc",
+        start=12,
+        end=20,
+        chunk=b"IDAT",
+        offset="0x2a",
+        old_crc="oldcrc",
+        chunk_length=433,
+        data_offset=100,
+    )
+
+    plan = relics.wrong_crc_brawl_plan(
+        route,
+        tools,
+        target_file="origin.png",
+        from_error="libpng",
+    )
+
+    assert plan == relics.WrongCrcBrawlPlan(
+        target_file="origin.png",
+        chunk=b"IDAT",
+        chunk_length=433,
+        data_offset=100,
+        from_error="libpng",
+        old_crc="oldcrc",
+        bf_mode="TwoBytes",
+    )
+
+
+def test_relics_module_builds_non_idat_wrong_crc_brawl_plan():
+    route = relics.WrongCrcRoute(
+        source="sample.0_Fixed.png",
+        error="Checksum_Error_0:Wrong Crc",
+        chunk_name="PLTE",
+        tool_prefix="PLTE_Tool_",
+    )
+    tools = relics.WrongCrcTools(
+        replacement_crc="newcrc",
+        start=12,
+        end=20,
+        chunk=b"PLTE",
+        offset="0x2a",
+        old_crc="oldcrc",
+        chunk_length=768,
+        data_offset=100,
+    )
+
+    plan = relics.wrong_crc_brawl_plan(
+        route,
+        tools,
+        target_file="origin.png",
+        from_error="libpng",
+    )
+
+    assert plan == relics.WrongCrcBrawlPlan(
+        target_file="origin.png",
+        chunk=b"PLTE",
+        chunk_length=768,
+        data_offset=100,
+        from_error="libpng",
+        old_crc="oldcrc",
+        brute_length=False,
+    )
+
+
+def test_relics_module_resolves_remembered_sample_target():
+    assert (
+        relics.remembered_sample_target(
+            0,
+            "sample.0_Fixed.png",
+            file_origin="/tmp/origin.png",
+            current_sample="/tmp/current.png",
+        )
+        == "/tmp/origin.png"
+    )
+    assert (
+        relics.remembered_sample_target(
+            1,
+            "sample.1_Fixed.png",
+            file_origin="/tmp/origin.png",
+            current_sample="/tmp/current.png",
+        )
+        == "/tmp/sample.1_Fixed.png"
+    )
+
+
+def test_relics_module_builds_dummy_chunk_brawl_plan():
+    route = relics.DummyChunkRoute(
+        source="sample.0_Fixed.png",
+        error="DummyChunk_Error_0:Filling with a dummy chunk",
+        chunk_name="IHDR",
+        tool_prefix="IHDR_Tool_",
+        is_critical=True,
+    )
+    tools = relics.DummyChunkTools(
+        fixed_data="fixed-data",
+        dummy_data_length=13,
+        bad_position=128,
+        bad_start=128,
+        bad_end=152,
+        from_error="No NextChunk",
+    )
+
+    plan = relics.dummy_chunk_brawl_plan(route, tools, from_error="libpng")
+
+    assert plan == relics.DummyChunkBrawlPlan(
+        target_file="sample.0_Fixed.png",
+        chunk="IHDR",
+        chunk_length=13,
+        data_offset=128,
+        from_error="libpng",
+    )
+
+
+def test_relics_module_exposes_dummy_chunk_decline_action():
+    critical_route = relics.DummyChunkRoute(
+        source="sample.0_Fixed.png",
+        error="DummyChunk_Error_0:Filling with a dummy chunk",
+        chunk_name="IHDR",
+        tool_prefix="IHDR_Tool_",
+        is_critical=True,
+    )
+    ancillary_route = relics.DummyChunkRoute(
+        source="sample.1_Fixed.png",
+        error="DummyChunk_Error_1:Filling with a dummy chunk",
+        chunk_name="tEXt",
+        tool_prefix="tEXt_Tool_",
+        is_critical=False,
+    )
+
+    assert relics.dummy_chunk_decline_action(critical_route) == "end"
+    assert relics.dummy_chunk_decline_action(ancillary_route) == "todo_end"
+
+
 def test_relics_module_routes_remembered_dummy_chunks():
     pandemonium = {
         "sample.0_Fixed.png": {
@@ -424,6 +565,14 @@ def main():
         ("Relics module filters IDAT wrong CRC routes", test_relics_module_filters_idat_wrong_crc_routes),
         ("Relics module summarises Pandemonium", test_relics_module_summarises_pandemonium_without_formatting),
         ("Relics module exposes PLTE choices", test_relics_module_exposes_plte_interactive_choices),
+        ("Relics module builds IDAT wrong CRC brawl plan", test_relics_module_builds_idat_wrong_crc_brawl_plan),
+        (
+            "Relics module builds non-IDAT wrong CRC brawl plan",
+            test_relics_module_builds_non_idat_wrong_crc_brawl_plan,
+        ),
+        ("Relics module resolves remembered sample target", test_relics_module_resolves_remembered_sample_target),
+        ("Relics module builds dummy chunk brawl plan", test_relics_module_builds_dummy_chunk_brawl_plan),
+        ("Relics module exposes dummy chunk decline action", test_relics_module_exposes_dummy_chunk_decline_action),
         ("Relics module routes remembered dummy chunks", test_relics_module_routes_remembered_dummy_chunks),
         ("PandoraBox keys keep legacy numbering", test_pandorabox_add_keeps_legacy_error_numbering),
         (

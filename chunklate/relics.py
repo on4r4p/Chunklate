@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from typing import Any
@@ -77,6 +78,27 @@ class RelicErrorSummary:
 class RelicSampleSummary:
     sample: Any
     errors: tuple[RelicErrorSummary, ...]
+
+
+@dataclass(frozen=True)
+class WrongCrcBrawlPlan:
+    target_file: Any
+    chunk: Any
+    chunk_length: Any
+    data_offset: Any
+    from_error: Any
+    old_crc: Any
+    bf_mode: str | None = None
+    brute_length: bool | None = None
+
+
+@dataclass(frozen=True)
+class DummyChunkBrawlPlan:
+    target_file: Any
+    chunk: Any
+    chunk_length: Any
+    data_offset: Any
+    from_error: Any
 
 
 def chunk_label(chunk: Any) -> Any:
@@ -268,6 +290,68 @@ def plte_repair_choices(has_bad_crc: bool) -> tuple[str, ...]:
     if has_bad_crc:
         return ("manually", "bruteforce", "remove", "quit")
     return ("manually", "remove", "quit")
+
+
+def remembered_sample_target(
+    sample_index: int,
+    remembered_sample: Any,
+    *,
+    file_origin: Any,
+    current_sample: Any,
+) -> Any:
+    if sample_index == 0:
+        return file_origin
+    return os.path.dirname(current_sample) + "/" + str(remembered_sample)
+
+
+def wrong_crc_brawl_plan(
+    route: WrongCrcRoute,
+    tools: WrongCrcTools,
+    *,
+    target_file: Any,
+    from_error: Any,
+) -> WrongCrcBrawlPlan:
+    if route.chunk_name == "IDAT":
+        return WrongCrcBrawlPlan(
+            target_file=target_file,
+            chunk=tools.chunk,
+            chunk_length=tools.chunk_length,
+            data_offset=tools.data_offset,
+            from_error=from_error,
+            old_crc=tools.old_crc,
+            bf_mode="TwoBytes",
+        )
+
+    return WrongCrcBrawlPlan(
+        target_file=target_file,
+        chunk=tools.chunk,
+        chunk_length=tools.chunk_length,
+        data_offset=tools.data_offset,
+        from_error=from_error,
+        old_crc=tools.old_crc,
+        brute_length=False,
+    )
+
+
+def dummy_chunk_brawl_plan(
+    route: DummyChunkRoute,
+    tools: DummyChunkTools,
+    *,
+    from_error: Any,
+) -> DummyChunkBrawlPlan:
+    return DummyChunkBrawlPlan(
+        target_file=route.source,
+        chunk=route.chunk_name,
+        chunk_length=tools.dummy_data_length,
+        data_offset=tools.bad_start,
+        from_error=from_error,
+    )
+
+
+def dummy_chunk_decline_action(route: DummyChunkRoute) -> str:
+    if route.is_critical:
+        return "end"
+    return "todo_end"
 
 
 def next_error_number(pandora_box: Mapping[str, Any], function: Any) -> int:
