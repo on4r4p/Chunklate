@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, chunk_info, chunk_state, decisions, fixit_felix, output, palette, palette_ui, prompts, relics, specs, writer
+from chunklate import bruteforce, checkpoint, chunk_info, chunk_report, chunk_state, decisions, fixit_felix, output, palette, palette_ui, prompts, relics, specs, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -1313,6 +1313,10 @@ def Sync_Chunk_Info_Legacy_State(section=None):
         pCAL_PNBR = CHUNK_INFO_STATE.pcal_pnbr
 
 
+def Chunk_Report_Color(color, value):
+    return Candy("Color", color, value)
+
+
 ####
 def GetInfo(Chunk, data, Dummy=False):
     global SideNotes
@@ -1431,13 +1435,7 @@ def GetInfo(Chunk, data, Dummy=False):
         CHUNK_INFO_STATE.apply_ihdr(IHDR_Info)
         Sync_Chunk_Info_Legacy_State("ihdr")
 
-        PRINT("-Width    :%s"% Candy("Color", "yellow", IHDR_Width))
-        PRINT("-Height   :%s"% Candy("Color", "yellow", IHDR_Height))
-        PRINT("-Depht    :%s"% Candy("Color", "yellow", IHDR_Depht))
-        PRINT("-Color    :%s"% Candy("Color", "yellow", IHDR_Color))
-        PRINT("-Method   :%s"% Candy("Color", "yellow", IHDR_Method))
-        PRINT("-Filter   :%s"% Candy("Color", "yellow", IHDR_Filter))
-        PRINT("-Interlace:%s"% Candy("Color", "yellow", IHDR_Interlace))
+        chunk_report.render_ihdr(IHDR_Info, PRINT, Chunk_Report_Color)
 
         ToFix.extend(IHDR_Info.fixes)
         if len(ToFix) > 0:
@@ -1453,7 +1451,7 @@ def GetInfo(Chunk, data, Dummy=False):
         IDAT_Info = CHUNK_INFO_STATE.next_idat(data, Raw_Length)
         CHUNK_INFO_STATE.apply_idat(IDAT_Info)
         Sync_Chunk_Info_Legacy_State("idat")
-        PRINT("-Image Datastream.")
+        chunk_report.render_idat(IDAT_Info, PRINT, Chunk_Report_Color)
         ToFix.extend(IDAT_Info.fixes)
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
@@ -1540,16 +1538,7 @@ def GetInfo(Chunk, data, Dummy=False):
         bKGD_Blue = bKGD_Info.blue
         bKGD_Index = bKGD_Info.index
 
-        if len(bKGD_Gray) > 0:
-            PRINT("-Gray    :%s"% Candy("Color", "yellow", bKGD_Gray))
-        if len(bKGD_Red) > 0:
-            PRINT("-Red    :%s"% Candy("Color", "red", bKGD_Red))
-        if len(bKGD_Green) > 0:
-            PRINT("-Green  :%s"% Candy("Color", "green", bKGD_Green))
-        if len(bKGD_Blue) > 0:
-            PRINT("-Blue   :%s"% Candy("Color", "blue", bKGD_Blue))
-        if len(bKGD_Index) > 0:
-            PRINT("-Palette    :%s"% Candy("Color", "yellow", bKGD_Index))
+        chunk_report.render_bkgd(bKGD_Info, PRINT, Chunk_Report_Color)
 
         ToFix.extend(bKGD_Info.fixes)
         if len(ToFix) > 0:
@@ -1565,13 +1554,7 @@ def GetInfo(Chunk, data, Dummy=False):
         CHUNK_INFO_STATE.apply_plte(PLTE_Info)
         Sync_Chunk_Info_Legacy_State("plte")
 
-        PRINT("-%s Red palettes are stored." % Candy("Color", "yellow", len(PLTE_R)))
-        PRINT("-%s Green palettes are stored." % Candy("Color", "yellow", len(PLTE_G)))
-        PRINT("-%s Blue palettes are stored." % Candy("Color", "yellow", len(PLTE_B)))
-        PRINT(
-            "-%s RGB palettes are stored."
-            % Candy("Color", "yellow", len(PLTE_R) + len(PLTE_G) + len(PLTE_B))
-        )
+        chunk_report.render_plte(PLTE_R, PLTE_G, PLTE_B, PRINT, Chunk_Report_Color)
 
         ToFix.extend(PLTE_Info.fixes)
         if len(ToFix) > 0:
@@ -1592,27 +1575,15 @@ def GetInfo(Chunk, data, Dummy=False):
         CHUNK_INFO_STATE.apply_splt(sPLT_Info)
         Sync_Chunk_Info_Legacy_State("splt")
 
-        if len(sPLT_Info.decoded_name) > 0:
-            PRINT("-sPLT name : %s"% Candy("Color", "white", sPLT_Info.decoded_name))
-        PRINT(
-            "-%s Suggested Red palettes are stored."
-            % Candy("Color", "yellow", len(sPLT_Red))
-        )
-        PRINT(
-            "-%s Suggested Green palettes are stored."
-            % Candy("Color", "yellow", len(sPLT_Green))
-        )
-        PRINT(
-            "-%s Suggested Blue palettes are stored."
-            % Candy("Color", "yellow", len(sPLT_Blue))
-        )
-        PRINT(
-            "-%s Suggested Alpha palettes are stored."
-            % Candy("Color", "yellow", len(sPLT_Alpha))
-        )
-        PRINT(
-            "-%s Suggested Frequency values are stored."
-            % Candy("Color", "yellow", len(sPLT_Freq))
+        chunk_report.render_splt(
+            sPLT_Info,
+            sPLT_Red,
+            sPLT_Green,
+            sPLT_Blue,
+            sPLT_Alpha,
+            sPLT_Freq,
+            PRINT,
+            Chunk_Report_Color,
         )
 
         ToFix.extend(sPLT_Info.fixes)
@@ -1635,11 +1606,7 @@ def GetInfo(Chunk, data, Dummy=False):
             splt_entries=CHUNK_INFO_STATE.splt_entry_count(),
         )
         hIST = list(hIST_Info.entries)
-        if len(hIST) > 0:
-            PRINT(
-                "-%s Histogram frequencies are stored."
-                % Candy("Color", "yellow", len(hIST))
-            )
+        chunk_report.render_hist(hIST, PRINT, Chunk_Report_Color)
 
         ToFix.extend(hIST_Info.fixes)
         if len(ToFix) > 0:
@@ -1742,19 +1709,7 @@ def GetInfo(Chunk, data, Dummy=False):
         CHUNK_INFO_STATE.apply_trns(tRNS_Info)
         Sync_Chunk_Info_Legacy_State("trns")
 
-        if len(tRNS_Gray) > 0:
-            PRINT("-Gray    :%s"% Candy("Color", "yellow", tRNS_Gray))
-        if len(tRNS_TrueR) > 0:
-            PRINT("-Red    :%s"% Candy("Color", "red", tRNS_TrueR))
-        if len(tRNS_TrueG) > 0:
-            PRINT("-Green  :%s"% Candy("Color", "green", tRNS_TrueG))
-        if len(tRNS_TrueB) > 0:
-            PRINT("-Blue   :%s"% Candy("Color", "blue", tRNS_TrueB))
-        if len(tRNS_Index) > 0:
-            PRINT(
-                "-%s Alpha indexes are stored."
-                % Candy("Color", "yellow", len(tRNS_Index))
-            )
+        chunk_report.render_trns(tRNS_Info, PRINT, Chunk_Report_Color)
 
         ToFix.extend(tRNS_Info.fixes)
         if len(ToFix) > 0:
@@ -2010,19 +1965,7 @@ def GetInfo(Chunk, data, Dummy=False):
         CHUNK_INFO_STATE.apply_pcal(pCAL_Info)
         Sync_Chunk_Info_Legacy_State("pcal")
 
-        if len(pCAL_Info.decoded_keyword) > 0:
-            PRINT(
-                "-Calibration name    :%s"%
-                Candy("Color", "yellow", pCAL_Info.decoded_keyword)
-            )
-        if len(pCAL_Zero) > 0:
-            PRINT("-Original zero       :%s"% Candy("Color", "yellow", pCAL_Zero))
-        if len(pCAL_Max) > 0:
-            PRINT("-Original max        :%s"% Candy("Color", "yellow", pCAL_Max))
-        if len(pCAL_Eq) > 0:
-            PRINT("-Equation type       :%s"% Candy("Color", "yellow", pCAL_Eq))
-        if len(pCAL_PNBR) > 0:
-            PRINT("-Number of parameters:%s"% Candy("Color", "yellow", pCAL_PNBR))
+        chunk_report.render_pcal(pCAL_Info, PRINT, Chunk_Report_Color)
 
         ToFix.extend(pCAL_Info.fixes)
         if len(ToFix) > 0:

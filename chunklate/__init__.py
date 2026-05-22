@@ -3,6 +3,7 @@
 from . import (
     checkpoint,
     chunk_info,
+    chunk_report,
     chunk_state,
     decisions,
     fixit_felix,
@@ -20,6 +21,7 @@ __all__ = [
     "PngFormatError",
     "checkpoint",
     "chunk_info",
+    "chunk_report",
     "chunk_state",
     "decisions",
     "fixit_felix",
