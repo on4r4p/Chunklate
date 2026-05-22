@@ -8,6 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import chunk_info, chunk_report
+from chunklate.png import PNG_SIGNATURE, build_png_chunk, legacy_chunk_window
 
 
 def collect(render, *args):
@@ -37,6 +38,44 @@ def collect_with_emoji(render, *args):
 
     render(*args, emit, color, emoji)
     return lines
+
+
+def test_render_legacy_chunk_window_keeps_chunkbychunk_lines():
+    png_data = (
+        PNG_SIGNATURE
+        + build_png_chunk(
+            b"IHDR",
+            b"\x00\x00\x00\x20\x00\x00\x00\x10\x08\x02\x00\x00\x00",
+        )
+        + build_png_chunk(b"IDAT", b"abc")
+    )
+    window = legacy_chunk_window(png_data, len(PNG_SIGNATURE) * 2)
+
+    assert collect(chunk_report.render_legacy_chunk_window, window) == [
+        "-Found at offset            "
+        "(<yellow>Hex</yellow>/<blue>Bytes</blue>/<purple>Index</purple>): "
+        "(<yellow>0x8</yellow>/<blue>8</blue>/<purple>16</purple>) ",
+        "-Chunk Length:              (<yellow>0xd</yellow>/<blue>13</blue>)",
+        "",
+        "-Found at offset            "
+        "(<yellow>Hex</yellow>/<blue>Bytes</blue>/<purple>Index</purple>): "
+        "(<yellow>0xc</yellow>/<blue>12</blue>/<purple>24</purple>) ",
+        "-Chunk Type :               (<yellow>49484452</yellow>/<blue>b'IHDR'</blue>)",
+        "",
+        "-Found Chunk Data at offset "
+        "(<yellow>Hex</yellow>/<blue>Bytes</blue>/<purple>Index</purple>): "
+        "(<yellow>0x10</yellow>/<blue>16</blue>/<purple>32</purple>) ",
+        "",
+        "-Found at offset            "
+        "(<yellow>Hex</yellow>/<blue>Bytes</blue>/<purple>Index</purple>): "
+        "(<yellow>0x1d</yellow>/<blue>29</blue>/<purple>58</purple>) ",
+        "-Chunk Crc:                 (<yellow>f862ea0e</yellow>/offset :  <yellow>0x1d</yellow>)",
+        "",
+        "-Found at offset            "
+        "(<yellow>Hex</yellow>/<blue>Bytes</blue>/<purple>Index</purple>): "
+        "(<yellow>0x37</yellow>/<blue>45</blue>/<purple>90</purple>) ",
+        "-Raw_NextChunk Type :       (<yellow>49444154</yellow>/<blue>b'IDAT'</blue>)",
+    ]
 
 
 def test_render_ihdr_keeps_legacy_labels():
@@ -324,6 +363,7 @@ def test_render_exif_and_spal_report_legacy_lines():
 
 def main():
     checks = [
+        ("legacy chunk window", test_render_legacy_chunk_window_keeps_chunkbychunk_lines),
         ("IHDR labels", test_render_ihdr_keeps_legacy_labels),
         ("PLTE counts", test_render_palette_groups_report_counts),
         ("sPLT counts", test_render_splt_reports_name_and_component_counts),

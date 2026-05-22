@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 
 from . import chunk_info
+from .png import LegacyChunkWindow
 
 
 Emit = Callable[[str], None]
@@ -24,6 +25,92 @@ def render_ihdr(info: chunk_info.IhdrInfo, emit: Emit, color: Color) -> None:
     emit("-Method   :%s" % color("yellow", info.method))
     emit("-Filter   :%s" % color("yellow", info.filter_method))
     emit("-Interlace:%s" % color("yellow", info.interlace))
+
+
+def render_legacy_chunk_window(
+    window: LegacyChunkWindow,
+    emit: Emit,
+    color: Color,
+) -> None:
+    emit(
+        "-Found at offset            (%s/%s/%s): (%s/%s/%s) "
+        % (
+            color("yellow", "Hex"),
+            color("blue", "Bytes"),
+            color("purple", "Index"),
+            color("yellow", window.length_offset_hex),
+            color("blue", window.length_offset_byte),
+            color("purple", window.length_offset_index),
+        )
+    )
+    emit(
+        "-Chunk Length:              (%s/%s)"
+        % (
+            color("yellow", hex(int(window.raw_length, 16))),
+            color("blue", int(window.raw_length, 16)),
+        )
+    )
+    emit("")
+    emit(
+        "-Found at offset            (%s/%s/%s): (%s/%s/%s) "
+        % (
+            color("yellow", "Hex"),
+            color("blue", "Bytes"),
+            color("purple", "Index"),
+            color("yellow", window.type_offset_hex),
+            color("blue", window.type_offset_byte),
+            color("purple", window.type_offset_index),
+        )
+    )
+    emit(
+        "-Chunk Type :               (%s/%s)"
+        % (color("yellow", window.raw_type), color("blue", window.chunk_type))
+    )
+    emit("")
+    emit(
+        "-Found Chunk Data at offset (%s/%s/%s): (%s/%s/%s) "
+        % (
+            color("yellow", "Hex"),
+            color("blue", "Bytes"),
+            color("purple", "Index"),
+            color("yellow", window.data_offset_hex),
+            color("blue", window.data_offset_byte),
+            color("purple", window.data_offset_index),
+        )
+    )
+    emit("")
+    emit(
+        "-Found at offset            (%s/%s/%s): (%s/%s/%s) "
+        % (
+            color("yellow", "Hex"),
+            color("blue", "Bytes"),
+            color("purple", "Index"),
+            color("yellow", window.crc_offset_hex),
+            color("blue", window.crc_offset_byte),
+            color("purple", window.crc_offset_index),
+        )
+    )
+    emit(
+        "-Chunk Crc:                 (%s/offset :  %s)"
+        % (color("yellow", window.raw_crc), color("yellow", hex(window.crc_offset_byte)))
+    )
+
+    emit("")
+    emit(
+        "-Found at offset            (%s/%s/%s): (%s/%s/%s) "
+        % (
+            color("yellow", "Hex"),
+            color("blue", "Bytes"),
+            color("purple", "Index"),
+            color("yellow", window.next_chunk_offset_hex),
+            color("blue", window.next_chunk_offset_byte),
+            color("purple", window.next_chunk_offset_index),
+        )
+    )
+    emit(
+        "-Raw_NextChunk Type :       (%s/%s)"
+        % (color("yellow", window.raw_next_chunk), color("blue", window.next_chunk_type))
+    )
 
 
 def render_idat(info: chunk_info.IdatInfo, emit: Emit, color: Color) -> None:
