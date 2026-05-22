@@ -42,6 +42,112 @@ def test_write_clone_writes_png_bytes(tmp_path):
     assert Path(target.path).read_bytes() == b"\x89PNG"
 
 
+def test_summary_path_uses_clone_folder(tmp_path):
+    path = output.summary_path("/somewhere/sample.png", str(tmp_path))
+
+    assert path == str(tmp_path / "Folder_sample" / "Summary_Of_sample")
+    assert Path(path).parent.is_dir()
+
+
+def test_summary_body_preserves_legacy_note_layout():
+    assert output.summary_body("fixed", []) == "\nfixed\n"
+    assert output.summary_body("fixed", ["note-a", "note-b"]) == "\nnote-a\n\nnote-b\nfixed\n"
+    assert output.summary_body(None, ["note-a"]) == "\nnote-a\n"
+    assert output.summary_body(None, []) is None
+
+
+def test_render_summary_footer_preserves_legacy_sections():
+    state = {
+        "IHDR_Height": 10,
+        "IHDR_Width": 20,
+        "IHDR_Depht": "8",
+        "IHDR_Color": "2",
+        "IHDR_Method": "0",
+        "IHDR_Interlace": "0",
+        "pHYs_X": "100",
+        "pHYs_Y": "200",
+        "pHYs_Unit": "1",
+        "bKGD_Gray": "3",
+        "bKGD_Red": "4",
+        "bKGD_Green": "5",
+        "bKGD_Blue": "6",
+        "bKGD_Index": "7",
+        "gAMA": "45455",
+        "PLTE_R": ["00", "01"],
+        "PLTE_G": ["02"],
+        "PLTE_B": ["03"],
+        "sPLT_Red": ["r"],
+        "sPLT_Green": ["g"],
+        "sPLT_Blue": ["b"],
+        "sPLT_Alpha": ["a"],
+        "sPLT_Freq": ["f"],
+        "hIST": ["1", "2"],
+        "tRNS_Gray": "8",
+        "tRNS_TrueR": "9",
+        "tRNS_TrueG": "10",
+        "tRNS_TrueB": "11",
+        "tRNS_Index": ["00", "01"],
+        "sTER": "1",
+        "cHRM_WhiteX": "12",
+        "cHRM_WhiteY": "13",
+        "cHRM_Redx": "14",
+        "cHRM_Redy": "15",
+        "cHRM_Greenx": "16",
+        "cHRM_Greeny": "17",
+        "cHRM_Bluex": "18",
+        "cHRM_Bluey": "19",
+        "sBIT_Gray": "8",
+        "sBIT_TrueR": "8",
+        "sBIT_TrueG": "8",
+        "sBIT_TrueB": "8",
+        "sBIT_GrayScale": "8",
+        "sBIT_GrayAlpha": "8",
+        "sBIT_TrueAlphaR": "8",
+        "sBIT_TrueAlphaG": "8",
+        "sBIT_TrueAlphaB": "8",
+        "sBIT_TrueAlpha": "8",
+        "pCAL_Key": "43616c",
+        "pCAL_Zero": "0",
+        "pCAL_Max": "255",
+        "pCAL_Eq": "1",
+        "pCAL_PNBR": "2",
+        "iCCP_Name": "ICC",
+        "iCCP_Method": 0,
+        "sRGB": "2",
+        "tIME_Yr": "2026",
+        "tIME_Mth": "05",
+        "tIME_Day": "22",
+        "tIME_Hr": "12",
+        "tIME_Min": "34",
+        "tIME_Sec": "56",
+        "tEXt_Key_List": ["Title"],
+        "tEXt_Str_List": ["Hello"],
+        "iTXt_Key_List": ["Comment"],
+        "iTXt_String_List": ["Bonjour"],
+        "zTXt_Key_List": ["Zip"],
+        "zTXt_Str_List": ["Compressed"],
+    }
+
+    footer = output.render_summary_footer(state, "<EOF>")
+
+    assert footer.startswith("\n\n『File Informations: 』\n")
+    assert "\n-IHDR Width    :10" in footer
+    assert "\n-IHDR Height   :20" in footer
+    assert "\n-pHYs Pixels per unit, X axis: 100" in footer
+    assert "\n-PLTE Red Palettes    :2" in footer
+    assert "\n-sPLT Suggested Frequencies palettes stored:1" in footer
+    assert "\n-tRNS Alpha indexes stored:2" in footer
+    assert "\n-cHRM chromaticities BlueY   :19" in footer
+    assert "\n-sBIT significant bits Alpha        :8" in footer
+    assert "\n-pCAL Calibration name    :Cal" in footer
+    assert "\n-iCCP Profile Method :0" in footer
+    assert "\n-Year     :2026" in footer
+    assert "\n-tEXt Title :\nHello\n" in footer
+    assert "\n-iTXt Comment :\nBonjour\n" in footer
+    assert "\n-zTXt Zip :\nCompressed\n" in footer
+    assert footer.endswith("<EOF>")
+
+
 def main():
     tmpdir = tempfile.TemporaryDirectory()
     tmp_path = Path(tmpdir.name)
@@ -50,6 +156,9 @@ def main():
         ("Clone target uses next fixed name", lambda: test_next_clone_target_uses_next_available_fixed_name(tmp_path)),
         ("Clone bytes accepts hex and bytes", test_clone_bytes_accepts_hex_and_bytes),
         ("Write clone writes PNG bytes", lambda: test_write_clone_writes_png_bytes(tmp_path)),
+        ("Summary path uses clone folder", lambda: test_summary_path_uses_clone_folder(tmp_path)),
+        ("Summary body preserves notes", test_summary_body_preserves_legacy_note_layout),
+        ("Summary footer preserves sections", test_render_summary_footer_preserves_legacy_sections),
     ]
 
     try:
