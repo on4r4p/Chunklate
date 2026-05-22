@@ -8,6 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import specs
+from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk
 
 
 def test_chunk_constant_groups_preserve_legacy_sets_and_order():
@@ -25,6 +26,26 @@ def test_chunk_constant_groups_preserve_legacy_sets_and_order():
 def test_min_res_iter_preserves_legacy_counting():
     assert specs.min_res_iter(1) == 0
     assert specs.min_res_iter(4) == 12
+
+
+def test_estimate_max_resolution_preserves_legacy_formula():
+    assert specs.estimate_max_resolution(10) == 57
+    assert specs.estimate_max_resolution(78) == 16
+    assert specs.estimate_max_resolution(1000) == 563
+
+
+def test_estimate_idat_bytes_from_hex_preserves_legacy_scan():
+    single = PNG_SIGNATURE + build_png_chunk(b"IDAT", b"abc") + IEND_CHUNK
+    multiple = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IDAT", b"ab")
+        + build_png_chunk(b"IDAT", b"cdef")
+        + IEND_CHUNK
+    )
+
+    assert specs.estimate_idat_bytes_from_hex(single.hex()) == 3
+    assert specs.estimate_idat_bytes_from_hex(multiple.hex()) == 6
+    assert specs.estimate_idat_bytes_from_hex("not hex at all") == 0
 
 
 def test_iter_product_values_preserves_regular_product():
@@ -125,6 +146,8 @@ def main():
     checks = [
         ("Chunk constant groups", test_chunk_constant_groups_preserve_legacy_sets_and_order),
         ("Min resolution iterator", test_min_res_iter_preserves_legacy_counting),
+        ("Max resolution estimate", test_estimate_max_resolution_preserves_legacy_formula),
+        ("IDAT bytes estimate", test_estimate_idat_bytes_from_hex_preserves_legacy_scan),
         ("Regular product", test_iter_product_values_preserves_regular_product),
         ("Minres product", test_iter_product_values_expands_minres_width_height_pairs),
         ("Safe color type", test_color_type_label_uses_safe_ihdr_color_and_brute_level),

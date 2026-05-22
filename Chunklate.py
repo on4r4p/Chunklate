@@ -23,7 +23,7 @@ try:
 except ModuleNotFoundError:
     tkinter = None
 
-import sys, os, binascii, re, random, time, zlib, ctypes, struct,io, tempfile, inspect, types, difflib, collections, math, itertools, shutil
+import sys, os, binascii, re, random, time, zlib, ctypes, struct,io, tempfile, inspect, types, difflib, collections, itertools, shutil
 
 try:
     import cv2
@@ -524,61 +524,16 @@ def Relic_Question_Hash(store, key, tool_prefix):
 
 def IDAT_Bytes_Nbr():  # tmpworkaround
     global IBN
-    BCnt = 0
-    LastBcnt = 0
-    Needle = 0
-    IdatSwitch = False
-    Enough = False
-    while Needle < len(DATAX):
-        scopex = DATAX[Needle : Needle + 8]
-        if len(scopex) < 8:
-            break
-        elif Enough:
-            break
-        try:
-            scope = bytes.fromhex(scopex)
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(
-                    Candy("Color", "red", "Scopex:"),
-                    Candy("Color", "yellow", scopex),
-                )
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-
-        if scope == b"IDAT":
-            IdatSwitch = True
-            if LastBcnt == 0:
-                LastBcnt = Needle
-            else:
-                BCnt += (Needle - LastBcnt) - 24
-                LastBcnt = Needle
-        elif IdatSwitch:
-            for Chk in CHUNKS:
-                if Chk == scope:
-                    BCnt += (Needle - LastBcnt) - 24
-                    LastBcnt = Needle
-                    Enough = True
-                    break
-        Needle += 1
-
-    IBN = int(BCnt / 2)
+    IBN = specs.estimate_idat_bytes_from_hex(DATAX, tuple(CHUNKS))
 
 
 
 def Max_Res():
     try:
         size = os.path.getsize(FILE_Origin)
-        if size < 77:
-            calc = math.floor(((size) * 8 - 1) / 2) * 86 + 1
-        else:
-            calc = math.floor(((size - 77) * 8 - 1) / 2) * 86 + 1
-        MaxRes = int(math.sqrt(calc))
+        MaxRes = specs.estimate_max_resolution(size)
         if DEBUG:
             PRINT("Size:%s"%str(size))
-            PRINT("Calc:%s"%str(calc))
-            
             PRINT(
                 "-Maximum resolution estimation based on file size: %s*%s"
                 % (MaxRes, MaxRes)

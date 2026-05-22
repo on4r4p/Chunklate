@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import math
 from typing import Any
 
 
@@ -155,6 +156,53 @@ def min_res_iter(min_res: int) -> int:
         for _height in range(1, width + 1):
             count += 2
     return count
+
+
+def estimate_max_resolution(file_size: int) -> int:
+    if file_size < 77:
+        calc = math.floor(((file_size) * 8 - 1) / 2) * 86 + 1
+    else:
+        calc = math.floor(((file_size - 77) * 8 - 1) / 2) * 86 + 1
+    return int(math.sqrt(calc))
+
+
+def estimate_idat_bytes_from_hex(data_hex: str, known_chunks: tuple[bytes, ...] = CHUNKS) -> int:
+    byte_count = 0
+    last_byte_count = 0
+    needle = 0
+    idat_switch = False
+    enough = False
+
+    while needle < len(data_hex):
+        scope_hex = data_hex[needle : needle + 8]
+        if len(scope_hex) < 8:
+            break
+        if enough:
+            break
+
+        try:
+            scope = bytes.fromhex(scope_hex)
+        except ValueError:
+            needle += 1
+            continue
+
+        if scope == b"IDAT":
+            idat_switch = True
+            if last_byte_count == 0:
+                last_byte_count = needle
+            else:
+                byte_count += (needle - last_byte_count) - 24
+                last_byte_count = needle
+        elif idat_switch:
+            for chunk in known_chunks:
+                if chunk == scope:
+                    byte_count += (needle - last_byte_count) - 24
+                    last_byte_count = needle
+                    enough = True
+                    break
+        needle += 1
+
+    return int(byte_count / 2)
 
 
 def iter_product_values(chunk_data: Any, color_type: str):
