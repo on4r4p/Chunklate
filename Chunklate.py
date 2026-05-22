@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, decisions, dummy_chunk, fixit_felix, output, palette, palette_ui, prompts, relics, sorting, specs, ui, writer
+from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, decisions, dummy_chunk, error_log, fixit_felix, output, palette, palette_ui, prompts, relics, sorting, specs, ui, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -84,11 +84,7 @@ def Betterror(error_msg, def_name): ##useless since 3.11
 def Error_Log(Err_to_log):
     global SideNotes
     try:
-        CurrentDate = datetime.now()
-        logfile = str(sys.path[0]) + "/Chunklate_Errors.log"
-        with open(logfile, "a+") as fuck:
-            fuck.write(str(CurrentDate) + "\n")
-            fuck.write(Err_to_log + "\n")
+        error_log.append_error_log(Err_to_log, str(sys.path[0]))
         if 1 == 1:  # if DEBUG is True:
             SideNotes.append(Err_to_log)
 
