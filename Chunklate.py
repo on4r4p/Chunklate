@@ -1313,6 +1313,36 @@ def Sync_Chunk_Info_Legacy_State(section=None):
         pCAL_PNBR = CHUNK_INFO_STATE.pcal_pnbr
 
 
+def Sync_Chunk_Info_State_From_Legacy(section=None):
+    sections = {section} if isinstance(section, str) else set(section or ())
+    sync_all = section is None
+
+    if sync_all or "ihdr" in sections:
+        CHUNK_INFO_STATE.set_ihdr_legacy(
+            height=IHDR_Height,
+            width=IHDR_Width,
+            depth=IHDR_Depht,
+            color=IHDR_Color,
+            method=IHDR_Method,
+            filter_method=IHDR_Filter,
+            interlace=IHDR_Interlace,
+        )
+
+    if sync_all or "plte" in sections:
+        CHUNK_INFO_STATE.set_plte_legacy(PLTE_R, PLTE_G, PLTE_B)
+
+    if sync_all or "splt" in sections:
+        CHUNK_INFO_STATE.set_splt_legacy(
+            names=sPLT_Name,
+            depths=sPLT_Depht,
+            red=sPLT_Red,
+            green=sPLT_Green,
+            blue=sPLT_Blue,
+            alpha=sPLT_Alpha,
+            freq=sPLT_Freq,
+        )
+
+
 def Chunk_Report_Color(color, value):
     return Candy("Color", color, value)
 
@@ -2134,14 +2164,6 @@ def YouShallPass(Chunk, data):
     global IHDR_Color
     global IHDR_Depht
     global Orig_CL
-    global PLTE_R
-    global PLTE_G
-    global PLTE_B
-    global sPLT_Name
-    global sPLT_Red
-    global sPLT_Green
-    global sPLT_Blue
-    global sPLT_Alpha
 
     if Chunk == b"IHDR":
         return len(chunk_info.parse_ihdr(data).fixes) == 0
@@ -2150,37 +2172,53 @@ def YouShallPass(Chunk, data):
         return len(chunk_info.parse_phys(data).fixes) == 0
 
     if Chunk == b"bKGD":
-        return len(chunk_info.parse_bkgd(data, IHDR_Color, IHDR_Depht).fixes) == 0
+        Sync_Chunk_Info_State_From_Legacy("ihdr")
+        return len(
+            chunk_info.parse_bkgd(
+                data,
+                CHUNK_INFO_STATE.ihdr_color,
+                CHUNK_INFO_STATE.ihdr_depth,
+            ).fixes
+        ) == 0
 
     if Chunk == b"PLTE":
-        return len(chunk_info.parse_plte(data, IHDR_Depht).fixes) == 0
+        Sync_Chunk_Info_State_From_Legacy("ihdr")
+        return len(chunk_info.parse_plte(data, CHUNK_INFO_STATE.ihdr_depth).fixes) == 0
 
 
     if Chunk == b"sPLT":
-        return len(chunk_info.parse_splt(data, previous_names=tuple(sPLT_Name)).fixes) == 0
+        Sync_Chunk_Info_State_From_Legacy("splt")
+        return len(
+            chunk_info.parse_splt(
+                data,
+                previous_names=tuple(CHUNK_INFO_STATE.splt_name),
+            ).fixes
+        ) == 0
 
 
     if Chunk == b"hIST":
+        Sync_Chunk_Info_State_From_Legacy(("plte", "splt"))
         return len(
             chunk_info.parse_hist(
                 data,
                 has_plte=b"PLTE" in Chunks_History,
                 has_splt=b"sPLT" in Chunks_History,
-                plte_entries=int((len(PLTE_R) + len(PLTE_G) + len(PLTE_B)) / 3),
-                splt_entries=len(sPLT_Red) + len(sPLT_Green) + len(sPLT_Blue) + len(sPLT_Alpha),
+                plte_entries=CHUNK_INFO_STATE.plte_entry_count(),
+                splt_entries=CHUNK_INFO_STATE.splt_entry_count(),
             ).fixes
         ) == 0
     if Chunk == b"tIME":
         return len(chunk_info.parse_time(data).fixes) == 0
     if Chunk == b"tRNS":
+        Sync_Chunk_Info_State_From_Legacy(("ihdr", "plte", "splt"))
         return len(
             chunk_info.parse_trns(
                 data,
-                IHDR_Color,
+                CHUNK_INFO_STATE.ihdr_color,
                 has_plte=b"PLTE" in Chunks_History,
                 has_splt=b"sPLT" in Chunks_History,
-                plte_entries=len(PLTE_R),
-                splt_entries=len(sPLT_Red),
+                plte_entries=len(CHUNK_INFO_STATE.plte_r),
+                splt_entries=len(CHUNK_INFO_STATE.splt_red),
             ).fixes
         ) == 0
     if Chunk == b"sRGB":
@@ -2203,7 +2241,14 @@ def YouShallPass(Chunk, data):
             ).fixes
         ) == 0
     if Chunk == b"sBIT":
-        return len(chunk_info.parse_sbit(data, IHDR_Color, IHDR_Depht).fixes) == 0
+        Sync_Chunk_Info_State_From_Legacy("ihdr")
+        return len(
+            chunk_info.parse_sbit(
+                data,
+                CHUNK_INFO_STATE.ihdr_color,
+                CHUNK_INFO_STATE.ihdr_depth,
+            ).fixes
+        ) == 0
     if Chunk == b"oFFs":
         return len(chunk_info.parse_offs(data).fixes) == 0
     if Chunk == b"pCAL":

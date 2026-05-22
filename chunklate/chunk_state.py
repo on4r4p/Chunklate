@@ -59,6 +59,25 @@ class ChunkInfoState:
         self.ihdr_filter = info.filter_method
         self.ihdr_interlace = info.interlace
 
+    def set_ihdr_legacy(
+        self,
+        *,
+        height: str | int,
+        width: str | int,
+        depth: str,
+        color: str,
+        method: str = "",
+        filter_method: str = "",
+        interlace: str = "",
+    ) -> None:
+        self.ihdr_height = height
+        self.ihdr_width = width
+        self.ihdr_depth = depth
+        self.ihdr_color = color
+        self.ihdr_method = method
+        self.ihdr_filter = filter_method
+        self.ihdr_interlace = interlace
+
     def next_idat(self, data: str, raw_length_hex: str) -> chunk_info.IdatInfo:
         return chunk_info.parse_idat(
             data,
@@ -81,6 +100,16 @@ class ChunkInfoState:
         self.plte_g = list(info.green)
         self.plte_b = list(info.blue)
 
+    def set_plte_legacy(
+        self,
+        red: list[str],
+        green: list[str],
+        blue: list[str],
+    ) -> None:
+        self.plte_r = list(red)
+        self.plte_g = list(green)
+        self.plte_b = list(blue)
+
     def apply_splt(self, info: chunk_info.SpltInfo) -> None:
         self.splt_red = list(info.red)
         self.splt_green = list(info.green)
@@ -89,6 +118,31 @@ class ChunkInfoState:
         self.splt_freq = list(info.freq)
         self.splt_depth = [info.depth] if len(info.depth) > 0 else []
         self.splt_name = [info.name] if len(info.name) > 0 else []
+
+    def set_splt_legacy(
+        self,
+        *,
+        names: list[str],
+        depths: list[str] | None = None,
+        red: list[str] | None = None,
+        green: list[str] | None = None,
+        blue: list[str] | None = None,
+        alpha: list[str] | None = None,
+        freq: list[str] | None = None,
+    ) -> None:
+        self.splt_name = list(names)
+        if depths is not None:
+            self.splt_depth = list(depths)
+        if red is not None:
+            self.splt_red = list(red)
+        if green is not None:
+            self.splt_green = list(green)
+        if blue is not None:
+            self.splt_blue = list(blue)
+        if alpha is not None:
+            self.splt_alpha = list(alpha)
+        if freq is not None:
+            self.splt_freq = list(freq)
 
     def apply_trns(self, info: chunk_info.TrnsInfo) -> None:
         self.trns_index = list(info.indexes)
