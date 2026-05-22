@@ -6427,13 +6427,17 @@ def Relics_Try_Current_Wrong_Crc_Fix():
     return False, None
 
 
-def Relics_Run_Save_Clone_Plan(SavePlan):
+def Run_Save_Clone_Plan(SavePlan):
     return SaveClone(
         SavePlan.fixed_data,
         SavePlan.start,
         SavePlan.end,
         SavePlan.info,
     )
+
+
+def Relics_Run_Save_Clone_Plan(SavePlan):
+    return Run_Save_Clone_Plan(SavePlan)
 
 
 def Relics_Run_Wrong_Crc_Brawl_Plan(BrawlPlan):
@@ -6990,19 +6994,8 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
             uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
             Answer = Question(id=key,idhash=uniqh)
             if Answer is True:
-                return True, SaveClone(
-                    CrcTools.replacement_crc,
-                    CrcTools.start,
-                    CrcTools.end,
-                    (
-                        "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
-                        % (
-                            CrcTools.chunk,
-                            CrcTools.offset,
-                            CrcTools.replacement_crc,
-                            CrcTools.old_crc,
-                        )
-                    ),
+                return True, Run_Save_Clone_Plan(
+                    relics.wrong_crc_save_clone_plan(CrcTools)
                 )
             else:
                 Skip_Bad_Crc = None
@@ -7022,19 +7015,8 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
         uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
         Answer = Question(id=key,idhash=uniqh)
         if Answer is False:
-            return True, SaveClone(
-                CrcTools.replacement_crc,
-                CrcTools.start,
-                CrcTools.end,
-                (
-                    "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
-                    % (
-                        CrcTools.chunk,
-                        CrcTools.offset,
-                        CrcTools.replacement_crc,
-                        CrcTools.old_crc,
-                    )
-                ),
+            return True, Run_Save_Clone_Plan(
+                relics.wrong_crc_save_clone_plan(CrcTools)
             )
         else:
             ChunkStory(
