@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, decisions, dummy_chunk, fixit_felix, output, palette, palette_ui, prompts, relics, specs, writer
+from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, decisions, dummy_chunk, fixit_felix, output, palette, palette_ui, prompts, relics, specs, ui, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -2468,21 +2468,9 @@ def Candy(mode, arg, data=None):
             return com[rnd]
 
     if mode == "Color" and os.name != "nt":
-        if arg == "red":
-            prnt = "\033[1;31;49m%s\033[m" % data
-        elif arg == "green":
-            prnt = "\033[1;32;49m%s\033[m" % data
-        elif arg == "blue":
-            prnt = "\033[1;34;49m%s\033[m" % data
-        elif arg == "purple":
-            prnt = "\033[1;35;49m%s\033[m" % data
-        elif arg == "yellow":
-            prnt = "\033[1;33;49m%s\033[m" % data
-        elif arg == "white":
-            prnt = "\033[1;37;49m%s\033[m" % data
-        return prnt
+        return ui.colorize(arg, data, use_color=True)
     elif mode == "Color" and os.name == "nt":
-        prnt = data
+        return ui.colorize(arg, data, use_color=False)
 
     if mode == "Cowsay":
         BotL = "╰─"
@@ -2617,41 +2605,7 @@ def Candy(mode, arg, data=None):
     if mode == "Title":
         if NODIALOGUE:
            return()
-        BotL = "╰─"
-        BotR = "─╯"
-        TopL = "╭─"
-        TopR = "─╮"
-        Sep = (
-            "━" * len(str(arg))
-            if data == None
-            else "━" * (len(str(arg) + str(data)) + 3)
-            if "\x1b[m" not in data
-            else "━" * (len(str(arg) + str(data)) - 12)
-        )
-        Toprnt = TopL + Sep + TopR
-        Botrnp = BotL + Sep + BotR
-        prnt = "  " + str(arg) if data == None else "  " + str(arg) + " " + str(data)
-        if os.name == "nt":
-            Title = """
-%s
-%s
-%s
-""" % (
-                Toprnt,
-                prnt,
-                Botrnp,
-            )
-        elif os.name != "nt":
-            Title = """
-\033[1;37;49m%s\033[m
-%s
-\033[1;37;49m%s\033[m
-""" % (
-                Toprnt,
-                prnt,
-                Botrnp,
-            )
-        PRINT(Title)
+        PRINT(ui.render_title(arg, data, use_color=os.name != "nt"))
 
 
 def SplitDigits(lst):
