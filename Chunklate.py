@@ -7023,12 +7023,9 @@ def Pause(msg):
     return ()
 
 def PRINT(msg):
-    if NODIALOGUE is False :
-
-        if len(str(msg)) > MAXCHAR*2:
-            print("%s ...Too Big To be displayed..."%str(msg[:int(MAXCHAR)-30]))
-        else:
-           print(msg)
+    printable = ui.printable_message(msg, max_columns=MAXCHAR, no_dialogue=NODIALOGUE)
+    if printable is not None:
+        print(printable)
 
 #    else:
 #        print("-not print-")

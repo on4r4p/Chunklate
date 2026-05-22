@@ -396,3 +396,11 @@ def render_dialogue(
         bottom,
         marker_block,
     )
+
+
+def printable_message(msg: object, *, max_columns: int, no_dialogue: bool = False) -> object | None:
+    if no_dialogue:
+        return None
+    if len(str(msg)) > max_columns * 2:
+        return "%s ...Too Big To be displayed..." % str(msg[: int(max_columns) - 30])  # type: ignore[index]
+    return msg

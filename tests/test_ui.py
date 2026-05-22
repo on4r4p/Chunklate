@@ -99,6 +99,17 @@ def test_render_dialogue_preserves_legacy_plain_layout():
 """
 
 
+def test_printable_message_preserves_legacy_print_rules():
+    marker = object()
+
+    assert ui.printable_message("hello", max_columns=40) == "hello"
+    assert ui.printable_message(marker, max_columns=40) is marker
+    assert ui.printable_message("hidden", max_columns=40, no_dialogue=True) is None
+    assert ui.printable_message("x" * 100, max_columns=40) == (
+        "xxxxxxxxxx ...Too Big To be displayed..."
+    )
+
+
 def main():
     checks = [
         ("Colorize ANSI colors", test_colorize_preserves_legacy_ansi_colors),
@@ -110,6 +121,7 @@ def main():
         ("Visible length ignores ANSI and linefeed bytes", test_legacy_visible_length_ignores_ansi_and_linefeed_bytes),
         ("Dialogue colored layout", test_render_dialogue_preserves_legacy_colored_layout),
         ("Dialogue plain layout", test_render_dialogue_preserves_legacy_plain_layout),
+        ("Printable message rules", test_printable_message_preserves_legacy_print_rules),
     ]
 
     print("Running UI tests")
