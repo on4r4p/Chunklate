@@ -6465,6 +6465,27 @@ def Relics_Run_Dummy_Chunk_Brawl_Plan(BrawlPlan):
     )
 
 
+def Relics_Run_GetInfo_Brawl_Plan(BrawlPlan):
+    return SmashBruteBrawl(
+        BrawlPlan.target_file,
+        BrawlPlan.chunk,
+        BrawlPlan.chunk_length,
+        BrawlPlan.data_offset,
+        BrawlPlan.from_error,
+        BfMode=BrawlPlan.bf_mode,
+    )
+
+
+def Relics_Run_Full_Chunk_Forcer_Plan(ForcerPlan):
+    return FullChunkForcerNoCrc(
+        ForcerPlan.target_file,
+        ForcerPlan.chunk,
+        ForcerPlan.start,
+        ForcerPlan.end,
+        ForcerPlan.from_error,
+    )
+
+
 def Relics(FromError):
     Candy("Title", "Opening the Ark Of The Covenant :")
 
@@ -6832,21 +6853,19 @@ def Relics(FromError):
         )
 
         if len(PandoraBox) > 0:
-            for key in PandoraBox:
-                if "GetInfo" in str(key):
-                    for CC in CRITICAL_CHUNKS:
-                        if CC.decode(errors="ignore") in str(key):
-                            ChosenOne = CC.decode(errors="ignore")
-                            break
-                if ChosenOne:
-                    break
+            ChosenOne = relics.first_getinfo_critical_chunk(PandoraBox, CRITICAL_CHUNKS)
 
-            if ChosenOne and any(ChosenOne in k and "StructIndex:" in k for k in PandoraBox):
+            StructIndexErrors = (
+                relics.getinfo_struct_index_errors(PandoraBox, ChosenOne)
+                if ChosenOne
+                else ()
+            )
+
+            if ChosenOne and StructIndexErrors:
 
                 ChosenErr = [
                     "\n-\033[1;31;49mCriticalHit\033[m: %s"%(k)
-                    for k in PandoraBox
-                    if ChosenOne in k and "StructIndex:" in k
+                    for k in StructIndexErrors
                 ]
 
                 for i in ChosenErr:PRINT(i)
@@ -6881,85 +6900,59 @@ def Relics(FromError):
                 Answer = Question()
                 if Answer is True:
 
-                    if ChosenOne.encode() in CHUNKS_LEN_NOT_FIXED:
-                        for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                            if ch == ChosenOne.encode():
-                                return SmashBruteBrawl(
-                                    Sample_Name,
-                                    ChosenOne,
-                                    int(chi.split(":")[2]),
-                                    int(chi.split(":")[1]),
-                                    FromError,
-                                    BfMode="Brutus"
-                                )
-                    elif len(ChosenErr) > 2 :
-                        for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                            if ch == ChosenOne.encode():
-                                return SmashBruteBrawl(
-                                    Sample_Name,
-                                    ChosenOne,
-                                    int(chi.split(":")[2]),
-                                    int(chi.split(":")[1]),
-                                    FromError,
-                                    BfMode="Brutus"
-                                )
-                    else:
-                        for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                            if ch == ChosenOne.encode():
-                                return SmashBruteBrawl(
-                                    Sample_Name,
-                                    ChosenOne,
-                                    int(chi.split(":")[2]),
-                                    int(chi.split(":")[1]),
-                                    FromError,
-                                    BfMode="Custom"
-                                )
+                    BrawlPlan = relics.getinfo_brawl_plan(
+                        ChosenOne,
+                        Chunks_History,
+                        Chunks_History_Index,
+                        target_file=Sample_Name,
+                        from_error=FromError,
+                        chunks_len_not_fixed=CHUNKS_LEN_NOT_FIXED,
+                        struct_index_error_count=len(ChosenErr),
+                    )
+                    if BrawlPlan is not None:
+                        return Relics_Run_GetInfo_Brawl_Plan(BrawlPlan)
 
             else:
 
-                for key in PandoraBox:
-                    if "GetInfo" in str(key):
-                        for C in ALLCHUNKS:
-                            if C.decode(errors="ignore") in str(key):
-                                [
-                                    PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-                                    for k in PandoraBox
-                                    if C.decode(errors="ignore") in k
-                                ]
-                        
+                KnownChunkRoute = relics.first_getinfo_known_chunk(PandoraBox, ALLCHUNKS)
+                if KnownChunkRoute is not None:
+                    [
+                        PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+                        for key in relics.getinfo_related_print_hits(
+                            PandoraBox,
+                            KnownChunkRoute.chunk_name,
+                            KnownChunkRoute.finding,
+                        )
+                    ]
 
-                                Candy(
-                                  "Cowsay",
-                                  "This is bad ..i don't have enough info to handle this error quickly..",
-                                  "com",
-                                )
+                    Candy(
+                        "Cowsay",
+                        "This is bad ..i don't have enough info to handle this error quickly..",
+                        "com",
+                    )
 
-                                Candy(
-                                  "Cowsay",
-                                  "(I need to bruteforce every chunks until libpng is happy ...)",
-                                  "com",
-                                )
-                                Candy(
-                                  "Cowsay",
-                                  "(And this will definitively take some ..time ...like years maybe..Are you ok ?)",
-                                  "bad",
-                                )
+                    Candy(
+                        "Cowsay",
+                        "(I need to bruteforce every chunks until libpng is happy ...)",
+                        "com",
+                    )
+                    Candy(
+                        "Cowsay",
+                        "(And this will definitively take some ..time ...like years maybe..Are you ok ?)",
+                        "bad",
+                    )
 
-                                Answer = Question()
-                                if Answer is True:
-                                    for c, i in zip(
-                                        Chunks_History, Chunks_History_Index
-                                    ):
-                                        if c == C.decode(errors="ignore"):
-
-                                            return FullChunkForcerNoCrc(
-                                                Sample_Name,
-                                                C.decode(errors="ignore"),
-                                                int(i.split(":")[1]),
-                                                int(i.split(":")[2]),
-                                                FromError,
-                                            )
-                                else:break
+                    Answer = Question()
+                    if Answer is True:
+                        ForcerPlan = relics.full_chunk_forcer_plan(
+                            KnownChunkRoute.chunk_name,
+                            Chunks_History,
+                            Chunks_History_Index,
+                            target_file=Sample_Name,
+                            from_error=FromError,
+                        )
+                        if ForcerPlan is not None:
+                            return Relics_Run_Full_Chunk_Forcer_Plan(ForcerPlan)
 
         Candy(
             "Cowsay",

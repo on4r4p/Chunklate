@@ -366,6 +366,152 @@ def test_relics_module_exposes_dummy_chunk_decline_action():
     assert relics.dummy_chunk_decline_action(ancillary_route) == "todo_end"
 
 
+def test_relics_module_finds_first_getinfo_critical_chunk():
+    pandora_box = {
+        "Checksum_Error_0:Wrong Crc b'IDAT'": {},
+        "GetInfo_Error_0:IHDR StructIndex:0": {},
+        "GetInfo_Error_1:IDAT StructIndex:1": {},
+    }
+
+    assert relics.first_getinfo_critical_chunk(pandora_box, [b"IHDR", b"IDAT"]) == "IHDR"
+    assert relics.first_getinfo_critical_chunk({"Other_Error": {}}, [b"IHDR"]) is None
+
+
+def test_relics_module_collects_getinfo_struct_index_errors():
+    pandora_box = {
+        "GetInfo_Error_0:IHDR StructIndex:0": {},
+        "GetInfo_Error_1:IHDR StructIndex:1": {},
+        "GetInfo_Error_2:IHDR Other": {},
+        "GetInfo_Error_3:IDAT StructIndex:0": {},
+    }
+
+    assert relics.getinfo_struct_index_errors(pandora_box, "IHDR") == (
+        "GetInfo_Error_0:IHDR StructIndex:0",
+        "GetInfo_Error_1:IHDR StructIndex:1",
+    )
+
+
+def test_relics_module_selects_getinfo_brawl_mode():
+    assert (
+        relics.getinfo_brawl_mode(
+            "IHDR",
+            struct_index_error_count=1,
+            chunks_len_not_fixed=[b"IHDR"],
+        )
+        == "Brutus"
+    )
+    assert (
+        relics.getinfo_brawl_mode(
+            "IDAT",
+            struct_index_error_count=3,
+            chunks_len_not_fixed=[b"IHDR"],
+        )
+        == "Brutus"
+    )
+    assert (
+        relics.getinfo_brawl_mode(
+            "IDAT",
+            struct_index_error_count=1,
+            chunks_len_not_fixed=[b"IHDR"],
+        )
+        == "Custom"
+    )
+
+
+def test_relics_module_builds_getinfo_brawl_plan():
+    plan = relics.getinfo_brawl_plan(
+        "IDAT",
+        [b"IHDR", b"IDAT"],
+        ["0:8:21", "1:33:277"],
+        target_file="sample.png",
+        from_error="GetInfo",
+        chunks_len_not_fixed=[b"IHDR"],
+        struct_index_error_count=1,
+    )
+
+    assert plan == relics.GetInfoBrawlPlan(
+        target_file="sample.png",
+        chunk="IDAT",
+        chunk_length=277,
+        data_offset=33,
+        from_error="GetInfo",
+        bf_mode="Custom",
+    )
+    assert (
+        relics.getinfo_brawl_plan(
+            "PLTE",
+            [b"IHDR", b"IDAT"],
+            ["0:8:21", "1:33:277"],
+            target_file="sample.png",
+            from_error="GetInfo",
+            chunks_len_not_fixed=[b"IHDR"],
+            struct_index_error_count=1,
+        )
+        is None
+    )
+
+
+def test_relics_module_finds_first_getinfo_known_chunk():
+    pandora_box = {
+        "Other_Error": {},
+        "GetInfo_Error_0:tEXt missing info": {},
+        "GetInfo_Error_1:IDAT missing info": {},
+    }
+
+    assert relics.first_getinfo_known_chunk(pandora_box, [b"IDAT", b"tEXt"]) == (
+        relics.GetInfoChunkRoute(
+            finding="GetInfo_Error_0:tEXt missing info",
+            chunk_name="tEXt",
+        )
+    )
+    assert relics.first_getinfo_known_chunk({"Other_Error": {}}, [b"IDAT"]) is None
+
+
+def test_relics_module_preserves_legacy_getinfo_print_hits():
+    pandora_box = {
+        "GetInfo_Error_0:IDAT missing info": {},
+        "GetInfo_Error_1:IDAT other": {},
+        "GetInfo_Error_2:IHDR other": {},
+    }
+
+    assert relics.getinfo_related_print_hits(
+        pandora_box,
+        "IDAT",
+        "GetInfo_Error_0:IDAT missing info",
+    ) == (
+        "GetInfo_Error_0:IDAT missing info",
+        "GetInfo_Error_0:IDAT missing info",
+    )
+
+
+def test_relics_module_builds_full_chunk_forcer_plan():
+    plan = relics.full_chunk_forcer_plan(
+        "IDAT",
+        ["IHDR", "IDAT"],
+        ["0:8:21", "1:33:277"],
+        target_file="sample.png",
+        from_error="GetInfo",
+    )
+
+    assert plan == relics.FullChunkForcerPlan(
+        target_file="sample.png",
+        chunk="IDAT",
+        start=33,
+        end=277,
+        from_error="GetInfo",
+    )
+    assert (
+        relics.full_chunk_forcer_plan(
+            "PLTE",
+            ["IHDR", "IDAT"],
+            ["0:8:21", "1:33:277"],
+            target_file="sample.png",
+            from_error="GetInfo",
+        )
+        is None
+    )
+
+
 def test_relics_module_routes_remembered_dummy_chunks():
     pandemonium = {
         "sample.0_Fixed.png": {
@@ -573,6 +719,16 @@ def main():
         ("Relics module resolves remembered sample target", test_relics_module_resolves_remembered_sample_target),
         ("Relics module builds dummy chunk brawl plan", test_relics_module_builds_dummy_chunk_brawl_plan),
         ("Relics module exposes dummy chunk decline action", test_relics_module_exposes_dummy_chunk_decline_action),
+        ("Relics module finds first GetInfo critical chunk", test_relics_module_finds_first_getinfo_critical_chunk),
+        ("Relics module collects GetInfo StructIndex errors", test_relics_module_collects_getinfo_struct_index_errors),
+        ("Relics module selects GetInfo brawl mode", test_relics_module_selects_getinfo_brawl_mode),
+        ("Relics module builds GetInfo brawl plan", test_relics_module_builds_getinfo_brawl_plan),
+        ("Relics module finds first GetInfo known chunk", test_relics_module_finds_first_getinfo_known_chunk),
+        (
+            "Relics module preserves legacy GetInfo print hits",
+            test_relics_module_preserves_legacy_getinfo_print_hits,
+        ),
+        ("Relics module builds FullChunkForcer plan", test_relics_module_builds_full_chunk_forcer_plan),
         ("Relics module routes remembered dummy chunks", test_relics_module_routes_remembered_dummy_chunks),
         ("PandoraBox keys keep legacy numbering", test_pandorabox_add_keeps_legacy_error_numbering),
         (

@@ -101,6 +101,31 @@ class DummyChunkBrawlPlan:
     from_error: Any
 
 
+@dataclass(frozen=True)
+class GetInfoChunkRoute:
+    finding: Any
+    chunk_name: str
+
+
+@dataclass(frozen=True)
+class GetInfoBrawlPlan:
+    target_file: Any
+    chunk: Any
+    chunk_length: int
+    data_offset: int
+    from_error: Any
+    bf_mode: str
+
+
+@dataclass(frozen=True)
+class FullChunkForcerPlan:
+    target_file: Any
+    chunk: Any
+    start: int
+    end: int
+    from_error: Any
+
+
 def chunk_label(chunk: Any) -> Any:
     if type(chunk) != bytes:
         return chunk
@@ -352,6 +377,114 @@ def dummy_chunk_decline_action(route: DummyChunkRoute) -> str:
     if route.is_critical:
         return "end"
     return "todo_end"
+
+
+def first_getinfo_critical_chunk(
+    pandora_box: Mapping[Any, Any],
+    critical_chunks: list[bytes] | tuple[bytes, ...],
+) -> str | None:
+    for key in pandora_box:
+        if "GetInfo" not in str(key):
+            continue
+        for chunk in critical_chunks:
+            chunk_name = chunk.decode(errors="ignore")
+            if chunk_name in str(key):
+                return chunk_name
+    return None
+
+
+def getinfo_struct_index_errors(pandora_box: Mapping[Any, Any], chunk_name: str) -> tuple[Any, ...]:
+    return tuple(
+        key
+        for key in pandora_box
+        if chunk_name in str(key) and "StructIndex:" in str(key)
+    )
+
+
+def getinfo_brawl_mode(
+    chunk_name: str,
+    *,
+    struct_index_error_count: int,
+    chunks_len_not_fixed: list[bytes] | tuple[bytes, ...],
+) -> str:
+    if chunk_name.encode() in chunks_len_not_fixed:
+        return "Brutus"
+    if struct_index_error_count > 2:
+        return "Brutus"
+    return "Custom"
+
+
+def getinfo_brawl_plan(
+    chunk_name: str,
+    chunks_history: list[Any] | tuple[Any, ...],
+    chunks_history_index: list[Any] | tuple[Any, ...],
+    *,
+    target_file: Any,
+    from_error: Any,
+    chunks_len_not_fixed: list[bytes] | tuple[bytes, ...],
+    struct_index_error_count: int,
+) -> GetInfoBrawlPlan | None:
+    for chunk, chunk_index in zip(chunks_history, chunks_history_index):
+        if chunk != chunk_name.encode():
+            continue
+        parts = str(chunk_index).split(":")
+        return GetInfoBrawlPlan(
+            target_file=target_file,
+            chunk=chunk_name,
+            chunk_length=int(parts[2]),
+            data_offset=int(parts[1]),
+            from_error=from_error,
+            bf_mode=getinfo_brawl_mode(
+                chunk_name,
+                struct_index_error_count=struct_index_error_count,
+                chunks_len_not_fixed=chunks_len_not_fixed,
+            ),
+        )
+    return None
+
+
+def first_getinfo_known_chunk(
+    pandora_box: Mapping[Any, Any],
+    known_chunks: list[bytes] | tuple[bytes, ...],
+) -> GetInfoChunkRoute | None:
+    for key in pandora_box:
+        if "GetInfo" not in str(key):
+            continue
+        for chunk in known_chunks:
+            chunk_name = chunk.decode(errors="ignore")
+            if chunk_name in str(key):
+                return GetInfoChunkRoute(finding=key, chunk_name=chunk_name)
+    return None
+
+
+def getinfo_related_print_hits(
+    pandora_box: Mapping[Any, Any],
+    chunk_name: str,
+    printed_finding: Any,
+) -> tuple[Any, ...]:
+    return tuple(printed_finding for key in pandora_box if chunk_name in str(key))
+
+
+def full_chunk_forcer_plan(
+    chunk_name: str,
+    chunks_history: list[Any] | tuple[Any, ...],
+    chunks_history_index: list[Any] | tuple[Any, ...],
+    *,
+    target_file: Any,
+    from_error: Any,
+) -> FullChunkForcerPlan | None:
+    for chunk, chunk_index in zip(chunks_history, chunks_history_index):
+        if chunk != chunk_name:
+            continue
+        parts = str(chunk_index).split(":")
+        return FullChunkForcerPlan(
+            target_file=target_file,
+            chunk=chunk_name,
+            start=int(parts[1]),
+            end=int(parts[2]),
+            from_error=from_error,
+        )
+    return None
 
 
 def next_error_number(pandora_box: Mapping[str, Any], function: Any) -> int:
