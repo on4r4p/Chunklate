@@ -148,6 +148,25 @@ def test_render_summary_footer_preserves_legacy_sections():
     assert footer.endswith("<EOF>")
 
 
+def test_summary_separator_preserves_legacy_spacing():
+    assert output.summary_separator("Title", True, 80) == (
+        "\n"
+        + (" " * 22)
+        + " ▁ ▂ ▄ ▅ ▆ ▇ █ "
+        + "Title"
+        + " █ ▇ ▆ ▅ ▄ ▂ ▁ "
+        + "\n\n"
+    )
+    assert output.summary_separator("End", False, 80) == (
+        "\n"
+        + (" " * 12)
+        + " ▁ ▂ ▄ ▅ ▆ ▇ █ █ ▇ ▆ ▅ ▄ ▂ ▁"
+        + "End"
+        + "▁ ▂ ▄ ▅ ▆ ▇ █ ▇ ▆ ▅ ▄ ▂ ▁"
+        + "\n\n"
+    )
+
+
 def main():
     tmpdir = tempfile.TemporaryDirectory()
     tmp_path = Path(tmpdir.name)
@@ -159,6 +178,7 @@ def main():
         ("Summary path uses clone folder", lambda: test_summary_path_uses_clone_folder(tmp_path)),
         ("Summary body preserves notes", test_summary_body_preserves_legacy_note_layout),
         ("Summary footer preserves sections", test_render_summary_footer_preserves_legacy_sections),
+        ("Summary separator preserves spacing", test_summary_separator_preserves_legacy_spacing),
     ]
 
     try:

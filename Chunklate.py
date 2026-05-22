@@ -2239,16 +2239,7 @@ def Loadingbar(fishs, fishsize, loop, build):
 
 
 def Sumform(waitforit, switch):
-    if switch is True:
-        sepa = " ▁ ▂ ▄ ▅ ▆ ▇ █ "
-        rator = " █ ▇ ▆ ▅ ▄ ▂ ▁ "
-    else:
-        sepa = " ▁ ▂ ▄ ▅ ▆ ▇ █ █ ▇ ▆ ▅ ▄ ▂ ▁"
-        rator = "▁ ▂ ▄ ▅ ▆ ▇ █ ▇ ▆ ▅ ▄ ▂ ▁"
-
-    Spaaaaaaaace = " " * int((MAXCHAR / 2) - (len(sepa + waitforit + rator) / 2))
-    Seperator = "\n" + Spaaaaaaaace + sepa + waitforit + rator + "\n\n"
-    return Seperator
+    return output.summary_separator(waitforit, switch, MAXCHAR)
 
 
 def Summarise(infos, Summary_Footer=False):

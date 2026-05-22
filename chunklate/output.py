@@ -265,3 +265,15 @@ def render_summary_footer(state: Mapping[str, Any], eof: str) -> str:
 
     lines.append(eof)
     return "".join(lines)
+
+
+def summary_separator(waitforit: str, switch: bool, max_columns: int) -> str:
+    if switch is True:
+        sepa = " ▁ ▂ ▄ ▅ ▆ ▇ █ "
+        rator = " █ ▇ ▆ ▅ ▄ ▂ ▁ "
+    else:
+        sepa = " ▁ ▂ ▄ ▅ ▆ ▇ █ █ ▇ ▆ ▅ ▄ ▂ ▁"
+        rator = "▁ ▂ ▄ ▅ ▆ ▇ █ ▇ ▆ ▅ ▄ ▂ ▁"
+
+    space = " " * int((max_columns / 2) - (len(sepa + waitforit + rator) / 2))
+    return "\n" + space + sepa + waitforit + rator + "\n\n"
