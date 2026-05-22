@@ -1379,18 +1379,23 @@ def GetInfo(Chunk, data, Dummy=False):
             )
 
     if Chunk == b"IDAT":
-        IDAT_Bytes_Len_History.append(int(Raw_Length, 16))
-        try:
-            IDAT_Avg_Len = collections.Counter(IDAT_Bytes_Len_History).most_common(1)[
-                0
-            ][0]
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            IDAT_Avg_Len = IDAT_Bytes_Len_History[-1]
-        IDAT_Bytes_Len += int(Raw_Length, 16)
-        IDAT_Datastream += data
-        idatcounter += 1
+        IDAT_Info = chunk_info.parse_idat(
+            data,
+            Raw_Length,
+            length_history=tuple(IDAT_Bytes_Len_History),
+            bytes_len=IDAT_Bytes_Len,
+            datastream=IDAT_Datastream,
+            counter=idatcounter,
+        )
+        IDAT_Bytes_Len_History = list(IDAT_Info.length_history)
+        IDAT_Avg_Len = IDAT_Info.average_length
+        IDAT_Bytes_Len = IDAT_Info.bytes_len
+        IDAT_Datastream = IDAT_Info.datastream
+        idatcounter = IDAT_Info.counter
         PRINT("-Image Datastream.")
+        ToFix.extend(IDAT_Info.fixes)
+        if len(ToFix) > 0:
+            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
     if Chunk == b"pHYs":
         pHYs_Info = chunk_info.parse_phys(data)
@@ -1942,96 +1947,31 @@ def GetInfo(Chunk, data, Dummy=False):
             )
 
     if Chunk == b"pCAL":
-        pCAL_Param = []
-        try:
-            pCAL_Key = data.split("00")[0]
-            for i in range(0, len(pCAL_Key), 2):
-                if int(pCAL_Key[i : i + 2], 16) not in range(32, 127) and int(
-                    pCAL_Key[i : i + 2], 16
-                ) not in range(161, 256):
-                    if pCAL_Key[i : i + 2] != "00" and pCAL_Key[i : i + 2] != "0a":
-                        PRINT(
-                            "-Character %s at index %s in pCAL Keyword (must be between 32-126 and 161-255 but is %s)"
-                            % (
-                                Candy(
-                                    "Color",
-                                    "red",
-                                    "not allowed [" + pCAL_Key[i : i + 2] + "]",
-                                ),
-                                Candy("Color", "red", i),
-                                Candy("Color", "red", int(pCAL_Key[i : i + 2], 16)),
-                            )
-                        )
-                        ToFix.append(
-                            "-Character not allowed %s at index %s in pCAL Keyword (must be between 32-126 and 161-255 but is %s"
-                            % (pCAL_Key[i : i + 2], i, int(pCAL_Key[i : i + 2], 16))
-                        )
+        pCAL_Info = chunk_info.parse_pcal(data)
+        pCAL_Param = list(pCAL_Info.parameters)
+        pCAL_Key = pCAL_Info.keyword
+        pCAL_Zero = pCAL_Info.zero
+        pCAL_Max = pCAL_Info.maximum
+        pCAL_Eq = pCAL_Info.equation
+        pCAL_PNBR = pCAL_Info.parameter_count
 
-            if len(pCAL_Key) >= 79:
-                PRINT(
-                    "-pCAL Keyword length is %s :%s"
-                    % (
-                        Candy("Color", "red", "not Valid"),
-                        Candy("Color", "red", len(pCAL_Key)),
-                    )
-                )
-                ToFix.append("-pCAL Keyword length is not Valid :%s" % (len(pCAL_Key)))
-            Keypos = len(pCAL_Key) + 2
-            pCAL_Zero = str(int(data[Keypos : Keypos + 8], 16))
-            pCAL_Max = str(int(data[Keypos + 8 : Keypos + 16], 16))
-            pCAL_Eq = str(int(data[Keypos + 16 : Keypos + 18], 16))
-            pCAL_PNBR = str(int(data[Keypos + 18 : Keypos + 20], 16))
-
-            if pCAL_PNBR == "0":
-                pCAL_Unit = ""
-            else:
-                pCAL_Unit = bytes.fromhex(data[20:].split("00")[0])
-
-            newlength = Keypos + 20
-
-            for i in range(0, int(pCAL_PNBR)):
-                param = ""
-                try:
-                    for j in range(0, len(data[newlength:]), 2):
-                        hx = data[newlength + j : newlength + j + 2]
-                        if hx != "00":
-                            param += str(hx)
-                        else:
-                            break
-                    pCAL_Param.append(param)
-                    newlength += len(param) + 2
-                except Exception as e:
-                    Betterror(e, inspect.stack()[0][3])
-                    PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                    if (PAUSEDEBUG or PAUSEERROR) is True:
-                        Pause("Pause Debug")
-                if DEBUG is True:
-                    PRINT(
-                        Candy("Color", "red", "Error pCAL:"),
-                        Candy("Color", "yellow", e),
-                    )
-                    if (PAUSEDEBUG or PAUSEERROR) is True:
-                        Pause("Pause Debug")
-
+        if len(pCAL_Info.decoded_keyword) > 0:
             PRINT(
                 "-Calibration name    :%s"%
-                Candy(
-                    "Color", "yellow", bytes.fromhex(pCAL_Key).decode(errors="replace")
-                ),
+                Candy("Color", "yellow", pCAL_Info.decoded_keyword)
             )
+        if len(pCAL_Zero) > 0:
             PRINT("-Original zero       :%s"% Candy("Color", "yellow", pCAL_Zero))
+        if len(pCAL_Max) > 0:
             PRINT("-Original max        :%s"% Candy("Color", "yellow", pCAL_Max))
+        if len(pCAL_Eq) > 0:
             PRINT("-Equation type       :%s"% Candy("Color", "yellow", pCAL_Eq))
+        if len(pCAL_PNBR) > 0:
             PRINT("-Number of parameters:%s"% Candy("Color", "yellow", pCAL_PNBR))
 
-            if len(ToFix) > 0:
-                CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(
-                    Candy("Color", "red", "Error pCAL2:%s")% Candy("Color", "yellow", e)
-                )
+        ToFix.extend(pCAL_Info.fixes)
+        if len(ToFix) > 0:
+            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
     if Chunk == b"gIFg":
 
@@ -2163,7 +2103,9 @@ def GetInfo(Chunk, data, Dummy=False):
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
 
     if Chunk == b"spAL":
-        PRINT("-intermediate sPLT test version")
+        spAL_Info = chunk_info.parse_spal(data)
+        PRINT(spAL_Info.message)
+        ToFix.extend(spAL_Info.fixes)
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
@@ -2267,47 +2209,7 @@ def YouShallPass(Chunk, data):
     if Chunk == b"oFFs":
         return len(chunk_info.parse_offs(data).fixes) == 0
     if Chunk == b"pCAL":
-        pCAL_Param = []
-        try:
-            pCAL_Key = data.split("00")[0]
-            for i in range(0, len(pCAL_Key), 2):
-                if int(pCAL_Key[i : i + 2], 16) not in range(32, 127) and int(
-                    pCAL_Key[i : i + 2], 16
-                ) not in range(161, 256):
-                    if pCAL_Key[i : i + 2] != "00" and pCAL_Key[i : i + 2] != "0a":
-                        return False
-            if len(pCAL_Key) >= 79:
-                return False
-            Keypos = len(pCAL_Key) + 2
-            pCAL_Zero = str(int(data[Keypos : Keypos + 8], 16))
-            pCAL_Max = str(int(data[Keypos + 8 : Keypos + 16], 16))
-            pCAL_Eq = str(int(data[Keypos + 16 : Keypos + 18], 16))
-            pCAL_PNBR = str(int(data[Keypos + 18 : Keypos + 20], 16))
-
-            if pCAL_PNBR == "0":
-                pCAL_Unit = ""
-            else:
-                pCAL_Unit = bytes.fromhex(data[20:].split("00")[0])
-
-            newlength = Keypos + 20
-
-            for i in range(0, int(pCAL_PNBR)):
-                param = ""
-                try:
-                    for j in range(0, len(data[newlength:]), 2):
-                        hx = data[newlength + j : newlength + j + 2]
-                        if hx != "00":
-                            param += str(hx)
-                        else:
-                            break
-                    pCAL_Param.append(param)
-                    newlength += len(param) + 2
-                except:
-                    return False
-        except Exception as e:
-            if DEBUG:
-                PRINT("Error:%s"% e)
-        return True
+        return len(chunk_info.parse_pcal(data).fixes) == 0
     if Chunk == b"gIFg":
         return len(chunk_info.parse_gifg(data).fixes) == 0
     if Chunk == b"gIFx":

@@ -184,6 +184,74 @@ def test_parse_itxt_reads_uncompressed_payload():
     assert invalid_flag.fixes == ("-iTXt Compression Flag must be 0 or 1",)
 
 
+def test_parse_idat_accumulates_legacy_stream_state():
+    first = chunk_info.parse_idat("abcd", "00000002")
+    second = chunk_info.parse_idat(
+        "ef",
+        "00000001",
+        length_history=first.length_history,
+        bytes_len=first.bytes_len,
+        datastream=first.datastream,
+        counter=first.counter,
+    )
+
+    assert first.raw_length == 2
+    assert first.length_history == (2,)
+    assert first.average_length == 2
+    assert first.bytes_len == 2
+    assert first.datastream == "abcd"
+    assert first.counter == 1
+    assert first.fixes == ()
+    assert second.length_history == (2, 1)
+    assert second.average_length == 2
+    assert second.bytes_len == 3
+    assert second.datastream == "abcdef"
+    assert second.counter == 2
+
+
+def test_parse_pcal_reads_legacy_fields_and_parameters():
+    data = (
+        "43616c00"
+        "00000001"
+        "00000002"
+        "00"
+        "02"
+        "703100"
+        "703200"
+    )
+    info = chunk_info.parse_pcal(data)
+
+    assert info.keyword == "43616c"
+    assert info.decoded_keyword == "Cal"
+    assert info.zero == "1"
+    assert info.maximum == "2"
+    assert info.equation == "0"
+    assert info.parameter_count == "2"
+    assert info.parameters == ("7031", "7032")
+    assert info.fixes == ()
+
+
+def test_parse_pcal_reports_keyword_and_field_errors():
+    bad_keyword = chunk_info.parse_pcal("010000000001000000020000")
+    short = chunk_info.parse_pcal("43616c00")
+
+    assert bad_keyword.fixes[0] == (
+        "-Character not allowed 01 at index 0 in pCAL Keyword "
+        "(must be between 32-126 and 161-255 but is 1"
+    )
+    assert "-pCAL Original zero Error:" in short.fixes[0]
+    assert "-pCAL Original max Error:" in short.fixes[1]
+    assert "-pCAL Equation type Error:" in short.fixes[2]
+    assert "-pCAL Number of parameters Error:" in short.fixes[3]
+
+
+def test_parse_spal_keeps_placeholder_message():
+    info = chunk_info.parse_spal("")
+
+    assert info.message == "-intermediate sPLT test version"
+    assert info.fixes == ()
+
+
 def test_parse_gama_keeps_zero_as_useless_fix():
     info = chunk_info.parse_gama("00000000")
 
@@ -424,6 +492,10 @@ def main():
         ("tEXt fields", test_parse_text_reads_keyword_and_payload),
         ("zTXt fields", test_parse_ztxt_decompresses_payload),
         ("iTXt fields", test_parse_itxt_reads_uncompressed_payload),
+        ("IDAT state", test_parse_idat_accumulates_legacy_stream_state),
+        ("pCAL fields", test_parse_pcal_reads_legacy_fields_and_parameters),
+        ("pCAL invalid", test_parse_pcal_reports_keyword_and_field_errors),
+        ("spAL placeholder", test_parse_spal_keeps_placeholder_message),
         ("gAMA zero", test_parse_gama_keeps_zero_as_useless_fix),
         ("pHYs fields", test_parse_phys_preserves_legacy_field_order_and_unit_validation),
         ("pHYs limits", test_parse_phys_reports_high_and_missing_values),

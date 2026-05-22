@@ -201,6 +201,22 @@ def test_youshallpass_uses_text_parsers():
     assert Chunklate.YouShallPass(b"iTXt", "4b6579000200000048656c6c6f") is False
 
 
+def test_youshallpass_uses_pcal_parser():
+    valid = (
+        "43616c00"
+        "00000001"
+        "00000002"
+        "00"
+        "02"
+        "703100"
+        "703200"
+    )
+
+    assert Chunklate.YouShallPass(b"pCAL", valid) is True
+    assert Chunklate.YouShallPass(b"pCAL", "010000000001000000020000") is False
+    assert Chunklate.YouShallPass(b"pCAL", "43616c00") is False
+
+
 def test_youshallpass_uses_exif_parser():
     assert Chunklate.YouShallPass(b"eXIf", "494900000000") is True
     assert Chunklate.YouShallPass(b"eXIf", "4d4d") is True
@@ -225,6 +241,7 @@ def main():
         ("palette dependent parsers", test_youshallpass_uses_palette_dependent_parsers),
         ("sPLT parser", test_youshallpass_uses_splt_parser),
         ("text parsers", test_youshallpass_uses_text_parsers),
+        ("pCAL parser", test_youshallpass_uses_pcal_parser),
         ("eXIf parser", test_youshallpass_uses_exif_parser),
     ]
 

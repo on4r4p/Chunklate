@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -225,6 +226,36 @@ class ItxtInfo:
     decoded_keyword: str = ""
     decoded_language: str = ""
     decoded_translated_keyword: str = ""
+    fixes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class IdatInfo:
+    raw_length: int = 0
+    length_history: tuple[int, ...] = ()
+    average_length: int | str = ""
+    bytes_len: int = 0
+    datastream: str = ""
+    counter: int = 0
+    fixes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PcalInfo:
+    keyword: str = ""
+    decoded_keyword: str = ""
+    zero: str = ""
+    maximum: str = ""
+    equation: str = ""
+    parameter_count: str = ""
+    unit: bytes | str = ""
+    parameters: tuple[str, ...] = ()
+    fixes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SpalInfo:
+    message: str = "-intermediate sPLT test version"
     fixes: tuple[str, ...] = ()
 
 
@@ -1032,6 +1063,137 @@ def parse_itxt(data: str) -> ItxtInfo:
         decoded_translated_keyword=_decode_hex_text(translated_keyword),
         fixes=tuple(fixes),
     )
+
+
+def parse_idat(
+    data: str,
+    raw_length_hex: str,
+    length_history: tuple[int, ...] = (),
+    bytes_len: int = 0,
+    datastream: str = "",
+    counter: int = 0,
+) -> IdatInfo:
+    fixes: list[str] = []
+
+    try:
+        raw_length = int(raw_length_hex, 16)
+    except Exception as exc:
+        raw_length = 0
+        fixes.append("-IDAT Length Error:" + str(exc))
+
+    next_history = tuple(length_history) + (raw_length,)
+    try:
+        average_length: int | str = Counter(next_history).most_common(1)[0][0]
+    except Exception as exc:
+        average_length = next_history[-1] if next_history else ""
+        fixes.append("-IDAT Average Length Error:" + str(exc))
+
+    return IdatInfo(
+        raw_length=raw_length,
+        length_history=next_history,
+        average_length=average_length,
+        bytes_len=bytes_len + raw_length,
+        datastream=datastream + data,
+        counter=counter + 1,
+        fixes=tuple(fixes),
+    )
+
+
+def parse_pcal(data: str) -> PcalInfo:
+    fixes: list[str] = []
+    parameters: list[str] = []
+    keyword = data.split("00")[0]
+
+    for index in range(0, len(keyword), 2):
+        try:
+            value = int(keyword[index : index + 2], 16)
+        except Exception as exc:
+            fixes.append("-pCAL Keyword byte error:" + str(exc))
+            continue
+
+        if value not in range(32, 127) and value not in range(161, 256):
+            if keyword[index : index + 2] != "00" and keyword[index : index + 2] != "0a":
+                fixes.append(
+                    "-Character not allowed %s at index %s in pCAL Keyword "
+                    "(must be between 32-126 and 161-255 but is %s"
+                    % (keyword[index : index + 2], index, value)
+                )
+
+    if len(keyword) >= 79:
+        fixes.append("-pCAL Keyword length is not Valid :%s" % len(keyword))
+
+    try:
+        decoded_keyword = _decode_hex_text(keyword)
+    except Exception:
+        decoded_keyword = ""
+
+    keypos = len(keyword) + 2
+    try:
+        zero = _hex_int_text(data, keypos, keypos + 8)
+    except Exception as exc:
+        zero = ""
+        fixes.append("-pCAL Original zero Error:" + str(exc))
+
+    try:
+        maximum = _hex_int_text(data, keypos + 8, keypos + 16)
+    except Exception as exc:
+        maximum = ""
+        fixes.append("-pCAL Original max Error:" + str(exc))
+
+    try:
+        equation = _hex_int_text(data, keypos + 16, keypos + 18)
+    except Exception as exc:
+        equation = ""
+        fixes.append("-pCAL Equation type Error:" + str(exc))
+
+    try:
+        parameter_count = _hex_int_text(data, keypos + 18, keypos + 20)
+    except Exception as exc:
+        parameter_count = ""
+        fixes.append("-pCAL Number of parameters Error:" + str(exc))
+
+    unit: bytes | str = ""
+    if parameter_count != "" and parameter_count != "0":
+        try:
+            unit = bytes.fromhex(data[20:].split("00")[0])
+        except Exception as exc:
+            fixes.append("-pCAL Unit Error:" + str(exc))
+
+    newlength = keypos + 20
+    try:
+        count = int(parameter_count)
+    except Exception:
+        count = 0
+
+    for _ in range(count):
+        param = ""
+        try:
+            for index in range(0, len(data[newlength:]), 2):
+                hx = data[newlength + index : newlength + index + 2]
+                if hx != "00":
+                    param += str(hx)
+                else:
+                    break
+            parameters.append(param)
+            newlength += len(param) + 2
+        except Exception as exc:
+            fixes.append("-pCAL Parameter Error:" + str(exc))
+
+    return PcalInfo(
+        keyword=keyword,
+        decoded_keyword=decoded_keyword,
+        zero=zero,
+        maximum=maximum,
+        equation=equation,
+        parameter_count=parameter_count,
+        unit=unit,
+        parameters=tuple(parameters),
+        fixes=tuple(fixes),
+    )
+
+
+def parse_spal(data: str) -> SpalInfo:
+    return SpalInfo()
 
 
 def parse_gama(data: str) -> GamaInfo:
