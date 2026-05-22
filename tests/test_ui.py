@@ -26,6 +26,13 @@ def test_colorize_returns_data_on_windows_mode():
     assert ui.colorize("green", marker, use_color=False) is marker
 
 
+def test_pick_emoji_uses_legacy_groups_deterministically():
+    assert ui.pick_emoji("good", lambda start, end: start) == ui.EMOJIS["good"][0]
+    assert ui.pick_emoji("bad", lambda start, end: end) == ui.EMOJIS["bad"][-1]
+    assert ui.pick_emoji("com", lambda start, end: 1) == ui.EMOJIS["com"][1]
+    assert ui.pick_emoji("unknown", lambda start, end: 0) is None
+
+
 def test_title_separator_length_matches_legacy_color_adjustment():
     colored = "\033[1;37;49mDATA\033[m"
 
@@ -96,6 +103,7 @@ def main():
     checks = [
         ("Colorize ANSI colors", test_colorize_preserves_legacy_ansi_colors),
         ("Colorize Windows mode", test_colorize_returns_data_on_windows_mode),
+        ("Emoji selection", test_pick_emoji_uses_legacy_groups_deterministically),
         ("Title separator length", test_title_separator_length_matches_legacy_color_adjustment),
         ("Title non-Windows layout", test_render_title_preserves_legacy_non_windows_layout),
         ("Title Windows layout", test_render_title_preserves_legacy_windows_layout),
