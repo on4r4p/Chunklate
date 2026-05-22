@@ -43,6 +43,61 @@ class ChunkInfoState:
     pcal_eq: str = ""
     pcal_pnbr: str = ""
 
+    chrm_white_x: str = ""
+    chrm_white_y: str = ""
+    chrm_red_x: str = ""
+    chrm_red_y: str = ""
+    chrm_green_x: str = ""
+    chrm_green_y: str = ""
+    chrm_blue_x: str = ""
+    chrm_blue_y: str = ""
+
+    iccp_name: str = ""
+    iccp_method: int | str = ""
+    iccp_profile: str = ""
+
+    sbit_gray: str = ""
+    sbit_true_r: str = ""
+    sbit_true_g: str = ""
+    sbit_true_b: str = ""
+    sbit_gray_scale: str = ""
+    sbit_gray_alpha: str = ""
+    sbit_true_alpha_r: str = ""
+    sbit_true_alpha_g: str = ""
+    sbit_true_alpha_b: str = ""
+    sbit_true_alpha: str = ""
+
+    offs_x: str = ""
+    offs_y: str = ""
+    offs_unit: str = ""
+
+    gifg_disposal_method: str = ""
+    gifg_user_input_flag: str = ""
+    gifg_delay_time: str = ""
+
+    gifx_application_identifier: str = ""
+    gifx_authentication_code: str = ""
+    gifx_application_data: str = ""
+
+    ster_mode: str = ""
+
+    text_key: str = ""
+    text_text: str = ""
+    text_key_list: list[str] = field(default_factory=list)
+    text_str_list: list[str] = field(default_factory=list)
+
+    ztxt_key: str = ""
+    ztxt_text: bytes = b""
+    ztxt_key_list: list[str] = field(default_factory=list)
+    ztxt_str_list: list[str] = field(default_factory=list)
+
+    itxt_key: str = ""
+    itxt_string: str = ""
+    itxt_key_list: list[str] = field(default_factory=list)
+    itxt_string_list: list[str] = field(default_factory=list)
+
+    exif_endian: str = ""
+
     def reset_idat(self) -> None:
         self.idat_bytes_len = 0
         self.idat_datastream = ""
@@ -155,6 +210,84 @@ class ChunkInfoState:
         self.pcal_eq = info.equation
         self.pcal_pnbr = info.parameter_count
 
+    def apply_chrm(self, info: chunk_info.ChrmInfo) -> None:
+        self.chrm_white_x = info.white_x
+        self.chrm_white_y = info.white_y
+        self.chrm_red_x = info.red_x
+        self.chrm_red_y = info.red_y
+        self.chrm_green_x = info.green_x
+        self.chrm_green_y = info.green_y
+        self.chrm_blue_x = info.blue_x
+        self.chrm_blue_y = info.blue_y
+
+    def apply_iccp(self, info: chunk_info.IccpInfo) -> None:
+        self.iccp_name = info.name
+        self.iccp_method = info.method
+        self.iccp_profile = info.profile
+
+    def apply_sbit(self, info: chunk_info.SbitInfo) -> None:
+        self.sbit_gray = info.gray
+        self.sbit_true_r = info.true_r
+        self.sbit_true_g = info.true_g
+        self.sbit_true_b = info.true_b
+        self.sbit_gray_scale = info.gray_scale
+        self.sbit_gray_alpha = info.gray_alpha
+        self.sbit_true_alpha_r = info.true_alpha_r
+        self.sbit_true_alpha_g = info.true_alpha_g
+        self.sbit_true_alpha_b = info.true_alpha_b
+        self.sbit_true_alpha = info.true_alpha
+
+    def apply_offs(self, info: chunk_info.OffsInfo) -> None:
+        self.offs_x = info.x
+        self.offs_y = info.y
+        self.offs_unit = info.unit
+
+    def apply_gifg(self, info: chunk_info.GifgInfo) -> None:
+        self.gifg_disposal_method = info.disposal_method
+        self.gifg_user_input_flag = info.user_input_flag
+        self.gifg_delay_time = info.delay_time
+
+    def apply_gifx(self, info: chunk_info.GifxInfo) -> None:
+        self.gifx_application_identifier = info.application_identifier
+        self.gifx_authentication_code = info.authentication_code
+        self.gifx_application_data = info.application_data
+
+    def apply_ster(self, info: chunk_info.SterInfo) -> None:
+        self.ster_mode = info.mode
+
+    def apply_text(self, info: chunk_info.TextInfo) -> None:
+        self.text_key = info.keyword
+        self.text_text = info.text
+        self.text_key_list = []
+        self.text_str_list = []
+        if len(info.decoded_keyword) > 0:
+            self.text_key_list.append(info.decoded_keyword)
+        if len(info.decoded_text) > 0:
+            self.text_str_list.append(info.decoded_text)
+
+    def apply_ztxt(self, info: chunk_info.ZtxtInfo) -> None:
+        self.ztxt_key = info.keyword
+        self.ztxt_text = info.text
+        self.ztxt_key_list = []
+        self.ztxt_str_list = []
+        if len(info.decoded_keyword) > 0:
+            self.ztxt_key_list.append(info.decoded_keyword)
+        if len(info.decoded_text) > 0:
+            self.ztxt_str_list.append(info.decoded_text)
+
+    def apply_itxt(self, info: chunk_info.ItxtInfo) -> None:
+        self.itxt_key = info.keyword
+        self.itxt_string = info.text
+        self.itxt_key_list = []
+        self.itxt_string_list = []
+        if len(info.decoded_keyword) > 0:
+            self.itxt_key_list.append(info.decoded_keyword)
+        if len(info.text) > 0:
+            self.itxt_string_list.append(info.text)
+
+    def apply_exif(self, info: chunk_info.ExifInfo) -> None:
+        self.exif_endian = info.endian
+
     def splt_entry_count(self) -> int:
         return len(self.splt_red) + len(self.splt_green) + len(self.splt_blue) + len(
             self.splt_alpha
@@ -184,4 +317,37 @@ class ChunkInfoState:
             "splt_entries": self.splt_entry_count(),
             "trns_indexes": len(self.trns_index),
             "pcal_parameters": len(self.pcal_param),
+            "has_chrm": any(
+                len(value) > 0
+                for value in (
+                    self.chrm_white_x,
+                    self.chrm_white_y,
+                    self.chrm_red_x,
+                    self.chrm_red_y,
+                    self.chrm_green_x,
+                    self.chrm_green_y,
+                    self.chrm_blue_x,
+                    self.chrm_blue_y,
+                )
+            ),
+            "has_iccp": len(self.iccp_name) > 0,
+            "has_sbit": any(
+                len(value) > 0
+                for value in (
+                    self.sbit_gray,
+                    self.sbit_true_r,
+                    self.sbit_true_g,
+                    self.sbit_true_b,
+                    self.sbit_gray_scale,
+                    self.sbit_gray_alpha,
+                    self.sbit_true_alpha_r,
+                    self.sbit_true_alpha_g,
+                    self.sbit_true_alpha_b,
+                    self.sbit_true_alpha,
+                )
+            ),
+            "text_entries": len(self.text_key_list),
+            "ztxt_entries": len(self.ztxt_key_list),
+            "itxt_entries": len(self.itxt_key_list),
+            "ster_mode": self.ster_mode,
         }

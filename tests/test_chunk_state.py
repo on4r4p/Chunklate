@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import zlib
 from pathlib import Path
 
 
@@ -122,6 +123,64 @@ def test_chunk_info_state_applies_trns_and_pcal():
     assert state.pcal_param == ["7031", "7032"]
 
 
+def test_chunk_info_state_applies_remaining_color_and_extension_chunks():
+    state = chunk_state.ChunkInfoState()
+
+    state.apply_chrm(
+        chunk_info.parse_chrm(
+            "0000000100000002000000030000000400000005000000060000000700000008"
+        )
+    )
+    state.apply_iccp(chunk_info.parse_iccp("4943430000aabb", raw_length_hex="00000007"))
+    state.apply_sbit(chunk_info.parse_sbit("01020304", ihdr_color="6", ihdr_depth="8"))
+    state.apply_offs(chunk_info.parse_offs("00000001ffffffff01"))
+
+    assert state.chrm_white_x == "1"
+    assert state.chrm_blue_y == "8"
+    assert state.iccp_name == "ICC"
+    assert state.iccp_method == 0
+    assert state.iccp_profile == "aabb"
+    assert state.sbit_true_alpha_r == "1"
+    assert state.sbit_true_alpha == "4"
+    assert state.offs_x == "1"
+    assert state.offs_y == "-1"
+    assert state.offs_unit == "1"
+
+
+def test_chunk_info_state_applies_animation_stereo_and_text_chunks():
+    state = chunk_state.ChunkInfoState()
+    ztxt_payload = zlib.compress(b"Value").hex()
+
+    state.apply_gifg(chunk_info.parse_gifg("010203"))
+    state.apply_gifx(chunk_info.parse_gifx("00000000000000010000020003"))
+    state.apply_ster(chunk_info.parse_ster("01"))
+    state.apply_text(chunk_info.parse_text("4b65790056616c7565"))
+    state.apply_ztxt(chunk_info.parse_ztxt("4b65790000" + ztxt_payload))
+    state.apply_itxt(chunk_info.parse_itxt("4b6579000000000056616c7565"))
+    state.apply_exif(chunk_info.parse_exif("494900000000"))
+
+    assert state.gifg_disposal_method == "1"
+    assert state.gifg_user_input_flag == "2"
+    assert state.gifg_delay_time == "3"
+    assert state.gifx_application_identifier == "1"
+    assert state.gifx_authentication_code == "2"
+    assert state.gifx_application_data == "3"
+    assert state.ster_mode == "1"
+    assert state.text_key == "4b6579"
+    assert state.text_text == "56616c7565"
+    assert state.text_key_list == ["Key"]
+    assert state.text_str_list == ["Value"]
+    assert state.ztxt_key == "4b6579"
+    assert state.ztxt_text == b"Value"
+    assert state.ztxt_key_list == ["Key"]
+    assert state.ztxt_str_list == ["Value"]
+    assert state.itxt_key == "4b6579"
+    assert state.itxt_string == "Value"
+    assert state.itxt_key_list == ["Key"]
+    assert state.itxt_string_list == ["Value"]
+    assert state.exif_endian == "II"
+
+
 def test_chunk_info_state_snapshot_keeps_summary_counts():
     state = chunk_state.ChunkInfoState()
     state.apply_ihdr(chunk_info.parse_ihdr("00000020000000100802000000"))
@@ -149,6 +208,13 @@ def test_chunk_info_state_snapshot_keeps_summary_counts():
         "splt_entries": 0,
         "trns_indexes": 2,
         "pcal_parameters": 0,
+        "has_chrm": False,
+        "has_iccp": False,
+        "has_sbit": False,
+        "text_entries": 0,
+        "ztxt_entries": 0,
+        "itxt_entries": 0,
+        "ster_mode": "",
     }
 
 
@@ -159,6 +225,14 @@ def main():
         ("palette fields", test_chunk_info_state_applies_palette_and_suggested_palette),
         ("legacy field sync", test_chunk_info_state_accepts_legacy_field_sync),
         ("tRNS and pCAL fields", test_chunk_info_state_applies_trns_and_pcal),
+        (
+            "color and extension chunks",
+            test_chunk_info_state_applies_remaining_color_and_extension_chunks,
+        ),
+        (
+            "animation stereo and text chunks",
+            test_chunk_info_state_applies_animation_stereo_and_text_chunks,
+        ),
         ("snapshot counts", test_chunk_info_state_snapshot_keeps_summary_counts),
     ]
 

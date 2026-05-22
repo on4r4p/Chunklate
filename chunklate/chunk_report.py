@@ -244,6 +244,129 @@ def render_gama(info: chunk_info.GamaInfo, emit: Emit, color: Color) -> None:
             emit("-A gAMA Chunk of %s is Useless." % color("red", "0"))
 
 
+def render_chrm(
+    info: chunk_info.ChrmInfo,
+    has_srgb_or_iccp: bool,
+    emit: Emit,
+    color: Color,
+    emoji: Emoji | None = None,
+) -> None:
+    if len(info.white_x) > 0:
+        emit("-WhiteX   :%s" % color("white", info.white_x))
+    if len(info.white_y) > 0:
+        emit("-WhiteY   :%s" % color("white", info.white_y))
+    if len(info.red_x) > 0:
+        emit("-RedX     :%s" % color("red", info.red_x))
+    if len(info.red_y) > 0:
+        emit("-RedY     :%s" % color("red", info.red_y))
+    if len(info.green_x) > 0:
+        emit("-GreenX   :%s" % color("green", info.green_x))
+    if len(info.green_y) > 0:
+        emit("-GreenY   :%s" % color("green", info.green_y))
+    if len(info.blue_x) > 0:
+        emit("-BlueX    :%s" % color("blue", info.blue_x))
+    if len(info.blue_y) > 0:
+        emit("-BlueY    :%s" % color("blue", info.blue_y))
+
+    if has_srgb_or_iccp:
+        emit(
+            "-%s or %s already present cHRM will be overide if reconized by decoders %s"
+            % (color("red", "sRGB"), color("red", "iCCP"), _emoji(emoji, "bad"))
+        )
+
+
+def render_iccp(
+    info: chunk_info.IccpInfo,
+    has_chrm: bool,
+    emit: Emit,
+    color: Color,
+    emoji: Emoji | None = None,
+) -> None:
+    if "-Length of iCCP Profile name is not valid" in info.fixes:
+        emit(
+            "-Length of iCCP Profile name is %s :%s"
+            % (color("red", "not Valid"), color("red", info.null_pos))
+        )
+
+    for bad_char, bad_index in info.bad_chars:
+        emit(
+            "-Character %s at index %s in iCCP_Name\n-Replaced by [€]"
+            % (
+                color("red", "not allowed [" + bad_char + "]"),
+                color("red", bad_index),
+            )
+        )
+
+    if isinstance(info.method, int) and info.method > 0:
+        emit(
+            "-Compression method is supposed to be %s but is %s instead ."
+            % (color("green", "0"), color("red", info.method))
+        )
+
+    if "-iCCP Profile length is not Valid" in info.fixes:
+        emit("-iCCP Profile length is %s" % color("red", "not Valid"))
+
+    if has_chrm:
+        emit(
+            "-%s already present cHRM will be %s if reconized by decoders %s"
+            % (color("red", "cHRM"), color("red", "overide"), _emoji(emoji, "bad"))
+        )
+
+    if len(info.name) > 0:
+        emit("-iCCP Profile Name :%s" % color("yellow", info.name))
+    if len(str(info.method)) > 0:
+        emit("-iCCP Profile Method :%s" % color("yellow", info.method))
+
+
+def render_sbit(info: chunk_info.SbitInfo, emit: Emit, color: Color) -> None:
+    if len(info.gray) > 0:
+        emit("-Significant greyscale bits    :%s" % color("yellow", info.gray))
+    if len(info.true_r) > 0:
+        emit("-significant bits Red    :%s" % color("red", info.true_r))
+    if len(info.true_g) > 0:
+        emit("-significant bits Green  :%s" % color("green", info.true_g))
+    if len(info.true_b) > 0:
+        emit("-significant bits Blue   :%s" % color("blue", info.true_b))
+    if len(info.gray_scale) > 0:
+        emit("-Gray scale significant bit:%s" % color("white", info.gray_scale))
+    if len(info.gray_alpha) > 0:
+        emit("-Gray alpha significant bit:%s" % color("white", info.gray_alpha))
+    if len(info.true_alpha_r) > 0:
+        emit("-significant bits Alpha Red    :%s" % color("red", info.true_alpha_r))
+    if len(info.true_alpha_g) > 0:
+        emit("-significant bits Alpha Green  :%s" % color("green", info.true_alpha_g))
+    if len(info.true_alpha_b) > 0:
+        emit("-significant bits Alpha Blue   :%s" % color("blue", info.true_alpha_b))
+    if len(info.true_alpha) > 0:
+        emit("-significant bits Alpha        :%s" % color("white", info.true_alpha))
+
+
+def render_offs(
+    info: chunk_info.OffsInfo,
+    emit: Emit,
+    color: Color,
+    emoji: Emoji | None = None,
+) -> None:
+    emit("-Offset position X    :%s" % color("blue", info.x))
+    emit("-Offset position Y  :%s" % color("purple", info.y))
+    emit("-Offset Unit   :%s" % color("white", info.unit))
+    if int(info.x) not in range(chunk_info.OFFS_MIN_POSITION, chunk_info.OFFS_MAX_POSITION + 1):
+        emit(
+            "-%s Offset position X must be between -2,147,483,647 to +2,147,483,647 %s"
+            % (color("red", "Wrong"), _emoji(emoji, "bad"))
+        )
+    if int(info.y) not in range(chunk_info.OFFS_MIN_POSITION, chunk_info.OFFS_MAX_POSITION + 1):
+        emit(
+            "-%s Offset position Y must be between -2,147,483,647 to +2,147,483,647 %s"
+            % (color("red", "Wrong"), _emoji(emoji, "bad"))
+        )
+    if info.unit not in ("0", "1"):
+        emit(
+            "-%s Offset unit must be between 0 or 1 %s"
+            % (color("red", "Wrong"), _emoji(emoji, "bad"))
+        )
+
+
 def render_pcal(info: chunk_info.PcalInfo, emit: Emit, color: Color) -> None:
     if len(info.decoded_keyword) > 0:
         emit("-Calibration name    :%s" % color("yellow", info.decoded_keyword))
@@ -255,3 +378,62 @@ def render_pcal(info: chunk_info.PcalInfo, emit: Emit, color: Color) -> None:
         emit("-Equation type       :%s" % color("yellow", info.equation))
     if len(info.parameter_count) > 0:
         emit("-Number of parameters:%s" % color("yellow", info.parameter_count))
+
+
+def render_gifg(info: chunk_info.GifgInfo, emit: Emit, color: Color) -> None:
+    if len(info.disposal_method) > 0:
+        emit("-Disposal Method    :%s" % color("yellow", info.disposal_method))
+    if len(info.delay_time) > 0:
+        emit("-User Input Flag    :%s" % color("yellow", info.delay_time))
+        emit("-Delay Time    :%s" % color("yellow", info.delay_time))
+
+
+def render_gifx(info: chunk_info.GifxInfo, emit: Emit, color: Color) -> None:
+    if len(info.application_identifier) > 0:
+        emit("-Application Identifier    :%s" % color("yellow", info.application_identifier))
+    if len(info.authentication_code) > 0:
+        emit("-Authentication Code    :%s" % color("yellow", info.authentication_code))
+    if len(info.application_data) > 0:
+        emit("-Application Data    :%s" % color("yellow", info.application_data))
+
+
+def render_ster(info: chunk_info.SterInfo, emit: Emit, color: Color) -> None:
+    if len(info.mode) > 0:
+        emit("-Subimage mode    :%s" % color("yellow", info.mode))
+
+
+def render_text(info: chunk_info.TextInfo, emit: Emit, color: Color) -> None:
+    emit("-Keyword : %s" % color("green", info.decoded_keyword))
+    emit("-String  : %s" % color("green", info.decoded_text))
+
+
+def render_ztxt(info: chunk_info.ZtxtInfo, emit: Emit, color: Color) -> None:
+    emit("-Keyword : %s" % color("green", info.decoded_keyword))
+    emit("-String  : %s" % color("green", info.decoded_text))
+
+
+def render_itxt(info: chunk_info.ItxtInfo, emit: Emit, color: Color) -> None:
+    emit("-Keyword             : %s" % color("green", info.decoded_keyword))
+    emit("-Compression Flag    : %s" % color("green", info.compression_flag))
+    emit("-Compression Method  : %s" % color("green", info.compression_method))
+    emit("-Language            : %s" % color("green", info.decoded_language))
+    emit("-Keyword Traduction  : %s" % color("green", info.decoded_translated_keyword))
+    emit("-String              : %s" % color("green", info.text))
+
+
+def render_exif(info: chunk_info.ExifInfo, emit: Emit, color: Color) -> None:
+    if info.endian == "II":
+        emit("-eXif endianess is little-endian : %s" % info.endian)
+    elif info.endian == "MM":
+        emit("-eXif endianess is big-endian : %s" % info.endian)
+
+    emit("\nRaw values from eXIf data :\n\n")
+    for raw in info.raw_values:
+        if len(raw) < 150:
+            emit("- " + bytes.fromhex(raw).decode(errors="ignore"))
+        else:
+            emit("-Raw data is too long to be displayed")
+
+
+def render_spal(info: chunk_info.SpalInfo, emit: Emit, color: Color) -> None:
+    emit(info.message)

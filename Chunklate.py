@@ -1267,6 +1267,47 @@ def Sync_Chunk_Info_Legacy_State(section=None):
     global pCAL_Max
     global pCAL_Eq
     global pCAL_PNBR
+    global cHRM_WhiteX
+    global cHRM_WhiteY
+    global cHRM_Redx
+    global cHRM_Redy
+    global cHRM_Greenx
+    global cHRM_Greeny
+    global cHRM_Bluex
+    global cHRM_Bluey
+    global iCCP_Name
+    global iCCP_Method
+    global iCCP_Profile
+    global sBIT_Gray
+    global sBIT_TrueR
+    global sBIT_TrueG
+    global sBIT_TrueB
+    global sBIT_GrayScale
+    global sBIT_GrayAlpha
+    global sBIT_TrueAlphaR
+    global sBIT_TrueAlphaG
+    global sBIT_TrueAlphaB
+    global sBIT_TrueAlpha
+    global gIFgM
+    global gIFgU
+    global gIFgT
+    global gIFID
+    global gIFCD
+    global gIFDT
+    global sTER
+    global tEXt_Key_List
+    global tEXt_Str_List
+    global tEXt_Key
+    global tEXt_Text
+    global zTXt_Key_List
+    global zTXt_Str_List
+    global zTXt_Key
+    global zTXt_Text
+    global iTXt_String_List
+    global iTXt_Key_List
+    global iTXt_String
+    global iTXt_Key
+    global eXIf_endian
 
     sections = {section} if isinstance(section, str) else set(section or ())
     sync_all = section is None
@@ -1312,6 +1353,67 @@ def Sync_Chunk_Info_Legacy_State(section=None):
         pCAL_Eq = CHUNK_INFO_STATE.pcal_eq
         pCAL_PNBR = CHUNK_INFO_STATE.pcal_pnbr
 
+    if sync_all or "chrm" in sections:
+        cHRM_WhiteX = CHUNK_INFO_STATE.chrm_white_x
+        cHRM_WhiteY = CHUNK_INFO_STATE.chrm_white_y
+        cHRM_Redx = CHUNK_INFO_STATE.chrm_red_x
+        cHRM_Redy = CHUNK_INFO_STATE.chrm_red_y
+        cHRM_Greenx = CHUNK_INFO_STATE.chrm_green_x
+        cHRM_Greeny = CHUNK_INFO_STATE.chrm_green_y
+        cHRM_Bluex = CHUNK_INFO_STATE.chrm_blue_x
+        cHRM_Bluey = CHUNK_INFO_STATE.chrm_blue_y
+
+    if sync_all or "iccp" in sections:
+        iCCP_Name = CHUNK_INFO_STATE.iccp_name
+        iCCP_Method = CHUNK_INFO_STATE.iccp_method
+        iCCP_Profile = CHUNK_INFO_STATE.iccp_profile
+
+    if sync_all or "sbit" in sections:
+        sBIT_Gray = CHUNK_INFO_STATE.sbit_gray
+        sBIT_TrueR = CHUNK_INFO_STATE.sbit_true_r
+        sBIT_TrueG = CHUNK_INFO_STATE.sbit_true_g
+        sBIT_TrueB = CHUNK_INFO_STATE.sbit_true_b
+        sBIT_GrayScale = CHUNK_INFO_STATE.sbit_gray_scale
+        sBIT_GrayAlpha = CHUNK_INFO_STATE.sbit_gray_alpha
+        sBIT_TrueAlphaR = CHUNK_INFO_STATE.sbit_true_alpha_r
+        sBIT_TrueAlphaG = CHUNK_INFO_STATE.sbit_true_alpha_g
+        sBIT_TrueAlphaB = CHUNK_INFO_STATE.sbit_true_alpha_b
+        sBIT_TrueAlpha = CHUNK_INFO_STATE.sbit_true_alpha
+
+    if sync_all or "gifg" in sections:
+        gIFgM = CHUNK_INFO_STATE.gifg_disposal_method
+        gIFgU = CHUNK_INFO_STATE.gifg_user_input_flag
+        gIFgT = CHUNK_INFO_STATE.gifg_delay_time
+
+    if sync_all or "gifx" in sections:
+        gIFID = CHUNK_INFO_STATE.gifx_application_identifier
+        gIFCD = CHUNK_INFO_STATE.gifx_authentication_code
+        gIFDT = CHUNK_INFO_STATE.gifx_application_data
+
+    if sync_all or "ster" in sections:
+        sTER = CHUNK_INFO_STATE.ster_mode
+
+    if sync_all or "text" in sections:
+        tEXt_Key_List = list(CHUNK_INFO_STATE.text_key_list)
+        tEXt_Str_List = list(CHUNK_INFO_STATE.text_str_list)
+        tEXt_Key = CHUNK_INFO_STATE.text_key
+        tEXt_Text = CHUNK_INFO_STATE.text_text
+
+    if sync_all or "ztxt" in sections:
+        zTXt_Key_List = list(CHUNK_INFO_STATE.ztxt_key_list)
+        zTXt_Str_List = list(CHUNK_INFO_STATE.ztxt_str_list)
+        zTXt_Key = CHUNK_INFO_STATE.ztxt_key
+        zTXt_Text = CHUNK_INFO_STATE.ztxt_text
+
+    if sync_all or "itxt" in sections:
+        iTXt_Key_List = list(CHUNK_INFO_STATE.itxt_key_list)
+        iTXt_String_List = list(CHUNK_INFO_STATE.itxt_string_list)
+        iTXt_Key = CHUNK_INFO_STATE.itxt_key
+        iTXt_String = CHUNK_INFO_STATE.itxt_string
+
+    if sync_all or "exif" in sections:
+        eXIf_endian = CHUNK_INFO_STATE.exif_endian
+
 
 def Sync_Chunk_Info_State_From_Legacy(section=None):
     sections = {section} if isinstance(section, str) else set(section or ())
@@ -1353,118 +1455,53 @@ def Chunk_Report_Emoji(name):
 
 ####
 def GetInfo(Chunk, data, Dummy=False):
-    global SideNotes
-    global IDAT_Bytes_Len
-    global IDAT_Datastream
-    global idatcounter
-    global IDAT_Bytes_Len_History
-    global IDAT_Avg_Len
-    global IHDR_Height
-    global IHDR_Width
-    global IHDR_Depht
-    global IHDR_Color
-    global IHDR_Method
-    global IHDR_Filter
-    global IHDR_Interlace
-    global bKGD_Gray
-    global bKGD_Red
-    global bKGD_Green
-    global bKGD_Blue
-    global bKGD_Index
-    global PLTE_R
-    global PLTE_G
-    global PLTE_B
-    global sPLT_Name
-    global sPLT_Depht
-    global sPLT_Red
-    global sPLT_Green
-    global sPLT_Blue
-    global sPLT_Alpha
-    global sPLT_Freq
-    global cHRM_WhiteX
-    global cHRM_WhiteY
-    global cHRM_Redx
-    global cHRM_Redy
-    global cHRM_Greenx
-    global cHRM_Greeny
-    global cHRM_Bluex
-    global cHRM_Bluey
-    global gAMA
-    global hIST
-    global gIFID
-    global gIFCD
-    global gIFDT
-    global gIFDT
-    global gIFgM
-    global gIFgU
-    global gIFgT
-    global iCCP_Name
-    global iCCP_Method
-    global iCCP_Profile
-    global pHYs_Y
-    global pHYs_X
-    global pHYs_Unit
-    global pCAL_Param
-    global pCAL_Key
-    global pCAL_Zero
-    global pCAL_Max
-    global pCAL_Eq
-    global pCAL_PNBR
-    global sBIT_Gray
-    global sBIT_TrueR
-    global sBIT_TrueG
-    global sBIT_TrueB
-    global sBIT_GrayScale
-    global sBIT_GrayAlpha
-    global sBIT_TrueAlphaR
-    global sBIT_TrueAlphaG
-    global sBIT_TrueAlphaB
-    global sBIT_TrueAlpha
-    global iTXt_String_List
-    global iTXt_Key_List
-    global iTXt_String
-    global iTXt_Key
-    global sTER
-    global tEXt_Key_List
-    global tEXt_Str_List
-    global tEXt_Key
-    global tEXt_Text
-    global tIME_Yr
-    global tIME_Mth
-    global tIME_Day
-    global tIME_Hr
-    global tIME_Min
-    global tIME_Sec
-    global tRNS_Gray
-    global tRNS_TrueR
-    global tRNS_TrueG
-    global tRNS_TrueB
-    global tRNS_Index
-    global zTXt_Key_List
-    global zTXt_Str_List
-    global zTXt_Key
-    global zTXt_sep
-    global zTXt_Meth
-    global zTXt_Text
-
     ToFix = []
-    iCCP_Name = ""
-    iTXt_String = ""
-    iTXt_Key = ""
+    globals().update(
+        iCCP_Name="",
+        iTXt_String="",
+        iTXt_Key="",
+        zTXt_Key="",
+        tEXt_Text="",
+        tEXt_Key="",
+    )
     zTXt_String = ""
-    zTXt_Key = ""
-    tEXt_Text = ""
-    tEXt_Key = ""
     Name = ""
     lastnm = ""
 
+    def set_legacy(**values):
+        globals().update(values)
+
+    def print_ok():
+        PRINT(
+            "\n-Errors Check :"
+            + Candy("Color", "green", " OK ")
+            + Candy("Emoj", "good")
+        )
+
+    def checkpoint_or_ok(check_data=None):
+        if len(ToFix) > 0:
+            if check_data is None:
+                CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+            else:
+                CheckPoint(True, False, "GetInfo", Chunk, ToFix, check_data)
+        else:
+            print_ok()
+
+    def checkpoint_only(check_data=None):
+        if len(ToFix) > 0:
+            if check_data is None:
+                CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+            else:
+                CheckPoint(True, False, "GetInfo", Chunk, ToFix, check_data)
+
     Candy("Title", "Getting infos about:", Candy("Color", "white", str(Chunk)))
 
-    if Chunk == b"PNG":
+    def handle_png():
         Candy(
             "Cowsay", " Well ..That's a start ..At least it looks like a png.", "good"
         )
-    if Chunk == b"IHDR":
+
+    def handle_ihdr():
         IHDR_Info = chunk_info.parse_ihdr(data, max_resolution=Max_Res())
         CHUNK_INFO_STATE.apply_ihdr(IHDR_Info)
         Sync_Chunk_Info_Legacy_State("ihdr")
@@ -1472,62 +1509,41 @@ def GetInfo(Chunk, data, Dummy=False):
         chunk_report.render_ihdr(IHDR_Info, PRINT, Chunk_Report_Color)
 
         ToFix.extend(IHDR_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-        else:
-            PRINT(
-                "\n-Errors Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
-            )
+        checkpoint_or_ok()
 
-    if Chunk == b"IDAT":
+    def handle_idat():
         IDAT_Info = CHUNK_INFO_STATE.next_idat(data, Raw_Length)
         CHUNK_INFO_STATE.apply_idat(IDAT_Info)
         Sync_Chunk_Info_Legacy_State("idat")
         chunk_report.render_idat(IDAT_Info, PRINT, Chunk_Report_Color)
         ToFix.extend(IDAT_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+        checkpoint_only()
 
-    if Chunk == b"pHYs":
+    def handle_phys():
         pHYs_Info = chunk_info.parse_phys(data)
-        pHYs_Y = pHYs_Info.y
-        pHYs_X = pHYs_Info.x
-        pHYs_Unit = pHYs_Info.unit
+        set_legacy(pHYs_Y=pHYs_Info.y, pHYs_X=pHYs_Info.x, pHYs_Unit=pHYs_Info.unit)
 
         chunk_report.render_phys(pHYs_Info, PRINT, Chunk_Report_Color, Chunk_Report_Emoji)
 
         ToFix.extend(pHYs_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-        else:
-            PRINT(
-                "\n-Errors Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
-            )
+        checkpoint_or_ok()
 
-    if Chunk == b"bKGD":
+    def handle_bkgd():
         bKGD_Info = chunk_info.parse_bkgd(data, IHDR_Color, IHDR_Depht)
-        bKGD_Gray = bKGD_Info.gray
-        bKGD_Red = bKGD_Info.red
-        bKGD_Green = bKGD_Info.green
-        bKGD_Blue = bKGD_Info.blue
-        bKGD_Index = bKGD_Info.index
+        set_legacy(
+            bKGD_Gray=bKGD_Info.gray,
+            bKGD_Red=bKGD_Info.red,
+            bKGD_Green=bKGD_Info.green,
+            bKGD_Blue=bKGD_Info.blue,
+            bKGD_Index=bKGD_Info.index,
+        )
 
         chunk_report.render_bkgd(bKGD_Info, PRINT, Chunk_Report_Color)
 
         ToFix.extend(bKGD_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-        else:
-            PRINT(
-                "\n-Errors Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
-            )
-    if Chunk == b"PLTE":
+        checkpoint_or_ok()
+
+    def handle_plte():
         PLTE_Info = chunk_info.parse_plte(data, IHDR_Depht)
         CHUNK_INFO_STATE.apply_plte(PLTE_Info)
         Sync_Chunk_Info_Legacy_State("plte")
@@ -1535,17 +1551,9 @@ def GetInfo(Chunk, data, Dummy=False):
         chunk_report.render_plte(PLTE_R, PLTE_G, PLTE_B, PRINT, Chunk_Report_Color)
 
         ToFix.extend(PLTE_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-        else:
-            PRINT(
-                "\n-Errors Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
-            )
+        checkpoint_or_ok()
 
-
-    if Chunk == b"sPLT":
+    def handle_splt():
         sPLT_Info = chunk_info.parse_splt(
             data,
             previous_names=tuple(CHUNK_INFO_STATE.splt_name),
@@ -1565,17 +1573,9 @@ def GetInfo(Chunk, data, Dummy=False):
         )
 
         ToFix.extend(sPLT_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix, data)
-        else:
-            PRINT(
-                "\n-Errors Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
-            )
+        checkpoint_or_ok(data)
 
-
-    if Chunk == b"hIST":
+    def handle_hist():
         hIST_Info = chunk_info.parse_hist(
             data,
             has_plte=b"PLTE" in Chunks_History,
@@ -1583,28 +1583,23 @@ def GetInfo(Chunk, data, Dummy=False):
             plte_entries=CHUNK_INFO_STATE.plte_entry_count(),
             splt_entries=CHUNK_INFO_STATE.splt_entry_count(),
         )
-        hIST = list(hIST_Info.entries)
+        set_legacy(hIST=list(hIST_Info.entries))
         chunk_report.render_hist(hIST, PRINT, Chunk_Report_Color)
 
         ToFix.extend(hIST_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix, data)
-        else:
-            PRINT(
-                "\n-Errors Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
-            )
+        checkpoint_or_ok(data)
 
-    if Chunk == b"tIME":
+    def handle_time():
         tIME_Current_Year = datetime.now().year
         tIME_Info = chunk_info.parse_time(data, current_year=tIME_Current_Year)
-        tIME_Yr = tIME_Info.year
-        tIME_Mth = tIME_Info.month
-        tIME_Day = tIME_Info.day
-        tIME_Hr = tIME_Info.hour
-        tIME_Min = tIME_Info.minute
-        tIME_Sec = tIME_Info.second
+        set_legacy(
+            tIME_Yr=tIME_Info.year,
+            tIME_Mth=tIME_Info.month,
+            tIME_Day=tIME_Info.day,
+            tIME_Hr=tIME_Info.hour,
+            tIME_Min=tIME_Info.minute,
+            tIME_Sec=tIME_Info.second,
+        )
         chunk_report.render_time(
             tIME_Info,
             tIME_Current_Year,
@@ -1613,16 +1608,9 @@ def GetInfo(Chunk, data, Dummy=False):
             Chunk_Report_Emoji,
         )
         ToFix.extend(tIME_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-        else:
-            PRINT(
-                "\n-Errors Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
-            )
+        checkpoint_or_ok()
 
-    if Chunk == b"tRNS":
+    def handle_trns():
         tRNS_Info = chunk_info.parse_trns(
             data,
             IHDR_Color,
@@ -1631,28 +1619,23 @@ def GetInfo(Chunk, data, Dummy=False):
             plte_entries=len(CHUNK_INFO_STATE.plte_r),
             splt_entries=len(CHUNK_INFO_STATE.splt_red),
         )
-        tRNS_Gray = tRNS_Info.gray
-        tRNS_TrueR = tRNS_Info.true_r
-        tRNS_TrueG = tRNS_Info.true_g
-        tRNS_TrueB = tRNS_Info.true_b
+        set_legacy(
+            tRNS_Gray=tRNS_Info.gray,
+            tRNS_TrueR=tRNS_Info.true_r,
+            tRNS_TrueG=tRNS_Info.true_g,
+            tRNS_TrueB=tRNS_Info.true_b,
+        )
         CHUNK_INFO_STATE.apply_trns(tRNS_Info)
         Sync_Chunk_Info_Legacy_State("trns")
 
         chunk_report.render_trns(tRNS_Info, PRINT, Chunk_Report_Color)
 
         ToFix.extend(tRNS_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-        else:
-            PRINT(
-                "\n-Errors Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
-            )
+        checkpoint_or_ok()
 
-    if Chunk == b"sRGB":
+    def handle_srgb():
         sRGB_Info = chunk_info.parse_srgb(data, has_chrm=b"cHRM" in Chunks_History)
-        sRGB = sRGB_Info.value
+        set_legacy(sRGB=sRGB_Info.value)
         chunk_report.render_srgb(
             sRGB_Info,
             b"cHRM" in Chunks_History,
@@ -1662,215 +1645,72 @@ def GetInfo(Chunk, data, Dummy=False):
         )
         ToFix.extend(sRGB_Info.fixes)
 
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-        else:
-            PRINT(
-                "\n-Errors Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
-            )
+        checkpoint_or_ok()
 
-    if Chunk == b"cHRM":
+    def handle_chrm():
         cHRM_Info = chunk_info.parse_chrm(
             data,
             has_srgb_or_iccp=b"sRGB" in Chunks_History or b"iCCP" in Chunks_History,
         )
-        cHRM_WhiteX = cHRM_Info.white_x
-        cHRM_WhiteY = cHRM_Info.white_y
-        cHRM_Redx = cHRM_Info.red_x
-        cHRM_Redy = cHRM_Info.red_y
-        cHRM_Greenx = cHRM_Info.green_x
-        cHRM_Greeny = cHRM_Info.green_y
-        cHRM_Bluex = cHRM_Info.blue_x
-        cHRM_Bluey = cHRM_Info.blue_y
-        if len(cHRM_WhiteX) > 0:
-            PRINT("-WhiteX   :%s"% Candy("Color", "white", cHRM_WhiteX))
-        if len(cHRM_WhiteY) > 0:
-            PRINT("-WhiteY   :%s"% Candy("Color", "white", cHRM_WhiteY))
-        if len(cHRM_Redx) > 0:
-            PRINT("-RedX     :%s"% Candy("Color", "red", cHRM_Redx))
-        if len(cHRM_Redy) > 0:
-            PRINT("-RedY     :%s"% Candy("Color", "red", cHRM_Redy))
-        if len(cHRM_Greenx) > 0:
-            PRINT("-GreenX   :%s"% Candy("Color", "green", cHRM_Greenx))
-        if len(cHRM_Greeny) > 0:
-            PRINT("-GreenY   :%s"% Candy("Color", "green", cHRM_Greeny))
-        if len(cHRM_Bluex) > 0:
-            PRINT("-BlueX    :%s"% Candy("Color", "blue", cHRM_Bluex))
-        if len(cHRM_Bluey) > 0:
-            PRINT("-BlueY    :%s"% Candy("Color", "blue", cHRM_Bluey))
-
-        if b"sRGB" in Chunks_History or b"iCCP" in Chunks_History:
-            PRINT(
-                "-%s or %s already present cHRM will be overide if reconized by decoders %s"
-                % (
-                    Candy("Color", "red", "sRGB"),
-                    Candy("Color", "red", "iCCP"),
-                    Candy("Emoj", "bad"),
-                )
-            )
+        CHUNK_INFO_STATE.apply_chrm(cHRM_Info)
+        Sync_Chunk_Info_Legacy_State("chrm")
+        chunk_report.render_chrm(
+            cHRM_Info,
+            b"sRGB" in Chunks_History or b"iCCP" in Chunks_History,
+            PRINT,
+            Chunk_Report_Color,
+            Chunk_Report_Emoji,
+        )
         ToFix.extend(cHRM_Info.fixes)
 
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-        else:
-            PRINT(
-                "\n-Errors Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
-            )
+        checkpoint_or_ok()
 
-    if Chunk == b"gAMA":
+    def handle_gama():
         gAMA_Info = chunk_info.parse_gama(data)
-        gAMA = gAMA_Info.value
+        set_legacy(gAMA=gAMA_Info.value)
         chunk_report.render_gama(gAMA_Info, PRINT, Chunk_Report_Color)
         ToFix.extend(gAMA_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+        checkpoint_only()
 
-    if Chunk == b"iCCP":
+    def handle_iccp():
         iCCP_Info = chunk_info.parse_iccp(
             data,
             raw_length_hex=Orig_CL,
             has_chrm=b"cHRM" in Chunks_History,
         )
-        iCCP_Name = iCCP_Info.name
-        iCCP_Method = iCCP_Info.method
-        iCCP_Profile = iCCP_Info.profile
+        CHUNK_INFO_STATE.apply_iccp(iCCP_Info)
+        Sync_Chunk_Info_Legacy_State("iccp")
 
-        if "-Length of iCCP Profile name is not valid" in iCCP_Info.fixes:
-            PRINT(
-                "-Length of iCCP Profile name is %s :%s"
-                % (
-                    Candy("Color", "red", "not Valid"),
-                    Candy("Color", "red", iCCP_Info.null_pos),
-                )
-            )
-
-        for bad_char, bad_index in iCCP_Info.bad_chars:
-            PRINT(
-                "-Character %s at index %s in iCCP_Name\n-Replaced by [€]"
-                % (
-                    Candy("Color", "red", "not allowed [" + bad_char + "]"),
-                    Candy("Color", "red", bad_index),
-                )
-            )
-
-        if isinstance(iCCP_Method, int) and iCCP_Method > 0:
-            PRINT(
-                "-Compression method is supposed to be %s but is %s instead ."
-                % (Candy("Color", "green", "0"), Candy("Color", "red", iCCP_Method))
-            )
-
-        if "-iCCP Profile length is not Valid" in iCCP_Info.fixes:
-            PRINT("-iCCP Profile length is %s" % Candy("Color", "red", "not Valid"))
-
-        if b"cHRM" in Chunks_History:
-            PRINT(
-                "-%s already present cHRM will be %s if reconized by decoders %s"
-                % (
-                    Candy("Color", "red", "cHRM"),
-                    Candy("Color", "red", "overide"),
-                    Candy("Emoj", "bad"),
-                )
-            )
-
-        if len(iCCP_Name) > 0:
-            PRINT("-iCCP Profile Name :%s"% Candy("Color", "yellow", iCCP_Name))
-        if len(str(iCCP_Method)) > 0:
-            PRINT("-iCCP Profile Method :%s"% Candy("Color", "yellow", iCCP_Method))
+        chunk_report.render_iccp(
+            iCCP_Info,
+            b"cHRM" in Chunks_History,
+            PRINT,
+            Chunk_Report_Color,
+            Chunk_Report_Emoji,
+        )
         ToFix.extend(iCCP_Info.fixes)
 
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-        else:
-            PRINT(
-                "\n-Errors Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
-            )
+        checkpoint_or_ok()
 
-    if Chunk == b"sBIT":
+    def handle_sbit():
         sBIT_Info = chunk_info.parse_sbit(data, IHDR_Color, IHDR_Depht)
-        sBIT_Gray = sBIT_Info.gray
-        sBIT_TrueR = sBIT_Info.true_r
-        sBIT_TrueG = sBIT_Info.true_g
-        sBIT_TrueB = sBIT_Info.true_b
-        sBIT_GrayScale = sBIT_Info.gray_scale
-        sBIT_GrayAlpha = sBIT_Info.gray_alpha
-        sBIT_TrueAlphaR = sBIT_Info.true_alpha_r
-        sBIT_TrueAlphaG = sBIT_Info.true_alpha_g
-        sBIT_TrueAlphaB = sBIT_Info.true_alpha_b
-        sBIT_TrueAlpha = sBIT_Info.true_alpha
+        CHUNK_INFO_STATE.apply_sbit(sBIT_Info)
+        Sync_Chunk_Info_Legacy_State("sbit")
 
-        if len(sBIT_Gray) > 0:
-            PRINT("-Significant greyscale bits    :%s"% Candy("Color", "yellow", sBIT_Gray))
-        if len(sBIT_TrueR) > 0:
-            PRINT("-significant bits Red    :%s"% Candy("Color", "red", sBIT_TrueR))
-        if len(sBIT_TrueG) > 0:
-            PRINT("-significant bits Green  :%s"% Candy("Color", "green", sBIT_TrueG))
-        if len(sBIT_TrueB) > 0:
-            PRINT("-significant bits Blue   :%s"% Candy("Color", "blue", sBIT_TrueB))
-        if len(sBIT_GrayScale) > 0:
-            PRINT("-Gray scale significant bit:%s"% Candy("Color", "white", sBIT_GrayScale))
-        if len(sBIT_GrayAlpha) > 0:
-            PRINT("-Gray alpha significant bit:%s"% Candy("Color", "white", sBIT_GrayAlpha))
-        if len(sBIT_TrueAlphaR) > 0:
-            PRINT("-significant bits Alpha Red    :%s"% Candy("Color", "red", sBIT_TrueAlphaR))
-        if len(sBIT_TrueAlphaG) > 0:
-            PRINT("-significant bits Alpha Green  :%s"% Candy("Color", "green", sBIT_TrueAlphaG))
-        if len(sBIT_TrueAlphaB) > 0:
-            PRINT("-significant bits Alpha Blue   :%s"% Candy("Color", "blue", sBIT_TrueAlphaB))
-        if len(sBIT_TrueAlpha) > 0:
-            PRINT("-significant bits Alpha        :%s"% Candy("Color", "white", sBIT_TrueAlpha))
+        chunk_report.render_sbit(sBIT_Info, PRINT, Chunk_Report_Color)
 
         ToFix.extend(sBIT_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-        else:
-            PRINT(
-                "\n-Errors Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
-            )
+        checkpoint_or_ok()
 
-
-    if Chunk == b"oFFs":
+    def handle_offs():
         oFFs_Info = chunk_info.parse_offs(data)
-        oFFSX = oFFs_Info.x
-        oFFSY = oFFs_Info.y
-        oFFSU = oFFs_Info.unit
+        CHUNK_INFO_STATE.apply_offs(oFFs_Info)
 
-        PRINT("-Offset position X    :%s"% Candy("Color", "blue", oFFSX))
-        PRINT("-Offset position Y  :%s"% Candy("Color", "purple", oFFSY))
-        PRINT("-Offset Unit   :%s"% Candy("Color", "white", oFFSU))
-        if int(oFFSX) not in range(chunk_info.OFFS_MIN_POSITION, chunk_info.OFFS_MAX_POSITION + 1):
-            PRINT(
-                "-%s Offset position X must be between -2,147,483,647 to +2,147,483,647 %s"
-                % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
-            )
-        if int(oFFSY) not in range(chunk_info.OFFS_MIN_POSITION, chunk_info.OFFS_MAX_POSITION + 1):
-            PRINT(
-                "-%s Offset position Y must be between -2,147,483,647 to +2,147,483,647 %s"
-                % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
-            )
-        if oFFSU != "0" and oFFSU != "1":
-            PRINT(
-                "-%s Offset unit must be between 0 or 1 %s"
-                % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
-            )
+        chunk_report.render_offs(oFFs_Info, PRINT, Chunk_Report_Color, Chunk_Report_Emoji)
         ToFix.extend(oFFs_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-        else:
-            PRINT(
-                "\n-Errors Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
-            )
+        checkpoint_or_ok()
 
-    if Chunk == b"pCAL":
+    def handle_pcal():
         pCAL_Info = chunk_info.parse_pcal(data)
         CHUNK_INFO_STATE.apply_pcal(pCAL_Info)
         Sync_Chunk_Info_Legacy_State("pcal")
@@ -1878,145 +1718,116 @@ def GetInfo(Chunk, data, Dummy=False):
         chunk_report.render_pcal(pCAL_Info, PRINT, Chunk_Report_Color)
 
         ToFix.extend(pCAL_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+        checkpoint_only()
 
-    if Chunk == b"gIFg":
-
+    def handle_gifg():
         gIFg_Info = chunk_info.parse_gifg(data)
-        gIFgM = gIFg_Info.disposal_method
-        gIFgU = gIFg_Info.user_input_flag
-        gIFgT = gIFg_Info.delay_time
+        CHUNK_INFO_STATE.apply_gifg(gIFg_Info)
+        Sync_Chunk_Info_Legacy_State("gifg")
 
-        if len(gIFgM) > 0:
-            PRINT("-Disposal Method    :%s"% Candy("Color", "yellow", gIFgM))
-        if len(gIFgT) > 0:
-            PRINT("-User Input Flag    :%s"% Candy("Color", "yellow", gIFgT))
-            PRINT("-Delay Time    :%s"% Candy("Color", "yellow", gIFgT))
+        chunk_report.render_gifg(gIFg_Info, PRINT, Chunk_Report_Color)
         ToFix.extend(gIFg_Info.fixes)
 
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-    if Chunk == b"gIFx":
-        gIFx_Info = chunk_info.parse_gifx(data)
-        gIFID = gIFx_Info.application_identifier
-        gIFCD = gIFx_Info.authentication_code
-        gIFDT = gIFx_Info.application_data
+        checkpoint_only()
 
-        if len(gIFID) > 0:
-            PRINT("-Application Identifier    :%s"% Candy("Color", "yellow", gIFID))
-        if len(gIFCD) > 0:
-            PRINT("-Authentication Code    :%s"% Candy("Color", "yellow", gIFCD))
-        if len(gIFDT) > 0:
-            PRINT("-Application Data    :%s"% Candy("Color", "yellow", gIFDT))
+    def handle_gifx():
+        gIFx_Info = chunk_info.parse_gifx(data)
+        CHUNK_INFO_STATE.apply_gifx(gIFx_Info)
+        Sync_Chunk_Info_Legacy_State("gifx")
+
+        chunk_report.render_gifx(gIFx_Info, PRINT, Chunk_Report_Color)
         ToFix.extend(gIFx_Info.fixes)
 
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+        checkpoint_only()
 
-    if Chunk == b"sTER":
-
+    def handle_ster():
         sTER_Info = chunk_info.parse_ster(data)
-        sTER = sTER_Info.mode
+        CHUNK_INFO_STATE.apply_ster(sTER_Info)
+        Sync_Chunk_Info_Legacy_State("ster")
 
-        if len(sTER) > 0:
-            PRINT("-Subimage mode    :%s"% Candy("Color", "yellow", sTER))
+        chunk_report.render_ster(sTER_Info, PRINT, Chunk_Report_Color)
         ToFix.extend(sTER_Info.fixes)
 
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+        checkpoint_only()
 
-    if Chunk == b"tEXt":
+    def handle_text():
         tEXt_Info = chunk_info.parse_text(data)
-        tEXt_Key_List = []
-        tEXt_Str_List = []
-        tEXt_Key = tEXt_Info.keyword
-        tEXt_Text = tEXt_Info.text
-        if len(tEXt_Info.decoded_keyword) > 0:
-            tEXt_Key_List.append(tEXt_Info.decoded_keyword)
-        if len(tEXt_Info.decoded_text) > 0:
-            tEXt_Str_List.append(tEXt_Info.decoded_text)
+        CHUNK_INFO_STATE.apply_text(tEXt_Info)
+        Sync_Chunk_Info_Legacy_State("text")
 
-        PRINT("-Keyword : %s"% Candy("Color", "green", tEXt_Info.decoded_keyword))
-        PRINT("-String  : %s"% Candy("Color", "green", tEXt_Info.decoded_text))
+        chunk_report.render_text(tEXt_Info, PRINT, Chunk_Report_Color)
 
         ToFix.extend(tEXt_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+        checkpoint_only()
 
-
-    if Chunk == b"zTXt":
+    def handle_ztxt():
         zTXt_Info = chunk_info.parse_ztxt(data)
-        zTXt_Key_List = []
-        zTXt_Str_List = []
-        zTXt_Key = zTXt_Info.keyword
-        zTXt_Text = zTXt_Info.text
-        if len(zTXt_Info.decoded_keyword) > 0:
-            zTXt_Key_List.append(zTXt_Info.decoded_keyword)
-        if len(zTXt_Info.decoded_text) > 0:
-            zTXt_Str_List.append(zTXt_Info.decoded_text)
+        CHUNK_INFO_STATE.apply_ztxt(zTXt_Info)
+        Sync_Chunk_Info_Legacy_State("ztxt")
 
-        PRINT("-Keyword : %s"% Candy("Color", "green", zTXt_Info.decoded_keyword))
-        PRINT("-String  : %s"% Candy("Color", "green", zTXt_Info.decoded_text))
+        chunk_report.render_ztxt(zTXt_Info, PRINT, Chunk_Report_Color)
 
         ToFix.extend(zTXt_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+        checkpoint_only()
 
-
-    if Chunk == b"iTXt":
+    def handle_itxt():
         iTXt_Info = chunk_info.parse_itxt(data)
-        iTXt_Key_List = []
-        iTXt_String_List = []
-        iTXt_Key = iTXt_Info.keyword
-        iTXt_String = iTXt_Info.text
-        if len(iTXt_Info.decoded_keyword) > 0:
-            iTXt_Key_List.append(iTXt_Info.decoded_keyword)
-        if len(iTXt_String) > 0:
-            iTXt_String_List.append(iTXt_String)
+        CHUNK_INFO_STATE.apply_itxt(iTXt_Info)
+        Sync_Chunk_Info_Legacy_State("itxt")
 
-        PRINT("-Keyword             : %s"% Candy("Color", "green", iTXt_Info.decoded_keyword))
-        PRINT("-Compression Flag    : %s"% Candy("Color", "green", iTXt_Info.compression_flag))
-        PRINT("-Compression Method  : %s"% Candy("Color", "green", iTXt_Info.compression_method))
-        PRINT("-Language            : %s"% Candy("Color", "green", iTXt_Info.decoded_language))
-        PRINT(
-            "-Keyword Traduction  : %s"%
-            Candy("Color", "green", iTXt_Info.decoded_translated_keyword)
-        )
-        PRINT("-String              : %s"% Candy("Color", "green", iTXt_String))
+        chunk_report.render_itxt(iTXt_Info, PRINT, Chunk_Report_Color)
 
         ToFix.extend(iTXt_Info.fixes)
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+        checkpoint_only()
 
-
-    if Chunk == b"eXIf":
+    def handle_exif():
         eXIf_Info = chunk_info.parse_exif(data)
-        eXIf_endian = eXIf_Info.endian
+        CHUNK_INFO_STATE.apply_exif(eXIf_Info)
+        Sync_Chunk_Info_Legacy_State("exif")
 
-        if eXIf_endian == "II":
-            PRINT("-eXif endianess is little-endian : %s"% eXIf_endian)
-        elif eXIf_endian == "MM":
-            PRINT("-eXif endianess is big-endian : %s"% eXIf_endian)
-
-        PRINT("\nRaw values from eXIf data :\n\n")
-        for raw in eXIf_Info.raw_values:
-            if len(raw) < 150:
-                PRINT("- " + bytes.fromhex(raw).decode(errors="ignore"))
-            else:
-                PRINT("-Raw data is too long to be displayed")
+        chunk_report.render_exif(eXIf_Info, PRINT, Chunk_Report_Color)
         ToFix.extend(eXIf_Info.fixes)
 
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+        checkpoint_only()
 
-    if Chunk == b"spAL":
+    def handle_spal():
         spAL_Info = chunk_info.parse_spal(data)
-        PRINT(spAL_Info.message)
+        chunk_report.render_spal(spAL_Info, PRINT, Chunk_Report_Color)
         ToFix.extend(spAL_Info.fixes)
 
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+        checkpoint_only()
+
+    handlers = {
+        b"PNG": handle_png,
+        b"IHDR": handle_ihdr,
+        b"IDAT": handle_idat,
+        b"pHYs": handle_phys,
+        b"bKGD": handle_bkgd,
+        b"PLTE": handle_plte,
+        b"sPLT": handle_splt,
+        b"hIST": handle_hist,
+        b"tIME": handle_time,
+        b"tRNS": handle_trns,
+        b"sRGB": handle_srgb,
+        b"cHRM": handle_chrm,
+        b"gAMA": handle_gama,
+        b"iCCP": handle_iccp,
+        b"sBIT": handle_sbit,
+        b"oFFs": handle_offs,
+        b"pCAL": handle_pcal,
+        b"gIFg": handle_gifg,
+        b"gIFx": handle_gifx,
+        b"sTER": handle_ster,
+        b"tEXt": handle_text,
+        b"zTXt": handle_ztxt,
+        b"iTXt": handle_itxt,
+        b"eXIf": handle_exif,
+        b"spAL": handle_spal,
+    }
+
+    handler = handlers.get(Chunk)
+    if handler is not None:
+        handler()
 
     if Chunk in PRIVATE_CHUNKS:
         PRINT("-Private Chunk")
@@ -2040,58 +1851,43 @@ def GetInfo(Chunk, data, Dummy=False):
 
 
 def YouShallPass(Chunk, data):
-    global Chunks_History
-    global IHDR_Color
-    global IHDR_Depht
-    global Orig_CL
+    def passes(info):
+        return len(info.fixes) == 0
 
-    if Chunk == b"IHDR":
-        return len(chunk_info.parse_ihdr(data).fixes) == 0
-
-    if Chunk == b"pHYs":
-        return len(chunk_info.parse_phys(data).fixes) == 0
-
-    if Chunk == b"bKGD":
+    def validate_bkgd():
         Sync_Chunk_Info_State_From_Legacy("ihdr")
-        return len(
-            chunk_info.parse_bkgd(
-                data,
-                CHUNK_INFO_STATE.ihdr_color,
-                CHUNK_INFO_STATE.ihdr_depth,
-            ).fixes
-        ) == 0
+        return passes(
+            chunk_info.parse_bkgd(data, CHUNK_INFO_STATE.ihdr_color, CHUNK_INFO_STATE.ihdr_depth)
+        )
 
-    if Chunk == b"PLTE":
+    def validate_plte():
         Sync_Chunk_Info_State_From_Legacy("ihdr")
-        return len(chunk_info.parse_plte(data, CHUNK_INFO_STATE.ihdr_depth).fixes) == 0
+        return passes(chunk_info.parse_plte(data, CHUNK_INFO_STATE.ihdr_depth))
 
-
-    if Chunk == b"sPLT":
+    def validate_splt():
         Sync_Chunk_Info_State_From_Legacy("splt")
-        return len(
+        return passes(
             chunk_info.parse_splt(
                 data,
                 previous_names=tuple(CHUNK_INFO_STATE.splt_name),
-            ).fixes
-        ) == 0
+            )
+        )
 
-
-    if Chunk == b"hIST":
+    def validate_hist():
         Sync_Chunk_Info_State_From_Legacy(("plte", "splt"))
-        return len(
+        return passes(
             chunk_info.parse_hist(
                 data,
                 has_plte=b"PLTE" in Chunks_History,
                 has_splt=b"sPLT" in Chunks_History,
                 plte_entries=CHUNK_INFO_STATE.plte_entry_count(),
                 splt_entries=CHUNK_INFO_STATE.splt_entry_count(),
-            ).fixes
-        ) == 0
-    if Chunk == b"tIME":
-        return len(chunk_info.parse_time(data).fixes) == 0
-    if Chunk == b"tRNS":
+            )
+        )
+
+    def validate_trns():
         Sync_Chunk_Info_State_From_Legacy(("ihdr", "plte", "splt"))
-        return len(
+        return passes(
             chunk_info.parse_trns(
                 data,
                 CHUNK_INFO_STATE.ihdr_color,
@@ -2099,55 +1895,60 @@ def YouShallPass(Chunk, data):
                 has_splt=b"sPLT" in Chunks_History,
                 plte_entries=len(CHUNK_INFO_STATE.plte_r),
                 splt_entries=len(CHUNK_INFO_STATE.splt_red),
-            ).fixes
-        ) == 0
-    if Chunk == b"sRGB":
-        return len(chunk_info.parse_srgb(data, has_chrm=b"cHRM" in Chunks_History).fixes) == 0
-    if Chunk == b"cHRM":
-        return len(
-            chunk_info.parse_chrm(
-                data,
-                has_srgb_or_iccp=b"sRGB" in Chunks_History or b"iCCP" in Chunks_History,
-            ).fixes
-        ) == 0
-    if Chunk == b"gAMA":
-        return len(chunk_info.parse_gama(data).fixes) == 0
-    if Chunk == b"iCCP":
-        return len(
-            chunk_info.parse_iccp(
-                data,
-                raw_length_hex=Orig_CL,
-                has_chrm=b"cHRM" in Chunks_History,
-            ).fixes
-        ) == 0
-    if Chunk == b"sBIT":
+            )
+        )
+
+    def validate_sbit():
         Sync_Chunk_Info_State_From_Legacy("ihdr")
-        return len(
+        return passes(
             chunk_info.parse_sbit(
                 data,
                 CHUNK_INFO_STATE.ihdr_color,
                 CHUNK_INFO_STATE.ihdr_depth,
-            ).fixes
-        ) == 0
-    if Chunk == b"oFFs":
-        return len(chunk_info.parse_offs(data).fixes) == 0
-    if Chunk == b"pCAL":
-        return len(chunk_info.parse_pcal(data).fixes) == 0
-    if Chunk == b"gIFg":
-        return len(chunk_info.parse_gifg(data).fixes) == 0
-    if Chunk == b"gIFx":
-        return len(chunk_info.parse_gifx(data).fixes) == 0
-    if Chunk == b"sTER":
+            )
+        )
 
-        return len(chunk_info.parse_ster(data).fixes) == 0
-    if Chunk == b"tEXt":
-        return len(chunk_info.parse_text(data).fixes) == 0
-    if Chunk == b"zTXt":
-        return len(chunk_info.parse_ztxt(data).fixes) == 0
-    if Chunk == b"iTXt":
-        return len(chunk_info.parse_itxt(data).fixes) == 0
-    if Chunk == b"eXIf":
-        return len(chunk_info.parse_exif(data).fixes) == 0
+    validators = {
+        b"IHDR": lambda: passes(chunk_info.parse_ihdr(data)),
+        b"pHYs": lambda: passes(chunk_info.parse_phys(data)),
+        b"bKGD": validate_bkgd,
+        b"PLTE": validate_plte,
+        b"sPLT": validate_splt,
+        b"hIST": validate_hist,
+        b"tIME": lambda: passes(chunk_info.parse_time(data)),
+        b"tRNS": validate_trns,
+        b"sRGB": lambda: passes(
+            chunk_info.parse_srgb(data, has_chrm=b"cHRM" in Chunks_History)
+        ),
+        b"cHRM": lambda: passes(
+            chunk_info.parse_chrm(
+                data,
+                has_srgb_or_iccp=b"sRGB" in Chunks_History or b"iCCP" in Chunks_History,
+            )
+        ),
+        b"gAMA": lambda: passes(chunk_info.parse_gama(data)),
+        b"iCCP": lambda: passes(
+            chunk_info.parse_iccp(
+                data,
+                raw_length_hex=Orig_CL,
+                has_chrm=b"cHRM" in Chunks_History,
+            )
+        ),
+        b"sBIT": validate_sbit,
+        b"oFFs": lambda: passes(chunk_info.parse_offs(data)),
+        b"pCAL": lambda: passes(chunk_info.parse_pcal(data)),
+        b"gIFg": lambda: passes(chunk_info.parse_gifg(data)),
+        b"gIFx": lambda: passes(chunk_info.parse_gifx(data)),
+        b"sTER": lambda: passes(chunk_info.parse_ster(data)),
+        b"tEXt": lambda: passes(chunk_info.parse_text(data)),
+        b"zTXt": lambda: passes(chunk_info.parse_ztxt(data)),
+        b"iTXt": lambda: passes(chunk_info.parse_itxt(data)),
+        b"eXIf": lambda: passes(chunk_info.parse_exif(data)),
+    }
+
+    validator = validators.get(Chunk)
+    if validator is not None:
+        return validator()
 
     return True
 
@@ -7834,6 +7635,14 @@ def FixItFelix_Try_IHDR_Rebuild():
     return FixItFelix_Apply_Repair(repair)
 
 
+def FixItFelix_Try_Partial_IDAT_Blackfill():
+    repair = fixit_felix.partial_idat_blackfill(DATA_BYTES, PandoraBox)
+    if repair is None:
+        return None
+
+    return FixItFelix_Apply_Repair(repair)
+
+
 def FixItFelix_Try_Automatic_Repair(name):
     if name == "color_profile_cleanup":
         return FixItFelix_Try_Color_Profile_Cleanup()
@@ -7847,6 +7656,8 @@ def FixItFelix_Try_Automatic_Repair(name):
         return FixItFelix_Try_Missing_Chunk_Data_Byte()
     if name == "ihdr_rebuild":
         return FixItFelix_Try_IHDR_Rebuild()
+    if name == "partial_idat_blackfill":
+        return FixItFelix_Try_Partial_IDAT_Blackfill()
     raise ValueError("Unknown FixItFelix automatic repair: %s" % name)
 
 
@@ -8838,6 +8649,7 @@ tRNS_TrueB = ""
 zTXt_Key = ""
 zTXt_Meth = ""
 zTXt_Text = ""
+eXIf_endian = ""
 
 Web_Safe_Colors =['000000', '000033', '000066', '000099', '0000cc', '0000ff', '003300', '003333', '003366', '003399', '0033cc', '0033ff', '006600', '006633', '006666', '006699', '0066cc', '0066ff', '009900', '009933', '009966', '009999', '0099cc', '0099ff', '00cc00', '00cc33', '00cc66', '00cc99', '00cccc', '00ccff', '00ff00', '00ff33', '00ff66', '00ff99', '00ffcc', '00ffff', '330000', '330033', '330066', '330099', '3300cc', '3300ff', '333300', '333333', '333366', '333399', '3333cc', '3333ff', '336600', '336633', '336666', '336699', '3366cc', '3366ff', '339900', '339933', '339966', '339999', '3399cc', '3399ff', '33cc00', '33cc33', '33cc66', '33cc99', '33cccc', '33ccff', '33ff00', '33ff33', '33ff66', '33ff99', '33ffcc', '33ffff', '660000', '660033', '660066', '660099', '6600cc', '6600ff', '663300', '663333', '663366', '663399', '6633cc', '6633ff', '666600', '666633', '666666', '666699', '6666cc', '6666ff', '669900', '669933', '669966', '669999', '6699cc', '6699ff', '66cc00', '66cc33', '66cc66', '66cc99', '66cccc', '66ccff', '66ff00', '66ff33', '66ff66', '66ff99', '66ffcc', '66ffff', '990000', '990033', '990066', '990099', '9900cc', '9900ff', '993300', '993333', '993366', '993399', '9933cc', '9933ff', '996600', '996633', '996666', '996699', '9966cc', '9966ff', '999900', '999933', '999966', '999999', '9999cc', '9999ff', '99cc00', '99cc33', '99cc66', '99cc99', '99cccc', '99ccff', '99ff00', '99ff33', '99ff66', '99ff99', '99ffcc', '99ffff', 'cc0000', 'cc0033', 'cc0066', 'cc0099', 'cc00cc', 'cc00ff', 'cc3300', 'cc3333', 'cc3366', 'cc3399', 'cc33cc', 'cc33ff', 'cc6600', 'cc6633', 'cc6666', 'cc6699', 'cc66cc', 'cc66ff', 'cc9900', 'cc9933', 'cc9966', 'cc9999', 'cc99cc', 'cc99ff', 'cccc00', 'cccc33', 'cccc66', 'cccc99', 'cccccc', 'ccccff', 'ccff00', 'ccff33', 'ccff66', 'ccff99', 'ccffcc', 'ccffff', 'ff0000', 'ff0033', 'ff0066', 'ff0099', 'ff00cc', 'ff00ff', 'ff3300', 'ff3333', 'ff3366', 'ff3399', 'ff33cc', 'ff33ff', 'ff6600', 'ff6633', 'ff6666', 'ff6699', 'ff66cc', 'ff66ff', 'ff9900', 'ff9933', 'ff9966', 'ff9999', 'ff99cc', 'ff99ff', 'ffcc00', 'ffcc33', 'ffcc66', 'ffcc99', 'ffcccc', 'ffccff', 'ffff00', 'ffff33', 'ffff66', 'ffff99', 'ffffcc', 'ffffff']
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import struct
 import sys
+import zlib
 from pathlib import Path
 
 
@@ -8,7 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import fixit_felix
-from chunklate.png import iter_chunks
+from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks, validate_png_structure
 
 
 REPAIR_FIXTURES = ROOT / "Png_Errors_handled_by_Chunklate_So_Far"
@@ -16,6 +18,18 @@ REPAIR_FIXTURES = ROOT / "Png_Errors_handled_by_Chunklate_So_Far"
 
 def read_fixture(name):
     return (REPAIR_FIXTURES / name).read_bytes()
+
+
+def build_rgb_png(width, height, filtered_scanlines, *, idat_data=None):
+    ihdr = struct.pack("!IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    if idat_data is None:
+        idat_data = zlib.compress(filtered_scanlines)
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"IDAT", idat_data)
+        + IEND_CHUNK
+    )
 
 
 def test_route_finding_keeps_legacy_handler_order():
@@ -288,6 +302,7 @@ def test_automatic_repair_order_keeps_legacy_priority():
         "unknown_private_critical_removal",
         "missing_chunk_data_byte",
         "ihdr_rebuild",
+        "partial_idat_blackfill",
     )
 
 
@@ -310,9 +325,10 @@ def test_repair_work_items_runs_automatic_repairs_before_pandorabox_routes():
 
     items = fixit_felix.repair_work_items(findings, skip_bad_crc=False)
 
-    assert [item.kind for item in items[:6]] == ["automatic_repair"] * 6
-    assert [item.handler for item in items[:6]] == list(fixit_felix.automatic_repair_order())
-    assert [(item.kind, item.handler, item.finding) for item in items[6:]] == [
+    automatic_count = len(fixit_felix.automatic_repair_order())
+    assert [item.kind for item in items[:automatic_count]] == ["automatic_repair"] * automatic_count
+    assert [item.handler for item in items[:automatic_count]] == list(fixit_felix.automatic_repair_order())
+    assert [(item.kind, item.handler, item.finding) for item in items[automatic_count:]] == [
         ("finding", "wrong_crc", "Checksum_Error_0:Wrong Crc"),
         ("finding", "libpng_error", "Libpng_Error_0:libpng error: bad adaptive filter"),
         ("finding", "wrong_chunk_name", "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"),
@@ -399,6 +415,27 @@ def test_ihdr_rebuild_requires_ihdr_finding():
     assert next(iter_chunks(repaired.data)).chunk_type == b"IHDR"
 
 
+def test_partial_idat_blackfill_requires_idat_finding_and_partial_stream():
+    filtered = b"".join(b"\x00" + bytes((row, row, row)) for row in range(10))
+    compressed = zlib.compress(filtered)
+    original = None
+    for cut in range(2, len(compressed)):
+        candidate = build_rgb_png(1, 10, filtered, idat_data=compressed[:cut])
+        repaired = fixit_felix.partial_idat_blackfill(candidate, ["IDAT"])
+        if repaired is not None:
+            original = candidate
+            break
+
+    assert original is not None
+    assert fixit_felix.partial_idat_blackfill(original, ["Wrong Crc"]) is None
+
+    repaired = fixit_felix.partial_idat_blackfill(original, ["libpng error: bad adaptive filter in IDAT"])
+
+    assert repaired is not None
+    assert "partial-idat-blackfill" in repaired.strategy
+    assert validate_png_structure(repaired.data).ok
+
+
 def main():
     checks = [
         ("Route finding keeps legacy handler order", test_route_finding_keeps_legacy_handler_order),
@@ -425,6 +462,10 @@ def main():
         ("Known chunk type case requires wrong ancillary finding", test_known_chunk_type_case_requires_wrong_ancillary_finding),
         ("Unknown private critical removal is standalone salvage", test_unknown_private_critical_removal_is_standalone_salvage),
         ("IHDR rebuild requires IHDR finding", test_ihdr_rebuild_requires_ihdr_finding),
+        (
+            "Partial IDAT blackfill requires IDAT finding",
+            test_partial_idat_blackfill_requires_idat_finding_and_partial_stream,
+        ),
     ]
 
     print("Running FixItFelix family tests")

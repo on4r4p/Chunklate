@@ -13,6 +13,7 @@ from .png import (
     repair_missing_chunk_data_byte,
     repair_unknown_private_critical_chunks,
 )
+from .idat import rebuild_partial_idat_blackfill
 
 
 FixItFelixHandler = Literal[
@@ -53,6 +54,7 @@ AutomaticRepairHandler = Literal[
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
     "ihdr_rebuild",
+    "partial_idat_blackfill",
 ]
 FixItFelixWorkKind = Literal["automatic_repair", "finding"]
 
@@ -64,6 +66,7 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
     "ihdr_rebuild",
+    "partial_idat_blackfill",
 )
 GOOD_IEND_HEX = "0000000049454e44ae426082"
 
@@ -420,3 +423,15 @@ def ihdr_rebuild(data: bytes, findings: Iterable[object]) -> Any | None:
         return None
 
     return repair_ihdr(data)
+
+
+def partial_idat_blackfill(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "IDAT")
+        or has_finding(findings, "Not enough image data")
+        or has_finding(findings, "Too much image data")
+        or has_finding(findings, "bad adaptive filter")
+    ):
+        return None
+
+    return rebuild_partial_idat_blackfill(data)
