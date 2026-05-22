@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, chunk_info, chunk_report, chunk_state, decisions, fixit_felix, output, palette, palette_ui, prompts, relics, specs, writer
+from chunklate import bruteforce, checkpoint, chunk_info, chunk_report, chunk_state, decisions, fixit_felix, idat, output, palette, palette_ui, prompts, relics, specs, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -5177,78 +5177,28 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
 
         ##TODOTODOTODO
 
-        CINFO0 = ["081d","085b","0899","08d7"]
-        CINFO1 = ["1819","1857","1895","18d3"]
-        CINFO2 = ["2815","2853","2891","28cf"]
-        CINFO3 = ["3811","384f","388d","38cb"]
-        CINFO4 = ["480d","484b","4889","48c7"]
-        CINFO5 = ["5809","5847","5885","58c3"]
-        CINFO6 = ["6805","6843","6881","68de"]
-        CINFO7 = ["7801","785e","789c","78da"]
+        DummyIdat = idat.build_dummy_idat_probe(
+            IDAT_Datastream,
+            bit_depth=IHDR_Depht,
+            interlace=IHDR_Interlace,
+        )
 
-        if int(IHDR_Depht) > 8:
-#           pix = "1".zfill(4)
-            pix = int(1).to_bytes(2, "little")
+        print("pix:", DummyIdat.pixel)
+        print("filter:", DummyIdat.filter_byte)
+        print("scanline:", DummyIdat.scanline)
+        print("cmfflg:", DummyIdat.header)
+        print("window:", DummyIdat.header_info.window_kb)
+        print("flvl:", DummyIdat.header_info.compression_level)
+        print("compressed:", DummyIdat.compressed)
+        print("compessedx:", DummyIdat.compressed.hex())
+        print("adler:", DummyIdat.adler.hex())
+        print("to_decompressed:", DummyIdat.raw_deflate_with_adler.hex())
+        print("decompressed:", DummyIdat.decompressed)
+
+        if DummyIdat.idat_decompressed_error:
+            print("all idat decompressed error:", DummyIdat.idat_decompressed_error)
         else:
-#           pix = "1".zfill(2)
-            pix = int(1).to_bytes(1, "big")
-        print("pix:",pix)
-        filter = int(0).to_bytes(1, "big")
-        print("filter:",filter)
-        scanline = filter+(pix*3)
-        print("scanline:",scanline)
-
-#        IDAT_Datastream
-        if IHDR_Interlace != "1":
-            cmfflg = IDAT_Datastream[:4]
-        else:
-              pass ##TODO
-
-        print("cmfflg:",cmfflg)
-
-        if cmfflg in  CINFO7 : #tmp
-           window = 32
-           if CINFO7.index(cmfflg) == 3:
-                flvl = 9
-        else:
-            windows = ""
-            flvl = -1
-
-        print("window:",window)
-        print("flvl:",flvl)
-
-        
-
-        compressor = zlib.compressobj(flvl,zlib.DEFLATED,-zlib.MAX_WBITS)
-        compressed = compressor.compress(scanline)+compressor.flush()
-
-        print("compressed:",compressed)
-        print("compessedx:",compressed.hex())
-
-
-        adler = zlib.adler32(scanline).to_bytes(4,"big")
-
-        print("adler:",adler.hex())
-
-#        to_decompressed = cmfflg + compressed + adler
-        to_decompressed = compressed + adler
-
-
-
-        print("to_decompressed:",to_decompressed.hex())
-
-        decompressor = zlib.decompressobj(-zlib.MAX_WBITS)
-        decompressed = decompressor.decompress(to_decompressed)
-#        decompressed = zlib.decompress(to_decompressed, zlib.MAX_WBITS)
-
-        print("decompressed:",decompressed)
-
-        decompressor = zlib.decompressobj()
-
-        idatdecomp = decompressor.decompress(bytes.fromhex(IDAT_Datastream))
-
-#        print("idat stream:\n",IDAT_Datastream)
-        print("all idat decompressed:", idatdecomp)
+            print("all idat decompressed:", DummyIdat.idat_decompressed)
 
 #        TheEnd()
 
