@@ -6525,27 +6525,166 @@ def Relics_Run_Plte_Brawl_Plan(PltePlan):
     )
 
 
-def Relics(FromError):
-    Candy("Title", "Opening the Ark Of The Covenant :")
+def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
+    for WrongCrcRoute in relics.idat_wrong_crc_routes(Relic_Remembered_Wrong_Crc_Routes()):
+        Candy(
+            "Cowsay",
+            "Perhaps that wasn't a Crc problem after all..",
+            "com",
+        )
+        Candy(
+            "Cowsay",
+            "Maybe the culprit was in fact the %s Data itself!"
+            % WrongCrcRoute.chunk_name,
+            "bad",
+        )
+        Candy(
+            "Cowsay",
+            "How about taking a coffee break while im taking care of something?",
+            "good",
+        )
 
-    Relics_Debug_State()
+        CrcTools = Pandemonium_Wrong_Crc_Tools(
+            WrongCrcRoute.source,
+            WrongCrcRoute.error,
+            WrongCrcRoute.tool_prefix,
+        )
 
-    if len(Pandemonium) >= 1:
-        Relics_Print_Pandemonium_Summary()
+        Relics_Run_Wrong_Crc_Brawl_Plan(
+            relics.wrong_crc_brawl_plan(
+                WrongCrcRoute,
+                CrcTools,
+                target_file=FILE_Origin,
+                from_error=FromError,
+            )
+        )
 
-        ##Find a more efficient way to sort error by severity and behave procedurally 
-        ##tmp workaround
-    ###
-        should_return, result = Relics_Try_Current_Wrong_Crc_Fix()
-        if should_return:
-            return result
 
-    #            else:
-    #                 print("key in cornicopia:",str(key))
-    #                 Pause("")
-    #                 continue
+def Relics_Handle_Plte():
+    for key in PandoraBox:
+        if "-PLTE" not in str(key):
+            continue
 
-        for WrongCrcRoute in relics.idat_wrong_crc_routes(Relic_Remembered_Wrong_Crc_Routes()):
+        if not Skip_Bad_Current_Name and not Skip_Bad_Infos and not Skip_Bad_Critical:
+            if str(key) not in Cornucopia:
+                Candy("Cowsay", "Alright this is a tough one as PLTE is a critical chunk..", "bad")
+                #if not something to get intel about plte nbr and what TODO:
+                if not Bad_Crc:
+
+                    Candy("Cowsay", "Crc is valid ...So this has been made on purpose..", "bad")
+                    Candy("Cowsay", "Anyway im just gona fill the gap then.", "com")
+                    Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
+                    Candy("Cowsay", "I will need you to manually click a few buttons for me.", "com")
+                    Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk but trust me this is useless as it wont work..", "com") ## no you should not it wont work
+
+                    Answer = decisions.ask_choice(
+                        input,
+                        "Answer(Manually/Remove/Quit):",
+                        relics.plte_repair_choices(False),
+                    )
+                    PlteWindow = Relics_Plte_Window()
+
+                    if Answer == "manually":
+                        if PlteWindow is not None:
+                            return True, Relics_Run_Plte_Manual_Plan(
+                                relics.plte_manual_plan(
+                                    PlteWindow,
+                                    target_file=Sample_Name,
+                                )
+                            )
+                    elif Answer == "remove":
+                        if PlteWindow is not None:
+                            return True, Relics_Run_Plte_Remove_Plan(
+                                relics.plte_remove_plan(PlteWindow)
+                            )
+                    elif Answer == "quit":
+                        SideNotes.append("-User has chose to quit.")
+                        TheEnd()
+
+                else:
+
+
+                    Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
+                    Candy("Cowsay", "I ll have to bruteforce my way through until i end up with the old Crc.", "bad")
+                    Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
+                    Candy("Cowsay", "In many ways , its is the best solution in my opinion .", "com")
+                    Candy("Cowsay", "To give you an hint:Take the nbr of atoms in the univers multiply it by itself a couple of times.", "good")
+                    Candy("Cowsay", "And even there we would not be near to get every combination for a PLTE Chunk.", "bad")
+                    Candy("Cowsay", "Perhaps i could just remove that PLTE chunk but no it just wont work ..", "com")  ## no you should not it wont work
+
+                    Answer = decisions.ask_choice(
+                        input,
+                        "Answer(Manually/Bruteforce/Remove/Quit):",
+                        relics.plte_repair_choices(True),
+                        "Answer(Manually/bruteforce/Remove/Quit):",
+                    )
+                    PlteWindow = Relics_Plte_Window()
+
+                    if Answer == "bruteforce": ##Maybe ask Relic() first
+
+                        Crc_to_match = DATAX[CrcoffI:CrcoffI+8]
+
+                        if PlteWindow is not None:
+                            return True, Relics_Run_Plte_Brawl_Plan(
+                                relics.plte_brawl_plan(
+                                    PlteWindow,
+                                    target_file=Sample_Name,
+                                    old_crc=Crc_to_match,
+                                )
+                            )
+
+                    elif Answer == "manually":
+
+                        if PlteWindow is not None:
+                            return True, Relics_Run_Plte_Manual_Plan(
+                                relics.plte_manual_plan(
+                                    PlteWindow,
+                                    target_file=Sample_Name,
+                                )
+                            )
+
+                    elif Answer == "remove":
+                        if PlteWindow is not None:
+                            return True, Relics_Run_Plte_Remove_Plan(
+                                relics.plte_remove_plan(PlteWindow)
+                            )
+
+                    elif Answer == "quit":
+                        SideNotes.append("-User ha chose to quit.")
+                        TheEnd()
+
+                Candy(
+                    "Cowsay",
+                    "Shall i give it a try ? Otherwise Chunklate is going to exit.",
+                    "com",
+                )
+                Answer = Question()
+                if Answer is True:
+                    PlteWindow = Relics_Plte_Window()
+                    if PlteWindow is not None:
+                        return True, Relics_Run_Plte_Brawl_Plan(
+                            relics.plte_brawl_plan(
+                                PlteWindow,
+                                target_file=Sample_Name,
+                            )
+                        )
+                else:
+                    TheEnd()
+
+    return False, None
+
+
+def Relics_Handle_Single_Pandemonium(FromError):
+    Candy("Cowsay", "Only one Error,That is short indeed ..", "com")
+
+    for nb1, (file, file_value) in enumerate(Pandemonium.items()):
+        for nb2, (errors, errors_values) in enumerate(file_value.items()):
+            if "Wrong Crc" in errors:
+                for nb3, (tools, tools_values) in enumerate(
+                    errors_values.items()
+                ):
+                    Chunkname = Relic_Chunk_Name_From_Tool_Keys(errors_values)
+
                 Candy(
                     "Cowsay",
                     "Perhaps that wasn't a Crc problem after all..",
@@ -6554,7 +6693,7 @@ def Relics(FromError):
                 Candy(
                     "Cowsay",
                     "Maybe the culprit was in fact the %s Data itself!"
-                    % WrongCrcRoute.chunk_name,
+                    % Chunkname,
                     "bad",
                 )
                 Candy(
@@ -6562,398 +6701,269 @@ def Relics(FromError):
                     "How about taking a coffee break while im taking care of something?",
                     "good",
                 )
-
-                CrcTools = Pandemonium_Wrong_Crc_Tools(
-                    WrongCrcRoute.source,
-                    WrongCrcRoute.error,
-                    WrongCrcRoute.tool_prefix,
-                )
-
+                #PRINT("Chunkname:%s"% Chunkname)
+                # def Checksum(Ctype, Cdata, Crc,next=None):
+                chunk_tool_prefix = Chunkname + "_Tool_"
+                CrcTools = Pandemonium_Wrong_Crc_Tools(file, errors, chunk_tool_prefix)
                 Relics_Run_Wrong_Crc_Brawl_Plan(
                     relics.wrong_crc_brawl_plan(
-                        WrongCrcRoute,
+                        relics.WrongCrcRoute(
+                            source=file,
+                            error=errors,
+                            chunk_name=Chunkname,
+                            tool_prefix=chunk_tool_prefix,
+                        ),
                         CrcTools,
-                        target_file=FILE_Origin,
+                        target_file=relics.remembered_sample_target(
+                            nb1,
+                            file,
+                            file_origin=FILE_Origin,
+                            current_sample=Sample,
+                        ),
                         from_error=FromError,
                     )
                 )
-    #                            else:
-    #                                 print("error:",errors)
-    #                                 print("chname:",Chunkname)
-    #                                 Pause("")
-
-    ###
-        for key in PandoraBox:
-            if "-PLTE" not in str(key):
-                continue
-
-            if not Skip_Bad_Current_Name and not Skip_Bad_Infos and not Skip_Bad_Critical:
-                if str(key) not in Cornucopia:
-                    Candy("Cowsay", "Alright this is a tough one as PLTE is a critical chunk..", "bad")
-                    #if not something to get intel about plte nbr and what TODO:
-                    if not Bad_Crc:
-
-                        Candy("Cowsay", "Crc is valid ...So this has been made on purpose..", "bad")
-                        Candy("Cowsay", "Anyway im just gona fill the gap then.", "com")
-                        Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
-                        Candy("Cowsay", "I will need you to manually click a few buttons for me.", "com")
-                        Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk but trust me this is useless as it wont work..", "com") ## no you should not it wont work
-
-                        Answer = decisions.ask_choice(
-                            input,
-                            "Answer(Manually/Remove/Quit):",
-                            relics.plte_repair_choices(False),
-                        )
-                        PlteWindow = Relics_Plte_Window()
-
-                        if Answer == "manually":
-                            if PlteWindow is not None:
-                                return Relics_Run_Plte_Manual_Plan(
-                                    relics.plte_manual_plan(
-                                        PlteWindow,
-                                        target_file=Sample_Name,
-                                    )
-                                )
-                        elif Answer == "remove":
-                            if PlteWindow is not None:
-                                return Relics_Run_Plte_Remove_Plan(
-                                    relics.plte_remove_plan(PlteWindow)
-                                )
-                        elif Answer == "quit":
-                            SideNotes.append("-User has chose to quit.")
-                            TheEnd()
-
-                    else:
-
-
-                        Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
-                        Candy("Cowsay", "I ll have to bruteforce my way through until i end up with the old Crc.", "bad")
-                        Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
-                        Candy("Cowsay", "In many ways , its is the best solution in my opinion .", "com")
-                        Candy("Cowsay", "To give you an hint:Take the nbr of atoms in the univers multiply it by itself a couple of times.", "good")
-                        Candy("Cowsay", "And even there we would not be near to get every combination for a PLTE Chunk.", "bad")
-                        Candy("Cowsay", "Perhaps i could just remove that PLTE chunk but no it just wont work ..", "com")  ## no you should not it wont work
-
-                        Answer = decisions.ask_choice(
-                            input,
-                            "Answer(Manually/Bruteforce/Remove/Quit):",
-                            relics.plte_repair_choices(True),
-                            "Answer(Manually/bruteforce/Remove/Quit):",
-                        )
-                        PlteWindow = Relics_Plte_Window()
-
-                        if Answer == "bruteforce": ##Maybe ask Relic() first
-
-                            Crc_to_match = DATAX[CrcoffI:CrcoffI+8]
-
-                            if PlteWindow is not None:
-                                return Relics_Run_Plte_Brawl_Plan(
-                                    relics.plte_brawl_plan(
-                                        PlteWindow,
-                                        target_file=Sample_Name,
-                                        old_crc=Crc_to_match,
-                                    )
-                                )
-
-                        elif Answer == "manually":
-
-                            if PlteWindow is not None:
-                                return Relics_Run_Plte_Manual_Plan(
-                                    relics.plte_manual_plan(
-                                        PlteWindow,
-                                        target_file=Sample_Name,
-                                    )
-                                )
-
-                        elif Answer == "remove":
-                            if PlteWindow is not None:
-                                return Relics_Run_Plte_Remove_Plan(
-                                    relics.plte_remove_plan(PlteWindow)
-                                )
-
-                        elif Answer == "quit":
-                            SideNotes.append("-User ha chose to quit.")
-                            TheEnd()
-
-                    Candy(
-                        "Cowsay",
-                        "Shall i give it a try ? Otherwise Chunklate is going to exit.",
-                        "com",
-                    )
-                    Answer = Question()
-                    if Answer is True:
-                        PlteWindow = Relics_Plte_Window()
-                        if PlteWindow is not None:
-                            return Relics_Run_Plte_Brawl_Plan(
-                                relics.plte_brawl_plan(
-                                    PlteWindow,
-                                    target_file=Sample_Name,
-                                )
-                            )
-                    else:
-                        TheEnd()
-
-
-
-
-
-        if len(Pandemonium) == 1:
-            Candy("Cowsay", "Only one Error,That is short indeed ..", "com")
-
-            for nb1, (file, file_value) in enumerate(Pandemonium.items()):
-                for nb2, (errors, errors_values) in enumerate(file_value.items()):
-                    if "Wrong Crc" in errors:
-                        for nb3, (tools, tools_values) in enumerate(
-                            errors_values.items()
-                        ):
-                            Chunkname = Relic_Chunk_Name_From_Tool_Keys(errors_values)
-
-                        Candy(
-                            "Cowsay",
-                            "Perhaps that wasn't a Crc problem after all..",
-                            "com",
-                        )
-                        Candy(
-                            "Cowsay",
-                            "Maybe the culprit was in fact the %s Data itself!"
-                            % Chunkname,
-                            "bad",
-                        )
-                        Candy(
-                            "Cowsay",
-                            "How about taking a coffee break while im taking care of something?",
-                            "good",
-                        )
-                        #PRINT("Chunkname:%s"% Chunkname)
-                        # def Checksum(Ctype, Cdata, Crc,next=None):
-                        chunk_tool_prefix = Chunkname + "_Tool_"
-                        CrcTools = Pandemonium_Wrong_Crc_Tools(file, errors, chunk_tool_prefix)
-                        Relics_Run_Wrong_Crc_Brawl_Plan(
-                            relics.wrong_crc_brawl_plan(
-                                relics.WrongCrcRoute(
-                                    source=file,
-                                    error=errors,
-                                    chunk_name=Chunkname,
-                                    tool_prefix=chunk_tool_prefix,
-                                ),
-                                CrcTools,
-                                target_file=relics.remembered_sample_target(
-                                    nb1,
-                                    file,
-                                    file_origin=FILE_Origin,
-                                    current_sample=Sample,
-                                ),
-                                from_error=FromError,
-                            )
-                        )
-                        return ()
-                    # print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),errors))
-                    # for nb3,(tools,tools_values) in enumerate(errors_values.items()):
-                    #    print("%s:%s:%s"%(Candy("Color","yellow","        [Tool:%s]"%nb3),tools,tools_values))
-                    else:
-                        if DEBUG is True:
-                            if PAUSEDEBUG is True or PAUSEERROR is True:
-                                Pause("Pause Pandemonium Debug")
-                        Candy(
-                            "Cowsay", "Erf this case is not implemented yet ...", "bad"
-                        )
-                        TheEnd()
-            return ()
-
-        if len(Pandemonium) > 1:
-
-            for DummyRoute in Relic_Remembered_Dummy_Chunk_Routes():
-                DummyTools = Pandemonium_Dummy_Chunk_Tools(
-                    DummyRoute.source,
-                    DummyRoute.error,
-                    DummyRoute.tool_prefix,
+                return ()
+            # print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),errors))
+            # for nb3,(tools,tools_values) in enumerate(errors_values.items()):
+            #    print("%s:%s:%s"%(Candy("Color","yellow","        [Tool:%s]"%nb3),tools,tools_values))
+            else:
+                if DEBUG is True:
+                    if PAUSEDEBUG is True or PAUSEERROR is True:
+                        Pause("Pause Pandemonium Debug")
+                Candy(
+                    "Cowsay", "Erf this case is not implemented yet ...", "bad"
                 )
-                ChunkName = DummyRoute.chunk_name
-                BrawlPlan = relics.dummy_chunk_brawl_plan(
-                    DummyRoute,
-                    DummyTools,
-                    from_error=FromError,
-                )
+                TheEnd()
+    return ()
 
-                if DummyRoute.is_critical:
-                    Candy(
-                        "Cowsay",
-                        "Ok it's time to brute force that dummy %s chunk .."
-                        % (ChunkName),
-                        "good",
-                    )
-                    Candy(
-                        "Cowsay",
-                        "I mean we have to since it is a critical chunk..",
-                        "com",
-                    )
-                    Candy(
-                        "Cowsay",
-                        "I hope you brought a book...A big one ..Cause it may takes forever.",
-                        "bad",
-                    )
-                    Candy(
-                        "Cowsay",
-                        "Shall i begin ? Otherwise Chunklate is going to close.",
-                        "bad",
-                    )
 
-                    Answer = Question()
-                    if Answer is True:
-                        return Relics_Run_Dummy_Chunk_Brawl_Plan(BrawlPlan)
-                    else:
-                        TheEnd()
-                else:
-                    Candy(
-                        "Cowsay",
-                        "We better remove that %s chunk than trying to bruteforce it"
-                        % (ChunkName),
-                        "com",
-                    )
-                    Candy(
-                        "Cowsay",
-                        "I mean it would be less time consuming since it is not a critical chunk",
-                        "com",
-                    )
-                    Candy(
-                        "Cowsay",
-                        "Do you still want to bruteforce this chunk ?",
-                        "com",
-                    )
-                    Answer = Question()
-                    if Answer is True:
-                        return Relics_Run_Dummy_Chunk_Brawl_Plan(BrawlPlan)
-
-                    else:
-                        if relics.dummy_chunk_decline_action(DummyRoute) == "todo_end":
-                            PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                        TheEnd()
-
-            TheEnd()
-
-    else:
-
-        ChosenOne = None
-
-        PRINT(
-            "-%s has been Fixed yet. %s"
-            % (Candy("Color", "red", "No Error"), Candy("Emoj", "bad"))
+def Relics_Handle_Remembered_Dummy_Chunks(FromError):
+    for DummyRoute in Relic_Remembered_Dummy_Chunk_Routes():
+        DummyTools = Pandemonium_Dummy_Chunk_Tools(
+            DummyRoute.source,
+            DummyRoute.error,
+            DummyRoute.tool_prefix,
         )
-        Candy(
-            "Cowsay",
-            "Erf...Kay let me check if iv forgot any error somewhere ..",
-            "com",
+        ChunkName = DummyRoute.chunk_name
+        BrawlPlan = relics.dummy_chunk_brawl_plan(
+            DummyRoute,
+            DummyTools,
+            from_error=FromError,
         )
 
-        if len(PandoraBox) > 0:
-            ChosenOne = relics.first_getinfo_critical_chunk(PandoraBox, CRITICAL_CHUNKS)
-
-            StructIndexErrors = (
-                relics.getinfo_struct_index_errors(PandoraBox, ChosenOne)
-                if ChosenOne
-                else ()
+        if DummyRoute.is_critical:
+            Candy(
+                "Cowsay",
+                "Ok it's time to brute force that dummy %s chunk .."
+                % (ChunkName),
+                "good",
+            )
+            Candy(
+                "Cowsay",
+                "I mean we have to since it is a critical chunk..",
+                "com",
+            )
+            Candy(
+                "Cowsay",
+                "I hope you brought a book...A big one ..Cause it may takes forever.",
+                "bad",
+            )
+            Candy(
+                "Cowsay",
+                "Shall i begin ? Otherwise Chunklate is going to close.",
+                "bad",
             )
 
-            if ChosenOne and StructIndexErrors:
+            Answer = Question()
+            if Answer is True:
+                return Relics_Run_Dummy_Chunk_Brawl_Plan(BrawlPlan)
+            else:
+                TheEnd()
+        else:
+            Candy(
+                "Cowsay",
+                "We better remove that %s chunk than trying to bruteforce it"
+                % (ChunkName),
+                "com",
+            )
+            Candy(
+                "Cowsay",
+                "I mean it would be less time consuming since it is not a critical chunk",
+                "com",
+            )
+            Candy(
+                "Cowsay",
+                "Do you still want to bruteforce this chunk ?",
+                "com",
+            )
+            Answer = Question()
+            if Answer is True:
+                return Relics_Run_Dummy_Chunk_Brawl_Plan(BrawlPlan)
 
-                ChosenErr = [
-                    "\n-\033[1;31;49mCriticalHit\033[m: %s"%(k)
-                    for k in StructIndexErrors
-                ]
+            else:
+                if relics.dummy_chunk_decline_action(DummyRoute) == "todo_end":
+                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                TheEnd()
 
-                for i in ChosenErr:PRINT(i)
+    TheEnd()
 
+
+def Relics_Handle_No_Pandemonium(FromError):
+    ChosenOne = None
+
+    PRINT(
+        "-%s has been Fixed yet. %s"
+        % (Candy("Color", "red", "No Error"), Candy("Emoj", "bad"))
+    )
+    Candy(
+        "Cowsay",
+        "Erf...Kay let me check if iv forgot any error somewhere ..",
+        "com",
+    )
+
+    if len(PandoraBox) > 0:
+        ChosenOne = relics.first_getinfo_critical_chunk(PandoraBox, CRITICAL_CHUNKS)
+
+        StructIndexErrors = (
+            relics.getinfo_struct_index_errors(PandoraBox, ChosenOne)
+            if ChosenOne
+            else ()
+        )
+
+        if ChosenOne and StructIndexErrors:
+
+            ChosenErr = [
+                "\n-\033[1;31;49mCriticalHit\033[m: %s"%(k)
+                for k in StructIndexErrors
+            ]
+
+            for i in ChosenErr:PRINT(i)
+
+            Candy(
+                "Cowsay",
+                "Hm yeah that could be problematic indeed..",
+                "com",
+            )
+
+            if not Skip_Bad_Crc:
                 Candy(
                     "Cowsay",
-                    "Hm yeah that could be problematic indeed..",
-                    "com",
-                )
-
-                if not Skip_Bad_Crc:
-                    Candy(
-                        "Cowsay",
-                        "And of course Crc is valid ...This must be a joke..",
-                        "bad",
-                    )
-                Candy(
-                    "Cowsay",
-                    "We can't just let this thing like that The allmighty libpng will yell at us again!",
-                    "com",
-                )
-                Candy(
-                    "Cowsay",
-                    "So what do you say ? Shall we try to fix it ?",
-                    "com",
-                )
-                Candy(
-                    "Cowsay",
-                    "(Beware this could take some time !!)",
+                    "And of course Crc is valid ...This must be a joke..",
                     "bad",
                 )
+            Candy(
+                "Cowsay",
+                "We can't just let this thing like that The allmighty libpng will yell at us again!",
+                "com",
+            )
+            Candy(
+                "Cowsay",
+                "So what do you say ? Shall we try to fix it ?",
+                "com",
+            )
+            Candy(
+                "Cowsay",
+                "(Beware this could take some time !!)",
+                "bad",
+            )
+            Answer = Question()
+            if Answer is True:
+
+                BrawlPlan = relics.getinfo_brawl_plan(
+                    ChosenOne,
+                    Chunks_History,
+                    Chunks_History_Index,
+                    target_file=Sample_Name,
+                    from_error=FromError,
+                    chunks_len_not_fixed=CHUNKS_LEN_NOT_FIXED,
+                    struct_index_error_count=len(ChosenErr),
+                )
+                if BrawlPlan is not None:
+                    return Relics_Run_GetInfo_Brawl_Plan(BrawlPlan)
+
+        else:
+
+            KnownChunkRoute = relics.first_getinfo_known_chunk(PandoraBox, ALLCHUNKS)
+            if KnownChunkRoute is not None:
+                [
+                    PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+                    for key in relics.getinfo_related_print_hits(
+                        PandoraBox,
+                        KnownChunkRoute.chunk_name,
+                        KnownChunkRoute.finding,
+                    )
+                ]
+
+                Candy(
+                    "Cowsay",
+                    "This is bad ..i don't have enough info to handle this error quickly..",
+                    "com",
+                )
+
+                Candy(
+                    "Cowsay",
+                    "(I need to bruteforce every chunks until libpng is happy ...)",
+                    "com",
+                )
+                Candy(
+                    "Cowsay",
+                    "(And this will definitively take some ..time ...like years maybe..Are you ok ?)",
+                    "bad",
+                )
+
                 Answer = Question()
                 if Answer is True:
-
-                    BrawlPlan = relics.getinfo_brawl_plan(
-                        ChosenOne,
+                    ForcerPlan = relics.full_chunk_forcer_plan(
+                        KnownChunkRoute.chunk_name,
                         Chunks_History,
                         Chunks_History_Index,
                         target_file=Sample_Name,
                         from_error=FromError,
-                        chunks_len_not_fixed=CHUNKS_LEN_NOT_FIXED,
-                        struct_index_error_count=len(ChosenErr),
                     )
-                    if BrawlPlan is not None:
-                        return Relics_Run_GetInfo_Brawl_Plan(BrawlPlan)
+                    if ForcerPlan is not None:
+                        return Relics_Run_Full_Chunk_Forcer_Plan(ForcerPlan)
 
-            else:
+    Candy(
+        "Cowsay",
+        "Couldn't find anything in all those lines of codes which could handle this..",
+        "bad",
+    )
+    Candy("Cowsay", "We r out of luck for now sorry..", "bad")
+    TheEnd()
 
-                KnownChunkRoute = relics.first_getinfo_known_chunk(PandoraBox, ALLCHUNKS)
-                if KnownChunkRoute is not None:
-                    [
-                        PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-                        for key in relics.getinfo_related_print_hits(
-                            PandoraBox,
-                            KnownChunkRoute.chunk_name,
-                            KnownChunkRoute.finding,
-                        )
-                    ]
 
-                    Candy(
-                        "Cowsay",
-                        "This is bad ..i don't have enough info to handle this error quickly..",
-                        "com",
-                    )
+def Relics_Handle_Pandemonium(FromError):
+    Relics_Print_Pandemonium_Summary()
 
-                    Candy(
-                        "Cowsay",
-                        "(I need to bruteforce every chunks until libpng is happy ...)",
-                        "com",
-                    )
-                    Candy(
-                        "Cowsay",
-                        "(And this will definitively take some ..time ...like years maybe..Are you ok ?)",
-                        "bad",
-                    )
+    ##Find a more efficient way to sort error by severity and behave procedurally
+    ##tmp workaround
+    should_return, result = Relics_Try_Current_Wrong_Crc_Fix()
+    if should_return:
+        return result
 
-                    Answer = Question()
-                    if Answer is True:
-                        ForcerPlan = relics.full_chunk_forcer_plan(
-                            KnownChunkRoute.chunk_name,
-                            Chunks_History,
-                            Chunks_History_Index,
-                            target_file=Sample_Name,
-                            from_error=FromError,
-                        )
-                        if ForcerPlan is not None:
-                            return Relics_Run_Full_Chunk_Forcer_Plan(ForcerPlan)
+    Relics_Handle_Remembered_Idat_Wrong_Crc(FromError)
 
-        Candy(
-            "Cowsay",
-            "Couldn't find anything in all those lines of codes which could handle this..",
-            "bad",
-        )
-        Candy("Cowsay", "We r out of luck for now sorry..", "bad")
-        TheEnd()
+    should_return, result = Relics_Handle_Plte()
+    if should_return:
+        return result
+
+    if len(Pandemonium) == 1:
+        return Relics_Handle_Single_Pandemonium(FromError)
+
+    if len(Pandemonium) > 1:
+        return Relics_Handle_Remembered_Dummy_Chunks(FromError)
+
+
+def Relics(FromError):
+    Candy("Title", "Opening the Ark Of The Covenant :")
+
+    Relics_Debug_State()
+
+    if len(Pandemonium) >= 1:
+        return Relics_Handle_Pandemonium(FromError)
+
+    return Relics_Handle_No_Pandemonium(FromError)
 
 
 def Naming(filename):
