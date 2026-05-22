@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, decisions, dummy_chunk, error_log, fixit_felix, output, palette, palette_ui, prompts, relics, sorting, specs, ui, writer
+from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, output, palette, palette_ui, prompts, relics, sorting, specs, ui, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -2259,27 +2259,11 @@ def ChunkStory(action, Chunk, start, end, chuck_length):
     global Chunks_History
     global Chunks_History_Index
 
-    if type(Chunk) is not bytes:
-        Chunk = Chunk.encode(errors="ignore")
-
     if action == "add":
-        CHD = (
-            str(len(Chunks_History) - 1)
-            + ":"
-            + str(start)
-            + ":"
-            + str(end)
-            + ":"
-            + str(chuck_length)
-        )
-        chkdbl = str(start) + ":" + str(end) + ":" + str(chuck_length)
-        if not any(chkdbl in s for s in Chunks_History_Index):
-            Chunks_History.append(Chunk)
-            Chunks_History_Index.append(CHD)
+        chunk_story.add(Chunks_History, Chunks_History_Index, Chunk, start, end, chuck_length)
     elif action == "del":
         try:
-            del Chunks_History[Chunks_History.index(Chunk)]
-            del Chunks_History_Index[Chunks_History.index(Chunk)]
+            chunk_story.delete_legacy(Chunks_History, Chunks_History_Index, Chunk)
         except Exception as e:
             Betterror(e, inspect.stack()[0][3])
             if DEBUG is True:
