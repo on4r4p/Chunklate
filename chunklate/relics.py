@@ -93,6 +93,14 @@ class WrongCrcBrawlPlan:
 
 
 @dataclass(frozen=True)
+class WrongCrcSaveClonePlan:
+    fixed_data: Any
+    start: Any
+    end: Any
+    info: str
+
+
+@dataclass(frozen=True)
 class DummyChunkBrawlPlan:
     target_file: Any
     chunk: Any
@@ -124,6 +132,40 @@ class FullChunkForcerPlan:
     start: int
     end: int
     from_error: Any
+
+
+@dataclass(frozen=True)
+class PlteChunkWindow:
+    chunk: bytes
+    data_offset: int
+    end_offset: int
+
+
+@dataclass(frozen=True)
+class PlteManualPlan:
+    target_file: Any
+    chunk: bytes
+    chunk_length: int
+    data_offset: int
+    from_error: str
+
+
+@dataclass(frozen=True)
+class PlteRemovePlan:
+    start: int
+    end: int
+    info: str
+
+
+@dataclass(frozen=True)
+class PlteBrawlPlan:
+    target_file: Any
+    chunk: bytes
+    chunk_length: int
+    data_offset: int
+    from_error: str
+    edit_mode: str
+    old_crc: Any = None
 
 
 def chunk_label(chunk: Any) -> Any:
@@ -296,6 +338,23 @@ def idat_wrong_crc_routes(routes: list[WrongCrcRoute] | tuple[WrongCrcRoute, ...
     return tuple(route for route in routes if route.chunk_name == "IDAT")
 
 
+def wrong_crc_save_clone_plan(tools: WrongCrcTools) -> WrongCrcSaveClonePlan:
+    return WrongCrcSaveClonePlan(
+        fixed_data=tools.replacement_crc,
+        start=tools.start,
+        end=tools.end,
+        info=(
+            "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
+            % (
+                tools.chunk,
+                tools.offset,
+                tools.replacement_crc,
+                tools.old_crc,
+            )
+        ),
+    )
+
+
 def pandemonium_summary(
     pandemonium: Mapping[Any, Mapping[Any, Mapping[str, Any]]],
 ) -> tuple[RelicSampleSummary, ...]:
@@ -315,6 +374,57 @@ def plte_repair_choices(has_bad_crc: bool) -> tuple[str, ...]:
     if has_bad_crc:
         return ("manually", "bruteforce", "remove", "quit")
     return ("manually", "remove", "quit")
+
+
+def plte_chunk_window(
+    chunks_history: list[Any] | tuple[Any, ...],
+    chunks_history_index: list[Any] | tuple[Any, ...],
+) -> PlteChunkWindow | None:
+    for chunk, chunk_index in zip(chunks_history, chunks_history_index):
+        if chunk != b"PLTE":
+            continue
+        parts = str(chunk_index).split(":")
+        return PlteChunkWindow(
+            chunk=b"PLTE",
+            data_offset=int(parts[1]),
+            end_offset=int(parts[2]),
+        )
+    return None
+
+
+def plte_manual_plan(window: PlteChunkWindow, *, target_file: Any) -> PlteManualPlan:
+    return PlteManualPlan(
+        target_file=target_file,
+        chunk=window.chunk,
+        chunk_length=window.end_offset,
+        data_offset=window.data_offset,
+        from_error="-PLTE Wrong Data",
+    )
+
+
+def plte_remove_plan(window: PlteChunkWindow) -> PlteRemovePlan:
+    return PlteRemovePlan(
+        start=window.data_offset,
+        end=window.end_offset,
+        info="-PLTE Chunk Removed.",
+    )
+
+
+def plte_brawl_plan(
+    window: PlteChunkWindow,
+    *,
+    target_file: Any,
+    old_crc: Any = None,
+) -> PlteBrawlPlan:
+    return PlteBrawlPlan(
+        target_file=target_file,
+        chunk=window.chunk,
+        chunk_length=window.end_offset,
+        data_offset=window.data_offset,
+        from_error="-PLTE Wrong Data",
+        edit_mode="Insert",
+        old_crc=old_crc,
+    )
 
 
 def remembered_sample_target(

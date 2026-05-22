@@ -192,6 +192,29 @@ def test_relics_module_filters_idat_wrong_crc_routes():
     assert relics.idat_wrong_crc_routes(routes) == (routes[0],)
 
 
+def test_relics_module_builds_wrong_crc_save_clone_plan():
+    tools = relics.WrongCrcTools(
+        replacement_crc="newcrc",
+        start=12,
+        end=20,
+        chunk=b"IDAT",
+        offset="0x2a",
+        old_crc="oldcrc",
+        chunk_length=433,
+        data_offset=100,
+    )
+
+    assert relics.wrong_crc_save_clone_plan(tools) == relics.WrongCrcSaveClonePlan(
+        fixed_data="newcrc",
+        start=12,
+        end=20,
+        info=(
+            "-Found Chunk[b'IDAT'] has Wrong Crc at offset: 0x2a\n"
+            "-Replaced with: newcrc old value was: oldcrc"
+        ),
+    )
+
+
 def test_relics_module_summarises_pandemonium_without_formatting():
     pandemonium = {
         "sample.0_Fixed.png": {
@@ -223,6 +246,61 @@ def test_relics_module_exposes_plte_interactive_choices():
         "remove",
         "quit",
     )
+
+
+def test_relics_module_finds_plte_chunk_window():
+    window = relics.plte_chunk_window(
+        [b"IHDR", b"PLTE", b"IDAT"],
+        ["0:8:21", "1:33:801", "2:801:900"],
+    )
+
+    assert window == relics.PlteChunkWindow(
+        chunk=b"PLTE",
+        data_offset=33,
+        end_offset=801,
+    )
+    assert relics.plte_chunk_window([b"IHDR", b"IDAT"], ["0:8:21", "1:21:900"]) is None
+
+
+def test_relics_module_builds_plte_manual_plan():
+    window = relics.PlteChunkWindow(b"PLTE", 33, 801)
+
+    assert relics.plte_manual_plan(window, target_file="sample.png") == (
+        relics.PlteManualPlan(
+            target_file="sample.png",
+            chunk=b"PLTE",
+            chunk_length=801,
+            data_offset=33,
+            from_error="-PLTE Wrong Data",
+        )
+    )
+
+
+def test_relics_module_builds_plte_remove_plan():
+    window = relics.PlteChunkWindow(b"PLTE", 33, 801)
+
+    assert relics.plte_remove_plan(window) == relics.PlteRemovePlan(
+        start=33,
+        end=801,
+        info="-PLTE Chunk Removed.",
+    )
+
+
+def test_relics_module_builds_plte_brawl_plan():
+    window = relics.PlteChunkWindow(b"PLTE", 33, 801)
+
+    assert relics.plte_brawl_plan(window, target_file="sample.png", old_crc="oldcrc") == (
+        relics.PlteBrawlPlan(
+            target_file="sample.png",
+            chunk=b"PLTE",
+            chunk_length=801,
+            data_offset=33,
+            from_error="-PLTE Wrong Data",
+            edit_mode="Insert",
+            old_crc="oldcrc",
+        )
+    )
+    assert relics.plte_brawl_plan(window, target_file="sample.png").old_crc is None
 
 
 def test_relics_module_builds_idat_wrong_crc_brawl_plan():
@@ -709,8 +787,13 @@ def main():
         ("Relics module routes current wrong CRC errors", test_relics_module_routes_current_wrong_crc_errors),
         ("Relics module routes remembered wrong CRC errors", test_relics_module_routes_remembered_wrong_crc_errors),
         ("Relics module filters IDAT wrong CRC routes", test_relics_module_filters_idat_wrong_crc_routes),
+        ("Relics module builds wrong CRC SaveClone plan", test_relics_module_builds_wrong_crc_save_clone_plan),
         ("Relics module summarises Pandemonium", test_relics_module_summarises_pandemonium_without_formatting),
         ("Relics module exposes PLTE choices", test_relics_module_exposes_plte_interactive_choices),
+        ("Relics module finds PLTE chunk window", test_relics_module_finds_plte_chunk_window),
+        ("Relics module builds PLTE manual plan", test_relics_module_builds_plte_manual_plan),
+        ("Relics module builds PLTE remove plan", test_relics_module_builds_plte_remove_plan),
+        ("Relics module builds PLTE brawl plan", test_relics_module_builds_plte_brawl_plan),
         ("Relics module builds IDAT wrong CRC brawl plan", test_relics_module_builds_idat_wrong_crc_brawl_plan),
         (
             "Relics module builds non-IDAT wrong CRC brawl plan",

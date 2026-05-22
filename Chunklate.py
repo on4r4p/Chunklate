@@ -6420,22 +6420,20 @@ def Relics_Try_Current_Wrong_Crc_Fix():
             uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
             Answer = Question(id=key,idhash=uniqh)
             if Answer is True:
-                return True, SaveClone(
-                    CrcTools.replacement_crc,
-                    CrcTools.start,
-                    CrcTools.end,
-                    (
-                        "-Found Chunk[%s] has Wrong Crc at offset: %s\n-Replaced with: %s old value was: %s"
-                        % (
-                            CrcTools.chunk,
-                            CrcTools.offset,
-                            CrcTools.replacement_crc,
-                            CrcTools.old_crc,
-                        )
-                    ),
+                return True, Relics_Run_Save_Clone_Plan(
+                    relics.wrong_crc_save_clone_plan(CrcTools)
                 )
 
     return False, None
+
+
+def Relics_Run_Save_Clone_Plan(SavePlan):
+    return SaveClone(
+        SavePlan.fixed_data,
+        SavePlan.start,
+        SavePlan.end,
+        SavePlan.info,
+    )
 
 
 def Relics_Run_Wrong_Crc_Brawl_Plan(BrawlPlan):
@@ -6483,6 +6481,43 @@ def Relics_Run_Full_Chunk_Forcer_Plan(ForcerPlan):
         ForcerPlan.start,
         ForcerPlan.end,
         ForcerPlan.from_error,
+    )
+
+
+def Relics_Plte_Window():
+    return relics.plte_chunk_window(Chunks_History, Chunks_History_Index)
+
+
+def Relics_Run_Plte_Manual_Plan(PltePlan):
+    return Tk_Manual_Plte(
+        PltePlan.target_file,
+        PltePlan.chunk,
+        PltePlan.chunk_length,
+        PltePlan.data_offset,
+        PltePlan.from_error,
+    )
+
+
+def Relics_Run_Plte_Remove_Plan(PltePlan):
+    return RemoveChunk(
+        PltePlan.start,
+        PltePlan.end,
+        PltePlan.info,
+    )
+
+
+def Relics_Run_Plte_Brawl_Plan(PltePlan):
+    kwargs = {"EditMode": PltePlan.edit_mode}
+    if PltePlan.old_crc is not None:
+        kwargs["OldCrc"] = PltePlan.old_crc
+
+    return SmashBruteBrawl(
+        PltePlan.target_file,
+        PltePlan.chunk,
+        PltePlan.chunk_length,
+        PltePlan.data_offset,
+        PltePlan.from_error,
+        **kwargs,
     )
 
 
@@ -6545,160 +6580,114 @@ def Relics(FromError):
 
     ###
         for key in PandoraBox:
-            
-                if "-PLTE" in str(key):
+            if "-PLTE" not in str(key):
+                continue
 
-                    if not Skip_Bad_Current_Name and not Skip_Bad_Infos and not Skip_Bad_Critical:
-                        if str(key) not in Cornucopia:
-                             Candy("Cowsay", "Alright this is a tough one as PLTE is a critical chunk..", "bad")
-                             #if not something to get intel about plte nbr and what TODO:
-                             if not Bad_Crc:
+            if not Skip_Bad_Current_Name and not Skip_Bad_Infos and not Skip_Bad_Critical:
+                if str(key) not in Cornucopia:
+                    Candy("Cowsay", "Alright this is a tough one as PLTE is a critical chunk..", "bad")
+                    #if not something to get intel about plte nbr and what TODO:
+                    if not Bad_Crc:
 
-                                 Candy("Cowsay", "Crc is valid ...So this has been made on purpose..", "bad")
-                                 Candy("Cowsay", "Anyway im just gona fill the gap then.", "com")
-                                 Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
-                                 Candy("Cowsay", "I will need you to manually click a few buttons for me.", "com")
-                                 Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk but trust me this is useless as it wont work..", "com") ## no you should not it wont work
+                        Candy("Cowsay", "Crc is valid ...So this has been made on purpose..", "bad")
+                        Candy("Cowsay", "Anyway im just gona fill the gap then.", "com")
+                        Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
+                        Candy("Cowsay", "I will need you to manually click a few buttons for me.", "com")
+                        Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk but trust me this is useless as it wont work..", "com") ## no you should not it wont work
 
-                                 Answer = decisions.ask_choice(
-                                     input,
-                                     "Answer(Manually/Remove/Quit):",
-                                     relics.plte_repair_choices(False),
-                                 )
+                        Answer = decisions.ask_choice(
+                            input,
+                            "Answer(Manually/Remove/Quit):",
+                            relics.plte_repair_choices(False),
+                        )
+                        PlteWindow = Relics_Plte_Window()
 
-                                 if Answer == "manually":
-                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                        if ch == b"PLTE":
-                                            #if something EditMode = "replace"TODO
-                                            return Tk_Manual_Plte(
-                                                Sample_Name,
-                                                b"PLTE",
-                                                int(chi.split(":")[2]),
-                                                int(chi.split(":")[1]),
-                                                "-PLTE Wrong Data",
-                                            )
-                                 elif Answer == "remove":
-                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                        if ch == b"PLTE":
-                                            return(RemoveChunk(int(chi.split(":")[1]),int(chi.split(":")[2]),"-PLTE Chunk Removed."))
-                                 elif Answer == "quit":
-                                     SideNotes.append("-User has chose to quit.")
-                                     TheEnd()
-
-        #                         elif Answer == "bruteforce": ##there is 4 million time less atoms in the univers than the nbr of results
-        #                            for ch, chi in zip(Chunks_History, Chunks_History_Index):
-        #                                if ch == b"PLTE":
-        
-                                    #if something EditMode = "replace"TODO
-        #                                    return SmashBruteBrawl(
-        #                                        Sample_Name,
-        #                                        b"PLTE",
-        #                                        int(chi.split(":")[2]),
-        #                                        int(chi.split(":")[1]),
-        #                                        "-PLTE Wrong Data",
-        #                                        EditMode = "Insert",
-        #                                    )
-        #                            PRINT(Candy("Color", "yellow", "\n-ToDo"))
-        #                            TheEnd()
-
-
-                             else:
-
-
-                                 Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
-                                 Candy("Cowsay", "I ll have to bruteforce my way through until i end up with the old Crc.", "bad")
-                                 Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
-                                 Candy("Cowsay", "In many ways , its is the best solution in my opinion .", "com")
-                                 Candy("Cowsay", "To give you an hint:Take the nbr of atoms in the univers multiply it by itself a couple of times.", "good")
-                                 Candy("Cowsay", "And even there we would not be near to get every combination for a PLTE Chunk.", "bad")
-                                 Candy("Cowsay", "Perhaps i could just remove that PLTE chunk but no it just wont work ..", "com")  ## no you should not it wont work
-
-                                 Answer = decisions.ask_choice(
-                                     input,
-                                     "Answer(Manually/Bruteforce/Remove/Quit):",
-                                     relics.plte_repair_choices(True),
-                                     "Answer(Manually/bruteforce/Remove/Quit):",
-                                 )
-
-                                 if Answer == "bruteforce": ##Maybe ask Relic() first
-
-                                    Crc_to_match = DATAX[CrcoffI:CrcoffI+8]
-
-
-                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                        if ch == b"PLTE":
-                                            #if something EditMode = "replace"TODO
-                                            return SmashBruteBrawl(
-                                                Sample_Name,
-                                                b"PLTE",
-                                                int(chi.split(":")[2]),
-                                                int(chi.split(":")[1]),
-                                                "-PLTE Wrong Data",
-                                                EditMode = "Insert",
-                                                OldCrc=Crc_to_match,
-                                            )
-
-#                                    return SmashBruteBrawl(
-#                                                Sample_Name,
-#                                                b"PLTE",
-#                                                CrcoffI + 8,
-#                                                CLoffI,
-#                                                "-PLTE Wrong Data",
-#                                                EditMode = "Insert",
-#                                                OldCrc=Crc_to_match,
-#                                            )
-                                 elif Answer == "manually":
-
-#
-#                                            return Tk_Manual_Plte(
-#                                                Sample_Name,
-#                                                b"PLTE",
-#                                                CrcoffI + 8,
-#                                                CLoffI,
-#                                                "-PLTE Wrong Data",
-#                                            )
-                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
-        #                                print("ch:%s chi:%s"%(ch,chi))
-                                        if ch == b"PLTE":
-         #                                   print("chi:",chi)
-#                                            Pause("joj")
-                                            #if something EditMode = "replace"TODO
-                                            return Tk_Manual_Plte(
-                                                Sample_Name,
-                                                b"PLTE",
-                                                int(chi.split(":")[2]),
-                                                int(chi.split(":")[1]),
-                                                "-PLTE Wrong Data",
-                                            )
-
-                                 elif Answer == "remove":
-                                    for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                        if ch == b"PLTE":
-                                            return(RemoveChunk(int(chi.split(":")[1]),int(chi.split(":")[2]),"-PLTE Chunk Removed."))
-
-                                 elif Answer == "quit":
-                                     SideNotes.append("-User ha chose to quit.")
-                                     TheEnd()
-
-                             Candy(
-                                        "Cowsay",
-                                        "Shall i give it a try ? Otherwise Chunklate is going to exit.",
-                                        "com",
+                        if Answer == "manually":
+                            if PlteWindow is not None:
+                                return Relics_Run_Plte_Manual_Plan(
+                                    relics.plte_manual_plan(
+                                        PlteWindow,
+                                        target_file=Sample_Name,
                                     )
-                             Answer = Question()
-                             if Answer is True:
-                                for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                                    if ch == b"PLTE":
-                                        return SmashBruteBrawl(
-                                            Sample_Name,
-                                            b"PLTE",
-                                            int(chi.split(":")[2]),
-                                            int(chi.split(":")[1]),
-                                            "-PLTE Wrong Data",
-                                            EditMode = "Insert",
-                                        )
-                             else:
-                                        TheEnd()
+                                )
+                        elif Answer == "remove":
+                            if PlteWindow is not None:
+                                return Relics_Run_Plte_Remove_Plan(
+                                    relics.plte_remove_plan(PlteWindow)
+                                )
+                        elif Answer == "quit":
+                            SideNotes.append("-User has chose to quit.")
+                            TheEnd()
+
+                    else:
+
+
+                        Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
+                        Candy("Cowsay", "I ll have to bruteforce my way through until i end up with the old Crc.", "bad")
+                        Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
+                        Candy("Cowsay", "In many ways , its is the best solution in my opinion .", "com")
+                        Candy("Cowsay", "To give you an hint:Take the nbr of atoms in the univers multiply it by itself a couple of times.", "good")
+                        Candy("Cowsay", "And even there we would not be near to get every combination for a PLTE Chunk.", "bad")
+                        Candy("Cowsay", "Perhaps i could just remove that PLTE chunk but no it just wont work ..", "com")  ## no you should not it wont work
+
+                        Answer = decisions.ask_choice(
+                            input,
+                            "Answer(Manually/Bruteforce/Remove/Quit):",
+                            relics.plte_repair_choices(True),
+                            "Answer(Manually/bruteforce/Remove/Quit):",
+                        )
+                        PlteWindow = Relics_Plte_Window()
+
+                        if Answer == "bruteforce": ##Maybe ask Relic() first
+
+                            Crc_to_match = DATAX[CrcoffI:CrcoffI+8]
+
+                            if PlteWindow is not None:
+                                return Relics_Run_Plte_Brawl_Plan(
+                                    relics.plte_brawl_plan(
+                                        PlteWindow,
+                                        target_file=Sample_Name,
+                                        old_crc=Crc_to_match,
+                                    )
+                                )
+
+                        elif Answer == "manually":
+
+                            if PlteWindow is not None:
+                                return Relics_Run_Plte_Manual_Plan(
+                                    relics.plte_manual_plan(
+                                        PlteWindow,
+                                        target_file=Sample_Name,
+                                    )
+                                )
+
+                        elif Answer == "remove":
+                            if PlteWindow is not None:
+                                return Relics_Run_Plte_Remove_Plan(
+                                    relics.plte_remove_plan(PlteWindow)
+                                )
+
+                        elif Answer == "quit":
+                            SideNotes.append("-User ha chose to quit.")
+                            TheEnd()
+
+                    Candy(
+                        "Cowsay",
+                        "Shall i give it a try ? Otherwise Chunklate is going to exit.",
+                        "com",
+                    )
+                    Answer = Question()
+                    if Answer is True:
+                        PlteWindow = Relics_Plte_Window()
+                        if PlteWindow is not None:
+                            return Relics_Run_Plte_Brawl_Plan(
+                                relics.plte_brawl_plan(
+                                    PlteWindow,
+                                    target_file=Sample_Name,
+                                )
+                            )
+                    else:
+                        TheEnd()
 
 
 
