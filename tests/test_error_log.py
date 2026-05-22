@@ -36,6 +36,29 @@ def test_format_exception_message_preserves_legacy_layout():
     )
 
 
+def test_format_exception_from_exc_info_uses_traceback_location():
+    try:
+        raise ValueError("bad length")
+    except ValueError as exc:
+        rendered = error_log.format_exception_from_exc_info(
+            sys.exc_info(),
+            "CheckLength",
+            exc,
+        )
+
+    assert "File: test_error_log.py has encounter a <class 'ValueError'> error in CheckLength()" in rendered
+    assert "Error Message:bad length" in rendered
+
+
+def test_format_exception_from_exc_info_requires_traceback():
+    try:
+        error_log.format_exception_from_exc_info((ValueError, ValueError("x"), None), "fn", "x")
+    except ValueError as exc:
+        assert str(exc) == "exc_info traceback is required"
+    else:
+        raise AssertionError("traceback-less exc_info should fail")
+
+
 def test_append_error_log_writes_and_appends(tmp_path):
     first = datetime(2026, 5, 22, 10, 11, 12)
     second = datetime(2026, 5, 22, 10, 11, 13)
@@ -57,6 +80,8 @@ def main():
         ("Log path", lambda: test_error_log_path_uses_legacy_filename(tmpdir)),
         ("Entry format", test_format_error_log_entry_preserves_legacy_layout),
         ("Exception format", test_format_exception_message_preserves_legacy_layout),
+        ("Exception from exc_info", test_format_exception_from_exc_info_uses_traceback_location),
+        ("Exception from exc_info requires traceback", test_format_exception_from_exc_info_requires_traceback),
         ("Append log", lambda: test_append_error_log_writes_and_appends(tmpdir)),
     ]
 

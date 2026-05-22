@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
+from types import TracebackType
+from typing import Any
 
 
 def error_log_path(base_path: str) -> str:
@@ -24,6 +26,24 @@ def format_exception_message(
     return (
         "!!\nFile: %s has encounter a %s error in %s() at line %s\nError Message:%s\n!!"
         % (file_name, exc_type, function_name, line_number, error_msg)
+    )
+
+
+def format_exception_from_exc_info(
+    exc_info: tuple[type[BaseException] | None, BaseException | None, TracebackType | None],
+    function_name: str,
+    error_msg: Any,
+) -> str:
+    exc_type, _exc_obj, exc_tb = exc_info
+    if exc_tb is None:
+        raise ValueError("exc_info traceback is required")
+    file_name = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    return format_exception_message(
+        file_name,
+        exc_type,
+        function_name,
+        exc_tb.tb_lineno,
+        error_msg,
     )
 
 
