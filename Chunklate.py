@@ -60,9 +60,12 @@ def Betterror(error_msg, def_name): ##useless since 3.11
     try:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        Err_to_log = (
-            "!!\nFile: %s has encounter a %s error in %s() at line %s\nError Message:%s\n!!"
-            % (fname, exc_type, def_name, exc_tb.tb_lineno, error_msg)
+        Err_to_log = error_log.format_exception_message(
+            fname,
+            exc_type,
+            def_name,
+            exc_tb.tb_lineno,
+            error_msg,
         )
         if DEBUG is True:
             PRINT(Err_to_log)
@@ -71,9 +74,12 @@ def Betterror(error_msg, def_name): ##useless since 3.11
         Betterror(e, inspect.stack()[0][3])
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        Err_to_log = (
-            "!!\nFile: %s has encounter a %s error in Betterror() at line %s\nError Message:%s\n!!"
-            % (fname, exc_type, exc_tb.tb_lineno, e)
+        Err_to_log = error_log.format_exception_message(
+            fname,
+            exc_type,
+            "Betterror",
+            exc_tb.tb_lineno,
+            e,
         )
         if DEBUG is True:
             PRINT(Err_to_log)

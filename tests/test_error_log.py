@@ -21,6 +21,21 @@ def test_format_error_log_entry_preserves_legacy_layout():
     assert error_log.format_error_log_entry("boom", now=now) == "2026-05-22 10:11:12\nboom\n"
 
 
+def test_format_exception_message_preserves_legacy_layout():
+    assert error_log.format_exception_message(
+        "Chunklate.py",
+        ValueError,
+        "CheckLength",
+        123,
+        "bad length",
+    ) == (
+        "!!\n"
+        "File: Chunklate.py has encounter a <class 'ValueError'> error in CheckLength() at line 123\n"
+        "Error Message:bad length\n"
+        "!!"
+    )
+
+
 def test_append_error_log_writes_and_appends(tmp_path):
     first = datetime(2026, 5, 22, 10, 11, 12)
     second = datetime(2026, 5, 22, 10, 11, 13)
@@ -41,6 +56,7 @@ def main():
     checks = [
         ("Log path", lambda: test_error_log_path_uses_legacy_filename(tmpdir)),
         ("Entry format", test_format_error_log_entry_preserves_legacy_layout),
+        ("Exception format", test_format_exception_message_preserves_legacy_layout),
         ("Append log", lambda: test_append_error_log_writes_and_appends(tmpdir)),
     ]
 
