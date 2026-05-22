@@ -1347,6 +1347,10 @@ def Chunk_Report_Color(color, value):
     return Candy("Color", color, value)
 
 
+def Chunk_Report_Emoji(name):
+    return Candy("Emoj", name)
+
+
 ####
 def GetInfo(Chunk, data, Dummy=False):
     global SideNotes
@@ -1491,74 +1495,18 @@ def GetInfo(Chunk, data, Dummy=False):
         pHYs_Y = pHYs_Info.y
         pHYs_X = pHYs_Info.x
         pHYs_Unit = pHYs_Info.unit
-        if len(pHYs_Y) > 0:
-            PRINT("-Pixels per unit, Y axis: %s"% Candy("Color", "yellow", pHYs_Y))
-        if len(pHYs_X) > 0:
-            PRINT("-Pixels per unit, X axis: %s"% Candy("Color", "yellow", pHYs_X))
-        if len(pHYs_Unit) > 0:
-            PRINT("-Unit specifier         :%s"% Candy("Color", "yellow", pHYs_Unit))
-        try:
-            if len(pHYs_Y) > 0:
-                if int(pHYs_Y) > chunk_info.PHYS_MAX_PIXELS_PER_UNIT:
-                    PRINT(
-                        "-Pixels per unit, Y axis:"
-                        + Candy("Color", "red", " Wrong size (Too high)")
-                        + " Must be between 1 to 2147483647."
-                        + Candy("Emoj", "bad")
-                    )
 
-            else:
-                PRINT(
-                    "-Pixels per unit, Y axis :"
-                    + Candy("Color", "red", " Wrong size (Too low)")
-                    + " Must be between 1 to 2147483647."
-                    + Candy("Emoj", "bad")
-                )
+        chunk_report.render_phys(pHYs_Info, PRINT, Chunk_Report_Color, Chunk_Report_Emoji)
 
-            if len(pHYs_X) > 0:
-                if int(pHYs_X) > chunk_info.PHYS_MAX_PIXELS_PER_UNIT:
-                    PRINT(
-                        "Pixels per unit, X axis"
-                        + Candy("Color", "red", " Wrong size (Too high)")
-                        + " Must be between 1 to 2147483647."
-                        + Candy("Emoj", "bad")
-                    )
-            else:
-                PRINT(
-                    "-Pixels per unit, X axis"
-                    + Candy("Color", "red", " Wrong size (Too low)")
-                    + " Must be between 1 to 2147483647."
-                    + Candy("Emoj", "bad")
-                )
-
-            if len(pHYs_Unit) > 0:
-                if pHYs_Unit != "0" and pHYs_Unit != "1":
-                    PRINT(
-                        "-Unit specifier :"
-                        + Candy("Color", "red", " Wrong value")
-                        + " Must be between 0 (unknown) or 1(meter)."
-                        + Candy("Emoj", "bad")
-                    )
-
-            ToFix.extend(pHYs_Info.fixes)
-            if len(ToFix) > 0:
-                CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-            else:
-                PRINT(
-                    "\n-Errors Check :"
-                    + Candy("Color", "green", " OK ")
-                    + Candy("Emoj", "good")
-                )
-
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-
-            ToFix.append("-Error pHys:" + str(e))
+        ToFix.extend(pHYs_Info.fixes)
+        if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+        else:
+            PRINT(
+                "\n-Errors Check :"
+                + Candy("Color", "green", " OK ")
+                + Candy("Emoj", "good")
+            )
 
     if Chunk == b"bKGD":
         bKGD_Info = chunk_info.parse_bkgd(data, IHDR_Color, IHDR_Depht)
@@ -1657,71 +1605,22 @@ def GetInfo(Chunk, data, Dummy=False):
         tIME_Hr = tIME_Info.hour
         tIME_Min = tIME_Info.minute
         tIME_Sec = tIME_Info.second
-        if len(data) < 14:
-            PRINT(
-                "-tIME %s inside tIME data.%s"
-                % (Candy("Color", "red", "Not enough bytes"), Candy("Emoj", "bad"))
-            )
-            ToFix.extend(tIME_Info.fixes)
+        chunk_report.render_time(
+            tIME_Info,
+            tIME_Current_Year,
+            PRINT,
+            Chunk_Report_Color,
+            Chunk_Report_Emoji,
+        )
+        ToFix.extend(tIME_Info.fixes)
+        if len(ToFix) > 0:
+            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
         else:
-            if tIME_Info.can_print_timestamp:
-                PRINT(
-                    "-Last Modified: %s/%s/%s %s:%s:%s"
-                    % (
-                        Candy("Color", "white", tIME_Day),
-                        Candy("Color", "white", tIME_Mth),
-                        Candy("Color", "white", tIME_Yr),
-                        Candy("Color", "white", tIME_Hr),
-                        Candy("Color", "white", tIME_Min),
-                        Candy("Color", "white", tIME_Sec),
-                    )
-                )
-            if len(str(tIME_Yr)) > 0:
-                if int(tIME_Yr) > tIME_Current_Year:
-                    PRINT(
-                        "-Year is > than current year    : %s %s"
-                        % (Candy("Color", "red", tIME_Yr), Candy("Emoj", "bad"))
-                    )
-            if len(str(tIME_Mth)) > 0:
-                if int(tIME_Mth) not in range(1, 13):
-                    PRINT(
-                        "-Month value is not valid   : %s %s"
-                        % (Candy("Color", "red", tIME_Mth), Candy("Emoj", "bad"))
-                    )
-            if len(str(tIME_Day)) > 0:
-                if int(tIME_Day) not in range(1, 32):
-                    PRINT(
-                        "-Day value is not valid      : %s %s"
-                        % (Candy("Color", "red", tIME_Day), Candy("Emoj", "bad"))
-                    )
-            if len(str(tIME_Hr)) > 0:
-                if int(tIME_Hr) not in range(0, 24):
-                    PRINT(
-                        "-Hour value is not valid     : %s %s"
-                        % (Candy("Color", "red", tIME_Hr), Candy("Emoj", "bad"))
-                    )
-            if len(str(tIME_Min)) > 0:
-                if int(tIME_Min) not in range(0, 60):
-                    PRINT(
-                        "-Minute value is not valid  : %s %s"
-                        % (Candy("Color", "red", tIME_Min), Candy("Emoj", "bad"))
-                    )
-            if len(str(tIME_Sec)) > 0:
-                if int(tIME_Sec) not in range(0, 61):
-                    PRINT(
-                        "-Second  value is not valid : %s %s"
-                        % (Candy("Color", "red", tIME_Sec), Candy("Emoj", "bad"))
-                    )
-
-            ToFix.extend(tIME_Info.fixes)
-            if len(ToFix) > 0:
-                CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-            else:
-                PRINT(
-                    "\n-Errors Check :"
-                    + Candy("Color", "green", " OK ")
-                    + Candy("Emoj", "good")
-                )
+            PRINT(
+                "\n-Errors Check :"
+                + Candy("Color", "green", " OK ")
+                + Candy("Emoj", "good")
+            )
 
     if Chunk == b"tRNS":
         tRNS_Info = chunk_info.parse_trns(
@@ -1754,29 +1653,13 @@ def GetInfo(Chunk, data, Dummy=False):
     if Chunk == b"sRGB":
         sRGB_Info = chunk_info.parse_srgb(data, has_chrm=b"cHRM" in Chunks_History)
         sRGB = sRGB_Info.value
-        if sRGB == "0":
-            PRINT("-Rendering Perceptual :%s"% Candy("Color", "yellow", sRGB))
-        elif sRGB == "1":
-            PRINT("-Rendering Relative colorimetric :%s"% Candy("Color", "yellow", sRGB))
-        elif sRGB == "2":
-            PRINT("-Rendering Saturation :%s"% Candy("Color", "yellow", sRGB))
-        elif sRGB == "3":
-            PRINT("-Rendering Absolute colorimetric :%s"% Candy("Color", "yellow", sRGB))
-        else:
-            PRINT(
-                "-%s sRGB value must be between 0 to 3. %s"
-                % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
-            )
-
-        if b"cHRM" in Chunks_History:
-            PRINT(
-                "-%s already present cHRM will be %s if reconized by decoders %s"
-                % (
-                    Candy("Color", "red", "cHRM"),
-                    Candy("Color", "red", "overide"),
-                    Candy("Emoj", "bad"),
-                )
-            )
+        chunk_report.render_srgb(
+            sRGB_Info,
+            b"cHRM" in Chunks_History,
+            PRINT,
+            Chunk_Report_Color,
+            Chunk_Report_Emoji,
+        )
         ToFix.extend(sRGB_Info.fixes)
 
         if len(ToFix) > 0:
@@ -1841,10 +1724,7 @@ def GetInfo(Chunk, data, Dummy=False):
     if Chunk == b"gAMA":
         gAMA_Info = chunk_info.parse_gama(data)
         gAMA = gAMA_Info.value
-        if len(gAMA) > 0:
-            PRINT("-Gama   :%s"% Candy("Color", "white", gAMA))
-            if gAMA == "0":
-                PRINT("-A gAMA Chunk of %s is Useless." % Candy("Color", "red", "0"))
+        chunk_report.render_gama(gAMA_Info, PRINT, Chunk_Report_Color)
         ToFix.extend(gAMA_Info.fixes)
         if len(ToFix) > 0:
             CheckPoint(True, False, "GetInfo", Chunk, ToFix)

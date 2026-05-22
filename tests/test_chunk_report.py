@@ -23,6 +23,22 @@ def collect(render, *args):
     return lines
 
 
+def collect_with_emoji(render, *args):
+    lines = []
+
+    def emit(line):
+        lines.append(line)
+
+    def color(name, value):
+        return f"<{name}>{value}</{name}>"
+
+    def emoji(name):
+        return f":{name}:"
+
+    render(*args, emit, color, emoji)
+    return lines
+
+
 def test_render_ihdr_keeps_legacy_labels():
     info = chunk_info.parse_ihdr("00000020000000100802000000")
 
@@ -81,6 +97,74 @@ def test_render_trns_reports_truecolor_and_indexes():
     ]
 
 
+def test_render_phys_reports_fields_and_legacy_validation_messages():
+    valid = chunk_info.parse_phys("000000010000000201")
+    invalid = chunk_info.parse_phys("800000008000000002")
+
+    assert collect_with_emoji(chunk_report.render_phys, valid) == [
+        "-Pixels per unit, Y axis: <yellow>1</yellow>",
+        "-Pixels per unit, X axis: <yellow>2</yellow>",
+        "-Unit specifier         :<yellow>1</yellow>",
+    ]
+    assert collect_with_emoji(chunk_report.render_phys, invalid) == [
+        "-Pixels per unit, Y axis: <yellow>2147483648</yellow>",
+        "-Pixels per unit, Y axis:<red> Wrong size (Too high)</red> "
+        "Must be between 1 to 2147483647.:bad:",
+        "-Pixels per unit, X axis: <yellow>2147483648</yellow>",
+        "Pixels per unit, X axis<red> Wrong size (Too high)</red> "
+        "Must be between 1 to 2147483647.:bad:",
+        "-Unit specifier         :<yellow>2</yellow>",
+        "-Unit specifier :<red> Wrong value</red> Must be between 0 (unknown) or 1(meter).:bad:",
+    ]
+
+
+def test_render_time_reports_timestamp_and_invalid_values():
+    valid = chunk_info.parse_time("07e80515112233", current_year=2026)
+    invalid = chunk_info.parse_time("07ff0d20243d3d", current_year=2026)
+    short = chunk_info.parse_time("00", current_year=2026)
+
+    assert collect_with_emoji(chunk_report.render_time, valid, 2026) == [
+        "-Last Modified: <white>21</white>/<white>5</white>/<white>2024</white> "
+        "<white>17</white>:<white>34</white>:<white>51</white>",
+    ]
+    assert collect_with_emoji(chunk_report.render_time, invalid, 2026) == [
+        "-Last Modified: <white>32</white>/<white>13</white>/<white>2047</white> "
+        "<white>36</white>:<white>61</white>:<white>61</white>",
+        "-Year is > than current year    : <red>2047</red> :bad:",
+        "-Month value is not valid   : <red>13</red> :bad:",
+        "-Day value is not valid      : <red>32</red> :bad:",
+        "-Hour value is not valid     : <red>36</red> :bad:",
+        "-Minute value is not valid  : <red>61</red> :bad:",
+        "-Second  value is not valid : <red>61</red> :bad:",
+    ]
+    assert collect_with_emoji(chunk_report.render_time, short, 2026) == [
+        "-tIME <red>Not enough bytes</red> inside tIME data.:bad:",
+    ]
+
+
+def test_render_srgb_reports_intent_and_chrm_override():
+    valid = chunk_info.parse_srgb("02")
+    invalid = chunk_info.parse_srgb("04")
+
+    assert collect_with_emoji(chunk_report.render_srgb, valid, False) == [
+        "-Rendering Saturation :<yellow>2</yellow>",
+    ]
+    assert collect_with_emoji(chunk_report.render_srgb, invalid, True) == [
+        "-<red>Wrong</red> sRGB value must be between 0 to 3. :bad:",
+        "-<red>cHRM</red> already present cHRM will be <red>overide</red> "
+        "if reconized by decoders :bad:",
+    ]
+
+
+def test_render_gama_reports_zero_as_useless():
+    info = chunk_info.parse_gama("00000000")
+
+    assert collect(chunk_report.render_gama, info) == [
+        "-Gama   :<white>0</white>",
+        "-A gAMA Chunk of <red>0</red> is Useless.",
+    ]
+
+
 def test_render_pcal_reports_legacy_fields():
     info = chunk_info.parse_pcal(
         "43616c00"
@@ -107,6 +191,10 @@ def main():
         ("PLTE counts", test_render_palette_groups_report_counts),
         ("sPLT counts", test_render_splt_reports_name_and_component_counts),
         ("tRNS fields", test_render_trns_reports_truecolor_and_indexes),
+        ("pHYs fields", test_render_phys_reports_fields_and_legacy_validation_messages),
+        ("tIME fields", test_render_time_reports_timestamp_and_invalid_values),
+        ("sRGB fields", test_render_srgb_reports_intent_and_chrm_override),
+        ("gAMA fields", test_render_gama_reports_zero_as_useless),
         ("pCAL fields", test_render_pcal_reports_legacy_fields),
     ]
 
