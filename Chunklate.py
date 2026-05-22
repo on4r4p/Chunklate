@@ -40,7 +40,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, chunk_info, chunk_report, chunk_state, decisions, dummy_chunk, fixit_felix, output, palette, palette_ui, prompts, relics, specs, writer
+from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, decisions, dummy_chunk, fixit_felix, output, palette, palette_ui, prompts, relics, specs, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -4930,7 +4930,7 @@ def CheckChunkOrder(lastchunk, mode):
     ToFix = []
 
     try:
-        lastchunk = lastchunk.encode(errors="ignore")
+        lastchunk = chunk_order.as_chunk_bytes(lastchunk)
     except AttributeError as e:
         Betterror(e, inspect.stack()[0][3])
         #      PRINT(Candy("Color","red","Error:"),Candy("Color","yellow",e))
@@ -4938,13 +4938,12 @@ def CheckChunkOrder(lastchunk, mode):
     if mode == "Critical":
 
         Candy("Title", "Critical Chunks Check :")
-        for chnk in MINIMAL_CHUNKS:
-            if chnk not in Chunks_History:
-                PRINT(
-                    "-Critical Chunk %s is %s !"
-                    % (chnk, Candy("Color", "red", "Missing"))
-                )
-                ToFix.append("-Critical Chunk %s is Missing" % chnk)
+        for chnk in chunk_order.missing_critical_chunks(Chunks_History, MINIMAL_CHUNKS):
+            PRINT(
+                "-Critical Chunk %s is %s !"
+                % (chnk, Candy("Color", "red", "Missing"))
+            )
+            ToFix.append("-Critical Chunk %s is Missing" % chnk)
         if len(ToFix) > 0:
             CheckPoint(True, False, "CheckChunkOrder", "Critical", ToFix)
             # TheEnd()
@@ -4960,8 +4959,8 @@ def CheckChunkOrder(lastchunk, mode):
         Candy("Title", "Missplaced Chunks Check:")
 
         Done = False
-        Used_Chunks = list(dict.fromkeys(Chunks_History))
-        Excluded = [used for used in Used_Chunks if used in UNIQUE_CHUNK]
+        Used_Chunks = list(chunk_order.unique_seen_chunks(Chunks_History))
+        Excluded = list(chunk_order.unique_chunk_exclusions(Used_Chunks, UNIQUE_CHUNK))
         #        PRINT(Excluded)
         Candy(
             "Cowsay",
@@ -4972,111 +4971,91 @@ def CheckChunkOrder(lastchunk, mode):
             "good",
         )
 
-        if lastchunk in UNIQUE_CHUNK:
-            if lastchunk in Excluded:
-                PRINT(
-                    "-%s chunk %s be used multiple times."
-                    % (
-                        Candy("Color", "red", lastchunk.decode(errors="ignore")),
-                        Candy("Color", "red", "cannot"),
-                    )
+        if chunk_order.legacy_flags_unique_chunk_as_multiple(lastchunk, Excluded, UNIQUE_CHUNK):
+            PRINT(
+                "-%s chunk %s be used multiple times."
+                % (
+                    Candy("Color", "red", lastchunk.decode(errors="ignore")),
+                    Candy("Color", "red", "cannot"),
                 )
-                ToFix.append("-Multiple")
+            )
+            ToFix.append("-Multiple")
 
-        if len(Chunks_History) > 0:
-            if Chunks_History[0] != b"PNG":
+        if chunk_order.png_signature_is_misplaced(Chunks_History):
+            PRINT(
+                "-PNG signature have to be placed %s all the other chunks. %s"
+                % (Candy("Color", "red", "Before"), Candy("Emoj", "bad"))
+            )
+            ToFix.append("-Missplaced")
+        if chunk_order.ihdr_is_misplaced(Chunks_History):
+            Done = chunk_order.ihdr_misplacement_already_recorded(PandoraBox)
+
+            if Done is False:
                 PRINT(
-                    "-PNG signature have to be placed %s all the other chunks. %s"
-                    % (Candy("Color", "red", "Before"), Candy("Emoj", "bad"))
-                )
-                ToFix.append("-Missplaced")
-        if len(Chunks_History) > 1:
-            if Chunks_History[1] != b"IHDR":
-                for nb, key in enumerate(PandoraBox):
-                    if "Should be IHDR Instead At Chunk Number:" in str(key):
-                        Done = True
-                        break
-
-                if Done is False:
-                    PRINT(
-                        "-IHDR Chunk have to be placed %s and after Png Signature. %s"
-                        % (
-                            Candy("Color", "red", "Before all the other chunks"),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-
-                    return CheckPoint(
-                        True,
-                        False,
-                        "CheckChunkOrder",
-                        Chunks_History[-1],
-                        [
-                            "-Missplaced [%s] Should be IHDR Instead At Chunk Number:%s"
-                            % (Chunks_History[-1], str(len(Chunks_History) - 1))
-                        ],
-                        Chunks_History[-1],
-                        len(Chunks_History) - 1,
-                        b"IHDR",
-                    )
-
-                elif DEBUG is True:
-                    PRINT(
-                        "-Already Saved : Missplaced [%s]:Should be IHDR Instead At Chunk Number:%s"
-                        % (Chunks_History[-1], str(len(Chunks_History) - 1))
-                    )
-                    if PAUSEDEBUG is True:
-                        Pause("Pause Debug")
-
-        if b"PLTE" in Used_Chunks:
-            if lastchunk in BEFORE_PLTE:
-                shutup = [
-                    Excluded.append(forbid)
-                    for forbid in CHUNKS
-                    if forbid in BEFORE_PLTE
-                ]
-                if lastchunk in Excluded:
-                    PRINT(
-                        "-%s  %s must appears before PLTE Chunk. %s"
-                        % (
-                            Candy(
-                                "Color",
-                                "red",
-                                lastchunk.decode(errors="ignore") + " is missplaced",
-                            ),
-                            lastchunk.decode(errors="ignore"),
-                            Candy("Emoj", "bad"),
-                        )
-                    )
-                    # PRINT(Excluded)
-                    ToFix.append(
-                        "-"
-                        + lastchunk.decode(errors="ignore")
-                        + " is missplaced must appears before PLTE Chunk"
-                    )
-
-        if b"IDAT" not in Used_Chunks:
-            pass
-
-        if b"IDAT" in Used_Chunks:
-            shutup = [
-                Excluded.append(forbid) for forbid in CHUNKS if forbid in BEFORE_IDAT2
-            ]
-            if lastchunk in Excluded:
-                PRINT(
-                    "-%s  %s must be before IDAT Chunk. %s"
+                    "-IHDR Chunk have to be placed %s and after Png Signature. %s"
                     % (
-                        Candy(
-                            "Color",
-                            "red",
-                            lastchunk.decode(errors="ignore") + " is missplaced",
-                        ),
-                        lastchunk.decode(errors="ignore"),
+                        Candy("Color", "red", "Before all the other chunks"),
                         Candy("Emoj", "bad"),
                     )
                 )
-                # PRINT(Excluded)
-                ToFix.append("-Missplaced")
+
+                return CheckPoint(
+                    True,
+                    False,
+                    "CheckChunkOrder",
+                    Chunks_History[-1],
+                    [
+                        "-Missplaced [%s] Should be IHDR Instead At Chunk Number:%s"
+                        % (Chunks_History[-1], str(len(Chunks_History) - 1))
+                    ],
+                    Chunks_History[-1],
+                    len(Chunks_History) - 1,
+                    b"IHDR",
+                )
+
+            elif DEBUG is True:
+                PRINT(
+                    "-Already Saved : Missplaced [%s]:Should be IHDR Instead At Chunk Number:%s"
+                    % (Chunks_History[-1], str(len(Chunks_History) - 1))
+                )
+                if PAUSEDEBUG is True:
+                    Pause("Pause Debug")
+
+        if chunk_order.must_appear_before_plte(lastchunk, Used_Chunks, BEFORE_PLTE):
+            PRINT(
+                "-%s  %s must appears before PLTE Chunk. %s"
+                % (
+                    Candy(
+                        "Color",
+                        "red",
+                        lastchunk.decode(errors="ignore") + " is missplaced",
+                    ),
+                    lastchunk.decode(errors="ignore"),
+                    Candy("Emoj", "bad"),
+                )
+            )
+            # PRINT(Excluded)
+            ToFix.append(
+                "-"
+                + lastchunk.decode(errors="ignore")
+                + " is missplaced must appears before PLTE Chunk"
+            )
+
+        if chunk_order.must_appear_before_idat(lastchunk, Used_Chunks, Excluded, BEFORE_IDAT2):
+            PRINT(
+                "-%s  %s must be before IDAT Chunk. %s"
+                % (
+                    Candy(
+                        "Color",
+                        "red",
+                        lastchunk.decode(errors="ignore") + " is missplaced",
+                    ),
+                    lastchunk.decode(errors="ignore"),
+                    Candy("Emoj", "bad"),
+                )
+            )
+            # PRINT(Excluded)
+            ToFix.append("-Missplaced")
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "CheckChunkOrder", "Missplaced", ToFix)
@@ -5096,18 +5075,19 @@ def CheckChunkOrder(lastchunk, mode):
     if mode == "Fix":
 
         Candy("Title", "Checking Already Used Chunks :")
-        if Chunks_History[0] == b"PNG" and len(Chunks_History) == 1:
+        Header_Exclusions = chunk_order.only_ihdr_allowed_after_png_header(Chunks_History, CHUNKS)
+        if Header_Exclusions is not None:
 
             Candy(
                 "Cowsay",
                 " After Png Header always Follow IHDR this is quite hard to miss..Excluding evrything else",
                 "com",
             )
-            Excluded = [exclude for exclude in CHUNKS if exclude != b"IHDR"]
+            Excluded = list(Header_Exclusions)
             return Excluded
 
-        Used_Chunks = list(dict.fromkeys(Chunks_History))
-        Excluded = [used for used in Used_Chunks if used in UNIQUE_CHUNK]
+        Used_Chunks = list(chunk_order.unique_seen_chunks(Chunks_History))
+        Excluded = list(chunk_order.unique_chunk_exclusions(Used_Chunks, UNIQUE_CHUNK))
         Candy(
             "Cowsay",
             " So far we came across those chunks in "
