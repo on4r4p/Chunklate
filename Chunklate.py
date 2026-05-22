@@ -2243,7 +2243,7 @@ def Candy(mode, arg, data=None):
             )
         )
         if PAUSEDIALOGUE is True:
-            pause = input("-Pause Dialogue-")
+            prompts.pause_dialogue(input, PAUSEDIALOGUE)
 
     if mode == "Title":
         if NODIALOGUE:

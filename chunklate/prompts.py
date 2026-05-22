@@ -6,6 +6,7 @@ from . import decisions
 
 
 POKEMON_PROMPT = "WHO'S THAT POKEMON !? :"
+DIALOGUE_PAUSE_PROMPT = "-Pause Dialogue-"
 
 InputFunc = Callable[[str], str]
 InvalidChoiceCallback = Callable[[str], None]
@@ -35,3 +36,14 @@ def pause(asker: InputFunc, msg: str, *, on_eof: PauseEofCallback | None = None)
         if on_eof is not None:
             on_eof(exc)
         return None
+
+
+def pause_dialogue(
+    asker: InputFunc,
+    enabled: bool,
+    *,
+    prompt: str = DIALOGUE_PAUSE_PROMPT,
+) -> str | None:
+    if not enabled:
+        return None
+    return asker(prompt)
