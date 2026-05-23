@@ -4834,7 +4834,7 @@ def Relics_Try_Current_Wrong_Crc_Fix():
             uniqh = relics.question_hash(PandoraBox, key, chkd)
             Answer = Question(id=key,idhash=uniqh)
             if Answer is True:
-                return True, Relics_Run_Save_Clone_Plan(
+                return True, Run_Save_Clone_Plan(
                     relics.wrong_crc_save_clone_plan(CrcTools)
                 )
 
@@ -4848,10 +4848,6 @@ def Run_Save_Clone_Plan(SavePlan):
         SavePlan.end,
         SavePlan.info,
     )
-
-
-def Relics_Run_Save_Clone_Plan(SavePlan):
-    return Run_Save_Clone_Plan(SavePlan)
 
 
 def Relics_Run_Wrong_Crc_Brawl_Plan(BrawlPlan):
@@ -4900,10 +4896,6 @@ def Relics_Run_Full_Chunk_Forcer_Plan(ForcerPlan):
         ForcerPlan.end,
         ForcerPlan.from_error,
     )
-
-
-def Relics_Plte_Window():
-    return relics.plte_chunk_window(Chunks_History, Chunks_History_Index)
 
 
 def Relics_Run_Plte_Manual_Plan(PltePlan):
@@ -5002,7 +4994,9 @@ def Relics_Handle_Plte():
                     Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk but trust me this is useless as it wont work..", "com") ## no you should not it wont work
 
                     Answer = Relics_Ask_Plte_Repair(False)
-                    PlteWindow = Relics_Plte_Window()
+                    PlteWindow = relics.plte_chunk_window(
+                        Chunks_History, Chunks_History_Index
+                    )
 
                     if Answer == "manually":
                         if PlteWindow is not None:
@@ -5033,7 +5027,9 @@ def Relics_Handle_Plte():
                     Candy("Cowsay", "Perhaps i could just remove that PLTE chunk but no it just wont work ..", "com")  ## no you should not it wont work
 
                     Answer = Relics_Ask_Plte_Repair(True)
-                    PlteWindow = Relics_Plte_Window()
+                    PlteWindow = relics.plte_chunk_window(
+                        Chunks_History, Chunks_History_Index
+                    )
 
                     if Answer == "bruteforce": ##Maybe ask Relic() first
 
@@ -5075,7 +5071,9 @@ def Relics_Handle_Plte():
                 )
                 Answer = Question()
                 if Answer is True:
-                    PlteWindow = Relics_Plte_Window()
+                    PlteWindow = relics.plte_chunk_window(
+                        Chunks_History, Chunks_History_Index
+                    )
                     if PlteWindow is not None:
                         return True, Relics_Run_Plte_Brawl_Plan(
                             relics.plte_brawl_plan(
