@@ -2291,21 +2291,23 @@ def SmashBruteBrawl(
     def ValidateAttempt(attempt, edit_kind=None, bonus=False):
         nonlocal BrawlState, fullnewdatax, wanabyte
 
-        if OldCrc:
-            if not attempt.old_crc_match:
-                return False
-        else:
+        viewer_ok = True
+        if not OldCrc:
             fullnewdatax = attempt.full_new_data
             wanabyte = attempt.png_bytes
-            if not ShowPng(wanabyte, fullnewdatax):
-                return False
+            viewer_ok = ShowPng(wanabyte, fullnewdatax)
 
-        applied_attempt = bruteforce.apply_candidate_attempt_match(
+        applied_attempt = bruteforce.apply_validated_candidate_attempt(
             BrawlState,
             attempt,
             edit_kind,
             bonus=bonus,
+            old_crc=OldCrc,
+            viewer_ok=viewer_ok,
         )
+        if applied_attempt is None:
+            return False
+
         BrawlState = applied_attempt.state
         fullnewdatax = applied_attempt.full_new_data
         wanabyte = applied_attempt.png_bytes

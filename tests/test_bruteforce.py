@@ -248,6 +248,80 @@ def test_apply_candidate_attempt_match_returns_state_and_attempt_bytes():
     )
 
 
+def test_apply_validated_candidate_attempt_preserves_viewer_acceptance_gate():
+    attempt = bruteforce.BruteForceCandidateAttempt(
+        checksum=b"crc",
+        full_new_data=b"full",
+        png_bytes=b"png",
+        old_crc_match=False,
+    )
+
+    assert (
+        bruteforce.apply_validated_candidate_attempt(
+            bruteforce.BruteForceMatchState(),
+            attempt,
+            "insert",
+            viewer_ok=False,
+        )
+        is None
+    )
+    assert bruteforce.apply_validated_candidate_attempt(
+        bruteforce.BruteForceMatchState(),
+        attempt,
+        "insert",
+        viewer_ok=True,
+    ) == bruteforce.BruteForceAppliedAttempt(
+        state=bruteforce.BruteForceMatchState(
+            bingo=True,
+            insert_flag=True,
+        ),
+        full_new_data=b"full",
+        png_bytes=b"png",
+    )
+
+
+def test_apply_validated_candidate_attempt_preserves_old_crc_gate():
+    mismatch = bruteforce.BruteForceCandidateAttempt(
+        checksum=b"crc",
+        full_new_data=b"full",
+        png_bytes=b"png",
+        old_crc_match=False,
+    )
+    match = bruteforce.BruteForceCandidateAttempt(
+        checksum=b"crc",
+        full_new_data=b"full",
+        png_bytes=b"png",
+        old_crc_match=True,
+    )
+
+    assert (
+        bruteforce.apply_validated_candidate_attempt(
+            bruteforce.BruteForceMatchState(),
+            mismatch,
+            "replace",
+            old_crc=b"crc",
+            viewer_ok=True,
+        )
+        is None
+    )
+    assert bruteforce.apply_validated_candidate_attempt(
+        bruteforce.BruteForceMatchState(),
+        match,
+        "replace",
+        bonus=True,
+        old_crc=b"crc",
+        viewer_ok=False,
+    ) == bruteforce.BruteForceAppliedAttempt(
+        state=bruteforce.BruteForceMatchState(
+            bingo=True,
+            replace_flag=True,
+            bonus=True,
+        ),
+        full_new_data=b"full",
+        png_bytes=b"png",
+    )
+
+
 def test_twobytes_candidate_data_preserves_replace_insert_remove_slices():
     to_brute = "0011223344"
     brute_bytes = b"\xaa"
@@ -449,6 +523,8 @@ def main():
         ("Mark candidate match", test_mark_candidate_match_sets_bingo_and_preserves_existing_flags),
         ("Mark unflagged bonus match", test_mark_candidate_match_can_preserve_legacy_unflagged_bonus_match),
         ("Apply candidate attempt match", test_apply_candidate_attempt_match_returns_state_and_attempt_bytes),
+        ("Validated attempt viewer gate", test_apply_validated_candidate_attempt_preserves_viewer_acceptance_gate),
+        ("Validated attempt old CRC gate", test_apply_validated_candidate_attempt_preserves_old_crc_gate),
         ("TwoBytes candidate data", test_twobytes_candidate_data_preserves_replace_insert_remove_slices),
         ("TwoBytes IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_idat_all_modes),
         ("TwoBytes non-IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_non_idat_requested_mode),

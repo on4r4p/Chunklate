@@ -280,6 +280,29 @@ def apply_candidate_attempt_match(
     )
 
 
+def apply_validated_candidate_attempt(
+    state: BruteForceMatchState,
+    attempt: BruteForceCandidateAttempt,
+    edit_kind: str | None = None,
+    *,
+    bonus: bool = False,
+    old_crc: Any = False,
+    viewer_ok: bool = True,
+) -> BruteForceAppliedAttempt | None:
+    if old_crc:
+        if not attempt.old_crc_match:
+            return None
+    elif not viewer_ok:
+        return None
+
+    return apply_candidate_attempt_match(
+        state,
+        attempt,
+        edit_kind,
+        bonus=bonus,
+    )
+
+
 def twobytes_candidate_data(
     to_brute: str,
     brute_bytes: bytes,
