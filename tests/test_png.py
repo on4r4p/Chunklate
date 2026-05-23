@@ -26,6 +26,7 @@ from chunklate.png import (
     legacy_crc_debug_lines,
     legacy_crc_decision,
     legacy_crc_monkey_lines,
+    legacy_find_magic_checkpoint_args,
     legacy_chunk_window,
     legacy_length_checkpoint_args,
     legacy_length_decision,
@@ -102,6 +103,45 @@ def test_detect_png_signature_recovery_falls_back_to_deep_search():
     assert recovery.action == "search_deeper"
     assert recovery.signature_offset is None
     assert recovery.fixed_data is None
+
+
+def test_legacy_find_magic_checkpoint_args_preserve_found_signature_call_shape():
+    recovery = detect_png_signature_recovery(PNG_SIGNATURE + b"tail")
+
+    assert legacy_find_magic_checkpoint_args(recovery, len(PNG_SIGNATURE.hex())) == (
+        False,
+        False,
+        "FindMagic",
+        "PngSig",
+        ["-Found Magic"],
+        len(PNG_SIGNATURE.hex()),
+    )
+
+
+def test_legacy_find_magic_checkpoint_args_preserve_cut_signature_call_shape():
+    recovery = detect_png_signature_recovery(b"junk" + PNG_SIGNATURE + b"tail")
+
+    assert legacy_find_magic_checkpoint_args(recovery, len(PNG_SIGNATURE.hex())) == (
+        False,
+        False,
+        "FindMagic",
+        "PngSig",
+        ["Cutting at Magic"],
+        (PNG_SIGNATURE + b"tail").hex(),
+        "0x4",
+    )
+
+
+def test_legacy_find_magic_checkpoint_args_preserve_deep_search_call_shape():
+    recovery = detect_png_signature_recovery(b"not a png")
+
+    assert legacy_find_magic_checkpoint_args(recovery, len(PNG_SIGNATURE.hex())) == (
+        False,
+        False,
+        "FindMagic",
+        "PngSig",
+        ["-dig a little bit deeper"],
+    )
 
 
 def test_crc_mismatch_is_exposed_without_stopping_parse():
@@ -723,6 +763,18 @@ def main():
         (
             "Detect PNG signature recovery falls back to deep search",
             test_detect_png_signature_recovery_falls_back_to_deep_search,
+        ),
+        (
+            "Legacy FindMagic checkpoint args for found signature",
+            test_legacy_find_magic_checkpoint_args_preserve_found_signature_call_shape,
+        ),
+        (
+            "Legacy FindMagic checkpoint args for cut signature",
+            test_legacy_find_magic_checkpoint_args_preserve_cut_signature_call_shape,
+        ),
+        (
+            "Legacy FindMagic checkpoint args for deep search",
+            test_legacy_find_magic_checkpoint_args_preserve_deep_search_call_shape,
         ),
         ("Expose CRC mismatch without stopping parse", test_crc_mismatch_is_exposed_without_stopping_parse),
         ("Missing PNG signature raises PngFormatError", test_missing_signature_raises_format_error),

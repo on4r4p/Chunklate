@@ -406,6 +406,40 @@ def legacy_length_checkpoint_args(
     )
 
 
+def legacy_find_magic_checkpoint_args(
+    recovery: PngSignatureRecovery,
+    magic_hex_length: int,
+) -> tuple[object, ...]:
+    if recovery.action == "found_at_start":
+        return (
+            False,
+            False,
+            "FindMagic",
+            "PngSig",
+            ["-Found Magic"],
+            recovery.signature_hex_offset + magic_hex_length,
+        )
+
+    if recovery.action == "cut_at_signature":
+        return (
+            False,
+            False,
+            "FindMagic",
+            "PngSig",
+            ["Cutting at Magic"],
+            recovery.fixed_data.hex(),
+            hex(int(recovery.signature_hex_offset / 2)),
+        )
+
+    return (
+        False,
+        False,
+        "FindMagic",
+        "PngSig",
+        ["-dig a little bit deeper"],
+    )
+
+
 def legacy_crc_decision(raw_type_hex: str, raw_data_hex: str, raw_crc_hex: str) -> LegacyCrcDecision:
     chunk_type = bytes.fromhex(raw_type_hex)
     chunk_data = bytes.fromhex(raw_data_hex)

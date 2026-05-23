@@ -47,6 +47,7 @@ from chunklate.png import (
     legacy_crc_decision,
     legacy_crc_debug_lines,
     legacy_crc_monkey_lines,
+    legacy_find_magic_checkpoint_args,
     legacy_length_checkpoint_args,
     legacy_length_decision,
 )
@@ -2370,19 +2371,9 @@ def FindMagic():
                     Candy("Color", "blue", hex(int(pos / 2))),
                 )
             )
-            return CheckPoint(
-                False,
-                False,
-                "FindMagic",
-                "PngSig",
-                ["Cutting at Magic"],
-                MagicRecovery.fixed_data.hex(),
-                hex(int(pos / 2)),
-            )
+            return CheckPoint(*legacy_find_magic_checkpoint_args(MagicRecovery, lenmagic))
 
-        return CheckPoint(
-            False, False, "FindMagic", "PngSig", ["-Found Magic"], pos + lenmagic
-        )
+        return CheckPoint(*legacy_find_magic_checkpoint_args(MagicRecovery, lenmagic))
 
     PRINT(
         "-File %s start with valid png signature .%s\n"
@@ -2428,9 +2419,7 @@ def FindMagic():
             TheEnd()
 
     Candy("Cowsay", " Ok let's dig a little bit deeper..", "bad")
-    return CheckPoint(
-        False, False, "FindMagic", "PngSig", ["-dig a little bit deeper"]
-    )
+    return CheckPoint(*legacy_find_magic_checkpoint_args(MagicRecovery, lenmagic))
 
 
 def FindFuckingMagic():
