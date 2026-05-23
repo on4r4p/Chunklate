@@ -585,6 +585,19 @@ def twobytes_bonus_edit_kind(old_crc: Any, edit_kind: str) -> str | None:
     return edit_kind
 
 
+def twobytes_scan_has_window(
+    to_brute: str,
+    brute_hex_len: int,
+    needle: int,
+    state: BruteForceMatchState,
+) -> bool:
+    return (
+        brute_hex_len <= len(to_brute)
+        and needle < len(to_brute) - (brute_hex_len - 1)
+        and state.bingo is False
+    )
+
+
 def build_candidate_bytes(
     candidate: Any,
     chunk_format: list[str] | tuple[str, ...],

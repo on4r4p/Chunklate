@@ -2439,53 +2439,50 @@ def SmashBruteBrawl(
             if BfMode == "TwoBytes": 
                 needle = 0
                 needle2 = len(bvalue.hex())
-                while needle2 <= len(ToBrute) and BrawlState.bingo is False:
-                     if needle < len(ToBrute) - (needle2 - 1) and BrawlState.bingo is False:
+                while bruteforce.twobytes_scan_has_window(ToBrute, needle2, needle, BrawlState):
 
-                          Minibar(Indication="%s/%s"%(n,max_iter)) 
-                           ##TODO maybe it would be better to just check Replace/Insert/Remove all in the same time.
-                          direct_match = False
-                          for edit_kind in bruteforce.iter_twobytes_edit_kinds(EditMode, ChunkName):
-                              candidate_data = bruteforce.twobytes_candidate_data(
-                                  ToBrute,
-                                  bvalue,
-                                  needle,
-                                  edit_kind,
-                              )
-                              newdatax = candidate_data.data
-                              bonusdatax = candidate_data.bonus_hex
-                              Lnx_New = candidate_data.length_bytes
-                              attempt = BuildAttempt(Lnx_New, bvalue, newdatax, Before_New, After_New)
+                     Minibar(Indication="%s/%s"%(n,max_iter))
+                      ##TODO maybe it would be better to just check Replace/Insert/Remove all in the same time.
+                     direct_match = False
+                     for edit_kind in bruteforce.iter_twobytes_edit_kinds(EditMode, ChunkName):
+                         candidate_data = bruteforce.twobytes_candidate_data(
+                             ToBrute,
+                             bvalue,
+                             needle,
+                             edit_kind,
+                         )
+                         newdatax = candidate_data.data
+                         bonusdatax = candidate_data.bonus_hex
+                         Lnx_New = candidate_data.length_bytes
+                         attempt = BuildAttempt(Lnx_New, bvalue, newdatax, Before_New, After_New)
 
-                              if ValidateAttempt(attempt, edit_kind):
-                                  direct_match = True
-                                  break
+                         if ValidateAttempt(attempt, edit_kind):
+                             direct_match = True
+                             break
 
-                              ##Bonus Stage
-                              if Brute_LvL > 0:
-                                  for newdataxplus in bruteforce.iter_twobytes_bonus_data(
-                                      bonusdatax,
-                                      new_data_len=len(newdatax),
-                                      skipped_hex_offset=needle,
-                                      skipped_hex_len=len(bvalue.hex()),
-                                  ):
-                                      Minibar(Indication="%s/%s"%(n,max_iter))
-                                      Lnx_New = len(newdataxplus).to_bytes(4, "big")
-                                      attempt = BuildAttempt(Lnx_New, newdataxplus, newdataxplus, Before_New, After_New)
-                                      bonus_edit_kind = bruteforce.twobytes_bonus_edit_kind(OldCrc, edit_kind)
+                         ##Bonus Stage
+                         if Brute_LvL > 0:
+                             for newdataxplus in bruteforce.iter_twobytes_bonus_data(
+                                 bonusdatax,
+                                 new_data_len=len(newdatax),
+                                 skipped_hex_offset=needle,
+                                 skipped_hex_len=len(bvalue.hex()),
+                             ):
+                                 Minibar(Indication="%s/%s"%(n,max_iter))
+                                 Lnx_New = len(newdataxplus).to_bytes(4, "big")
+                                 attempt = BuildAttempt(Lnx_New, newdataxplus, newdataxplus, Before_New, After_New)
+                                 bonus_edit_kind = bruteforce.twobytes_bonus_edit_kind(OldCrc, edit_kind)
 
-                                      if ValidateAttempt(attempt, bonus_edit_kind, bonus=True):
-                                          if bonus_edit_kind is None:
-                                              print("-Bingo replace bonus stage")
-                                          break
+                                 if ValidateAttempt(attempt, bonus_edit_kind, bonus=True):
+                                     if bonus_edit_kind is None:
+                                         print("-Bingo replace bonus stage")
+                                     break
 
-                          if direct_match:
-                              break
+                     if direct_match:
+                         break
 
-                          ##masterloop
-                          needle += 2
-                     else:
-                          break
+                     ##masterloop
+                     needle += 2
 
             else:
                  attempt = BuildAttempt(Lnx_New, bvalue, bvalue, Before_New, After_New)
