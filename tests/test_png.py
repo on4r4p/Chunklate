@@ -22,6 +22,7 @@ from chunklate.png import (
     iter_chunks,
     is_complete_png_with_valid_crc,
     known_bad_srgb_profile_warning,
+    legacy_crc_checkpoint_args,
     legacy_crc_debug_lines,
     legacy_crc_decision,
     legacy_crc_monkey_lines,
@@ -284,6 +285,55 @@ def test_legacy_crc_monkey_lines_preserve_checksum_mismatch_output():
     assert legacy_crc_monkey_lines("<green:0x1234>", "<red:0x0>") == (
         "\nMonkey wanted Banana :<green:0x1234>",
         "Monkey got Pullover :<red:0x0>",
+    )
+
+
+def test_legacy_crc_checkpoint_args_preserve_valid_crc_call_shape():
+    stored_crc = zlib.crc32(b"IDAT" + b"abc").to_bytes(4, "big").hex()
+    decision = legacy_crc_decision("49444154", "616263", stored_crc)
+
+    assert legacy_crc_checkpoint_args(
+        decision,
+        crc_offset=40,
+        original_chunk_type=b"IDAT",
+        crc_offset_hex="0x28",
+        original_crc=stored_crc,
+        original_length="00000003",
+        data_offset=16,
+    ) == (
+        False,
+        False,
+        "Checksum",
+        b"IDAT",
+        ["-Crc is correct"],
+    )
+
+
+def test_legacy_crc_checkpoint_args_preserve_invalid_crc_call_shape():
+    decision = legacy_crc_decision("49444154", "616263", "00000000")
+
+    assert legacy_crc_checkpoint_args(
+        decision,
+        crc_offset=40,
+        original_chunk_type=b"IDAT",
+        crc_offset_hex="0x28",
+        original_crc="00000000",
+        original_length="00000003",
+        data_offset=16,
+    ) == (
+        True,
+        False,
+        "Checksum",
+        b"IDAT",
+        ["-Wrong Crc b'IDAT'"],
+        decision.normalized_computed_crc_no_prefix,
+        40,
+        48,
+        b"IDAT",
+        "0x28",
+        "00000000",
+        3,
+        16,
     )
 
 
@@ -700,6 +750,14 @@ def main():
         ("Legacy CRC decision matches checksum wrapper values", test_legacy_crc_decision_matches_checksum_wrapper_values),
         ("Legacy CRC debug lines", test_legacy_crc_debug_lines_preserve_checksum_debug_output),
         ("Legacy CRC monkey lines", test_legacy_crc_monkey_lines_preserve_checksum_mismatch_output),
+        (
+            "Legacy CRC checkpoint args for valid CRC",
+            test_legacy_crc_checkpoint_args_preserve_valid_crc_call_shape,
+        ),
+        (
+            "Legacy CRC checkpoint args for invalid CRC",
+            test_legacy_crc_checkpoint_args_preserve_invalid_crc_call_shape,
+        ),
         ("Find original chunk name from CRC", test_chunk_type_crc_matches_finds_original_name),
         ("Validate PNG structure accepts valid fixture", test_validate_png_structure_accepts_valid_fixture),
         ("Validate PNG structure rejects prefixed PNG output", test_validate_png_structure_rejects_prefixed_png_output),

@@ -46,6 +46,7 @@ from chunklate.png import (
     detect_png_signature_recovery,
     iter_chunks,
     known_bad_srgb_profile_warning,
+    legacy_crc_checkpoint_args,
     legacy_crc_decision,
     legacy_crc_debug_lines,
     legacy_crc_monkey_lines,
@@ -4214,11 +4215,15 @@ def Checksum(Ctype, Cdata, Crc, next=None):
         if next == None:
             ChunkStory("add", Ctype, CLoffI, CrcoffI + 8, int(Orig_CL, 16))
         return CheckPoint(
-            False,
-            False,
-            "Checksum",
-            Ctype,
-            ["-Crc is correct"],
+            *legacy_crc_checkpoint_args(
+                CrcDecision,
+                CrcoffI,
+                Orig_CT,
+                CrcoffX,
+                Orig_CRC,
+                Orig_CL,
+                CDoffI,
+            )
         )
     else:
         PRINT(
@@ -4248,19 +4253,15 @@ def Checksum(Ctype, Cdata, Crc, next=None):
             ChunkStory("add", Ctype, CLoffI, CrcoffI + 8, int(Orig_CL, 16))
 
         return CheckPoint(
-            True,
-            False,
-            "Checksum",
-            Ctype,
-            ["-Wrong Crc %s"%str(Ctype)],
-            CrcDecision.normalized_computed_crc_no_prefix,
-            CrcoffI,
-            CrcoffI + 8,
-            Orig_CT,
-            CrcoffX,
-            Orig_CRC,
-            int(Orig_CL, 16),
-            CDoffI,
+            *legacy_crc_checkpoint_args(
+                CrcDecision,
+                CrcoffI,
+                Orig_CT,
+                CrcoffX,
+                Orig_CRC,
+                Orig_CL,
+                CDoffI,
+            )
         )
 
 

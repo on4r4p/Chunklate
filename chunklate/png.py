@@ -433,6 +433,41 @@ def legacy_crc_monkey_lines(wanted: str, got: str) -> tuple[str, str]:
     )
 
 
+def legacy_crc_checkpoint_args(
+    decision: LegacyCrcDecision,
+    crc_offset: int,
+    original_chunk_type: bytes,
+    crc_offset_hex: str,
+    original_crc: str,
+    original_length: str,
+    data_offset: int,
+) -> tuple[object, ...]:
+    if decision.ok:
+        return (
+            False,
+            False,
+            "Checksum",
+            decision.chunk_type,
+            ["-Crc is correct"],
+        )
+
+    return (
+        True,
+        False,
+        "Checksum",
+        decision.chunk_type,
+        ["-Wrong Crc %s" % str(decision.chunk_type)],
+        decision.normalized_computed_crc_no_prefix,
+        crc_offset,
+        crc_offset + 8,
+        original_chunk_type,
+        crc_offset_hex,
+        original_crc,
+        int(original_length, 16),
+        data_offset,
+    )
+
+
 def chunk_type_crc_matches(chunk_data: bytes, stored_crc: int, candidates: Iterable[bytes]) -> list[bytes]:
     return [
         chunk_type
