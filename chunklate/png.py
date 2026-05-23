@@ -398,6 +398,13 @@ def legacy_crc_debug_lines(decision: LegacyCrcDecision) -> tuple[str, str]:
     )
 
 
+def legacy_crc_monkey_lines(wanted: str, got: str) -> tuple[str, str]:
+    return (
+        "\nMonkey wanted Banana :%s" % wanted,
+        "Monkey got Pullover :%s" % got,
+    )
+
+
 def chunk_type_crc_matches(chunk_data: bytes, stored_crc: int, candidates: Iterable[bytes]) -> list[bytes]:
     return [
         chunk_type

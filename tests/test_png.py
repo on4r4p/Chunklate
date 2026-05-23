@@ -24,6 +24,7 @@ from chunklate.png import (
     known_bad_srgb_profile_warning,
     legacy_crc_debug_lines,
     legacy_crc_decision,
+    legacy_crc_monkey_lines,
     legacy_chunk_window,
     legacy_length_decision,
     legacy_length_status,
@@ -236,6 +237,13 @@ def test_legacy_crc_debug_lines_preserve_checksum_debug_output():
     assert legacy_crc_debug_lines(decision) == (
         "-Crc from file: %s" % decision.computed_crc_hex,
         "-Actual Crc: 0x0\n",
+    )
+
+
+def test_legacy_crc_monkey_lines_preserve_checksum_mismatch_output():
+    assert legacy_crc_monkey_lines("<green:0x1234>", "<red:0x0>") == (
+        "\nMonkey wanted Banana :<green:0x1234>",
+        "Monkey got Pullover :<red:0x0>",
     )
 
 
@@ -643,6 +651,7 @@ def main():
         ),
         ("Legacy CRC decision matches checksum wrapper values", test_legacy_crc_decision_matches_checksum_wrapper_values),
         ("Legacy CRC debug lines", test_legacy_crc_debug_lines_preserve_checksum_debug_output),
+        ("Legacy CRC monkey lines", test_legacy_crc_monkey_lines_preserve_checksum_mismatch_output),
         ("Find original chunk name from CRC", test_chunk_type_crc_matches_finds_original_name),
         ("Validate PNG structure accepts valid fixture", test_validate_png_structure_accepts_valid_fixture),
         ("Validate PNG structure rejects prefixed PNG output", test_validate_png_structure_rejects_prefixed_png_output),

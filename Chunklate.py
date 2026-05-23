@@ -48,6 +48,7 @@ from chunklate.png import (
     known_bad_srgb_profile_warning,
     legacy_crc_decision,
     legacy_crc_debug_lines,
+    legacy_crc_monkey_lines,
     legacy_length_decision,
 )
 
@@ -4233,15 +4234,23 @@ def Checksum(Ctype, Cdata, Crc, next=None):
             "-Crc Check :" + Candy("Color", "red", " FAILED! ") + Candy("Emoj", "bad")
         )
         if len(Crc) == 0 or len(checksum) == 0:
-            PRINT("\nMonkey wanted Banana :%s"%Candy("Color", "green", checksum))
-            PRINT("Monkey got Pullover :%s"%Candy("Color", "red", Crc))
+            MonkeyWanted, MonkeyGot = legacy_crc_monkey_lines(
+                Candy("Color", "green", checksum),
+                Candy("Color", "red", Crc),
+            )
+            PRINT(MonkeyWanted)
+            PRINT(MonkeyGot)
             Candy("Cowsay", " Hold on a sec ... Must have missed something...", "com")
             PRINT("")
             TheEnd()
 
         checksum = CrcDecision.normalized_computed_crc
-        PRINT("\nMonkey wanted Banana :%s"%Candy("Color", "green", checksum))
-        PRINT("Monkey got Pullover :%s"%Candy("Color", "red", Crc))
+        MonkeyWanted, MonkeyGot = legacy_crc_monkey_lines(
+            Candy("Color", "green", checksum),
+            Candy("Color", "red", Crc),
+        )
+        PRINT(MonkeyWanted)
+        PRINT(MonkeyGot)
 
         if next == None:
             ##TODO tmpworkaround need to fix wrong behavor due to this line below
