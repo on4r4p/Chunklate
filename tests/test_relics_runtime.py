@@ -9,7 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import Chunklate
-from chunklate import relics_runtime
+from chunklate import relics, relics_runtime
 
 
 @contextmanager
@@ -103,10 +103,115 @@ def test_chunklate_relics_runtime_uses_current_legacy_functions():
     ]
 
 
+def test_relics_runtime_runs_save_clone_plan():
+    calls = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: calls.append(("save_clone", args, kwargs)) or "saved",
+        smash_brute_brawl=lambda *args, **kwargs: None,
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+    plan = relics.WrongCrcSaveClonePlan("data", 10, 20, "fixed")
+
+    assert relics_runtime.run_save_clone_plan(runtime, plan) == "saved"
+    assert calls == [("save_clone", ("data", 10, 20, "fixed"), {})]
+
+
+def test_relics_runtime_runs_brawl_plans():
+    calls = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)) or "brawled",
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    wrong_crc_plan = relics.WrongCrcBrawlPlan(
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "from-error",
+        old_crc="old-crc",
+        bf_mode="TwoBytes",
+        brute_length=True,
+    )
+    dummy_plan = relics.DummyChunkBrawlPlan("sample.png", b"IEND", 0, 200, "dummy")
+    getinfo_plan = relics.GetInfoBrawlPlan("sample.png", b"gAMA", 4, 300, "info", "Bytes")
+    plte_plan = relics.PlteBrawlPlan(
+        "sample.png",
+        b"PLTE",
+        6,
+        400,
+        "plte",
+        edit_mode="replace",
+        old_crc="plte-crc",
+    )
+
+    assert relics_runtime.run_wrong_crc_brawl_plan(runtime, wrong_crc_plan) == "brawled"
+    assert relics_runtime.run_dummy_chunk_brawl_plan(runtime, dummy_plan) == "brawled"
+    assert relics_runtime.run_getinfo_brawl_plan(runtime, getinfo_plan) == "brawled"
+    assert relics_runtime.run_plte_brawl_plan(runtime, plte_plan) == "brawled"
+
+    assert calls == [
+        (
+            "brawl",
+            ("sample.png", b"IDAT", 4, 100, "from-error"),
+            {"OldCrc": "old-crc", "BfMode": "TwoBytes", "BruteLength": True},
+        ),
+        ("brawl", ("sample.png", b"IEND", 0, 200, "dummy"), {}),
+        ("brawl", ("sample.png", b"gAMA", 4, 300, "info"), {"BfMode": "Bytes"}),
+        (
+            "brawl",
+            ("sample.png", b"PLTE", 6, 400, "plte"),
+            {"EditMode": "replace", "OldCrc": "plte-crc"},
+        ),
+    ]
+
+
+def test_relics_runtime_runs_plte_and_forcer_plans():
+    calls = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: None,
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: calls.append(("forcer", args, kwargs)) or "forced",
+        tk_manual_plte=lambda *args, **kwargs: calls.append(("manual", args, kwargs)) or "manual",
+        remove_chunk=lambda *args, **kwargs: calls.append(("remove", args, kwargs)) or "removed",
+        ask_choice=lambda *args, **kwargs: calls.append(("ask", args, kwargs)) or "manually",
+    )
+
+    assert relics_runtime.run_full_chunk_forcer_plan(
+        runtime,
+        relics.FullChunkForcerPlan("sample.png", b"zzzz", 10, 20, "forcer"),
+    ) == "forced"
+    assert relics_runtime.run_plte_manual_plan(
+        runtime,
+        relics.PlteManualPlan("sample.png", b"PLTE", 6, 100, "manual"),
+    ) == "manual"
+    assert relics_runtime.run_plte_remove_plan(
+        runtime,
+        relics.PlteRemovePlan(12, 44, "remove PLTE"),
+    ) == "removed"
+    assert relics_runtime.ask_plte_repair(runtime, relics, has_bad_crc=False) == "manually"
+
+    assert calls[0] == ("forcer", ("sample.png", b"zzzz", 10, 20, "forcer"), {})
+    assert calls[1] == ("manual", ("sample.png", b"PLTE", 6, 100, "manual"), {})
+    assert calls[2] == ("remove", (12, 44, "remove PLTE"), {})
+    assert calls[3][0] == "ask"
+    assert "manually" in calls[3][1][1]
+
+
 def main():
     checks = [
         ("RelicsRuntime keeps callbacks", test_relics_runtime_keeps_legacy_callbacks),
         ("Chunklate builds RelicsRuntime from legacy functions", test_chunklate_relics_runtime_uses_current_legacy_functions),
+        ("RelicsRuntime runs SaveClone plans", test_relics_runtime_runs_save_clone_plan),
+        ("RelicsRuntime runs brawl plans", test_relics_runtime_runs_brawl_plans),
+        ("RelicsRuntime runs PLTE and forcer plans", test_relics_runtime_runs_plte_and_forcer_plans),
     ]
 
     print("Running Relics runtime tests")

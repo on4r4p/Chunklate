@@ -1648,7 +1648,7 @@ def Sync_Palette_Legacy_State():
         wanabyte = palette_state.wanabyte
 
 
-def Tk_ImgUpdate_Plte(event,nbr=None,bfn=None,afn=None,w=None,h=None):  
+def Tk_ImgUpdate_Plte(event,nbr=None,bfn=None,afn=None,w=None,h=None):
     global Plte_Blst
     global palette_state
     global window,tk_image,frame_img,pil_image,im,wanabyte
@@ -1790,7 +1790,7 @@ def Tk_Save_Plte(Tkwin,Cancel,ChunkLength,DataOffset,FromError,wanabyte):
 
     for slider in active_sliders:
          slider.clean()
- 
+
     Tkwin.destroy()
     Tkwin.quit()
 
@@ -1839,7 +1839,7 @@ def Guess_Palettes_Nbr(bfn,afn):
 #        with open(tmpname, "wb") as f:
 #                 f.write(wanabyte)
 #        print("-Saved here:",tmpname)
-         
+
         try:
             pil_image = Image.fromarray(im)
         except Exception as e:
@@ -1997,7 +1997,7 @@ def Tk_Manual_Plte(
     canvas_slider.bind("<Configure>", Tk_update_scrollregion_Plte)
     window.mainloop()
 
-     
+
 def SmashBruteBrawl(
     File,
     ChunkName,
@@ -2215,7 +2215,7 @@ def SmashBruteBrawl(
     ImageShow.register(ImageShow.GmDisplayViewer(),0)
 
 
-     
+
     OldCrc = bruteforce.normalize_old_crc(OldCrc)
 
     ModePlan = bruteforce.resolve_mode(BfMode, ChunkName, PandoraBox)
@@ -2270,7 +2270,7 @@ def SmashBruteBrawl(
 
         Loadingbar(
             max_iter, len_iter, None, True
-        ) 
+        )
 
 
 
@@ -2290,11 +2290,11 @@ def SmashBruteBrawl(
         if EditWindow.replace_flag or EditWindow.insert_flag:
                 BrawlState = bruteforce.match_state_from_edit_window(EditWindow)
                 Lnx_New = EditWindow.length_bytes
- 
+
 #        print("bfn:",Before_New)
 #        print("beforbrute",bytes.fromhex(DATAX[DataOffset+8:DataOffset+32]))
 #        print("Tobrute:",ToBrute)
- 
+
 
         shuffle = Product(chunk_data,color_type)
         for n, i in enumerate(shuffle):
@@ -2310,7 +2310,7 @@ def SmashBruteBrawl(
                 CRASH = CrashDecision.crash_value
                 if CrashDecision.skip:
                      continue
-            
+
 
             if n == 10:
                 PRINT("\n\n-BruteForce started at: %s"% Std)
@@ -2318,7 +2318,7 @@ def SmashBruteBrawl(
                 ETA = bruteforce.eta_seconds_after_sample(endat, max_iter)
                 timdeta= timedelta(seconds=ETA)
                 PRINT("-Bruteforce can last a max of %s"%str(timdeta))
-               
+
                 guess = datetime.now() + timdeta
                 PRINT("-Bruteforce ending date time is estimated around %s\n"%str(guess))
 
@@ -2330,7 +2330,7 @@ def SmashBruteBrawl(
                 to_bryte=ToBryte,
             )
 
-            if BfMode == "TwoBytes": 
+            if BfMode == "TwoBytes":
                 needle = 0
                 needle2 = len(bvalue.hex())
                 while bruteforce.twobytes_scan_has_window(ToBrute, needle2, needle, BrawlState):
@@ -2395,7 +2395,7 @@ def SmashBruteBrawl(
                        break
                     else:
                        continue
-                
+
     ###realeta
 
     ETA = (datetime.now() - Std).seconds
@@ -3200,7 +3200,7 @@ def Double_Check(CType, ChunkLen, LastCType):
             "Cowsay",
             "I can't help you much further sorry.",
             "com",
-        ) 
+        )
         TheEnd()
 
     Candy(
@@ -3570,7 +3570,7 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
            )
            TheEnd()
         else:
-            SideNotes.append("-NearbyChunk:Critical Chunk Missing: %s"%Bad_Critical) 
+            SideNotes.append("-NearbyChunk:Critical Chunk Missing: %s"%Bad_Critical)
             return(FixItFelix(CType))
     else:
         Candy(
@@ -4005,7 +4005,7 @@ def NameShift():
              if DEBUG:
                  PRINT("-Crc from file: %s"%(str(checksum)))
                  PRINT("-Actual Crc: %s\n"%(str(Crc)))
-             
+
              if checksum == Crc:
                  PRINT(
                 "-Crc Check :"
@@ -4449,7 +4449,7 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
 
 
 def SpecLength(chunk_name, chunk_length=None):
-    global SideNotes 
+    global SideNotes
 
     if chunk_length:
         Candy("Title", "Get Length from Spec:")
@@ -4850,108 +4850,19 @@ def Relics_Try_Current_Wrong_Crc_Fix():
             uniqh = relics.question_hash(PandoraBox, key, chkd)
             Answer = Question(id=key,idhash=uniqh)
             if Answer is True:
-                return True, Run_Save_Clone_Plan(
+                return True, relics_runtime.run_save_clone_plan(
+                    Relics_Runtime(),
                     relics.wrong_crc_save_clone_plan(CrcTools)
                 )
 
     return False, None
 
 
-def Run_Save_Clone_Plan(SavePlan):
-    return Relics_Runtime().save_clone(
-        SavePlan.fixed_data,
-        SavePlan.start,
-        SavePlan.end,
-        SavePlan.info,
-    )
-
-
-def Relics_Run_Wrong_Crc_Brawl_Plan(BrawlPlan):
-    kwargs = {"OldCrc": BrawlPlan.old_crc}
-    if BrawlPlan.bf_mode is not None:
-        kwargs["BfMode"] = BrawlPlan.bf_mode
-    if BrawlPlan.brute_length is not None:
-        kwargs["BruteLength"] = BrawlPlan.brute_length
-
-    return Relics_Runtime().smash_brute_brawl(
-        BrawlPlan.target_file,
-        BrawlPlan.chunk,
-        BrawlPlan.chunk_length,
-        BrawlPlan.data_offset,
-        BrawlPlan.from_error,
-        **kwargs,
-    )
-
-
-def Relics_Run_Dummy_Chunk_Brawl_Plan(BrawlPlan):
-    return Relics_Runtime().smash_brute_brawl(
-        BrawlPlan.target_file,
-        BrawlPlan.chunk,
-        BrawlPlan.chunk_length,
-        BrawlPlan.data_offset,
-        BrawlPlan.from_error,
-    )
-
-
-def Relics_Run_GetInfo_Brawl_Plan(BrawlPlan):
-    return Relics_Runtime().smash_brute_brawl(
-        BrawlPlan.target_file,
-        BrawlPlan.chunk,
-        BrawlPlan.chunk_length,
-        BrawlPlan.data_offset,
-        BrawlPlan.from_error,
-        BfMode=BrawlPlan.bf_mode,
-    )
-
-
-def Relics_Run_Full_Chunk_Forcer_Plan(ForcerPlan):
-    return Relics_Runtime().full_chunk_forcer_no_crc(
-        ForcerPlan.target_file,
-        ForcerPlan.chunk,
-        ForcerPlan.start,
-        ForcerPlan.end,
-        ForcerPlan.from_error,
-    )
-
-
-def Relics_Run_Plte_Manual_Plan(PltePlan):
-    return Relics_Runtime().tk_manual_plte(
-        PltePlan.target_file,
-        PltePlan.chunk,
-        PltePlan.chunk_length,
-        PltePlan.data_offset,
-        PltePlan.from_error,
-    )
-
-
-def Relics_Run_Plte_Remove_Plan(PltePlan):
-    return Relics_Runtime().remove_chunk(
-        PltePlan.start,
-        PltePlan.end,
-        PltePlan.info,
-    )
-
-
-def Relics_Run_Plte_Brawl_Plan(PltePlan):
-    kwargs = {"EditMode": PltePlan.edit_mode}
-    if PltePlan.old_crc is not None:
-        kwargs["OldCrc"] = PltePlan.old_crc
-
-    return Relics_Runtime().smash_brute_brawl(
-        PltePlan.target_file,
-        PltePlan.chunk,
-        PltePlan.chunk_length,
-        PltePlan.data_offset,
-        PltePlan.from_error,
-        **kwargs,
-    )
-
-
 def Relics_Ask_Plte_Repair(has_bad_crc):
-    return Relics_Runtime().ask_choice(
-        relics.plte_repair_prompt(has_bad_crc),
-        relics.plte_repair_choices(has_bad_crc),
-        relics.plte_repair_retry_prompt(has_bad_crc),
+    return relics_runtime.ask_plte_repair(
+        Relics_Runtime(),
+        relics,
+        has_bad_crc,
     )
 
 
@@ -4981,7 +4892,7 @@ def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
             WrongCrcRoute.tool_prefix,
         )
 
-        Relics_Run_Wrong_Crc_Brawl_Plan(
+        relics_runtime.run_wrong_crc_brawl_plan(Relics_Runtime(),
             relics.wrong_crc_brawl_plan(
                 WrongCrcRoute,
                 CrcTools,
@@ -5015,7 +4926,7 @@ def Relics_Handle_Plte():
 
                     if Answer == "manually":
                         if PlteWindow is not None:
-                            return True, Relics_Run_Plte_Manual_Plan(
+                            return True, relics_runtime.run_plte_manual_plan(Relics_Runtime(),
                                 relics.plte_manual_plan(
                                     PlteWindow,
                                     target_file=Sample_Name,
@@ -5023,7 +4934,7 @@ def Relics_Handle_Plte():
                             )
                     elif Answer == "remove":
                         if PlteWindow is not None:
-                            return True, Relics_Run_Plte_Remove_Plan(
+                            return True, relics_runtime.run_plte_remove_plan(Relics_Runtime(),
                                 relics.plte_remove_plan(PlteWindow)
                             )
                     elif Answer == "quit":
@@ -5051,7 +4962,7 @@ def Relics_Handle_Plte():
                         Crc_to_match = DATAX[CrcoffI:CrcoffI+8]
 
                         if PlteWindow is not None:
-                            return True, Relics_Run_Plte_Brawl_Plan(
+                            return True, relics_runtime.run_plte_brawl_plan(Relics_Runtime(),
                                 relics.plte_brawl_plan(
                                     PlteWindow,
                                     target_file=Sample_Name,
@@ -5062,7 +4973,7 @@ def Relics_Handle_Plte():
                     elif Answer == "manually":
 
                         if PlteWindow is not None:
-                            return True, Relics_Run_Plte_Manual_Plan(
+                            return True, relics_runtime.run_plte_manual_plan(Relics_Runtime(),
                                 relics.plte_manual_plan(
                                     PlteWindow,
                                     target_file=Sample_Name,
@@ -5071,7 +4982,7 @@ def Relics_Handle_Plte():
 
                     elif Answer == "remove":
                         if PlteWindow is not None:
-                            return True, Relics_Run_Plte_Remove_Plan(
+                            return True, relics_runtime.run_plte_remove_plan(Relics_Runtime(),
                                 relics.plte_remove_plan(PlteWindow)
                             )
 
@@ -5090,7 +5001,7 @@ def Relics_Handle_Plte():
                         Chunks_History, Chunks_History_Index
                     )
                     if PlteWindow is not None:
-                        return True, Relics_Run_Plte_Brawl_Plan(
+                        return True, relics_runtime.run_plte_brawl_plan(Relics_Runtime(),
                             relics.plte_brawl_plan(
                                 PlteWindow,
                                 target_file=Sample_Name,
@@ -5135,7 +5046,7 @@ def Relics_Handle_Single_Pandemonium(FromError):
                 CrcTools = relics.wrong_crc_tools(
                     Pandemonium[file][errors], chunk_tool_prefix
                 )
-                Relics_Run_Wrong_Crc_Brawl_Plan(
+                relics_runtime.run_wrong_crc_brawl_plan(Relics_Runtime(),
                     relics.wrong_crc_brawl_plan(
                         relics.WrongCrcRoute(
                             source=file,
@@ -5208,7 +5119,7 @@ def Relics_Handle_Remembered_Dummy_Chunks(FromError):
 
             Answer = Question()
             if Answer is True:
-                return Relics_Run_Dummy_Chunk_Brawl_Plan(BrawlPlan)
+                return relics_runtime.run_dummy_chunk_brawl_plan(Relics_Runtime(), BrawlPlan)
             else:
                 TheEnd()
         else:
@@ -5230,7 +5141,7 @@ def Relics_Handle_Remembered_Dummy_Chunks(FromError):
             )
             Answer = Question()
             if Answer is True:
-                return Relics_Run_Dummy_Chunk_Brawl_Plan(BrawlPlan)
+                return relics_runtime.run_dummy_chunk_brawl_plan(Relics_Runtime(), BrawlPlan)
 
             else:
                 if relics.dummy_chunk_decline_action(DummyRoute) == "todo_end":
@@ -5302,7 +5213,7 @@ def Relics_Handle_No_Pandemonium(FromError):
                     struct_index_error_count=len(ChosenErr),
                 )
                 if BrawlPlan is not None:
-                    return Relics_Run_GetInfo_Brawl_Plan(BrawlPlan)
+                    return relics_runtime.run_getinfo_brawl_plan(Relics_Runtime(), BrawlPlan)
 
         elif RelicsPolicy.action == "full_chunk_forcer":
             KnownChunkRoute = RelicsPolicy.known_chunk_route
@@ -5343,7 +5254,7 @@ def Relics_Handle_No_Pandemonium(FromError):
                         from_error=FromError,
                     )
                     if ForcerPlan is not None:
-                        return Relics_Run_Full_Chunk_Forcer_Plan(ForcerPlan)
+                        return relics_runtime.run_full_chunk_forcer_plan(Relics_Runtime(), ForcerPlan)
 
     Candy(
         "Cowsay",
@@ -5403,7 +5314,7 @@ def LockDown():
     PRINT(folder)
     folder = folder + "/"
     PRINT(folder)
-    
+
 
 def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
     global Old_Bad_Crc
@@ -5429,7 +5340,7 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
             uniqh = relics.question_hash(PandoraBox, key, chkd)
             Answer = Question(id=key,idhash=uniqh)
             if Answer is True:
-                return True, Run_Save_Clone_Plan(
+                return True, relics_runtime.run_save_clone_plan(Relics_Runtime(),
                     relics.wrong_crc_save_clone_plan(CrcTools)
                 )
             else:
@@ -5450,7 +5361,7 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
         uniqh = relics.question_hash(PandoraBox, key, chkd)
         Answer = Question(id=key,idhash=uniqh)
         if Answer is False:
-            return True, Run_Save_Clone_Plan(
+            return True, relics_runtime.run_save_clone_plan(Relics_Runtime(),
                 relics.wrong_crc_save_clone_plan(CrcTools)
             )
         else:
