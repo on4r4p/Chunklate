@@ -4812,15 +4812,6 @@ def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
         )
 
 
-def Relics_Apply_Dummy_Chunk_Repair_Decision(DummyDecision):
-    return relics_runtime.apply_dummy_chunk_repair_decision(
-        Relics_Runtime(),
-        DummyDecision,
-        show_todo=lambda: relics_ui.emit_todo(emit=PRINT, candy=Candy),
-        the_end=TheEnd,
-    )
-
-
 def Relics_Apply_No_Pandemonium_Repair_Decision(NoPandemoniumDecision):
     return relics_runtime.apply_no_pandemonium_repair_decision(
         Relics_Runtime(),
@@ -4898,36 +4889,16 @@ def Relics_Handle_Remembered_Dummy_Chunks(FromError):
         ALLCHUNKS,
         CRITICAL_CHUNKS,
     )
-    if DummyRequest is None:
-        TheEnd()
-        return ()
-
-    DummyRoute = DummyRequest.route
-    DummyTools = DummyRequest.tools
-    ChunkName = DummyRoute.chunk_name
-
-    if DummyRoute.is_critical:
-        relics_ui.say_dummy_chunk_critical_prompt(ChunkName, candy=Candy)
-
-        Answer = Question()
-        return Relics_Apply_Dummy_Chunk_Repair_Decision(
-            relics.dummy_chunk_repair_decision(
-                DummyRoute,
-                DummyTools,
-                from_error=FromError,
-                answer=Answer,
-            )
-        )
-
-    relics_ui.say_dummy_chunk_ancillary_prompt(ChunkName, candy=Candy)
-    Answer = Question()
-    return Relics_Apply_Dummy_Chunk_Repair_Decision(
-        relics.dummy_chunk_repair_decision(
-            DummyRoute,
-            DummyTools,
-            from_error=FromError,
-            answer=Answer,
-        )
+    return relics_runtime.handle_remembered_dummy_chunk_flow(
+        Relics_Runtime(),
+        relics,
+        relics_ui,
+        DummyRequest,
+        from_error=FromError,
+        ask=Question,
+        show_todo=lambda: relics_ui.emit_todo(emit=PRINT, candy=Candy),
+        the_end=TheEnd,
+        candy=Candy,
     )
 
 

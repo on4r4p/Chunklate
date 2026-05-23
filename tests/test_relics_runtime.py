@@ -462,6 +462,144 @@ def test_relics_runtime_applies_dummy_chunk_repair_decisions():
     assert [call[0] for call in calls] == ["brawl", "todo", "end"]
 
 
+def test_relics_runtime_handles_remembered_dummy_chunk_flow():
+    calls = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)) or "brawl",
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    class FakeUi:
+        @staticmethod
+        def say_dummy_chunk_critical_prompt(chunk_name, *, candy):
+            calls.append(("ui-critical", (chunk_name,), {}))
+
+        @staticmethod
+        def say_dummy_chunk_ancillary_prompt(chunk_name, *, candy):
+            calls.append(("ui-ancillary", (chunk_name,), {}))
+
+    request = relics.RememberedDummyChunkRepairRequest(
+        route=relics.DummyChunkRoute(
+            source="sample.0_Fixed.png",
+            error="DummyChunk_Error_0:Filling with a dummy chunk",
+            chunk_name="IHDR",
+            tool_prefix="IHDR_Tool_",
+            is_critical=True,
+        ),
+        tools=relics.DummyChunkTools(
+            fixed_data="fixed-data",
+            dummy_data_length=13,
+            bad_position=128,
+            bad_start=128,
+            bad_end=152,
+            from_error="No NextChunk",
+        ),
+    )
+
+    assert relics_runtime.handle_remembered_dummy_chunk_flow(
+        runtime,
+        relics,
+        FakeUi,
+        request,
+        from_error="libpng",
+        ask=lambda: True,
+        show_todo=lambda: calls.append(("todo", (), {})),
+        the_end=lambda: calls.append(("end", (), {})),
+        candy=lambda *args: None,
+    ) == "brawl"
+
+    assert calls == [
+        ("ui-critical", ("IHDR",), {}),
+        ("brawl", ("sample.0_Fixed.png", "IHDR", 13, 128, "libpng"), {}),
+    ]
+
+
+def test_relics_runtime_handles_remembered_dummy_chunk_flow_decline_and_missing_request():
+    class StopLegacyEnd(Exception):
+        pass
+
+    calls = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)) or "brawl",
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    class FakeUi:
+        @staticmethod
+        def say_dummy_chunk_critical_prompt(chunk_name, *, candy):
+            calls.append(("ui-critical", (chunk_name,), {}))
+
+        @staticmethod
+        def say_dummy_chunk_ancillary_prompt(chunk_name, *, candy):
+            calls.append(("ui-ancillary", (chunk_name,), {}))
+
+    request = relics.RememberedDummyChunkRepairRequest(
+        route=relics.DummyChunkRoute(
+            source="sample.1_Fixed.png",
+            error="DummyChunk_Error_1:Filling with a dummy chunk",
+            chunk_name="tEXt",
+            tool_prefix="tEXt_Tool_",
+            is_critical=False,
+        ),
+        tools=relics.DummyChunkTools(
+            fixed_data="fixed-data",
+            dummy_data_length=4,
+            bad_position=256,
+            bad_start=256,
+            bad_end=280,
+            from_error="No NextChunk",
+        ),
+    )
+
+    def stop_end():
+        calls.append(("end", (), {}))
+        raise StopLegacyEnd()
+
+    try:
+        relics_runtime.handle_remembered_dummy_chunk_flow(
+            runtime,
+            relics,
+            FakeUi,
+            request,
+            from_error="libpng",
+            ask=lambda: False,
+            show_todo=lambda: calls.append(("todo", (), {})),
+            the_end=stop_end,
+            candy=lambda *args: None,
+        )
+    except StopLegacyEnd:
+        pass
+    else:
+        raise AssertionError("ancillary dummy decline should call the legacy end callback")
+
+    try:
+        relics_runtime.handle_remembered_dummy_chunk_flow(
+            runtime,
+            relics,
+            FakeUi,
+            None,
+            from_error="libpng",
+            ask=lambda: True,
+            show_todo=lambda: calls.append(("todo", (), {})),
+            the_end=stop_end,
+            candy=lambda *args: None,
+        )
+    except StopLegacyEnd:
+        pass
+    else:
+        raise AssertionError("missing dummy request should call the legacy end callback")
+
+    assert [call[0] for call in calls] == ["ui-ancillary", "todo", "end", "end"]
+
+
 def test_relics_runtime_applies_no_pandemonium_repair_decisions():
     calls = []
     runtime = relics_runtime.RelicsRuntime(
@@ -530,6 +668,14 @@ def main():
             test_relics_runtime_handles_plte_repair_flow_fallback,
         ),
         ("RelicsRuntime applies dummy chunk repair decisions", test_relics_runtime_applies_dummy_chunk_repair_decisions),
+        (
+            "RelicsRuntime handles remembered dummy chunk flow",
+            test_relics_runtime_handles_remembered_dummy_chunk_flow,
+        ),
+        (
+            "RelicsRuntime handles remembered dummy chunk decline and missing request",
+            test_relics_runtime_handles_remembered_dummy_chunk_flow_decline_and_missing_request,
+        ),
         (
             "RelicsRuntime applies no-Pandemonium repair decisions",
             test_relics_runtime_applies_no_pandemonium_repair_decisions,

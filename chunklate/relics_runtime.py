@@ -230,6 +230,44 @@ def apply_dummy_chunk_repair_decision(
     raise ValueError("Unknown dummy chunk relic decision: %s" % decision.action)
 
 
+def handle_remembered_dummy_chunk_flow(
+    runtime: RelicsRuntime,
+    relics_module: Any,
+    ui_module: Any,
+    request: Any,
+    *,
+    from_error: Any,
+    ask: Callable[[], Any],
+    show_todo: Callable[[], Any],
+    the_end: Callable[[], Any],
+    candy: LegacyCall,
+) -> Any:
+    if request is None:
+        the_end()
+        return ()
+
+    route = request.route
+    tools = request.tools
+    chunk_name = route.chunk_name
+
+    if route.is_critical:
+        ui_module.say_dummy_chunk_critical_prompt(chunk_name, candy=candy)
+    else:
+        ui_module.say_dummy_chunk_ancillary_prompt(chunk_name, candy=candy)
+
+    return apply_dummy_chunk_repair_decision(
+        runtime,
+        relics_module.dummy_chunk_repair_decision(
+            route,
+            tools,
+            from_error=from_error,
+            answer=ask(),
+        ),
+        show_todo=show_todo,
+        the_end=the_end,
+    )
+
+
 def apply_no_pandemonium_repair_decision(
     runtime: RelicsRuntime,
     decision: Any,
