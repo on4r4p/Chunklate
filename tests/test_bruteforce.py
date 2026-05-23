@@ -401,6 +401,12 @@ def test_iter_twobytes_bonus_data_preserves_legacy_skip_and_byte_range():
     ]
 
 
+def test_twobytes_bonus_edit_kind_preserves_oldcrc_replace_bonus_quirk():
+    assert bruteforce.twobytes_bonus_edit_kind(b"crc", "replace") is None
+    assert bruteforce.twobytes_bonus_edit_kind(b"crc", "insert") == "insert"
+    assert bruteforce.twobytes_bonus_edit_kind(False, "replace") == "replace"
+
+
 def test_twobytes_bonus_candidate_data_preserves_legacy_hex_replacement():
     assert bruteforce.twobytes_bonus_candidate_data(
         "00aa223344",
@@ -529,6 +535,7 @@ def main():
         ("TwoBytes IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_idat_all_modes),
         ("TwoBytes non-IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_non_idat_requested_mode),
         ("TwoBytes bonus candidates", test_iter_twobytes_bonus_data_preserves_legacy_skip_and_byte_range),
+        ("TwoBytes bonus edit kind", test_twobytes_bonus_edit_kind_preserves_oldcrc_replace_bonus_quirk),
         ("TwoBytes bonus candidate data", test_twobytes_bonus_candidate_data_preserves_legacy_hex_replacement),
         ("Build Brutus candidate bytes", test_build_candidate_bytes_preserves_brutus_format_wrapping),
         ("Build Custom candidate bytes", test_build_candidate_bytes_preserves_custom_struct_replacement),

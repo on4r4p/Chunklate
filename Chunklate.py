@@ -2470,30 +2470,21 @@ def SmashBruteBrawl(
 
                               ##Bonus Stage
                               if Brute_LvL > 0:
-                                  n1 = 0
-                                  n2 = 2
-                                  while n1 <= len(newdatax) - (n2 -1):
-                                      if n1 == needle:
-                                         n1 += len(bvalue.hex())
-                                         continue
-                                      else:
-                                         for hexa in range(0, 16 ** 2):
-                                             Minibar(Indication="%s/%s"%(n,max_iter))
-        #                                     hexa = f'{hexa:x}'.zfill(2)
-                                             hexa = int(hexa).to_bytes(1, "big")
-                                             newdataxplus = bruteforce.twobytes_bonus_candidate_data(bonusdatax, n1, hexa)
-                                             Lnx_New = len(newdataxplus).to_bytes(4, "big")
-                                             attempt = BuildAttempt(Lnx_New, newdataxplus, newdataxplus, Before_New, After_New)
+                                  for newdataxplus in bruteforce.iter_twobytes_bonus_data(
+                                      bonusdatax,
+                                      new_data_len=len(newdatax),
+                                      skipped_hex_offset=needle,
+                                      skipped_hex_len=len(bvalue.hex()),
+                                  ):
+                                      Minibar(Indication="%s/%s"%(n,max_iter))
+                                      Lnx_New = len(newdataxplus).to_bytes(4, "big")
+                                      attempt = BuildAttempt(Lnx_New, newdataxplus, newdataxplus, Before_New, After_New)
+                                      bonus_edit_kind = bruteforce.twobytes_bonus_edit_kind(OldCrc, edit_kind)
 
-                                             if OldCrc and edit_kind == "replace":
-                                                 if ValidateAttempt(attempt, bonus=True):
-                                                     print("-Bingo replace bonus stage")
-                                                     break
-                                             else:
-                                                  if ValidateAttempt(attempt, edit_kind, bonus=True):
-                #                                      print("-Bingo replace")
-                                                      break
-                                      n1 += 2
+                                      if ValidateAttempt(attempt, bonus_edit_kind, bonus=True):
+                                          if bonus_edit_kind is None:
+                                              print("-Bingo replace bonus stage")
+                                          break
 
                           if direct_match:
                               break
@@ -5138,6 +5129,15 @@ def Relics_Run_Plte_Brawl_Plan(PltePlan):
     )
 
 
+def Relics_Ask_Plte_Repair(has_bad_crc):
+    return decisions.ask_choice(
+        input,
+        relics.plte_repair_prompt(has_bad_crc),
+        relics.plte_repair_choices(has_bad_crc),
+        relics.plte_repair_retry_prompt(has_bad_crc),
+    )
+
+
 def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
     for WrongCrcRoute in relics.idat_wrong_crc_routes(Relic_Remembered_Wrong_Crc_Routes()):
         Candy(
@@ -5190,11 +5190,7 @@ def Relics_Handle_Plte():
                     Candy("Cowsay", "I will need you to manually click a few buttons for me.", "com")
                     Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk but trust me this is useless as it wont work..", "com") ## no you should not it wont work
 
-                    Answer = decisions.ask_choice(
-                        input,
-                        "Answer(Manually/Remove/Quit):",
-                        relics.plte_repair_choices(False),
-                    )
+                    Answer = Relics_Ask_Plte_Repair(False)
                     PlteWindow = Relics_Plte_Window()
 
                     if Answer == "manually":
@@ -5225,12 +5221,7 @@ def Relics_Handle_Plte():
                     Candy("Cowsay", "And even there we would not be near to get every combination for a PLTE Chunk.", "bad")
                     Candy("Cowsay", "Perhaps i could just remove that PLTE chunk but no it just wont work ..", "com")  ## no you should not it wont work
 
-                    Answer = decisions.ask_choice(
-                        input,
-                        "Answer(Manually/Bruteforce/Remove/Quit):",
-                        relics.plte_repair_choices(True),
-                        "Answer(Manually/bruteforce/Remove/Quit):",
-                    )
+                    Answer = Relics_Ask_Plte_Repair(True)
                     PlteWindow = Relics_Plte_Window()
 
                     if Answer == "bruteforce": ##Maybe ask Relic() first

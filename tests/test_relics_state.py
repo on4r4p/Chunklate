@@ -264,6 +264,13 @@ def test_relics_module_exposes_plte_interactive_choices():
     )
 
 
+def test_relics_module_exposes_plte_interactive_prompts():
+    assert relics.plte_repair_prompt(False) == "Answer(Manually/Remove/Quit):"
+    assert relics.plte_repair_retry_prompt(False) is None
+    assert relics.plte_repair_prompt(True) == "Answer(Manually/Bruteforce/Remove/Quit):"
+    assert relics.plte_repair_retry_prompt(True) == "Answer(Manually/bruteforce/Remove/Quit):"
+
+
 def test_relics_module_finds_plte_chunk_window():
     window = relics.plte_chunk_window(
         [b"IHDR", b"PLTE", b"IDAT"],
@@ -846,6 +853,7 @@ def main():
         ("Relics module builds wrong CRC SaveClone plan", test_relics_module_builds_wrong_crc_save_clone_plan),
         ("Relics module summarises Pandemonium", test_relics_module_summarises_pandemonium_without_formatting),
         ("Relics module exposes PLTE choices", test_relics_module_exposes_plte_interactive_choices),
+        ("Relics module exposes PLTE prompts", test_relics_module_exposes_plte_interactive_prompts),
         ("Relics module finds PLTE chunk window", test_relics_module_finds_plte_chunk_window),
         ("Relics module builds PLTE manual plan", test_relics_module_builds_plte_manual_plan),
         ("Relics module builds PLTE remove plan", test_relics_module_builds_plte_remove_plan),

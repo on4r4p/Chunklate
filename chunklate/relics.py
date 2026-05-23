@@ -405,6 +405,18 @@ def plte_repair_choices(has_bad_crc: bool) -> tuple[str, ...]:
     return ("manually", "remove", "quit")
 
 
+def plte_repair_prompt(has_bad_crc: bool) -> str:
+    if has_bad_crc:
+        return "Answer(Manually/Bruteforce/Remove/Quit):"
+    return "Answer(Manually/Remove/Quit):"
+
+
+def plte_repair_retry_prompt(has_bad_crc: bool) -> str | None:
+    if has_bad_crc:
+        return "Answer(Manually/bruteforce/Remove/Quit):"
+    return None
+
+
 def plte_chunk_window(
     chunks_history: list[Any] | tuple[Any, ...],
     chunks_history_index: list[Any] | tuple[Any, ...],

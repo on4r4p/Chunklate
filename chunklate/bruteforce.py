@@ -369,6 +369,12 @@ def iter_twobytes_bonus_data(
         n1 += 2
 
 
+def twobytes_bonus_edit_kind(old_crc: Any, edit_kind: str) -> str | None:
+    if old_crc and edit_kind == "replace":
+        return None
+    return edit_kind
+
+
 def build_candidate_bytes(
     candidate: Any,
     chunk_format: list[str] | tuple[str, ...],
