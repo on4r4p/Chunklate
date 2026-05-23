@@ -126,6 +126,14 @@ def test_missing_critical_palette_warning_preserves_legacy_precedence():
     )
 
 
+def test_indexed_color_idat_plte_predicates_preserve_legacy_rules():
+    assert chunk_order.is_indexed_color("3") is True
+    assert chunk_order.is_indexed_color(2) is False
+    assert chunk_order.indexed_idat_previous_chunk_is_plte([b"IHDR", b"PLTE", b"IDAT"]) is True
+    assert chunk_order.indexed_idat_previous_chunk_is_plte([b"IHDR", b"gAMA", b"IDAT"]) is False
+    assert chunk_order.indexed_idat_previous_chunk_is_plte([b"IDAT", b"PLTE"]) is True
+
+
 def test_the_good_place_checkpoint_args_preserve_missing_and_found_shapes():
     assert chunk_order.the_good_place_missing_checkpoint_args(b"IHDR", 1, 20, 40) == (
         True,
@@ -163,6 +171,7 @@ def main():
         ("Only IHDR after PNG header", test_only_ihdr_allowed_after_png_header),
         ("Fix mode exclusion helpers", test_fix_mode_exclusion_helpers_preserve_legacy_list_growth),
         ("Missing critical palette warning", test_missing_critical_palette_warning_preserves_legacy_precedence),
+        ("Indexed IDAT PLTE predicates", test_indexed_color_idat_plte_predicates_preserve_legacy_rules),
         ("TheGoodPlace checkpoint args", test_the_good_place_checkpoint_args_preserve_missing_and_found_shapes),
     ]
 

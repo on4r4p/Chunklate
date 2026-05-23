@@ -155,6 +155,14 @@ def missing_critical_palette_info() -> str:
     return "-There is a chance that some Critical Palette chunks are missing."
 
 
+def is_indexed_color(ihdr_color: int | str) -> bool:
+    return int(ihdr_color) == 3
+
+
+def indexed_idat_previous_chunk_is_plte(used_chunks: Sequence[bytes]) -> bool:
+    return used_chunks[used_chunks.index(b"IDAT") - 1] == b"PLTE"
+
+
 def the_good_place_missing_checkpoint_args(
     to_fix_chunk: bytes,
     bad_pos: int,

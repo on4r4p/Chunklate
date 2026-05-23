@@ -3357,9 +3357,9 @@ def CheckChunkOrder(lastchunk, mode):
 
 #            print("Excluded:",Excluded)
 
-            if int(IHDR_Color) == 3:
+            if chunk_order.is_indexed_color(IHDR_Color):
                 print("excluded:\n",Excluded)
-                if Used_Chunks[Used_Chunks.index(b"IDAT")-1] != b"PLTE":
+                if not chunk_order.indexed_idat_previous_chunk_is_plte(Used_Chunks):
 
                     Candy(
                         "Cowsay",
