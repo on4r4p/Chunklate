@@ -51,6 +51,26 @@ def append_known_bad_srgb_warning(result: str, warning: str) -> str:
     return result
 
 
+def result_has_error(result: str, libpng_errors: tuple[str, ...] | list[str]) -> bool:
+    return any(error in result for error in libpng_errors)
+
+
+def checkpoint_args(
+    file: str,
+    result: str,
+    libpng_errors: tuple[str, ...] | list[str],
+) -> tuple[object, ...]:
+    if result_has_error(result, libpng_errors):
+        return (True, False, "LibpngCheck", file, ["-" + result])
+    return (
+        False,
+        False,
+        "LibpngCheck",
+        file,
+        ["-Libpng dis not found any error"],
+    )
+
+
 def libpng_result(
     file: str,
     *,

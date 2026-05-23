@@ -2807,7 +2807,7 @@ def LibpngCheck(file):
         warning_reader=KnownBadSrgbProfileWarning,
     )
     PRINT("Result:%s"%result)
-    if not any(s in result for s in LIBPNG_ERR):
+    if not libpng_check.result_has_error(result, LIBPNG_ERR):
         PRINT(
             "-Libpng Check: %s %s"
             % (Candy("Color", "green", "Ok!"), Candy("Emoj", "good"))
@@ -2819,9 +2819,7 @@ def LibpngCheck(file):
             "good",
         )
 
-        return CheckPoint(
-            False, False, "LibpngCheck", file, ["-Libpng dis not found any error"]
-        )
+        return CheckPoint(*libpng_check.checkpoint_args(file, result, LIBPNG_ERR))
 
     else:
         PRINT(
@@ -2829,7 +2827,7 @@ def LibpngCheck(file):
             % (Candy("Color", "red", "FAILED!"), Candy("Emoj", "bad"))
         )
 
-        return CheckPoint(True, False, "LibpngCheck", file, ["-" + result])
+        return CheckPoint(*libpng_check.checkpoint_args(file, result, LIBPNG_ERR))
 
 
 def KnownBadSrgbProfileWarning(file):

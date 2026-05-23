@@ -102,6 +102,34 @@ def test_libpng_result_prefers_cv2_then_appends_known_warning():
     )
 
 
+def test_result_has_error_uses_legacy_error_markers():
+    errors = ["libpng error:", "libpng warning:"]
+
+    assert libpng_check.result_has_error("", errors) is False
+    assert libpng_check.result_has_error("all good", errors) is False
+    assert libpng_check.result_has_error("libpng warning: noisy", errors) is True
+    assert libpng_check.result_has_error("libpng error: broken", errors) is True
+
+
+def test_checkpoint_args_preserve_success_and_error_call_shapes():
+    errors = ["libpng error:", "libpng warning:"]
+
+    assert libpng_check.checkpoint_args("sample.png", "", errors) == (
+        False,
+        False,
+        "LibpngCheck",
+        "sample.png",
+        ["-Libpng dis not found any error"],
+    )
+    assert libpng_check.checkpoint_args("sample.png", "libpng error: bad", errors) == (
+        True,
+        False,
+        "LibpngCheck",
+        "sample.png",
+        ["-libpng error: bad"],
+    )
+
+
 def main():
     checks = [
         ("Chunk stream accepts valid PNG", test_chunk_stream_check_accepts_valid_png_fixture),
@@ -111,6 +139,8 @@ def main():
         ("cv2 stderr capture", test_cv2_check_result_captures_stderr_redirector_output),
         ("Append known sRGB warning", test_append_known_bad_srgb_warning_adds_missing_warning_once),
         ("Libpng result preference order", test_libpng_result_prefers_cv2_then_appends_known_warning),
+        ("Libpng result error markers", test_result_has_error_uses_legacy_error_markers),
+        ("Libpng checkpoint args", test_checkpoint_args_preserve_success_and_error_call_shapes),
     ]
 
     print("Running libpng check tests")
