@@ -115,6 +115,17 @@ def test_fix_mode_exclusion_helpers_preserve_legacy_list_growth():
     )
 
 
+def test_missing_critical_palette_warning_preserves_legacy_precedence():
+    assert chunk_order.may_have_missing_critical_palette("2", [b"IHDR", b"IDAT"]) is True
+    assert chunk_order.may_have_missing_critical_palette("2", [b"IHDR", b"PLTE", b"IDAT"]) is True
+    assert chunk_order.may_have_missing_critical_palette("6", [b"IHDR", b"IDAT"]) is True
+    assert chunk_order.may_have_missing_critical_palette("6", [b"IHDR", b"PLTE", b"IDAT"]) is False
+    assert chunk_order.may_have_missing_critical_palette("0", [b"IHDR", b"IDAT"]) is False
+    assert chunk_order.missing_critical_palette_info() == (
+        "-There is a chance that some Critical Palette chunks are missing."
+    )
+
+
 def test_the_good_place_checkpoint_args_preserve_missing_and_found_shapes():
     assert chunk_order.the_good_place_missing_checkpoint_args(b"IHDR", 1, 20, 40) == (
         True,
@@ -151,6 +162,7 @@ def main():
         ("PLTE and IDAT order decisions", test_plte_and_idat_order_decisions),
         ("Only IHDR after PNG header", test_only_ihdr_allowed_after_png_header),
         ("Fix mode exclusion helpers", test_fix_mode_exclusion_helpers_preserve_legacy_list_growth),
+        ("Missing critical palette warning", test_missing_critical_palette_warning_preserves_legacy_precedence),
         ("TheGoodPlace checkpoint args", test_the_good_place_checkpoint_args_preserve_missing_and_found_shapes),
     ]
 

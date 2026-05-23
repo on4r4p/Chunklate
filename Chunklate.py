@@ -3381,19 +3381,10 @@ def CheckChunkOrder(lastchunk, mode):
                     PRINT(Candy("Color", "yellow", "\n-ToDo"))
                     TheEnd()
 
-            elif (
-                (int(IHDR_Color) == 2)
-                or (int(IHDR_Color) == 6)
-                and (
-                    b"PLTE" not in Chunks_History
-                    and b"sPLT" not in Chunks_History
-                )
-            ):
+            elif chunk_order.may_have_missing_critical_palette(IHDR_Color, Chunks_History):
                 if Warning is False:
                     Warning = True
-                    ToFix.append(
-                        "-There is a chance that some Critical Palette chunks are missing."
-                    )
+                    ToFix.append(chunk_order.missing_critical_palette_info())
                     Candy(
                         "Cowsay",
                         " There is a chance that some %s chunks are %s."

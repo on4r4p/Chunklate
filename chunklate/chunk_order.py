@@ -136,6 +136,25 @@ def extend_exclusions_before_idat_after_idat(
     return tuple(list(excluded) + [chunk for chunk in chunks if chunk in before_idat_set and chunk not in excluded])
 
 
+def may_have_missing_critical_palette(
+    ihdr_color: int | str,
+    chunks_history: Sequence[bytes],
+) -> bool:
+    color = int(ihdr_color)
+    return (
+        (color == 2)
+        or (color == 6)
+        and (
+            b"PLTE" not in chunks_history
+            and b"sPLT" not in chunks_history
+        )
+    )
+
+
+def missing_critical_palette_info() -> str:
+    return "-There is a chance that some Critical Palette chunks are missing."
+
+
 def the_good_place_missing_checkpoint_args(
     to_fix_chunk: bytes,
     bad_pos: int,
