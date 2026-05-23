@@ -26,6 +26,7 @@ from chunklate.png import (
     legacy_crc_decision,
     legacy_crc_monkey_lines,
     legacy_chunk_window,
+    legacy_length_checkpoint_args,
     legacy_length_decision,
     legacy_length_status,
     read_chunks,
@@ -215,6 +216,45 @@ def test_legacy_length_decision_reports_no_next_chunk_and_idat_delta():
     assert decision.idat_length_differs is True
     assert decision.checkpoint_error is True
     assert decision.checkpoint_info == "-No NextChunk"
+
+
+def test_legacy_length_checkpoint_args_preserve_found_next_chunk_call_shape():
+    decision = legacy_length_decision(
+        FIXTURE.read_bytes(),
+        len(PNG_SIGNATURE) * 2,
+        previous_chunk=b"IHDR",
+        idat_average_length=0,
+    )
+
+    assert legacy_length_checkpoint_args(decision, b"IHDR", "0000000d", b"PNG") == (
+        False,
+        False,
+        "CheckLength",
+        b"IHDR",
+        ["-Found NextChunk"],
+        "0000000d",
+    )
+
+
+def test_legacy_length_checkpoint_args_preserve_missing_next_chunk_call_shape():
+    data = PNG_SIGNATURE + b"\x00\x00\x00\x04IDATab"
+    decision = legacy_length_decision(
+        data,
+        len(PNG_SIGNATURE) * 2,
+        previous_chunk=b"IDAT",
+        idat_average_length=12,
+    )
+
+    assert legacy_length_checkpoint_args(decision, b"IDAT", "00000004", b"IHDR") == (
+        True,
+        False,
+        "CheckLength",
+        b"IDAT",
+        ["-No NextChunk"],
+        b"IDAT",
+        "00000004",
+        b"IHDR",
+    )
 
 
 def test_legacy_crc_decision_matches_checksum_wrapper_values():
@@ -648,6 +688,14 @@ def main():
         (
             "Legacy length decision reports missing next chunk and IDAT delta",
             test_legacy_length_decision_reports_no_next_chunk_and_idat_delta,
+        ),
+        (
+            "Legacy length checkpoint args for found next chunk",
+            test_legacy_length_checkpoint_args_preserve_found_next_chunk_call_shape,
+        ),
+        (
+            "Legacy length checkpoint args for missing next chunk",
+            test_legacy_length_checkpoint_args_preserve_missing_next_chunk_call_shape,
         ),
         ("Legacy CRC decision matches checksum wrapper values", test_legacy_crc_decision_matches_checksum_wrapper_values),
         ("Legacy CRC debug lines", test_legacy_crc_debug_lines_preserve_checksum_debug_output),

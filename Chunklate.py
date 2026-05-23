@@ -49,6 +49,7 @@ from chunklate.png import (
     legacy_crc_decision,
     legacy_crc_debug_lines,
     legacy_crc_monkey_lines,
+    legacy_length_checkpoint_args,
     legacy_length_decision,
 )
 
@@ -4162,16 +4163,7 @@ def CheckLength(Cdata, Clen, Ctype):
             + Candy("Color", "red", "[NOTHING]"),
             "com",
         )
-        return CheckPoint(
-            True,
-            False,
-            "CheckLength",
-            Ctype,
-            [LengthDecision.checkpoint_info],
-            Ctype,
-            Clen,
-            Chunks_History[-1],
-        )
+        return CheckPoint(*legacy_length_checkpoint_args(LengthDecision, Ctype, Clen, Chunks_History[-1]))
     else:
         Candy(
             "Cowsay",
@@ -4179,9 +4171,7 @@ def CheckLength(Cdata, Clen, Ctype):
             + Candy("Color", "yellow", LengthDecision.next_chunk_type),
             "com",
         )
-        return CheckPoint(
-            False, False, "CheckLength", Ctype, [LengthDecision.checkpoint_info], Clen
-        )
+        return CheckPoint(*legacy_length_checkpoint_args(LengthDecision, Ctype, Clen, Chunks_History[-1]))
 
 
 

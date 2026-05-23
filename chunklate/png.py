@@ -378,6 +378,34 @@ def legacy_length_decision(
     )
 
 
+def legacy_length_checkpoint_args(
+    decision: LegacyLengthDecision,
+    chunk_type: bytes,
+    chunk_length: str,
+    previous_chunk: bytes,
+) -> tuple[object, ...]:
+    if decision.checkpoint_error:
+        return (
+            True,
+            False,
+            "CheckLength",
+            chunk_type,
+            [decision.checkpoint_info],
+            chunk_type,
+            chunk_length,
+            previous_chunk,
+        )
+
+    return (
+        False,
+        False,
+        "CheckLength",
+        chunk_type,
+        [decision.checkpoint_info],
+        chunk_length,
+    )
+
+
 def legacy_crc_decision(raw_type_hex: str, raw_data_hex: str, raw_crc_hex: str) -> LegacyCrcDecision:
     chunk_type = bytes.fromhex(raw_type_hex)
     chunk_data = bytes.fromhex(raw_data_hex)
