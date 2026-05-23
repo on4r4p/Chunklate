@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, output, palette, palette_ui, prompts, relics, relics_runtime, relics_ui, sorting, specs, stdio, ui, writer
+from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, output, palette, palette_ui, prompts, relics, relics_runtime, relics_ui, sorting, specs, stdio, ui, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -49,7 +49,6 @@ from chunklate.png import (
     iter_chunks,
     is_known_bad_srgb_iccp_chunk,
     legacy_crc_decision,
-    legacy_chunk_window,
     legacy_length_decision,
     repair_missing_ihdr_from_idat,
 )
@@ -1218,45 +1217,12 @@ def ChunkbyChunk(offset):
     global CrcoffB
     global CrcoffI
 
-    ChunkWindow = legacy_chunk_window(DATA_BYTES, offset)
-
-    Raw_Length = ChunkWindow.raw_length
-    Orig_CL = Raw_Length
-    CLoffX = ChunkWindow.length_offset_hex
-    CLoffB = ChunkWindow.length_offset_byte
-    CLoffI = ChunkWindow.length_offset_index
-
-    Raw_Type = ChunkWindow.raw_type
-#    Orig_CT = bytes.fromhex(Raw_Type).decode(errors="ignore") #why decode??
-#    print("Orig_CT decode:",Orig_CT)
-#    print("Orig_CT pas decode:",bytes.fromhex(Raw_Type))
-#    Pause("tst")
-    Orig_CT = ChunkWindow.chunk_type
-    CToffX = ChunkWindow.type_offset_hex
-    CToffB = ChunkWindow.type_offset_byte
-    CToffI = ChunkWindow.type_offset_index
-
-    Raw_Data = ChunkWindow.raw_data
-    Orig_CD = Raw_Data
-    CDoffX = ChunkWindow.data_offset_hex
-    CDoffB = ChunkWindow.data_offset_byte
-    CDoffI = ChunkWindow.data_offset_index
-
-    Raw_Crc = ChunkWindow.raw_crc
-    Orig_CRC = Raw_Crc
-    CrcoffX = ChunkWindow.crc_offset_hex
-    CrcoffB = ChunkWindow.crc_offset_byte
-    CrcoffI = ChunkWindow.crc_offset_index
-
-    Raw_NextChunk = ChunkWindow.raw_next_chunk
-    Orig_NC = ChunkWindow.next_chunk_type
-    NCoffX = ChunkWindow.next_chunk_offset_hex
-    NCoffB = ChunkWindow.next_chunk_offset_byte
-    NCoffI = ChunkWindow.next_chunk_offset_index
+    ChunkScan = chunk_scanner.scan_legacy_chunk(DATA_BYTES, offset)
+    globals().update(ChunkScan.legacy_globals())
 
     Candy("Title", "Chunk Infos:")
     chunk_report.render_legacy_chunk_window(
-        ChunkWindow,
+        ChunkScan.window,
         PRINT,
         lambda color, value: Candy("Color", color, value),
     )
