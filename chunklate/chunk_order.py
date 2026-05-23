@@ -147,6 +147,14 @@ def must_follow_plte(lastchunk: bytes, after_plte: Iterable[bytes]) -> bool:
     return lastchunk in set(after_plte)
 
 
+def has_idat(used_chunks: Sequence[bytes]) -> bool:
+    return b"IDAT" in used_chunks
+
+
+def add_iend_exclusion(excluded: Sequence[bytes]) -> tuple[bytes, ...]:
+    return tuple(list(excluded) + [b"IEND"])
+
+
 def extend_exclusions_not_in(
     excluded: Sequence[bytes],
     chunks: Iterable[bytes],

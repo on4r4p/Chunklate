@@ -110,6 +110,9 @@ def test_fix_mode_exclusion_helpers_preserve_legacy_list_growth():
     assert not chunk_order.must_stay_before_plte_without_ihdr(b"gAMA", (b"PNG", b"IHDR"), before_plte)
     assert chunk_order.must_follow_plte(b"tRNS", (b"tRNS", b"bKGD"))
     assert not chunk_order.must_follow_plte(b"gAMA", (b"tRNS", b"bKGD"))
+    assert chunk_order.has_idat((b"IHDR", b"IDAT")) is True
+    assert chunk_order.has_idat((b"IHDR", b"PLTE")) is False
+    assert chunk_order.add_iend_exclusion((b"IHDR",)) == (b"IHDR", b"IEND")
     assert chunk_order.extend_exclusions_not_in((b"IHDR",), chunks, before_plte) == (
         b"IHDR",
         b"PLTE",

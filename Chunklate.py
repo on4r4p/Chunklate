@@ -3325,7 +3325,7 @@ def CheckChunkOrder(lastchunk, mode):
             "good",
         )
 
-        if b"IDAT" not in Used_Chunks:
+        if not chunk_order.has_idat(Used_Chunks):
 
             if chunk_order.must_stay_before_plte_without_ihdr(lastchunk, Used_Chunks, BEFORE_PLTE):
                 Excluded = list(chunk_order.extend_exclusions_not_in(Excluded, CHUNKS, BEFORE_PLTE))
@@ -3348,9 +3348,9 @@ def CheckChunkOrder(lastchunk, mode):
                     "bad",
                 )
 
-            Excluded.append(b"IEND")
+            Excluded = list(chunk_order.add_iend_exclusion(Excluded))
 
-        elif b"IDAT" in Used_Chunks:
+        elif chunk_order.has_idat(Used_Chunks):
             Excluded = list(chunk_order.extend_exclusions_before_idat_after_idat(Excluded, CHUNKS, BEFORE_IDAT))
 
 #            print("Excluded:",Excluded)
