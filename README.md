@@ -77,6 +77,10 @@ Run only the repair regression tests:
 
     .venv/bin/python -m pytest tests/test_repairs.py
 
+Architecture/refactor map:
+
+    docs/architecture.md
+
 Or without pytest:
 
     ./tests/test_cli.py
