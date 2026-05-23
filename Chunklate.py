@@ -3291,7 +3291,6 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
 
         NeedleI = int(Needle / 2)
         NeedleX = hex(int(Needle / 2))
-        Data_End_OffsetI = NeedleI - 8
 
         for Chk in CHUNKS:
             if Chk.lower() == scope:
@@ -3335,74 +3334,44 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
                 else:
 
                     if not any(c == CType for c in CHUNKS):
-                        for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                            if ch == LastCType:
-                               posn = int(int(chi.split(":")[1])/2) + 8
-                               LenCalc = Data_End_OffsetI - posn
-                               if "-" in str(LenCalc):
-                                     LenCalc = 0
-                               tmpfix = Needle -  8
-                               new_cloffi = int(chi.split(":")[1])
-                               new_orig_cl = DATAX[new_cloffi:new_cloffi+8]
-                               FixedLen = str("0x%08X" % LenCalc)[2::]
-                               PRINT(
-                                    "-Chunk position is %s %s\n"
-                                    % (Candy("Color", "green", "Valid "), Candy("Emoj", "good"))
-                               )
-                               PRINT(
-                                    "-Found Chunk[%s] has Wrong length at offset: %s\n-Replaced with: %s old value was: %s"
-                                    % (LastCType, tmpfix, FixedLen, new_orig_cl)
-                                    )
-                               SolvedMsg = (
-                                    "-Found Chunk[%s] has Wrong length at offset: %s\n-Found next chunk: %s at: %s\n-Replaced with: %s old value was: %s"
-                                    % (LastCType, new_cloffi, Chk, NeedleX, FixedLen, new_orig_cl)
-                               )
-
-                               return CheckPoint(
-                                   True,
-                                   True,
-                                   "NearbyChunk",
-                                   Orig_CT,
-                                   [SolvedMsg],
-                                   FixedLen,
-                                   new_cloffi,
-                                   new_cloffi + 8,
-                                   Orig_CT,
-                                   FromError,
-                              )
-
-
-
+                        LengthRepair = nearby.unknown_chunk_length_repair(
+                            data_hex=DATAX,
+                            display_chunk=CType,
+                            checkpoint_length_offset=CLoffI,
+                            chunks_history=Chunks_History,
+                            chunks_history_index=Chunks_History_Index,
+                            last_chunk_type=LastCType,
+                            found_chunk=Chk,
+                            found_chunk_type_offset=Needle,
+                        )
+                        if LengthRepair is None:
+                            continue
                     else:
-                        LenCalc = Data_End_OffsetI - CDoffB
-
-                    if "-" in str(LenCalc):
-                         LenCalc = 0
-
+                        LengthRepair = nearby.known_chunk_length_repair(
+                            display_chunk=Orig_CT,
+                            old_length=Orig_CL,
+                            current_length_offset=CLoffI,
+                            current_length_offset_hex=CLoffX,
+                            current_data_offset_byte=CDoffB,
+                            found_chunk=Chk,
+                            found_chunk_type_offset=Needle,
+                        )
 
                     PRINT(
                         "-Chunk position is %s %s\n"
                         % (Candy("Color", "green", "Valid "), Candy("Emoj", "good"))
                     )
-                    FixedLen = str("0x%08X" % LenCalc)[2::]
-                    PRINT(
-                        "-Found Chunk[%s] has Wrong length at offset: %s\n-Replaced with: %s old value was: %s"
-                        % (Orig_CT, CLoffX, FixedLen, Orig_CL)
-                        )
-                    SolvedMsg = (
-                        "-Found Chunk[%s] has Wrong length at offset: %s\n-Found next chunk: %s at: %s\n-Replaced with: %s old value was: %s"
-                        % (Orig_CT, CLoffX, Chk, NeedleX, FixedLen, Orig_CL)
-                    )
+                    PRINT(LengthRepair.print_message)
 
                     return CheckPoint(
                         True,
                         True,
                         "NearbyChunk",
                         Orig_CT,
-                        [SolvedMsg],
-                        FixedLen,
-                        CLoffI,
-                        CLoffI + 8,
+                        [LengthRepair.solved_message],
+                        LengthRepair.fixed_length,
+                        LengthRepair.replace_start,
+                        LengthRepair.replace_end,
                         Orig_CT,
                         #                           SolvedMsg,
                         FromError,

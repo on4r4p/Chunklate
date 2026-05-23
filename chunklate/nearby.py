@@ -20,6 +20,49 @@ class HistoryChunkPosition:
     end: int
 
 
+@dataclass(frozen=True)
+class NearbyLengthRepair:
+    display_chunk: bytes
+    found_chunk: bytes
+    print_offset: int | str
+    length_offset: int | str
+    found_chunk_offset: str
+    fixed_length: str
+    old_length: str
+    replace_start: int
+    replace_end: int
+
+    @property
+    def print_message(self) -> str:
+        return "-Found Chunk[%s] has Wrong length at offset: %s\n-Replaced with: %s old value was: %s" % (
+            self.display_chunk,
+            self.print_offset,
+            self.fixed_length,
+            self.old_length,
+        )
+
+    @property
+    def solved_message(self) -> str:
+        return "-Found Chunk[%s] has Wrong length at offset: %s\n-Found next chunk: %s at: %s\n-Replaced with: %s old value was: %s" % (
+            self.display_chunk,
+            self.length_offset,
+            self.found_chunk,
+            self.found_chunk_offset,
+            self.fixed_length,
+            self.old_length,
+        )
+
+
+def clamp_length(length: int) -> int:
+    if length < 0:
+        return 0
+    return length
+
+
+def format_png_length(length: int) -> str:
+    return str("0x%08X" % clamp_length(length))[2::]
+
+
 def parse_history_index(index: str) -> HistoryChunkPosition:
     position, start, end = (
         int(part.replace(" ", ""))
@@ -59,6 +102,69 @@ def initial_search_needle(
     if previous is None:
         return current_length_offset + 16
     return previous.start + 16
+
+
+def known_chunk_length_repair(
+    *,
+    display_chunk: bytes,
+    old_length: str,
+    current_length_offset: int,
+    current_length_offset_hex: str,
+    current_data_offset_byte: int,
+    found_chunk: bytes,
+    found_chunk_type_offset: int,
+) -> NearbyLengthRepair:
+    found_chunk_type_byte_offset = int(found_chunk_type_offset / 2)
+    data_end_offset = found_chunk_type_byte_offset - 8
+    fixed_length = format_png_length(data_end_offset - current_data_offset_byte)
+    return NearbyLengthRepair(
+        display_chunk=display_chunk,
+        found_chunk=found_chunk,
+        print_offset=current_length_offset_hex,
+        length_offset=current_length_offset_hex,
+        found_chunk_offset=hex(found_chunk_type_byte_offset),
+        fixed_length=fixed_length,
+        old_length=old_length,
+        replace_start=current_length_offset,
+        replace_end=current_length_offset + 8,
+    )
+
+
+def unknown_chunk_length_repair(
+    *,
+    data_hex: str,
+    display_chunk: bytes,
+    checkpoint_length_offset: int,
+    chunks_history: Iterable[bytes],
+    chunks_history_index: Iterable[str],
+    last_chunk_type: bytes,
+    found_chunk: bytes,
+    found_chunk_type_offset: int,
+) -> NearbyLengthRepair | None:
+    previous = find_history_chunk_position(
+        chunks_history,
+        chunks_history_index,
+        last_chunk_type,
+    )
+    if previous is None:
+        return None
+
+    found_chunk_type_byte_offset = int(found_chunk_type_offset / 2)
+    data_end_offset = found_chunk_type_byte_offset - 8
+    previous_data_offset = int(previous.start / 2) + 8
+    fixed_length = format_png_length(data_end_offset - previous_data_offset)
+    old_length = data_hex[previous.start:previous.start + 8]
+    return NearbyLengthRepair(
+        display_chunk=last_chunk_type,
+        found_chunk=found_chunk,
+        print_offset=found_chunk_type_offset - 8,
+        length_offset=previous.start,
+        found_chunk_offset=hex(found_chunk_type_byte_offset),
+        fixed_length=fixed_length,
+        old_length=old_length,
+        replace_start=previous.start,
+        replace_end=previous.start + 8,
+    )
 
 
 def find_extra_bytes_before_chunk(

@@ -103,6 +103,80 @@ def test_relocate_missing_chunk_matches_legacy_rubber_tape():
     ) == "aaaaccccddddbbbb"
 
 
+def test_known_chunk_length_repair_matches_legacy_offsets_and_messages():
+    repair = nearby.known_chunk_length_repair(
+        display_chunk=b"IDAT",
+        old_length="ffffffff",
+        current_length_offset=32,
+        current_length_offset_hex="0x10",
+        current_data_offset_byte=24,
+        found_chunk=b"IEND",
+        found_chunk_type_offset=80,
+    )
+
+    assert repair.fixed_length == "00000008"
+    assert repair.replace_start == 32
+    assert repair.replace_end == 40
+    assert repair.print_message == (
+        "-Found Chunk[b'IDAT'] has Wrong length at offset: 0x10\n"
+        "-Replaced with: 00000008 old value was: ffffffff"
+    )
+    assert repair.solved_message == (
+        "-Found Chunk[b'IDAT'] has Wrong length at offset: 0x10\n"
+        "-Found next chunk: b'IEND' at: 0x28\n"
+        "-Replaced with: 00000008 old value was: ffffffff"
+    )
+
+
+def test_unknown_chunk_length_repair_uses_previous_history_chunk():
+    repair = nearby.unknown_chunk_length_repair(
+        data_hex="00" * 40 + "0000000d" + "11" * 80,
+        display_chunk=b"fake",
+        checkpoint_length_offset=12,
+        chunks_history=[b"IHDR"],
+        chunks_history_index=["0:80:120"],
+        last_chunk_type=b"IHDR",
+        found_chunk=b"IDAT",
+        found_chunk_type_offset=160,
+    )
+
+    assert repair is not None
+    assert repair.display_chunk == b"IHDR"
+    assert repair.print_offset == 152
+    assert repair.length_offset == 80
+    assert repair.old_length == "0000000d"
+    assert repair.fixed_length == "00000018"
+    assert repair.replace_start == 80
+    assert repair.replace_end == 88
+
+
+def test_length_repair_clamps_negative_lengths_to_zero():
+    repair = nearby.known_chunk_length_repair(
+        display_chunk=b"IDAT",
+        old_length="ffffffff",
+        current_length_offset=32,
+        current_length_offset_hex="0x10",
+        current_data_offset_byte=80,
+        found_chunk=b"IEND",
+        found_chunk_type_offset=64,
+    )
+
+    assert repair.fixed_length == "00000000"
+
+
+def test_unknown_chunk_length_repair_returns_none_without_previous_history():
+    assert nearby.unknown_chunk_length_repair(
+        data_hex="00" * 20,
+        display_chunk=b"fake",
+        checkpoint_length_offset=12,
+        chunks_history=[],
+        chunks_history_index=[],
+        last_chunk_type=b"IHDR",
+        found_chunk=b"IDAT",
+        found_chunk_type_offset=160,
+    ) is None
+
+
 def main():
     checks = [
         ("history index parse", test_parse_history_index_strips_legacy_spaces),
@@ -111,6 +185,10 @@ def main():
         ("extra bytes candidate", test_find_extra_bytes_before_chunk_uses_crc_checked_candidate),
         ("extra bytes ignored candidates", test_find_extra_bytes_before_chunk_ignores_unknown_or_bad_crc_candidates),
         ("relocate missing chunk", test_relocate_missing_chunk_matches_legacy_rubber_tape),
+        ("known chunk length repair", test_known_chunk_length_repair_matches_legacy_offsets_and_messages),
+        ("unknown chunk length repair", test_unknown_chunk_length_repair_uses_previous_history_chunk),
+        ("negative length clamp", test_length_repair_clamps_negative_lengths_to_zero),
+        ("missing previous history", test_unknown_chunk_length_repair_returns_none_without_previous_history),
     ]
 
     print("Running nearby chunk tests")
