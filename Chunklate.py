@@ -4806,22 +4806,25 @@ def Relics_Runtime():
 
 
 def Relics_Try_Current_Wrong_Crc_Fix():
-    for WrongCrcRoute in relics.current_wrong_crc_routes(PandoraBox, Cornucopia, ALLCHUNKS):
+    for CrcContext in relics.current_wrong_crc_prompt_contexts(
+        PandoraBox,
+        Cornucopia,
+        ALLCHUNKS,
+    ):
+        WrongCrcRoute = CrcContext.route
         key = WrongCrcRoute.error
         Chunkname = WrongCrcRoute.chunk_name
 
         PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
         if Chunkname == "IDAT":
-            chkd = WrongCrcRoute.tool_prefix
-            CrcTools = relics.wrong_crc_tools(PandoraBox[key], chkd)
+            CrcTools = CrcContext.tools
             Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
             Candy(
                 "Cowsay",
                 "Well this one have to be fixed first let's see if replacing that Crc is enough..",
                 "com",
             )
-            uniqh = relics.question_hash(PandoraBox, key, chkd)
-            Answer = Question(id=key,idhash=uniqh)
+            Answer = Question(id=key,idhash=CrcContext.question_hash)
             if Answer is True:
                 return True, relics_runtime.run_save_clone_plan(
                     Relics_Runtime(),

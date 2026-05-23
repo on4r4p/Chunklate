@@ -172,6 +172,59 @@ def test_relics_module_routes_current_wrong_crc_errors():
     assert routes[0].is_current_file is True
 
 
+def test_relics_module_builds_current_wrong_crc_prompt_contexts():
+    pandora_box = {
+        "Checksum_Error_0:Wrong Crc b'PLTE'": relics.build_tools(
+            b"PLTE",
+            ("newcrc", 12, 20, b"PLTE", "0x2a", "oldcrc", 768, 100),
+        ),
+        "Checksum_Error_1:Wrong Crc b'IDAT'": relics.build_tools(
+            b"IDAT",
+            ("newcrc", 40, 60, b"IDAT", "0x9a", "oldcrc", 433, 200),
+        ),
+    }
+
+    contexts = relics.current_wrong_crc_prompt_contexts(
+        pandora_box,
+        {},
+        [b"IDAT", b"PLTE"],
+    )
+
+    assert contexts == (
+        relics.CurrentWrongCrcPromptContext(
+            route=relics.WrongCrcRoute(
+                source=None,
+                error="Checksum_Error_0:Wrong Crc b'PLTE'",
+                chunk_name="PLTE",
+                tool_prefix="PLTE_Tool_",
+            ),
+        ),
+        relics.CurrentWrongCrcPromptContext(
+            route=relics.WrongCrcRoute(
+                source=None,
+                error="Checksum_Error_1:Wrong Crc b'IDAT'",
+                chunk_name="IDAT",
+                tool_prefix="IDAT_Tool_",
+            ),
+            tools=relics.WrongCrcTools(
+                replacement_crc="newcrc",
+                start=40,
+                end=60,
+                chunk=b"IDAT",
+                offset="0x9a",
+                old_crc="oldcrc",
+                chunk_length=433,
+                data_offset=200,
+            ),
+            question_hash=relics.question_hash(
+                pandora_box,
+                "Checksum_Error_1:Wrong Crc b'IDAT'",
+                "IDAT_Tool_",
+            ),
+        ),
+    )
+
+
 def test_relics_module_routes_remembered_wrong_crc_errors():
     pandemonium = {
         "sample.0_Fixed.png": {
@@ -1199,6 +1252,10 @@ def main():
         ),
         ("Relics module exposes dummy chunk tools by name", test_relics_module_exposes_dummy_chunk_tools_by_name),
         ("Relics module routes current wrong CRC errors", test_relics_module_routes_current_wrong_crc_errors),
+        (
+            "Relics module builds current wrong CRC prompt contexts",
+            test_relics_module_builds_current_wrong_crc_prompt_contexts,
+        ),
         ("Relics module routes remembered wrong CRC errors", test_relics_module_routes_remembered_wrong_crc_errors),
         ("Relics module filters IDAT wrong CRC routes", test_relics_module_filters_idat_wrong_crc_routes),
         ("Relics module preserves Pandemonium policy order", test_relics_module_preserves_pandemonium_policy_order),

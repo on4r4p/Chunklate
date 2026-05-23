@@ -220,6 +220,13 @@ class SinglePandemoniumDecision:
     plan: WrongCrcBrawlPlan | None = None
 
 
+@dataclass(frozen=True)
+class CurrentWrongCrcPromptContext:
+    route: WrongCrcRoute
+    tools: WrongCrcTools | None = None
+    question_hash: int | None = None
+
+
 def chunk_label(chunk: Any) -> Any:
     if type(chunk) != bytes:
         return chunk
@@ -334,6 +341,31 @@ def current_wrong_crc_routes(
             )
         )
     return routes
+
+
+def current_wrong_crc_prompt_contexts(
+    pandora_box: Mapping[Any, Mapping[str, Any]],
+    cornucopia: Mapping[Any, Any],
+    known_chunks: list[bytes] | tuple[bytes, ...],
+) -> tuple[CurrentWrongCrcPromptContext, ...]:
+    contexts = []
+    for route in current_wrong_crc_routes(pandora_box, cornucopia, known_chunks):
+        if route.chunk_name != "IDAT":
+            contexts.append(CurrentWrongCrcPromptContext(route=route))
+            continue
+
+        contexts.append(
+            CurrentWrongCrcPromptContext(
+                route=route,
+                tools=wrong_crc_tools(pandora_box[route.error], route.tool_prefix),
+                question_hash=question_hash(
+                    pandora_box,
+                    route.error,
+                    route.tool_prefix,
+                ),
+            )
+        )
+    return tuple(contexts)
 
 
 def remembered_wrong_crc_routes(
