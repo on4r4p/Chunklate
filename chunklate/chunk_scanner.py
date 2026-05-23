@@ -88,6 +88,31 @@ class MagicBingoScan:
     best_count: int
 
 
+@dataclass(frozen=True)
+class KnownChunkHit:
+    chunk: bytes
+    offset: int
+
+    @property
+    def offset_byte(self) -> int:
+        return int(self.offset / 2)
+
+    @property
+    def offset_hex(self) -> str:
+        return hex(self.offset_byte)
+
+    @property
+    def is_idat(self) -> bool:
+        return self.chunk.lower() == b"idat"
+
+
+@dataclass(frozen=True)
+class KnownChunkScan:
+    hits: tuple[KnownChunkHit, ...]
+    chunks_found: dict[bytes, int]
+    found_idat: bool
+
+
 def magic_bingo_scan(
     data_hex: str,
     full_magic_hex: str,
@@ -125,4 +150,36 @@ def magic_bingo_scan(
         best_score=best_score,
         best_signature=best_signature,
         best_count=best_count,
+    )
+
+
+def scan_known_chunks_until_idat(data_hex: str, chunks: tuple[bytes, ...] | list[bytes]) -> KnownChunkScan:
+    chunks_found = {}
+    hits = []
+    needle = 0
+
+    while needle < len(data_hex):
+        scopex = data_hex[needle : needle + 8]
+        if len(scopex) < 8:
+            break
+        scope = bytes.fromhex(scopex).lower()
+
+        for chunk in chunks:
+            if chunk.lower() == scope:
+                hit = KnownChunkHit(chunk=chunk, offset=needle)
+                hits.append(hit)
+                chunks_found[chunk] = needle
+                if hit.is_idat:
+                    return KnownChunkScan(
+                        hits=tuple(hits),
+                        chunks_found=chunks_found,
+                        found_idat=True,
+                    )
+
+        needle += 1
+
+    return KnownChunkScan(
+        hits=tuple(hits),
+        chunks_found=chunks_found,
+        found_idat=False,
     )

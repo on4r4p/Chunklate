@@ -73,12 +73,42 @@ def test_magic_bingo_scan_counts_multiple_best_scores():
     assert scan.bingo_list[:2] == ["4 abcd", "4 abcd"]
 
 
+def test_scan_known_chunks_until_idat_stops_at_first_idat():
+    scan = chunk_scanner.scan_known_chunks_until_idat(
+        "00" + b"IHDR".hex() + "11" + b"IDAT".hex() + "22" + b"IEND".hex(),
+        [b"IHDR", b"IDAT", b"IEND"],
+    )
+
+    assert scan.found_idat is True
+    assert scan.chunks_found == {b"IHDR": 2, b"IDAT": 12}
+    assert scan.hits == (
+        chunk_scanner.KnownChunkHit(b"IHDR", 2),
+        chunk_scanner.KnownChunkHit(b"IDAT", 12),
+    )
+    assert scan.hits[1].offset_byte == 6
+    assert scan.hits[1].offset_hex == "0x6"
+    assert scan.hits[1].is_idat is True
+
+
+def test_scan_known_chunks_until_idat_reports_no_idat():
+    scan = chunk_scanner.scan_known_chunks_until_idat(
+        "00" + b"IHDR".hex() + "11" + b"IEND".hex(),
+        [b"IHDR", b"IDAT", b"IEND"],
+    )
+
+    assert scan.found_idat is False
+    assert scan.chunks_found == {b"IHDR": 2, b"IEND": 12}
+    assert [hit.chunk for hit in scan.hits] == [b"IHDR", b"IEND"]
+
+
 def main():
     checks = [
         ("legacy globals", test_scan_legacy_chunk_exposes_window_and_legacy_globals),
         ("incomplete chunk fallback", test_scan_legacy_chunk_preserves_incomplete_chunk_fallbacks),
         ("magic bingo best signature", test_magic_bingo_scan_preserves_best_signature_and_progress_calls),
         ("magic bingo best count", test_magic_bingo_scan_counts_multiple_best_scores),
+        ("known chunk scan until IDAT", test_scan_known_chunks_until_idat_stops_at_first_idat),
+        ("known chunk scan without IDAT", test_scan_known_chunks_until_idat_reports_no_idat),
     ]
 
     print("Running chunk scanner tests")

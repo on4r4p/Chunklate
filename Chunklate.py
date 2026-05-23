@@ -2501,54 +2501,35 @@ def FindFuckingMagic():
             "-FindFuckingMagic:Png signatures matching score are too low\nLooking for any known Chunks in file-"
         )
 
-        ChunksFound = {}
-        CheckIdat = False
-        Needle = 0
+        try:
+            KnownChunkScan = chunk_scanner.scan_known_chunks_until_idat(DATAX, CHUNKS)
+        except Exception as e:
+            Betterror(e, inspect.stack()[0][3])
+            if DEBUG is True:
+                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
+                if PAUSEDEBUG is True or PAUSEERROR is True:
+                    Pause("Pause Debug")
+            TheEnd()
 
-        while Needle < len(DATAX):
-            scopex = DATAX[Needle : Needle + 8]
-            if len(scopex) < 8:
-                break
-            try:
-                scope = bytes.fromhex(scopex).lower()
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
-                    PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                    PRINT(
-                        Candy("Color", "red", "Scopex:"),
-                        Candy("Color", "yellow", scopex),
-                    )
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Debug")
+        ChunksFound = KnownChunkScan.chunks_found
+        CheckIdat = KnownChunkScan.found_idat
 
-            NeedleI = int(Needle / 2)
-            NeedleX = hex(int(Needle / 2))
-            Data_End_OffsetI = NeedleI - 8
-
-            for Chk in CHUNKS:
-                if Chk.lower() == scope:
-                    Candy("Cowsay", " Bingo!!!", "good")
-                    PRINT(
-                        "-Found the closest Chunk to our position:%s at offset %s %s"
-                        % (
-                            Candy("Color", "green", Chk),
-                            Candy("Color", "blue", NeedleX),
-                            Candy("Color", "yellow", NeedleI),
-                        )
-                    )
-                    ChunksFound[Chk] = Needle
-                    if scope == b"idat":
-                        Candy(
-                            "Cowsay",
-                            "No need to go any further i think i have enough data now...",
-                            "com",
-                        )
-                        CheckIdat = True
-                        Needle = len(DATAX)
-                        break
-
-            Needle += 1
+        for Hit in KnownChunkScan.hits:
+            Candy("Cowsay", " Bingo!!!", "good")
+            PRINT(
+                "-Found the closest Chunk to our position:%s at offset %s %s"
+                % (
+                    Candy("Color", "green", Hit.chunk),
+                    Candy("Color", "blue", Hit.offset_hex),
+                    Candy("Color", "yellow", Hit.offset_byte),
+                )
+            )
+            if Hit.is_idat:
+                Candy(
+                    "Cowsay",
+                    "No need to go any further i think i have enough data now...",
+                    "com",
+                )
 
         if len(ChunksFound) == 0:
             Candy(
