@@ -206,6 +206,25 @@ def find_extra_bytes_before_chunk(
     return None
 
 
+def extra_bytes_before_chunk_candidate(
+    data_hex: str,
+    *,
+    current_length_offset: int,
+    chunk_type: bytes,
+    known_chunks: Iterable[bytes],
+    all_chunks: Iterable[bytes],
+    excluded_chunks: Iterable[bytes],
+) -> ExtraBytesCandidate | None:
+    if any(candidate == chunk_type for candidate in known_chunks):
+        return None
+
+    return find_extra_bytes_before_chunk(
+        bytes.fromhex(data_hex),
+        current_offset=int(current_length_offset / 2),
+        candidates=set(all_chunks) - set(excluded_chunks),
+    )
+
+
 def extra_bytes_solved_message(candidate: ExtraBytesCandidate, last_chunk_type: bytes) -> str:
     return "-Found %s extra byte(s) before Chunk[%s] after Chunk[%s] at offset: %s" % (
         candidate.extra_bytes,

@@ -112,6 +112,44 @@ def test_find_extra_bytes_before_chunk_ignores_unknown_or_bad_crc_candidates():
     ) is None
 
 
+def test_extra_bytes_before_chunk_candidate_skips_known_current_chunk():
+    data = PNG_SIGNATURE + b"XX" + build_png_chunk(b"IHDR", b"\x00" * 13)
+
+    assert nearby.extra_bytes_before_chunk_candidate(
+        data.hex(),
+        current_length_offset=len(PNG_SIGNATURE) * 2,
+        chunk_type=b"IHDR",
+        known_chunks=(b"IHDR", b"IDAT"),
+        all_chunks=(b"IHDR",),
+        excluded_chunks=(),
+    ) is None
+
+
+def test_extra_bytes_before_chunk_candidate_uses_all_chunks_minus_excluded():
+    data = PNG_SIGNATURE + b"XX" + build_png_chunk(b"IHDR", b"\x00" * 13)
+
+    assert nearby.extra_bytes_before_chunk_candidate(
+        data.hex(),
+        current_length_offset=len(PNG_SIGNATURE) * 2,
+        chunk_type=b"fake",
+        known_chunks=(b"IDAT",),
+        all_chunks=(b"IHDR", b"IDAT"),
+        excluded_chunks=(b"IDAT",),
+    ) == nearby.ExtraBytesCandidate(
+        extra_bytes=2,
+        chunk_type=b"IHDR",
+        current_offset=len(PNG_SIGNATURE),
+    )
+    assert nearby.extra_bytes_before_chunk_candidate(
+        data.hex(),
+        current_length_offset=len(PNG_SIGNATURE) * 2,
+        chunk_type=b"fake",
+        known_chunks=(b"IDAT",),
+        all_chunks=(b"IHDR", b"IDAT"),
+        excluded_chunks=(b"IHDR",),
+    ) is None
+
+
 def test_relocate_missing_chunk_matches_legacy_rubber_tape():
     assert nearby.relocate_missing_chunk(
         "aaaabbbbccccdddd",
@@ -215,6 +253,8 @@ def main():
         ("double check odd hex length", test_double_check_file_length_preserves_legacy_odd_hex_display_length),
         ("extra bytes candidate", test_find_extra_bytes_before_chunk_uses_crc_checked_candidate),
         ("extra bytes ignored candidates", test_find_extra_bytes_before_chunk_ignores_unknown_or_bad_crc_candidates),
+        ("extra bytes skips known current chunk", test_extra_bytes_before_chunk_candidate_skips_known_current_chunk),
+        ("extra bytes candidate filters excluded chunks", test_extra_bytes_before_chunk_candidate_uses_all_chunks_minus_excluded),
         ("relocate missing chunk", test_relocate_missing_chunk_matches_legacy_rubber_tape),
         ("null find default", test_null_find_preserves_legacy_default_search),
         ("null find custom", test_null_find_preserves_custom_step_search),

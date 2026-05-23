@@ -3027,15 +3027,13 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
 
 
 def Remove_Extra_Bytes_Before_Chunk(CType, LastCType, Excluded):
-    if any(c == CType for c in CHUNKS):
-        return None
-
-    data = bytes.fromhex(DATAX)
-    current_offset = int(CLoffI / 2)
-    candidate = nearby.find_extra_bytes_before_chunk(
-        data,
-        current_offset=current_offset,
-        candidates=set(ALLCHUNKS) - set(Excluded),
+    candidate = nearby.extra_bytes_before_chunk_candidate(
+        DATAX,
+        current_length_offset=CLoffI,
+        chunk_type=CType,
+        known_chunks=CHUNKS,
+        all_chunks=ALLCHUNKS,
+        excluded_chunks=Excluded,
     )
     if candidate is not None:
         SolvedMsg = nearby.extra_bytes_solved_message(candidate, LastCType)
