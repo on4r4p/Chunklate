@@ -110,6 +110,72 @@ def run_plte_brawl_plan(runtime: RelicsRuntime, plte_plan: Any) -> Any:
     )
 
 
+def handle_current_wrong_crc_flow(
+    runtime: RelicsRuntime,
+    relics_module: Any,
+    ui_module: Any,
+    contexts: Any,
+    *,
+    ask: LegacyCall,
+    emit: Callable[[str], Any],
+    candy: LegacyCall,
+) -> tuple[bool, Any]:
+    for context in contexts:
+        route = context.route
+        ui_module.emit_critical_hit(route.error, emit=emit)
+        if route.chunk_name == "IDAT":
+            ui_module.say_current_wrong_crc_idat(candy=candy)
+            answer = ask(id=route.error, idhash=context.question_hash)
+            if answer is True:
+                return True, run_save_clone_plan(
+                    runtime,
+                    relics_module.wrong_crc_save_clone_plan(context.tools),
+                )
+
+    return False, None
+
+
+def handle_remembered_idat_wrong_crc_flow(
+    runtime: RelicsRuntime,
+    ui_module: Any,
+    requests: Any,
+    *,
+    candy: LegacyCall,
+) -> None:
+    for request in requests:
+        ui_module.say_wrong_crc_data_brawl(request.route.chunk_name, candy=candy)
+        run_wrong_crc_brawl_plan(runtime, request.plan)
+
+
+def handle_single_pandemonium_flow(
+    runtime: RelicsRuntime,
+    ui_module: Any,
+    decisions: Any,
+    *,
+    debug: bool,
+    pause_debug: bool,
+    pause_error: bool,
+    pause: LegacyCall,
+    the_end: Callable[[], Any],
+    candy: LegacyCall,
+) -> Any:
+    ui_module.say_single_pandemonium_intro(candy=candy)
+
+    for decision in decisions:
+        if decision.action == "wrong_crc_brawl":
+            ui_module.say_wrong_crc_data_brawl(decision.route.chunk_name, candy=candy)
+            run_wrong_crc_brawl_plan(runtime, decision.plan)
+            return ()
+
+        if debug is True:
+            if pause_debug is True or pause_error is True:
+                pause("Pause Pandemonium Debug")
+        ui_module.say_single_pandemonium_unsupported(candy=candy)
+        the_end()
+
+    return ()
+
+
 def apply_plte_repair_decision(
     runtime: RelicsRuntime,
     decision: Any,

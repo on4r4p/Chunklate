@@ -4773,43 +4773,33 @@ def Relics_Runtime():
 
 
 def Relics_Try_Current_Wrong_Crc_Fix():
-    for CrcContext in relics.current_wrong_crc_prompt_contexts(
-        PandoraBox,
-        Cornucopia,
-        ALLCHUNKS,
-    ):
-        WrongCrcRoute = CrcContext.route
-        key = WrongCrcRoute.error
-        Chunkname = WrongCrcRoute.chunk_name
-
-        relics_ui.emit_critical_hit(key, emit=PRINT)
-        if Chunkname == "IDAT":
-            CrcTools = CrcContext.tools
-            relics_ui.say_current_wrong_crc_idat(candy=Candy)
-            Answer = Question(id=key,idhash=CrcContext.question_hash)
-            if Answer is True:
-                return True, relics_runtime.run_save_clone_plan(
-                    Relics_Runtime(),
-                    relics.wrong_crc_save_clone_plan(CrcTools)
-                )
-
-    return False, None
+    return relics_runtime.handle_current_wrong_crc_flow(
+        Relics_Runtime(),
+        relics,
+        relics_ui,
+        relics.current_wrong_crc_prompt_contexts(
+            PandoraBox,
+            Cornucopia,
+            ALLCHUNKS,
+        ),
+        ask=Question,
+        emit=PRINT,
+        candy=Candy,
+    )
 
 
 def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
-    for BrawlRequest in relics.remembered_idat_wrong_crc_brawl_requests(
-        Pandemonium,
-        ALLCHUNKS,
-        target_file=FILE_Origin,
-        from_error=FromError,
-    ):
-        WrongCrcRoute = BrawlRequest.route
-        relics_ui.say_wrong_crc_data_brawl(WrongCrcRoute.chunk_name, candy=Candy)
-
-        relics_runtime.run_wrong_crc_brawl_plan(
-            Relics_Runtime(),
-            BrawlRequest.plan,
-        )
+    relics_runtime.handle_remembered_idat_wrong_crc_flow(
+        Relics_Runtime(),
+        relics_ui,
+        relics.remembered_idat_wrong_crc_brawl_requests(
+            Pandemonium,
+            ALLCHUNKS,
+            target_file=FILE_Origin,
+            from_error=FromError,
+        ),
+        candy=Candy,
+    )
 
 
 def Relics_Handle_Plte():
@@ -4840,40 +4830,23 @@ def Relics_Handle_Plte():
 
 
 def Relics_Handle_Single_Pandemonium(FromError):
-    relics_ui.say_single_pandemonium_intro(candy=Candy)
-
-    for nb1, (file, file_value) in enumerate(Pandemonium.items()):
-        for nb2, (errors, errors_values) in enumerate(file_value.items()):
-            Decision = relics.single_pandemonium_decision(
-                nb1,
-                file,
-                errors,
-                errors_values,
-                known_chunks=ALLCHUNKS,
-                file_origin=FILE_Origin,
-                current_sample=Sample,
-                from_error=FromError,
-            )
-            if Decision.action == "wrong_crc_brawl":
-                Chunkname = Decision.route.chunk_name
-                relics_ui.say_wrong_crc_data_brawl(Chunkname, candy=Candy)
-                #PRINT("Chunkname:%s"% Chunkname)
-                # def Checksum(Ctype, Cdata, Crc,next=None):
-                relics_runtime.run_wrong_crc_brawl_plan(
-                    Relics_Runtime(),
-                    Decision.plan,
-                )
-                return ()
-            # print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),errors))
-            # for nb3,(tools,tools_values) in enumerate(errors_values.items()):
-            #    print("%s:%s:%s"%(Candy("Color","yellow","        [Tool:%s]"%nb3),tools,tools_values))
-            else:
-                if DEBUG is True:
-                    if PAUSEDEBUG is True or PAUSEERROR is True:
-                        Pause("Pause Pandemonium Debug")
-                relics_ui.say_single_pandemonium_unsupported(candy=Candy)
-                TheEnd()
-    return ()
+    return relics_runtime.handle_single_pandemonium_flow(
+        Relics_Runtime(),
+        relics_ui,
+        relics.single_pandemonium_decisions(
+            Pandemonium,
+            known_chunks=ALLCHUNKS,
+            file_origin=FILE_Origin,
+            current_sample=Sample,
+            from_error=FromError,
+        ),
+        debug=DEBUG,
+        pause_debug=PAUSEDEBUG,
+        pause_error=PAUSEERROR,
+        pause=Pause,
+        the_end=TheEnd,
+        candy=Candy,
+    )
 
 
 def Relics_Handle_Remembered_Dummy_Chunks(FromError):

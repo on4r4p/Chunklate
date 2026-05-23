@@ -700,6 +700,32 @@ def single_pandemonium_decision(
     )
 
 
+def single_pandemonium_decisions(
+    pandemonium: Mapping[Any, Mapping[Any, Mapping[str, Any]]],
+    *,
+    known_chunks: list[bytes] | tuple[bytes, ...],
+    file_origin: Any,
+    current_sample: Any,
+    from_error: Any,
+) -> tuple[SinglePandemoniumDecision, ...]:
+    decisions = []
+    for sample_index, (sample, sample_errors) in enumerate(pandemonium.items()):
+        for error, tools in sample_errors.items():
+            decisions.append(
+                single_pandemonium_decision(
+                    sample_index,
+                    sample,
+                    error,
+                    tools,
+                    known_chunks=known_chunks,
+                    file_origin=file_origin,
+                    current_sample=current_sample,
+                    from_error=from_error,
+                )
+            )
+    return tuple(decisions)
+
+
 def remembered_idat_wrong_crc_brawl_requests(
     pandemonium: Mapping[Any, Mapping[Any, Mapping[str, Any]]],
     known_chunks: list[bytes] | tuple[bytes, ...],

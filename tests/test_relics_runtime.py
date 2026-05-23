@@ -205,6 +205,211 @@ def test_relics_runtime_runs_plte_and_forcer_plans():
     assert "manually" in calls[3][1][1]
 
 
+def test_relics_runtime_handles_current_wrong_crc_flow():
+    calls = []
+    emitted = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: calls.append(("save", args, kwargs)) or "saved",
+        smash_brute_brawl=lambda *args, **kwargs: None,
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    class FakeUi:
+        @staticmethod
+        def emit_critical_hit(value, *, emit):
+            emit("hit:%s" % value)
+
+        @staticmethod
+        def say_current_wrong_crc_idat(*, candy):
+            calls.append(("ui", "current-idat"))
+
+    contexts = (
+        relics.CurrentWrongCrcPromptContext(
+            relics.WrongCrcRoute(None, "Checksum_Error_0:Wrong Crc b'PLTE'", "PLTE", "PLTE_Tool_"),
+        ),
+        relics.CurrentWrongCrcPromptContext(
+            relics.WrongCrcRoute(None, "Checksum_Error_1:Wrong Crc b'IDAT'", "IDAT", "IDAT_Tool_"),
+            tools=relics.WrongCrcTools("newcrc", 12, 20, b"IDAT", "0x2a", "oldcrc", 433, 100),
+            question_hash=1234,
+        ),
+    )
+
+    assert relics_runtime.handle_current_wrong_crc_flow(
+        runtime,
+        relics,
+        FakeUi,
+        contexts,
+        ask=lambda **kwargs: calls.append(("ask", (), kwargs)) or True,
+        emit=emitted.append,
+        candy=lambda *args: None,
+    ) == (True, "saved")
+
+    assert emitted == [
+        "hit:Checksum_Error_0:Wrong Crc b'PLTE'",
+        "hit:Checksum_Error_1:Wrong Crc b'IDAT'",
+    ]
+    assert calls == [
+        ("ui", "current-idat"),
+        ("ask", (), {"id": "Checksum_Error_1:Wrong Crc b'IDAT'", "idhash": 1234}),
+        (
+            "save",
+            (
+                "newcrc",
+                12,
+                20,
+                "-Found Chunk[b'IDAT'] has Wrong Crc at offset: 0x2a\n"
+                "-Replaced with: newcrc old value was: oldcrc",
+            ),
+            {},
+        ),
+    ]
+
+
+def test_relics_runtime_handles_remembered_idat_wrong_crc_flow():
+    calls = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)) or "brawl",
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    class FakeUi:
+        @staticmethod
+        def say_wrong_crc_data_brawl(chunk_name, *, candy):
+            calls.append(("ui", chunk_name))
+
+    request = relics.RememberedWrongCrcBrawlRequest(
+        route=relics.WrongCrcRoute("sample.0_Fixed.png", "Checksum_Error_0", "IDAT", "IDAT_Tool_"),
+        tools=relics.WrongCrcTools("newcrc", 12, 20, b"IDAT", "0x2a", "oldcrc", 433, 100),
+        plan=relics.WrongCrcBrawlPlan("origin.png", b"IDAT", 433, 100, "libpng", "oldcrc", bf_mode="TwoBytes"),
+    )
+
+    assert relics_runtime.handle_remembered_idat_wrong_crc_flow(
+        runtime,
+        FakeUi,
+        (request,),
+        candy=lambda *args: None,
+    ) is None
+
+    assert calls == [
+        ("ui", "IDAT"),
+        ("brawl", ("origin.png", b"IDAT", 433, 100, "libpng"), {"OldCrc": "oldcrc", "BfMode": "TwoBytes"}),
+    ]
+
+
+def test_relics_runtime_handles_single_pandemonium_flow():
+    calls = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)) or "brawl",
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    class FakeUi:
+        @staticmethod
+        def say_single_pandemonium_intro(*, candy):
+            calls.append(("ui", "intro"))
+
+        @staticmethod
+        def say_wrong_crc_data_brawl(chunk_name, *, candy):
+            calls.append(("ui", "brawl", chunk_name))
+
+        @staticmethod
+        def say_single_pandemonium_unsupported(*, candy):
+            calls.append(("ui", "unsupported"))
+
+    decision = relics.SinglePandemoniumDecision(
+        "wrong_crc_brawl",
+        route=relics.WrongCrcRoute("sample.0_Fixed.png", "Checksum_Error_0", "IDAT", "IDAT_Tool_"),
+        tools=relics.WrongCrcTools("newcrc", 12, 20, b"IDAT", "0x2a", "oldcrc", 433, 100),
+        plan=relics.WrongCrcBrawlPlan("origin.png", b"IDAT", 433, 100, "libpng", "oldcrc", bf_mode="TwoBytes"),
+    )
+
+    assert relics_runtime.handle_single_pandemonium_flow(
+        runtime,
+        FakeUi,
+        (decision,),
+        debug=False,
+        pause_debug=False,
+        pause_error=False,
+        pause=lambda message: calls.append(("pause", message)),
+        the_end=lambda: calls.append(("end", (), {})),
+        candy=lambda *args: None,
+    ) == ()
+
+    assert calls == [
+        ("ui", "intro"),
+        ("ui", "brawl", "IDAT"),
+        ("brawl", ("origin.png", b"IDAT", 433, 100, "libpng"), {"OldCrc": "oldcrc", "BfMode": "TwoBytes"}),
+    ]
+
+
+def test_relics_runtime_handles_single_pandemonium_unsupported_flow():
+    class StopLegacyEnd(Exception):
+        pass
+
+    calls = []
+
+    class FakeUi:
+        @staticmethod
+        def say_single_pandemonium_intro(*, candy):
+            calls.append(("ui", "intro"))
+
+        @staticmethod
+        def say_wrong_crc_data_brawl(chunk_name, *, candy):
+            calls.append(("ui", "brawl", chunk_name))
+
+        @staticmethod
+        def say_single_pandemonium_unsupported(*, candy):
+            calls.append(("ui", "unsupported"))
+
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: None,
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    def stop_end():
+        calls.append(("end", (), {}))
+        raise StopLegacyEnd()
+
+    try:
+        relics_runtime.handle_single_pandemonium_flow(
+            runtime,
+            FakeUi,
+            (relics.SinglePandemoniumDecision("unsupported"),),
+            debug=True,
+            pause_debug=True,
+            pause_error=False,
+            pause=lambda message: calls.append(("pause", message)),
+            the_end=stop_end,
+            candy=lambda *args: None,
+        )
+    except StopLegacyEnd:
+        pass
+    else:
+        raise AssertionError("unsupported single-Pandemonium flow should call the legacy end callback")
+
+    assert calls == [
+        ("ui", "intro"),
+        ("pause", "Pause Pandemonium Debug"),
+        ("ui", "unsupported"),
+        ("end", (), {}),
+    ]
+
+
 def test_relics_runtime_applies_plte_repair_decisions():
     calls = []
     side_notes = []
@@ -852,6 +1057,16 @@ def main():
         ("RelicsRuntime runs SaveClone plans", test_relics_runtime_runs_save_clone_plan),
         ("RelicsRuntime runs brawl plans", test_relics_runtime_runs_brawl_plans),
         ("RelicsRuntime runs PLTE and forcer plans", test_relics_runtime_runs_plte_and_forcer_plans),
+        ("RelicsRuntime handles current wrong CRC flow", test_relics_runtime_handles_current_wrong_crc_flow),
+        (
+            "RelicsRuntime handles remembered IDAT wrong CRC flow",
+            test_relics_runtime_handles_remembered_idat_wrong_crc_flow,
+        ),
+        ("RelicsRuntime handles single-Pandemonium flow", test_relics_runtime_handles_single_pandemonium_flow),
+        (
+            "RelicsRuntime handles single-Pandemonium unsupported flow",
+            test_relics_runtime_handles_single_pandemonium_unsupported_flow,
+        ),
         ("RelicsRuntime applies PLTE repair decisions", test_relics_runtime_applies_plte_repair_decisions),
         (
             "RelicsRuntime handles PLTE repair flow with valid CRC",
