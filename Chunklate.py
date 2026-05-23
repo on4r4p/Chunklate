@@ -6102,7 +6102,7 @@ def FixItFelix(Chunk=None):
         chkd = Chunk.decode(errors="ignore") + "_Tool_"
     except AttributeError as e:
         Betterror(e, inspect.stack()[0][3])
-        chkd = Chunk + "_Tool_"
+        chkd = fixit_felix.tool_prefix_for_chunk(Chunk)
 
     if DEBUG is True:
         PRINT("EOF:%s"% EOF)

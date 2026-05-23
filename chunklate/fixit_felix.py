@@ -226,6 +226,13 @@ def repair_work_items(findings: Iterable[object], *, skip_bad_crc: bool) -> tupl
     return tuple(items)
 
 
+def tool_prefix_for_chunk(chunk: Any) -> str:
+    try:
+        return chunk.decode(errors="ignore") + "_Tool_"
+    except AttributeError:
+        return chunk + "_Tool_"
+
+
 def gama_zero_false_positive(finding: object) -> FalsePositiveFix:
     return FalsePositiveFix(
         finding=finding,

@@ -345,6 +345,11 @@ def test_repair_work_items_respects_skip_bad_crc_route_fallthrough():
     assert items[-1].finding == "Checksum_Error_0:Wrong Crc"
 
 
+def test_tool_prefix_for_chunk_preserves_legacy_bytes_and_string_labels():
+    assert fixit_felix.tool_prefix_for_chunk(b"IDAT") == "IDAT_Tool_"
+    assert fixit_felix.tool_prefix_for_chunk("gAMA") == "gAMA_Tool_"
+
+
 def test_color_profile_cleanup_requires_matching_finding():
     original = read_fixture("IncorrectSrgbProfile.png")
 
@@ -491,6 +496,7 @@ def main():
         ("Effective PandoraBox len preserves Bad_Next_Name adjustment", test_effective_pandora_box_len_preserves_bad_next_name_adjustment),
         ("Repair work items run automatic repairs first", test_repair_work_items_runs_automatic_repairs_before_pandorabox_routes),
         ("Repair work items respect skip-bad-crc fallthrough", test_repair_work_items_respects_skip_bad_crc_route_fallthrough),
+        ("Tool prefix preserves legacy labels", test_tool_prefix_for_chunk_preserves_legacy_bytes_and_string_labels),
         ("Color profile cleanup requires matching finding", test_color_profile_cleanup_requires_matching_finding),
         ("PLTE cleanup requires noninteractive mode and PLTE finding", test_plte_cleanup_requires_noninteractive_mode_and_plte_finding),
         ("Missing chunk data byte requires CRC or no-next finding", test_missing_chunk_data_byte_requires_crc_or_no_next_finding),
