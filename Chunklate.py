@@ -3200,8 +3200,9 @@ def CheckChunkOrder(lastchunk, mode):
         Candy("Title", "Missplaced Chunks Check:")
 
         Done = False
-        Used_Chunks = list(chunk_order.unique_seen_chunks(Chunks_History))
-        Excluded = list(chunk_order.unique_chunk_exclusions(Used_Chunks, UNIQUE_CHUNK))
+        Chunk_Order_Context = chunk_order.build_chunk_order_context(Chunks_History, UNIQUE_CHUNK)
+        Used_Chunks = list(Chunk_Order_Context.used_chunks)
+        Excluded = list(Chunk_Order_Context.excluded_chunks)
         #        PRINT(Excluded)
         Candy(
             "Cowsay",
@@ -3313,8 +3314,9 @@ def CheckChunkOrder(lastchunk, mode):
             Excluded = list(Header_Exclusions)
             return Excluded
 
-        Used_Chunks = list(chunk_order.unique_seen_chunks(Chunks_History))
-        Excluded = list(chunk_order.unique_chunk_exclusions(Used_Chunks, UNIQUE_CHUNK))
+        Chunk_Order_Context = chunk_order.build_chunk_order_context(Chunks_History, UNIQUE_CHUNK)
+        Used_Chunks = list(Chunk_Order_Context.used_chunks)
+        Excluded = list(Chunk_Order_Context.excluded_chunks)
         Candy(
             "Cowsay",
             " So far we came across those chunks in "

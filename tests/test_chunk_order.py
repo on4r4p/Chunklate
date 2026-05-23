@@ -38,9 +38,15 @@ def test_missing_critical_chunks_preserves_legacy_messages_source():
 def test_unique_seen_chunks_and_unique_exclusions_preserve_order():
     used = chunk_order.unique_seen_chunks([b"PNG", b"IHDR", b"IDAT", b"IDAT", b"IEND"])
     excluded = chunk_order.unique_chunk_exclusions(used, (b"PNG", b"IHDR", b"IEND"))
+    context = chunk_order.build_chunk_order_context(
+        [b"PNG", b"IHDR", b"IDAT", b"IDAT", b"IEND"],
+        (b"PNG", b"IHDR", b"IEND"),
+    )
 
     assert used == (b"PNG", b"IHDR", b"IDAT", b"IEND")
     assert excluded == (b"PNG", b"IHDR", b"IEND")
+    assert context.used_chunks == used
+    assert context.excluded_chunks == excluded
 
 
 def test_legacy_unique_chunk_multiple_check_preserves_current_behavior():

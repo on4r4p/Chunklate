@@ -1,7 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
+
+
+@dataclass(frozen=True)
+class ChunkOrderContext:
+    used_chunks: tuple[bytes, ...]
+    excluded_chunks: tuple[bytes, ...]
 
 
 def as_chunk_bytes(chunk: bytes | str) -> bytes:
@@ -39,6 +46,17 @@ def unique_chunk_exclusions(
 ) -> tuple[bytes, ...]:
     unique_set = set(unique_chunks)
     return tuple(chunk for chunk in used_chunks if chunk in unique_set)
+
+
+def build_chunk_order_context(
+    chunks_history: Sequence[bytes],
+    unique_chunks: Iterable[bytes],
+) -> ChunkOrderContext:
+    used_chunks = unique_seen_chunks(chunks_history)
+    return ChunkOrderContext(
+        used_chunks=used_chunks,
+        excluded_chunks=unique_chunk_exclusions(used_chunks, unique_chunks),
+    )
 
 
 def legacy_flags_unique_chunk_as_multiple(
