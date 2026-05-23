@@ -240,6 +240,87 @@ def test_resolve_getspec_result_preserves_custom_selection():
     )
 
 
+def test_getspec_color_type_only_uses_ihdr_state_for_color_sensitive_chunks():
+    assert specs.getspec_color_type(
+        b"IHDR",
+        "Brutus",
+        brute_level=0,
+        ihdr_color="2",
+        ihdr_height=10,
+        ihdr_width=10,
+        pandora_box={},
+        cornucopia={},
+        pandemonium={},
+        allchunks=(b"IHDR",),
+        skip_bad_crc=False,
+    ) == "colortype:2:minres"
+    assert specs.getspec_color_type(
+        b"IDAT",
+        "Brutus",
+        brute_level=0,
+        ihdr_color="2",
+        ihdr_height=10,
+        ihdr_width=10,
+        pandora_box={},
+        cornucopia={},
+        pandemonium={},
+        allchunks=(b"IHDR",),
+        skip_bad_crc=False,
+    ) == "nocolortype"
+
+
+def test_build_getspec_context_preserves_color_resolution_and_specs():
+    context = specs.build_getspec_context(
+        current_year=2026,
+        chunk_name=b"IHDR",
+        mode="Brutus",
+        idat_byte_count=640,
+        max_resolution=100,
+        brute_level=0,
+        ihdr_color="2",
+        ihdr_height=10,
+        ihdr_width=10,
+        pandora_box={},
+        cornucopia={},
+        pandemonium={},
+        allchunks=(b"IHDR",),
+        skip_bad_crc=False,
+    )
+
+    assert context.color_type == "colortype:2:minres"
+    assert context.min_resolution == 10
+    assert context.min_resolution_product == 90
+    assert context.chunks_spec[b"IHDR"]["colortype:2:minres"][0] == 360
+
+
+def test_resolve_getspec_uses_context_lookup_and_min_resolution():
+    context = specs.GetSpecContext(
+        color_type="nocolortype",
+        min_resolution=7,
+        min_resolution_product=42,
+        chunks_spec={
+            b"IHDR": {
+                "nocolortype": (
+                    3,
+                    2,
+                    ("!B",),
+                    ((1, 2, 3), (4, 5), (6,)),
+                )
+            }
+        },
+    )
+
+    assert specs.resolve_getspec(context, b"IHDR", ["All"], "Custom", (0, 1), 1) == (
+        42,
+        2,
+        2,
+        ("!B",),
+        ((1, 2, 3), (4, 5)),
+        "nocolortype",
+    )
+    assert specs.resolve_getspec(context, b"IDAT", ["All"], "Custom", (0, 1), 1) is None
+
+
 def test_estimate_idat_bytes_from_hex_preserves_legacy_scan():
     single = PNG_SIGNATURE + build_png_chunk(b"IDAT", b"abc") + IEND_CHUNK
     multiple = (
@@ -368,6 +449,9 @@ def main():
         ("Select spec fields", test_select_spec_fields_preserves_all_and_field_order),
         ("Resolve spec result", test_resolve_getspec_result_preserves_expansion_and_selected_fields),
         ("Resolve custom spec result", test_resolve_getspec_result_preserves_custom_selection),
+        ("GetSpec color type", test_getspec_color_type_only_uses_ihdr_state_for_color_sensitive_chunks),
+        ("Build GetSpec context", test_build_getspec_context_preserves_color_resolution_and_specs),
+        ("Resolve GetSpec", test_resolve_getspec_uses_context_lookup_and_min_resolution),
         ("IDAT bytes estimate", test_estimate_idat_bytes_from_hex_preserves_legacy_scan),
         ("Regular product", test_iter_product_values_preserves_regular_product),
         ("Minres product", test_iter_product_values_expands_minres_width_height_pairs),

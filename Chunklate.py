@@ -570,59 +570,56 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
          PRINT("Mode:%s"%Mode)
          PRINT("Fields:%s"%Fields)
 
-    ThisYear = datetime.now().year
-
-    if GetChunk in [b"IHDR", b"tRNS", b"bKGD", b"sBIT"]:
-            GetColor = ColorType(GetChunk,Mode)
-    else:
-            GetColor = "nocolortype"
-
     if IBN == 0:
             IDAT_Bytes_Nbr()
 
-
-    Mxr = Max_Res()
-    Mnr, MnrF = specs.resolution_iteration_bounds(IBN, GetColor)
-
-    if DEBUG:
-            PRINT(
-                "-Smalest resolution estimation based on file size: %s*%s"
-                % (Mnr, Mnr)
-            )
-
-    chunks_spec = specs.build_chunks_spec(
-        current_year=ThisYear,
+    context = specs.build_getspec_context(
+        current_year=datetime.now().year,
+        chunk_name=GetChunk,
+        mode=Mode,
         idat_byte_count=IBN,
-        max_resolution=Mxr,
-        min_resolution=Mnr,
-        min_resolution_product=MnrF,
+        max_resolution=Max_Res(),
+        brute_level=Brute_LvL,
+        ihdr_color=IHDR_Color,
+        ihdr_height=IHDR_Height,
+        ihdr_width=IHDR_Width,
+        pandora_box=PandoraBox,
+        cornucopia=Cornucopia,
+        pandemonium=Pandemonium,
+        allchunks=ALLCHUNKS,
+        skip_bad_crc=Skip_Bad_Crc,
     )
 
-    bytes_spec = specs.find_chunk_spec(chunks_spec, GetChunk, GetColor)
-    if bytes_spec is not None:
-        try:
-            result = specs.resolve_getspec_result(
-                bytes_spec,
-                GetColor,
-                Fields,
-                Mode,
-                StructIndex,
-                IterNbr,
-                Mnr,
+    if DEBUG:
+            if GetChunk in specs.GETSPEC_COLOR_CHUNKS:
+                PRINT("-ColorType set to:%s"% context.color_type)
+            PRINT(
+                "-Smalest resolution estimation based on file size: %s*%s"
+                % (context.min_resolution, context.min_resolution)
             )
-        except (NameError, ValueError) as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-               PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-            if PAUSEDEBUG is True or PAUSEERROR is True:
-                 Pause("Pause Debug")
-            TheEnd()
 
-        if result is not None:
-            return result
+    try:
+        result = specs.resolve_getspec(
+            context,
+            GetChunk,
+            Fields,
+            Mode,
+            StructIndex,
+            IterNbr,
+        )
+    except (NameError, ValueError) as e:
+        Betterror(e, inspect.stack()[0][3])
+        if DEBUG is True:
+           PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
+        if PAUSEDEBUG is True or PAUSEERROR is True:
+             Pause("Pause Debug")
+        TheEnd()
+
+    if result is not None:
+        return result
 
     PRINT("-Error in GetSpec: Didnt Found matching result")
-    PRINT("GetColor:%s"% GetColor)
+    PRINT("GetColor:%s"% context.color_type)
     PRINT("GetChunk:%s"% GetChunk)
     PRINT(Candy("Color", "yellow", "\n-ToDo"))
     return

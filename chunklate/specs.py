@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import itertools
 import math
 import os
@@ -7,6 +8,7 @@ from typing import Any
 
 
 VALID_IHDR_COLOR_TYPES = ("0", "2", "3", "4", "6")
+GETSPEC_COLOR_CHUNKS = (b"IHDR", b"tRNS", b"bKGD", b"sBIT")
 MINIMAL_CHUNKS = (b"PNG", b"IHDR", b"IDAT", b"IEND")
 CRITICAL_CHUNKS = (b"PNG", b"IHDR", b"PLTE", b"IDAT", b"IEND")
 CHUNKS = (
@@ -149,6 +151,14 @@ LIBPNG_ERR = (
     "conversion not supported",
     "known incorrect sRGB profile",
 )
+
+
+@dataclass(frozen=True)
+class GetSpecContext:
+    color_type: str
+    min_resolution: int
+    min_resolution_product: int
+    chunks_spec: dict[bytes, dict[str, tuple[Any, Any, Any, Any]]]
 
 
 def min_res_iter(min_res: int) -> int:
@@ -819,6 +829,105 @@ def resolve_getspec_result(
         chunk_data,
         color_type,
         fields,
+    )
+
+
+def getspec_color_type(
+    chunk_name: bytes,
+    mode: str,
+    brute_level: int,
+    ihdr_color: Any,
+    ihdr_height: int,
+    ihdr_width: int,
+    pandora_box: dict[Any, Any],
+    cornucopia: dict[Any, Any],
+    pandemonium: dict[Any, Any],
+    allchunks: list[bytes] | tuple[bytes, ...],
+    skip_bad_crc: bool,
+) -> str:
+    if chunk_name in GETSPEC_COLOR_CHUNKS:
+        return color_type_label(
+            chunk_name,
+            mode,
+            brute_level,
+            ihdr_color,
+            ihdr_height,
+            ihdr_width,
+            pandora_box,
+            cornucopia,
+            pandemonium,
+            allchunks,
+            skip_bad_crc,
+        )
+    return "nocolortype"
+
+
+def build_getspec_context(
+    current_year: int,
+    chunk_name: bytes,
+    mode: str,
+    idat_byte_count: int,
+    max_resolution: int,
+    brute_level: int,
+    ihdr_color: Any,
+    ihdr_height: int,
+    ihdr_width: int,
+    pandora_box: dict[Any, Any],
+    cornucopia: dict[Any, Any],
+    pandemonium: dict[Any, Any],
+    allchunks: list[bytes] | tuple[bytes, ...],
+    skip_bad_crc: bool,
+) -> GetSpecContext:
+    color_type = getspec_color_type(
+        chunk_name,
+        mode,
+        brute_level,
+        ihdr_color,
+        ihdr_height,
+        ihdr_width,
+        pandora_box,
+        cornucopia,
+        pandemonium,
+        allchunks,
+        skip_bad_crc,
+    )
+    min_resolution, min_resolution_product = resolution_iteration_bounds(
+        idat_byte_count,
+        color_type,
+    )
+    return GetSpecContext(
+        color_type=color_type,
+        min_resolution=min_resolution,
+        min_resolution_product=min_resolution_product,
+        chunks_spec=build_chunks_spec(
+            current_year=current_year,
+            idat_byte_count=idat_byte_count,
+            max_resolution=max_resolution,
+            min_resolution=min_resolution,
+            min_resolution_product=min_resolution_product,
+        ),
+    )
+
+
+def resolve_getspec(
+    context: GetSpecContext,
+    chunk_name: bytes,
+    fields: list[str] | tuple[str, ...],
+    mode: str,
+    struct_index: Any,
+    iter_count: int,
+) -> tuple[Any, ...] | None:
+    bytes_spec = find_chunk_spec(context.chunks_spec, chunk_name, context.color_type)
+    if bytes_spec is None:
+        return None
+    return resolve_getspec_result(
+        bytes_spec,
+        context.color_type,
+        fields,
+        mode,
+        struct_index,
+        iter_count,
+        context.min_resolution,
     )
 
 
