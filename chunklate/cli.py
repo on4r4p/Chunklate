@@ -16,6 +16,74 @@ class RuntimeFlags:
     auto: bool
 
 
+def configure_parser(parser: Any) -> Any:
+    parser.add_argument(
+        "-f", "--file", dest="FILENAME", help="File path.", default=None, metavar="FILE"
+    )
+    parser.add_argument(
+        "-c",
+        "--CLEAR",
+        "--clear",
+        dest="CLEAR",
+        help="CLEAR screen at each saves.",
+        action="store_true",
+    )
+    parser.add_argument(
+        "-p", "--pause", dest="PAUSE", help="Pause at each saves.", action="store_true"
+    )
+    parser.add_argument(
+        "-d", "--debug", dest="DEBUG", help="Debug stuffs.", action="store_true"
+    )
+    parser.add_argument(
+        "-dp",
+        "--pause-debug",
+        dest="PAUSEDEBUG",
+        help="Pause at Debug stuffs.",
+        action="store_true",
+    )
+    parser.add_argument(
+        "-ep",
+        "--pause-error",
+        dest="PAUSEERROR",
+        help="Pause at errors.",
+        action="store_true",
+    )
+    parser.add_argument(
+        "-sp",
+        "--pause-dialogue",
+        dest="PAUSEDIALOGUE",
+        help="Pause at dialogues.",
+        action="store_true",
+    )
+
+    parser.add_argument(
+        "-stfu",
+        "--shut-the-fuck-up",
+        dest="NODIALOGUE",
+        help="Show minimal output.",
+        action="store_true",
+    )
+    parser.add_argument(
+        "-a", "--auto", dest="AUTO", help="Auto Choose action.", action="store_true"
+    )
+    parser.add_argument(
+        "--output-dir",
+        dest="OUTPUT_DIR",
+        help="Directory where Folder_* repair outputs are written.",
+        default=None,
+        metavar="DIR",
+    )
+    parser.add_argument(
+        "--max-saves",
+        dest="MAX_SAVES",
+        help="Exit successfully after writing N repaired files.",
+        type=int,
+        default=None,
+        metavar="N",
+    )
+    return parser
+
+
 def max_saves_error(max_saves: int | None) -> str | None:
     if max_saves is not None and max_saves < 1:
         return "--max-saves arguments must be greater than zero."

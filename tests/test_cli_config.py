@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+from argparse import ArgumentParser
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -30,6 +31,59 @@ def test_max_saves_error_preserves_legacy_validation():
     assert cli.max_saves_error(None) is None
     assert cli.max_saves_error(1) is None
     assert cli.max_saves_error(0) == "--max-saves arguments must be greater than zero."
+
+
+def test_configure_parser_preserves_legacy_options():
+    parser = cli.configure_parser(ArgumentParser())
+    help_text = parser.format_help()
+
+    assert "--file FILE" in help_text
+    assert "--CLEAR" in help_text
+    assert "--clear" in help_text
+    assert "--pause" in help_text
+    assert "--debug" in help_text
+    assert "--pause-debug" in help_text
+    assert "--pause-error" in help_text
+    assert "--pause-dialogue" in help_text
+    assert "--shut-the-fuck-up" in help_text
+    assert "--auto" in help_text
+    assert "--output-dir DIR" in help_text
+    assert "--max-saves N" in help_text
+
+
+def test_configure_parser_parses_runtime_arguments():
+    parser = cli.configure_parser(ArgumentParser())
+
+    parsed = parser.parse_args(
+        [
+            "-f",
+            "sample.png",
+            "--clear",
+            "-p",
+            "-d",
+            "-dp",
+            "-ep",
+            "-sp",
+            "-stfu",
+            "-a",
+            "--output-dir",
+            "out",
+            "--max-saves",
+            "2",
+        ]
+    )
+
+    assert parsed.FILENAME == "sample.png"
+    assert parsed.CLEAR is True
+    assert parsed.PAUSE is True
+    assert parsed.DEBUG is True
+    assert parsed.PAUSEDEBUG is True
+    assert parsed.PAUSEERROR is True
+    assert parsed.PAUSEDIALOGUE is True
+    assert parsed.NODIALOGUE is True
+    assert parsed.AUTO is True
+    assert parsed.OUTPUT_DIR == "out"
+    assert parsed.MAX_SAVES == 2
 
 
 def test_output_file_dir_preserves_empty_default_and_trailing_separator():
@@ -76,6 +130,8 @@ def test_runtime_flags_nodialogue_preserves_stfu_side_effects():
 
 def main():
     checks = [
+        ("parser options", test_configure_parser_preserves_legacy_options),
+        ("parser arguments", test_configure_parser_parses_runtime_arguments),
         ("max-saves validation", test_max_saves_error_preserves_legacy_validation),
         ("output dir prefix", test_output_file_dir_preserves_empty_default_and_trailing_separator),
         ("pause-debug flags", test_runtime_flags_pause_debug_enables_debug),
