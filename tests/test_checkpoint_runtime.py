@@ -45,6 +45,9 @@ def callback_runtime(calls):
         candy=callback("candy"),
         emit=callback("emit"),
         end=callback("end"),
+        print_libpng_critical=callback("print_libpng_critical"),
+        discard_libpng_warning=callback("discard_libpng_warning"),
+        libpng_end_success=callback("libpng_end_success"),
     )
 
 
@@ -120,6 +123,53 @@ def test_checkpoint_runtime_runs_simple_actions():
     ]
 
 
+def test_checkpoint_runtime_runs_libpng_actions():
+    calls = []
+    runtime = callback_runtime(calls)
+
+    assert checkpoint_runtime.run_libpng_warning_relics(
+        runtime,
+        "libpng warning: known issue",
+    ) == (True, "relics")
+    assert checkpoint_runtime.run_discard_libpng_warning(
+        runtime,
+        "discard_libpng_warning",
+        "libpng warning: noisy profile",
+    ) == (False, None)
+    assert checkpoint_runtime.run_discard_libpng_warning(
+        runtime,
+        "discard_libpng_warning_and_end",
+        "libpng warning: noisy profile",
+    ) == (False, None)
+    assert checkpoint_runtime.run_libpng_end_success(runtime) == (False, None)
+
+    assert calls == [
+        ("print_libpng_critical", ("libpng warning: known issue",), {}),
+        ("candy", ("Cowsay", "Ah found something !", "good"), {}),
+        ("relics", ("libpng warning: known issue",), {}),
+        ("print_libpng_critical", ("libpng warning: noisy profile",), {}),
+        ("candy", ("Cowsay", "Bah that's just a warning who cares ?! !", "good"), {}),
+        ("candy", ("Cowsay", "im removing it ..", "good"), {}),
+        ("discard_libpng_warning", (), {}),
+        ("print_libpng_critical", ("libpng warning: noisy profile",), {}),
+        ("candy", ("Cowsay", "Bah that's just a warning who cares ?! !", "good"), {}),
+        ("candy", ("Cowsay", "im removing it ..", "good"), {}),
+        ("discard_libpng_warning", (), {}),
+        (
+            "libpng_end_success",
+            ("Well maybe i am missing something but as for my abilities my job is done here!",),
+            {},
+        ),
+        (
+            "libpng_end_success",
+            (
+                "Well maybe i am missing something but as far as my current abilities goes the job is done for me here!",
+            ),
+            {},
+        ),
+    ]
+
+
 def test_chunklate_checkpoint_runtime_uses_current_legacy_functions():
     calls = []
 
@@ -144,19 +194,33 @@ def test_chunklate_checkpoint_runtime_uses_current_legacy_functions():
         Candy=callback("candy"),
         PRINT=callback("emit"),
         TheEnd=callback("end"),
+        CheckPoint_Print_Libpng_Critical=callback("print_libpng_critical"),
+        CheckPoint_Discard_Libpng_Warning=callback("discard_libpng_warning"),
+        CheckPoint_Libpng_End_Success=callback("libpng_end_success"),
     ):
         runtime = Chunklate.CheckPoint_Runtime()
         assert runtime.write_clone("data", "why") == "write_clone"
         assert runtime.relics("info") == "relics"
         assert runtime.end() == "end"
+        assert runtime.print_libpng_critical("warning") == "print_libpng_critical"
+        assert runtime.discard_libpng_warning() == "discard_libpng_warning"
+        assert runtime.libpng_end_success("done") == "libpng_end_success"
 
-    assert [call[0] for call in calls] == ["write_clone", "relics", "end"]
+    assert [call[0] for call in calls] == [
+        "write_clone",
+        "relics",
+        "end",
+        "print_libpng_critical",
+        "discard_libpng_warning",
+        "libpng_end_success",
+    ]
 
 
 def main():
     checks = [
         ("CheckPointRuntime keeps callbacks", test_checkpoint_runtime_keeps_legacy_callbacks),
         ("CheckPointRuntime runs simple actions", test_checkpoint_runtime_runs_simple_actions),
+        ("CheckPointRuntime runs libpng actions", test_checkpoint_runtime_runs_libpng_actions),
         (
             "Chunklate builds CheckPointRuntime from legacy functions",
             test_chunklate_checkpoint_runtime_uses_current_legacy_functions,

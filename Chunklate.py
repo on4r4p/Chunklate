@@ -146,6 +146,9 @@ def CheckPoint_Runtime():
         candy=Candy,
         emit=PRINT,
         end=TheEnd,
+        print_libpng_critical=CheckPoint_Print_Libpng_Critical,
+        discard_libpng_warning=CheckPoint_Discard_Libpng_Warning,
+        libpng_end_success=CheckPoint_Libpng_End_Success,
     )
 
 
@@ -209,28 +212,19 @@ def CheckPoint_Action_Fix_It_Felix_Return(decision, chunk, info, toolkit):
 
 
 def CheckPoint_Action_Libpng_Warning_Relics(decision, chunk, info, toolkit):
-    CheckPoint_Print_Libpng_Critical(info)
-    Candy("Cowsay", "Ah found something !", "good")
-    return True, Relics(info)
+    return checkpoint_runtime.run_libpng_warning_relics(CheckPoint_Runtime(), info)
 
 
 def CheckPoint_Action_Discard_Libpng_Warning(decision, chunk, info, toolkit):
-    CheckPoint_Print_Libpng_Critical(info)
-    Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good")
-    Candy("Cowsay", "im removing it ..", "good")
-    CheckPoint_Discard_Libpng_Warning()
-    if decision.action == "discard_libpng_warning_and_end":
-        CheckPoint_Libpng_End_Success(
-            "Well maybe i am missing something but as for my abilities my job is done here!"
-        )
-    return False, None
+    return checkpoint_runtime.run_discard_libpng_warning(
+        CheckPoint_Runtime(),
+        decision.action,
+        info,
+    )
 
 
 def CheckPoint_Action_Libpng_End_Success(decision, chunk, info, toolkit):
-    CheckPoint_Libpng_End_Success(
-        "Well maybe i am missing something but as far as my current abilities goes the job is done for me here!"
-    )
-    return False, None
+    return checkpoint_runtime.run_libpng_end_success(CheckPoint_Runtime())
 
 
 def CheckPoint_SmashBruteBrawl_Relaunch(

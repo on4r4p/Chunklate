@@ -22,6 +22,9 @@ class CheckPointRuntime:
     candy: LegacyCall
     emit: LegacyCall
     end: LegacyCall
+    print_libpng_critical: LegacyCall
+    discard_libpng_warning: LegacyCall
+    libpng_end_success: LegacyCall
 
 
 def run_write_clone(runtime: CheckPointRuntime, toolkit: tuple[Any, ...]) -> tuple[bool, Any]:
@@ -85,3 +88,32 @@ def run_fix_it_felix_continue(runtime: CheckPointRuntime, return_value: Any) -> 
 
 def run_fix_it_felix_return(runtime: CheckPointRuntime, return_value: Any) -> tuple[bool, Any]:
     return True, runtime.fix_it_felix(return_value)
+
+
+def run_libpng_warning_relics(runtime: CheckPointRuntime, info: Any) -> tuple[bool, Any]:
+    runtime.print_libpng_critical(info)
+    runtime.candy("Cowsay", "Ah found something !", "good")
+    return True, runtime.relics(info)
+
+
+def run_discard_libpng_warning(
+    runtime: CheckPointRuntime,
+    action: str,
+    info: Any,
+) -> tuple[bool, Any]:
+    runtime.print_libpng_critical(info)
+    runtime.candy("Cowsay", "Bah that's just a warning who cares ?! !", "good")
+    runtime.candy("Cowsay", "im removing it ..", "good")
+    runtime.discard_libpng_warning()
+    if action == "discard_libpng_warning_and_end":
+        runtime.libpng_end_success(
+            "Well maybe i am missing something but as for my abilities my job is done here!"
+        )
+    return False, None
+
+
+def run_libpng_end_success(runtime: CheckPointRuntime) -> tuple[bool, Any]:
+    runtime.libpng_end_success(
+        "Well maybe i am missing something but as far as my current abilities goes the job is done for me here!"
+    )
+    return False, None
