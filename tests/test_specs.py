@@ -60,6 +60,36 @@ def test_expand_chunk_data_item_preserves_legacy_range_and_tuple_conversion():
     assert specs.expand_chunk_data_item("1229278788") == tuple("1229278788")
 
 
+def test_expand_spec_values_preserves_legacy_iteration_expansion():
+    assert specs.expand_spec_values(
+        3,
+        2,
+        ("!B",),
+        ("i for i in range(0,2)", (8, 16)),
+        2,
+    ) == (
+        9,
+        4,
+        ("!B", "!B"),
+        ((0, 1), (8, 16), (0, 1), (8, 16)),
+    )
+
+
+def test_expand_spec_values_preserves_tuple_length_multiplication():
+    assert specs.expand_spec_values(
+        2,
+        (6, 1536),
+        ("!B",),
+        ((0,),),
+        2,
+    ) == (
+        4,
+        (6, 1536, 6, 1536),
+        ("!B", "!B"),
+        ((0,), (0,)),
+    )
+
+
 def test_estimate_idat_bytes_from_hex_preserves_legacy_scan():
     single = PNG_SIGNATURE + build_png_chunk(b"IDAT", b"abc") + IEND_CHUNK
     multiple = (
@@ -179,6 +209,8 @@ def main():
         ("Resolution iteration bounds", test_resolution_iteration_bounds_preserves_legacy_minres_logic),
         ("Normalize chunk format", test_normalize_chunk_format_preserves_legacy_string_and_tuple_modes),
         ("Expand chunk data item", test_expand_chunk_data_item_preserves_legacy_range_and_tuple_conversion),
+        ("Expand spec values", test_expand_spec_values_preserves_legacy_iteration_expansion),
+        ("Expand spec tuple length", test_expand_spec_values_preserves_tuple_length_multiplication),
         ("IDAT bytes estimate", test_estimate_idat_bytes_from_hex_preserves_legacy_scan),
         ("Regular product", test_iter_product_values_preserves_regular_product),
         ("Minres product", test_iter_product_values_expands_minres_width_height_pairs),

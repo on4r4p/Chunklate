@@ -1073,13 +1073,9 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
 
                     if color == GetColor:
                         product = bytes_spec[0]
-                        chunklen_spec = bytes_spec[1] * IterNbr
+                        chunklen_spec = bytes_spec[1]
                         chunk_format = bytes_spec[2]
                         chunk_data = bytes_spec[3]
-
-                        tmpcd = []
-                        tmpcf = []
-
 
                         try:
                             chunk_format = specs.normalize_chunk_format(chunk_format)
@@ -1091,22 +1087,13 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
                                  Pause("Pause Debug")
                             TheEnd()
 
-
-                        for n in range(0,IterNbr):
-                                n += 1
-                                if n > 1:
-                                     product = product * product
-
-                                for s in chunk_format:
-                                      tmpcf.append(s)
-
-                                for t in chunk_data:
-                                    tmpcd.append(specs.expand_chunk_data_item(t))
-
-                        chunk_data = tuple(tmpcd)
-                        chunk_format = tuple(tmpcf)
-
-
+                        product, chunklen_spec, chunk_format, chunk_data = specs.expand_spec_values(
+                            product,
+                            chunklen_spec,
+                            chunk_format,
+                            chunk_data,
+                            IterNbr,
+                        )
 
                         if Mode =="Custom":
                             CustomProduct = []

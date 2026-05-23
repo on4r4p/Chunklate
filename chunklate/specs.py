@@ -200,6 +200,31 @@ def expand_chunk_data_item(item: Any) -> tuple[Any, ...]:
     return tuple(item)
 
 
+def expand_spec_values(
+    product: Any,
+    chunk_length_spec: Any,
+    chunk_format: Any,
+    chunk_data: Any,
+    iter_count: int,
+) -> tuple[Any, Any, tuple[Any, ...], tuple[tuple[Any, ...], ...]]:
+    expanded_data = []
+    expanded_format = []
+    chunk_length_spec = chunk_length_spec * iter_count
+
+    for index in range(0, iter_count):
+        index += 1
+        if index > 1:
+            product = product * product
+
+        for chunk_format_item in chunk_format:
+            expanded_format.append(chunk_format_item)
+
+        for chunk_data_item in chunk_data:
+            expanded_data.append(expand_chunk_data_item(chunk_data_item))
+
+    return product, chunk_length_spec, tuple(expanded_format), tuple(expanded_data)
+
+
 def estimate_idat_bytes_from_hex(data_hex: str, known_chunks: tuple[bytes, ...] = CHUNKS) -> int:
     byte_count = 0
     last_byte_count = 0
