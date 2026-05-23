@@ -91,6 +91,44 @@ def test_select_sample_preserves_legacy_identity_check_for_false():
     )
 
 
+def test_sample_data_from_bytes_keeps_bytes_and_hex():
+    assert runtime_state.sample_data_from_bytes(b"\x89PNG") == runtime_state.LoadedSampleData(
+        data_bytes=b"\x89PNG",
+        data_hex="89504e47",
+    )
+
+
+def test_load_sample_data_uses_binary_mode_and_context_manager():
+    calls = []
+
+    class FakeHandle:
+        def __enter__(self):
+            calls.append(("enter",))
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            calls.append(("exit", exc_type, exc, tb))
+
+        def read(self):
+            calls.append(("read",))
+            return b"png"
+
+    def opener(path, mode):
+        calls.append(("open", path, mode))
+        return FakeHandle()
+
+    assert runtime_state.load_sample_data("sample.png", opener=opener) == runtime_state.LoadedSampleData(
+        data_bytes=b"png",
+        data_hex="706e67",
+    )
+    assert calls == [
+        ("open", "sample.png", "rb"),
+        ("enter",),
+        ("read",),
+        ("exit", None, None, None),
+    ]
+
+
 def main():
     checks = [
         ("scan reset values", test_main_loop_scan_reset_values_preserve_legacy_defaults),
@@ -99,6 +137,8 @@ def main():
         ("select current sample", test_select_sample_preserves_current_sample_when_cloneswar_is_false),
         ("select CLONESWAR sample", test_select_sample_uses_cloneswar_and_resets_it),
         ("select sample identity check", test_select_sample_preserves_legacy_identity_check_for_false),
+        ("sample data from bytes", test_sample_data_from_bytes_keeps_bytes_and_hex),
+        ("load sample data", test_load_sample_data_uses_binary_mode_and_context_manager),
     ]
 
     print("Running runtime state tests")

@@ -5595,15 +5595,14 @@ def main():
 
         print("-Proceeding with: %s"% Candy("Color", "white", Sample_Name))
         try:
-            with open(Sample, "rb") as f:
-                data = f.read()
+            LoadedSample = runtime_state.load_sample_data(Sample, opener=open)
         except Exception as e:
             Betterror(e, inspect.stack()[0][3])
             PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
             sys.exit(1)
 
-        DATA_BYTES = data
-        DATAX = data.hex()
+        DATA_BYTES = LoadedSample.data_bytes
+        DATAX = LoadedSample.data_hex
 
         Candy("Cowsay", " %s is loaded!" % Candy("Color", "green", Sample_Name), "good")
         Offset = FindMagic()

@@ -11,6 +11,12 @@ class SampleSelection:
     cloneswar: Any
 
 
+@dataclass(frozen=True)
+class LoadedSampleData:
+    data_bytes: bytes
+    data_hex: str
+
+
 def main_loop_scan_reset_values() -> dict[str, object]:
     return {
         "IBN": 0,
@@ -74,3 +80,12 @@ def select_sample(current_sample: Any, cloneswar: Any, *, basename) -> SampleSel
         sample_name=basename(cloneswar),
         cloneswar=False,
     )
+
+
+def sample_data_from_bytes(data: bytes) -> LoadedSampleData:
+    return LoadedSampleData(data_bytes=data, data_hex=data.hex())
+
+
+def load_sample_data(sample: Any, *, opener=open) -> LoadedSampleData:
+    with opener(sample, "rb") as handle:
+        return sample_data_from_bytes(handle.read())
