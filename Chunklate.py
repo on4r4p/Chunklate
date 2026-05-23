@@ -95,20 +95,8 @@ def Error_Log(Err_to_log):
 # - Cornucopia holds fixes already accepted by CheckPoint/FixItFelix.
 # - WriteClone snapshots those two stores into Pandemonium/ArkOfCovenant so
 #   Relics can react to the repair history when libpng reports a later failure.
-def Relic_Chunk_Label(chunk):
-    return relics.chunk_label(chunk)
-
-
-def Relic_Tool_Prefix(chunk):
-    return relics.tool_prefix(chunk)
-
-
 def Relic_Build_Tools(chunk, toolkit):
     return relics.build_tools(chunk, toolkit)
-
-
-def Relic_Tool_Key(tool_prefix, index):
-    return relics.tool_key(tool_prefix, index)
 
 
 def Relic_Tool_Value(tools, tool_prefix, index):
@@ -129,14 +117,6 @@ def Relic_No_Next_Chunk_Tools(tools, tool_prefix):
 
 def Relic_Dummy_Chunk_Tools(tools, tool_prefix):
     return relics.dummy_chunk_tools(tools, tool_prefix)
-
-
-def Relic_Chunk_Name_From_Text(text):
-    return relics.chunk_name_from_text(text, ALLCHUNKS)
-
-
-def Relic_Chunk_Name_From_Tool_Keys(tools):
-    return relics.chunk_name_from_tool_keys(tools, ALLCHUNKS)
 
 
 def Relic_Current_Wrong_Crc_Routes():
@@ -5202,7 +5182,7 @@ def Relics_Handle_Single_Pandemonium(FromError):
                 for nb3, (tools, tools_values) in enumerate(
                     errors_values.items()
                 ):
-                    Chunkname = Relic_Chunk_Name_From_Tool_Keys(errors_values)
+                    Chunkname = relics.chunk_name_from_tool_keys(errors_values, ALLCHUNKS)
 
                 Candy(
                     "Cowsay",
