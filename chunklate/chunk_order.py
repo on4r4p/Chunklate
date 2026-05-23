@@ -21,6 +21,10 @@ def missing_critical_chunks(
     return tuple(chunk for chunk in minimal_chunks if chunk not in chunks_history)
 
 
+def missing_critical_infos(missing_chunks: Iterable[bytes]) -> tuple[str, ...]:
+    return tuple("-Critical Chunk %s is Missing" % chunk for chunk in missing_chunks)
+
+
 def unique_chunk_exclusions(
     used_chunks: Sequence[bytes],
     unique_chunks: Iterable[bytes],

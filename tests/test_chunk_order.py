@@ -23,6 +23,10 @@ def test_missing_critical_chunks_preserves_legacy_messages_source():
     )
 
     assert missing == (b"IDAT", b"IEND")
+    assert chunk_order.missing_critical_infos(missing) == (
+        "-Critical Chunk b'IDAT' is Missing",
+        "-Critical Chunk b'IEND' is Missing",
+    )
 
 
 def test_unique_seen_chunks_and_unique_exclusions_preserve_order():

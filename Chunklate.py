@@ -3178,12 +3178,13 @@ def CheckChunkOrder(lastchunk, mode):
     if mode == "Critical":
 
         Candy("Title", "Critical Chunks Check :")
-        for chnk in chunk_order.missing_critical_chunks(Chunks_History, MINIMAL_CHUNKS):
+        MissingCritical = chunk_order.missing_critical_chunks(Chunks_History, MINIMAL_CHUNKS)
+        for chnk in MissingCritical:
             PRINT(
                 "-Critical Chunk %s is %s !"
                 % (chnk, Candy("Color", "red", "Missing"))
             )
-            ToFix.append("-Critical Chunk %s is Missing" % chnk)
+        ToFix.extend(chunk_order.missing_critical_infos(MissingCritical))
         if len(ToFix) > 0:
             CheckPoint(True, False, "CheckChunkOrder", "Critical", ToFix)
             # TheEnd()
