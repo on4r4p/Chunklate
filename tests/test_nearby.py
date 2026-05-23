@@ -59,6 +59,24 @@ def test_initial_search_needle_preserves_known_and_unknown_chunk_paths():
     ) == 116
 
 
+def test_double_check_file_length_preserves_legacy_minimum_png_size():
+    assert nearby.double_check_file_length("00" * 66) == nearby.DoubleCheckFileLength(
+        byte_length=66,
+        is_too_short=True,
+    )
+    assert nearby.double_check_file_length("00" * 67) == nearby.DoubleCheckFileLength(
+        byte_length=67,
+        is_too_short=False,
+    )
+
+
+def test_double_check_file_length_preserves_legacy_odd_hex_display_length():
+    assert nearby.double_check_file_length("0" * 133) == nearby.DoubleCheckFileLength(
+        byte_length=66,
+        is_too_short=True,
+    )
+
+
 def test_find_extra_bytes_before_chunk_uses_crc_checked_candidate():
     data = PNG_SIGNATURE + b"XX" + build_png_chunk(b"IHDR", b"\x00" * 13)
     candidate = nearby.find_extra_bytes_before_chunk(
@@ -193,6 +211,8 @@ def main():
         ("history index parse", test_parse_history_index_strips_legacy_spaces),
         ("history position lookup", test_find_history_chunk_position_returns_first_matching_chunk),
         ("initial search needle", test_initial_search_needle_preserves_known_and_unknown_chunk_paths),
+        ("double check minimum length", test_double_check_file_length_preserves_legacy_minimum_png_size),
+        ("double check odd hex length", test_double_check_file_length_preserves_legacy_odd_hex_display_length),
         ("extra bytes candidate", test_find_extra_bytes_before_chunk_uses_crc_checked_candidate),
         ("extra bytes ignored candidates", test_find_extra_bytes_before_chunk_ignores_unknown_or_bad_crc_candidates),
         ("relocate missing chunk", test_relocate_missing_chunk_matches_legacy_rubber_tape),

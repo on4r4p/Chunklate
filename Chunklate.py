@@ -2867,13 +2867,14 @@ def Double_Check(CType, ChunkLen, LastCType):
         "Or maybe am i missing something ? Just let me double check again just to be sure...",
         "com",
     )
-    if len(DATAX) / 2 < 67:
+    DoubleCheckFileLength = nearby.double_check_file_length(DATAX)
+    if DoubleCheckFileLength.is_too_short:
         PRINT(
             "%s: %s is %s bytes long Png minimum size is 67 bytes ."
             % (
                 Candy("Color", "red","-Wrong File Length"),
                 Candy("Color", "white", Sample_Name),
-                Candy("Color", "red", str(int(len(DATAX) / 2))),
+                Candy("Color", "red", str(DoubleCheckFileLength.byte_length)),
             )
         )
 

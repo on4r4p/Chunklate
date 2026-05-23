@@ -53,6 +53,20 @@ class NearbyLengthRepair:
         )
 
 
+@dataclass(frozen=True)
+class DoubleCheckFileLength:
+    byte_length: int
+    is_too_short: bool
+
+
+def double_check_file_length(data_hex: str, minimum_png_size: int = 67) -> DoubleCheckFileLength:
+    raw_byte_length = len(data_hex) / 2
+    return DoubleCheckFileLength(
+        byte_length=int(raw_byte_length),
+        is_too_short=raw_byte_length < minimum_png_size,
+    )
+
+
 def clamp_length(length: int) -> int:
     if length < 0:
         return 0
