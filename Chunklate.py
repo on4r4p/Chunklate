@@ -95,10 +95,6 @@ def Error_Log(Err_to_log):
 # - Cornucopia holds fixes already accepted by CheckPoint/FixItFelix.
 # - WriteClone snapshots those two stores into Pandemonium/ArkOfCovenant so
 #   Relics can react to the repair history when libpng reports a later failure.
-def Relic_Build_Tools(chunk, toolkit):
-    return relics.build_tools(chunk, toolkit)
-
-
 def Relic_Tool_Value(tools, tool_prefix, index):
     return relics.tool_value(tools, tool_prefix, index)
 
@@ -131,16 +127,8 @@ def Relic_Remembered_Dummy_Chunk_Routes():
     return relics.remembered_dummy_chunk_routes(Pandemonium, ALLCHUNKS, CRITICAL_CHUNKS)
 
 
-def PandoraBox_Tool(key, tool_prefix, index):
-    return Relic_Tool_Value(PandoraBox[key], tool_prefix, index)
-
-
 def Cornucopia_Tool(key, tool_prefix, index):
     return Relic_Tool_Value(Cornucopia[key], tool_prefix, index)
-
-
-def Pandemonium_Tool(file, error, tool_prefix, index):
-    return Relic_Tool_Value(Pandemonium[file][error], tool_prefix, index)
 
 
 def PandoraBox_Wrong_Crc_Tools(key, tool_prefix):

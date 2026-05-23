@@ -38,7 +38,7 @@ def reset_relic_state():
 
 
 def test_relic_build_tools_uses_legacy_tool_names():
-    tools = chunklate.Relic_Build_Tools(b"IDAT", ("crc", 12, 20))
+    tools = relics.build_tools(b"IDAT", ("crc", 12, 20))
 
     assert tools == {
         "IDAT_Tool_0": "crc",
