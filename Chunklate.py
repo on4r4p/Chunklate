@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, nearby, output, palette, palette_ui, prompts, relics, relics_runtime, relics_ui, sorting, specs, stdio, ui, writer
+from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, nearby, output, palette, palette_ui, prompts, relics, relics_runtime, relics_ui, sorting, specs, stdio, ui, ui_runtime, writer
 from chunklate.png import (
     PngFormatError,
     chunk_type_crc_matches,
@@ -1428,32 +1428,20 @@ def Summarise(infos, Summary_Footer=False):
             f.write(output.render_summary_footer(globals(), eof))
     SideNotes = []
 
+def Legacy_UI_Runtime():
+    return ui_runtime.LegacyUiRuntime(
+        emit=PRINT,
+        random_int=random.randint,
+        max_columns=MAXCHAR,
+        no_dialogue=NODIALOGUE,
+        use_color=os.name != "nt",
+        pause_dialogue_enabled=PAUSEDIALOGUE,
+        pause_dialogue=lambda: prompts.pause_dialogue(input, PAUSEDIALOGUE),
+    )
+
+
 def Candy(mode, arg, data=None):
-    if mode == "Emoj":
-        return ui.pick_emoji(arg, random.randint)
-
-    if mode == "Color" and os.name != "nt":
-        return ui.colorize(arg, data, use_color=True)
-    elif mode == "Color" and os.name == "nt":
-        return ui.colorize(arg, data, use_color=False)
-
-    if mode == "Cowsay":
-        PRINT(
-            ui.render_dialogue(
-                arg,
-                data,
-                max_columns=MAXCHAR,
-                emoji_provider=lambda name: Candy("Emoj", name),
-                use_color=os.name != "nt",
-            )
-        )
-        if PAUSEDIALOGUE is True:
-            prompts.pause_dialogue(input, PAUSEDIALOGUE)
-
-    if mode == "Title":
-        if NODIALOGUE:
-           return()
-        PRINT(ui.render_title(arg, data, use_color=os.name != "nt"))
+    return Legacy_UI_Runtime().candy(mode, arg, data)
 
 
 def SplitDigits(lst):
