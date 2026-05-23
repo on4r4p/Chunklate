@@ -2606,19 +2606,10 @@ def FindFuckingMagic():
                 "Im going to prepend the PNG Chuck before the nearest Chunk and we'll see from there !",
                 "good",
             )
-            try:
-                NearestPos = sorted(ChunksFound.items(), key=lambda kv: kv[1])[0][1]
-                NearestChk = sorted(ChunksFound.items(), key=lambda kv: kv[1])[0][0]
-
-            except Exception as e:
-                Betterror(e, inspect.stack()[0][3])
-                if DEBUG is True:
-                    PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-
-            if NearestPos - 8 > 0:
-                Lenx = DATAX[NearestPos - 8 : NearestPos]
-            else:
-                Lenx = DATAX[:NearestPos]
+            NearestChunk = chunk_scanner.nearest_found_chunk(DATAX, ChunksFound)
+            NearestPos = NearestChunk.offset
+            NearestChk = NearestChunk.chunk
+            Lenx = NearestChunk.preceding_length
 
             Specheck = SpecLength(NearestChk, Lenx)
 
@@ -2627,12 +2618,9 @@ def FindFuckingMagic():
             elif type(Specheck) == list:
                 PRINT(Candy("Color", "yellow", "\n-ToDo"))
                 pass  # brutefore
-            try:
-                NearestPosX = hex(int(NearestPos / 2))
-            except ZeroDivisionError:
-                NearestPosX = hex(int(0))
+            NearestPosX = NearestChunk.offset_hex
 
-            Odin = Magic + Lenx + DATAX[NearestPos::]
+            Odin = chunk_scanner.prepend_magic_before_nearest(DATAX, Magic, Lenx, NearestPos)
             if DEBUG is True:
                 PRINT("New:")
                 PRINT(Odin[: NearestPos + 64])

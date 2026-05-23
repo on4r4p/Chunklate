@@ -101,6 +101,36 @@ def test_scan_known_chunks_until_idat_reports_no_idat():
     assert [hit.chunk for hit in scan.hits] == [b"IHDR", b"IEND"]
 
 
+def test_nearest_found_chunk_uses_lowest_offset_and_previous_length():
+    candidate = chunk_scanner.nearest_found_chunk(
+        "aaaabbbbccccIIIIDDDD",
+        {b"IDAT": 16, b"IHDR": 8},
+    )
+
+    assert candidate == chunk_scanner.NearestFoundChunk(
+        chunk=b"IHDR",
+        offset=8,
+        preceding_length="aaaabbbb",
+    )
+    assert candidate.offset_byte == 4
+    assert candidate.offset_hex == "0x4"
+
+
+def test_nearest_found_chunk_uses_prefix_when_no_previous_length():
+    candidate = chunk_scanner.nearest_found_chunk("aaaabbbb", {b"IHDR": 4})
+
+    assert candidate.preceding_length == "aaaa"
+
+
+def test_prepend_magic_before_nearest_preserves_legacy_join():
+    assert chunk_scanner.prepend_magic_before_nearest(
+        "aaaabbbbcccc",
+        "89504e47",
+        "0000000d",
+        8,
+    ) == "89504e470000000dcccc"
+
+
 def main():
     checks = [
         ("legacy globals", test_scan_legacy_chunk_exposes_window_and_legacy_globals),
@@ -109,6 +139,9 @@ def main():
         ("magic bingo best count", test_magic_bingo_scan_counts_multiple_best_scores),
         ("known chunk scan until IDAT", test_scan_known_chunks_until_idat_stops_at_first_idat),
         ("known chunk scan without IDAT", test_scan_known_chunks_until_idat_reports_no_idat),
+        ("nearest found chunk", test_nearest_found_chunk_uses_lowest_offset_and_previous_length),
+        ("nearest found chunk prefix", test_nearest_found_chunk_uses_prefix_when_no_previous_length),
+        ("prepend magic before nearest", test_prepend_magic_before_nearest_preserves_legacy_join),
     ]
 
     print("Running chunk scanner tests")

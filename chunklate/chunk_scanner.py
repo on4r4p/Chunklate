@@ -113,6 +113,21 @@ class KnownChunkScan:
     found_idat: bool
 
 
+@dataclass(frozen=True)
+class NearestFoundChunk:
+    chunk: bytes
+    offset: int
+    preceding_length: str
+
+    @property
+    def offset_byte(self) -> int:
+        return int(self.offset / 2)
+
+    @property
+    def offset_hex(self) -> str:
+        return hex(self.offset_byte)
+
+
 def magic_bingo_scan(
     data_hex: str,
     full_magic_hex: str,
@@ -183,3 +198,25 @@ def scan_known_chunks_until_idat(data_hex: str, chunks: tuple[bytes, ...] | list
         chunks_found=chunks_found,
         found_idat=False,
     )
+
+
+def nearest_found_chunk(data_hex: str, chunks_found: dict[bytes, int]) -> NearestFoundChunk:
+    nearest_chunk, nearest_offset = sorted(chunks_found.items(), key=lambda kv: kv[1])[0]
+    if nearest_offset - 8 > 0:
+        preceding_length = data_hex[nearest_offset - 8 : nearest_offset]
+    else:
+        preceding_length = data_hex[:nearest_offset]
+    return NearestFoundChunk(
+        chunk=nearest_chunk,
+        offset=nearest_offset,
+        preceding_length=preceding_length,
+    )
+
+
+def prepend_magic_before_nearest(
+    data_hex: str,
+    magic_hex: str,
+    length_hex: str,
+    nearest_offset: int,
+) -> str:
+    return magic_hex + length_hex + data_hex[nearest_offset::]
