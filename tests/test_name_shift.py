@@ -71,12 +71,33 @@ def test_find_shifted_chunk_name_returns_none_without_known_chunk():
     assert name_shift.find_shifted_chunk_name(data_hex, 20, KNOWN_CHUNKS) is None
 
 
+def test_parse_history_chunk_index_preserves_legacy_fields():
+    assert name_shift.parse_history_chunk_index("3:20:44:16") == (
+        name_shift.HistoryChunkIndex(number="3", start=20, end=44, length=16)
+    )
+
+
+def test_last_history_chunk_before_offset_stops_at_first_non_previous_chunk():
+    indexes = [
+        "0:0:16:8",
+        "1:16:40:16",
+        "2:40:60:12",
+    ]
+
+    assert name_shift.last_history_chunk_before_offset(indexes, 42) == (
+        name_shift.HistoryChunkIndex(number="1", start=16, end=40, length=16)
+    )
+    assert name_shift.last_history_chunk_before_offset(indexes, 16) is None
+
+
 def main():
     checks = [
         ("Current offset", test_find_shifted_chunk_name_detects_current_offset),
         ("Before expected offset", test_find_shifted_chunk_name_detects_chunk_before_expected_offset),
         ("After expected offset", test_find_shifted_chunk_name_detects_chunk_after_expected_offset),
         ("Unknown chunk", test_find_shifted_chunk_name_returns_none_without_known_chunk),
+        ("Parse history chunk index", test_parse_history_chunk_index_preserves_legacy_fields),
+        ("Last chunk before offset", test_last_history_chunk_before_offset_stops_at_first_non_previous_chunk),
     ]
 
     print("Running name shift tests")

@@ -3410,10 +3410,6 @@ def NameShift():
     Candy("Title", "Checking around Chunk's position:")
     ToFix = []
     Shifted = False
-    last_chunk_nbr = ""
-    last_chunk_start = ""
-    last_chunk_end = ""
-    last_chunk_len = ""
     good_offset = False
 
     if DEBUG is True:
@@ -3470,29 +3466,25 @@ def NameShift():
                  fixed = reallen + value.hex() + DATAX[ioff+8:ioff+8+datpart] + Crc.replace("0x","")
 
                  if ioff > CToffI:
-                      for c, i in zip(Chunks_History, Chunks_History_Index):
-                          if int(i.split(":")[2]) < CToffI:
-                                    last_chunk_nbr = i.split(":")[0]
-                                    last_chunk_start = int(i.split(":")[1])
-                                    last_chunk_end = int(i.split(":")[2])
-                                    last_chunk_len = int(i.split(":")[3])
-                          else:
-                              break
+                      LastChunkBeforeOffset = name_shift.last_history_chunk_before_offset(
+                          Chunks_History_Index,
+                          CToffI,
+                      )
 
-                      if len(last_chunk_nbr) > 0:
-#                          print("last_chunk_nbr:",last_chunk_nbr)
-#                          print("last_chunk_start:",last_chunk_start)
-#                          print("last_chunk_end:",last_chunk_end)
-#                          print("last_chunk_len:",last_chunk_len)
+                      if LastChunkBeforeOffset is not None:
+#                          print("last_chunk_nbr:",LastChunkBeforeOffset.number)
+#                          print("last_chunk_start:",LastChunkBeforeOffset.start)
+#                          print("last_chunk_end:",LastChunkBeforeOffset.end)
+#                          print("last_chunk_len:",LastChunkBeforeOffset.length)
 
-                          if ioff == last_chunk_end + 8 + good_offset:
-#                             print(last_chunk_end + 8 + good_offset)
+                          if ioff == LastChunkBeforeOffset.end + 8 + good_offset:
+#                             print(LastChunkBeforeOffset.end + 8 + good_offset)
                              SideNotes.append("-NameShift: Extra bytes has been found.")
                              Candy("Cowsay", "Found some extra bytes for some reason.. let's fix this now .", "good")
                              return([fixed,len(fixed)+good_offset,CToffI - 8])
                           else:
                              print("bad")
-                             print(last_chunk_end + 8 + good_offset)
+                             print(LastChunkBeforeOffset.end + 8 + good_offset)
                              PRINT(Candy("Color", "yellow", "\n-ToDo"))
                              TheEnd()
                  else:
