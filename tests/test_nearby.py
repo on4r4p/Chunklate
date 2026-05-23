@@ -103,6 +103,17 @@ def test_relocate_missing_chunk_matches_legacy_rubber_tape():
     ) == "aaaaccccddddbbbb"
 
 
+def test_null_find_preserves_legacy_default_search():
+    assert nearby.null_find("aabb00cc") == 4
+    assert nearby.null_find("aabbcc") is False
+
+
+def test_null_find_preserves_custom_step_search():
+    assert nearby.null_find("aabbccdd", "cc") == 4
+    assert nearby.null_find("aabbccdd", "bb") == 2
+    assert nearby.null_find("aabbccdd", "bbcc") is False
+
+
 def test_known_chunk_length_repair_matches_legacy_offsets_and_messages():
     repair = nearby.known_chunk_length_repair(
         display_chunk=b"IDAT",
@@ -185,6 +196,8 @@ def main():
         ("extra bytes candidate", test_find_extra_bytes_before_chunk_uses_crc_checked_candidate),
         ("extra bytes ignored candidates", test_find_extra_bytes_before_chunk_ignores_unknown_or_bad_crc_candidates),
         ("relocate missing chunk", test_relocate_missing_chunk_matches_legacy_rubber_tape),
+        ("null find default", test_null_find_preserves_legacy_default_search),
+        ("null find custom", test_null_find_preserves_custom_step_search),
         ("known chunk length repair", test_known_chunk_length_repair_matches_legacy_offsets_and_messages),
         ("unknown chunk length repair", test_unknown_chunk_length_repair_uses_previous_history_chunk),
         ("negative length clamp", test_length_repair_clamps_negative_lengths_to_zero),

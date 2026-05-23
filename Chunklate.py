@@ -2800,17 +2800,7 @@ def Ancillary(Chunk):
 
 
 def NullFind(data, search4=None):
-    null_pos = ""
-    if search4 == None:
-        search4 = "00"
-    for i in range(0, len(data), len(search4)):
-        if data[i : i + len(search4)] == search4:
-            null_pos = i
-            break
-    if len(str(null_pos)) > 0:
-        return null_pos
-    else:
-        return False
+    return nearby.null_find(data, search4)
 
 
 def LibpngCheck(file):

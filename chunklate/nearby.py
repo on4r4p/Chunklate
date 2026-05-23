@@ -205,3 +205,16 @@ def relocate_missing_chunk(data_hex: str, *, source_start: int, source_end: int,
     source = data_hex[source_start:source_end]
     without_source = data_hex[:source_start] + data_hex[source_end:]
     return without_source[:target_start] + source + without_source[target_start:]
+
+
+def null_find(data: str, search4: str | None = None) -> int | bool:
+    null_pos = ""
+    if search4 is None:
+        search4 = "00"
+    for index in range(0, len(data), len(search4)):
+        if data[index : index + len(search4)] == search4:
+            null_pos = index
+            break
+    if len(str(null_pos)) > 0:
+        return null_pos
+    return False
