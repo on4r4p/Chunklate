@@ -129,6 +129,21 @@ def test_load_sample_data_uses_binary_mode_and_context_manager():
     ]
 
 
+def test_next_chunk_offset_preserves_legacy_length_sum():
+    assert runtime_state.next_chunk_offset(
+        10,
+        b"len!",
+        b"type",
+        b"data-data",
+        b"crc!",
+    ) == 31
+
+
+def test_kitkat_break_decision_resets_only_true_flag():
+    assert runtime_state.kitkat_break_decision(True) == (True, False)
+    assert runtime_state.kitkat_break_decision(False) == (False, False)
+
+
 def main():
     checks = [
         ("scan reset values", test_main_loop_scan_reset_values_preserve_legacy_defaults),
@@ -139,6 +154,8 @@ def main():
         ("select sample identity check", test_select_sample_preserves_legacy_identity_check_for_false),
         ("sample data from bytes", test_sample_data_from_bytes_keeps_bytes_and_hex),
         ("load sample data", test_load_sample_data_uses_binary_mode_and_context_manager),
+        ("next chunk offset", test_next_chunk_offset_preserves_legacy_length_sum),
+        ("kitkat break decision", test_kitkat_break_decision_resets_only_true_flag),
     ]
 
     print("Running runtime state tests")

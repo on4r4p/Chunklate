@@ -5625,16 +5625,16 @@ def main():
                     if Show_Must_Go_On is True:
                         break
 
-                Offset = (
-                    Offset
-                    + len(Raw_Length)
-                    + len(Raw_Type)
-                    + len(Raw_Data)
-                    + len(Raw_Crc)
+                Offset = runtime_state.next_chunk_offset(
+                    Offset,
+                    Raw_Length,
+                    Raw_Type,
+                    Raw_Data,
+                    Raw_Crc,
                 )
 
-                if Have_A_KitKat is True:
-                    Have_A_KitKat = False
+                BreakLoop, Have_A_KitKat = runtime_state.kitkat_break_decision(Have_A_KitKat)
+                if BreakLoop is True:
                     break
 
         # print("Reached End of %s\n"%Sample_Name)

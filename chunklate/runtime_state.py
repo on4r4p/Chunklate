@@ -89,3 +89,19 @@ def sample_data_from_bytes(data: bytes) -> LoadedSampleData:
 def load_sample_data(sample: Any, *, opener=open) -> LoadedSampleData:
     with opener(sample, "rb") as handle:
         return sample_data_from_bytes(handle.read())
+
+
+def next_chunk_offset(
+    offset: int,
+    raw_length: Any,
+    raw_type: Any,
+    raw_data: Any,
+    raw_crc: Any,
+) -> int:
+    return offset + len(raw_length) + len(raw_type) + len(raw_data) + len(raw_crc)
+
+
+def kitkat_break_decision(have_a_kitkat: bool) -> tuple[bool, bool]:
+    if have_a_kitkat is True:
+        return True, False
+    return False, have_a_kitkat
