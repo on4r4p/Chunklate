@@ -22,6 +22,7 @@ class CheckPointRuntime:
     candy: LegacyCall
     emit: LegacyCall
     end: LegacyCall
+    question: LegacyCall
     print_libpng_critical: LegacyCall
     discard_libpng_warning: LegacyCall
     libpng_end_success: LegacyCall
@@ -116,4 +117,131 @@ def run_libpng_end_success(runtime: CheckPointRuntime) -> tuple[bool, Any]:
     runtime.libpng_end_success(
         "Well maybe i am missing something but as far as my current abilities goes the job is done for me here!"
     )
+    return False, None
+
+
+def run_smash_brute_brawl_relaunch(
+    runtime: CheckPointRuntime,
+    toolkit: tuple[Any, ...],
+    from_error: Any,
+    *,
+    bf_mode: Any = None,
+    has_old_crc: bool = False,
+    old_crc: Any = None,
+) -> Any:
+    kwargs = {
+        "EditMode": toolkit[4],
+        "BfMode": bf_mode if bf_mode is not None else toolkit[5],
+        "BruteCrc": toolkit[6],
+        "BruteLength": toolkit[7],
+    }
+    if has_old_crc:
+        kwargs["OldCrc"] = old_crc
+    return runtime.smash_brute_brawl(
+        toolkit[0],
+        toolkit[1],
+        toolkit[2],
+        toolkit[3],
+        from_error,
+        **kwargs,
+    )
+
+
+def run_smash_brute_brawl_retry_ihdr(
+    runtime: CheckPointRuntime,
+    toolkit: tuple[Any, ...],
+    from_error: Any,
+    brute_level: int,
+) -> tuple[bool, Any]:
+    runtime.candy(
+        "Cowsay",
+        "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/3)"
+        % brute_level,
+        "bad",
+    )
+    run_smash_brute_brawl_relaunch(runtime, toolkit, from_error)
+    return False, None
+
+
+def ask_smash_brute_brawl_twobytes_retry(
+    runtime: CheckPointRuntime,
+    toolkit: tuple[Any, ...],
+    *,
+    brute_level: int,
+    eta: int,
+    ihdr_interlace: str,
+) -> Any:
+    runtime.candy("Cowsay", "Too bad that was the easy way ..", "bad")
+    runtime.candy(
+        "Cowsay",
+        "I may increase the BruteForce Level in case there is another corrupted bytes that iv missed.",
+        "com",
+    )
+    runtime.candy("Cowsay", "But this will take litterally forever...i mean like this :", "bad")
+    estimation = eta * toolkit[2]
+    if toolkit[1] == b"IDAT":
+        estimation *= 3
+    from datetime import timedelta
+
+    runtime.emit("-BruteForce Estimated Time : %s\n" % str(timedelta(seconds=estimation)))
+    runtime.candy("Cowsay", "And of course this may fail .. Do you still want to try ?", "com")
+    if toolkit[1] == b"IDAT" and ihdr_interlace == "1":
+        runtime.candy(
+            "Cowsay",
+            "Since this is an IDAT chunk i may have another solution just answer: 'No' then.",
+            "good",
+        )
+
+    answer = runtime.question(skipauto=True)
+    if answer:
+        runtime.candy(
+            "Cowsay",
+            "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/1)"
+            % brute_level,
+            "bad",
+        )
+    return answer
+
+
+def ask_smash_brute_brawl_dummy_idat_fallback(runtime: CheckPointRuntime) -> Any:
+    runtime.candy(
+        "Cowsay",
+        "So let's face it ..I wont be able to recover that IDAT before one of us die.",
+        "bad",
+    )
+    runtime.candy("Cowsay", "But i could create another one full of black pixels..", "com")
+    runtime.candy("Cowsay", "This way i hope we could end up with a valid png.", "good")
+    runtime.candy(
+        "Cowsay",
+        "At the cost of one beautiful white rectangle in the middle of that image..",
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "What do you say ? Otherwise Chunklate is going to exit .",
+        "com",
+    )
+    return runtime.question()
+
+
+def run_smash_brute_brawl_end_failed_noncustom(
+    runtime: CheckPointRuntime,
+) -> tuple[bool, Any]:
+    runtime.candy(
+        "Cowsay",
+        "Iv tried everything , im out of option sorry ..",
+        "bad",
+    )
+    runtime.end()
+    return False, None
+
+
+def ask_smash_brute_brawl_custom_brutus(runtime: CheckPointRuntime) -> Any:
+    runtime.candy("Cowsay", "Too bad that was the easy way ..", "bad")
+    runtime.candy("Cowsay", "Wanna try to bruteforce the entire chunk instead ?", "com")
+    return runtime.question()
+
+
+def run_smash_brute_brawl_end_unhandled(runtime: CheckPointRuntime) -> tuple[bool, Any]:
+    runtime.end()
     return False, None

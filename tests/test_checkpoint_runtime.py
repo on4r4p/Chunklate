@@ -45,6 +45,7 @@ def callback_runtime(calls):
         candy=callback("candy"),
         emit=callback("emit"),
         end=callback("end"),
+        question=callback("question"),
         print_libpng_critical=callback("print_libpng_critical"),
         discard_libpng_warning=callback("discard_libpng_warning"),
         libpng_end_success=callback("libpng_end_success"),
@@ -170,6 +171,95 @@ def test_checkpoint_runtime_runs_libpng_actions():
     ]
 
 
+def test_checkpoint_runtime_runs_smash_brute_brawl_relaunches():
+    calls = []
+    runtime = callback_runtime(calls)
+    toolkit = ("sample.png", b"IDAT", 4, 100, "Insert", "TwoBytes", "crc", "length")
+
+    assert checkpoint_runtime.run_smash_brute_brawl_relaunch(
+        runtime,
+        toolkit,
+        "from-error",
+    ) == "smash_brute_brawl"
+    assert checkpoint_runtime.run_smash_brute_brawl_relaunch(
+        runtime,
+        toolkit,
+        "from-old-crc",
+        bf_mode="Brutus",
+        has_old_crc=True,
+        old_crc="old-crc",
+    ) == "smash_brute_brawl"
+
+    assert calls == [
+        (
+            "smash_brute_brawl",
+            ("sample.png", b"IDAT", 4, 100, "from-error"),
+            {
+                "EditMode": "Insert",
+                "BfMode": "TwoBytes",
+                "BruteCrc": "crc",
+                "BruteLength": "length",
+            },
+        ),
+        (
+            "smash_brute_brawl",
+            ("sample.png", b"IDAT", 4, 100, "from-old-crc"),
+            {
+                "EditMode": "Insert",
+                "BfMode": "Brutus",
+                "BruteCrc": "crc",
+                "BruteLength": "length",
+                "OldCrc": "old-crc",
+            },
+        ),
+    ]
+
+
+def test_checkpoint_runtime_runs_smash_brute_brawl_prompts():
+    calls = []
+    runtime = callback_runtime(calls)
+    toolkit = ("sample.png", b"IDAT", 4, 100, "Insert", "TwoBytes", "crc", "length")
+
+    assert checkpoint_runtime.ask_smash_brute_brawl_twobytes_retry(
+        runtime,
+        toolkit,
+        brute_level=1,
+        eta=2,
+        ihdr_interlace="1",
+    ) == "question"
+    assert checkpoint_runtime.ask_smash_brute_brawl_dummy_idat_fallback(runtime) == "question"
+    assert checkpoint_runtime.ask_smash_brute_brawl_custom_brutus(runtime) == "question"
+
+    call_names = [call[0] for call in calls]
+    assert call_names.count("question") == 3
+    assert ("emit", ("-BruteForce Estimated Time : 0:00:24\n",), {}) in calls
+
+
+def test_checkpoint_runtime_runs_smash_brute_brawl_end_actions():
+    calls = []
+    runtime = callback_runtime(calls)
+
+    assert checkpoint_runtime.run_smash_brute_brawl_retry_ihdr(
+        runtime,
+        ("sample.png", b"IHDR", 13, 8, "Insert", "Bytes", "crc", "length"),
+        "from-error",
+        2,
+    ) == (False, None)
+    assert checkpoint_runtime.run_smash_brute_brawl_end_failed_noncustom(runtime) == (
+        False,
+        None,
+    )
+    assert checkpoint_runtime.run_smash_brute_brawl_end_unhandled(runtime) == (False, None)
+
+    assert [call[0] for call in calls] == [
+        "candy",
+        "smash_brute_brawl",
+        "candy",
+        "end",
+        "end",
+    ]
+
+
 def test_chunklate_checkpoint_runtime_uses_current_legacy_functions():
     calls = []
 
@@ -194,6 +284,7 @@ def test_chunklate_checkpoint_runtime_uses_current_legacy_functions():
         Candy=callback("candy"),
         PRINT=callback("emit"),
         TheEnd=callback("end"),
+        Question=callback("question"),
         CheckPoint_Print_Libpng_Critical=callback("print_libpng_critical"),
         CheckPoint_Discard_Libpng_Warning=callback("discard_libpng_warning"),
         CheckPoint_Libpng_End_Success=callback("libpng_end_success"),
@@ -202,6 +293,7 @@ def test_chunklate_checkpoint_runtime_uses_current_legacy_functions():
         assert runtime.write_clone("data", "why") == "write_clone"
         assert runtime.relics("info") == "relics"
         assert runtime.end() == "end"
+        assert runtime.question(skipauto=True) == "question"
         assert runtime.print_libpng_critical("warning") == "print_libpng_critical"
         assert runtime.discard_libpng_warning() == "discard_libpng_warning"
         assert runtime.libpng_end_success("done") == "libpng_end_success"
@@ -210,6 +302,7 @@ def test_chunklate_checkpoint_runtime_uses_current_legacy_functions():
         "write_clone",
         "relics",
         "end",
+        "question",
         "print_libpng_critical",
         "discard_libpng_warning",
         "libpng_end_success",
@@ -221,6 +314,18 @@ def main():
         ("CheckPointRuntime keeps callbacks", test_checkpoint_runtime_keeps_legacy_callbacks),
         ("CheckPointRuntime runs simple actions", test_checkpoint_runtime_runs_simple_actions),
         ("CheckPointRuntime runs libpng actions", test_checkpoint_runtime_runs_libpng_actions),
+        (
+            "CheckPointRuntime runs SmashBruteBrawl relaunches",
+            test_checkpoint_runtime_runs_smash_brute_brawl_relaunches,
+        ),
+        (
+            "CheckPointRuntime runs SmashBruteBrawl prompts",
+            test_checkpoint_runtime_runs_smash_brute_brawl_prompts,
+        ),
+        (
+            "CheckPointRuntime runs SmashBruteBrawl end actions",
+            test_checkpoint_runtime_runs_smash_brute_brawl_end_actions,
+        ),
         (
             "Chunklate builds CheckPointRuntime from legacy functions",
             test_chunklate_checkpoint_runtime_uses_current_legacy_functions,

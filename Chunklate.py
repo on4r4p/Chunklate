@@ -146,6 +146,7 @@ def CheckPoint_Runtime():
         candy=Candy,
         emit=PRINT,
         end=TheEnd,
+        question=Question,
         print_libpng_critical=CheckPoint_Print_Libpng_Critical,
         discard_libpng_warning=CheckPoint_Discard_Libpng_Warning,
         libpng_end_success=CheckPoint_Libpng_End_Success,
@@ -235,21 +236,13 @@ def CheckPoint_SmashBruteBrawl_Relaunch(
     has_old_crc=False,
     old_crc=None,
 ):
-    kwargs = {
-        "EditMode": toolkit[4],
-        "BfMode": bf_mode if bf_mode is not None else toolkit[5],
-        "BruteCrc": toolkit[6],
-        "BruteLength": toolkit[7],
-    }
-    if has_old_crc:
-        kwargs["OldCrc"] = old_crc
-    return SmashBruteBrawl(
-        toolkit[0],
-        toolkit[1],
-        toolkit[2],
-        toolkit[3],
+    return checkpoint_runtime.run_smash_brute_brawl_relaunch(
+        CheckPoint_Runtime(),
+        toolkit,
         from_error,
-        **kwargs,
+        bf_mode=bf_mode,
+        has_old_crc=has_old_crc,
+        old_crc=old_crc,
     )
 
 
@@ -257,48 +250,27 @@ def CheckPoint_Action_SmashBruteBrawl_Retry_IHDR(decision, chunk, info, toolkit)
     global Brute_LvL
 
     Brute_LvL += 1
-    Candy(
-        "Cowsay",
-        "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/3)"
-        % Brute_LvL,
-        "bad",
-    )
     SideNotes.append("-CheckPoint: %s" % info)
-    CheckPoint_SmashBruteBrawl_Relaunch(toolkit, toolkit[8])
-    return False, None
+    return checkpoint_runtime.run_smash_brute_brawl_retry_ihdr(
+        CheckPoint_Runtime(),
+        toolkit,
+        toolkit[8],
+        Brute_LvL,
+    )
 
 
 def CheckPoint_Action_SmashBruteBrawl_Ask_TwoBytes_Retry(decision, chunk, info, toolkit):
     global Brute_LvL
 
     Brute_LvL += 1
-    Candy("Cowsay", "Too bad that was the easy way ..", "bad")
-    Candy(
-        "Cowsay",
-        "I may increase the BruteForce Level in case there is another corrupted bytes that iv missed.",
-        "com",
+    Answer = checkpoint_runtime.ask_smash_brute_brawl_twobytes_retry(
+        CheckPoint_Runtime(),
+        toolkit,
+        brute_level=Brute_LvL,
+        eta=ETA,
+        ihdr_interlace=IHDR_Interlace,
     )
-    Candy("Cowsay", "But this will take litterally forever...i mean like this :", "bad")
-    estimation = ETA * toolkit[2]
-    if toolkit[1] == b"IDAT":
-        estimation *= 3
-    PRINT("-BruteForce Estimated Time : %s\n" % str(timedelta(seconds=estimation)))
-    Candy("Cowsay", "And of course this may fail .. Do you still want to try ?", "com")
-    if toolkit[1] == b"IDAT" and IHDR_Interlace == "1":
-        Candy(
-            "Cowsay",
-            "Since this is an IDAT chunk i may have another solution just answer: 'No' then.",
-            "good",
-        )
-
-    Answer = Question(skipauto=True)
     if Answer:
-        Candy(
-            "Cowsay",
-            "One More Try Hang In There ! Increasing Bruteforce Lvl! (%s/1)"
-            % Brute_LvL,
-            "bad",
-        )
         SideNotes.append("-CheckPoint: Increasing BfLvl: %s" % info)
         if "OldCrc" in info:
             CheckPoint_SmashBruteBrawl_Relaunch(
@@ -316,24 +288,9 @@ def CheckPoint_Action_SmashBruteBrawl_Ask_TwoBytes_Retry(decision, chunk, info, 
 
 def CheckPoint_SmashBruteBrawl_Handle_TwoBytes_Decline(info, toolkit):
     if toolkit[1] == b"IDAT" and IHDR_Interlace == "1":
-        Candy(
-            "Cowsay",
-            "So let's face it ..I wont be able to recover that IDAT before one of us die.",
-            "bad",
+        Answer = checkpoint_runtime.ask_smash_brute_brawl_dummy_idat_fallback(
+            CheckPoint_Runtime()
         )
-        Candy("Cowsay", "But i could create another one full of black pixels..", "com")
-        Candy("Cowsay", "This way i hope we could end up with a valid png.", "good")
-        Candy(
-            "Cowsay",
-            "At the cost of one beautiful white rectangle in the middle of that image..",
-            "bad",
-        )
-        Candy(
-            "Cowsay",
-            "What do you say ? Otherwise Chunklate is going to exit .",
-            "com",
-        )
-        Answer = Question()
         if Answer is True:
             SideNotes.append("-CheckPoint:User choose to replace IDAT: %s" % info)
             if "OldCrc" in info:
@@ -355,37 +312,30 @@ def CheckPoint_SmashBruteBrawl_Handle_TwoBytes_Decline(info, toolkit):
 
 
 def CheckPoint_Action_SmashBruteBrawl_End_Failed_NonCustom(decision, chunk, info, toolkit):
-    Candy(
-        "Cowsay",
-        "Iv tried everything , im out of option sorry ..",
-        "bad",
-    )
     SideNotes.append("-CheckPoint: %s" % info)
-    TheEnd()
-    return False, None
+    return checkpoint_runtime.run_smash_brute_brawl_end_failed_noncustom(
+        CheckPoint_Runtime()
+    )
 
 
 def CheckPoint_Action_SmashBruteBrawl_Ask_Custom_Brutus(decision, chunk, info, toolkit):
     global Brute_LvL
 
-    Candy("Cowsay", "Too bad that was the easy way ..", "bad")
     SideNotes.append(
         "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!(CUSTOM END)"
     )
-    Candy("Cowsay", "Wanna try to bruteforce the entire chunk instead ?", "com")
-    Answer = Question()
+    Answer = checkpoint_runtime.ask_smash_brute_brawl_custom_brutus(CheckPoint_Runtime())
     if Answer is True:
         Brute_LvL = 0
         CheckPoint_SmashBruteBrawl_Relaunch(toolkit, toolkit[8], bf_mode="Brutus")
     else:
-        TheEnd()
+        CheckPoint_Runtime().end()
     return False, None
 
 
 def CheckPoint_Action_SmashBruteBrawl_End_Unhandled(decision, chunk, info, toolkit):
     SideNotes.append("-CheckPoint: %s" % info)
-    TheEnd()
-    return False, None
+    return checkpoint_runtime.run_smash_brute_brawl_end_unhandled(CheckPoint_Runtime())
 
 
 CHECKPOINT_ACTION_HANDLERS = {
