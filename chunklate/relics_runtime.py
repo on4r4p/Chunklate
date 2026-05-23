@@ -134,6 +134,82 @@ def apply_plte_repair_decision(
     return False, None
 
 
+def handle_plte_repair_flow(
+    runtime: RelicsRuntime,
+    relics_module: Any,
+    ui_module: Any,
+    *,
+    has_bad_crc: bool,
+    chunks_history: Any,
+    chunks_history_index: Any,
+    target_file: Any,
+    old_crc: Any = None,
+    ask_fallback: Callable[[], Any],
+    add_side_note: Callable[[Any], Any],
+    the_end: Callable[[], Any],
+    candy: LegacyCall,
+) -> tuple[bool, Any]:
+    ui_module.say_plte_intro(candy=candy)
+
+    if not has_bad_crc:
+        ui_module.say_plte_valid_crc(candy=candy)
+        answer = ask_plte_repair(runtime, relics_module, False)
+        window = relics_module.plte_chunk_window(chunks_history, chunks_history_index)
+        should_return, result = apply_plte_repair_decision(
+            runtime,
+            relics_module.plte_repair_decision(
+                answer,
+                window,
+                target_file=target_file,
+                quit_note="-User chose to quit.",
+            ),
+            add_side_note=add_side_note,
+            the_end=the_end,
+        )
+        if should_return:
+            return True, result
+
+    else:
+        ui_module.say_plte_bad_crc(candy=candy)
+        answer = ask_plte_repair(runtime, relics_module, True)
+        window = relics_module.plte_chunk_window(chunks_history, chunks_history_index)
+        should_return, result = apply_plte_repair_decision(
+            runtime,
+            relics_module.plte_repair_decision(
+                answer,
+                window,
+                target_file=target_file,
+                old_crc=old_crc,
+                quit_note="-User chose to quit.",
+            ),
+            add_side_note=add_side_note,
+            the_end=the_end,
+        )
+        if should_return:
+            return True, result
+
+    ui_module.say_plte_fallback(candy=candy)
+    answer = ask_fallback()
+    if answer is True:
+        window = relics_module.plte_chunk_window(chunks_history, chunks_history_index)
+        should_return, result = apply_plte_repair_decision(
+            runtime,
+            relics_module.plte_repair_decision(
+                "bruteforce",
+                window,
+                target_file=target_file,
+            ),
+            add_side_note=add_side_note,
+            the_end=the_end,
+        )
+        if should_return:
+            return True, result
+    else:
+        the_end()
+
+    return False, None
+
+
 def apply_dummy_chunk_repair_decision(
     runtime: RelicsRuntime,
     decision: Any,

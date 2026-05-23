@@ -4796,23 +4796,6 @@ def Relics_Try_Current_Wrong_Crc_Fix():
     return False, None
 
 
-def Relics_Ask_Plte_Repair(has_bad_crc):
-    return relics_runtime.ask_plte_repair(
-        Relics_Runtime(),
-        relics,
-        has_bad_crc,
-    )
-
-
-def Relics_Apply_Plte_Repair_Decision(PlteDecision):
-    return relics_runtime.apply_plte_repair_decision(
-        Relics_Runtime(),
-        PlteDecision,
-        add_side_note=SideNotes.append,
-        the_end=TheEnd,
-    )
-
-
 def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
     for BrawlRequest in relics.remembered_idat_wrong_crc_brawl_requests(
         Pandemonium,
@@ -4856,68 +4839,20 @@ def Relics_Handle_Plte():
     if PlteFinding is None:
         return False, None
 
-    relics_ui.say_plte_intro(candy=Candy)
-    #if not something to get intel about plte nbr and what TODO:
-    if not Bad_Crc:
-
-        relics_ui.say_plte_valid_crc(candy=Candy)
-
-        Answer = Relics_Ask_Plte_Repair(False)
-        PlteWindow = relics.plte_chunk_window(
-            Chunks_History, Chunks_History_Index
-        )
-        should_return, result = Relics_Apply_Plte_Repair_Decision(
-            relics.plte_repair_decision(
-                Answer,
-                PlteWindow,
-                target_file=Sample_Name,
-                quit_note="-User chose to quit.",
-            )
-        )
-        if should_return:
-            return True, result
-
-    else:
-
-
-        relics_ui.say_plte_bad_crc(candy=Candy)
-
-        Answer = Relics_Ask_Plte_Repair(True)
-        PlteWindow = relics.plte_chunk_window(
-            Chunks_History, Chunks_History_Index
-        )
-        Crc_to_match = DATAX[CrcoffI:CrcoffI+8]
-        should_return, result = Relics_Apply_Plte_Repair_Decision(
-            relics.plte_repair_decision(
-                Answer,
-                PlteWindow,
-                target_file=Sample_Name,
-                old_crc=Crc_to_match,
-                quit_note="-User chose to quit.",
-            )
-        )
-        if should_return:
-            return True, result
-
-    relics_ui.say_plte_fallback(candy=Candy)
-    Answer = Question()
-    if Answer is True:
-        PlteWindow = relics.plte_chunk_window(
-            Chunks_History, Chunks_History_Index
-        )
-        should_return, result = Relics_Apply_Plte_Repair_Decision(
-            relics.plte_repair_decision(
-                "bruteforce",
-                PlteWindow,
-                target_file=Sample_Name,
-            )
-        )
-        if should_return:
-            return True, result
-    else:
-        TheEnd()
-
-    return False, None
+    return relics_runtime.handle_plte_repair_flow(
+        Relics_Runtime(),
+        relics,
+        relics_ui,
+        has_bad_crc=Bad_Crc,
+        chunks_history=Chunks_History,
+        chunks_history_index=Chunks_History_Index,
+        target_file=Sample_Name,
+        old_crc=DATAX[CrcoffI:CrcoffI+8] if Bad_Crc else None,
+        ask_fallback=Question,
+        add_side_note=SideNotes.append,
+        the_end=TheEnd,
+        candy=Candy,
+    )
 
 
 def Relics_Handle_Single_Pandemonium(FromError):

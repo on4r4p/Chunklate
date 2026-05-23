@@ -255,6 +255,158 @@ def test_relics_runtime_applies_plte_repair_decisions():
     assert side_notes == ["-User chose to quit."]
 
 
+def test_relics_runtime_handles_plte_repair_flow_with_valid_crc():
+    calls = []
+    side_notes = []
+
+    class FakeUi:
+        @staticmethod
+        def say_plte_intro(*, candy):
+            calls.append(("ui", "intro"))
+
+        @staticmethod
+        def say_plte_valid_crc(*, candy):
+            calls.append(("ui", "valid-crc"))
+
+        @staticmethod
+        def say_plte_bad_crc(*, candy):
+            calls.append(("ui", "bad-crc"))
+
+        @staticmethod
+        def say_plte_fallback(*, candy):
+            calls.append(("ui", "fallback"))
+
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)) or "brawl",
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: calls.append(("manual", args, kwargs)) or "manual",
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: calls.append(("ask", args, kwargs)) or "manually",
+    )
+
+    assert relics_runtime.handle_plte_repair_flow(
+        runtime,
+        relics,
+        FakeUi,
+        has_bad_crc=False,
+        chunks_history=[b"IHDR", b"PLTE"],
+        chunks_history_index=["0:8:21", "1:33:801"],
+        target_file="sample.png",
+        ask_fallback=lambda: False,
+        add_side_note=side_notes.append,
+        the_end=lambda: calls.append(("end", (), {})),
+        candy=lambda *args: None,
+    ) == (True, "manual")
+
+    assert [call[0] for call in calls] == ["ui", "ui", "ask", "manual"]
+    assert calls[1] == ("ui", "valid-crc")
+    assert calls[3] == ("manual", ("sample.png", b"PLTE", 801, 33, "-PLTE Wrong Data"), {})
+    assert side_notes == []
+
+
+def test_relics_runtime_handles_plte_repair_flow_with_bad_crc():
+    calls = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)) or "brawl",
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: calls.append(("ask", args, kwargs)) or "bruteforce",
+    )
+
+    class FakeUi:
+        @staticmethod
+        def say_plte_intro(*, candy):
+            calls.append(("ui", "intro"))
+
+        @staticmethod
+        def say_plte_valid_crc(*, candy):
+            calls.append(("ui", "valid-crc"))
+
+        @staticmethod
+        def say_plte_bad_crc(*, candy):
+            calls.append(("ui", "bad-crc"))
+
+        @staticmethod
+        def say_plte_fallback(*, candy):
+            calls.append(("ui", "fallback"))
+
+    assert relics_runtime.handle_plte_repair_flow(
+        runtime,
+        relics,
+        FakeUi,
+        has_bad_crc=True,
+        chunks_history=[b"IHDR", b"PLTE"],
+        chunks_history_index=["0:8:21", "1:33:801"],
+        target_file="sample.png",
+        old_crc="old-crc",
+        ask_fallback=lambda: False,
+        add_side_note=lambda note: calls.append(("note", (note,), {})),
+        the_end=lambda: calls.append(("end", (), {})),
+        candy=lambda *args: None,
+    ) == (True, "brawl")
+
+    assert [call[0] for call in calls] == ["ui", "ui", "ask", "brawl"]
+    assert calls[1] == ("ui", "bad-crc")
+    assert calls[3] == (
+        "brawl",
+        ("sample.png", b"PLTE", 801, 33, "-PLTE Wrong Data"),
+        {"EditMode": "Insert", "OldCrc": "old-crc"},
+    )
+
+
+def test_relics_runtime_handles_plte_repair_flow_fallback():
+    calls = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)) or "brawl",
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: calls.append(("ask", args, kwargs)) or "unknown",
+    )
+
+    class FakeUi:
+        @staticmethod
+        def say_plte_intro(*, candy):
+            calls.append(("ui", "intro"))
+
+        @staticmethod
+        def say_plte_valid_crc(*, candy):
+            calls.append(("ui", "valid-crc"))
+
+        @staticmethod
+        def say_plte_bad_crc(*, candy):
+            calls.append(("ui", "bad-crc"))
+
+        @staticmethod
+        def say_plte_fallback(*, candy):
+            calls.append(("ui", "fallback"))
+
+    assert relics_runtime.handle_plte_repair_flow(
+        runtime,
+        relics,
+        FakeUi,
+        has_bad_crc=False,
+        chunks_history=[b"IHDR", b"PLTE"],
+        chunks_history_index=["0:8:21", "1:33:801"],
+        target_file="sample.png",
+        ask_fallback=lambda: True,
+        add_side_note=lambda note: calls.append(("note", (note,), {})),
+        the_end=lambda: calls.append(("end", (), {})),
+        candy=lambda *args: None,
+    ) == (True, "brawl")
+
+    assert [call[0] for call in calls] == ["ui", "ui", "ask", "ui", "brawl"]
+    assert calls[-1] == (
+        "brawl",
+        ("sample.png", b"PLTE", 801, 33, "-PLTE Wrong Data"),
+        {"EditMode": "Insert"},
+    )
+
+
 def test_relics_runtime_applies_dummy_chunk_repair_decisions():
     class StopLegacyEnd(Exception):
         pass
@@ -365,6 +517,18 @@ def main():
         ("RelicsRuntime runs brawl plans", test_relics_runtime_runs_brawl_plans),
         ("RelicsRuntime runs PLTE and forcer plans", test_relics_runtime_runs_plte_and_forcer_plans),
         ("RelicsRuntime applies PLTE repair decisions", test_relics_runtime_applies_plte_repair_decisions),
+        (
+            "RelicsRuntime handles PLTE repair flow with valid CRC",
+            test_relics_runtime_handles_plte_repair_flow_with_valid_crc,
+        ),
+        (
+            "RelicsRuntime handles PLTE repair flow with bad CRC",
+            test_relics_runtime_handles_plte_repair_flow_with_bad_crc,
+        ),
+        (
+            "RelicsRuntime handles PLTE repair flow fallback",
+            test_relics_runtime_handles_plte_repair_flow_fallback,
+        ),
         ("RelicsRuntime applies dummy chunk repair decisions", test_relics_runtime_applies_dummy_chunk_repair_decisions),
         (
             "RelicsRuntime applies no-Pandemonium repair decisions",
