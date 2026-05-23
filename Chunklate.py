@@ -1198,15 +1198,15 @@ def ChunkbyChunk(offset):
 
 def GroundhogDay(NewDay):
 
-    sys.argv.append("--CLONE " + NewDay)
-    strargs = "-cmd " + " ".join([i for i in sys.argv])
+    Relaunch = runtime_state.groundhogday_relaunch_args(sys.argv, NewDay)
+    sys.argv[:] = Relaunch.argv
     if DEBUG is True:
         PRINT("sys.executable was %s"% sys.executable)
-        PRINT("argv is %s"% strargs)
+        PRINT("argv is %s"% Relaunch.strargs)
         PRINT("rebooting chunklate")
         if PAUSEDEBUG is True:
             Pause("Pause:Reboot")
-    os.execv(sys.executable, ["-cmd "] + sys.argv)
+    os.execv(sys.executable, Relaunch.exec_args)
 
 
 def Chunklate(sec):

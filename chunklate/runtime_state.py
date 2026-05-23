@@ -17,6 +17,13 @@ class LoadedSampleData:
     data_hex: str
 
 
+@dataclass(frozen=True)
+class GroundhogDayRelaunch:
+    argv: list[str]
+    strargs: str
+    exec_args: list[str]
+
+
 def main_loop_scan_reset_values() -> dict[str, object]:
     return {
         "IBN": 0,
@@ -105,3 +112,12 @@ def kitkat_break_decision(have_a_kitkat: bool) -> tuple[bool, bool]:
     if have_a_kitkat is True:
         return True, False
     return False, have_a_kitkat
+
+
+def groundhogday_relaunch_args(argv: list[str], new_day: str) -> GroundhogDayRelaunch:
+    next_argv = list(argv) + ["--CLONE " + new_day]
+    return GroundhogDayRelaunch(
+        argv=next_argv,
+        strargs="-cmd " + " ".join([item for item in next_argv]),
+        exec_args=["-cmd "] + next_argv,
+    )

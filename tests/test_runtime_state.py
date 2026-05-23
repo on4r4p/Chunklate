@@ -144,6 +144,19 @@ def test_kitkat_break_decision_resets_only_true_flag():
     assert runtime_state.kitkat_break_decision(False) == (False, False)
 
 
+def test_groundhogday_relaunch_args_preserve_legacy_shape_without_mutating_input():
+    argv = ["Chunklate.py", "-f", "sample.png"]
+
+    relaunch = runtime_state.groundhogday_relaunch_args(argv, "Folder_1/sample.png")
+
+    assert argv == ["Chunklate.py", "-f", "sample.png"]
+    assert relaunch == runtime_state.GroundhogDayRelaunch(
+        argv=["Chunklate.py", "-f", "sample.png", "--CLONE Folder_1/sample.png"],
+        strargs="-cmd Chunklate.py -f sample.png --CLONE Folder_1/sample.png",
+        exec_args=["-cmd ", "Chunklate.py", "-f", "sample.png", "--CLONE Folder_1/sample.png"],
+    )
+
+
 def main():
     checks = [
         ("scan reset values", test_main_loop_scan_reset_values_preserve_legacy_defaults),
@@ -156,6 +169,7 @@ def main():
         ("load sample data", test_load_sample_data_uses_binary_mode_and_context_manager),
         ("next chunk offset", test_next_chunk_offset_preserves_legacy_length_sum),
         ("kitkat break decision", test_kitkat_break_decision_resets_only_true_flag),
+        ("GroundhogDay relaunch args", test_groundhogday_relaunch_args_preserve_legacy_shape_without_mutating_input),
     ]
 
     print("Running runtime state tests")
