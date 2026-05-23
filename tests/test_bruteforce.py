@@ -343,6 +343,45 @@ def test_apply_validated_candidate_attempt_preserves_old_crc_gate():
     )
 
 
+def test_success_repair_messages_preserves_legacy_order_and_text():
+    messages = bruteforce.success_repair_messages(
+        bruteforce.BruteForceMatchState(
+            replace_flag=True,
+            insert_flag=True,
+            remove_flag=True,
+        ),
+        b"IDAT",
+        "aa\033[1;32;49mbb\033[m",
+    )
+
+    assert messages == (
+        bruteforce.BruteForceRepairMessage(
+            line_template="-Chunk %s has been repaired by changing those bytes:\n",
+            side_note=(
+                "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull."
+                "\n-Chunk b'IDAT' has been repaired by changing those bytes:\n"
+                "aa\033[1;32;49mbb\033[m"
+            ),
+        ),
+        bruteforce.BruteForceRepairMessage(
+            line_template="-Chunk %s has been repaired by adding those bytes:\n",
+            side_note=(
+                "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull."
+                "\n-Chunk b'IDAT' has been repaired by adding those bytes:\n"
+                "aa\033[1;32;49mbb\033[m"
+            ),
+        ),
+        bruteforce.BruteForceRepairMessage(
+            line_template="-Chunk %s has been repaired by removing those bytes:\n",
+            side_note=(
+                "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull."
+                "\n-Chunk b'IDAT' has been repaired by removing those bytes:\n"
+                "aa\033[1;32;49mbb\033[m"
+            ),
+        ),
+    )
+
+
 def test_twobytes_candidate_data_preserves_replace_insert_remove_slices():
     to_brute = "0011223344"
     brute_bytes = b"\xaa"
@@ -554,6 +593,7 @@ def main():
         ("Apply candidate attempt match", test_apply_candidate_attempt_match_returns_state_and_attempt_bytes),
         ("Validated attempt viewer gate", test_apply_validated_candidate_attempt_preserves_viewer_acceptance_gate),
         ("Validated attempt old CRC gate", test_apply_validated_candidate_attempt_preserves_old_crc_gate),
+        ("Success repair messages", test_success_repair_messages_preserves_legacy_order_and_text),
         ("TwoBytes candidate data", test_twobytes_candidate_data_preserves_replace_insert_remove_slices),
         ("TwoBytes IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_idat_all_modes),
         ("TwoBytes non-IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_non_idat_requested_mode),

@@ -2519,43 +2519,12 @@ def SmashBruteBrawl(
 
 
         if BrawlState.bonus:
-                Candy("Cowsay", "-At least 2 bytes has been corrupted.", "bad")
-                SideNotes.append("-At least 2 bytes has been corrupted.")
+                Candy("Cowsay", bruteforce.BRUTE_FORCE_BONUS_NOTE, "bad")
+                SideNotes.append(bruteforce.BRUTE_FORCE_BONUS_NOTE)
 
-        if BrawlState.replace_flag:
-            PRINT(
-                "-Chunk %s has been repaired by changing those bytes:\n"
-                % Candy("Color", "green", ChunkName)
-            )
-
-            SideNotes.append(
-               "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s"
-               % (ChunkName,DIFF)
-            )
-
-        if BrawlState.insert_flag:
-
-            PRINT(
-                "-Chunk %s has been repaired by adding those bytes:\n"
-                % Candy("Color", "green", ChunkName)
-            )
-
-            SideNotes.append(
-               "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by adding those bytes:\n%s"
-               % (ChunkName,DIFF)
-            )
-
-        if BrawlState.remove_flag:
-
-            PRINT(
-                "-Chunk %s has been repaired by removing those bytes:\n"
-                % Candy("Color", "green", ChunkName)
-            )
-
-            SideNotes.append(
-               "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by removi those bytes:\n%s"
-               % (ChunkName,DIFF)
-            )
+        for RepairMessage in bruteforce.success_repair_messages(BrawlState, ChunkName, DIFF):
+            PRINT(RepairMessage.line_template % Candy("Color", "green", ChunkName))
+            SideNotes.append(RepairMessage.side_note)
 
 
         PRINT(DIFF)
@@ -2602,7 +2571,7 @@ def SmashBruteBrawl(
         )
 
         Candy("Cowsay", "I was afraid of this ...", "bad")
-        SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
+        SideNotes.append(bruteforce.BRUTE_FORCE_FAILURE_NOTE)
 
         if len(TmpImgLst) > 0:
            Candy("Cowsay", "But while you were away i v saved some pictures maybe you should take a look ...", "bad")

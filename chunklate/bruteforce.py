@@ -8,6 +8,8 @@ from typing import Mapping
 
 
 CUSTOM_TO_BRUTUS_NOTE = "-SmashBruteBrawl error: Sti empty switched to Brutus mode"
+BRUTE_FORCE_BONUS_NOTE = "-At least 2 bytes has been corrupted."
+BRUTE_FORCE_FAILURE_NOTE = "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!"
 TWOBYTES_EDIT_KIND_BY_MODE = {
     "Replace": "replace",
     "Insert": "insert",
@@ -83,6 +85,12 @@ class BruteForceAppliedAttempt:
     state: BruteForceMatchState
     full_new_data: bytes
     png_bytes: bytes
+
+
+@dataclass(frozen=True)
+class BruteForceRepairMessage:
+    line_template: str
+    side_note: str
 
 
 def normalize_old_crc(old_crc: Any) -> Any:
@@ -323,6 +331,52 @@ def apply_validated_candidate_attempt(
         edit_kind,
         bonus=bonus,
     )
+
+
+def success_repair_messages(
+    state: BruteForceMatchState,
+    chunk_name: Any,
+    diff: str,
+) -> tuple[BruteForceRepairMessage, ...]:
+    messages: list[BruteForceRepairMessage] = []
+
+    if state.replace_flag:
+        messages.append(
+            BruteForceRepairMessage(
+                line_template="-Chunk %s has been repaired by changing those bytes:\n",
+                side_note=(
+                    "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull."
+                    "\n-Chunk %s has been repaired by changing those bytes:\n%s"
+                    % (chunk_name, diff)
+                ),
+            )
+        )
+
+    if state.insert_flag:
+        messages.append(
+            BruteForceRepairMessage(
+                line_template="-Chunk %s has been repaired by adding those bytes:\n",
+                side_note=(
+                    "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull."
+                    "\n-Chunk %s has been repaired by adding those bytes:\n%s"
+                    % (chunk_name, diff)
+                ),
+            )
+        )
+
+    if state.remove_flag:
+        messages.append(
+            BruteForceRepairMessage(
+                line_template="-Chunk %s has been repaired by removing those bytes:\n",
+                side_note=(
+                    "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull."
+                    "\n-Chunk %s has been repaired by removing those bytes:\n%s"
+                    % (chunk_name, diff)
+                ),
+            )
+        )
+
+    return tuple(messages)
 
 
 def twobytes_candidate_data(
