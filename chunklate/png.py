@@ -391,6 +391,13 @@ def legacy_crc_decision(raw_type_hex: str, raw_data_hex: str, raw_crc_hex: str) 
     )
 
 
+def legacy_crc_debug_lines(decision: LegacyCrcDecision) -> tuple[str, str]:
+    return (
+        "-Crc from file: %s" % str(decision.computed_crc_hex),
+        "-Actual Crc: %s\n" % str(decision.stored_crc_hex),
+    )
+
+
 def chunk_type_crc_matches(chunk_data: bytes, stored_crc: int, candidates: Iterable[bytes]) -> list[bytes]:
     return [
         chunk_type

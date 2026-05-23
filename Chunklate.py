@@ -47,6 +47,7 @@ from chunklate.png import (
     iter_chunks,
     known_bad_srgb_profile_warning,
     legacy_crc_decision,
+    legacy_crc_debug_lines,
     legacy_length_decision,
 )
 
@@ -4208,8 +4209,8 @@ def Checksum(Ctype, Cdata, Crc, next=None):
     Crc = CrcDecision.stored_crc_hex
     checksum = CrcDecision.computed_crc_hex
     if DEBUG:
-                 PRINT("-Crc from file: %s"%(str(checksum)))
-                 PRINT("-Actual Crc: %s\n"%(str(Crc)))
+        for DebugLine in legacy_crc_debug_lines(CrcDecision):
+            PRINT(DebugLine)
 
     if CrcDecision.ok:
         PRINT(
