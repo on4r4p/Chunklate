@@ -3066,12 +3066,15 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
     )
 
     if DEBUG:
-        PRINT("CType:%s"%CType)
-        PRINT("LastCtype:%s"%LastCType)
-        PRINT("ChunkLen:%s"%ChunkLen)
-        PRINT("Orig_CT:%s"%Orig_CT)
-        PRINT("Needle:%s"%Needle)
-        PRINT("DATAX[N:N+32]:%s"%DATAX[Needle : Needle + 32])
+        for DebugLine in nearby.nearby_debug_lines(
+            CType,
+            LastCType,
+            ChunkLen,
+            Orig_CT,
+            Needle,
+            DATAX,
+        ):
+            PRINT(DebugLine)
 
     while Needle < len(DATAX):
         if Needle + 8 > len(DATAX):

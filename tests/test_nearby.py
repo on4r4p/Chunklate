@@ -150,6 +150,24 @@ def test_extra_bytes_before_chunk_candidate_uses_all_chunks_minus_excluded():
     ) is None
 
 
+def test_nearby_debug_lines_preserve_legacy_formatting():
+    assert nearby.nearby_debug_lines(
+        b"fake",
+        b"IHDR",
+        "ffffffff",
+        b"IDAT",
+        4,
+        "00112233445566778899",
+    ) == [
+        "CType:b'fake'",
+        "LastCtype:b'IHDR'",
+        "ChunkLen:ffffffff",
+        "Orig_CT:b'IDAT'",
+        "Needle:4",
+        "DATAX[N:N+32]:2233445566778899",
+    ]
+
+
 def test_relocate_missing_chunk_matches_legacy_rubber_tape():
     assert nearby.relocate_missing_chunk(
         "aaaabbbbccccdddd",
@@ -255,6 +273,7 @@ def main():
         ("extra bytes ignored candidates", test_find_extra_bytes_before_chunk_ignores_unknown_or_bad_crc_candidates),
         ("extra bytes skips known current chunk", test_extra_bytes_before_chunk_candidate_skips_known_current_chunk),
         ("extra bytes candidate filters excluded chunks", test_extra_bytes_before_chunk_candidate_uses_all_chunks_minus_excluded),
+        ("nearby debug lines", test_nearby_debug_lines_preserve_legacy_formatting),
         ("relocate missing chunk", test_relocate_missing_chunk_matches_legacy_rubber_tape),
         ("null find default", test_null_find_preserves_legacy_default_search),
         ("null find custom", test_null_find_preserves_custom_step_search),

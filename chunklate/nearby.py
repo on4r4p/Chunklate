@@ -225,6 +225,24 @@ def extra_bytes_before_chunk_candidate(
     )
 
 
+def nearby_debug_lines(
+    chunk_type: bytes,
+    last_chunk_type: bytes,
+    chunk_length: object,
+    original_chunk_type: bytes,
+    needle: int,
+    data_hex: str,
+) -> list[str]:
+    return [
+        "CType:%s" % chunk_type,
+        "LastCtype:%s" % last_chunk_type,
+        "ChunkLen:%s" % chunk_length,
+        "Orig_CT:%s" % original_chunk_type,
+        "Needle:%s" % needle,
+        "DATAX[N:N+32]:%s" % data_hex[needle : needle + 32],
+    ]
+
+
 def extra_bytes_solved_message(candidate: ExtraBytesCandidate, last_chunk_type: bytes) -> str:
     return "-Found %s extra byte(s) before Chunk[%s] after Chunk[%s] at offset: %s" % (
         candidate.extra_bytes,
