@@ -3099,7 +3099,7 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
         NeedleX = hex(int(Needle / 2))
 
         for Chk in CHUNKS:
-            if Chk.lower() == scope:
+            if nearby.scope_matches_chunk(scope, Chk):
                 Candy("Cowsay", " Bingo!!!", "good")
                 PRINT(
                     "-Found the closest Chunk to our position:%s at offset %s %s"

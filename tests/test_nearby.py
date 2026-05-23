@@ -182,6 +182,12 @@ def test_decode_scope_preserves_invalid_hex_error():
     raise AssertionError("Expected ValueError")
 
 
+def test_scope_matches_chunk_preserves_case_insensitive_comparison():
+    assert nearby.scope_matches_chunk(b"ihdr", b"IHDR") is True
+    assert nearby.scope_matches_chunk(b"iccp", b"iCCP") is True
+    assert nearby.scope_matches_chunk(b"idat", b"IEND") is False
+
+
 def test_relocate_missing_chunk_matches_legacy_rubber_tape():
     assert nearby.relocate_missing_chunk(
         "aaaabbbbccccdddd",
@@ -290,6 +296,7 @@ def main():
         ("nearby debug lines", test_nearby_debug_lines_preserve_legacy_formatting),
         ("decode scope", test_decode_scope_preserves_lowercase_chunk_comparison),
         ("decode scope error", test_decode_scope_preserves_invalid_hex_error),
+        ("scope matches chunk", test_scope_matches_chunk_preserves_case_insensitive_comparison),
         ("relocate missing chunk", test_relocate_missing_chunk_matches_legacy_rubber_tape),
         ("null find default", test_null_find_preserves_legacy_default_search),
         ("null find custom", test_null_find_preserves_custom_step_search),

@@ -247,6 +247,10 @@ def decode_scope(scope_hex: str) -> bytes:
     return bytes.fromhex(scope_hex).lower()
 
 
+def scope_matches_chunk(scope: bytes, chunk: bytes) -> bool:
+    return chunk.lower() == scope
+
+
 def extra_bytes_solved_message(candidate: ExtraBytesCandidate, last_chunk_type: bytes) -> str:
     return "-Found %s extra byte(s) before Chunk[%s] after Chunk[%s] at offset: %s" % (
         candidate.extra_bytes,
