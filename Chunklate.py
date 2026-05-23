@@ -1067,71 +1067,28 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
         }
 
 
-    for key in CHUNKS_SPEC:
-            for color, bytes_spec in CHUNKS_SPEC[key].items():
-                if key == GetChunk:
+    bytes_spec = specs.find_chunk_spec(CHUNKS_SPEC, GetChunk, GetColor)
+    if bytes_spec is not None:
+        try:
+            result = specs.resolve_getspec_result(
+                bytes_spec,
+                GetColor,
+                Fields,
+                Mode,
+                StructIndex,
+                IterNbr,
+                Mnr,
+            )
+        except (NameError, ValueError) as e:
+            Betterror(e, inspect.stack()[0][3])
+            if DEBUG is True:
+               PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
+            if PAUSEDEBUG is True or PAUSEERROR is True:
+                 Pause("Pause Debug")
+            TheEnd()
 
-                    if color == GetColor:
-                        product = bytes_spec[0]
-                        chunklen_spec = bytes_spec[1]
-                        chunk_format = bytes_spec[2]
-                        chunk_data = bytes_spec[3]
-
-                        try:
-                            chunk_format = specs.normalize_chunk_format(chunk_format)
-                        except (NameError, ValueError) as e:
-                            Betterror(e, inspect.stack()[0][3])
-                            if DEBUG is True:
-                               PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                            if PAUSEDEBUG is True or PAUSEERROR is True:
-                                 Pause("Pause Debug")
-                            TheEnd()
-
-                        product, chunklen_spec, chunk_format, chunk_data = specs.expand_spec_values(
-                            product,
-                            chunklen_spec,
-                            chunk_format,
-                            chunk_data,
-                            IterNbr,
-                        )
-
-                        if Mode =="Custom":
-                            product, chunk_data = specs.apply_custom_spec_selection(
-                                chunk_data,
-                                StructIndex,
-                                Mnr,
-                            )
-
-
-                        to_return = []
-                        for f in Fields:
-                                if f == "All":
-                                    return (
-                                    product,
-                                    len(str(product)),
-                                    chunklen_spec,
-                                    chunk_format,
-                                    chunk_data,
-                                    GetColor,
-                                    )
-                                elif f == "Product":
-                                     to_return.append(product)
-                                     to_return.append(len(str(product)))
-
-                                elif f  == "Length":
-                                     to_return.append(chunklen_spec)
-
-                                elif f == "Format":
-                                    to_return.append(chunk_format)
-
-                                elif f == "Data":
-                                    to_return.append(chunk_data)
-
-                                elif f == "Color":
-                                    to_return.append(GetColor)
-
-                        if len(to_return) > 0:
-                                return (tuple(to_return)) 
+        if result is not None:
+            return result
 
     PRINT("-Error in GetSpec: Didnt Found matching result")
     PRINT("GetColor:%s"% GetColor)

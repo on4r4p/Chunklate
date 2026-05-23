@@ -112,6 +112,98 @@ def test_apply_custom_spec_selection_skips_minres_when_width_height_pair_is_inco
     )
 
 
+def test_find_chunk_spec_preserves_nested_lookup_shape():
+    chunks_spec = {
+        b"IHDR": {"nocolortype": ("wrong",), "colortype:2:minres": ("right",)},
+        b"IDAT": {"nocolortype": ("idat",)},
+    }
+
+    assert specs.find_chunk_spec(chunks_spec, b"IHDR", "colortype:2:minres") == ("right",)
+    assert specs.find_chunk_spec(chunks_spec, b"PLTE", "nocolortype") is None
+    assert specs.find_chunk_spec(chunks_spec, b"IHDR", "missing") is None
+
+
+def test_select_spec_fields_preserves_all_and_field_order():
+    assert specs.select_spec_fields(
+        123,
+        8,
+        ("!I",),
+        ((1, 2),),
+        "nocolortype",
+        ["All"],
+    ) == (
+        123,
+        3,
+        8,
+        ("!I",),
+        ((1, 2),),
+        "nocolortype",
+    )
+    assert specs.select_spec_fields(
+        123,
+        8,
+        ("!I",),
+        ((1, 2),),
+        "nocolortype",
+        ["Length", "Format", "Data", "Color", "Product"],
+    ) == (
+        8,
+        ("!I",),
+        ((1, 2),),
+        "nocolortype",
+        123,
+        3,
+    )
+    assert specs.select_spec_fields(123, 8, ("!I",), ((1, 2),), "nocolortype", []) is None
+
+
+def test_resolve_getspec_result_preserves_expansion_and_selected_fields():
+    assert specs.resolve_getspec_result(
+        (
+            3,
+            2,
+            ("!B",),
+            ("i for i in range(0,2)", (8, 16)),
+        ),
+        "nocolortype",
+        ["Length", "Format", "Data", "Product"],
+        "Spec",
+        None,
+        2,
+        7,
+    ) == (
+        4,
+        ("!B", "!B"),
+        ((0, 1), (8, 16), (0, 1), (8, 16)),
+        9,
+        1,
+    )
+
+
+def test_resolve_getspec_result_preserves_custom_selection():
+    assert specs.resolve_getspec_result(
+        (
+            3,
+            2,
+            ("!B",),
+            ((1, 2, 3), (4, 5), (6,)),
+        ),
+        "nocolortype",
+        ["All"],
+        "Custom",
+        (0, 1),
+        1,
+        7,
+    ) == (
+        42,
+        2,
+        2,
+        ("!B",),
+        ((1, 2, 3), (4, 5)),
+        "nocolortype",
+    )
+
+
 def test_estimate_idat_bytes_from_hex_preserves_legacy_scan():
     single = PNG_SIGNATURE + build_png_chunk(b"IDAT", b"abc") + IEND_CHUNK
     multiple = (
@@ -235,6 +327,10 @@ def main():
         ("Expand spec tuple length", test_expand_spec_values_preserves_tuple_length_multiplication),
         ("Custom spec selection", test_apply_custom_spec_selection_counts_selected_fields_and_minres_pair),
         ("Custom spec selection partial", test_apply_custom_spec_selection_skips_minres_when_width_height_pair_is_incomplete),
+        ("Find chunk spec", test_find_chunk_spec_preserves_nested_lookup_shape),
+        ("Select spec fields", test_select_spec_fields_preserves_all_and_field_order),
+        ("Resolve spec result", test_resolve_getspec_result_preserves_expansion_and_selected_fields),
+        ("Resolve custom spec result", test_resolve_getspec_result_preserves_custom_selection),
         ("IDAT bytes estimate", test_estimate_idat_bytes_from_hex_preserves_legacy_scan),
         ("Regular product", test_iter_product_values_preserves_regular_product),
         ("Minres product", test_iter_product_values_expands_minres_width_height_pairs),

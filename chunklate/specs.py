@@ -249,6 +249,89 @@ def apply_custom_spec_selection(
     return custom_count, tuple(custom_struct)
 
 
+def find_chunk_spec(chunks_spec: dict[Any, dict[Any, Any]], chunk_name: Any, color_type: str) -> Any | None:
+    for key in chunks_spec:
+        for color, bytes_spec in chunks_spec[key].items():
+            if key == chunk_name and color == color_type:
+                return bytes_spec
+    return None
+
+
+def select_spec_fields(
+    product: Any,
+    chunk_length_spec: Any,
+    chunk_format: Any,
+    chunk_data: Any,
+    color_type: str,
+    fields: list[str] | tuple[str, ...],
+) -> tuple[Any, ...] | None:
+    to_return = []
+    for field in fields:
+        if field == "All":
+            return (
+                product,
+                len(str(product)),
+                chunk_length_spec,
+                chunk_format,
+                chunk_data,
+                color_type,
+            )
+        if field == "Product":
+            to_return.append(product)
+            to_return.append(len(str(product)))
+        elif field == "Length":
+            to_return.append(chunk_length_spec)
+        elif field == "Format":
+            to_return.append(chunk_format)
+        elif field == "Data":
+            to_return.append(chunk_data)
+        elif field == "Color":
+            to_return.append(color_type)
+
+    if len(to_return) > 0:
+        return tuple(to_return)
+    return None
+
+
+def resolve_getspec_result(
+    bytes_spec: tuple[Any, Any, Any, Any],
+    color_type: str,
+    fields: list[str] | tuple[str, ...],
+    mode: str,
+    struct_index: Any,
+    iter_count: int,
+    min_resolution: int,
+) -> tuple[Any, ...] | None:
+    product = bytes_spec[0]
+    chunk_length_spec = bytes_spec[1]
+    chunk_format = normalize_chunk_format(bytes_spec[2])
+    chunk_data = bytes_spec[3]
+
+    product, chunk_length_spec, chunk_format, chunk_data = expand_spec_values(
+        product,
+        chunk_length_spec,
+        chunk_format,
+        chunk_data,
+        iter_count,
+    )
+
+    if mode == "Custom":
+        product, chunk_data = apply_custom_spec_selection(
+            chunk_data,
+            struct_index,
+            min_resolution,
+        )
+
+    return select_spec_fields(
+        product,
+        chunk_length_spec,
+        chunk_format,
+        chunk_data,
+        color_type,
+        fields,
+    )
+
+
 def estimate_idat_bytes_from_hex(data_hex: str, known_chunks: tuple[bytes, ...] = CHUNKS) -> int:
     byte_count = 0
     last_byte_count = 0
