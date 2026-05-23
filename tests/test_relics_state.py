@@ -192,6 +192,22 @@ def test_relics_module_filters_idat_wrong_crc_routes():
     assert relics.idat_wrong_crc_routes(routes) == (routes[0],)
 
 
+def test_relics_module_preserves_pandemonium_policy_order():
+    assert relics.pandemonium_policy_steps(0) == ()
+    assert relics.pandemonium_policy_steps(1) == (
+        relics.PandemoniumPolicyStep("current_wrong_crc"),
+        relics.PandemoniumPolicyStep("remembered_idat_wrong_crc"),
+        relics.PandemoniumPolicyStep("plte"),
+        relics.PandemoniumPolicyStep("single_pandemonium"),
+    )
+    assert relics.pandemonium_policy_steps(2) == (
+        relics.PandemoniumPolicyStep("current_wrong_crc"),
+        relics.PandemoniumPolicyStep("remembered_idat_wrong_crc"),
+        relics.PandemoniumPolicyStep("plte"),
+        relics.PandemoniumPolicyStep("remembered_dummy_chunks"),
+    )
+
+
 def test_relics_module_builds_wrong_crc_save_clone_plan():
     tools = relics.WrongCrcTools(
         replacement_crc="newcrc",
@@ -545,6 +561,45 @@ def test_relics_module_finds_first_getinfo_known_chunk():
     assert relics.first_getinfo_known_chunk({"Other_Error": {}}, [b"IDAT"]) is None
 
 
+def test_relics_module_selects_no_pandemonium_policy_for_getinfo_brawl():
+    pandora_box = {
+        "Checksum_Error_0:Wrong Crc b'IDAT'": {},
+        "GetInfo_Error_0:IHDR StructIndex:0": {},
+        "GetInfo_Error_1:IHDR StructIndex:1": {},
+    }
+
+    assert relics.no_pandemonium_policy(pandora_box, [b"IHDR", b"IDAT"], [b"IHDR", b"IDAT"]) == (
+        relics.NoPandemoniumPolicy(
+            action="getinfo_brawl",
+            chunk_name="IHDR",
+            struct_index_errors=(
+                "GetInfo_Error_0:IHDR StructIndex:0",
+                "GetInfo_Error_1:IHDR StructIndex:1",
+            ),
+        )
+    )
+
+
+def test_relics_module_selects_no_pandemonium_policy_for_full_chunk_forcer():
+    pandora_box = {
+        "Other_Error": {},
+        "GetInfo_Error_0:tEXt missing info": {},
+    }
+
+    assert relics.no_pandemonium_policy(pandora_box, [b"IHDR", b"IDAT"], [b"IDAT", b"tEXt"]) == (
+        relics.NoPandemoniumPolicy(
+            action="full_chunk_forcer",
+            known_chunk_route=relics.GetInfoChunkRoute(
+                finding="GetInfo_Error_0:tEXt missing info",
+                chunk_name="tEXt",
+            ),
+        )
+    )
+    assert relics.no_pandemonium_policy({"Other_Error": {}}, [b"IHDR"], [b"IDAT"]) == (
+        relics.NoPandemoniumPolicy(action="unsupported")
+    )
+
+
 def test_relics_module_preserves_legacy_getinfo_print_hits():
     pandora_box = {
         "GetInfo_Error_0:IDAT missing info": {},
@@ -787,6 +842,7 @@ def main():
         ("Relics module routes current wrong CRC errors", test_relics_module_routes_current_wrong_crc_errors),
         ("Relics module routes remembered wrong CRC errors", test_relics_module_routes_remembered_wrong_crc_errors),
         ("Relics module filters IDAT wrong CRC routes", test_relics_module_filters_idat_wrong_crc_routes),
+        ("Relics module preserves Pandemonium policy order", test_relics_module_preserves_pandemonium_policy_order),
         ("Relics module builds wrong CRC SaveClone plan", test_relics_module_builds_wrong_crc_save_clone_plan),
         ("Relics module summarises Pandemonium", test_relics_module_summarises_pandemonium_without_formatting),
         ("Relics module exposes PLTE choices", test_relics_module_exposes_plte_interactive_choices),
@@ -807,6 +863,8 @@ def main():
         ("Relics module selects GetInfo brawl mode", test_relics_module_selects_getinfo_brawl_mode),
         ("Relics module builds GetInfo brawl plan", test_relics_module_builds_getinfo_brawl_plan),
         ("Relics module finds first GetInfo known chunk", test_relics_module_finds_first_getinfo_known_chunk),
+        ("Relics module selects no-Pandemonium GetInfo policy", test_relics_module_selects_no_pandemonium_policy_for_getinfo_brawl),
+        ("Relics module selects no-Pandemonium full forcer policy", test_relics_module_selects_no_pandemonium_policy_for_full_chunk_forcer),
         (
             "Relics module preserves legacy GetInfo print hits",
             test_relics_module_preserves_legacy_getinfo_print_hits,

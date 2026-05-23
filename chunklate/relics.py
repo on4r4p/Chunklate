@@ -81,6 +81,19 @@ class RelicSampleSummary:
 
 
 @dataclass(frozen=True)
+class PandemoniumPolicyStep:
+    action: str
+
+
+@dataclass(frozen=True)
+class NoPandemoniumPolicy:
+    action: str
+    chunk_name: str | None = None
+    struct_index_errors: tuple[Any, ...] = ()
+    known_chunk_route: "GetInfoChunkRoute | None" = None
+
+
+@dataclass(frozen=True)
 class WrongCrcBrawlPlan:
     target_file: Any
     chunk: Any
@@ -338,6 +351,22 @@ def idat_wrong_crc_routes(routes: list[WrongCrcRoute] | tuple[WrongCrcRoute, ...
     return tuple(route for route in routes if route.chunk_name == "IDAT")
 
 
+def pandemonium_policy_steps(pandemonium_len: int) -> tuple[PandemoniumPolicyStep, ...]:
+    if pandemonium_len < 1:
+        return ()
+
+    steps = [
+        PandemoniumPolicyStep("current_wrong_crc"),
+        PandemoniumPolicyStep("remembered_idat_wrong_crc"),
+        PandemoniumPolicyStep("plte"),
+    ]
+    if pandemonium_len == 1:
+        steps.append(PandemoniumPolicyStep("single_pandemonium"))
+    else:
+        steps.append(PandemoniumPolicyStep("remembered_dummy_chunks"))
+    return tuple(steps)
+
+
 def wrong_crc_save_clone_plan(tools: WrongCrcTools) -> WrongCrcSaveClonePlan:
     return WrongCrcSaveClonePlan(
         fixed_data=tools.replacement_crc,
@@ -565,6 +594,35 @@ def first_getinfo_known_chunk(
             if chunk_name in str(key):
                 return GetInfoChunkRoute(finding=key, chunk_name=chunk_name)
     return None
+
+
+def no_pandemonium_policy(
+    pandora_box: Mapping[Any, Any],
+    critical_chunks: list[bytes] | tuple[bytes, ...],
+    known_chunks: list[bytes] | tuple[bytes, ...],
+) -> NoPandemoniumPolicy:
+    chosen_one = first_getinfo_critical_chunk(pandora_box, critical_chunks)
+    struct_index_errors = (
+        getinfo_struct_index_errors(pandora_box, chosen_one)
+        if chosen_one
+        else ()
+    )
+
+    if chosen_one and struct_index_errors:
+        return NoPandemoniumPolicy(
+            action="getinfo_brawl",
+            chunk_name=chosen_one,
+            struct_index_errors=struct_index_errors,
+        )
+
+    known_chunk_route = first_getinfo_known_chunk(pandora_box, known_chunks)
+    if known_chunk_route is not None:
+        return NoPandemoniumPolicy(
+            action="full_chunk_forcer",
+            known_chunk_route=known_chunk_route,
+        )
+
+    return NoPandemoniumPolicy(action="unsupported")
 
 
 def getinfo_related_print_hits(

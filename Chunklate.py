@@ -5421,8 +5421,6 @@ def Relics_Handle_Remembered_Dummy_Chunks(FromError):
 
 
 def Relics_Handle_No_Pandemonium(FromError):
-    ChosenOne = None
-
     PRINT(
         "-%s has been Fixed yet. %s"
         % (Candy("Color", "red", "No Error"), Candy("Emoj", "bad"))
@@ -5434,19 +5432,12 @@ def Relics_Handle_No_Pandemonium(FromError):
     )
 
     if len(PandoraBox) > 0:
-        ChosenOne = relics.first_getinfo_critical_chunk(PandoraBox, CRITICAL_CHUNKS)
+        RelicsPolicy = relics.no_pandemonium_policy(PandoraBox, CRITICAL_CHUNKS, ALLCHUNKS)
 
-        StructIndexErrors = (
-            relics.getinfo_struct_index_errors(PandoraBox, ChosenOne)
-            if ChosenOne
-            else ()
-        )
-
-        if ChosenOne and StructIndexErrors:
-
+        if RelicsPolicy.action == "getinfo_brawl":
             ChosenErr = [
                 "\n-\033[1;31;49mCriticalHit\033[m: %s"%(k)
-                for k in StructIndexErrors
+                for k in RelicsPolicy.struct_index_errors
             ]
 
             for i in ChosenErr:PRINT(i)
@@ -5482,7 +5473,7 @@ def Relics_Handle_No_Pandemonium(FromError):
             if Answer is True:
 
                 BrawlPlan = relics.getinfo_brawl_plan(
-                    ChosenOne,
+                    RelicsPolicy.chunk_name,
                     Chunks_History,
                     Chunks_History_Index,
                     target_file=Sample_Name,
@@ -5493,9 +5484,8 @@ def Relics_Handle_No_Pandemonium(FromError):
                 if BrawlPlan is not None:
                     return Relics_Run_GetInfo_Brawl_Plan(BrawlPlan)
 
-        else:
-
-            KnownChunkRoute = relics.first_getinfo_known_chunk(PandoraBox, ALLCHUNKS)
+        elif RelicsPolicy.action == "full_chunk_forcer":
+            KnownChunkRoute = RelicsPolicy.known_chunk_route
             if KnownChunkRoute is not None:
                 [
                     PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
@@ -5549,21 +5539,25 @@ def Relics_Handle_Pandemonium(FromError):
 
     ##Find a more efficient way to sort error by severity and behave procedurally
     ##tmp workaround
-    should_return, result = Relics_Try_Current_Wrong_Crc_Fix()
-    if should_return:
-        return result
+    for PolicyStep in relics.pandemonium_policy_steps(len(Pandemonium)):
+        if PolicyStep.action == "current_wrong_crc":
+            should_return, result = Relics_Try_Current_Wrong_Crc_Fix()
+            if should_return:
+                return result
 
-    Relics_Handle_Remembered_Idat_Wrong_Crc(FromError)
+        elif PolicyStep.action == "remembered_idat_wrong_crc":
+            Relics_Handle_Remembered_Idat_Wrong_Crc(FromError)
 
-    should_return, result = Relics_Handle_Plte()
-    if should_return:
-        return result
+        elif PolicyStep.action == "plte":
+            should_return, result = Relics_Handle_Plte()
+            if should_return:
+                return result
 
-    if len(Pandemonium) == 1:
-        return Relics_Handle_Single_Pandemonium(FromError)
+        elif PolicyStep.action == "single_pandemonium":
+            return Relics_Handle_Single_Pandemonium(FromError)
 
-    if len(Pandemonium) > 1:
-        return Relics_Handle_Remembered_Dummy_Chunks(FromError)
+        elif PolicyStep.action == "remembered_dummy_chunks":
+            return Relics_Handle_Remembered_Dummy_Chunks(FromError)
 
 
 def Relics(FromError):
