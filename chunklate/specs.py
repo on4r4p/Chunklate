@@ -192,6 +192,14 @@ def normalize_chunk_format(chunk_format: Any) -> Any:
     return normalized
 
 
+def expand_chunk_data_item(item: Any) -> tuple[Any, ...]:
+    if "i for i in range(" in item:
+        start = int(item.split("range(")[1].split(",")[0])
+        end = int(item.split(",")[1].split(")")[0])
+        return tuple((i for i in range(start, end)))
+    return tuple(item)
+
+
 def estimate_idat_bytes_from_hex(data_hex: str, known_chunks: tuple[bytes, ...] = CHUNKS) -> int:
     byte_count = 0
     last_byte_count = 0

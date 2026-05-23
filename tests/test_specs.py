@@ -54,6 +54,12 @@ def test_normalize_chunk_format_preserves_legacy_string_and_tuple_modes():
     assert specs.normalize_chunk_format(("!I", "!B")) == ("!I", "!B")
 
 
+def test_expand_chunk_data_item_preserves_legacy_range_and_tuple_conversion():
+    assert specs.expand_chunk_data_item("i for i in range(1,4)") == (1, 2, 3)
+    assert specs.expand_chunk_data_item((0, 1)) == (0, 1)
+    assert specs.expand_chunk_data_item("1229278788") == tuple("1229278788")
+
+
 def test_estimate_idat_bytes_from_hex_preserves_legacy_scan():
     single = PNG_SIGNATURE + build_png_chunk(b"IDAT", b"abc") + IEND_CHUNK
     multiple = (
@@ -172,6 +178,7 @@ def main():
         ("Max resolution estimate from file", lambda: test_estimate_max_resolution_from_file_uses_file_size(tmp_path)),
         ("Resolution iteration bounds", test_resolution_iteration_bounds_preserves_legacy_minres_logic),
         ("Normalize chunk format", test_normalize_chunk_format_preserves_legacy_string_and_tuple_modes),
+        ("Expand chunk data item", test_expand_chunk_data_item_preserves_legacy_range_and_tuple_conversion),
         ("IDAT bytes estimate", test_estimate_idat_bytes_from_hex_preserves_legacy_scan),
         ("Regular product", test_iter_product_values_preserves_regular_product),
         ("Minres product", test_iter_product_values_expands_minres_width_height_pairs),

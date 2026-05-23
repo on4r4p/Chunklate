@@ -1101,13 +1101,7 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
                                       tmpcf.append(s)
 
                                 for t in chunk_data:
-                                    if "i for i in range(" in t:
-                                        start = int(t.split("range(")[1].split(",")[0])
-                                        end = int(t.split(",")[1].split(")")[0])
-                                        tmpcd.append( tuple((i for i in range(start,end))) )
-                                    else:
-
-                                        tmpcd.append(tuple(t))
+                                    tmpcd.append(specs.expand_chunk_data_item(t))
 
                         chunk_data = tuple(tmpcd)
                         chunk_format = tuple(tmpcf)
