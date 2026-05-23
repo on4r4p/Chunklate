@@ -1211,72 +1211,8 @@ def GroundhogDay(NewDay):
 
 def Chunklate(sec):
 
-    if os.name == "nt":
-        print(
-            """
-╭─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╮
-  <[0x00000016]>[C|H|U|N|K|L|A|T|E]<[0x98bd5cb8]>
-╰─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╯
-"""
-        )
-        if PAUSE is True:
-            time.sleep(sec)
-
-        return
-
-    color = [
-        "\033[1;31;49m",
-        "\033[1;32;49m",
-        "\033[1;34;49m",
-        "\033[1;35;49m",
-        "\033[1;33;49m",
-        "\033[1;37;49m",
-    ]
-
-    length = "<[0x00000016]>"
-    crc = "<[0x98bd5cb8]>"
-
-    title = "\033[1;37;49m[\033[mC\033[1;37;49m|\033[mH\033[1;37;49m|\033[mU\033[1;37;49m|\033[mN\033[1;37;49m|\033[mK\033[1;37;49m|\033[mL\033[1;37;49m|\033[mA\033[1;37;49m|\033[mT\033[1;37;49m|\033[mE\033[1;37;49m]\033[m"
-
-    top = "\n╭─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╮"
-    bot = "╰─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╯\n"
-
-    t_o_p = [i for i in top]
-    b_o_t = [i for i in bot]
-
-    l_e_n = [i for i in length]
-    c_r_c = [i for i in crc]
-
-    colored_len = ""
-    colored_crc = ""
-    toped = ""
-    boted = ""
-
-    for i, j in zip(l_e_n, c_r_c):
-
-        rnd = random.randint(0, len(color) - 1)
-        tmp = str(color[rnd]) + str(i) + str("\033[m")
-
-        rnd2 = random.randint(0, len(color) - 1)
-        tmp2 = str(color[rnd]) + str(j) + str("\033[m")
-
-        colored_len += tmp
-        colored_crc += tmp2
-
-    for i, j in zip(t_o_p, b_o_t):
-
-        rnd2 = random.randint(0, len(color) - 1)
-        rnd3 = random.randint(0, len(color) - 1)
-
-        tmp2 = str(color[rnd2]) + str(i) + str("\033[m")
-        tmp3 = str(color[rnd3]) + str(j) + str("\033[m")
-
-        toped += tmp2
-        boted += tmp3
-
-    print(toped)
-    print("  " + colored_len + title + colored_crc)
-    print(boted)
+    for line in ui.render_chunklate_banner(os.name, random.randint):
+        print(line)
 
     if PAUSE is True:
         time.sleep(sec)

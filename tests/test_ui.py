@@ -124,6 +124,33 @@ def test_emit_printable_message_uses_injected_emit_callback():
     assert emitted == ["hello"]
 
 
+def test_render_chunklate_banner_preserves_windows_layout():
+    assert ui.render_chunklate_banner("nt", lambda start, end: start) == (
+        """
+╭─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╮
+  <[0x00000016]>[C|H|U|N|K|L|A|T|E]<[0x98bd5cb8]>
+╰─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╯
+""",
+    )
+
+
+def test_render_chunklate_banner_preserves_legacy_color_calls():
+    calls = []
+
+    def random_int(start, end):
+        calls.append((start, end))
+        return start
+
+    top, middle, bottom = ui.render_chunklate_banner("posix", random_int)
+
+    assert len(calls) == 132
+    assert top.startswith("\033[1;31;49m\n\033[m")
+    assert middle.startswith("  \033[1;31;49m<\033[m")
+    assert "\033[1;37;49m[\033[mC" in middle
+    assert middle.endswith("\033[1;31;49m>\033[m")
+    assert bottom.startswith("\033[1;31;49m╰\033[m")
+
+
 def main():
     checks = [
         ("Colorize ANSI colors", test_colorize_preserves_legacy_ansi_colors),
@@ -137,6 +164,8 @@ def main():
         ("Dialogue plain layout", test_render_dialogue_preserves_legacy_plain_layout),
         ("Printable message rules", test_printable_message_preserves_legacy_print_rules),
         ("Emit printable message", test_emit_printable_message_uses_injected_emit_callback),
+        ("Chunklate banner Windows", test_render_chunklate_banner_preserves_windows_layout),
+        ("Chunklate banner color calls", test_render_chunklate_banner_preserves_legacy_color_calls),
     ]
 
     print("Running UI tests")
