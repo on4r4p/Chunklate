@@ -16,6 +16,13 @@ class RuntimeFlags:
     auto: bool
 
 
+@dataclass(frozen=True)
+class LegacyUnknownOptions:
+    cloneswar: str | bool | None = None
+    crash: int | bool | None = None
+    crash_error: str | None = None
+
+
 def configure_parser(parser: Any) -> Any:
     parser.add_argument(
         "-f", "--file", dest="FILENAME", help="File path.", default=None, metavar="FILE"
@@ -82,6 +89,25 @@ def configure_parser(parser: Any) -> Any:
         metavar="N",
     )
     return parser
+
+
+def parse_legacy_unknown_options(unknown: list[str] | tuple[str, ...] | str) -> LegacyUnknownOptions:
+    unknown_text = unknown if isinstance(unknown, str) else " ".join([item for item in unknown])
+    cloneswar: str | bool | None = None
+    crash: int | bool | None = None
+    crash_error: str | None = None
+
+    if "--CLONE" in unknown_text:
+        cloneswar = unknown_text.split("--CLONE ")[1]
+
+    if "--crash" in unknown_text:
+        crash_value = unknown_text.split("--crash ")[1]
+        if not str(crash_value).isdigit():
+            crash_error = "--crash arguments must be a number."
+        else:
+            crash = int(crash_value)
+
+    return LegacyUnknownOptions(cloneswar=cloneswar, crash=crash, crash_error=crash_error)
 
 
 def max_saves_error(max_saves: int | None) -> str | None:

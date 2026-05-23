@@ -86,6 +86,27 @@ def test_configure_parser_parses_runtime_arguments():
     assert parsed.MAX_SAVES == 2
 
 
+def test_parse_legacy_unknown_options_preserves_clone_and_crash():
+    options = cli.parse_legacy_unknown_options(["--CLONE", "Folder_1/sample.png", "--crash", "42"])
+
+    assert options == cli.LegacyUnknownOptions(
+        cloneswar="Folder_1/sample.png --crash 42",
+        crash=42,
+    )
+
+
+def test_parse_legacy_unknown_options_reports_invalid_crash():
+    options = cli.parse_legacy_unknown_options("--crash nope")
+
+    assert options == cli.LegacyUnknownOptions(
+        crash_error="--crash arguments must be a number.",
+    )
+
+
+def test_parse_legacy_unknown_options_ignores_missing_legacy_values():
+    assert cli.parse_legacy_unknown_options([]) == cli.LegacyUnknownOptions()
+
+
 def test_output_file_dir_preserves_empty_default_and_trailing_separator():
     assert cli.output_file_dir(None, abspath=lambda value: "/abs/" + value, join=lambda *parts: "/".join(parts)) == ""
     assert (
@@ -132,6 +153,9 @@ def main():
     checks = [
         ("parser options", test_configure_parser_preserves_legacy_options),
         ("parser arguments", test_configure_parser_parses_runtime_arguments),
+        ("legacy unknown clone/crash", test_parse_legacy_unknown_options_preserves_clone_and_crash),
+        ("legacy unknown invalid crash", test_parse_legacy_unknown_options_reports_invalid_crash),
+        ("legacy unknown empty", test_parse_legacy_unknown_options_ignores_missing_legacy_values),
         ("max-saves validation", test_max_saves_error_preserves_legacy_validation),
         ("output dir prefix", test_output_file_dir_preserves_empty_default_and_trailing_separator),
         ("pause-debug flags", test_runtime_flags_pause_debug_enables_debug),

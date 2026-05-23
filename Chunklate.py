@@ -5524,16 +5524,14 @@ def main():
     parser = cli.configure_parser(ArgumentParser())
 
     Args, unknown = parser.parse_known_args()
-    unknown = " ".join([i for i in unknown])
-    if "--CLONE" in unknown:
-        CLONESWAR = unknown.split("--CLONE ")[1]
-    if "--crash" in unknown:
-        CRASH = unknown.split("--crash ")[1]
-        if not str(CRASH).isdigit():
-           print("--crash arguments must be a number.")
-           sys.exit(1)
-        else:
-            CRASH = int(CRASH)
+    LegacyUnknown = cli.parse_legacy_unknown_options(unknown)
+    if LegacyUnknown.cloneswar is not None:
+        CLONESWAR = LegacyUnknown.cloneswar
+    if LegacyUnknown.crash_error is not None:
+        print(LegacyUnknown.crash_error)
+        sys.exit(1)
+    if LegacyUnknown.crash is not None:
+        CRASH = LegacyUnknown.crash
 
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
