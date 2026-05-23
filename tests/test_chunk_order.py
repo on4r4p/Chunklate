@@ -85,6 +85,36 @@ def test_only_ihdr_allowed_after_png_header():
     ) is None
 
 
+def test_fix_mode_exclusion_helpers_preserve_legacy_list_growth():
+    chunks = (b"IHDR", b"gAMA", b"PLTE", b"IDAT", b"IEND")
+    before_plte = (b"IHDR", b"gAMA")
+
+    assert chunk_order.must_stay_before_plte_without_ihdr(b"gAMA", (b"PNG",), before_plte)
+    assert not chunk_order.must_stay_before_plte_without_ihdr(b"gAMA", (b"PNG", b"IHDR"), before_plte)
+    assert chunk_order.must_follow_plte(b"tRNS", (b"tRNS", b"bKGD"))
+    assert not chunk_order.must_follow_plte(b"gAMA", (b"tRNS", b"bKGD"))
+    assert chunk_order.extend_exclusions_not_in((b"IHDR",), chunks, before_plte) == (
+        b"IHDR",
+        b"PLTE",
+        b"IDAT",
+        b"IEND",
+    )
+    assert chunk_order.extend_exclusions_in((b"PNG",), chunks, before_plte) == (
+        b"PNG",
+        b"IHDR",
+        b"gAMA",
+    )
+    assert chunk_order.extend_exclusions_before_idat_after_idat(
+        (b"IHDR",),
+        chunks,
+        (b"IHDR", b"gAMA", b"PLTE"),
+    ) == (
+        b"IHDR",
+        b"gAMA",
+        b"PLTE",
+    )
+
+
 def test_the_good_place_checkpoint_args_preserve_missing_and_found_shapes():
     assert chunk_order.the_good_place_missing_checkpoint_args(b"IHDR", 1, 20, 40) == (
         True,
@@ -120,6 +150,7 @@ def main():
         ("Signature and IHDR placement", test_signature_and_ihdr_placement_decisions),
         ("PLTE and IDAT order decisions", test_plte_and_idat_order_decisions),
         ("Only IHDR after PNG header", test_only_ihdr_allowed_after_png_header),
+        ("Fix mode exclusion helpers", test_fix_mode_exclusion_helpers_preserve_legacy_list_growth),
         ("TheGoodPlace checkpoint args", test_the_good_place_checkpoint_args_preserve_missing_and_found_shapes),
     ]
 

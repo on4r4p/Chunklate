@@ -97,6 +97,45 @@ def only_ihdr_allowed_after_png_header(
     return None
 
 
+def must_stay_before_plte_without_ihdr(
+    lastchunk: bytes,
+    used_chunks: Sequence[bytes],
+    before_plte: Iterable[bytes],
+) -> bool:
+    return lastchunk in set(before_plte) and b"IHDR" not in used_chunks
+
+
+def must_follow_plte(lastchunk: bytes, after_plte: Iterable[bytes]) -> bool:
+    return lastchunk in set(after_plte)
+
+
+def extend_exclusions_not_in(
+    excluded: Sequence[bytes],
+    chunks: Iterable[bytes],
+    allowed_chunks: Iterable[bytes],
+) -> tuple[bytes, ...]:
+    allowed_set = set(allowed_chunks)
+    return tuple(list(excluded) + [chunk for chunk in chunks if chunk not in allowed_set])
+
+
+def extend_exclusions_in(
+    excluded: Sequence[bytes],
+    chunks: Iterable[bytes],
+    selected_chunks: Iterable[bytes],
+) -> tuple[bytes, ...]:
+    selected_set = set(selected_chunks)
+    return tuple(list(excluded) + [chunk for chunk in chunks if chunk in selected_set])
+
+
+def extend_exclusions_before_idat_after_idat(
+    excluded: Sequence[bytes],
+    chunks: Iterable[bytes],
+    before_idat: Iterable[bytes],
+) -> tuple[bytes, ...]:
+    before_idat_set = set(before_idat)
+    return tuple(list(excluded) + [chunk for chunk in chunks if chunk in before_idat_set and chunk not in excluded])
+
+
 def the_good_place_missing_checkpoint_args(
     to_fix_chunk: bytes,
     bad_pos: int,

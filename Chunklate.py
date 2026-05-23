@@ -3329,12 +3329,8 @@ def CheckChunkOrder(lastchunk, mode):
 
         if b"IDAT" not in Used_Chunks:
 
-            if lastchunk in BEFORE_PLTE and b"IHDR" not in Used_Chunks:
-                shutup = [
-                    Excluded.append(forbid)
-                    for forbid in CHUNKS
-                    if forbid not in BEFORE_PLTE
-                ]
+            if chunk_order.must_stay_before_plte_without_ihdr(lastchunk, Used_Chunks, BEFORE_PLTE):
+                Excluded = list(chunk_order.extend_exclusions_not_in(Excluded, CHUNKS, BEFORE_PLTE))
                 Candy(
                     "Cowsay",
                     " %s chunk must be placed before any PLTE related chunks we can forget about thoses:\n%s"
@@ -3345,12 +3341,8 @@ def CheckChunkOrder(lastchunk, mode):
                     "bad",
                 )
 
-            if lastchunk in AFTER_PLTE:
-                shutup = [
-                    Excluded.append(forbid)
-                    for forbid in CHUNKS
-                    if forbid in BEFORE_PLTE
-                ]
+            if chunk_order.must_follow_plte(lastchunk, AFTER_PLTE):
+                Excluded = list(chunk_order.extend_exclusions_in(Excluded, CHUNKS, BEFORE_PLTE))
                 Candy(
                     "Cowsay",
                     " %s chunk must be placed after PLTE related chunks we can forget about thoses:\n%s"
@@ -3361,9 +3353,7 @@ def CheckChunkOrder(lastchunk, mode):
             Excluded.append(b"IEND")
 
         elif b"IDAT" in Used_Chunks:
-            shutup = [
-                Excluded.append(forbid) for forbid in CHUNKS if forbid in BEFORE_IDAT and forbid not in Excluded
-            ]
+            Excluded = list(chunk_order.extend_exclusions_before_idat_after_idat(Excluded, CHUNKS, BEFORE_IDAT))
 
 #            print("Excluded:",Excluded)
 
