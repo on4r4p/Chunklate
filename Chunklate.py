@@ -5349,6 +5349,13 @@ def FixItFelix_Apply_Finding_Work_Item(work_item, chkd, pandora_box_len, Chunk):
     return handler(work_item, chkd, pandora_box_len, Chunk)
 
 
+def FixItFelix_Runtime():
+    return fixit_felix.FixItFelixRuntime(
+        try_automatic_repair=FixItFelix_Try_Automatic_Repair,
+        apply_finding_work_item=FixItFelix_Apply_Finding_Work_Item,
+    )
+
+
 def FixItFelix(Chunk=None):
     Candy("Title", "Fix It Felix: ", Candy("Color", "white", Chunk))
     ##TODOFIND A WAY TO MAKE IT READABLE
@@ -5424,24 +5431,19 @@ def FixItFelix(Chunk=None):
         bad_next_name=Bad_Next_Name,
     )
 
-    for WorkItem in fixit_felix.repair_work_items(
-        PandoraBox,
-        skip_bad_crc=Skip_Bad_Crc,
-    ):
-        if WorkItem.kind == "automatic_repair":
-            RepairResult = FixItFelix_Try_Automatic_Repair(WorkItem.handler)
-            if RepairResult is not None:
-                return RepairResult
-            continue
+    RunResult = fixit_felix.run_repair_work_items(
+        FixItFelix_Runtime(),
+        fixit_felix.repair_work_items(
+            PandoraBox,
+            skip_bad_crc=Skip_Bad_Crc,
+        ),
+        chkd=chkd,
+        pandora_box_len=PandoraBox_len,
+        chunk=Chunk,
+    )
+    if RunResult.should_return:
+        return RunResult.result
 
-        should_return, result = FixItFelix_Apply_Finding_Work_Item(
-            WorkItem,
-            chkd,
-            PandoraBox_len,
-            Chunk,
-        )
-        if should_return:
-            return result
     Show_Must_Go_On = True
 
 def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):

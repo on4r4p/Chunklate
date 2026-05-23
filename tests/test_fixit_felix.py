@@ -345,6 +345,86 @@ def test_repair_work_items_respects_skip_bad_crc_route_fallthrough():
     assert items[-1].finding == "Checksum_Error_0:Wrong Crc"
 
 
+def test_run_repair_work_items_returns_first_automatic_repair_result():
+    calls = []
+    runtime = fixit_felix.FixItFelixRuntime(
+        try_automatic_repair=lambda handler: calls.append(("auto", handler)) or (
+            "repaired" if handler == "plte_cleanup" else None
+        ),
+        apply_finding_work_item=lambda *args: calls.append(("finding", args)) or (False, None),
+    )
+
+    result = fixit_felix.run_repair_work_items(
+        runtime,
+        (
+            fixit_felix.FixItFelixWorkItem("automatic_repair", "color_profile_cleanup"),
+            fixit_felix.FixItFelixWorkItem("automatic_repair", "plte_cleanup"),
+            fixit_felix.FixItFelixWorkItem("finding", "wrong_crc", "Checksum_Error_0:Wrong Crc"),
+        ),
+        chkd="IDAT_Tool_",
+        pandora_box_len=1,
+        chunk=b"IDAT",
+    )
+
+    assert result == fixit_felix.FixItFelixRunResult(True, "repaired")
+    assert calls == [
+        ("auto", "color_profile_cleanup"),
+        ("auto", "plte_cleanup"),
+    ]
+
+
+def test_run_repair_work_items_dispatches_findings_after_empty_automatic_repairs():
+    calls = []
+
+    def apply_finding(work_item, chkd, pandora_box_len, chunk):
+        calls.append((work_item, chkd, pandora_box_len, chunk))
+        return True, "handled"
+
+    runtime = fixit_felix.FixItFelixRuntime(
+        try_automatic_repair=lambda handler: calls.append(("auto", handler)) or None,
+        apply_finding_work_item=apply_finding,
+    )
+    work_item = fixit_felix.FixItFelixWorkItem(
+        "finding",
+        "wrong_crc",
+        "Checksum_Error_0:Wrong Crc",
+    )
+
+    result = fixit_felix.run_repair_work_items(
+        runtime,
+        (
+            fixit_felix.FixItFelixWorkItem("automatic_repair", "color_profile_cleanup"),
+            work_item,
+        ),
+        chkd="IDAT_Tool_",
+        pandora_box_len=2,
+        chunk=b"IDAT",
+    )
+
+    assert result == fixit_felix.FixItFelixRunResult(True, "handled")
+    assert calls == [
+        ("auto", "color_profile_cleanup"),
+        (work_item, "IDAT_Tool_", 2, b"IDAT"),
+    ]
+
+
+def test_run_repair_work_items_reports_no_result_when_nothing_handles():
+    runtime = fixit_felix.FixItFelixRuntime(
+        try_automatic_repair=lambda handler: None,
+        apply_finding_work_item=lambda *args: (False, None),
+    )
+
+    result = fixit_felix.run_repair_work_items(
+        runtime,
+        (fixit_felix.FixItFelixWorkItem("finding", "critical_miss", "unknown"),),
+        chkd="IDAT_Tool_",
+        pandora_box_len=1,
+        chunk=b"IDAT",
+    )
+
+    assert result == fixit_felix.FixItFelixRunResult(False)
+
+
 def test_tool_prefix_for_chunk_preserves_legacy_bytes_and_string_labels():
     assert fixit_felix.tool_prefix_for_chunk(b"IDAT") == "IDAT_Tool_"
     assert fixit_felix.tool_prefix_for_chunk("gAMA") == "gAMA_Tool_"
@@ -496,6 +576,9 @@ def main():
         ("Effective PandoraBox len preserves Bad_Next_Name adjustment", test_effective_pandora_box_len_preserves_bad_next_name_adjustment),
         ("Repair work items run automatic repairs first", test_repair_work_items_runs_automatic_repairs_before_pandorabox_routes),
         ("Repair work items respect skip-bad-crc fallthrough", test_repair_work_items_respects_skip_bad_crc_route_fallthrough),
+        ("Run work items returns automatic repair", test_run_repair_work_items_returns_first_automatic_repair_result),
+        ("Run work items dispatches findings", test_run_repair_work_items_dispatches_findings_after_empty_automatic_repairs),
+        ("Run work items reports no result", test_run_repair_work_items_reports_no_result_when_nothing_handles),
         ("Tool prefix preserves legacy labels", test_tool_prefix_for_chunk_preserves_legacy_bytes_and_string_labels),
         ("Color profile cleanup requires matching finding", test_color_profile_cleanup_requires_matching_finding),
         ("PLTE cleanup requires noninteractive mode and PLTE finding", test_plte_cleanup_requires_noninteractive_mode_and_plte_finding),

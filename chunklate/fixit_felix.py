@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
+from typing import Callable
 from typing import Literal
 
 from .png import (
@@ -82,6 +83,18 @@ class FixItFelixWorkItem:
     kind: FixItFelixWorkKind
     handler: AutomaticRepairHandler | FixItFelixHandler
     finding: object | None = None
+
+
+@dataclass(frozen=True)
+class FixItFelixRuntime:
+    try_automatic_repair: Callable[[AutomaticRepairHandler], Any]
+    apply_finding_work_item: Callable[[FixItFelixWorkItem, str, int, Any], tuple[bool, Any]]
+
+
+@dataclass(frozen=True)
+class FixItFelixRunResult:
+    should_return: bool
+    result: Any = None
 
 
 @dataclass(frozen=True)
@@ -224,6 +237,33 @@ def repair_work_items(findings: Iterable[object], *, skip_bad_crc: bool) -> tupl
         for finding in findings
     )
     return tuple(items)
+
+
+def run_repair_work_items(
+    runtime: FixItFelixRuntime,
+    work_items: Iterable[FixItFelixWorkItem],
+    *,
+    chkd: str,
+    pandora_box_len: int,
+    chunk: Any,
+) -> FixItFelixRunResult:
+    for work_item in work_items:
+        if work_item.kind == "automatic_repair":
+            repair_result = runtime.try_automatic_repair(work_item.handler)
+            if repair_result is not None:
+                return FixItFelixRunResult(True, repair_result)
+            continue
+
+        should_return, result = runtime.apply_finding_work_item(
+            work_item,
+            chkd,
+            pandora_box_len,
+            chunk,
+        )
+        if should_return:
+            return FixItFelixRunResult(True, result)
+
+    return FixItFelixRunResult(False)
 
 
 def tool_prefix_for_chunk(chunk: Any) -> str:
