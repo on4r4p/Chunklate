@@ -39,3 +39,21 @@ def chunk_name_semantics(chunk: object) -> ChunkNameSemantics:
         else:
             break
     return ChunkNameSemantics(name=name, letters=tuple(letters))
+
+
+def semantic_labels(semantics: ChunkNameSemantics) -> tuple[tuple[str, str], ...]:
+    if not semantics.follows_naming:
+        return ()
+    return (
+        (semantics.letters[0], "Critical" if semantics.is_critical else "Not Critical"),
+        (semantics.letters[1], "Private" if semantics.is_private else "Not Private"),
+        (
+            semantics.letters[2],
+            (
+                "Conform to PNG specifications"
+                if semantics.is_reserved_valid
+                else "Not Conform to PNG specifications"
+            ),
+        ),
+        (semantics.letters[3], "Unsafe to Copy" if semantics.is_unsafe_to_copy else "Safe to Copy"),
+    )

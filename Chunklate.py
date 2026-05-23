@@ -2734,61 +2734,12 @@ def Ancillary(Chunk):
         Candy(
             "Cowsay", "If this is a real Chunk this means that %s is :" % Chunk, "good"
         )
-        if SemanticsResult.is_critical:
+        for Letter, Label in ancillary.semantic_labels(SemanticsResult):
             PRINT(
                 "-"
-                + Candy("Color", "green", Semantics[0])
+                + Candy("Color", "green", Letter)
                 + ":"
-                + Candy("Color", "yellow", "Critical")
-            )
-        else:
-            PRINT(
-                "-"
-                + Candy("Color", "green", Semantics[0])
-                + ":"
-                + Candy("Color", "yellow", "Not Critical")
-            )
-        if SemanticsResult.is_private:
-            PRINT(
-                "-"
-                + Candy("Color", "green", Semantics[1])
-                + ":"
-                + Candy("Color", "yellow", "Private")
-            )
-        else:
-            PRINT(
-                "-"
-                + Candy("Color", "green", Semantics[1])
-                + ":"
-                + Candy("Color", "yellow", "Not Private")
-            )
-        if SemanticsResult.is_reserved_valid:
-            PRINT(
-                "-"
-                + Candy("Color", "green", Semantics[2])
-                + ":"
-                + Candy("Color", "yellow", "Conform to PNG specifications")
-            )
-        else:
-            PRINT(
-                "-"
-                + Candy("Color", "green", Semantics[2])
-                + ":"
-                + Candy("Color", "yellow", "Not Conform to PNG specifications")
-            )
-        if SemanticsResult.is_unsafe_to_copy:
-            PRINT(
-                "-"
-                + Candy("Color", "green", Semantics[3])
-                + ":"
-                + Candy("Color", "yellow", "Unsafe to Copy")
-            )
-        else:
-            PRINT(
-                "-"
-                + Candy("Color", "green", Semantics[3])
-                + ":"
-                + Candy("Color", "yellow", "Safe to Copy")
+                + Candy("Color", "yellow", Label)
             )
         Bad_Ancillary = True
 

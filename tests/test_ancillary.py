@@ -40,11 +40,32 @@ def test_chunk_name_semantics_stops_on_non_letter():
     assert semantics.follows_naming is False
 
 
+def test_semantic_labels_preserve_legacy_report_order():
+    assert ancillary.semantic_labels(ancillary.chunk_name_semantics("IHDR")) == (
+        ("I", "Critical"),
+        ("H", "Private"),
+        ("D", "Conform to PNG specifications"),
+        ("R", "Unsafe to Copy"),
+    )
+    assert ancillary.semantic_labels(ancillary.chunk_name_semantics("gAMa")) == (
+        ("g", "Not Critical"),
+        ("A", "Private"),
+        ("M", "Conform to PNG specifications"),
+        ("a", "Safe to Copy"),
+    )
+
+
+def test_semantic_labels_returns_empty_for_invalid_name():
+    assert ancillary.semantic_labels(ancillary.chunk_name_semantics("AB1D")) == ()
+
+
 def main():
     checks = [
         ("case bits", test_chunk_name_semantics_preserves_legacy_case_bits),
         ("mixed case bits", test_chunk_name_semantics_handles_mixed_case_bits),
         ("stop on non-letter", test_chunk_name_semantics_stops_on_non_letter),
+        ("semantic report labels", test_semantic_labels_preserve_legacy_report_order),
+        ("semantic labels invalid", test_semantic_labels_returns_empty_for_invalid_name),
     ]
 
     print("Running ancillary tests")
