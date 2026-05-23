@@ -761,6 +761,61 @@ def test_relics_module_builds_full_chunk_forcer_plan():
     )
 
 
+def test_relics_module_selects_no_pandemonium_repair_decisions():
+    getinfo_policy = relics.NoPandemoniumPolicy(
+        action="getinfo_brawl",
+        chunk_name="IDAT",
+        struct_index_errors=("StructIndex:0", "StructIndex:1", "StructIndex:2"),
+    )
+    forcer_policy = relics.NoPandemoniumPolicy(
+        action="full_chunk_forcer",
+        known_chunk_route=relics.GetInfoChunkRoute("GetInfo_Error_0:tEXt", "tEXt"),
+    )
+
+    assert relics.no_pandemonium_repair_decision(
+        getinfo_policy,
+        [b"IHDR", b"IDAT"],
+        ["0:8:21", "1:33:277"],
+        target_file="sample.png",
+        from_error="GetInfo",
+        chunks_len_not_fixed=[],
+        answer=True,
+    ) == relics.NoPandemoniumRepairDecision(
+        "getinfo_brawl",
+        relics.GetInfoBrawlPlan("sample.png", "IDAT", 277, 33, "GetInfo", "Brutus"),
+    )
+    assert relics.no_pandemonium_repair_decision(
+        forcer_policy,
+        ["IHDR", "tEXt"],
+        ["0:8:21", "1:33:277"],
+        target_file="sample.png",
+        from_error="GetInfo",
+        chunks_len_not_fixed=[],
+        answer=True,
+    ) == relics.NoPandemoniumRepairDecision(
+        "full_chunk_forcer",
+        relics.FullChunkForcerPlan("sample.png", "tEXt", 33, 277, "GetInfo"),
+    )
+    assert relics.no_pandemonium_repair_decision(
+        getinfo_policy,
+        [b"IHDR", b"IDAT"],
+        ["0:8:21", "1:33:277"],
+        target_file="sample.png",
+        from_error="GetInfo",
+        chunks_len_not_fixed=[],
+        answer=False,
+    ) == relics.NoPandemoniumRepairDecision("none")
+    assert relics.no_pandemonium_repair_decision(
+        relics.NoPandemoniumPolicy(action="unsupported"),
+        [],
+        [],
+        target_file="sample.png",
+        from_error="GetInfo",
+        chunks_len_not_fixed=[],
+        answer=True,
+    ) == relics.NoPandemoniumRepairDecision("unsupported")
+
+
 def test_relics_module_routes_remembered_dummy_chunks():
     pandemonium = {
         "sample.0_Fixed.png": {
@@ -996,6 +1051,10 @@ def main():
             test_relics_module_preserves_legacy_getinfo_print_hits,
         ),
         ("Relics module builds FullChunkForcer plan", test_relics_module_builds_full_chunk_forcer_plan),
+        (
+            "Relics module selects no-Pandemonium repair decisions",
+            test_relics_module_selects_no_pandemonium_repair_decisions,
+        ),
         ("Relics module routes remembered dummy chunks", test_relics_module_routes_remembered_dummy_chunks),
         ("PandoraBox keys keep legacy numbering", test_pandorabox_add_keeps_legacy_error_numbering),
         (

@@ -194,6 +194,12 @@ class DummyChunkRepairDecision:
     plan: Any = None
 
 
+@dataclass(frozen=True)
+class NoPandemoniumRepairDecision:
+    action: str
+    plan: Any = None
+
+
 def chunk_label(chunk: Any) -> Any:
     if type(chunk) != bytes:
         return chunk
@@ -725,6 +731,48 @@ def full_chunk_forcer_plan(
             from_error=from_error,
         )
     return None
+
+
+def no_pandemonium_repair_decision(
+    policy: NoPandemoniumPolicy,
+    chunks_history: list[Any] | tuple[Any, ...],
+    chunks_history_index: list[Any] | tuple[Any, ...],
+    *,
+    target_file: Any,
+    from_error: Any,
+    chunks_len_not_fixed: list[bytes] | tuple[bytes, ...],
+    answer: Any,
+) -> NoPandemoniumRepairDecision:
+    if answer is not True:
+        return NoPandemoniumRepairDecision("none")
+
+    if policy.action == "getinfo_brawl" and policy.chunk_name is not None:
+        plan = getinfo_brawl_plan(
+            policy.chunk_name,
+            chunks_history,
+            chunks_history_index,
+            target_file=target_file,
+            from_error=from_error,
+            chunks_len_not_fixed=chunks_len_not_fixed,
+            struct_index_error_count=len(policy.struct_index_errors),
+        )
+        if plan is not None:
+            return NoPandemoniumRepairDecision("getinfo_brawl", plan)
+        return NoPandemoniumRepairDecision("none")
+
+    if policy.action == "full_chunk_forcer" and policy.known_chunk_route is not None:
+        plan = full_chunk_forcer_plan(
+            policy.known_chunk_route.chunk_name,
+            chunks_history,
+            chunks_history_index,
+            target_file=target_file,
+            from_error=from_error,
+        )
+        if plan is not None:
+            return NoPandemoniumRepairDecision("full_chunk_forcer", plan)
+        return NoPandemoniumRepairDecision("none")
+
+    return NoPandemoniumRepairDecision("unsupported")
 
 
 def next_error_number(pandora_box: Mapping[str, Any], function: Any) -> int:

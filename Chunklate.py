@@ -4919,6 +4919,27 @@ def Relics_Apply_Dummy_Chunk_Repair_Decision(DummyDecision):
     raise ValueError("Unknown dummy chunk relic decision: %s" % DummyDecision.action)
 
 
+def Relics_Apply_No_Pandemonium_Repair_Decision(NoPandemoniumDecision):
+    if NoPandemoniumDecision.action == "getinfo_brawl":
+        return True, relics_runtime.run_getinfo_brawl_plan(
+            Relics_Runtime(),
+            NoPandemoniumDecision.plan,
+        )
+
+    if NoPandemoniumDecision.action == "full_chunk_forcer":
+        return True, relics_runtime.run_full_chunk_forcer_plan(
+            Relics_Runtime(),
+            NoPandemoniumDecision.plan,
+        )
+
+    if NoPandemoniumDecision.action in ("none", "unsupported"):
+        return False, None
+
+    raise ValueError(
+        "Unknown no-Pandemonium relic decision: %s" % NoPandemoniumDecision.action
+    )
+
+
 def Relics_Handle_Plte():
     for key in PandoraBox:
         if "-PLTE" not in str(key):
@@ -5192,19 +5213,19 @@ def Relics_Handle_No_Pandemonium(FromError):
                 "bad",
             )
             Answer = Question()
-            if Answer is True:
-
-                BrawlPlan = relics.getinfo_brawl_plan(
-                    RelicsPolicy.chunk_name,
+            should_return, result = Relics_Apply_No_Pandemonium_Repair_Decision(
+                relics.no_pandemonium_repair_decision(
+                    RelicsPolicy,
                     Chunks_History,
                     Chunks_History_Index,
                     target_file=Sample_Name,
                     from_error=FromError,
                     chunks_len_not_fixed=CHUNKS_LEN_NOT_FIXED,
-                    struct_index_error_count=len(ChosenErr),
+                    answer=Answer,
                 )
-                if BrawlPlan is not None:
-                    return relics_runtime.run_getinfo_brawl_plan(Relics_Runtime(), BrawlPlan)
+            )
+            if should_return:
+                return result
 
         elif RelicsPolicy.action == "full_chunk_forcer":
             KnownChunkRoute = RelicsPolicy.known_chunk_route
@@ -5236,16 +5257,19 @@ def Relics_Handle_No_Pandemonium(FromError):
                 )
 
                 Answer = Question()
-                if Answer is True:
-                    ForcerPlan = relics.full_chunk_forcer_plan(
-                        KnownChunkRoute.chunk_name,
+                should_return, result = Relics_Apply_No_Pandemonium_Repair_Decision(
+                    relics.no_pandemonium_repair_decision(
+                        RelicsPolicy,
                         Chunks_History,
                         Chunks_History_Index,
                         target_file=Sample_Name,
                         from_error=FromError,
+                        chunks_len_not_fixed=CHUNKS_LEN_NOT_FIXED,
+                        answer=Answer,
                     )
-                    if ForcerPlan is not None:
-                        return relics_runtime.run_full_chunk_forcer_plan(Relics_Runtime(), ForcerPlan)
+                )
+                if should_return:
+                    return result
 
     Candy(
         "Cowsay",
