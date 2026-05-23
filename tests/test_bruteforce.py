@@ -50,6 +50,45 @@ def test_iter_nbr_for_length_preserves_legacy_threshold():
     assert bruteforce.iter_nbr_for_length(4, 2, 1) == 2
 
 
+def test_initial_spec_request_preserves_custom_full_and_noncustom_short_specs():
+    assert bruteforce.initial_spec_request("Custom", [0, 1]) == bruteforce.BruteForceSpecRequest(
+        mode="Custom",
+        struct_indexes=(0, 1),
+    )
+    assert bruteforce.initial_spec_request("Brutus", [0, 1]) == bruteforce.BruteForceSpecRequest(
+        mode="Brutus",
+        fields=("Length", "Format"),
+    )
+
+
+def test_iteration_spec_request_preserves_struct_indexes_and_iter_nbr():
+    assert bruteforce.iteration_spec_request("Custom", [0, 1], 3) == bruteforce.BruteForceSpecRequest(
+        mode="Custom",
+        struct_indexes=(0, 1),
+        iter_nbr=3,
+    )
+    assert bruteforce.iteration_spec_request("Brutus", [0, 1], 3) == bruteforce.BruteForceSpecRequest(
+        mode="Brutus",
+        iter_nbr=3,
+    )
+
+
+def test_spec_request_kwargs_matches_legacy_getspec_keyword_shape():
+    assert bruteforce.spec_request_kwargs(
+        bruteforce.BruteForceSpecRequest(
+            mode="Custom",
+            fields=("Length", "Format"),
+            struct_indexes=(0, 1),
+            iter_nbr=3,
+        )
+    ) == {
+        "Fields": ["Length", "Format"],
+        "StructIndex": [0, 1],
+        "IterNbr": 3,
+    }
+    assert bruteforce.spec_request_kwargs(bruteforce.BruteForceSpecRequest(mode="Brutus")) == {}
+
+
 def test_build_full_new_data_preserves_brutecfg_combinations():
     chunk_name = b"gAMA"
     length = b"\x00\x00\x00\x04"
@@ -398,6 +437,9 @@ def main():
         ("Fallback Custom to Brutus", test_resolve_mode_falls_back_to_brutus_when_custom_has_no_indexes),
         ("Length ranges", test_length_range_preserves_legacy_single_and_tuple_specs),
         ("IterNbr threshold", test_iter_nbr_for_length_preserves_legacy_threshold),
+        ("Initial spec request", test_initial_spec_request_preserves_custom_full_and_noncustom_short_specs),
+        ("Iteration spec request", test_iteration_spec_request_preserves_struct_indexes_and_iter_nbr),
+        ("Spec request kwargs", test_spec_request_kwargs_matches_legacy_getspec_keyword_shape),
         ("Build full new data", test_build_full_new_data_preserves_brutecfg_combinations),
         ("Chunk CRC", test_chunk_crc_matches_legacy_struct_crc32),
         ("Assemble candidate PNG", test_assemble_candidate_png_preserves_legacy_concatenation),

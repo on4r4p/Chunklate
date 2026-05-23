@@ -2170,6 +2170,13 @@ def SmashBruteBrawl(
             old_crc=OldCrc,
         )
 
+    def LoadSpec(request):
+        return GetSpec(
+            ChunkName,
+            request.mode,
+            **bruteforce.spec_request_kwargs(request),
+        )
+
     def ShowPng(bpng,ndx):
             global DIFF
             global TmpImgLst
@@ -2341,14 +2348,16 @@ def SmashBruteBrawl(
 
     ModePlan = bruteforce.resolve_mode(BfMode, ChunkName, PandoraBox)
     BfMode = ModePlan.mode
-    Sti = list(ModePlan.struct_indexes)
+    Sti = ModePlan.struct_indexes
     if ModePlan.side_note is not None:
         SideNotes.append(ModePlan.side_note)
 
-    if BfMode == "Custom":
-             max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
+    InitialSpecRequest = bruteforce.initial_spec_request(BfMode, Sti)
+    InitialSpec = LoadSpec(InitialSpecRequest)
+    if InitialSpecRequest.fields:
+         chunklen_spec,chunk_format = InitialSpec
     else:
-         chunklen_spec,chunk_format  =  GetSpec(ChunkName,BfMode,Fields=["Length","Format"])
+         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = InitialSpec
 
     LengthRange = bruteforce.length_range(chunklen_spec)
     maxchunklen = LengthRange.max_length
@@ -2357,10 +2366,8 @@ def SmashBruteBrawl(
 
     if DEBUG is True:
 
-        if BfMode == "Custom":
-             max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
-        else:
-             max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
+        DebugSpecRequest = bruteforce.iteration_spec_request(BfMode, Sti)
+        max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = LoadSpec(DebugSpecRequest)
 
         PRINT("File:%s"% File)
         PRINT("ChunkName:%s"% ChunkName)
@@ -2384,28 +2391,10 @@ def SmashBruteBrawl(
     for n,ln in enumerate(range(minchunklen, maxchunklen, step)):
 
         Std = datetime.now()
-        
-        ModePlan = bruteforce.resolve_mode(BfMode, ChunkName, PandoraBox)
-        BfMode = ModePlan.mode
-        Sti = list(ModePlan.struct_indexes)
-        if ModePlan.side_note is not None:
-            SideNotes.append(ModePlan.side_note)
-
         IterNbr = bruteforce.iter_nbr_for_length(ln, step, n)
 
-        if BfMode == "Custom":
-                 if IterNbr is not None:
-                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti,IterNbr=IterNbr)
-                 else:
-                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,StructIndex = Sti)
-        else:
-                 if IterNbr is not None:
-                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode,IterNbr=IterNbr)
-                 else:
-                     max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(ChunkName,BfMode)
-
-
-
+        SpecRequest = bruteforce.iteration_spec_request(BfMode, Sti, IterNbr)
+        max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = LoadSpec(SpecRequest)
 
         Loadingbar(
             max_iter, len_iter, None, True

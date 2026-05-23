@@ -30,6 +30,14 @@ class BruteForceLengthRange:
 
 
 @dataclass(frozen=True)
+class BruteForceSpecRequest:
+    mode: str
+    fields: tuple[str, ...] = ()
+    struct_indexes: tuple[int, ...] = ()
+    iter_nbr: int | None = None
+
+
+@dataclass(frozen=True)
 class BruteForceEditWindow:
     before: bytes
     to_brute: str
@@ -122,6 +130,47 @@ def iter_nbr_for_length(length: int, step: int, loop_index: int) -> int | None:
     if length > step:
         return loop_index + 1
     return None
+
+
+def spec_request(
+    mode: str,
+    struct_indexes: tuple[int, ...] | list[int] = (),
+    *,
+    fields: tuple[str, ...] | list[str] = (),
+    iter_nbr: int | None = None,
+) -> BruteForceSpecRequest:
+    request_struct_indexes = tuple(struct_indexes) if mode == "Custom" else ()
+    return BruteForceSpecRequest(
+        mode=mode,
+        fields=tuple(fields),
+        struct_indexes=request_struct_indexes,
+        iter_nbr=iter_nbr,
+    )
+
+
+def initial_spec_request(mode: str, struct_indexes: tuple[int, ...] | list[int] = ()) -> BruteForceSpecRequest:
+    if mode == "Custom":
+        return spec_request(mode, struct_indexes)
+    return spec_request(mode, fields=("Length", "Format"))
+
+
+def iteration_spec_request(
+    mode: str,
+    struct_indexes: tuple[int, ...] | list[int] = (),
+    iter_nbr: int | None = None,
+) -> BruteForceSpecRequest:
+    return spec_request(mode, struct_indexes, iter_nbr=iter_nbr)
+
+
+def spec_request_kwargs(request: BruteForceSpecRequest) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    if request.fields:
+        kwargs["Fields"] = list(request.fields)
+    if request.struct_indexes:
+        kwargs["StructIndex"] = list(request.struct_indexes)
+    if request.iter_nbr is not None:
+        kwargs["IterNbr"] = request.iter_nbr
+    return kwargs
 
 
 def build_full_new_data(
