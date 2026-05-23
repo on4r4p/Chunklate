@@ -64,6 +64,14 @@ def test_write_clone_writes_to_next_available_target(tmp_path):
     assert second.save_count == 2
 
 
+def test_remove_hex_range_preserves_legacy_removechunk_slice():
+    assert writer.remove_hex_range("aaaabbbbcccc", 4, 8) == "aaaacccc"
+
+
+def test_replace_hex_range_preserves_legacy_saveclone_slice():
+    assert writer.replace_hex_range("aaaabbbbcccc", "XXXX", 4, 8) == "aaaaXXXXcccc"
+
+
 def main():
     tmpdir = tempfile.TemporaryDirectory()
     tmp_path = Path(tmpdir.name)
@@ -71,6 +79,8 @@ def main():
         ("Prepare clone write", lambda: test_prepare_clone_write_uses_legacy_target_and_next_count(tmp_path)),
         ("Max saves reached", lambda: test_prepare_clone_write_marks_max_saves_reached(tmp_path)),
         ("Write clone", lambda: test_write_clone_writes_to_next_available_target(tmp_path)),
+        ("Remove hex range", test_remove_hex_range_preserves_legacy_removechunk_slice),
+        ("Replace hex range", test_replace_hex_range_preserves_legacy_saveclone_slice),
     ]
 
     try:

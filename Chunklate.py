@@ -4265,10 +4265,7 @@ def Checksum(Ctype, Cdata, Crc, next=None):
 
 def RemoveChunk(start,length,infos):
     Candy("Title", "Removing Chunk")
-    end = length - start
-    Before = DATAX[:start]
-    After = DATAX[start+end:]
-    Fix = Before + After
+    Fix = writer.remove_hex_range(DATAX, start, length)
     WriteClone(Fix,infos)
 
 def SaveClone(DataFix, start, end, infos):
@@ -4282,9 +4279,7 @@ def SaveClone(DataFix, start, end, infos):
         Betterror(e, inspect.stack()[0][3])
 
 
-    Before = DATAX[:start]
-    After = DATAX[end:]
-    Fix = Before + DataFix + After
+    Fix = writer.replace_hex_range(DATAX, DataFix, start, end)
     WriteClone(Fix,infos)
 
 

@@ -36,6 +36,14 @@ def write_prepared_clone(plan: CloneWritePlan) -> None:
     output.write_clone(plan.target, plan.data)
 
 
+def remove_hex_range(data_hex: str, start: int, end: int) -> str:
+    return data_hex[:start] + data_hex[end:]
+
+
+def replace_hex_range(data_hex: str, data_fix: str, start: int, end: int) -> str:
+    return data_hex[:start] + data_fix + data_hex[end:]
+
+
 def write_clone(
     file_origin: str,
     file_dir: str,
