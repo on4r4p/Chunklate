@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import binascii
 import sys
 from pathlib import Path
 
@@ -90,6 +91,34 @@ def test_last_history_chunk_before_offset_stops_at_first_non_previous_chunk():
     assert name_shift.last_history_chunk_before_offset(indexes, 16) is None
 
 
+def test_shifted_chunk_crc_view_builds_legacy_crc_values_and_fixed_hex():
+    chunk_type = b"tEXt"
+    chunk_data = b"abc"
+    real_length = "00000003"
+    crc = binascii.crc32(chunk_type + chunk_data).to_bytes(4, byteorder="big").hex()
+    data_hex = real_length + chunk_type.hex() + chunk_data.hex() + crc
+
+    view = name_shift.shifted_chunk_crc_view(data_hex, 8, chunk_type, real_length)
+
+    assert view.data_hex_length == 6
+    assert view.chunk_data == chunk_data
+    assert view.file_crc == hex(int.from_bytes(bytes.fromhex(crc), byteorder="big"))
+    assert view.checksum == hex(binascii.crc32(chunk_type + chunk_data))
+    assert view.crc_matches is True
+    assert view.fixed_hex == data_hex
+
+
+def test_shifted_chunk_crc_view_detects_crc_mismatch():
+    chunk_type = b"tEXt"
+    chunk_data = b"abc"
+    real_length = "00000003"
+    data_hex = real_length + chunk_type.hex() + chunk_data.hex() + "00000000"
+
+    view = name_shift.shifted_chunk_crc_view(data_hex, 8, chunk_type, real_length)
+
+    assert view.crc_matches is False
+
+
 def main():
     checks = [
         ("Current offset", test_find_shifted_chunk_name_detects_current_offset),
@@ -98,6 +127,8 @@ def main():
         ("Unknown chunk", test_find_shifted_chunk_name_returns_none_without_known_chunk),
         ("Parse history chunk index", test_parse_history_chunk_index_preserves_legacy_fields),
         ("Last chunk before offset", test_last_history_chunk_before_offset_stops_at_first_non_previous_chunk),
+        ("Shifted chunk CRC view", test_shifted_chunk_crc_view_builds_legacy_crc_values_and_fixed_hex),
+        ("Shifted chunk CRC mismatch", test_shifted_chunk_crc_view_detects_crc_mismatch),
     ]
 
     print("Running name shift tests")

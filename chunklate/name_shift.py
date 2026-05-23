@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import binascii
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -30,6 +31,29 @@ class HistoryChunkIndex:
     start: int
     end: int
     length: int
+
+
+@dataclass(frozen=True)
+class ShiftedChunkCrcView:
+    real_length: str
+    data_hex_length: int
+    chunk_type: bytes
+    chunk_data: bytes
+    file_crc: str
+    checksum: str
+
+    @property
+    def crc_matches(self) -> bool:
+        return self.checksum == self.file_crc
+
+    @property
+    def fixed_hex(self) -> str:
+        return (
+            self.real_length
+            + self.chunk_type.hex()
+            + self.chunk_data.hex()
+            + self.file_crc.replace("0x", "")
+        )
 
 
 def current_chunk_value(data_hex: str, type_offset: int) -> bytes:
@@ -78,3 +102,27 @@ def last_history_chunk_before_offset(
         else:
             break
     return last_chunk
+
+
+def shifted_chunk_crc_view(
+    data_hex: str,
+    chunk_type_offset: int,
+    chunk_type: bytes,
+    real_length: str,
+) -> ShiftedChunkCrcView:
+    data_hex_length = int.from_bytes(bytes.fromhex(real_length), byteorder="big") * 2
+    data_start = chunk_type_offset + 8
+    data_end = data_start + data_hex_length
+    crc_start = data_end
+    crc_end = crc_start + 8
+    chunk_data = bytes.fromhex(data_hex[data_start:data_end])
+    file_crc = hex(int.from_bytes(bytes.fromhex(data_hex[crc_start:crc_end]), byteorder="big"))
+    checksum = hex(binascii.crc32(chunk_type + chunk_data))
+    return ShiftedChunkCrcView(
+        real_length=real_length,
+        data_hex_length=data_hex_length,
+        chunk_type=chunk_type,
+        chunk_data=chunk_data,
+        file_crc=file_crc,
+        checksum=checksum,
+    )

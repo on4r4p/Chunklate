@@ -3444,16 +3444,14 @@ def NameShift():
              Candy("Cowsay", "I knew there was something odd..", "bad")
 #             Candy("Cowsay", "The good news is we wont have to bruteforce all the previous chunk...", "com")
              Candy("Cowsay", "That error seems to come from the length part .", "good")
-             datpart = int.from_bytes(bytes.fromhex(reallen), byteorder="big")*2
-             Ctype = value
-             Cdata = bytes.fromhex(DATAX[ioff+8:ioff+8+datpart])
-             Crc = hex(int.from_bytes(bytes.fromhex(DATAX[ioff+8+datpart:ioff+8+datpart+8]), byteorder="big"))
-             checksum = hex(binascii.crc32(Ctype + Cdata))
+             CrcView = name_shift.shifted_chunk_crc_view(DATAX, ioff, value, reallen)
+             Crc = CrcView.file_crc
+             checksum = CrcView.checksum
              if DEBUG:
                  PRINT("-Crc from file: %s"%(str(checksum)))
                  PRINT("-Actual Crc: %s\n"%(str(Crc)))
 
-             if checksum == Crc:
+             if CrcView.crc_matches:
                  PRINT(
                 "-Crc Check :"
                 + Candy("Color", "green", " OK ")
@@ -3463,7 +3461,7 @@ def NameShift():
 
                  Candy("Cowsay", "Found the culprit!", "good")
                  SideNotes.append("-NameShift:Crc check is valid.")
-                 fixed = reallen + value.hex() + DATAX[ioff+8:ioff+8+datpart] + Crc.replace("0x","")
+                 fixed = CrcView.fixed_hex
 
                  if ioff > CToffI:
                       LastChunkBeforeOffset = name_shift.last_history_chunk_before_offset(
