@@ -4843,30 +4843,12 @@ def Relics_Ask_Plte_Repair(has_bad_crc):
 
 
 def Relics_Apply_Plte_Repair_Decision(PlteDecision):
-    if PlteDecision.action == "manual":
-        return True, relics_runtime.run_plte_manual_plan(
-            Relics_Runtime(),
-            PlteDecision.plan,
-        )
-
-    if PlteDecision.action == "remove":
-        return True, relics_runtime.run_plte_remove_plan(
-            Relics_Runtime(),
-            PlteDecision.plan,
-        )
-
-    if PlteDecision.action == "brawl":
-        return True, relics_runtime.run_plte_brawl_plan(
-            Relics_Runtime(),
-            PlteDecision.plan,
-        )
-
-    if PlteDecision.action == "quit":
-        if PlteDecision.side_note is not None:
-            SideNotes.append(PlteDecision.side_note)
-        TheEnd()
-
-    return False, None
+    return relics_runtime.apply_plte_repair_decision(
+        Relics_Runtime(),
+        PlteDecision,
+        add_side_note=SideNotes.append,
+        the_end=TheEnd,
+    )
 
 
 def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
@@ -4901,40 +4883,18 @@ def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
 
 
 def Relics_Apply_Dummy_Chunk_Repair_Decision(DummyDecision):
-    if DummyDecision.action == "brawl":
-        return relics_runtime.run_dummy_chunk_brawl_plan(
-            Relics_Runtime(),
-            DummyDecision.plan,
-        )
-
-    if DummyDecision.action == "todo_end":
-        PRINT(Candy("Color", "yellow", "\n-ToDo"))
-        TheEnd()
-
-    if DummyDecision.action == "end":
-        TheEnd()
-
-    raise ValueError("Unknown dummy chunk relic decision: %s" % DummyDecision.action)
+    return relics_runtime.apply_dummy_chunk_repair_decision(
+        Relics_Runtime(),
+        DummyDecision,
+        show_todo=lambda: PRINT(Candy("Color", "yellow", "\n-ToDo")),
+        the_end=TheEnd,
+    )
 
 
 def Relics_Apply_No_Pandemonium_Repair_Decision(NoPandemoniumDecision):
-    if NoPandemoniumDecision.action == "getinfo_brawl":
-        return True, relics_runtime.run_getinfo_brawl_plan(
-            Relics_Runtime(),
-            NoPandemoniumDecision.plan,
-        )
-
-    if NoPandemoniumDecision.action == "full_chunk_forcer":
-        return True, relics_runtime.run_full_chunk_forcer_plan(
-            Relics_Runtime(),
-            NoPandemoniumDecision.plan,
-        )
-
-    if NoPandemoniumDecision.action in ("none", "unsupported"):
-        return False, None
-
-    raise ValueError(
-        "Unknown no-Pandemonium relic decision: %s" % NoPandemoniumDecision.action
+    return relics_runtime.apply_no_pandemonium_repair_decision(
+        Relics_Runtime(),
+        NoPandemoniumDecision,
     )
 
 

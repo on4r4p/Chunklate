@@ -110,6 +110,68 @@ def run_plte_brawl_plan(runtime: RelicsRuntime, plte_plan: Any) -> Any:
     )
 
 
+def apply_plte_repair_decision(
+    runtime: RelicsRuntime,
+    decision: Any,
+    *,
+    add_side_note: Callable[[Any], Any],
+    the_end: Callable[[], Any],
+) -> tuple[bool, Any]:
+    if decision.action == "manual":
+        return True, run_plte_manual_plan(runtime, decision.plan)
+
+    if decision.action == "remove":
+        return True, run_plte_remove_plan(runtime, decision.plan)
+
+    if decision.action == "brawl":
+        return True, run_plte_brawl_plan(runtime, decision.plan)
+
+    if decision.action == "quit":
+        if decision.side_note is not None:
+            add_side_note(decision.side_note)
+        the_end()
+
+    return False, None
+
+
+def apply_dummy_chunk_repair_decision(
+    runtime: RelicsRuntime,
+    decision: Any,
+    *,
+    show_todo: Callable[[], Any],
+    the_end: Callable[[], Any],
+) -> Any:
+    if decision.action == "brawl":
+        return run_dummy_chunk_brawl_plan(runtime, decision.plan)
+
+    if decision.action == "todo_end":
+        show_todo()
+        the_end()
+
+    if decision.action == "end":
+        the_end()
+
+    raise ValueError("Unknown dummy chunk relic decision: %s" % decision.action)
+
+
+def apply_no_pandemonium_repair_decision(
+    runtime: RelicsRuntime,
+    decision: Any,
+) -> tuple[bool, Any]:
+    if decision.action == "getinfo_brawl":
+        return True, run_getinfo_brawl_plan(runtime, decision.plan)
+
+    if decision.action == "full_chunk_forcer":
+        return True, run_full_chunk_forcer_plan(runtime, decision.plan)
+
+    if decision.action in ("none", "unsupported"):
+        return False, None
+
+    raise ValueError(
+        "Unknown no-Pandemonium relic decision: %s" % decision.action
+    )
+
+
 def ask_plte_repair(runtime: RelicsRuntime, relics_module: Any, has_bad_crc: bool) -> Any:
     return runtime.ask_choice(
         relics_module.plte_repair_prompt(has_bad_crc),

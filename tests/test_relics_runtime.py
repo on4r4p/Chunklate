@@ -205,6 +205,158 @@ def test_relics_runtime_runs_plte_and_forcer_plans():
     assert "manually" in calls[3][1][1]
 
 
+def test_relics_runtime_applies_plte_repair_decisions():
+    calls = []
+    side_notes = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)) or "brawl",
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: calls.append(("manual", args, kwargs)) or "manual",
+        remove_chunk=lambda *args, **kwargs: calls.append(("remove", args, kwargs)) or "remove",
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    assert relics_runtime.apply_plte_repair_decision(
+        runtime,
+        relics.PlteRepairDecision(
+            "manual",
+            relics.PlteManualPlan("sample.png", b"PLTE", 6, 100, "manual"),
+        ),
+        add_side_note=side_notes.append,
+        the_end=lambda: calls.append(("end", (), {})),
+    ) == (True, "manual")
+    assert relics_runtime.apply_plte_repair_decision(
+        runtime,
+        relics.PlteRepairDecision(
+            "remove",
+            relics.PlteRemovePlan(12, 44, "remove PLTE"),
+        ),
+        add_side_note=side_notes.append,
+        the_end=lambda: calls.append(("end", (), {})),
+    ) == (True, "remove")
+    assert relics_runtime.apply_plte_repair_decision(
+        runtime,
+        relics.PlteRepairDecision(
+            "brawl",
+            relics.PlteBrawlPlan("sample.png", b"PLTE", 6, 400, "plte", "Insert"),
+        ),
+        add_side_note=side_notes.append,
+        the_end=lambda: calls.append(("end", (), {})),
+    ) == (True, "brawl")
+    assert relics_runtime.apply_plte_repair_decision(
+        runtime,
+        relics.PlteRepairDecision("quit", side_note="-User chose to quit."),
+        add_side_note=side_notes.append,
+        the_end=lambda: calls.append(("end", (), {})),
+    ) == (False, None)
+
+    assert [call[0] for call in calls] == ["manual", "remove", "brawl", "end"]
+    assert side_notes == ["-User chose to quit."]
+
+
+def test_relics_runtime_applies_dummy_chunk_repair_decisions():
+    class StopLegacyEnd(Exception):
+        pass
+
+    calls = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)) or "brawl",
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    assert relics_runtime.apply_dummy_chunk_repair_decision(
+        runtime,
+        relics.DummyChunkRepairDecision(
+            "brawl",
+            relics.DummyChunkBrawlPlan("sample.png", "IHDR", 13, 128, "dummy"),
+        ),
+        show_todo=lambda: calls.append(("todo", (), {})),
+        the_end=lambda: calls.append(("end", (), {})),
+    ) == "brawl"
+
+    def stop_end():
+        calls.append(("end", (), {}))
+        raise StopLegacyEnd()
+
+    try:
+        relics_runtime.apply_dummy_chunk_repair_decision(
+            runtime,
+            relics.DummyChunkRepairDecision("todo_end"),
+            show_todo=lambda: calls.append(("todo", (), {})),
+            the_end=stop_end,
+        )
+    except StopLegacyEnd:
+        pass
+    else:
+        raise AssertionError("todo_end should call the legacy end callback")
+
+    try:
+        relics_runtime.apply_dummy_chunk_repair_decision(
+            runtime,
+            relics.DummyChunkRepairDecision("unknown"),
+            show_todo=lambda: calls.append(("todo", (), {})),
+            the_end=stop_end,
+        )
+    except ValueError as exc:
+        assert "Unknown dummy chunk relic decision" in str(exc)
+    else:
+        raise AssertionError("unknown dummy decisions must fail")
+
+    assert [call[0] for call in calls] == ["brawl", "todo", "end"]
+
+
+def test_relics_runtime_applies_no_pandemonium_repair_decisions():
+    calls = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)) or "brawl",
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: calls.append(("forcer", args, kwargs)) or "forcer",
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    assert relics_runtime.apply_no_pandemonium_repair_decision(
+        runtime,
+        relics.NoPandemoniumRepairDecision(
+            "getinfo_brawl",
+            relics.GetInfoBrawlPlan("sample.png", "IDAT", 277, 33, "GetInfo", "Brutus"),
+        ),
+    ) == (True, "brawl")
+    assert relics_runtime.apply_no_pandemonium_repair_decision(
+        runtime,
+        relics.NoPandemoniumRepairDecision(
+            "full_chunk_forcer",
+            relics.FullChunkForcerPlan("sample.png", "tEXt", 33, 277, "GetInfo"),
+        ),
+    ) == (True, "forcer")
+    assert relics_runtime.apply_no_pandemonium_repair_decision(
+        runtime,
+        relics.NoPandemoniumRepairDecision("none"),
+    ) == (False, None)
+    assert relics_runtime.apply_no_pandemonium_repair_decision(
+        runtime,
+        relics.NoPandemoniumRepairDecision("unsupported"),
+    ) == (False, None)
+
+    try:
+        relics_runtime.apply_no_pandemonium_repair_decision(
+            runtime,
+            relics.NoPandemoniumRepairDecision("unknown"),
+        )
+    except ValueError as exc:
+        assert "Unknown no-Pandemonium relic decision" in str(exc)
+    else:
+        raise AssertionError("unknown no-Pandemonium decisions must fail")
+
+    assert [call[0] for call in calls] == ["brawl", "forcer"]
+
+
 def main():
     checks = [
         ("RelicsRuntime keeps callbacks", test_relics_runtime_keeps_legacy_callbacks),
@@ -212,6 +364,12 @@ def main():
         ("RelicsRuntime runs SaveClone plans", test_relics_runtime_runs_save_clone_plan),
         ("RelicsRuntime runs brawl plans", test_relics_runtime_runs_brawl_plans),
         ("RelicsRuntime runs PLTE and forcer plans", test_relics_runtime_runs_plte_and_forcer_plans),
+        ("RelicsRuntime applies PLTE repair decisions", test_relics_runtime_applies_plte_repair_decisions),
+        ("RelicsRuntime applies dummy chunk repair decisions", test_relics_runtime_applies_dummy_chunk_repair_decisions),
+        (
+            "RelicsRuntime applies no-Pandemonium repair decisions",
+            test_relics_runtime_applies_no_pandemonium_repair_decisions,
+        ),
     ]
 
     print("Running Relics runtime tests")
