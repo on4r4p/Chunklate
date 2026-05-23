@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import binascii
+import difflib
 import struct
 from dataclasses import dataclass
 from typing import Any
@@ -511,6 +512,26 @@ def failure_checkpoint_request(
             from_error,
         ),
     )
+
+
+def has_libpng_error(output: str, libpng_errors: tuple[str, ...] | list[str]) -> bool:
+    return any(error in output for error in libpng_errors)
+
+
+def process_command_is_tmp_png(cmdline: tuple[str, ...] | list[str]) -> bool:
+    command = " ".join(cmdline)
+    return "/tmp/tmp" in command and ".PNG" in command
+
+
+def highlighted_candidate_diff(source_hex: str, candidate_hex: str) -> str:
+    diff = ""
+    diffobj = difflib.SequenceMatcher(None, source_hex, candidate_hex)
+    for block in diffobj.get_opcodes():
+        if block[0] != "equal":
+            diff += "\033[1;32;49m%s\033[m" % candidate_hex[block[1] : block[2]]
+        else:
+            diff += candidate_hex[block[1] : block[2]]
+    return diff
 
 
 def twobytes_candidate_data(

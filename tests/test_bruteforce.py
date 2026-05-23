@@ -497,6 +497,20 @@ def test_failure_checkpoint_request_preserves_oldcrc_and_regular_toolkits():
     )
 
 
+def test_viewer_helpers_preserve_libpng_process_and_diff_decisions():
+    libpng_errors = ("libpng error", "bad adaptive filter value")
+
+    assert bruteforce.has_libpng_error("ok", libpng_errors) is False
+    assert bruteforce.has_libpng_error("prefix libpng error suffix", libpng_errors) is True
+    assert bruteforce.process_command_is_tmp_png(("/usr/bin/display", "/tmp/tmpabcd.PNG")) is True
+    assert bruteforce.process_command_is_tmp_png(("/usr/bin/display", "/home/user/out.png")) is False
+
+    assert (
+        bruteforce.highlighted_candidate_diff("0011223344", "0011aa3344")
+        == "0011\033[1;32;49maa\033[m3344"
+    )
+
+
 def test_twobytes_candidate_data_preserves_replace_insert_remove_slices():
     to_brute = "0011223344"
     brute_bytes = b"\xaa"
@@ -722,6 +736,7 @@ def main():
         ("Success repair messages", test_success_repair_messages_preserves_legacy_order_and_text),
         ("Success checkpoint request", test_success_checkpoint_request_preserves_oldcrc_and_regular_toolkits),
         ("Failure checkpoint request", test_failure_checkpoint_request_preserves_oldcrc_and_regular_toolkits),
+        ("Viewer helpers", test_viewer_helpers_preserve_libpng_process_and_diff_decisions),
         ("TwoBytes candidate data", test_twobytes_candidate_data_preserves_replace_insert_remove_slices),
         ("TwoBytes IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_idat_all_modes),
         ("TwoBytes non-IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_non_idat_requested_mode),

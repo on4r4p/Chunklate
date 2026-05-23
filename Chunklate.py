@@ -2169,7 +2169,7 @@ def SmashBruteBrawl(
 #            print("bryte:",ToBryte)
 #            print("bvaluehex:",bvalue.hex())
 #            input("hold")
-            if not any(s in result for s in LIBPNG_ERR):
+            if not bruteforce.has_libpng_error(result, LIBPNG_ERR):
 
 
                 with stderr_redirector(f):
@@ -2178,7 +2178,7 @@ def SmashBruteBrawl(
                          TmpIW,TmpIH = TmpI.size
                          TmpI.show()
                     except Exception as e:
-                         if any(s in str(e) for s in LIBPNG_ERR):
+                         if bruteforce.has_libpng_error(str(e), LIBPNG_ERR):
                              if not TmpI.mode == 'RGB':
                                 #print("bvalue:%s fullnewdatax:%s error:%s immode:%s"%(bvalue.hex(),fullnewdatax.hex(),str(e),str(TmpI.mode)),end="\r")
                                 TmpI = TmpI.convert('RGB')
@@ -2198,7 +2198,7 @@ def SmashBruteBrawl(
                 while True:
                     time.sleep(1)
                     for proc in psutil.process_iter():
-                        if "/tmp/tmp" in " ".join(proc.cmdline()) and ".PNG" in " ".join(proc.cmdline()):
+                        if bruteforce.process_command_is_tmp_png(proc.cmdline()):
                             BREAK = True
                             break
                     cnt += 1
@@ -2251,24 +2251,16 @@ def SmashBruteBrawl(
                        Summarise("-SmashBruteBrawl:Saving image %s failed due to %s.\n-SmashBruteBrawl:Use ./chunklate.py -f yourfile.png --crash %s to try again"%(tmpname,str(e),str(n-2)))
                 if Answer is True:
 
-                    diffobj = difflib.SequenceMatcher(
-                        None, DATAX[DataOffset:], ndx.hex()
+                    DIFF = bruteforce.highlighted_candidate_diff(
+                        DATAX[DataOffset:],
+                        ndx.hex(),
                     )
-                    DIFF = ""
-                    for block in diffobj.get_opcodes():
-                        if block[0] != "equal":
-                            DIFF += (
-                                "\033[1;32;49m%s\033[m"
-                                % ndx.hex()[block[1] : block[2]]
-                            )
-                        else:
-                            DIFF += ndx.hex()[block[1] : block[2]]
                     return(True)
 
 
                 else:
                     for proc in psutil.process_iter():
-                        if "/tmp/tmp" in " ".join(proc.cmdline()) and ".PNG" in " ".join(proc.cmdline()):
+                        if bruteforce.process_command_is_tmp_png(proc.cmdline()):
                             proc.kill()
                     Candy("Cowsay", "Ok back to work..", "bad")
                     return(False)
