@@ -70,6 +70,19 @@ def test_relics_module_finds_chunk_names_in_legacy_text_and_tool_keys():
     assert from_tools == "IDAT"
 
 
+def test_relics_module_question_hash_preserves_tool_triplet_and_key_fallback():
+    store = {
+        "Checksum_Error_0:Wrong Crc": {
+            "IDAT_Tool_0": "crc",
+            "IDAT_Tool_1": 12,
+            "IDAT_Tool_2": 20,
+        }
+    }
+
+    assert relics.question_hash(store, "Checksum_Error_0:Wrong Crc", "IDAT_Tool_") == hash("crc1220")
+    assert relics.question_hash(store, "missing", "IDAT_Tool_") == hash("missing")
+
+
 def test_relics_module_exposes_wrong_crc_tools_by_name():
     tools = relics.build_tools(
         b"IDAT",
@@ -835,6 +848,10 @@ def main():
         (
             "Relics module finds chunk names in legacy text and tool keys",
             test_relics_module_finds_chunk_names_in_legacy_text_and_tool_keys,
+        ),
+        (
+            "Relics module question hash preserves triplet and fallback",
+            test_relics_module_question_hash_preserves_tool_triplet_and_key_fallback,
         ),
         ("Relics module exposes wrong CRC tools by name", test_relics_module_exposes_wrong_crc_tools_by_name),
         (

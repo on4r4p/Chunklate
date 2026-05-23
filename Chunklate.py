@@ -512,10 +512,6 @@ def Pandemonium_Remember_Current_Sample():
     relics.remember_sample(Pandemonium, ArkOfCovenant, Sample, PandoraBox, Cornucopia)
 
 
-def Relic_Question_Hash(store, key, tool_prefix):
-    return relics.question_hash(store, key, tool_prefix)
-
-
 def IDAT_Bytes_Nbr():  # tmpworkaround
     global IBN
     IBN = specs.estimate_idat_bytes_from_hex(DATAX, tuple(CHUNKS))
@@ -4940,7 +4936,7 @@ def Relics_Try_Current_Wrong_Crc_Fix():
                 "Well this one have to be fixed first let's see if replacing that Crc is enough..",
                 "com",
             )
-            uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+            uniqh = relics.question_hash(PandoraBox, key, chkd)
             Answer = Question(id=key,idhash=uniqh)
             if Answer is True:
                 return True, Relics_Run_Save_Clone_Plan(
@@ -5518,7 +5514,7 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
                 "This looks like an easy fix since there is no real errors beside the Crc issue.Do you wish to try to fix it ?",
                 "com",
             )
-            uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+            uniqh = relics.question_hash(PandoraBox, key, chkd)
             Answer = Question(id=key,idhash=uniqh)
             if Answer is True:
                 return True, Run_Save_Clone_Plan(
@@ -5539,7 +5535,7 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
                 "We may want to fix them first before jumping on that Crc what do you think ?",
                 "com",
             )
-        uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+        uniqh = relics.question_hash(PandoraBox, key, chkd)
         Answer = Question(id=key,idhash=uniqh)
         if Answer is False:
             return True, Run_Save_Clone_Plan(
@@ -5613,7 +5609,7 @@ def FixItFelix_Libpng_Ask_Relics(decision, key, chkd):
         "Are you agree ? Otherwise Chunklate is going to exit",
         "com",
     )
-    uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+    uniqh = relics.question_hash(PandoraBox, key, chkd)
     Answer = Question(id=key,idhash=uniqh)
     if Answer is True:
         Skip_Bad_Libpng = True
@@ -5735,7 +5731,7 @@ def FixItFelix_Wrong_Chunk_Name(key, chkd):
                     "May i suggest to start by checking if this a length problem ?",
                     "good",
                 )
-                uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+                uniqh = relics.question_hash(PandoraBox, key, chkd)
                 Answer = Question(id=key,idhash=uniqh)
                 if Answer is True:
 
@@ -5763,7 +5759,7 @@ def FixItFelix_Wrong_Chunk_Name(key, chkd):
                     "How about im taking care of the rest ?",
                     "com",
                 )
-            uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+            uniqh = relics.question_hash(PandoraBox, key, chkd)
             Answer = Question(id=key,idhash=uniqh)
             if Answer is True:
                 return True, BruteChunk(
@@ -5950,7 +5946,7 @@ def FixItFelix_No_NextChunk_Handle_Ask_Length_Probe(decision, key, chkd, Chunk, 
         "A length error maybe ? Do you want me to have a look ?",
         "com",
     )
-    uniqh = Relic_Question_Hash(PandoraBox, key, chkd)
+    uniqh = relics.question_hash(PandoraBox, key, chkd)
     Answer = Question(id=key,idhash=uniqh)
     if Answer is True:
         return True, NearbyChunk(
