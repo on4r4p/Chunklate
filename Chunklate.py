@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, history, libpng_check, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -3422,20 +3422,20 @@ def NameShift():
             PRINT("With those index: %s"% i)
         if PAUSEDEBUG is True:
             Pause("-Debug Pause Press Return to continue:")
-    for i in range(0,32):
-         ioff = CToffI-8+i
-         value = bytes.fromhex(DATAX[ioff:CToffI+i])
-         if value in ALLCHUNKS:
-              PRINT("\n-Current value of chunkname at offset %s : %s"%(str(CToffI),bytes.fromhex(DATAX[CToffI:CToffI+8])))
-              SideNotes.append("-NameShift: Found correct chunkname i:%s Offset:%s data: %s"%(str(i),str(ioff),value))
-              if ioff < CToffI:
-                  good_offset = CToffI-ioff
-                  PRINT(Candy("Color", "green", "-Found valid chunkname %s at exactly %s bytes before.")%(value,str( int((good_offset)/2) )))
-              elif ioff > CToffI:
-                  good_offset = ioff-CToffI
-                  PRINT(Candy("Color", "green", "-Found valid chunkname %s at exactly %s bytes after.")%(value,str( int((good_offset)/2) )))
-              Shifted = True
-              break
+    ShiftCandidate = name_shift.find_shifted_chunk_name(DATAX, CToffI, ALLCHUNKS)
+    if ShiftCandidate is not None:
+         i = ShiftCandidate.search_index
+         ioff = ShiftCandidate.type_offset
+         value = ShiftCandidate.chunk_name
+         PRINT("\n-Current value of chunkname at offset %s : %s"%(str(CToffI),name_shift.current_chunk_value(DATAX, CToffI)))
+         SideNotes.append("-NameShift: Found correct chunkname i:%s Offset:%s data: %s"%(str(i),str(ioff),value))
+         if ShiftCandidate.is_before:
+             good_offset = ShiftCandidate.good_offset
+             PRINT(Candy("Color", "green", "-Found valid chunkname %s at exactly %s bytes before.")%(value,str( int((good_offset)/2) )))
+         elif ShiftCandidate.is_after:
+             good_offset = ShiftCandidate.good_offset
+             PRINT(Candy("Color", "green", "-Found valid chunkname %s at exactly %s bytes after.")%(value,str( int((good_offset)/2) )))
+         Shifted = True
     if Shifted :
 
         Candy("Cowsay", "Mokay ..Maybe some bytes are missing somewhere ..", "com")
