@@ -534,6 +534,56 @@ def highlighted_candidate_diff(source_hex: str, candidate_hex: str) -> str:
     return diff
 
 
+def viewer_try_number(loop_index: int) -> int:
+    return loop_index - 2
+
+
+def viewer_found_summary(
+    try_number: int,
+    width: int,
+    height: int,
+    timestamp: str,
+) -> str:
+    return "-SmashBruteBrawl:Tries nbr %s Found a width:%s height:%s picture at %s" % (
+        try_number,
+        width,
+        height,
+        timestamp,
+    )
+
+
+def viewer_user_choice_summary(answer: bool, try_number: int) -> str:
+    if answer is True:
+        return "-SmashBruteBrawl:User chose yes at tries nbr:%s" % try_number
+    return "-SmashBruteBrawl:User chose no at tries nbr:%s" % try_number
+
+
+def viewer_timeout_save_path(
+    original_dir: str,
+    original_name: str,
+    width: int,
+    height: int,
+    timestamp: str,
+) -> str:
+    return original_dir + "/" + "BF-W" + str(width) + "-H" + str(height) + timestamp + original_name
+
+
+def viewer_timeout_saved_summary(try_number: int, tmpname: str) -> str:
+    return (
+        "-SmashBruteBrawl:Image nbr %s Skipped due to user input timeout.\n"
+        "-SmashBruteBrawl:Image saved at %s ."
+        % (str(try_number), tmpname)
+    )
+
+
+def viewer_timeout_save_failed_summary(tmpname: str, error: Any, crash_index: int) -> str:
+    return (
+        "-SmashBruteBrawl:Saving image %s failed due to %s.\n"
+        "-SmashBruteBrawl:Use ./chunklate.py -f yourfile.png --crash %s to try again"
+        % (tmpname, str(error), str(crash_index))
+    )
+
+
 def twobytes_candidate_data(
     to_brute: str,
     brute_bytes: bytes,

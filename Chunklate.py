@@ -2208,10 +2208,18 @@ def SmashBruteBrawl(
                          break
 
                 Candy("Cowsay", "Ah ! Iv got One !", "good")
-                PRINT("-Tmp Image Number %s"%str(n-2))
+                TryNumber = bruteforce.viewer_try_number(n)
+                PRINT("-Tmp Image Number %s"%str(TryNumber))
                 PRINT("-Tmp Image Width: %s"%TmpIW)
                 PRINT("-Tmp Image Height: %s"%TmpIH)
-                Summarise("-SmashBruteBrawl:Tries nbr %s Found a width:%s height:%s picture at %s"%(str(n-2),str(TmpIW),str(TmpIH),str(datetime.now().strftime('%y-%m-%d:%H:%M:%S'))))
+                Summarise(
+                    bruteforce.viewer_found_summary(
+                        TryNumber,
+                        TmpIW,
+                        TmpIH,
+                        datetime.now().strftime('%y-%m-%d:%H:%M:%S'),
+                    )
+                )
                 PRINT("")
                 Candy("Cowsay", "Does it looks good or should i keep trying ?", "com")
                 try:
@@ -2220,35 +2228,38 @@ def SmashBruteBrawl(
                         lambda prompt: inputimeout(prompt=prompt, timeout=23),
                         "Answer(yes/no) auto answer in 23s:",
                     )
-                    if Answer is True:
-                        Summarise("-SmashBruteBrawl:User chose yes at tries nbr:%s"%str(n-2))
-                    else:
-                        Summarise("-SmashBruteBrawl:User chose no at tries nbr:%s"%str(n-2))
+                    Summarise(bruteforce.viewer_user_choice_summary(Answer, TryNumber))
                 except EOFError as e:
                     print(e)
                     Candy("Cowsay", "Aouch my head ...Didn't see that one coming..", "bad")
                     Candy("Cowsay", "Please close this terminal and open it again.", "com")
                     Candy("Cowsay", "Then Launch Chunklate again like you did before,", "com")
-                    Candy("Cowsay", "But add --crash %s at the end of the argument."%(str(n-2)), "com")
+                    Candy("Cowsay", "But add --crash %s at the end of the argument."%(str(TryNumber)), "com")
                     Candy("Cowsay", "And Everything would be fine i think!", "good")
                     TheEnd()
                 except :
                    Answer = False
                    name, dir = Naming(FILE_Origin)
 
-                   tmpname =  dir+"/"+"BF-W"+str(TmpIW)+"-H"+str(TmpIH)+str(datetime.now().strftime('-%y%m%d%H%M%S-'))+name
+                   tmpname = bruteforce.viewer_timeout_save_path(
+                       dir,
+                       name,
+                       TmpIW,
+                       TmpIH,
+                       datetime.now().strftime('-%y%m%d%H%M%S-'),
+                   )
                    PRINT("\n-Skipped No input given within time limit.\n")
                    try:
                        TmpI.save(tmpname)
                        Candy("Cowsay", "I took the liberty to save a copy of that image just in case.", "com")
                        PRINT("-Image saved at:%s\n"%tmpname)
                        TmpImgLst.append(tmpname)
-                       Summarise("-SmashBruteBrawl:Image nbr %s Skipped due to user input timeout.\n-SmashBruteBrawl:Image saved at %s ."%(str(n-2),tmpname)) 
+                       Summarise(bruteforce.viewer_timeout_saved_summary(TryNumber, tmpname))
 
                    except Exception as e:
                        Betterror(e, inspect.stack()[0][3])
                        PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                       Summarise("-SmashBruteBrawl:Saving image %s failed due to %s.\n-SmashBruteBrawl:Use ./chunklate.py -f yourfile.png --crash %s to try again"%(tmpname,str(e),str(n-2)))
+                       Summarise(bruteforce.viewer_timeout_save_failed_summary(tmpname, e, TryNumber))
                 if Answer is True:
 
                     DIFF = bruteforce.highlighted_candidate_diff(

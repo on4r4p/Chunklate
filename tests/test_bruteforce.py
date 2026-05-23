@@ -511,6 +511,30 @@ def test_viewer_helpers_preserve_libpng_process_and_diff_decisions():
     )
 
 
+def test_viewer_helpers_preserve_legacy_summaries_and_timeout_path():
+    assert bruteforce.viewer_try_number(12) == 10
+    assert (
+        bruteforce.viewer_found_summary(10, 64, 32, "26-05-23:12:34:56")
+        == "-SmashBruteBrawl:Tries nbr 10 Found a width:64 height:32 picture at 26-05-23:12:34:56"
+    )
+    assert bruteforce.viewer_user_choice_summary(True, 10) == "-SmashBruteBrawl:User chose yes at tries nbr:10"
+    assert bruteforce.viewer_user_choice_summary(False, 10) == "-SmashBruteBrawl:User chose no at tries nbr:10"
+    assert (
+        bruteforce.viewer_timeout_save_path("/tmp/out", "sample.png", 64, 32, "-260523123456-")
+        == "/tmp/out/BF-W64-H32-260523123456-sample.png"
+    )
+    assert (
+        bruteforce.viewer_timeout_saved_summary(10, "/tmp/out/BF-W64-H32-sample.png")
+        == "-SmashBruteBrawl:Image nbr 10 Skipped due to user input timeout.\n"
+        "-SmashBruteBrawl:Image saved at /tmp/out/BF-W64-H32-sample.png ."
+    )
+    assert (
+        bruteforce.viewer_timeout_save_failed_summary("/tmp/out/img.png", "denied", 10)
+        == "-SmashBruteBrawl:Saving image /tmp/out/img.png failed due to denied.\n"
+        "-SmashBruteBrawl:Use ./chunklate.py -f yourfile.png --crash 10 to try again"
+    )
+
+
 def test_twobytes_candidate_data_preserves_replace_insert_remove_slices():
     to_brute = "0011223344"
     brute_bytes = b"\xaa"
@@ -737,6 +761,7 @@ def main():
         ("Success checkpoint request", test_success_checkpoint_request_preserves_oldcrc_and_regular_toolkits),
         ("Failure checkpoint request", test_failure_checkpoint_request_preserves_oldcrc_and_regular_toolkits),
         ("Viewer helpers", test_viewer_helpers_preserve_libpng_process_and_diff_decisions),
+        ("Viewer summaries", test_viewer_helpers_preserve_legacy_summaries_and_timeout_path),
         ("TwoBytes candidate data", test_twobytes_candidate_data_preserves_replace_insert_remove_slices),
         ("TwoBytes IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_idat_all_modes),
         ("TwoBytes non-IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_non_idat_requested_mode),
