@@ -95,26 +95,6 @@ def Error_Log(Err_to_log):
 # - Cornucopia holds fixes already accepted by CheckPoint/FixItFelix.
 # - WriteClone snapshots those two stores into Pandemonium/ArkOfCovenant so
 #   Relics can react to the repair history when libpng reports a later failure.
-def Relic_Tool_Value(tools, tool_prefix, index):
-    return relics.tool_value(tools, tool_prefix, index)
-
-
-def Relic_Wrong_Crc_Tools(tools, tool_prefix):
-    return relics.wrong_crc_tools(tools, tool_prefix)
-
-
-def Relic_Wrong_Chunk_Name_Tools(tools, tool_prefix):
-    return relics.wrong_chunk_name_tools(tools, tool_prefix)
-
-
-def Relic_No_Next_Chunk_Tools(tools, tool_prefix):
-    return relics.no_next_chunk_tools(tools, tool_prefix)
-
-
-def Relic_Dummy_Chunk_Tools(tools, tool_prefix):
-    return relics.dummy_chunk_tools(tools, tool_prefix)
-
-
 def Relic_Current_Wrong_Crc_Routes():
     return relics.current_wrong_crc_routes(PandoraBox, Cornucopia, ALLCHUNKS)
 
@@ -128,27 +108,27 @@ def Relic_Remembered_Dummy_Chunk_Routes():
 
 
 def Cornucopia_Tool(key, tool_prefix, index):
-    return Relic_Tool_Value(Cornucopia[key], tool_prefix, index)
+    return relics.tool_value(Cornucopia[key], tool_prefix, index)
 
 
 def PandoraBox_Wrong_Crc_Tools(key, tool_prefix):
-    return Relic_Wrong_Crc_Tools(PandoraBox[key], tool_prefix)
+    return relics.wrong_crc_tools(PandoraBox[key], tool_prefix)
 
 
 def Pandemonium_Wrong_Crc_Tools(file, error, tool_prefix):
-    return Relic_Wrong_Crc_Tools(Pandemonium[file][error], tool_prefix)
+    return relics.wrong_crc_tools(Pandemonium[file][error], tool_prefix)
 
 
 def PandoraBox_Wrong_Chunk_Name_Tools(key, tool_prefix):
-    return Relic_Wrong_Chunk_Name_Tools(PandoraBox[key], tool_prefix)
+    return relics.wrong_chunk_name_tools(PandoraBox[key], tool_prefix)
 
 
 def PandoraBox_No_Next_Chunk_Tools(key, tool_prefix):
-    return Relic_No_Next_Chunk_Tools(PandoraBox[key], tool_prefix)
+    return relics.no_next_chunk_tools(PandoraBox[key], tool_prefix)
 
 
 def Pandemonium_Dummy_Chunk_Tools(file, error, tool_prefix):
-    return Relic_Dummy_Chunk_Tools(Pandemonium[file][error], tool_prefix)
+    return relics.dummy_chunk_tools(Pandemonium[file][error], tool_prefix)
 
 
 def PandoraBox_Next_Error_Number(function):
