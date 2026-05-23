@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, nearby, output, palette, palette_ui, prompts, relics, relics_runtime, relics_ui, sorting, specs, stdio, ui, ui_runtime, writer
+from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, nearby, output, palette, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, sorting, specs, stdio, ui, ui_runtime, writer
 from chunklate.png import (
     PngFormatError,
     chunk_type_crc_matches,
@@ -4364,66 +4364,20 @@ def CheckLength(Cdata, Clen, Ctype):
 
 
 def Question(id=None,idhash=None, skipauto=False):
-    global IFOP
-    Candy("Title", "QUESTION!")
-
-    if DEBUG is True:
-        PRINT("IFOP:\n%s"% IFOP)
-        PRINT("\nId:%s"% id)
-        if PAUSEDEBUG is True:
-            Pause("Pause Debug")
-
-    Answer = decisions.question_auto_answer(NODIALOGUE, AUTO, skipauto)
-    if Answer is None:
-        Answer = decisions.ask_yes_no(input, decisions.question_prompt(NODIALOGUE, skipauto))
-        if not (NODIALOGUE and skipauto):
-            if Answer is True:
-                Candy("Cowsay", "Fine , let me see what i can do .", "good")
-            else:
-                Candy("Cowsay", "Ok ,just do not make eye contact !", "com")
-    elif NODIALOGUE is False and AUTO is True and skipauto is False:
-        PRINT("-%s\n" % Candy("Color", "green", "Auto Answer Mode"))
-
-    if id != None:
-        Memory = decisions.remember_question_answer(IFOP, id, Answer, CLoffI, idhash)
-        if Memory.status == "recorded":
-            return Memory.answer
-
-        if Memory.status == "duplicate_flipped":
-            PRINT("-%s\n" % Candy("Color", "red", "Error Already fixed"))
-            PRINT("-%s\n" % Candy("Color", "red", "Answer Changed"))
-            Candy("Cowsay", "Huh ..? Déja-vu ?", "com")
-            if DEBUG is True:
-                PRINT("IFOP:\n")
-                [PRINT(i) for i in IFOP]
-                PRINT("\nId:%s"% id)
-                PRINT("\nAnswer:%s"% Answer)
-            if PAUSEDEBUG is True:
-                Pause("Question")
-            return Memory.answer
-
-        if Memory.status == "loop_detected":
-            PRINT(
-                "-%s\n"
-                % Candy(
-                    "Color",
-                    "red",
-                    "Loop Detected please contact github.com/on4r4p/Chunklate",
-                )
-            )
-            if DEBUG is True:
-                PRINT("IFOP:\n")
-                [PRINT(i) for i in IFOP]
-                PRINT("\nId:%s"% id)
-                PRINT("\nAnswer:%s"% Memory.answer)
-            if PAUSEDEBUG is True:
-                Pause("Pause Question")
-                TheEnd()
-            return Memory.answer
-    else:
-        return Answer
-
-    return Answer
+    runtime = question_runtime.QuestionRuntime(
+        history=IFOP,
+        nodialogue=NODIALOGUE,
+        auto=AUTO,
+        debug=DEBUG,
+        pause_debug=PAUSEDEBUG,
+        offset=CLoffI,
+        asker=input,
+        candy=Candy,
+        emit=PRINT,
+        pause=Pause,
+        end=TheEnd,
+    )
+    return question_runtime.ask_question(runtime, id, idhash, skipauto=skipauto)
 
 
 def Checksum(Ctype, Cdata, Crc, next=None):
