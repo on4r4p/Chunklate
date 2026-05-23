@@ -1179,44 +1179,13 @@ def YouShallPass(Chunk, data):
     return True
 
 
+def Sync_Chunk_Scanner_Legacy_State(scan):
+    globals().update(scan.legacy_globals())
+
+
 def ChunkbyChunk(offset):
-    global Have_A_KitKat
-    global DATA_BYTES
-
-    global Raw_Length
-    global Raw_Data
-    global Raw_Crc
-    global Raw_Type
-    global Raw_NextChunk
-
-    global Orig_CL
-    global Orig_CT
-    global Orig_NC
-    global Orig_CD
-    global Orig_CRC
-
-    global CLoffX
-    global CLoffB
-    global CLoffI
-
-    global CToffX
-    global CToffB
-    global CToffI
-
-    global NCoffX
-    global NCoffB
-    global NCoffI
-
-    global CDoffX
-    global CDoffB
-    global CDoffI
-
-    global CrcoffX
-    global CrcoffB
-    global CrcoffI
-
     ChunkScan = chunk_scanner.scan_legacy_chunk(DATA_BYTES, offset)
-    globals().update(ChunkScan.legacy_globals())
+    Sync_Chunk_Scanner_Legacy_State(ChunkScan)
 
     Candy("Title", "Chunk Infos:")
     chunk_report.render_legacy_chunk_window(

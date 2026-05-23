@@ -21,6 +21,7 @@ def test_scan_legacy_chunk_exposes_window_and_legacy_globals():
     )
     values = scan.legacy_globals()
 
+    assert tuple(values) == chunk_scanner.LEGACY_GLOBAL_NAMES
     assert scan.window.chunk_type == b"IHDR"
     assert values["Raw_Length"] == "0000000d"
     assert values["Orig_CL"] == "0000000d"

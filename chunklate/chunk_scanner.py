@@ -6,6 +6,35 @@ from typing import Any
 from .png import LegacyChunkWindow, legacy_chunk_window
 
 
+LEGACY_GLOBAL_NAMES = (
+    "Raw_Length",
+    "Orig_CL",
+    "CLoffX",
+    "CLoffB",
+    "CLoffI",
+    "Raw_Type",
+    "Orig_CT",
+    "CToffX",
+    "CToffB",
+    "CToffI",
+    "Raw_Data",
+    "Orig_CD",
+    "CDoffX",
+    "CDoffB",
+    "CDoffI",
+    "Raw_Crc",
+    "Orig_CRC",
+    "CrcoffX",
+    "CrcoffB",
+    "CrcoffI",
+    "Raw_NextChunk",
+    "Orig_NC",
+    "NCoffX",
+    "NCoffB",
+    "NCoffI",
+)
+
+
 @dataclass(frozen=True)
 class LegacyChunkScanState:
     window: LegacyChunkWindow
