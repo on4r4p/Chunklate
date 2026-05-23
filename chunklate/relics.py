@@ -195,6 +195,12 @@ class DummyChunkRepairDecision:
 
 
 @dataclass(frozen=True)
+class RememberedDummyChunkRepairRequest:
+    route: DummyChunkRoute
+    tools: DummyChunkTools
+
+
+@dataclass(frozen=True)
 class NoPandemoniumRepairDecision:
     action: str
     plan: Any = None
@@ -372,6 +378,26 @@ def remembered_dummy_chunk_routes(
                 )
             )
     return routes
+
+
+def first_remembered_dummy_chunk_repair_request(
+    pandemonium: Mapping[Any, Mapping[Any, Mapping[str, Any]]],
+    known_chunks: list[bytes] | tuple[bytes, ...],
+    critical_chunks: list[bytes] | tuple[bytes, ...],
+) -> RememberedDummyChunkRepairRequest | None:
+    for route in remembered_dummy_chunk_routes(
+        pandemonium,
+        known_chunks,
+        critical_chunks,
+    ):
+        return RememberedDummyChunkRepairRequest(
+            route=route,
+            tools=dummy_chunk_tools(
+                pandemonium[route.source][route.error],
+                route.tool_prefix,
+            ),
+        )
+    return None
 
 
 def idat_wrong_crc_routes(routes: list[WrongCrcRoute] | tuple[WrongCrcRoute, ...]) -> tuple[WrongCrcRoute, ...]:

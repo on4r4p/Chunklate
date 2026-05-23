@@ -950,6 +950,58 @@ def test_relics_module_routes_remembered_dummy_chunks():
     ]
 
 
+def test_relics_module_selects_first_remembered_dummy_chunk_request():
+    pandemonium = {
+        "sample.0_Fixed.png": {
+            "DummyChunk_Error_0:Filling with a dummy chunk": relics.build_tools(
+                b"IHDR",
+                ("fixed-data", 13, 128, 128, 152, "No NextChunk"),
+            ),
+        },
+        "sample.1_Fixed.png": {
+            "DummyChunk_Error_1:Filling with a dummy chunk": relics.build_tools(
+                b"tEXt",
+                ("other-fixed-data", 4, 256, 256, 280, "No NextChunk"),
+            ),
+        },
+    }
+
+    request = relics.first_remembered_dummy_chunk_repair_request(
+        pandemonium,
+        [b"IHDR", b"IDAT", b"IEND", b"tEXt"],
+        [b"IHDR", b"PLTE", b"IDAT", b"IEND"],
+    )
+
+    assert request == relics.RememberedDummyChunkRepairRequest(
+        route=relics.DummyChunkRoute(
+            source="sample.0_Fixed.png",
+            error="DummyChunk_Error_0:Filling with a dummy chunk",
+            chunk_name="IHDR",
+            tool_prefix="IHDR_Tool_",
+            is_critical=True,
+        ),
+        tools=relics.DummyChunkTools(
+            fixed_data="fixed-data",
+            dummy_data_length=13,
+            bad_position=128,
+            bad_start=128,
+            bad_end=152,
+            from_error="No NextChunk",
+        ),
+    )
+
+
+def test_relics_module_returns_no_remembered_dummy_chunk_request_without_route():
+    assert (
+        relics.first_remembered_dummy_chunk_repair_request(
+            {"sample.0_Fixed.png": {"Checksum_Error_0:Wrong Crc": {}}},
+            [b"IHDR", b"IDAT", b"IEND"],
+            [b"IHDR", b"PLTE", b"IDAT", b"IEND"],
+        )
+        is None
+    )
+
+
 def test_pandorabox_add_keeps_legacy_error_numbering():
     pandora_box = {}
 
@@ -1158,6 +1210,14 @@ def main():
             test_relics_module_selects_no_pandemonium_repair_decisions,
         ),
         ("Relics module routes remembered dummy chunks", test_relics_module_routes_remembered_dummy_chunks),
+        (
+            "Relics module selects first remembered dummy chunk request",
+            test_relics_module_selects_first_remembered_dummy_chunk_request,
+        ),
+        (
+            "Relics module returns no remembered dummy chunk request without route",
+            test_relics_module_returns_no_remembered_dummy_chunk_request_without_route,
+        ),
         ("PandoraBox keys keep legacy numbering", test_pandorabox_add_keeps_legacy_error_numbering),
         (
             "Relics records CheckPoint registration in PandoraBox",

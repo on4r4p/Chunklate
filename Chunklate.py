@@ -5080,75 +5080,77 @@ def Relics_Handle_Single_Pandemonium(FromError):
 
 
 def Relics_Handle_Remembered_Dummy_Chunks(FromError):
-    for DummyRoute in relics.remembered_dummy_chunk_routes(
-        Pandemonium, ALLCHUNKS, CRITICAL_CHUNKS
-    ):
-        DummyTools = relics.dummy_chunk_tools(
-            Pandemonium[DummyRoute.source][DummyRoute.error],
-            DummyRoute.tool_prefix,
+    DummyRequest = relics.first_remembered_dummy_chunk_repair_request(
+        Pandemonium,
+        ALLCHUNKS,
+        CRITICAL_CHUNKS,
+    )
+    if DummyRequest is None:
+        TheEnd()
+        return ()
+
+    DummyRoute = DummyRequest.route
+    DummyTools = DummyRequest.tools
+    ChunkName = DummyRoute.chunk_name
+
+    if DummyRoute.is_critical:
+        Candy(
+            "Cowsay",
+            "Ok it's time to brute force that dummy %s chunk .."
+            % (ChunkName),
+            "good",
         )
-        ChunkName = DummyRoute.chunk_name
+        Candy(
+            "Cowsay",
+            "I mean we have to since it is a critical chunk..",
+            "com",
+        )
+        Candy(
+            "Cowsay",
+            "I hope you brought a book...A big one ..Cause it may takes forever.",
+            "bad",
+        )
+        Candy(
+            "Cowsay",
+            "Shall i begin ? Otherwise Chunklate is going to close.",
+            "bad",
+        )
 
-        if DummyRoute.is_critical:
-            Candy(
-                "Cowsay",
-                "Ok it's time to brute force that dummy %s chunk .."
-                % (ChunkName),
-                "good",
+        Answer = Question()
+        return Relics_Apply_Dummy_Chunk_Repair_Decision(
+            relics.dummy_chunk_repair_decision(
+                DummyRoute,
+                DummyTools,
+                from_error=FromError,
+                answer=Answer,
             )
-            Candy(
-                "Cowsay",
-                "I mean we have to since it is a critical chunk..",
-                "com",
-            )
-            Candy(
-                "Cowsay",
-                "I hope you brought a book...A big one ..Cause it may takes forever.",
-                "bad",
-            )
-            Candy(
-                "Cowsay",
-                "Shall i begin ? Otherwise Chunklate is going to close.",
-                "bad",
-            )
+        )
 
-            Answer = Question()
-            return Relics_Apply_Dummy_Chunk_Repair_Decision(
-                relics.dummy_chunk_repair_decision(
-                    DummyRoute,
-                    DummyTools,
-                    from_error=FromError,
-                    answer=Answer,
-                )
-            )
-        else:
-            Candy(
-                "Cowsay",
-                "We better remove that %s chunk than trying to bruteforce it"
-                % (ChunkName),
-                "com",
-            )
-            Candy(
-                "Cowsay",
-                "I mean it would be less time consuming since it is not a critical chunk",
-                "com",
-            )
-            Candy(
-                "Cowsay",
-                "Do you still want to bruteforce this chunk ?",
-                "com",
-            )
-            Answer = Question()
-            return Relics_Apply_Dummy_Chunk_Repair_Decision(
-                relics.dummy_chunk_repair_decision(
-                    DummyRoute,
-                    DummyTools,
-                    from_error=FromError,
-                    answer=Answer,
-                )
-            )
-
-    TheEnd()
+    Candy(
+        "Cowsay",
+        "We better remove that %s chunk than trying to bruteforce it"
+        % (ChunkName),
+        "com",
+    )
+    Candy(
+        "Cowsay",
+        "I mean it would be less time consuming since it is not a critical chunk",
+        "com",
+    )
+    Candy(
+        "Cowsay",
+        "Do you still want to bruteforce this chunk ?",
+        "com",
+    )
+    Answer = Question()
+    return Relics_Apply_Dummy_Chunk_Repair_Decision(
+        relics.dummy_chunk_repair_decision(
+            DummyRoute,
+            DummyTools,
+            from_error=FromError,
+            answer=Answer,
+        )
+    )
 
 
 def Relics_Handle_No_Pandemonium(FromError):
