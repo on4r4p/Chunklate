@@ -114,6 +114,13 @@ class BruteForceCheckpointRequest:
         )
 
 
+@dataclass(frozen=True)
+class BruteForceViewerWaitState:
+    found: bool
+    count: int
+    done: bool
+
+
 def normalize_old_crc(old_crc: Any) -> Any:
     if old_crc:
         try:
@@ -521,6 +528,15 @@ def has_libpng_error(output: str, libpng_errors: tuple[str, ...] | list[str]) ->
 def process_command_is_tmp_png(cmdline: tuple[str, ...] | list[str]) -> bool:
     command = " ".join(cmdline)
     return "/tmp/tmp" in command and ".PNG" in command
+
+
+def viewer_wait_step(found_tmp_png: bool, count: int, limit: int = 60) -> BruteForceViewerWaitState:
+    next_count = count + 1
+    return BruteForceViewerWaitState(
+        found=found_tmp_png,
+        count=next_count,
+        done=found_tmp_png or next_count > limit,
+    )
 
 
 def highlighted_candidate_diff(source_hex: str, candidate_hex: str) -> str:

@@ -2169,18 +2169,17 @@ def SmashBruteBrawl(
 #                TmpI.show()
 
                 cnt = 0
-                BREAK = False
                 PRINT("-Waiting for Image viewer to launch.")
                 while True:
                     time.sleep(1)
+                    found_tmp_png = False
                     for proc in psutil.process_iter():
                         if bruteforce.process_command_is_tmp_png(proc.cmdline()):
-                            BREAK = True
+                            found_tmp_png = True
                             break
-                    cnt += 1
-                    if BREAK:
-                       break
-                    if cnt > 60:
+                    ViewerWaitState = bruteforce.viewer_wait_step(found_tmp_png, cnt)
+                    cnt = ViewerWaitState.count
+                    if ViewerWaitState.done:
                          break
 
                 Candy("Cowsay", "Ah ! Iv got One !", "good")
