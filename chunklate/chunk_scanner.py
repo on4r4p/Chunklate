@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
+
+from . import sorting
 
 from .png import LegacyChunkWindow, legacy_chunk_window
 
@@ -76,3 +78,51 @@ class LegacyChunkScanState:
 
 def scan_legacy_chunk(data: bytes, offset: int) -> LegacyChunkScanState:
     return LegacyChunkScanState.scan(data, offset)
+
+
+@dataclass(frozen=True)
+class MagicBingoScan:
+    bingo_list: list[str]
+    best_score: str
+    best_signature: str
+    best_count: int
+
+
+def magic_bingo_scan(
+    data_hex: str,
+    full_magic_hex: str,
+    progress: Callable[[], None] | None = None,
+) -> MagicBingoScan:
+    magic_chars = [i for i in full_magic_hex]
+    start = 0
+    end = len(full_magic_hex)
+    bingo_list = []
+    while end <= len(data_hex):
+        if progress is not None:
+            progress()
+        bingo = 0
+        sample = data_hex[start:end]
+        sample_chars = [i for i in sample]
+        for magic_char, sample_char in zip(magic_chars, sample_chars):
+            if magic_char == sample_char:
+                bingo += 1
+        bingo_list.append(str(bingo) + " " + str(sample))
+        start += 1
+        end += 1
+    bingo_list.sort(key=sorting.natural_sort_key)
+    bingo_list = bingo_list[::-1]
+    best_score = bingo_list[0].split(" ")[0]
+    best_signature = bingo_list[0].split(" ")[1]
+    best_count = len(
+        [
+            bingo.split(" ")[0].count(best_score)
+            for bingo in bingo_list
+            if int(bingo.split(" ")[0].count(best_score)) > 0
+        ]
+    )
+    return MagicBingoScan(
+        bingo_list=bingo_list,
+        best_score=best_score,
+        best_signature=best_signature,
+        best_count=best_count,
+    )

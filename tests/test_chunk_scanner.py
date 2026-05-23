@@ -50,10 +50,35 @@ def test_scan_legacy_chunk_preserves_incomplete_chunk_fallbacks():
     assert values["Orig_CT"] == b"IDAT"
 
 
+def test_magic_bingo_scan_preserves_best_signature_and_progress_calls():
+    calls = []
+    scan = chunk_scanner.magic_bingo_scan(
+        "abxdzzabcd",
+        "abcd",
+        progress=lambda: calls.append("tick"),
+    )
+
+    assert calls == ["tick"] * 7
+    assert scan.best_score == "4"
+    assert scan.best_signature == "abcd"
+    assert scan.best_count == 1
+    assert scan.bingo_list[0] == "4 abcd"
+
+
+def test_magic_bingo_scan_counts_multiple_best_scores():
+    scan = chunk_scanner.magic_bingo_scan("abcdxxxxabcd", "abcd")
+
+    assert scan.best_score == "4"
+    assert scan.best_count == 2
+    assert scan.bingo_list[:2] == ["4 abcd", "4 abcd"]
+
+
 def main():
     checks = [
         ("legacy globals", test_scan_legacy_chunk_exposes_window_and_legacy_globals),
         ("incomplete chunk fallback", test_scan_legacy_chunk_preserves_incomplete_chunk_fallbacks),
+        ("magic bingo best signature", test_magic_bingo_scan_preserves_best_signature_and_progress_calls),
+        ("magic bingo best count", test_magic_bingo_scan_counts_multiple_best_scores),
     ]
 
     print("Running chunk scanner tests")

@@ -2429,32 +2429,11 @@ def FindFuckingMagic():
     Candy("Cowsay", " This may take me sometimes please wait ..", "com")
     Magic = "89504e470d0a1a0a"
     FullMagic = "89504e470d0a1a0a0000000d49484452"
-    m_a_g_i_c = [i for i in FullMagic]
-    start = 0
-    end = len(FullMagic)
-    BingoList = []
-    while end <= len(DATAX):
-        Minibar()
-        Bingo = 0
-        sample = DATAX[start:end]
-        s_a_m_p_l_e = [i for i in sample]
-        for i, j in zip(m_a_g_i_c, s_a_m_p_l_e):
-            if i == j:
-                Bingo += 1
-        BingoList.append(str(Bingo) + " " + str(sample))
-        start += 1
-        end += 1
-    BingoList.sort(key=SplitDigits)
-    BingoList = BingoList[::-1]
-    BestBingoScore = BingoList[0].split(" ")[0]
-    BestBingoSig = BingoList[0].split(" ")[1]
-    BestBingoCount = len(
-        [
-            b.split(" ")[0].count(BestBingoScore)
-            for b in BingoList
-            if int(b.split(" ")[0].count(BestBingoScore)) > 0
-        ]
-    )
+    MagicScan = chunk_scanner.magic_bingo_scan(DATAX, FullMagic, progress=Minibar)
+    BingoList = MagicScan.bingo_list
+    BestBingoScore = MagicScan.best_score
+    BestBingoSig = MagicScan.best_signature
+    BestBingoCount = MagicScan.best_count
 
     if BestBingoCount <= 2 and int(BestBingoScore) >= 14:
         pos = DATAX.find(BestBingoSig)
