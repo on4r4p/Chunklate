@@ -539,30 +539,6 @@ def Max_Res():
     return MaxRes
 
 
-def ColorType(GetChunk,Mode):
-    ColorType = specs.color_type_label(
-        GetChunk,
-        Mode,
-        Brute_LvL,
-        IHDR_Color,
-        IHDR_Height,
-        IHDR_Width,
-        PandoraBox,
-        Cornucopia,
-        Pandemonium,
-        ALLCHUNKS,
-        Skip_Bad_Crc,
-    )
-
-    if DEBUG:
-        PRINT("-ColorType set to:%s"% ColorType)
-
-    return ColorType
-
-
-def Min_Res_Iter(MinRes):
-    return specs.min_res_iter(MinRes)
-
 def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
 
     if DEBUG:
