@@ -107,6 +107,27 @@ def test_parse_legacy_unknown_options_ignores_missing_legacy_values():
     assert cli.parse_legacy_unknown_options([]) == cli.LegacyUnknownOptions()
 
 
+def test_clear_screen_decision_preserves_legacy_startup_skip():
+    assert cli.clear_screen_decision(clear=False, fir_start=True, os_name="posix") == (
+        cli.ClearScreenDecision(None, True)
+    )
+    assert cli.clear_screen_decision(clear=True, fir_start=True, os_name="posix") == (
+        cli.ClearScreenDecision(None, False)
+    )
+
+
+def test_clear_screen_decision_preserves_posix_and_windows_actions():
+    assert cli.clear_screen_decision(clear=True, fir_start=False, os_name="posix") == (
+        cli.ClearScreenDecision("ansi_reset", False)
+    )
+    assert cli.clear_screen_decision(clear=True, fir_start=False, os_name="nt") == (
+        cli.ClearScreenDecision("cls", False)
+    )
+    assert cli.clear_screen_decision(clear=True, fir_start=False, os_name="weird") == (
+        cli.ClearScreenDecision(None, False)
+    )
+
+
 def test_output_file_dir_preserves_empty_default_and_trailing_separator():
     assert cli.output_file_dir(None, abspath=lambda value: "/abs/" + value, join=lambda *parts: "/".join(parts)) == ""
     assert (
@@ -156,6 +177,8 @@ def main():
         ("legacy unknown clone/crash", test_parse_legacy_unknown_options_preserves_clone_and_crash),
         ("legacy unknown invalid crash", test_parse_legacy_unknown_options_reports_invalid_crash),
         ("legacy unknown empty", test_parse_legacy_unknown_options_ignores_missing_legacy_values),
+        ("clear screen startup skip", test_clear_screen_decision_preserves_legacy_startup_skip),
+        ("clear screen actions", test_clear_screen_decision_preserves_posix_and_windows_actions),
         ("max-saves validation", test_max_saves_error_preserves_legacy_validation),
         ("output dir prefix", test_output_file_dir_preserves_empty_default_and_trailing_separator),
         ("pause-debug flags", test_runtime_flags_pause_debug_enables_debug),

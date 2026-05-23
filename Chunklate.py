@@ -5563,14 +5563,16 @@ def main():
 
     while True:
 
-        if CLEAR is True:
-            if FirStart is False:
-                if os.name == "posix":
-                    sys.stderr.write("\033c")
-                elif os.name == "nt":
-                    os.system("cls")
-            else:
-                FirStart = False
+        ClearDecision = cli.clear_screen_decision(
+            clear=CLEAR,
+            fir_start=FirStart,
+            os_name=os.name,
+        )
+        FirStart = ClearDecision.fir_start
+        if ClearDecision.action == "ansi_reset":
+            sys.stderr.write("\033c")
+        elif ClearDecision.action == "cls":
+            os.system("cls")
         globals().update(runtime_state.main_loop_scan_reset_values())
         CHUNK_INFO_STATE.reset_idat()
         Sync_Chunk_Info_Legacy_State("idat")

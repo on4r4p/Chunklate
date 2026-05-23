@@ -23,6 +23,24 @@ class LegacyUnknownOptions:
     crash_error: str | None = None
 
 
+@dataclass(frozen=True)
+class ClearScreenDecision:
+    action: str | None
+    fir_start: bool
+
+
+def clear_screen_decision(*, clear: bool, fir_start: bool, os_name: str) -> ClearScreenDecision:
+    if clear is not True:
+        return ClearScreenDecision(None, fir_start)
+    if fir_start is False:
+        if os_name == "posix":
+            return ClearScreenDecision("ansi_reset", fir_start)
+        if os_name == "nt":
+            return ClearScreenDecision("cls", fir_start)
+        return ClearScreenDecision(None, fir_start)
+    return ClearScreenDecision(None, False)
+
+
 def configure_parser(parser: Any) -> Any:
     parser.add_argument(
         "-f", "--file", dest="FILENAME", help="File path.", default=None, metavar="FILE"
