@@ -126,3 +126,31 @@ def shifted_chunk_crc_view(
         file_crc=file_crc,
         checksum=checksum,
     )
+
+
+def extra_bytes_align_with_previous_chunk(
+    shifted_type_offset: int,
+    previous_chunk_end: int,
+    good_offset: int,
+) -> bool:
+    return shifted_type_offset == previous_chunk_end + 8 + good_offset
+
+
+def extra_bytes_expected_offset(previous_chunk_end: int, good_offset: int) -> int:
+    return previous_chunk_end + 8 + good_offset
+
+
+def extra_bytes_repair_result(
+    fixed_hex: str,
+    good_offset: int,
+    current_type_offset: int,
+) -> list[object]:
+    return [fixed_hex, len(fixed_hex) + good_offset, current_type_offset - 8]
+
+
+def missing_bytes_repair_result(
+    fixed_hex: str,
+    good_offset: int,
+    current_type_offset: int,
+) -> list[object]:
+    return [fixed_hex, len(fixed_hex) - good_offset, current_type_offset - 8]

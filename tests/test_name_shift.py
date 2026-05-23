@@ -119,6 +119,22 @@ def test_shifted_chunk_crc_view_detects_crc_mismatch():
     assert view.crc_matches is False
 
 
+def test_name_shift_extra_and_missing_byte_repair_helpers_preserve_legacy_lists():
+    assert name_shift.extra_bytes_align_with_previous_chunk(68, previous_chunk_end=56, good_offset=4)
+    assert not name_shift.extra_bytes_align_with_previous_chunk(70, previous_chunk_end=56, good_offset=4)
+    assert name_shift.extra_bytes_expected_offset(previous_chunk_end=56, good_offset=4) == 68
+    assert name_shift.extra_bytes_repair_result("abcd", good_offset=4, current_type_offset=20) == [
+        "abcd",
+        8,
+        12,
+    ]
+    assert name_shift.missing_bytes_repair_result("abcd", good_offset=2, current_type_offset=20) == [
+        "abcd",
+        2,
+        12,
+    ]
+
+
 def main():
     checks = [
         ("Current offset", test_find_shifted_chunk_name_detects_current_offset),
@@ -129,6 +145,7 @@ def main():
         ("Last chunk before offset", test_last_history_chunk_before_offset_stops_at_first_non_previous_chunk),
         ("Shifted chunk CRC view", test_shifted_chunk_crc_view_builds_legacy_crc_values_and_fixed_hex),
         ("Shifted chunk CRC mismatch", test_shifted_chunk_crc_view_detects_crc_mismatch),
+        ("Repair result helpers", test_name_shift_extra_and_missing_byte_repair_helpers_preserve_legacy_lists),
     ]
 
     print("Running name shift tests")

@@ -3475,20 +3475,24 @@ def NameShift():
 #                          print("last_chunk_end:",LastChunkBeforeOffset.end)
 #                          print("last_chunk_len:",LastChunkBeforeOffset.length)
 
-                          if ioff == LastChunkBeforeOffset.end + 8 + good_offset:
-#                             print(LastChunkBeforeOffset.end + 8 + good_offset)
+                          if name_shift.extra_bytes_align_with_previous_chunk(
+                              ioff,
+                              LastChunkBeforeOffset.end,
+                              good_offset,
+                          ):
+#                             print(name_shift.extra_bytes_expected_offset(LastChunkBeforeOffset.end, good_offset))
                              SideNotes.append("-NameShift: Extra bytes has been found.")
                              Candy("Cowsay", "Found some extra bytes for some reason.. let's fix this now .", "good")
-                             return([fixed,len(fixed)+good_offset,CToffI - 8])
+                             return name_shift.extra_bytes_repair_result(fixed, good_offset, CToffI)
                           else:
                              print("bad")
-                             print(LastChunkBeforeOffset.end + 8 + good_offset)
+                             print(name_shift.extra_bytes_expected_offset(LastChunkBeforeOffset.end, good_offset))
                              PRINT(Candy("Color", "yellow", "\n-ToDo"))
                              TheEnd()
                  else:
                      Candy("Cowsay", "So there was some missing bytes after all let's fix this now .", "good")
                      SideNotes.append("-NameShift: Missing bytes found.")
-                     return([fixed,len(fixed)-good_offset,CToffI - 8])
+                     return name_shift.missing_bytes_repair_result(fixed, good_offset, CToffI)
 
              else:
                 PRINT(
