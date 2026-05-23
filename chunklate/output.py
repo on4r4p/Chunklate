@@ -18,6 +18,11 @@ def clone_folder(file_origin: str, file_dir: str = "") -> str:
     return os.path.splitext(os.path.join(file_dir, folder_name))[0]
 
 
+def lockdown_folder_lines(file_origin: str, file_dir: str = "") -> tuple[str, str]:
+    folder = clone_folder(file_origin, file_dir)
+    return folder, folder + "/"
+
+
 def ensure_clone_folder(file_origin: str, file_dir: str = "") -> str:
     folder = clone_folder(file_origin, file_dir)
     os.makedirs(folder, exist_ok=True)

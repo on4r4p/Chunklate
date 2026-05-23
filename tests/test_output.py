@@ -17,6 +17,13 @@ def test_clone_folder_matches_legacy_folder_name(tmp_path):
     assert folder == str(tmp_path / "Folder_sample")
 
 
+def test_lockdown_folder_lines_preserve_legacy_printed_paths(tmp_path):
+    assert output.lockdown_folder_lines("/somewhere/sample.png", str(tmp_path)) == (
+        str(tmp_path / "Folder_sample"),
+        str(tmp_path / "Folder_sample") + "/",
+    )
+
+
 def test_next_clone_target_uses_next_available_fixed_name(tmp_path):
     first = output.next_clone_target("sample.png", str(tmp_path))
     Path(first.path).write_bytes(b"first")
@@ -188,6 +195,7 @@ def main():
     tmp_path = Path(tmpdir.name)
     checks = [
         ("Clone folder matches legacy folder name", lambda: test_clone_folder_matches_legacy_folder_name(tmp_path)),
+        ("LockDown folder lines", lambda: test_lockdown_folder_lines_preserve_legacy_printed_paths(tmp_path)),
         ("Clone target uses next fixed name", lambda: test_next_clone_target_uses_next_available_fixed_name(tmp_path)),
         ("Clone bytes accepts hex and bytes", test_clone_bytes_accepts_hex_and_bytes),
         ("Write clone writes PNG bytes", lambda: test_write_clone_writes_png_bytes(tmp_path)),

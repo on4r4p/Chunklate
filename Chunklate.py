@@ -4510,10 +4510,8 @@ def Naming(filename):
 def LockDown():
     Candy("Title", "LockDown: ", Candy("Color", "white", Chunk))
 
-    folder = output.clone_folder(FILE_Origin, FILE_DIR)
-    PRINT(folder)
-    folder = folder + "/"
-    PRINT(folder)
+    for folder in output.lockdown_folder_lines(FILE_Origin, FILE_DIR):
+        PRINT(folder)
 
 
 def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
