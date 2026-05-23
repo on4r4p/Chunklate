@@ -625,6 +625,48 @@ def test_viewer_helpers_preserve_libpng_process_and_diff_decisions():
     )
 
 
+class FakeProcess:
+    def __init__(self, cmdline):
+        self._cmdline = cmdline
+        self.killed = False
+
+    def cmdline(self):
+        return self._cmdline
+
+    def kill(self):
+        self.killed = True
+
+
+def test_wait_for_tmp_png_viewer_uses_process_iter_and_sleep_callbacks():
+    calls = {"process_iter": 0, "sleep": []}
+    tmp_proc = FakeProcess(("/usr/bin/display", "/tmp/tmpabcd.PNG"))
+
+    def process_iter():
+        calls["process_iter"] += 1
+        if calls["process_iter"] == 1:
+            return [FakeProcess(("/usr/bin/display", "/home/user/out.png"))]
+        return [tmp_proc]
+
+    def sleep(seconds):
+        calls["sleep"].append(seconds)
+
+    state = bruteforce.wait_for_tmp_png_viewer(process_iter, sleep, limit=5)
+
+    assert state == bruteforce.BruteForceViewerWaitState(found=True, count=2, done=True)
+    assert calls == {"process_iter": 2, "sleep": [1, 1]}
+
+
+def test_kill_tmp_png_viewers_only_kills_legacy_tmp_png_processes():
+    tmp_proc = FakeProcess(("/usr/bin/display", "/tmp/tmpabcd.PNG"))
+    other_proc = FakeProcess(("/usr/bin/display", "/tmp/tmpabcd.png"))
+
+    killed = bruteforce.kill_tmp_png_viewers([tmp_proc, other_proc])
+
+    assert killed == 1
+    assert tmp_proc.killed is True
+    assert other_proc.killed is False
+
+
 def test_viewer_helpers_preserve_legacy_summaries_and_timeout_path():
     assert bruteforce.viewer_try_number(12) == 10
     assert (
@@ -647,6 +689,51 @@ def test_viewer_helpers_preserve_legacy_summaries_and_timeout_path():
         == "-SmashBruteBrawl:Saving image /tmp/out/img.png failed due to denied.\n"
         "-SmashBruteBrawl:Use ./chunklate.py -f yourfile.png --crash 10 to try again"
     )
+
+
+def test_save_viewer_timeout_image_uses_callback_and_returns_summary():
+    saved_paths = []
+
+    result = bruteforce.save_viewer_timeout_image(
+        saved_paths.append,
+        "/tmp/out",
+        "sample.png",
+        64,
+        32,
+        "-260523123456-",
+        10,
+    )
+
+    assert result == bruteforce.ViewerTimeoutSaveResult(
+        saved=True,
+        path="/tmp/out/BF-W64-H32-260523123456-sample.png",
+        summary="-SmashBruteBrawl:Image nbr 10 Skipped due to user input timeout.\n"
+        "-SmashBruteBrawl:Image saved at /tmp/out/BF-W64-H32-260523123456-sample.png .",
+    )
+    assert saved_paths == ["/tmp/out/BF-W64-H32-260523123456-sample.png"]
+
+
+def test_save_viewer_timeout_image_reports_callback_failure():
+    def fail(path):
+        raise PermissionError("denied")
+
+    result = bruteforce.save_viewer_timeout_image(
+        fail,
+        "/tmp/out",
+        "sample.png",
+        64,
+        32,
+        "-260523123456-",
+        10,
+    )
+
+    assert result.saved is False
+    assert result.path == "/tmp/out/BF-W64-H32-260523123456-sample.png"
+    assert result.summary == (
+        "-SmashBruteBrawl:Saving image /tmp/out/BF-W64-H32-260523123456-sample.png failed due to denied.\n"
+        "-SmashBruteBrawl:Use ./chunklate.py -f yourfile.png --crash 10 to try again"
+    )
+    assert isinstance(result.error, PermissionError)
 
 
 def test_twobytes_candidate_data_preserves_replace_insert_remove_slices():
@@ -967,7 +1054,11 @@ def main():
         ("Success checkpoint request", test_success_checkpoint_request_preserves_oldcrc_and_regular_toolkits),
         ("Failure checkpoint request", test_failure_checkpoint_request_preserves_oldcrc_and_regular_toolkits),
         ("Viewer helpers", test_viewer_helpers_preserve_libpng_process_and_diff_decisions),
+        ("Viewer wait callback", test_wait_for_tmp_png_viewer_uses_process_iter_and_sleep_callbacks),
+        ("Viewer kill callback", test_kill_tmp_png_viewers_only_kills_legacy_tmp_png_processes),
         ("Viewer summaries", test_viewer_helpers_preserve_legacy_summaries_and_timeout_path),
+        ("Viewer timeout save", test_save_viewer_timeout_image_uses_callback_and_returns_summary),
+        ("Viewer timeout failure", test_save_viewer_timeout_image_reports_callback_failure),
         ("TwoBytes candidate data", test_twobytes_candidate_data_preserves_replace_insert_remove_slices),
         ("TwoBytes IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_idat_all_modes),
         ("TwoBytes non-IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_non_idat_requested_mode),

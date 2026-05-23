@@ -1978,19 +1978,8 @@ def SmashBruteBrawl(
 #                cv2.imshow('bla',bla)
 #                TmpI.show()
 
-                cnt = 0
                 PRINT("-Waiting for Image viewer to launch.")
-                while True:
-                    time.sleep(1)
-                    found_tmp_png = False
-                    for proc in psutil.process_iter():
-                        if bruteforce.process_command_is_tmp_png(proc.cmdline()):
-                            found_tmp_png = True
-                            break
-                    ViewerWaitState = bruteforce.viewer_wait_step(found_tmp_png, cnt)
-                    cnt = ViewerWaitState.count
-                    if ViewerWaitState.done:
-                         break
+                bruteforce.wait_for_tmp_png_viewer(psutil.process_iter, time.sleep)
 
                 Candy("Cowsay", "Ah ! Iv got One !", "good")
                 TryNumber = bruteforce.viewer_try_number(n)
@@ -2026,25 +2015,26 @@ def SmashBruteBrawl(
                    Answer = False
                    name, dir = Naming(FILE_Origin)
 
-                   tmpname = bruteforce.viewer_timeout_save_path(
+                   PRINT("\n-Skipped No input given within time limit.\n")
+                   SaveResult = bruteforce.save_viewer_timeout_image(
+                       TmpI.save,
                        dir,
                        name,
                        TmpIW,
                        TmpIH,
                        datetime.now().strftime('-%y%m%d%H%M%S-'),
+                       TryNumber,
                    )
-                   PRINT("\n-Skipped No input given within time limit.\n")
-                   try:
-                       TmpI.save(tmpname)
+                   if SaveResult.saved:
                        Candy("Cowsay", "I took the liberty to save a copy of that image just in case.", "com")
-                       PRINT("-Image saved at:%s\n"%tmpname)
-                       TmpImgLst.append(tmpname)
-                       Summarise(bruteforce.viewer_timeout_saved_summary(TryNumber, tmpname))
+                       PRINT("-Image saved at:%s\n"%SaveResult.path)
+                       TmpImgLst.append(SaveResult.path)
+                       Summarise(SaveResult.summary)
 
-                   except Exception as e:
-                       Betterror(e, inspect.stack()[0][3])
-                       PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                       Summarise(bruteforce.viewer_timeout_save_failed_summary(tmpname, e, TryNumber))
+                   else:
+                       Betterror(SaveResult.error, inspect.stack()[0][3])
+                       PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", SaveResult.error))
+                       Summarise(SaveResult.summary)
                 if Answer is True:
 
                     DIFF = bruteforce.accepted_candidate_diff(DATAX, DataOffset, ndx)
@@ -2052,9 +2042,7 @@ def SmashBruteBrawl(
 
 
                 else:
-                    for proc in psutil.process_iter():
-                        if bruteforce.process_command_is_tmp_png(proc.cmdline()):
-                            proc.kill()
+                    bruteforce.kill_tmp_png_viewers(psutil.process_iter())
                     Candy("Cowsay", "Ok back to work..", "bad")
                     return(False)
 

@@ -127,6 +127,14 @@ class ViewerCandidateDecision:
 
 
 @dataclass(frozen=True)
+class ViewerTimeoutSaveResult:
+    saved: bool
+    path: str
+    summary: str
+    error: Any = None
+
+
+@dataclass(frozen=True)
 class BruteForceRuntimePlan:
     mode: str
     struct_indexes: tuple[int, ...]
@@ -597,6 +605,29 @@ def viewer_wait_step(found_tmp_png: bool, count: int, limit: int = 60) -> BruteF
     )
 
 
+def wait_for_tmp_png_viewer(process_iter: Any, sleep: Any, limit: int = 60) -> BruteForceViewerWaitState:
+    count = 0
+    while True:
+        sleep(1)
+        found_tmp_png = any(
+            process_command_is_tmp_png(proc.cmdline())
+            for proc in process_iter()
+        )
+        state = viewer_wait_step(found_tmp_png, count, limit)
+        count = state.count
+        if state.done:
+            return state
+
+
+def kill_tmp_png_viewers(processes: Any) -> int:
+    killed = 0
+    for proc in processes:
+        if process_command_is_tmp_png(proc.cmdline()):
+            proc.kill()
+            killed += 1
+    return killed
+
+
 def highlighted_candidate_diff(source_hex: str, candidate_hex: str) -> str:
     diff = ""
     diffobj = difflib.SequenceMatcher(None, source_hex, candidate_hex)
@@ -662,6 +693,32 @@ def viewer_timeout_save_failed_summary(tmpname: str, error: Any, crash_index: in
         "-SmashBruteBrawl:Saving image %s failed due to %s.\n"
         "-SmashBruteBrawl:Use ./chunklate.py -f yourfile.png --crash %s to try again"
         % (tmpname, str(error), str(crash_index))
+    )
+
+
+def save_viewer_timeout_image(
+    save_image: Any,
+    original_dir: str,
+    original_name: str,
+    width: int,
+    height: int,
+    timestamp: str,
+    try_number: int,
+) -> ViewerTimeoutSaveResult:
+    tmpname = viewer_timeout_save_path(original_dir, original_name, width, height, timestamp)
+    try:
+        save_image(tmpname)
+    except Exception as exc:
+        return ViewerTimeoutSaveResult(
+            saved=False,
+            path=tmpname,
+            summary=viewer_timeout_save_failed_summary(tmpname, exc, try_number),
+            error=exc,
+        )
+    return ViewerTimeoutSaveResult(
+        saved=True,
+        path=tmpname,
+        summary=viewer_timeout_saved_summary(try_number, tmpname),
     )
 
 
