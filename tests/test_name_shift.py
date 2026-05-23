@@ -36,6 +36,12 @@ def test_find_shifted_chunk_name_detects_current_offset():
     assert name_shift.found_chunk_note(8, 20, b"IHDR") == (
         "-NameShift: Found correct chunkname i:8 Offset:20 data: b'IHDR'"
     )
+    assert name_shift.valid_chunk_before_line(b"IHDR", 4) == (
+        "-Found valid chunkname b'IHDR' at exactly 2 bytes before."
+    )
+    assert name_shift.valid_chunk_after_line(b"IHDR", 6) == (
+        "-Found valid chunkname b'IHDR' at exactly 3 bytes after."
+    )
 
 
 def test_find_shifted_chunk_name_detects_chunk_before_expected_offset():
@@ -112,6 +118,13 @@ def test_shifted_chunk_crc_view_builds_legacy_crc_values_and_fixed_hex():
     assert view.checksum == hex(binascii.crc32(chunk_type + chunk_data))
     assert view.crc_matches is True
     assert view.fixed_hex == data_hex
+    assert name_shift.crc_ok_line(" OK ", ":)") == "-Crc Check : OK :)\n"
+    assert name_shift.crc_failed_line(" FAILED! ", ":(") == "-Crc Check : FAILED! :("
+    assert name_shift.monkey_wanted_line("0x1234") == "\nMonkey wanted Banana :0x1234"
+    assert name_shift.monkey_got_line("0x5678") == "Monkey got Pullover :0x5678"
+    assert name_shift.missed_something_message() == (
+        " Hold on a sec ... Must have missed something..."
+    )
 
 
 def test_shifted_chunk_crc_view_detects_crc_mismatch():

@@ -75,6 +75,40 @@ def found_chunk_note(search_index: int, type_offset: int, chunk_name: bytes) -> 
     )
 
 
+def valid_chunk_before_line(chunk_name: bytes, good_offset: int) -> str:
+    return "-Found valid chunkname %s at exactly %s bytes before." % (
+        chunk_name,
+        str(int(good_offset / 2)),
+    )
+
+
+def valid_chunk_after_line(chunk_name: bytes, good_offset: int) -> str:
+    return "-Found valid chunkname %s at exactly %s bytes after." % (
+        chunk_name,
+        str(int(good_offset / 2)),
+    )
+
+
+def crc_ok_line(ok_label: str, good_emoj: str) -> str:
+    return "-Crc Check :" + ok_label + good_emoj + "\n"
+
+
+def crc_failed_line(failed_label: str, bad_emoj: str) -> str:
+    return "-Crc Check :" + failed_label + bad_emoj
+
+
+def monkey_wanted_line(green_checksum: str) -> str:
+    return "\nMonkey wanted Banana :%s" % green_checksum
+
+
+def monkey_got_line(red_crc: str) -> str:
+    return "Monkey got Pullover :%s" % red_crc
+
+
+def missed_something_message() -> str:
+    return " Hold on a sec ... Must have missed something..."
+
+
 def crc_valid_note() -> str:
     return "-NameShift:Crc check is valid."
 

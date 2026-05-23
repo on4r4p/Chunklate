@@ -3427,10 +3427,10 @@ def NameShift():
          SideNotes.append(name_shift.found_chunk_note(i, ioff, value))
          if ShiftCandidate.is_before:
              good_offset = ShiftCandidate.good_offset
-             PRINT(Candy("Color", "green", "-Found valid chunkname %s at exactly %s bytes before.")%(value,str( int((good_offset)/2) )))
+             PRINT(Candy("Color", "green", name_shift.valid_chunk_before_line(value, good_offset)))
          elif ShiftCandidate.is_after:
              good_offset = ShiftCandidate.good_offset
-             PRINT(Candy("Color", "green", "-Found valid chunkname %s at exactly %s bytes after.")%(value,str( int((good_offset)/2) )))
+             PRINT(Candy("Color", "green", name_shift.valid_chunk_after_line(value, good_offset)))
          Shifted = True
     if Shifted :
 
@@ -3453,10 +3453,10 @@ def NameShift():
 
              if CrcView.crc_matches:
                  PRINT(
-                "-Crc Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
-                + "\n"
+                    name_shift.crc_ok_line(
+                        Candy("Color", "green", " OK "),
+                        Candy("Emoj", "good"),
+                    )
                 )
 
                  Candy("Cowsay", "Found the culprit!", "good")
@@ -3496,19 +3496,22 @@ def NameShift():
 
              else:
                 PRINT(
-                    "-Crc Check :" + Candy("Color", "red", " FAILED! ") + Candy("Emoj", "bad")
+                    name_shift.crc_failed_line(
+                        Candy("Color", "red", " FAILED! "),
+                        Candy("Emoj", "bad"),
+                    )
                 )
                 if len(Crc) == 0 or len(checksum) == 0:
-                    PRINT("\nMonkey wanted Banana :%s"%Candy("Color", "green", checksum))
-                    PRINT("Monkey got Pullover :%s"%Candy("Color", "red", Crc))
-                    Candy("Cowsay", " Hold on a sec ... Must have missed something...", "com")
+                    PRINT(name_shift.monkey_wanted_line(Candy("Color", "green", checksum)))
+                    PRINT(name_shift.monkey_got_line(Candy("Color", "red", Crc)))
+                    Candy("Cowsay", name_shift.missed_something_message(), "com")
                     PRINT(Candy("Color", "yellow", "\n-ToDo"))
                     TheEnd()
 
                 if len(checksum) < 10:
                     checksum = "0x" + (checksum[2::].zfill(8))
-                    PRINT("\nMonkey wanted Banana :%s"%Candy("Color", "green", checksum))
-                    PRINT("Monkey got Pullover :%s"%Candy("Color", "red", Crc))
+                    PRINT(name_shift.monkey_wanted_line(Candy("Color", "green", checksum)))
+                    PRINT(name_shift.monkey_got_line(Candy("Color", "red", Crc)))
                     PRINT(Candy("Color", "yellow", "\n-ToDo"))
                     TheEnd()
 
