@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, output, palette, palette_ui, prompts, relics, relics_runtime, sorting, specs, stdio, ui, writer
+from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, output, palette, palette_ui, prompts, relics, relics_runtime, relics_ui, sorting, specs, stdio, ui, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -4736,57 +4736,24 @@ def WriteClone(data,infos):
 
 
 def Relics_Debug_State():
-    if DEBUG is True:
-        PRINT("len pandemonium :%s"% len(Pandemonium))
-        for nb, key in enumerate(PandoraBox):
-            PRINT("Pandorbox Key:%s"% str(key))
-            for toolkey, keyvalue in PandoraBox[key].items():
-                PRINT("PandoraBox toolkey:%s"% toolkey)
-                PRINT("PandoraBox keyvalue:%s"% keyvalue)
-
-        for c, i in zip(Chunks_History, Chunks_History_Index):
-            PRINT("\nCame accross that chunk: %s"% c)
-            PRINT("With those index: %s"% i)
-        if PAUSEDEBUG is True:
-            Pause("-Debug Pause Press Return to continue:")
-
-
-def Relics_Short_Value(tools_values):
-    if type(tools_values) == bytes:
-        return tools_values[0:40] + b"...To big to be displayed ..."
-    if type(tools_values) == str:
-        return tools_values[0:40] + "...To big to be displayed ..."
-    return tools_values
-
-
-def Relics_Print_Tool(nb3, tools, tools_values):
-    if type(tools_values) == str or type(tools_values) == bytes:
-        if len(tools_values) > 100:
-            tools_values = Relics_Short_Value(tools_values)
-
-    PRINT(
-        "%s:%s:%s"
-        % (
-            Candy("Color", "yellow", "        [Tool used :%s]" % nb3),
-            tools,
-            tools_values,
-        )
+    relics_ui.emit_debug_state(
+        debug=DEBUG,
+        pandemonium=Pandemonium,
+        pandora_box=PandoraBox,
+        chunks_history=Chunks_History,
+        chunks_history_index=Chunks_History_Index,
+        pause_debug=PAUSEDEBUG,
+        emit=PRINT,
+        pause=Pause,
     )
 
 
 def Relics_Print_Pandemonium_Summary():
-    Candy("Cowsay", "This is a short summary of what we have done :", "good")
-
-    for nb1, sample_summary in enumerate(relics.pandemonium_summary(Pandemonium)):
-        PRINT(
-            "%s:-Errors fixed in File %s :"
-            % (Candy("Color", "white", "[File:%s]" % nb1), sample_summary.sample)
-        )
-
-        for nb2, error_summary in enumerate(sample_summary.errors):
-            PRINT("%s:%s" % (Candy("Color", "red", "    [-%s]" % nb2), error_summary.error))
-            for nb3, (tools, tools_values) in enumerate(error_summary.tools):
-                Relics_Print_Tool(nb3, tools, tools_values)
+    relics_ui.emit_pandemonium_summary(
+        relics.pandemonium_summary(Pandemonium),
+        emit=PRINT,
+        candy=Candy,
+    )
 
 
 def Relics_Runtime():
@@ -4815,15 +4782,10 @@ def Relics_Try_Current_Wrong_Crc_Fix():
         key = WrongCrcRoute.error
         Chunkname = WrongCrcRoute.chunk_name
 
-        PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+        relics_ui.emit_critical_hit(key, emit=PRINT)
         if Chunkname == "IDAT":
             CrcTools = CrcContext.tools
-            Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
-            Candy(
-                "Cowsay",
-                "Well this one have to be fixed first let's see if replacing that Crc is enough..",
-                "com",
-            )
+            relics_ui.say_current_wrong_crc_idat(candy=Candy)
             Answer = Question(id=key,idhash=CrcContext.question_hash)
             if Answer is True:
                 return True, relics_runtime.run_save_clone_plan(
@@ -4859,22 +4821,7 @@ def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
         from_error=FromError,
     ):
         WrongCrcRoute = BrawlRequest.route
-        Candy(
-            "Cowsay",
-            "Perhaps that wasn't a Crc problem after all..",
-            "com",
-        )
-        Candy(
-            "Cowsay",
-            "Maybe the culprit was in fact the %s Data itself!"
-            % WrongCrcRoute.chunk_name,
-            "bad",
-        )
-        Candy(
-            "Cowsay",
-            "How about taking a coffee break while im taking care of something?",
-            "good",
-        )
+        relics_ui.say_wrong_crc_data_brawl(WrongCrcRoute.chunk_name, candy=Candy)
 
         relics_runtime.run_wrong_crc_brawl_plan(
             Relics_Runtime(),
@@ -4886,7 +4833,7 @@ def Relics_Apply_Dummy_Chunk_Repair_Decision(DummyDecision):
     return relics_runtime.apply_dummy_chunk_repair_decision(
         Relics_Runtime(),
         DummyDecision,
-        show_todo=lambda: PRINT(Candy("Color", "yellow", "\n-ToDo")),
+        show_todo=lambda: relics_ui.emit_todo(emit=PRINT, candy=Candy),
         the_end=TheEnd,
     )
 
@@ -4909,15 +4856,11 @@ def Relics_Handle_Plte():
     if PlteFinding is None:
         return False, None
 
-    Candy("Cowsay", "Alright this is a tough one as PLTE is a critical chunk..", "bad")
+    relics_ui.say_plte_intro(candy=Candy)
     #if not something to get intel about plte nbr and what TODO:
     if not Bad_Crc:
 
-        Candy("Cowsay", "Crc is valid ...So this has been made on purpose..", "bad")
-        Candy("Cowsay", "Anyway im just gona fill the gap then.", "com")
-        Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
-        Candy("Cowsay", "I will need you to manually click a few buttons for me.", "com")
-        Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk but trust me this is useless as it wont work..", "com") ## no you should not it wont work
+        relics_ui.say_plte_valid_crc(candy=Candy)
 
         Answer = Relics_Ask_Plte_Repair(False)
         PlteWindow = relics.plte_chunk_window(
@@ -4937,13 +4880,7 @@ def Relics_Handle_Plte():
     else:
 
 
-        Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
-        Candy("Cowsay", "I ll have to bruteforce my way through until i end up with the old Crc.", "bad")
-        Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
-        Candy("Cowsay", "In many ways , its is the best solution in my opinion .", "com")
-        Candy("Cowsay", "To give you an hint:Take the nbr of atoms in the univers multiply it by itself a couple of times.", "good")
-        Candy("Cowsay", "And even there we would not be near to get every combination for a PLTE Chunk.", "bad")
-        Candy("Cowsay", "Perhaps i could just remove that PLTE chunk but no it just wont work ..", "com")  ## no you should not it wont work
+        relics_ui.say_plte_bad_crc(candy=Candy)
 
         Answer = Relics_Ask_Plte_Repair(True)
         PlteWindow = relics.plte_chunk_window(
@@ -4962,11 +4899,7 @@ def Relics_Handle_Plte():
         if should_return:
             return True, result
 
-    Candy(
-        "Cowsay",
-        "Shall i give it a try ? Otherwise Chunklate is going to exit.",
-        "com",
-    )
+    relics_ui.say_plte_fallback(candy=Candy)
     Answer = Question()
     if Answer is True:
         PlteWindow = relics.plte_chunk_window(
@@ -4988,7 +4921,7 @@ def Relics_Handle_Plte():
 
 
 def Relics_Handle_Single_Pandemonium(FromError):
-    Candy("Cowsay", "Only one Error,That is short indeed ..", "com")
+    relics_ui.say_single_pandemonium_intro(candy=Candy)
 
     for nb1, (file, file_value) in enumerate(Pandemonium.items()):
         for nb2, (errors, errors_values) in enumerate(file_value.items()):
@@ -5004,22 +4937,7 @@ def Relics_Handle_Single_Pandemonium(FromError):
             )
             if Decision.action == "wrong_crc_brawl":
                 Chunkname = Decision.route.chunk_name
-                Candy(
-                    "Cowsay",
-                    "Perhaps that wasn't a Crc problem after all..",
-                    "com",
-                )
-                Candy(
-                    "Cowsay",
-                    "Maybe the culprit was in fact the %s Data itself!"
-                    % Chunkname,
-                    "bad",
-                )
-                Candy(
-                    "Cowsay",
-                    "How about taking a coffee break while im taking care of something?",
-                    "good",
-                )
+                relics_ui.say_wrong_crc_data_brawl(Chunkname, candy=Candy)
                 #PRINT("Chunkname:%s"% Chunkname)
                 # def Checksum(Ctype, Cdata, Crc,next=None):
                 relics_runtime.run_wrong_crc_brawl_plan(
@@ -5034,9 +4952,7 @@ def Relics_Handle_Single_Pandemonium(FromError):
                 if DEBUG is True:
                     if PAUSEDEBUG is True or PAUSEERROR is True:
                         Pause("Pause Pandemonium Debug")
-                Candy(
-                    "Cowsay", "Erf this case is not implemented yet ...", "bad"
-                )
+                relics_ui.say_single_pandemonium_unsupported(candy=Candy)
                 TheEnd()
     return ()
 
@@ -5056,27 +4972,7 @@ def Relics_Handle_Remembered_Dummy_Chunks(FromError):
     ChunkName = DummyRoute.chunk_name
 
     if DummyRoute.is_critical:
-        Candy(
-            "Cowsay",
-            "Ok it's time to brute force that dummy %s chunk .."
-            % (ChunkName),
-            "good",
-        )
-        Candy(
-            "Cowsay",
-            "I mean we have to since it is a critical chunk..",
-            "com",
-        )
-        Candy(
-            "Cowsay",
-            "I hope you brought a book...A big one ..Cause it may takes forever.",
-            "bad",
-        )
-        Candy(
-            "Cowsay",
-            "Shall i begin ? Otherwise Chunklate is going to close.",
-            "bad",
-        )
+        relics_ui.say_dummy_chunk_critical_prompt(ChunkName, candy=Candy)
 
         Answer = Question()
         return Relics_Apply_Dummy_Chunk_Repair_Decision(
@@ -5088,22 +4984,7 @@ def Relics_Handle_Remembered_Dummy_Chunks(FromError):
             )
         )
 
-    Candy(
-        "Cowsay",
-        "We better remove that %s chunk than trying to bruteforce it"
-        % (ChunkName),
-        "com",
-    )
-    Candy(
-        "Cowsay",
-        "I mean it would be less time consuming since it is not a critical chunk",
-        "com",
-    )
-    Candy(
-        "Cowsay",
-        "Do you still want to bruteforce this chunk ?",
-        "com",
-    )
+    relics_ui.say_dummy_chunk_ancillary_prompt(ChunkName, candy=Candy)
     Answer = Question()
     return Relics_Apply_Dummy_Chunk_Repair_Decision(
         relics.dummy_chunk_repair_decision(
@@ -5116,15 +4997,7 @@ def Relics_Handle_Remembered_Dummy_Chunks(FromError):
 
 
 def Relics_Handle_No_Pandemonium(FromError):
-    PRINT(
-        "-%s has been Fixed yet. %s"
-        % (Candy("Color", "red", "No Error"), Candy("Emoj", "bad"))
-    )
-    Candy(
-        "Cowsay",
-        "Erf...Kay let me check if iv forgot any error somewhere ..",
-        "com",
-    )
+    relics_ui.say_no_pandemonium_intro(emit=PRINT, candy=Candy)
 
     if len(PandoraBox) > 0:
         RelicsPolicy = relics.no_pandemonium_policy(PandoraBox, CRITICAL_CHUNKS, ALLCHUNKS)
@@ -5134,39 +5007,10 @@ def Relics_Handle_No_Pandemonium(FromError):
         )
 
         if PromptContext.action == "getinfo_brawl":
-            ChosenErr = [
-                "\n-\033[1;31;49mCriticalHit\033[m: %s"%(k)
-                for k in PromptContext.print_hits
-            ]
-
-            for i in ChosenErr:PRINT(i)
-
-            Candy(
-                "Cowsay",
-                "Hm yeah that could be problematic indeed..",
-                "com",
-            )
-
-            if not Skip_Bad_Crc:
-                Candy(
-                    "Cowsay",
-                    "And of course Crc is valid ...This must be a joke..",
-                    "bad",
-                )
-            Candy(
-                "Cowsay",
-                "We can't just let this thing like that The allmighty libpng will yell at us again!",
-                "com",
-            )
-            Candy(
-                "Cowsay",
-                "So what do you say ? Shall we try to fix it ?",
-                "com",
-            )
-            Candy(
-                "Cowsay",
-                "(Beware this could take some time !!)",
-                "bad",
+            relics_ui.emit_prompt_context_hits(PromptContext, emit=PRINT)
+            relics_ui.say_no_pandemonium_getinfo(
+                skip_bad_crc=Skip_Bad_Crc,
+                candy=Candy,
             )
             Answer = Question()
             should_return, result = Relics_Apply_No_Pandemonium_Repair_Decision(
@@ -5184,27 +5028,8 @@ def Relics_Handle_No_Pandemonium(FromError):
                 return result
 
         elif PromptContext.action == "full_chunk_forcer":
-            [
-                PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-                for key in PromptContext.print_hits
-            ]
-
-            Candy(
-                "Cowsay",
-                "This is bad ..i don't have enough info to handle this error quickly..",
-                "com",
-            )
-
-            Candy(
-                "Cowsay",
-                "(I need to bruteforce every chunks until libpng is happy ...)",
-                "com",
-            )
-            Candy(
-                "Cowsay",
-                "(And this will definitively take some ..time ...like years maybe..Are you ok ?)",
-                "bad",
-            )
+            relics_ui.emit_prompt_context_hits(PromptContext, emit=PRINT)
+            relics_ui.say_no_pandemonium_forcer(candy=Candy)
 
             Answer = Question()
             should_return, result = Relics_Apply_No_Pandemonium_Repair_Decision(
@@ -5221,12 +5046,7 @@ def Relics_Handle_No_Pandemonium(FromError):
             if should_return:
                 return result
 
-    Candy(
-        "Cowsay",
-        "Couldn't find anything in all those lines of codes which could handle this..",
-        "bad",
-    )
-    Candy("Cowsay", "We r out of luck for now sorry..", "bad")
+    relics_ui.say_no_pandemonium_failure(candy=Candy)
     TheEnd()
 
 
