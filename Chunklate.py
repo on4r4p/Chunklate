@@ -3220,14 +3220,14 @@ def CheckChunkOrder(lastchunk, mode):
                     Candy("Color", "red", "cannot"),
                 )
             )
-            ToFix.append("-Multiple")
+            ToFix.append(chunk_order.multiple_chunk_info())
 
         if chunk_order.png_signature_is_misplaced(Chunks_History):
             PRINT(
                 "-PNG signature have to be placed %s all the other chunks. %s"
                 % (Candy("Color", "red", "Before"), Candy("Emoj", "bad"))
             )
-            ToFix.append("-Missplaced")
+            ToFix.append(chunk_order.missplaced_info())
         if chunk_order.ihdr_is_misplaced(Chunks_History):
             Done = chunk_order.ihdr_misplacement_already_recorded(PandoraBox)
 
@@ -3266,11 +3266,7 @@ def CheckChunkOrder(lastchunk, mode):
                 )
             )
             # PRINT(Excluded)
-            ToFix.append(
-                "-"
-                + chunk_order.decode_chunk_name(lastchunk)
-                + " is missplaced must appears before PLTE Chunk"
-            )
+            ToFix.append(chunk_order.missplaced_before_plte_info(lastchunk))
 
         if chunk_order.must_appear_before_idat(lastchunk, Used_Chunks, Excluded, BEFORE_IDAT2):
             PRINT(
@@ -3286,7 +3282,7 @@ def CheckChunkOrder(lastchunk, mode):
                 )
             )
             # PRINT(Excluded)
-            ToFix.append("-Missplaced")
+            ToFix.append(chunk_order.missplaced_info())
 
         if len(ToFix) > 0:
             CheckPoint(True, False, "CheckChunkOrder", "Missplaced", ToFix)

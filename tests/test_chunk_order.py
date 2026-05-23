@@ -48,6 +48,8 @@ def test_legacy_unique_chunk_multiple_check_preserves_current_behavior():
 
     assert chunk_order.legacy_flags_unique_chunk_as_multiple(b"IHDR", excluded, (b"IHDR",))
     assert not chunk_order.legacy_flags_unique_chunk_as_multiple(b"IDAT", excluded, (b"IHDR",))
+    assert chunk_order.multiple_chunk_info() == "-Multiple"
+    assert chunk_order.missplaced_info() == "-Missplaced"
 
 
 def test_signature_and_ihdr_placement_decisions():
@@ -75,6 +77,9 @@ def test_plte_and_idat_order_decisions():
 
     assert chunk_order.must_appear_before_plte(b"gAMA", used, (b"gAMA", b"cHRM"))
     assert not chunk_order.must_appear_before_plte(b"tEXt", used, (b"gAMA", b"cHRM"))
+    assert chunk_order.missplaced_before_plte_info(b"gAMA") == (
+        "-gAMA is missplaced must appears before PLTE Chunk"
+    )
     assert chunk_order.must_appear_before_idat(b"gAMA", used, (), (b"gAMA", b"cHRM"))
     assert chunk_order.must_appear_before_idat(b"IHDR", used, (b"IHDR",), ())
     assert not chunk_order.must_appear_before_idat(b"tEXt", used, (), (b"gAMA", b"cHRM"))

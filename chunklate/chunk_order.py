@@ -49,6 +49,14 @@ def legacy_flags_unique_chunk_as_multiple(
     return lastchunk in set(unique_chunks) and lastchunk in excluded
 
 
+def multiple_chunk_info() -> str:
+    return "-Multiple"
+
+
+def missplaced_info() -> str:
+    return "-Missplaced"
+
+
 def png_signature_is_misplaced(chunks_history: Sequence[bytes]) -> bool:
     return len(chunks_history) > 0 and chunks_history[0] != b"PNG"
 
@@ -83,6 +91,10 @@ def must_appear_before_plte(
     before_plte: Iterable[bytes],
 ) -> bool:
     return b"PLTE" in used_chunks and lastchunk in set(before_plte)
+
+
+def missplaced_before_plte_info(lastchunk: bytes) -> str:
+    return "-%s is missplaced must appears before PLTE Chunk" % decode_chunk_name(lastchunk)
 
 
 def must_appear_before_idat(
