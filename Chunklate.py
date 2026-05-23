@@ -4902,6 +4902,23 @@ def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
         )
 
 
+def Relics_Apply_Dummy_Chunk_Repair_Decision(DummyDecision):
+    if DummyDecision.action == "brawl":
+        return relics_runtime.run_dummy_chunk_brawl_plan(
+            Relics_Runtime(),
+            DummyDecision.plan,
+        )
+
+    if DummyDecision.action == "todo_end":
+        PRINT(Candy("Color", "yellow", "\n-ToDo"))
+        TheEnd()
+
+    if DummyDecision.action == "end":
+        TheEnd()
+
+    raise ValueError("Unknown dummy chunk relic decision: %s" % DummyDecision.action)
+
+
 def Relics_Handle_Plte():
     for key in PandoraBox:
         if "-PLTE" not in str(key):
@@ -5062,11 +5079,6 @@ def Relics_Handle_Remembered_Dummy_Chunks(FromError):
             DummyRoute.tool_prefix,
         )
         ChunkName = DummyRoute.chunk_name
-        BrawlPlan = relics.dummy_chunk_brawl_plan(
-            DummyRoute,
-            DummyTools,
-            from_error=FromError,
-        )
 
         if DummyRoute.is_critical:
             Candy(
@@ -5092,10 +5104,14 @@ def Relics_Handle_Remembered_Dummy_Chunks(FromError):
             )
 
             Answer = Question()
-            if Answer is True:
-                return relics_runtime.run_dummy_chunk_brawl_plan(Relics_Runtime(), BrawlPlan)
-            else:
-                TheEnd()
+            return Relics_Apply_Dummy_Chunk_Repair_Decision(
+                relics.dummy_chunk_repair_decision(
+                    DummyRoute,
+                    DummyTools,
+                    from_error=FromError,
+                    answer=Answer,
+                )
+            )
         else:
             Candy(
                 "Cowsay",
@@ -5114,13 +5130,14 @@ def Relics_Handle_Remembered_Dummy_Chunks(FromError):
                 "com",
             )
             Answer = Question()
-            if Answer is True:
-                return relics_runtime.run_dummy_chunk_brawl_plan(Relics_Runtime(), BrawlPlan)
-
-            else:
-                if relics.dummy_chunk_decline_action(DummyRoute) == "todo_end":
-                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                TheEnd()
+            return Relics_Apply_Dummy_Chunk_Repair_Decision(
+                relics.dummy_chunk_repair_decision(
+                    DummyRoute,
+                    DummyTools,
+                    from_error=FromError,
+                    answer=Answer,
+                )
+            )
 
     TheEnd()
 

@@ -529,6 +529,53 @@ def test_relics_module_exposes_dummy_chunk_decline_action():
     assert relics.dummy_chunk_decline_action(ancillary_route) == "todo_end"
 
 
+def test_relics_module_selects_dummy_chunk_repair_decisions():
+    critical_route = relics.DummyChunkRoute(
+        source="sample.0_Fixed.png",
+        error="DummyChunk_Error_0:Filling with a dummy chunk",
+        chunk_name="IHDR",
+        tool_prefix="IHDR_Tool_",
+        is_critical=True,
+    )
+    ancillary_route = relics.DummyChunkRoute(
+        source="sample.1_Fixed.png",
+        error="DummyChunk_Error_1:Filling with a dummy chunk",
+        chunk_name="tEXt",
+        tool_prefix="tEXt_Tool_",
+        is_critical=False,
+    )
+    tools = relics.DummyChunkTools(
+        fixed_data="fixed-data",
+        dummy_data_length=13,
+        bad_position=128,
+        bad_start=128,
+        bad_end=152,
+        from_error="No NextChunk",
+    )
+
+    assert relics.dummy_chunk_repair_decision(
+        critical_route,
+        tools,
+        from_error="libpng",
+        answer=True,
+    ) == relics.DummyChunkRepairDecision(
+        "brawl",
+        relics.DummyChunkBrawlPlan("sample.0_Fixed.png", "IHDR", 13, 128, "libpng"),
+    )
+    assert relics.dummy_chunk_repair_decision(
+        critical_route,
+        tools,
+        from_error="libpng",
+        answer=False,
+    ) == relics.DummyChunkRepairDecision("end")
+    assert relics.dummy_chunk_repair_decision(
+        ancillary_route,
+        tools,
+        from_error="libpng",
+        answer=False,
+    ) == relics.DummyChunkRepairDecision("todo_end")
+
+
 def test_relics_module_finds_first_getinfo_critical_chunk():
     pandora_box = {
         "Checksum_Error_0:Wrong Crc b'IDAT'": {},
@@ -933,6 +980,10 @@ def main():
         ("Relics module resolves remembered sample target", test_relics_module_resolves_remembered_sample_target),
         ("Relics module builds dummy chunk brawl plan", test_relics_module_builds_dummy_chunk_brawl_plan),
         ("Relics module exposes dummy chunk decline action", test_relics_module_exposes_dummy_chunk_decline_action),
+        (
+            "Relics module selects dummy chunk repair decisions",
+            test_relics_module_selects_dummy_chunk_repair_decisions,
+        ),
         ("Relics module finds first GetInfo critical chunk", test_relics_module_finds_first_getinfo_critical_chunk),
         ("Relics module collects GetInfo StructIndex errors", test_relics_module_collects_getinfo_struct_index_errors),
         ("Relics module selects GetInfo brawl mode", test_relics_module_selects_getinfo_brawl_mode),

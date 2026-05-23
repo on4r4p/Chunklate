@@ -188,6 +188,12 @@ class PlteRepairDecision:
     side_note: str | None = None
 
 
+@dataclass(frozen=True)
+class DummyChunkRepairDecision:
+    action: str
+    plan: Any = None
+
+
 def chunk_label(chunk: Any) -> Any:
     if type(chunk) != bytes:
         return chunk
@@ -567,6 +573,21 @@ def dummy_chunk_decline_action(route: DummyChunkRoute) -> str:
     if route.is_critical:
         return "end"
     return "todo_end"
+
+
+def dummy_chunk_repair_decision(
+    route: DummyChunkRoute,
+    tools: DummyChunkTools,
+    *,
+    from_error: Any,
+    answer: Any,
+) -> DummyChunkRepairDecision:
+    if answer is True:
+        return DummyChunkRepairDecision(
+            "brawl",
+            dummy_chunk_brawl_plan(route, tools, from_error=from_error),
+        )
+    return DummyChunkRepairDecision(dummy_chunk_decline_action(route))
 
 
 def first_getinfo_critical_chunk(
