@@ -210,6 +210,10 @@ def only_ihdr_allowed_after_png_header(
     return None
 
 
+def only_ihdr_after_png_header_message() -> str:
+    return " After Png Header always Follow IHDR this is quite hard to miss..Excluding evrything else"
+
+
 def must_stay_before_plte_without_ihdr(
     lastchunk: bytes,
     used_chunks: Sequence[bytes],
@@ -290,12 +294,34 @@ def missing_critical_palette_info() -> str:
     return "-There is a chance that some Critical Palette chunks are missing."
 
 
+def missing_critical_palette_warning_message(
+    critical_palette_label: str,
+    missing_label: str,
+) -> str:
+    return " There is a chance that some %s chunks are %s." % (
+        critical_palette_label,
+        missing_label,
+    )
+
+
 def is_indexed_color(ihdr_color: int | str) -> bool:
     return int(ihdr_color) == 3
 
 
 def indexed_idat_previous_chunk_is_plte(used_chunks: Sequence[bytes]) -> bool:
     return used_chunks[used_chunks.index(b"IDAT") - 1] == b"PLTE"
+
+
+def indexed_idat_without_plte_messages() -> tuple[str, str, str]:
+    return (
+        " AH ! I knew this day would come ...You See when Image Header color type is set to 3 (Indexed Colors)..",
+        "PLTE chunk must be placed before any IDAT chunks so that only means one thing ..",
+        "More code to write for me.",
+    )
+
+
+def todo_info() -> str:
+    return "\n-ToDo"
 
 
 def is_idat_chunk(chunk: bytes) -> bool:

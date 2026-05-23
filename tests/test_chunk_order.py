@@ -161,6 +161,9 @@ def test_only_ihdr_allowed_after_png_header():
         [b"PNG", b"IHDR"],
         (b"IHDR", b"IDAT", b"IEND"),
     ) is None
+    assert chunk_order.only_ihdr_after_png_header_message() == (
+        " After Png Header always Follow IHDR this is quite hard to miss..Excluding evrything else"
+    )
 
 
 def test_fix_mode_exclusion_helpers_preserve_legacy_list_growth():
@@ -205,6 +208,9 @@ def test_missing_critical_palette_warning_preserves_legacy_precedence():
     assert chunk_order.missing_critical_palette_info() == (
         "-There is a chance that some Critical Palette chunks are missing."
     )
+    assert chunk_order.missing_critical_palette_warning_message("Critical Palette", "Missing") == (
+        " There is a chance that some Critical Palette chunks are Missing."
+    )
 
 
 def test_indexed_color_idat_plte_predicates_preserve_legacy_rules():
@@ -213,6 +219,12 @@ def test_indexed_color_idat_plte_predicates_preserve_legacy_rules():
     assert chunk_order.indexed_idat_previous_chunk_is_plte([b"IHDR", b"PLTE", b"IDAT"]) is True
     assert chunk_order.indexed_idat_previous_chunk_is_plte([b"IHDR", b"gAMA", b"IDAT"]) is False
     assert chunk_order.indexed_idat_previous_chunk_is_plte([b"IDAT", b"PLTE"]) is True
+    assert chunk_order.indexed_idat_without_plte_messages() == (
+        " AH ! I knew this day would come ...You See when Image Header color type is set to 3 (Indexed Colors)..",
+        "PLTE chunk must be placed before any IDAT chunks so that only means one thing ..",
+        "More code to write for me.",
+    )
+    assert chunk_order.todo_info() == "\n-ToDo"
     assert chunk_order.is_idat_chunk(b"IDAT") is True
     assert chunk_order.is_idat_chunk(b"PLTE") is False
 

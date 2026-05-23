@@ -3308,7 +3308,7 @@ def CheckChunkOrder(lastchunk, mode):
 
             Candy(
                 "Cowsay",
-                " After Png Header always Follow IHDR this is quite hard to miss..Excluding evrything else",
+                chunk_order.only_ihdr_after_png_header_message(),
                 "com",
             )
             Excluded = list(Header_Exclusions)
@@ -3357,25 +3357,30 @@ def CheckChunkOrder(lastchunk, mode):
             if chunk_order.is_indexed_color(IHDR_Color):
                 print("excluded:\n",Excluded)
                 if not chunk_order.indexed_idat_previous_chunk_is_plte(Used_Chunks):
+                    (
+                        Indexed_Message,
+                        Plte_Message,
+                        Todo_Message,
+                    ) = chunk_order.indexed_idat_without_plte_messages()
 
                     Candy(
                         "Cowsay",
-                        " AH ! I knew this day would come ...You See when Image Header color type is set to 3 (Indexed Colors)..",
+                        Indexed_Message,
                         "com",
                     )
 
                     Candy(
                         "Cowsay",
-                        "PLTE chunk must be placed before any IDAT chunks so that only means one thing ..",
+                        Plte_Message,
                         "com",
                     )
 
                     Candy(
                         "Cowsay",
-                        "More code to write for me.",
+                        Todo_Message,
                         "bad",
                     )
-                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
+                    PRINT(Candy("Color", "yellow", chunk_order.todo_info()))
                     TheEnd()
 
             elif chunk_order.may_have_missing_critical_palette(IHDR_Color, Chunks_History):
@@ -3384,8 +3389,7 @@ def CheckChunkOrder(lastchunk, mode):
                     ToFix.append(chunk_order.missing_critical_palette_info())
                     Candy(
                         "Cowsay",
-                        " There is a chance that some %s chunks are %s."
-                        % (
+                        chunk_order.missing_critical_palette_warning_message(
                             Candy("Color", "red", "Critical Palette"),
                             Candy("Color", "yellow", "Missing"),
                         ),
