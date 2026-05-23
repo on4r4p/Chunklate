@@ -162,6 +162,14 @@ class GetSpecContext:
     chunks_spec: dict[bytes, dict[str, tuple[Any, Any, Any, Any]]]
 
 
+@dataclass(frozen=True)
+class SpecLengthCheck:
+    real_length: str
+    returned_length: str
+    has_provided_length: bool
+    matches: bool | None
+
+
 def min_res_iter(min_res: int) -> int:
     count = 0
     for width in range(1, min_res):
@@ -1003,6 +1011,32 @@ def random_sample_hex(data: Any, color_type: str, chunk_format: Any, random_floa
 
 def spec_length_hex(chunk_length_spec: int) -> str:
     return hex(int(chunk_length_spec / 2)).replace("0x", "").zfill(8)
+
+
+def check_spec_length(chunk_length_spec: int, chunk_length: str | None = None) -> SpecLengthCheck:
+    real_length = spec_length_hex(chunk_length_spec)
+    if not chunk_length:
+        return SpecLengthCheck(
+            real_length=real_length,
+            returned_length=real_length,
+            has_provided_length=False,
+            matches=None,
+        )
+
+    if real_length == chunk_length:
+        return SpecLengthCheck(
+            real_length=real_length,
+            returned_length=chunk_length,
+            has_provided_length=True,
+            matches=True,
+        )
+
+    return SpecLengthCheck(
+        real_length=real_length,
+        returned_length=real_length,
+        has_provided_length=True,
+        matches=False,
+    )
 
 
 def ihdr_state_is_safe(

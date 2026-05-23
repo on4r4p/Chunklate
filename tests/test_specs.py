@@ -377,6 +377,30 @@ def test_spec_length_hex_preserves_legacy_half_length_formatting():
     assert specs.spec_length_hex(3) == "00000001"
 
 
+def test_check_spec_length_returns_real_length_without_input():
+    assert specs.check_spec_length(26) == specs.SpecLengthCheck(
+        real_length="0000000d",
+        returned_length="0000000d",
+        has_provided_length=False,
+        matches=None,
+    )
+
+
+def test_check_spec_length_preserves_match_and_repair_paths():
+    assert specs.check_spec_length(26, "0000000d") == specs.SpecLengthCheck(
+        real_length="0000000d",
+        returned_length="0000000d",
+        has_provided_length=True,
+        matches=True,
+    )
+    assert specs.check_spec_length(26, "ffffffff") == specs.SpecLengthCheck(
+        real_length="0000000d",
+        returned_length="0000000d",
+        has_provided_length=True,
+        matches=False,
+    )
+
+
 def test_color_type_label_uses_safe_ihdr_color_and_brute_level():
     assert specs.color_type_label(
         b"IHDR",
@@ -483,6 +507,8 @@ def main():
         ("Random sample selected candidate", test_random_sample_hex_uses_first_randomly_selected_candidate),
         ("Random sample no candidate", test_random_sample_hex_returns_none_when_no_candidate_is_selected),
         ("Spec length hex", test_spec_length_hex_preserves_legacy_half_length_formatting),
+        ("Spec length without input", test_check_spec_length_returns_real_length_without_input),
+        ("Spec length match and repair", test_check_spec_length_preserves_match_and_repair_paths),
         ("Safe color type", test_color_type_label_uses_safe_ihdr_color_and_brute_level),
         ("Custom minres", test_color_type_label_preserves_custom_minres_when_width_height_unknown),
         ("Unsafe color type", test_color_type_label_falls_back_when_ihdr_is_unsafe),

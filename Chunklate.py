@@ -4087,12 +4087,13 @@ def SpecLength(chunk_name, chunk_length=None):
           PRINT(Candy("Color", "yellow", "\n-ToDotuple"))
           TheEnd()
     else:
-          real_length = specs.spec_length_hex(chunklen_spec)
-          if not chunk_length:
-                return real_length
+          LengthCheck = specs.check_spec_length(chunklen_spec, chunk_length)
+          real_length = LengthCheck.real_length
+          if not LengthCheck.has_provided_length:
+                return LengthCheck.returned_length
 
           PRINT("-Real %s Length: %s " % (chunk_name, real_length))
-          if real_length == chunk_length:
+          if LengthCheck.matches:
                 Candy(
                     "Cowsay",
                     "Looks good to me !",
@@ -4102,7 +4103,7 @@ def SpecLength(chunk_name, chunk_length=None):
                     "-SpecLength:Giving correct length:  %s -"
                     % chunk_length
                     )
-                return chunk_length
+                return LengthCheck.returned_length
           else:
                 PRINT(
                     "-Given %s Length was : %s "
@@ -4117,7 +4118,7 @@ def SpecLength(chunk_name, chunk_length=None):
                     "-SpecLength:Giving correct length:  %s -" % real_length
                     )
                 PRINT("\n-Returning correct fixed length :%s"% real_length)
-                return real_length
+                return LengthCheck.returned_length
 
                                 # PRINT("Chunk:%s"%key)
                                 # PRINT("name:%s value:%s"%(name,value))
