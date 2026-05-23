@@ -40,6 +40,14 @@ def missing_critical_infos(missing_chunks: Iterable[bytes]) -> tuple[str, ...]:
     return tuple("-Critical Chunk %s is Missing" % chunk for chunk in missing_chunks)
 
 
+def has_findings(findings: Sequence[object]) -> bool:
+    return len(findings) > 0
+
+
+def critical_checkpoint_args(to_fix: Sequence[str]) -> tuple[object, ...]:
+    return (True, False, "CheckChunkOrder", "Critical", to_fix)
+
+
 def unique_chunk_exclusions(
     used_chunks: Sequence[bytes],
     unique_chunks: Iterable[bytes],
@@ -73,6 +81,10 @@ def multiple_chunk_info() -> str:
 
 def missplaced_info() -> str:
     return "-Missplaced"
+
+
+def missplaced_checkpoint_args(to_fix: Sequence[str]) -> tuple[object, ...]:
+    return (True, False, "CheckChunkOrder", "Missplaced", to_fix)
 
 
 def png_signature_is_misplaced(chunks_history: Sequence[bytes]) -> bool:

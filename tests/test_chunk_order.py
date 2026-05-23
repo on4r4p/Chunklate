@@ -27,11 +27,21 @@ def test_missing_critical_chunks_preserves_legacy_messages_source():
         [b"PNG", b"IHDR"],
         (b"PNG", b"IHDR", b"IDAT", b"IEND"),
     )
+    findings = list(chunk_order.missing_critical_infos(missing))
 
     assert missing == (b"IDAT", b"IEND")
-    assert chunk_order.missing_critical_infos(missing) == (
+    assert tuple(findings) == (
         "-Critical Chunk b'IDAT' is Missing",
         "-Critical Chunk b'IEND' is Missing",
+    )
+    assert chunk_order.has_findings(findings) is True
+    assert chunk_order.has_findings([]) is False
+    assert chunk_order.critical_checkpoint_args(findings) == (
+        True,
+        False,
+        "CheckChunkOrder",
+        "Critical",
+        findings,
     )
 
 
@@ -56,6 +66,14 @@ def test_legacy_unique_chunk_multiple_check_preserves_current_behavior():
     assert not chunk_order.legacy_flags_unique_chunk_as_multiple(b"IDAT", excluded, (b"IHDR",))
     assert chunk_order.multiple_chunk_info() == "-Multiple"
     assert chunk_order.missplaced_info() == "-Missplaced"
+    findings = [chunk_order.missplaced_info()]
+    assert chunk_order.missplaced_checkpoint_args(findings) == (
+        True,
+        False,
+        "CheckChunkOrder",
+        "Missplaced",
+        findings,
+    )
 
 
 def test_signature_and_ihdr_placement_decisions():

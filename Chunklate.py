@@ -3185,8 +3185,8 @@ def CheckChunkOrder(lastchunk, mode):
                 % (chnk, Candy("Color", "red", "Missing"))
             )
         ToFix.extend(chunk_order.missing_critical_infos(MissingCritical))
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "CheckChunkOrder", "Critical", ToFix)
+        if chunk_order.has_findings(ToFix):
+            CheckPoint(*chunk_order.critical_checkpoint_args(ToFix))
             # TheEnd()
         else:
             PRINT(
@@ -3285,8 +3285,8 @@ def CheckChunkOrder(lastchunk, mode):
             # PRINT(Excluded)
             ToFix.append(chunk_order.missplaced_info())
 
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "CheckChunkOrder", "Missplaced", ToFix)
+        if chunk_order.has_findings(ToFix):
+            CheckPoint(*chunk_order.missplaced_checkpoint_args(ToFix))
             PRINT(
                 "\n-Missplaced Chunk Check :"
                 + Candy("Color", "red", " FAILED ")
