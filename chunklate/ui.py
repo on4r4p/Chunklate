@@ -404,3 +404,16 @@ def printable_message(msg: object, *, max_columns: int, no_dialogue: bool = Fals
     if len(str(msg)) > max_columns * 2:
         return "%s ...Too Big To be displayed..." % str(msg[: int(max_columns) - 30])  # type: ignore[index]
     return msg
+
+
+def emit_printable_message(
+    emit,
+    msg: object,
+    *,
+    max_columns: int,
+    no_dialogue: bool = False,
+) -> object | None:
+    printable = printable_message(msg, max_columns=max_columns, no_dialogue=no_dialogue)
+    if printable is not None:
+        emit(printable)
+    return printable

@@ -56,6 +56,39 @@ def test_pause_reports_eof_and_returns_none():
     assert str(errors[0]) == "closed"
 
 
+def test_pause_with_legacy_eof_report_uses_injected_callbacks():
+    emitted = []
+    redirected = []
+
+    class FakeRedirector:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            redirected.append(("enter", self.stream))
+
+        def __exit__(self, exc_type, exc, tb):
+            redirected.append(("exit", self.stream))
+
+    def asker(prompt):
+        raise EOFError("closed")
+
+    stream = object()
+    result = prompts.pause_with_legacy_eof_report(
+        asker,
+        "Pause:",
+        error_emit=lambda *args: emitted.append(args),
+        stderr_redirector=FakeRedirector,
+        stream_factory=lambda: stream,
+    )
+
+    assert result is None
+    assert len(emitted) == 1
+    assert emitted[0][0] == "Error:"
+    assert str(emitted[0][1]) == "closed"
+    assert redirected == [("enter", stream), ("exit", stream)]
+
+
 def test_pause_dialogue_skips_input_when_disabled():
     calls = []
 
@@ -93,6 +126,7 @@ def main():
         ("Quit action", test_ask_pokemon_choice_preserves_quit_action),
         ("Pause returns input", test_pause_returns_answer_from_injected_input),
         ("Pause handles EOF", test_pause_reports_eof_and_returns_none),
+        ("Pause legacy EOF report", test_pause_with_legacy_eof_report_uses_injected_callbacks),
         ("Dialogue pause disabled", test_pause_dialogue_skips_input_when_disabled),
         ("Dialogue pause enabled", test_pause_dialogue_uses_legacy_prompt_when_enabled),
         ("Dialogue pause preserves input errors", test_pause_dialogue_preserves_input_errors),

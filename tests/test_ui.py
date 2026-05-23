@@ -110,6 +110,20 @@ def test_printable_message_preserves_legacy_print_rules():
     )
 
 
+def test_emit_printable_message_uses_injected_emit_callback():
+    emitted = []
+
+    assert ui.emit_printable_message(emitted.append, "hello", max_columns=40) == "hello"
+    assert emitted == ["hello"]
+    assert ui.emit_printable_message(
+        emitted.append,
+        "hidden",
+        max_columns=40,
+        no_dialogue=True,
+    ) is None
+    assert emitted == ["hello"]
+
+
 def main():
     checks = [
         ("Colorize ANSI colors", test_colorize_preserves_legacy_ansi_colors),
@@ -122,6 +136,7 @@ def main():
         ("Dialogue colored layout", test_render_dialogue_preserves_legacy_colored_layout),
         ("Dialogue plain layout", test_render_dialogue_preserves_legacy_plain_layout),
         ("Printable message rules", test_printable_message_preserves_legacy_print_rules),
+        ("Emit printable message", test_emit_printable_message_uses_injected_emit_callback),
     ]
 
     print("Running UI tests")

@@ -5442,18 +5442,17 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
 
 
 def Pause(msg):
-    def on_eof(e):
-        print("Error:",e)
-        f = io.BytesIO()
-        with stderr_redirector(f):
-             pass
-    prompts.pause(input, msg, on_eof=on_eof)
+    prompts.pause_with_legacy_eof_report(
+        input,
+        msg,
+        error_emit=print,
+        stderr_redirector=stderr_redirector,
+        stream_factory=io.BytesIO,
+    )
     return ()
 
 def PRINT(msg):
-    printable = ui.printable_message(msg, max_columns=MAXCHAR, no_dialogue=NODIALOGUE)
-    if printable is not None:
-        print(printable)
+    ui.emit_printable_message(print, msg, max_columns=MAXCHAR, no_dialogue=NODIALOGUE)
 
 #    else:
 #        print("-not print-")

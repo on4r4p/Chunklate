@@ -11,6 +11,7 @@ DIALOGUE_PAUSE_PROMPT = "-Pause Dialogue-"
 InputFunc = Callable[[str], str]
 InvalidChoiceCallback = Callable[[str], None]
 PauseEofCallback = Callable[[EOFError], None]
+ErrorEmitCallback = Callable[..., None]
 
 
 def ask_pokemon_choice(
@@ -36,6 +37,23 @@ def pause(asker: InputFunc, msg: str, *, on_eof: PauseEofCallback | None = None)
         if on_eof is not None:
             on_eof(exc)
         return None
+
+
+def pause_with_legacy_eof_report(
+    asker: InputFunc,
+    msg: str,
+    *,
+    error_emit: ErrorEmitCallback,
+    stderr_redirector,
+    stream_factory,
+) -> str | None:
+    def on_eof(exc: EOFError) -> None:
+        error_emit("Error:", exc)
+        stream = stream_factory()
+        with stderr_redirector(stream):
+            pass
+
+    return pause(asker, msg, on_eof=on_eof)
 
 
 def pause_dialogue(
