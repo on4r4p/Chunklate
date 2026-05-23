@@ -2434,8 +2434,9 @@ def FindFuckingMagic():
     BestBingoScore = MagicScan.best_score
     BestBingoSig = MagicScan.best_signature
     BestBingoCount = MagicScan.best_count
+    MagicBingoAction = chunk_scanner.magic_bingo_action(MagicScan)
 
-    if BestBingoCount <= 2 and int(BestBingoScore) >= 14:
+    if MagicBingoAction == "single_candidate":
         pos = DATAX.find(BestBingoSig)
         PRINT("\n...\n")
         PRINT("-Done! %s\n" % Candy("Emoj", "good"))
@@ -2464,7 +2465,7 @@ def FindFuckingMagic():
             hex(int(pos / 2)),
         )
 
-    elif int(BestBingoScore) >= 14:
+    elif MagicBingoAction == "multiple_candidates":
         # PRINT("count:%s"%BestBingoCount)
         # PRINT("score:%s"%BestBingoScore)
         PRINT("\n\n")

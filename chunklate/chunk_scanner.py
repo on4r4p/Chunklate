@@ -168,6 +168,20 @@ def magic_bingo_scan(
     )
 
 
+def magic_bingo_action(
+    scan: MagicBingoScan,
+    *,
+    minimum_score: int = 14,
+    maximum_single_count: int = 2,
+) -> str:
+    best_score = int(scan.best_score)
+    if scan.best_count <= maximum_single_count and best_score >= minimum_score:
+        return "single_candidate"
+    if best_score >= minimum_score:
+        return "multiple_candidates"
+    return "too_low"
+
+
 def scan_known_chunks_until_idat(data_hex: str, chunks: tuple[bytes, ...] | list[bytes]) -> KnownChunkScan:
     chunks_found = {}
     hits = []

@@ -73,6 +73,27 @@ def test_magic_bingo_scan_counts_multiple_best_scores():
     assert scan.bingo_list[:2] == ["4 abcd", "4 abcd"]
 
 
+def test_magic_bingo_action_preserves_legacy_thresholds():
+    assert (
+        chunk_scanner.magic_bingo_action(
+            chunk_scanner.MagicBingoScan([], best_score="14", best_signature="sig", best_count=2)
+        )
+        == "single_candidate"
+    )
+    assert (
+        chunk_scanner.magic_bingo_action(
+            chunk_scanner.MagicBingoScan([], best_score="14", best_signature="sig", best_count=3)
+        )
+        == "multiple_candidates"
+    )
+    assert (
+        chunk_scanner.magic_bingo_action(
+            chunk_scanner.MagicBingoScan([], best_score="13", best_signature="sig", best_count=1)
+        )
+        == "too_low"
+    )
+
+
 def test_scan_known_chunks_until_idat_stops_at_first_idat():
     scan = chunk_scanner.scan_known_chunks_until_idat(
         "00" + b"IHDR".hex() + "11" + b"IDAT".hex() + "22" + b"IEND".hex(),
@@ -137,6 +158,7 @@ def main():
         ("incomplete chunk fallback", test_scan_legacy_chunk_preserves_incomplete_chunk_fallbacks),
         ("magic bingo best signature", test_magic_bingo_scan_preserves_best_signature_and_progress_calls),
         ("magic bingo best count", test_magic_bingo_scan_counts_multiple_best_scores),
+        ("magic bingo action", test_magic_bingo_action_preserves_legacy_thresholds),
         ("known chunk scan until IDAT", test_scan_known_chunks_until_idat_stops_at_first_idat),
         ("known chunk scan without IDAT", test_scan_known_chunks_until_idat_reports_no_idat),
         ("nearest found chunk", test_nearest_found_chunk_uses_lowest_offset_and_previous_length),
