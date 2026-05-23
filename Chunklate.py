@@ -39,13 +39,10 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, history, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, history, libpng_check, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer
 from chunklate.png import (
-    PngFormatError,
     chunk_type_crc_matches,
     detect_png_signature_recovery,
-    iter_chunks,
-    known_bad_srgb_profile_warning,
     legacy_crc_checkpoint_args,
     legacy_crc_decision,
     legacy_crc_debug_lines,
@@ -2802,31 +2799,13 @@ def NullFind(data, search4=None):
 
 def LibpngCheck(file):
     Candy("Title", "Libpng Returned :%s" % (Candy("Color", "white", Sample_Name)))
-    if cv2 is not None:
-        f = io.BytesIO()
-        with stderr_redirector(f):
-            cv2.imread(file)
-        result = "{0}".format(f.getvalue().decode("utf-8"))
-    elif Image is not None:
-        try:
-            with Image.open(file) as img:
-                img.verify()
-            result = ""
-        except Exception as e:
-            result = "libpng error: %s" % e
-    else:
-        try:
-            with open(file, "rb") as png_file:
-                chunks = list(iter_chunks(png_file.read()))
-            if not chunks or chunks[-1].chunk_type != b"IEND" or not all(chunk.crc_ok for chunk in chunks):
-                result = "libpng error: invalid PNG chunk stream"
-            else:
-                result = ""
-        except (OSError, PngFormatError) as e:
-            result = "libpng error: %s" % e
-    known_bad_srgb_warning = KnownBadSrgbProfileWarning(file)
-    if known_bad_srgb_warning and "known incorrect sRGB profile" not in result:
-        result = (result + "\n" if result else "") + known_bad_srgb_warning
+    result = libpng_check.libpng_result(
+        file,
+        cv2_module=cv2,
+        image_module=Image,
+        stderr_redirector=stderr_redirector,
+        warning_reader=KnownBadSrgbProfileWarning,
+    )
     PRINT("Result:%s"%result)
     if not any(s in result for s in LIBPNG_ERR):
         PRINT(
@@ -2854,11 +2833,7 @@ def LibpngCheck(file):
 
 
 def KnownBadSrgbProfileWarning(file):
-    try:
-        with open(file, "rb") as png_file:
-            return known_bad_srgb_profile_warning(png_file.read())
-    except OSError:
-        return ""
+    return libpng_check.known_bad_srgb_profile_warning_for_file(file)
 
 
 def Double_Check(CType, ChunkLen, LastCType):
