@@ -647,6 +647,204 @@ def test_relics_runtime_applies_no_pandemonium_repair_decisions():
     assert [call[0] for call in calls] == ["brawl", "forcer"]
 
 
+def test_relics_runtime_handles_no_pandemonium_getinfo_flow():
+    calls = []
+    emitted = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)) or "brawl",
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    class FakeUi:
+        @staticmethod
+        def say_no_pandemonium_intro(*, emit, candy):
+            calls.append(("ui", "intro"))
+
+        @staticmethod
+        def emit_prompt_context_hits(prompt_context, *, emit):
+            calls.append(("ui", "hits", prompt_context.print_hits))
+
+        @staticmethod
+        def say_no_pandemonium_getinfo(*, skip_bad_crc, candy):
+            calls.append(("ui", "getinfo", skip_bad_crc))
+
+        @staticmethod
+        def say_no_pandemonium_forcer(*, candy):
+            calls.append(("ui", "forcer"))
+
+        @staticmethod
+        def say_no_pandemonium_failure(*, candy):
+            calls.append(("ui", "failure"))
+
+    result = relics_runtime.handle_no_pandemonium_flow(
+        runtime,
+        relics,
+        FakeUi,
+        policy=relics.NoPandemoniumPolicy(
+            action="getinfo_brawl",
+            chunk_name="IDAT",
+            struct_index_errors=("StructIndex:0", "StructIndex:1", "StructIndex:2"),
+        ),
+        prompt_context=relics.NoPandemoniumPromptContext(
+            "getinfo_brawl",
+            ("hit-0", "hit-1"),
+        ),
+        chunks_history=[b"IHDR", b"IDAT"],
+        chunks_history_index=["0:8:21", "1:33:277"],
+        target_file="sample.png",
+        from_error="GetInfo",
+        chunks_len_not_fixed=[],
+        skip_bad_crc=False,
+        ask=lambda: True,
+        emit=emitted.append,
+        candy=lambda *args: None,
+        the_end=lambda: calls.append(("end", (), {})),
+    )
+
+    assert result == "brawl"
+    assert calls == [
+        ("ui", "intro"),
+        ("ui", "hits", ("hit-0", "hit-1")),
+        ("ui", "getinfo", False),
+        ("brawl", ("sample.png", "IDAT", 277, 33, "GetInfo"), {"BfMode": "Brutus"}),
+    ]
+
+
+def test_relics_runtime_handles_no_pandemonium_forcer_flow():
+    calls = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: None,
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: calls.append(("forcer", args, kwargs)) or "forcer",
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    class FakeUi:
+        @staticmethod
+        def say_no_pandemonium_intro(*, emit, candy):
+            calls.append(("ui", "intro"))
+
+        @staticmethod
+        def emit_prompt_context_hits(prompt_context, *, emit):
+            calls.append(("ui", "hits", prompt_context.print_hits))
+
+        @staticmethod
+        def say_no_pandemonium_getinfo(*, skip_bad_crc, candy):
+            calls.append(("ui", "getinfo", skip_bad_crc))
+
+        @staticmethod
+        def say_no_pandemonium_forcer(*, candy):
+            calls.append(("ui", "forcer"))
+
+        @staticmethod
+        def say_no_pandemonium_failure(*, candy):
+            calls.append(("ui", "failure"))
+
+    result = relics_runtime.handle_no_pandemonium_flow(
+        runtime,
+        relics,
+        FakeUi,
+        policy=relics.NoPandemoniumPolicy(
+            action="full_chunk_forcer",
+            known_chunk_route=relics.GetInfoChunkRoute("GetInfo_Error_0:tEXt", "tEXt"),
+        ),
+        prompt_context=relics.NoPandemoniumPromptContext(
+            "full_chunk_forcer",
+            ("hit-0",),
+        ),
+        chunks_history=["IHDR", "tEXt"],
+        chunks_history_index=["0:8:21", "1:33:277"],
+        target_file="sample.png",
+        from_error="GetInfo",
+        chunks_len_not_fixed=[],
+        skip_bad_crc=True,
+        ask=lambda: True,
+        emit=lambda value: calls.append(("emit", (value,), {})),
+        candy=lambda *args: None,
+        the_end=lambda: calls.append(("end", (), {})),
+    )
+
+    assert result == "forcer"
+    assert calls == [
+        ("ui", "intro"),
+        ("ui", "hits", ("hit-0",)),
+        ("ui", "forcer"),
+        ("forcer", ("sample.png", "tEXt", 33, 277, "GetInfo"), {}),
+    ]
+
+
+def test_relics_runtime_handles_no_pandemonium_failure_flow():
+    class StopLegacyEnd(Exception):
+        pass
+
+    calls = []
+
+    class FakeUi:
+        @staticmethod
+        def say_no_pandemonium_intro(*, emit, candy):
+            calls.append(("ui", "intro"))
+
+        @staticmethod
+        def emit_prompt_context_hits(prompt_context, *, emit):
+            calls.append(("ui", "hits"))
+
+        @staticmethod
+        def say_no_pandemonium_getinfo(*, skip_bad_crc, candy):
+            calls.append(("ui", "getinfo"))
+
+        @staticmethod
+        def say_no_pandemonium_forcer(*, candy):
+            calls.append(("ui", "forcer"))
+
+        @staticmethod
+        def say_no_pandemonium_failure(*, candy):
+            calls.append(("ui", "failure"))
+
+    def stop_end():
+        calls.append(("end", (), {}))
+        raise StopLegacyEnd()
+
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: None,
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    try:
+        relics_runtime.handle_no_pandemonium_flow(
+            runtime,
+            relics,
+            FakeUi,
+            policy=None,
+            prompt_context=None,
+            chunks_history=[],
+            chunks_history_index=[],
+            target_file="sample.png",
+            from_error="GetInfo",
+            chunks_len_not_fixed=[],
+            skip_bad_crc=False,
+            ask=lambda: True,
+            emit=lambda value: calls.append(("emit", (value,), {})),
+            candy=lambda *args: None,
+            the_end=stop_end,
+        )
+    except StopLegacyEnd:
+        pass
+    else:
+        raise AssertionError("no-Pandemonium failure should call the legacy end callback")
+
+    assert calls == [("ui", "intro"), ("ui", "failure"), ("end", (), {})]
+
+
 def main():
     checks = [
         ("RelicsRuntime keeps callbacks", test_relics_runtime_keeps_legacy_callbacks),
@@ -679,6 +877,18 @@ def main():
         (
             "RelicsRuntime applies no-Pandemonium repair decisions",
             test_relics_runtime_applies_no_pandemonium_repair_decisions,
+        ),
+        (
+            "RelicsRuntime handles no-Pandemonium GetInfo flow",
+            test_relics_runtime_handles_no_pandemonium_getinfo_flow,
+        ),
+        (
+            "RelicsRuntime handles no-Pandemonium forcer flow",
+            test_relics_runtime_handles_no_pandemonium_forcer_flow,
+        ),
+        (
+            "RelicsRuntime handles no-Pandemonium failure flow",
+            test_relics_runtime_handles_no_pandemonium_failure_flow,
         ),
     ]
 

@@ -286,6 +286,71 @@ def apply_no_pandemonium_repair_decision(
     )
 
 
+def handle_no_pandemonium_flow(
+    runtime: RelicsRuntime,
+    relics_module: Any,
+    ui_module: Any,
+    *,
+    policy: Any = None,
+    prompt_context: Any = None,
+    chunks_history: Any,
+    chunks_history_index: Any,
+    target_file: Any,
+    from_error: Any,
+    chunks_len_not_fixed: Any,
+    skip_bad_crc: bool,
+    ask: Callable[[], Any],
+    emit: Callable[[str], Any],
+    candy: LegacyCall,
+    the_end: Callable[[], Any],
+) -> Any:
+    ui_module.say_no_pandemonium_intro(emit=emit, candy=candy)
+
+    if policy is not None and prompt_context is not None:
+        if prompt_context.action == "getinfo_brawl":
+            ui_module.emit_prompt_context_hits(prompt_context, emit=emit)
+            ui_module.say_no_pandemonium_getinfo(
+                skip_bad_crc=skip_bad_crc,
+                candy=candy,
+            )
+            should_return, result = apply_no_pandemonium_repair_decision(
+                runtime,
+                relics_module.no_pandemonium_repair_decision(
+                    policy,
+                    chunks_history,
+                    chunks_history_index,
+                    target_file=target_file,
+                    from_error=from_error,
+                    chunks_len_not_fixed=chunks_len_not_fixed,
+                    answer=ask(),
+                ),
+            )
+            if should_return:
+                return result
+
+        elif prompt_context.action == "full_chunk_forcer":
+            ui_module.emit_prompt_context_hits(prompt_context, emit=emit)
+            ui_module.say_no_pandemonium_forcer(candy=candy)
+
+            should_return, result = apply_no_pandemonium_repair_decision(
+                runtime,
+                relics_module.no_pandemonium_repair_decision(
+                    policy,
+                    chunks_history,
+                    chunks_history_index,
+                    target_file=target_file,
+                    from_error=from_error,
+                    chunks_len_not_fixed=chunks_len_not_fixed,
+                    answer=ask(),
+                ),
+            )
+            if should_return:
+                return result
+
+    ui_module.say_no_pandemonium_failure(candy=candy)
+    the_end()
+
+
 def ask_plte_repair(runtime: RelicsRuntime, relics_module: Any, has_bad_crc: bool) -> Any:
     return runtime.ask_choice(
         relics_module.plte_repair_prompt(has_bad_crc),

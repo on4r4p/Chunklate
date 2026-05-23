@@ -4812,13 +4812,6 @@ def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
         )
 
 
-def Relics_Apply_No_Pandemonium_Repair_Decision(NoPandemoniumDecision):
-    return relics_runtime.apply_no_pandemonium_repair_decision(
-        Relics_Runtime(),
-        NoPandemoniumDecision,
-    )
-
-
 def Relics_Handle_Plte():
     PlteFinding = relics.first_current_plte_repair_finding(
         PandoraBox,
@@ -4903,8 +4896,8 @@ def Relics_Handle_Remembered_Dummy_Chunks(FromError):
 
 
 def Relics_Handle_No_Pandemonium(FromError):
-    relics_ui.say_no_pandemonium_intro(emit=PRINT, candy=Candy)
-
+    RelicsPolicy = None
+    PromptContext = None
     if len(PandoraBox) > 0:
         RelicsPolicy = relics.no_pandemonium_policy(PandoraBox, CRITICAL_CHUNKS, ALLCHUNKS)
         PromptContext = relics.no_pandemonium_prompt_context(
@@ -4912,48 +4905,23 @@ def Relics_Handle_No_Pandemonium(FromError):
             PandoraBox,
         )
 
-        if PromptContext.action == "getinfo_brawl":
-            relics_ui.emit_prompt_context_hits(PromptContext, emit=PRINT)
-            relics_ui.say_no_pandemonium_getinfo(
-                skip_bad_crc=Skip_Bad_Crc,
-                candy=Candy,
-            )
-            Answer = Question()
-            should_return, result = Relics_Apply_No_Pandemonium_Repair_Decision(
-                relics.no_pandemonium_repair_decision(
-                    RelicsPolicy,
-                    Chunks_History,
-                    Chunks_History_Index,
-                    target_file=Sample_Name,
-                    from_error=FromError,
-                    chunks_len_not_fixed=CHUNKS_LEN_NOT_FIXED,
-                    answer=Answer,
-                )
-            )
-            if should_return:
-                return result
-
-        elif PromptContext.action == "full_chunk_forcer":
-            relics_ui.emit_prompt_context_hits(PromptContext, emit=PRINT)
-            relics_ui.say_no_pandemonium_forcer(candy=Candy)
-
-            Answer = Question()
-            should_return, result = Relics_Apply_No_Pandemonium_Repair_Decision(
-                relics.no_pandemonium_repair_decision(
-                    RelicsPolicy,
-                    Chunks_History,
-                    Chunks_History_Index,
-                    target_file=Sample_Name,
-                    from_error=FromError,
-                    chunks_len_not_fixed=CHUNKS_LEN_NOT_FIXED,
-                    answer=Answer,
-                )
-            )
-            if should_return:
-                return result
-
-    relics_ui.say_no_pandemonium_failure(candy=Candy)
-    TheEnd()
+    return relics_runtime.handle_no_pandemonium_flow(
+        Relics_Runtime(),
+        relics,
+        relics_ui,
+        policy=RelicsPolicy,
+        prompt_context=PromptContext,
+        chunks_history=Chunks_History,
+        chunks_history_index=Chunks_History_Index,
+        target_file=Sample_Name,
+        from_error=FromError,
+        chunks_len_not_fixed=CHUNKS_LEN_NOT_FIXED,
+        skip_bad_crc=Skip_Bad_Crc,
+        ask=Question,
+        emit=PRINT,
+        candy=Candy,
+        the_end=TheEnd,
+    )
 
 
 def Relics_Handle_Pandemonium(FromError):
