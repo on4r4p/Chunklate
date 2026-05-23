@@ -4087,7 +4087,7 @@ def SpecLength(chunk_name, chunk_length=None):
           PRINT(Candy("Color", "yellow", "\n-ToDotuple"))
           TheEnd()
     else:
-          real_length = hex(int(chunklen_spec/2)).replace("0x", "").zfill(8)
+          real_length = specs.spec_length_hex(chunklen_spec)
           if not chunk_length:
                 return real_length
 

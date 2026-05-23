@@ -372,6 +372,11 @@ def test_random_sample_hex_returns_none_when_no_candidate_is_selected():
     ) is None
 
 
+def test_spec_length_hex_preserves_legacy_half_length_formatting():
+    assert specs.spec_length_hex(26) == "0000000d"
+    assert specs.spec_length_hex(3) == "00000001"
+
+
 def test_color_type_label_uses_safe_ihdr_color_and_brute_level():
     assert specs.color_type_label(
         b"IHDR",
@@ -477,6 +482,7 @@ def main():
         ("Minres product", test_iter_product_values_expands_minres_width_height_pairs),
         ("Random sample selected candidate", test_random_sample_hex_uses_first_randomly_selected_candidate),
         ("Random sample no candidate", test_random_sample_hex_returns_none_when_no_candidate_is_selected),
+        ("Spec length hex", test_spec_length_hex_preserves_legacy_half_length_formatting),
         ("Safe color type", test_color_type_label_uses_safe_ihdr_color_and_brute_level),
         ("Custom minres", test_color_type_label_preserves_custom_minres_when_width_height_unknown),
         ("Unsafe color type", test_color_type_label_falls_back_when_ihdr_is_unsafe),

@@ -1001,6 +1001,10 @@ def random_sample_hex(data: Any, color_type: str, chunk_format: Any, random_floa
     return None
 
 
+def spec_length_hex(chunk_length_spec: int) -> str:
+    return hex(int(chunk_length_spec / 2)).replace("0x", "").zfill(8)
+
+
 def ihdr_state_is_safe(
     pandora_box: dict[Any, Any],
     cornucopia: dict[Any, Any],
