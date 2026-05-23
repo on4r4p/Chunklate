@@ -110,6 +110,95 @@ def test_spec_request_kwargs_matches_legacy_getspec_keyword_shape():
     assert bruteforce.spec_request_kwargs(bruteforce.BruteForceSpecRequest(mode="Brutus")) == {}
 
 
+def test_prepare_runtime_plan_loads_initial_spec_and_side_note():
+    calls = []
+
+    def load_spec(request):
+        calls.append(request)
+        return (8, ("B",))
+
+    plan = bruteforce.prepare_runtime_plan("Custom", b"IHDR", {}, load_spec)
+
+    assert calls == [bruteforce.BruteForceSpecRequest(mode="Brutus", fields=("Length", "Format"))]
+    assert plan == bruteforce.BruteForceRuntimePlan(
+        mode="Brutus",
+        struct_indexes=(),
+        length_range=bruteforce.BruteForceLengthRange(8, 9, 1),
+        side_note=bruteforce.CUSTOM_TO_BRUTUS_NOTE,
+    )
+
+
+def test_prepare_runtime_plan_preserves_custom_full_initial_spec():
+    pandora_box = {"Check_Error_0:IHDR Width StructIndex:0": {}}
+    calls = []
+
+    def load_spec(request):
+        calls.append(request)
+        return (10, 1, (2, 6), ("B",), [0], "2")
+
+    plan = bruteforce.prepare_runtime_plan("Custom", b"IHDR", pandora_box, load_spec)
+
+    assert calls == [bruteforce.BruteForceSpecRequest(mode="Custom", struct_indexes=(0,))]
+    assert plan == bruteforce.BruteForceRuntimePlan(
+        mode="Custom",
+        struct_indexes=(0,),
+        length_range=bruteforce.BruteForceLengthRange(2, 6, 2),
+    )
+
+
+def test_load_iteration_spec_uses_legacy_request_shape():
+    calls = []
+
+    def load_spec(request):
+        calls.append(request)
+        return "loaded"
+
+    assert bruteforce.load_iteration_spec("Custom", (1,), 3, load_spec) == "loaded"
+    assert calls == [
+        bruteforce.BruteForceSpecRequest(
+            mode="Custom",
+            struct_indexes=(1,),
+            iter_nbr=3,
+        )
+    ]
+
+
+def test_register_image_viewers_preserves_legacy_order():
+    class FakeImageShow:
+        def __init__(self):
+            self.calls = []
+
+        class EogViewer:
+            pass
+
+        class XDGViewer:
+            pass
+
+        class DisplayViewer:
+            pass
+
+        class XVViewer:
+            pass
+
+        class GmDisplayViewer:
+            pass
+
+        def register(self, viewer, order):
+            self.calls.append((viewer.__class__.__name__, order))
+
+    image_show = FakeImageShow()
+
+    bruteforce.register_image_viewers(image_show)
+
+    assert image_show.calls == [
+        ("EogViewer", 1),
+        ("XDGViewer", -3),
+        ("DisplayViewer", -2),
+        ("XVViewer", -1),
+        ("GmDisplayViewer", 0),
+    ]
+
+
 def test_build_full_new_data_preserves_brutecfg_combinations():
     chunk_name = b"gAMA"
     length = b"\x00\x00\x00\x04"
@@ -761,6 +850,10 @@ def main():
         ("Initial spec request", test_initial_spec_request_preserves_custom_full_and_noncustom_short_specs),
         ("Iteration spec request", test_iteration_spec_request_preserves_struct_indexes_and_iter_nbr),
         ("Spec request kwargs", test_spec_request_kwargs_matches_legacy_getspec_keyword_shape),
+        ("Prepare runtime plan fallback", test_prepare_runtime_plan_loads_initial_spec_and_side_note),
+        ("Prepare runtime plan custom", test_prepare_runtime_plan_preserves_custom_full_initial_spec),
+        ("Load iteration spec", test_load_iteration_spec_uses_legacy_request_shape),
+        ("Register image viewers", test_register_image_viewers_preserves_legacy_order),
         ("Build full new data", test_build_full_new_data_preserves_brutecfg_combinations),
         ("Chunk CRC", test_chunk_crc_matches_legacy_struct_crc32),
         ("Assemble candidate PNG", test_assemble_candidate_png_preserves_legacy_concatenation),

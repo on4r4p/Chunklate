@@ -2145,38 +2145,33 @@ def SmashBruteBrawl(
         return True
 
 
-    ImageShow.register(ImageShow.EogViewer(),1)
-    ImageShow.register(ImageShow.XDGViewer(),-3)
-    ImageShow.register(ImageShow.DisplayViewer(),-2)
-    ImageShow.register(ImageShow.XVViewer(),-1)
-    ImageShow.register(ImageShow.GmDisplayViewer(),0)
+    bruteforce.register_image_viewers(ImageShow)
 
 
 
     OldCrc = bruteforce.normalize_old_crc(OldCrc)
 
-    ModePlan = bruteforce.resolve_mode(BfMode, ChunkName, PandoraBox)
-    BfMode = ModePlan.mode
-    Sti = ModePlan.struct_indexes
-    if ModePlan.side_note is not None:
-        SideNotes.append(ModePlan.side_note)
+    RuntimePlan = bruteforce.prepare_runtime_plan(
+        BfMode,
+        ChunkName,
+        PandoraBox,
+        LoadSpec,
+    )
+    BfMode = RuntimePlan.mode
+    Sti = RuntimePlan.struct_indexes
+    if RuntimePlan.side_note is not None:
+        SideNotes.append(RuntimePlan.side_note)
 
-    InitialSpecRequest = bruteforce.initial_spec_request(BfMode, Sti)
-    InitialSpec = LoadSpec(InitialSpecRequest)
-    if InitialSpecRequest.fields:
-         chunklen_spec,chunk_format = InitialSpec
-    else:
-         max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = InitialSpec
-
-    LengthRange = bruteforce.length_range(chunklen_spec)
+    LengthRange = RuntimePlan.length_range
     maxchunklen = LengthRange.max_length
     minchunklen = LengthRange.min_length
     step = LengthRange.step
 
     if DEBUG is True:
 
-        DebugSpecRequest = bruteforce.iteration_spec_request(BfMode, Sti)
-        max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = LoadSpec(DebugSpecRequest)
+        max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = (
+            bruteforce.load_iteration_spec(BfMode, Sti, None, LoadSpec)
+        )
 
         PRINT("File:%s"% File)
         PRINT("ChunkName:%s"% ChunkName)
@@ -2202,8 +2197,9 @@ def SmashBruteBrawl(
         Std = datetime.now()
         IterNbr = bruteforce.iter_nbr_for_length(ln, step, n)
 
-        SpecRequest = bruteforce.iteration_spec_request(BfMode, Sti, IterNbr)
-        max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = LoadSpec(SpecRequest)
+        max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = (
+            bruteforce.load_iteration_spec(BfMode, Sti, IterNbr, LoadSpec)
+        )
 
         Loadingbar(
             max_iter, len_iter, None, True

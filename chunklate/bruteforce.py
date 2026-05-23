@@ -121,6 +121,14 @@ class BruteForceViewerWaitState:
     done: bool
 
 
+@dataclass(frozen=True)
+class BruteForceRuntimePlan:
+    mode: str
+    struct_indexes: tuple[int, ...]
+    length_range: BruteForceLengthRange
+    side_note: str | None = None
+
+
 def normalize_old_crc(old_crc: Any) -> Any:
     if old_crc:
         try:
@@ -229,6 +237,45 @@ def spec_request_kwargs(request: BruteForceSpecRequest) -> dict[str, Any]:
     if request.iter_nbr is not None:
         kwargs["IterNbr"] = request.iter_nbr
     return kwargs
+
+
+def prepare_runtime_plan(
+    bf_mode: str,
+    chunk_name: bytes,
+    pandora_box: Mapping[Any, Any],
+    load_spec: Any,
+) -> BruteForceRuntimePlan:
+    mode_plan = resolve_mode(bf_mode, chunk_name, pandora_box)
+    initial_request = initial_spec_request(mode_plan.mode, mode_plan.struct_indexes)
+    initial_spec = load_spec(initial_request)
+    if initial_request.fields:
+        chunk_length_spec = initial_spec[0]
+    else:
+        chunk_length_spec = initial_spec[2]
+
+    return BruteForceRuntimePlan(
+        mode=mode_plan.mode,
+        struct_indexes=mode_plan.struct_indexes,
+        length_range=length_range(chunk_length_spec),
+        side_note=mode_plan.side_note,
+    )
+
+
+def load_iteration_spec(
+    mode: str,
+    struct_indexes: tuple[int, ...] | list[int],
+    iter_nbr: int | None,
+    load_spec: Any,
+):
+    return load_spec(iteration_spec_request(mode, struct_indexes, iter_nbr))
+
+
+def register_image_viewers(image_show_module: Any) -> None:
+    image_show_module.register(image_show_module.EogViewer(), 1)
+    image_show_module.register(image_show_module.XDGViewer(), -3)
+    image_show_module.register(image_show_module.DisplayViewer(), -2)
+    image_show_module.register(image_show_module.XVViewer(), -1)
+    image_show_module.register(image_show_module.GmDisplayViewer(), 0)
 
 
 def build_full_new_data(
