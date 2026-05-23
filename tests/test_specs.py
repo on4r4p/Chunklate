@@ -90,6 +90,28 @@ def test_expand_spec_values_preserves_tuple_length_multiplication():
     )
 
 
+def test_apply_custom_spec_selection_counts_selected_fields_and_minres_pair():
+    assert specs.apply_custom_spec_selection(
+        ((1, 2, 3), (4, 5), (6,)),
+        (0, 1),
+        7,
+    ) == (
+        42,
+        ((1, 2, 3), (4, 5)),
+    )
+
+
+def test_apply_custom_spec_selection_skips_minres_when_width_height_pair_is_incomplete():
+    assert specs.apply_custom_spec_selection(
+        ((1, 2, 3), (4, 5), (6,)),
+        (1,),
+        7,
+    ) == (
+        2,
+        ((4, 5),),
+    )
+
+
 def test_estimate_idat_bytes_from_hex_preserves_legacy_scan():
     single = PNG_SIGNATURE + build_png_chunk(b"IDAT", b"abc") + IEND_CHUNK
     multiple = (
@@ -211,6 +233,8 @@ def main():
         ("Expand chunk data item", test_expand_chunk_data_item_preserves_legacy_range_and_tuple_conversion),
         ("Expand spec values", test_expand_spec_values_preserves_legacy_iteration_expansion),
         ("Expand spec tuple length", test_expand_spec_values_preserves_tuple_length_multiplication),
+        ("Custom spec selection", test_apply_custom_spec_selection_counts_selected_fields_and_minres_pair),
+        ("Custom spec selection partial", test_apply_custom_spec_selection_skips_minres_when_width_height_pair_is_incomplete),
         ("IDAT bytes estimate", test_estimate_idat_bytes_from_hex_preserves_legacy_scan),
         ("Regular product", test_iter_product_values_preserves_regular_product),
         ("Minres product", test_iter_product_values_expands_minres_width_height_pairs),

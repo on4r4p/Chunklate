@@ -1096,23 +1096,11 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
                         )
 
                         if Mode =="Custom":
-                            CustomProduct = []
-                            CustomStruct = []
-                            for s in StructIndex:
-                                Double,Dragon = itertools.tee(chunk_data[s])
-                                CustomProduct.append(Double)
-                                CustomStruct.append(tuple(Dragon)) ##TempFix 
-                            Csprod = 1
-
-                            for cp in CustomProduct:
-                                   for n,p in enumerate(cp):pass
-                                   Csprod *= n+1
-
-                            if 0 in StructIndex and 1 in StructIndex: 
-                                 Csprod *= Mnr
-
-                            product = Csprod
-                            chunk_data = tuple(CustomStruct)
+                            product, chunk_data = specs.apply_custom_spec_selection(
+                                chunk_data,
+                                StructIndex,
+                                Mnr,
+                            )
 
 
                         to_return = []

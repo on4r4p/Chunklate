@@ -225,6 +225,30 @@ def expand_spec_values(
     return product, chunk_length_spec, tuple(expanded_format), tuple(expanded_data)
 
 
+def apply_custom_spec_selection(
+    chunk_data: tuple[tuple[Any, ...], ...],
+    struct_index: Any,
+    min_resolution: int,
+) -> tuple[int, tuple[tuple[Any, ...], ...]]:
+    custom_product = []
+    custom_struct = []
+    for index in struct_index:
+        double, dragon = itertools.tee(chunk_data[index])
+        custom_product.append(double)
+        custom_struct.append(tuple(dragon))
+
+    custom_count = 1
+    for item in custom_product:
+        for count, _ in enumerate(item):
+            pass
+        custom_count *= count + 1
+
+    if 0 in struct_index and 1 in struct_index:
+        custom_count *= min_resolution
+
+    return custom_count, tuple(custom_struct)
+
+
 def estimate_idat_bytes_from_hex(data_hex: str, known_chunks: tuple[bytes, ...] = CHUNKS) -> int:
     byte_count = 0
     last_byte_count = 0
