@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import itertools
 import math
 import os
+import struct
 from typing import Any
 
 
@@ -981,6 +982,23 @@ def iter_product_values(chunk_data: Any, color_type: str):
                     yield height_first
         else:
             yield candidate
+
+
+def random_sample_hex(data: Any, color_type: str, chunk_format: Any, random_float) -> str | None:
+    bvalue = b""
+    idx = 0
+    lncf = len(chunk_format) - 1
+    for candidate in iter_product_values(data, color_type):
+        if random_float() < 0.5:
+            for item in candidate:
+                if idx < lncf:
+                    bvalue += struct.pack(chunk_format[idx], int(item))
+                    idx += 1
+                else:
+                    bvalue += struct.pack(chunk_format[idx], int(item))
+                    idx = 0
+            return bvalue.hex()
+    return None
 
 
 def ihdr_state_is_safe(

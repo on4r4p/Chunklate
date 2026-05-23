@@ -22,7 +22,7 @@ try:
 except ModuleNotFoundError:
     tkinter = None
 
-import sys, os, binascii, random, time, zlib, struct,io, inspect, types, difflib, collections, itertools, shutil
+import sys, os, binascii, random, time, zlib, io, inspect, types, difflib, collections, itertools, shutil
 
 try:
     import cv2
@@ -2900,20 +2900,7 @@ def Double_Check(CType, ChunkLen, LastCType):
 
 
 def RandomSample(data,colortype,chunk_format):
-    generator = Product(data,colortype)
-    bvalue = b""
-    idx = 0
-    lncf = len(chunk_format)-1
-    for g in generator:
-       if random.random() < 0.5:
-              for j in g:
-                  if idx < lncf:
-                          bvalue += struct.pack(chunk_format[idx],int(j))
-                          idx += 1
-                  else:
-                          bvalue += struct.pack(chunk_format[idx],int(j))
-                          idx = 0
-              return(bvalue.hex())
+    return specs.random_sample_hex(data, colortype, chunk_format, random.random)
 
 
 def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_pos is not used well enough

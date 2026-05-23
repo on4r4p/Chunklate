@@ -352,6 +352,26 @@ def test_iter_product_values_expands_minres_width_height_pairs():
     ]
 
 
+def test_random_sample_hex_uses_first_randomly_selected_candidate():
+    calls = iter((0.9, 0.4))
+
+    assert specs.random_sample_hex(
+        [(1,), (2, 3)],
+        "nocolortype",
+        ("!B", "!B"),
+        lambda: next(calls),
+    ) == "0103"
+
+
+def test_random_sample_hex_returns_none_when_no_candidate_is_selected():
+    assert specs.random_sample_hex(
+        [(1,), (2,)],
+        "nocolortype",
+        ("!B", "!B"),
+        lambda: 0.9,
+    ) is None
+
+
 def test_color_type_label_uses_safe_ihdr_color_and_brute_level():
     assert specs.color_type_label(
         b"IHDR",
@@ -455,6 +475,8 @@ def main():
         ("IDAT bytes estimate", test_estimate_idat_bytes_from_hex_preserves_legacy_scan),
         ("Regular product", test_iter_product_values_preserves_regular_product),
         ("Minres product", test_iter_product_values_expands_minres_width_height_pairs),
+        ("Random sample selected candidate", test_random_sample_hex_uses_first_randomly_selected_candidate),
+        ("Random sample no candidate", test_random_sample_hex_returns_none_when_no_candidate_is_selected),
         ("Safe color type", test_color_type_label_uses_safe_ihdr_color_and_brute_level),
         ("Custom minres", test_color_type_label_preserves_custom_minres_when_width_height_unknown),
         ("Unsafe color type", test_color_type_label_falls_back_when_ihdr_is_unsafe),
