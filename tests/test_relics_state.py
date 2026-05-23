@@ -339,6 +339,55 @@ def test_relics_module_builds_plte_brawl_plan():
     assert relics.plte_brawl_plan(window, target_file="sample.png").old_crc is None
 
 
+def test_relics_module_selects_plte_repair_decisions():
+    window = relics.PlteChunkWindow(b"PLTE", 33, 801)
+
+    assert relics.plte_repair_decision(
+        "manually",
+        window,
+        target_file="sample.png",
+    ) == relics.PlteRepairDecision(
+        "manual",
+        relics.PlteManualPlan("sample.png", b"PLTE", 801, 33, "-PLTE Wrong Data"),
+    )
+    assert relics.plte_repair_decision(
+        "remove",
+        window,
+        target_file="sample.png",
+    ) == relics.PlteRepairDecision(
+        "remove",
+        relics.PlteRemovePlan(33, 801, "-PLTE Chunk Removed."),
+    )
+    assert relics.plte_repair_decision(
+        "bruteforce",
+        window,
+        target_file="sample.png",
+        old_crc="oldcrc",
+    ) == relics.PlteRepairDecision(
+        "brawl",
+        relics.PlteBrawlPlan(
+            "sample.png",
+            b"PLTE",
+            801,
+            33,
+            "-PLTE Wrong Data",
+            "Insert",
+            "oldcrc",
+        ),
+    )
+    assert relics.plte_repair_decision(
+        "quit",
+        window,
+        target_file="sample.png",
+        quit_note="-User chose to quit.",
+    ) == relics.PlteRepairDecision("quit", side_note="-User chose to quit.")
+    assert relics.plte_repair_decision(
+        "manually",
+        None,
+        target_file="sample.png",
+    ) == relics.PlteRepairDecision("none")
+
+
 def test_relics_module_builds_idat_wrong_crc_brawl_plan():
     route = relics.WrongCrcRoute(
         source="sample.0_Fixed.png",
@@ -875,6 +924,7 @@ def main():
         ("Relics module builds PLTE manual plan", test_relics_module_builds_plte_manual_plan),
         ("Relics module builds PLTE remove plan", test_relics_module_builds_plte_remove_plan),
         ("Relics module builds PLTE brawl plan", test_relics_module_builds_plte_brawl_plan),
+        ("Relics module selects PLTE repair decisions", test_relics_module_selects_plte_repair_decisions),
         ("Relics module builds IDAT wrong CRC brawl plan", test_relics_module_builds_idat_wrong_crc_brawl_plan),
         (
             "Relics module builds non-IDAT wrong CRC brawl plan",

@@ -319,7 +319,7 @@ def CheckPoint_SmashBruteBrawl_Handle_TwoBytes_Decline(info, toolkit):
                 DummyChunk(toolkit[1], toolkit[3], toolkit[3], toolkit[2], toolkit[8])
             return False, None
 
-        SideNotes.append("-CheckPoint: %s User has chose to quit." % info)
+        SideNotes.append("-CheckPoint: %s User chose to quit." % info)
         TheEnd()
         return False, None
 
@@ -4866,6 +4866,33 @@ def Relics_Ask_Plte_Repair(has_bad_crc):
     )
 
 
+def Relics_Apply_Plte_Repair_Decision(PlteDecision):
+    if PlteDecision.action == "manual":
+        return True, relics_runtime.run_plte_manual_plan(
+            Relics_Runtime(),
+            PlteDecision.plan,
+        )
+
+    if PlteDecision.action == "remove":
+        return True, relics_runtime.run_plte_remove_plan(
+            Relics_Runtime(),
+            PlteDecision.plan,
+        )
+
+    if PlteDecision.action == "brawl":
+        return True, relics_runtime.run_plte_brawl_plan(
+            Relics_Runtime(),
+            PlteDecision.plan,
+        )
+
+    if PlteDecision.action == "quit":
+        if PlteDecision.side_note is not None:
+            SideNotes.append(PlteDecision.side_note)
+        TheEnd()
+
+    return False, None
+
+
 def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
     for WrongCrcRoute in relics.idat_wrong_crc_routes(
         relics.remembered_wrong_crc_routes(Pandemonium, ALLCHUNKS)
@@ -4923,23 +4950,16 @@ def Relics_Handle_Plte():
                     PlteWindow = relics.plte_chunk_window(
                         Chunks_History, Chunks_History_Index
                     )
-
-                    if Answer == "manually":
-                        if PlteWindow is not None:
-                            return True, relics_runtime.run_plte_manual_plan(Relics_Runtime(),
-                                relics.plte_manual_plan(
-                                    PlteWindow,
-                                    target_file=Sample_Name,
-                                )
-                            )
-                    elif Answer == "remove":
-                        if PlteWindow is not None:
-                            return True, relics_runtime.run_plte_remove_plan(Relics_Runtime(),
-                                relics.plte_remove_plan(PlteWindow)
-                            )
-                    elif Answer == "quit":
-                        SideNotes.append("-User has chose to quit.")
-                        TheEnd()
+                    should_return, result = Relics_Apply_Plte_Repair_Decision(
+                        relics.plte_repair_decision(
+                            Answer,
+                            PlteWindow,
+                            target_file=Sample_Name,
+                            quit_note="-User chose to quit.",
+                        )
+                    )
+                    if should_return:
+                        return True, result
 
                 else:
 
@@ -4956,39 +4976,18 @@ def Relics_Handle_Plte():
                     PlteWindow = relics.plte_chunk_window(
                         Chunks_History, Chunks_History_Index
                     )
-
-                    if Answer == "bruteforce": ##Maybe ask Relic() first
-
-                        Crc_to_match = DATAX[CrcoffI:CrcoffI+8]
-
-                        if PlteWindow is not None:
-                            return True, relics_runtime.run_plte_brawl_plan(Relics_Runtime(),
-                                relics.plte_brawl_plan(
-                                    PlteWindow,
-                                    target_file=Sample_Name,
-                                    old_crc=Crc_to_match,
-                                )
-                            )
-
-                    elif Answer == "manually":
-
-                        if PlteWindow is not None:
-                            return True, relics_runtime.run_plte_manual_plan(Relics_Runtime(),
-                                relics.plte_manual_plan(
-                                    PlteWindow,
-                                    target_file=Sample_Name,
-                                )
-                            )
-
-                    elif Answer == "remove":
-                        if PlteWindow is not None:
-                            return True, relics_runtime.run_plte_remove_plan(Relics_Runtime(),
-                                relics.plte_remove_plan(PlteWindow)
-                            )
-
-                    elif Answer == "quit":
-                        SideNotes.append("-User ha chose to quit.")
-                        TheEnd()
+                    Crc_to_match = DATAX[CrcoffI:CrcoffI+8]
+                    should_return, result = Relics_Apply_Plte_Repair_Decision(
+                        relics.plte_repair_decision(
+                            Answer,
+                            PlteWindow,
+                            target_file=Sample_Name,
+                            old_crc=Crc_to_match,
+                            quit_note="-User chose to quit.",
+                        )
+                    )
+                    if should_return:
+                        return True, result
 
                 Candy(
                     "Cowsay",
@@ -5000,13 +4999,15 @@ def Relics_Handle_Plte():
                     PlteWindow = relics.plte_chunk_window(
                         Chunks_History, Chunks_History_Index
                     )
-                    if PlteWindow is not None:
-                        return True, relics_runtime.run_plte_brawl_plan(Relics_Runtime(),
-                            relics.plte_brawl_plan(
-                                PlteWindow,
-                                target_file=Sample_Name,
-                            )
+                    should_return, result = Relics_Apply_Plte_Repair_Decision(
+                        relics.plte_repair_decision(
+                            "bruteforce",
+                            PlteWindow,
+                            target_file=Sample_Name,
                         )
+                    )
+                    if should_return:
+                        return True, result
                 else:
                     TheEnd()
 

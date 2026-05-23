@@ -181,6 +181,13 @@ class PlteBrawlPlan:
     old_crc: Any = None
 
 
+@dataclass(frozen=True)
+class PlteRepairDecision:
+    action: str
+    plan: Any = None
+    side_note: str | None = None
+
+
 def chunk_label(chunk: Any) -> Any:
     if type(chunk) != bytes:
         return chunk
@@ -466,6 +473,38 @@ def plte_brawl_plan(
         edit_mode="Insert",
         old_crc=old_crc,
     )
+
+
+def plte_repair_decision(
+    answer: Any,
+    window: PlteChunkWindow | None,
+    *,
+    target_file: Any,
+    old_crc: Any = None,
+    quit_note: str | None = None,
+) -> PlteRepairDecision:
+    if answer == "quit":
+        return PlteRepairDecision("quit", side_note=quit_note)
+
+    if window is None:
+        return PlteRepairDecision("none")
+
+    if answer == "manually":
+        return PlteRepairDecision(
+            "manual",
+            plte_manual_plan(window, target_file=target_file),
+        )
+
+    if answer == "remove":
+        return PlteRepairDecision("remove", plte_remove_plan(window))
+
+    if answer == "bruteforce":
+        return PlteRepairDecision(
+            "brawl",
+            plte_brawl_plan(window, target_file=target_file, old_crc=old_crc),
+        )
+
+    return PlteRepairDecision("none")
 
 
 def remembered_sample_target(
