@@ -95,18 +95,6 @@ def Error_Log(Err_to_log):
 # - Cornucopia holds fixes already accepted by CheckPoint/FixItFelix.
 # - WriteClone snapshots those two stores into Pandemonium/ArkOfCovenant so
 #   Relics can react to the repair history when libpng reports a later failure.
-def Relic_Current_Wrong_Crc_Routes():
-    return relics.current_wrong_crc_routes(PandoraBox, Cornucopia, ALLCHUNKS)
-
-
-def Relic_Remembered_Wrong_Crc_Routes():
-    return relics.remembered_wrong_crc_routes(Pandemonium, ALLCHUNKS)
-
-
-def Relic_Remembered_Dummy_Chunk_Routes():
-    return relics.remembered_dummy_chunk_routes(Pandemonium, ALLCHUNKS, CRITICAL_CHUNKS)
-
-
 def Cornucopia_Tool(key, tool_prefix, index):
     return relics.tool_value(Cornucopia[key], tool_prefix, index)
 
@@ -4857,7 +4845,7 @@ def Relics_Print_Pandemonium_Summary():
 
 
 def Relics_Try_Current_Wrong_Crc_Fix():
-    for WrongCrcRoute in Relic_Current_Wrong_Crc_Routes():
+    for WrongCrcRoute in relics.current_wrong_crc_routes(PandoraBox, Cornucopia, ALLCHUNKS):
         key = WrongCrcRoute.error
         Chunkname = WrongCrcRoute.chunk_name
 
@@ -4989,7 +4977,9 @@ def Relics_Ask_Plte_Repair(has_bad_crc):
 
 
 def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
-    for WrongCrcRoute in relics.idat_wrong_crc_routes(Relic_Remembered_Wrong_Crc_Routes()):
+    for WrongCrcRoute in relics.idat_wrong_crc_routes(
+        relics.remembered_wrong_crc_routes(Pandemonium, ALLCHUNKS)
+    ):
         Candy(
             "Cowsay",
             "Perhaps that wasn't a Crc problem after all..",
@@ -5193,7 +5183,9 @@ def Relics_Handle_Single_Pandemonium(FromError):
 
 
 def Relics_Handle_Remembered_Dummy_Chunks(FromError):
-    for DummyRoute in Relic_Remembered_Dummy_Chunk_Routes():
+    for DummyRoute in relics.remembered_dummy_chunk_routes(
+        Pandemonium, ALLCHUNKS, CRITICAL_CHUNKS
+    ):
         DummyTools = Pandemonium_Dummy_Chunk_Tools(
             DummyRoute.source,
             DummyRoute.error,
