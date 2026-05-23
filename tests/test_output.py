@@ -167,6 +167,22 @@ def test_summary_separator_preserves_legacy_spacing():
     )
 
 
+def test_the_end_debug_lines_preserve_legacy_values():
+    lines = output.the_end_debug_lines(
+        ["-1:0:8:13", "0:8:20:4"],
+        3,
+        [b"IHDR", b"IDAT"],
+        123,
+    )
+
+    assert lines == [
+        "Chnks nbr:2",
+        "idacounter:3",
+        [b"IHDR", b"IDAT"],
+        "IDAT_Bytes_Len:123",
+    ]
+
+
 def main():
     tmpdir = tempfile.TemporaryDirectory()
     tmp_path = Path(tmpdir.name)
@@ -179,6 +195,7 @@ def main():
         ("Summary body preserves notes", test_summary_body_preserves_legacy_note_layout),
         ("Summary footer preserves sections", test_render_summary_footer_preserves_legacy_sections),
         ("Summary separator preserves spacing", test_summary_separator_preserves_legacy_spacing),
+        ("TheEnd debug lines", test_the_end_debug_lines_preserve_legacy_values),
     ]
 
     try:

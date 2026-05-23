@@ -277,3 +277,17 @@ def summary_separator(waitforit: str, switch: bool, max_columns: int) -> str:
 
     space = " " * int((max_columns / 2) - (len(sepa + waitforit + rator) / 2))
     return "\n" + space + sepa + waitforit + rator + "\n\n"
+
+
+def the_end_debug_lines(
+    chunks_history_index: Sequence[Any],
+    idat_counter: Any,
+    chunks_history: Any,
+    idat_bytes_len: Any,
+) -> list[Any]:
+    return [
+        "Chnks nbr:%s" % len(chunks_history_index),
+        "idacounter:%s" % idat_counter,
+        chunks_history,
+        "IDAT_Bytes_Len:%s" % idat_bytes_len,
+    ]

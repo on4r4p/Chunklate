@@ -1334,11 +1334,13 @@ def ChunkStory(action, Chunk, start, end, chuck_length):
 
 def TheEnd():
     if DEBUG is True:
-
-        PRINT("Chnks nbr:%s"% len(Chunks_History_Index))
-        PRINT("idacounter:%s"% idatcounter)
-        PRINT(Chunks_History)
-        PRINT("IDAT_Bytes_Len:%s"% IDAT_Bytes_Len)
+        for line in output.the_end_debug_lines(
+            Chunks_History_Index,
+            idatcounter,
+            Chunks_History,
+            IDAT_Bytes_Len,
+        ):
+            PRINT(line)
     if PAUSEDEBUG is True:
         Pause("ThenEnd debug")
     Summarise(None, True)
