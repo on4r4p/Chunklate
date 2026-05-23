@@ -36,6 +36,26 @@ def test_add_skips_duplicate_start_end_length_marker():
     assert indexes == ["-1:2:18:8"]
 
 
+def test_add_if_no_next_records_none_marker():
+    history = []
+    indexes = []
+
+    assert chunk_story.add_if_no_next(history, indexes, None, "IDAT", 16, 24, 4) is True
+
+    assert history == [b"IDAT"]
+    assert indexes == ["-1:16:24:4"]
+
+
+def test_add_if_no_next_skips_followup_marker():
+    history = []
+    indexes = []
+
+    assert chunk_story.add_if_no_next(history, indexes, b"IEND", "IDAT", 16, 24, 4) is False
+
+    assert history == []
+    assert indexes == []
+
+
 def test_delete_legacy_preserves_original_single_match_error():
     history = [b"IHDR"]
     indexes = ["-1:0:10:13"]
@@ -66,6 +86,8 @@ def main():
         ("Chunk bytes", test_chunk_bytes_preserves_legacy_encoding),
         ("Add records index", test_add_records_legacy_index_and_encoded_chunk),
         ("Add skips duplicate marker", test_add_skips_duplicate_start_end_length_marker),
+        ("Add if no next records none marker", test_add_if_no_next_records_none_marker),
+        ("Add if no next skips followup marker", test_add_if_no_next_skips_followup_marker),
         ("Delete single match", test_delete_legacy_preserves_original_single_match_error),
         ("Delete multiple matches", test_delete_legacy_removes_history_and_matching_index_with_multiple_matches),
     ]

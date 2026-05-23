@@ -35,6 +35,20 @@ def add(history: list[bytes], indexes: list[str], chunk: Any, start: Any, end: A
     return True
 
 
+def add_if_no_next(
+    history: list[bytes],
+    indexes: list[str],
+    next_marker: Any,
+    chunk: Any,
+    start: Any,
+    end: Any,
+    chunk_length: Any,
+) -> bool:
+    if next_marker == None:
+        return add(history, indexes, chunk, start, end, chunk_length)
+    return False
+
+
 def delete_legacy(history: list[bytes], indexes: list[str], chunk: Any) -> None:
     chunk = chunk_bytes(chunk)
     del history[history.index(chunk)]

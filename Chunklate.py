@@ -4212,8 +4212,15 @@ def Checksum(Ctype, Cdata, Crc, next=None):
             + Candy("Emoj", "good")
             + "\n"
         )
-        if next == None:
-            ChunkStory("add", Ctype, CLoffI, CrcoffI + 8, int(Orig_CL, 16))
+        chunk_story.add_if_no_next(
+            Chunks_History,
+            Chunks_History_Index,
+            next,
+            Ctype,
+            CLoffI,
+            CrcoffI + 8,
+            int(Orig_CL, 16),
+        )
         return CheckPoint(
             *legacy_crc_checkpoint_args(
                 CrcDecision,
@@ -4248,9 +4255,16 @@ def Checksum(Ctype, Cdata, Crc, next=None):
         PRINT(MonkeyWanted)
         PRINT(MonkeyGot)
 
-        if next == None:
-            ##TODO tmpworkaround need to fix wrong behavor due to this line below
-            ChunkStory("add", Ctype, CLoffI, CrcoffI + 8, int(Orig_CL, 16))
+        ##TODO tmpworkaround need to fix wrong behavor due to this line below
+        chunk_story.add_if_no_next(
+            Chunks_History,
+            Chunks_History_Index,
+            next,
+            Ctype,
+            CLoffI,
+            CrcoffI + 8,
+            int(Orig_CL, 16),
+        )
 
         return CheckPoint(
             *legacy_crc_checkpoint_args(
