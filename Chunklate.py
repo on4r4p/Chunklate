@@ -3208,7 +3208,7 @@ def CheckChunkOrder(lastchunk, mode):
             " So far we came across those chunks in "
             + Sample_Name
             + "\n "
-            + str([i.decode(errors="ignore") for i in Used_Chunks]),
+            + str(chunk_order.decode_chunk_names(Used_Chunks)),
             "good",
         )
 
@@ -3216,7 +3216,7 @@ def CheckChunkOrder(lastchunk, mode):
             PRINT(
                 "-%s chunk %s be used multiple times."
                 % (
-                    Candy("Color", "red", lastchunk.decode(errors="ignore")),
+                    Candy("Color", "red", chunk_order.decode_chunk_name(lastchunk)),
                     Candy("Color", "red", "cannot"),
                 )
             )
@@ -3259,16 +3259,16 @@ def CheckChunkOrder(lastchunk, mode):
                     Candy(
                         "Color",
                         "red",
-                        lastchunk.decode(errors="ignore") + " is missplaced",
+                        chunk_order.decode_chunk_name(lastchunk) + " is missplaced",
                     ),
-                    lastchunk.decode(errors="ignore"),
+                    chunk_order.decode_chunk_name(lastchunk),
                     Candy("Emoj", "bad"),
                 )
             )
             # PRINT(Excluded)
             ToFix.append(
                 "-"
-                + lastchunk.decode(errors="ignore")
+                + chunk_order.decode_chunk_name(lastchunk)
                 + " is missplaced must appears before PLTE Chunk"
             )
 
@@ -3279,9 +3279,9 @@ def CheckChunkOrder(lastchunk, mode):
                     Candy(
                         "Color",
                         "red",
-                        lastchunk.decode(errors="ignore") + " is missplaced",
+                        chunk_order.decode_chunk_name(lastchunk) + " is missplaced",
                     ),
-                    lastchunk.decode(errors="ignore"),
+                    chunk_order.decode_chunk_name(lastchunk),
                     Candy("Emoj", "bad"),
                 )
             )
@@ -3323,7 +3323,7 @@ def CheckChunkOrder(lastchunk, mode):
             "Cowsay",
             " So far we came across those chunks in "
             + Sample_Name
-            + str([i.decode(errors="ignore") for i in Used_Chunks]),
+            + str(chunk_order.decode_chunk_names(Used_Chunks)),
             "good",
         )
 
@@ -3335,8 +3335,8 @@ def CheckChunkOrder(lastchunk, mode):
                     "Cowsay",
                     " %s chunk must be placed before any PLTE related chunks we can forget about thoses:\n%s"
                     % (
-                        Candy("Color", "green", lastchunk.decode(errors="ignore")),
-                        [i.decode(errors="ignore") for i in Excluded],
+                        Candy("Color", "green", chunk_order.decode_chunk_name(lastchunk)),
+                        chunk_order.decode_chunk_names(Excluded),
                     ),
                     "bad",
                 )
@@ -3346,7 +3346,7 @@ def CheckChunkOrder(lastchunk, mode):
                 Candy(
                     "Cowsay",
                     " %s chunk must be placed after PLTE related chunks we can forget about thoses:\n%s"
-                    % (lastchunk, [i.decode(errors="ignore") for i in Excluded]),
+                    % (lastchunk, chunk_order.decode_chunk_names(Excluded)),
                     "bad",
                 )
 
@@ -3394,11 +3394,11 @@ def CheckChunkOrder(lastchunk, mode):
                         ),
                         "com",
                     )
-            if lastchunk == b"IDAT":
+            if chunk_order.is_idat_chunk(lastchunk):
                 Candy(
                     "Cowsay",
                     " So ..the last Chunk Type was IDAT so we either looking for another IDAT,IEND or one of them:%s"
-                    % [i.decode(errors="ignore") for i in NO_ORDER_CHUNKS],
+                    % chunk_order.decode_chunk_names(NO_ORDER_CHUNKS),
                     "com",
                 )
 

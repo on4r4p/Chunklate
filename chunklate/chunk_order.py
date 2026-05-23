@@ -10,6 +10,14 @@ def as_chunk_bytes(chunk: bytes | str) -> bytes:
     return chunk.encode(errors="ignore")
 
 
+def decode_chunk_name(chunk: bytes) -> str:
+    return chunk.decode(errors="ignore")
+
+
+def decode_chunk_names(chunks: Iterable[bytes]) -> list[str]:
+    return [decode_chunk_name(chunk) for chunk in chunks]
+
+
 def unique_seen_chunks(chunks_history: Sequence[bytes]) -> tuple[bytes, ...]:
     return tuple(dict.fromkeys(chunks_history))
 
@@ -161,6 +169,10 @@ def is_indexed_color(ihdr_color: int | str) -> bool:
 
 def indexed_idat_previous_chunk_is_plte(used_chunks: Sequence[bytes]) -> bool:
     return used_chunks[used_chunks.index(b"IDAT") - 1] == b"PLTE"
+
+
+def is_idat_chunk(chunk: bytes) -> bool:
+    return chunk == b"IDAT"
 
 
 def the_good_place_missing_checkpoint_args(

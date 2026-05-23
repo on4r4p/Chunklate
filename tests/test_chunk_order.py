@@ -16,6 +16,12 @@ def test_as_chunk_bytes_preserves_bytes_and_encodes_text():
     assert chunk_order.as_chunk_bytes("IHDR") == b"IHDR"
 
 
+def test_chunk_name_decoding_helpers_preserve_legacy_decode_errors_ignore():
+    assert chunk_order.decode_chunk_name(b"IHDR") == "IHDR"
+    assert chunk_order.decode_chunk_name(b"\xffID") == "ID"
+    assert chunk_order.decode_chunk_names([b"IHDR", b"\xffID"]) == ["IHDR", "ID"]
+
+
 def test_missing_critical_chunks_preserves_legacy_messages_source():
     missing = chunk_order.missing_critical_chunks(
         [b"PNG", b"IHDR"],
@@ -132,6 +138,8 @@ def test_indexed_color_idat_plte_predicates_preserve_legacy_rules():
     assert chunk_order.indexed_idat_previous_chunk_is_plte([b"IHDR", b"PLTE", b"IDAT"]) is True
     assert chunk_order.indexed_idat_previous_chunk_is_plte([b"IHDR", b"gAMA", b"IDAT"]) is False
     assert chunk_order.indexed_idat_previous_chunk_is_plte([b"IDAT", b"PLTE"]) is True
+    assert chunk_order.is_idat_chunk(b"IDAT") is True
+    assert chunk_order.is_idat_chunk(b"PLTE") is False
 
 
 def test_the_good_place_checkpoint_args_preserve_missing_and_found_shapes():
@@ -163,6 +171,7 @@ def test_the_good_place_checkpoint_args_preserve_missing_and_found_shapes():
 def main():
     checks = [
         ("Chunk bytes coercion", test_as_chunk_bytes_preserves_bytes_and_encodes_text),
+        ("Chunk name decoding", test_chunk_name_decoding_helpers_preserve_legacy_decode_errors_ignore),
         ("Missing critical chunks", test_missing_critical_chunks_preserves_legacy_messages_source),
         ("Unique chunk exclusions", test_unique_seen_chunks_and_unique_exclusions_preserve_order),
         ("Legacy unique multiple check", test_legacy_unique_chunk_multiple_check_preserves_current_behavior),
