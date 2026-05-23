@@ -93,6 +93,26 @@ class BruteForceRepairMessage:
     side_note: str
 
 
+@dataclass(frozen=True)
+class BruteForceCheckpointRequest:
+    error: bool
+    fixed: bool
+    function: str
+    chunk: str
+    infos: tuple[str, ...]
+    toolkit: tuple[Any, ...]
+
+    def as_args(self) -> tuple[Any, ...]:
+        return (
+            self.error,
+            self.fixed,
+            self.function,
+            self.chunk,
+            list(self.infos),
+            *self.toolkit,
+        )
+
+
 def normalize_old_crc(old_crc: Any) -> Any:
     if old_crc:
         try:
@@ -377,6 +397,120 @@ def success_repair_messages(
         )
 
     return tuple(messages)
+
+
+def checkpoint_chunk_label(chunk_name: Any) -> str:
+    if isinstance(chunk_name, bytes):
+        return chunk_name.decode(errors="ignore")
+    return str(chunk_name)
+
+
+def success_checkpoint_request(
+    *,
+    old_crc: Any,
+    chunk_name: Any,
+    full_new_data_hex: str,
+    png_bytes_hex: str,
+    data_offset: int,
+    chunk_length: int,
+    to_brute: str,
+    from_error: Any,
+) -> BruteForceCheckpointRequest:
+    chunk_label = checkpoint_chunk_label(chunk_name)
+    replacement_summary = "-Replacing Corrupted %s Data:\n%s\n-With:\n%s" % (
+        chunk_label,
+        to_brute,
+        full_new_data_hex,
+    )
+
+    if old_crc:
+        return BruteForceCheckpointRequest(
+            error=True,
+            fixed=True,
+            function="SmashBruteBrawl",
+            chunk=chunk_label,
+            infos=("-Previous Crc checksum found by replacing datas",),
+            toolkit=(
+                full_new_data_hex,
+                data_offset,
+                data_offset + len(full_new_data_hex),
+                replacement_summary,
+                chunk_label,
+                from_error,
+            ),
+        )
+
+    return BruteForceCheckpointRequest(
+        error=True,
+        fixed=True,
+        function="SmashBruteBrawl",
+        chunk=chunk_label,
+        infos=("-Corrupted Data has been replaced",),
+        toolkit=(
+            png_bytes_hex,
+            data_offset,
+            data_offset + chunk_length,
+            replacement_summary,
+            chunk_label,
+            from_error,
+        ),
+    )
+
+
+def failure_checkpoint_request(
+    *,
+    old_crc: Any,
+    file: Any,
+    chunk_name: Any,
+    chunk_length: int,
+    data_offset: int,
+    edit_mode: str,
+    bf_mode: str,
+    brute_crc: bool,
+    brute_length: bool,
+    from_error: Any,
+) -> BruteForceCheckpointRequest:
+    chunk_label = checkpoint_chunk_label(chunk_name)
+
+    if old_crc:
+        return BruteForceCheckpointRequest(
+            error=True,
+            fixed=False,
+            function="SmashBruteBrawl",
+            chunk=chunk_label,
+            infos=("-Bruteforcer has Failed OldCrc",),
+            toolkit=(
+                file,
+                chunk_name,
+                chunk_length,
+                data_offset,
+                edit_mode,
+                bf_mode,
+                brute_crc,
+                brute_length,
+                old_crc,
+                from_error,
+            ),
+        )
+
+    return BruteForceCheckpointRequest(
+        error=True,
+        fixed=False,
+        function="SmashBruteBrawl",
+        chunk=chunk_label,
+        infos=("-Bruteforcer has Failed",),
+        toolkit=(
+            file,
+            chunk_name,
+            chunk_length,
+            data_offset,
+            edit_mode,
+            bf_mode,
+            brute_crc,
+            brute_length,
+            from_error,
+        ),
+    )
 
 
 def twobytes_candidate_data(

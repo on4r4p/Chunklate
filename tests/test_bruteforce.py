@@ -382,6 +382,121 @@ def test_success_repair_messages_preserves_legacy_order_and_text():
     )
 
 
+def test_success_checkpoint_request_preserves_oldcrc_and_regular_toolkits():
+    old_crc_request = bruteforce.success_checkpoint_request(
+        old_crc=b"crc",
+        chunk_name=b"IDAT",
+        full_new_data_hex="001122",
+        png_bytes_hex="8899",
+        data_offset=10,
+        chunk_length=99,
+        to_brute="aabb",
+        from_error="LibpngCheck",
+    )
+
+    assert old_crc_request.as_args() == (
+        True,
+        True,
+        "SmashBruteBrawl",
+        "IDAT",
+        ["-Previous Crc checksum found by replacing datas"],
+        "001122",
+        10,
+        16,
+        "-Replacing Corrupted IDAT Data:\naabb\n-With:\n001122",
+        "IDAT",
+        "LibpngCheck",
+    )
+
+    regular_request = bruteforce.success_checkpoint_request(
+        old_crc=False,
+        chunk_name=b"gAMA",
+        full_new_data_hex="001122",
+        png_bytes_hex="8899",
+        data_offset=10,
+        chunk_length=99,
+        to_brute="aabb",
+        from_error="Relics",
+    )
+
+    assert regular_request.as_args() == (
+        True,
+        True,
+        "SmashBruteBrawl",
+        "gAMA",
+        ["-Corrupted Data has been replaced"],
+        "8899",
+        10,
+        109,
+        "-Replacing Corrupted gAMA Data:\naabb\n-With:\n001122",
+        "gAMA",
+        "Relics",
+    )
+
+
+def test_failure_checkpoint_request_preserves_oldcrc_and_regular_toolkits():
+    old_crc_request = bruteforce.failure_checkpoint_request(
+        old_crc=b"crc",
+        file="broken.png",
+        chunk_name=b"IDAT",
+        chunk_length=12,
+        data_offset=34,
+        edit_mode="Replace",
+        bf_mode="TwoBytes",
+        brute_crc=True,
+        brute_length=False,
+        from_error="LibpngCheck",
+    )
+
+    assert old_crc_request.as_args() == (
+        True,
+        False,
+        "SmashBruteBrawl",
+        "IDAT",
+        ["-Bruteforcer has Failed OldCrc"],
+        "broken.png",
+        b"IDAT",
+        12,
+        34,
+        "Replace",
+        "TwoBytes",
+        True,
+        False,
+        b"crc",
+        "LibpngCheck",
+    )
+
+    regular_request = bruteforce.failure_checkpoint_request(
+        old_crc=False,
+        file="broken.png",
+        chunk_name=b"gAMA",
+        chunk_length=12,
+        data_offset=34,
+        edit_mode="Insert",
+        bf_mode="Brutus",
+        brute_crc=False,
+        brute_length=True,
+        from_error="Relics",
+    )
+
+    assert regular_request.as_args() == (
+        True,
+        False,
+        "SmashBruteBrawl",
+        "gAMA",
+        ["-Bruteforcer has Failed"],
+        "broken.png",
+        b"gAMA",
+        12,
+        34,
+        "Insert",
+        "Brutus",
+        False,
+        True,
+        "Relics",
+    )
+
+
 def test_twobytes_candidate_data_preserves_replace_insert_remove_slices():
     to_brute = "0011223344"
     brute_bytes = b"\xaa"
@@ -594,6 +709,8 @@ def main():
         ("Validated attempt viewer gate", test_apply_validated_candidate_attempt_preserves_viewer_acceptance_gate),
         ("Validated attempt old CRC gate", test_apply_validated_candidate_attempt_preserves_old_crc_gate),
         ("Success repair messages", test_success_repair_messages_preserves_legacy_order_and_text),
+        ("Success checkpoint request", test_success_checkpoint_request_preserves_oldcrc_and_regular_toolkits),
+        ("Failure checkpoint request", test_failure_checkpoint_request_preserves_oldcrc_and_regular_toolkits),
         ("TwoBytes candidate data", test_twobytes_candidate_data_preserves_replace_insert_remove_slices),
         ("TwoBytes IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_idat_all_modes),
         ("TwoBytes non-IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_non_idat_requested_mode),

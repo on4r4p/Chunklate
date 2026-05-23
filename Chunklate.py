@@ -2532,37 +2532,17 @@ def SmashBruteBrawl(
         Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
 
 
-        if OldCrc:
-            return CheckPoint(
-                True,
-                True,
-                "SmashBruteBrawl",
-                ChunkName.decode(errors="ignore"),
-                ["-Previous Crc checksum found by replacing datas"],
-                fullnewdatax.hex(),
-                DataOffset,
-                DataOffset + len(fullnewdatax.hex()),
-                "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
-                % (ChunkName.decode(errors="ignore"), ToBrute, fullnewdatax.hex()),
-                ChunkName.decode(errors="ignore"),
-                FromError,
-            )
-
-        else:
-            return CheckPoint(
-                True,
-                True,
-                "SmashBruteBrawl",
-                ChunkName.decode(errors="ignore"),
-                ["-Corrupted Data has been replaced"],
-                wanabyte.hex(),
-                DataOffset,
-                DataOffset + ChunkLength,
-                "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
-                % (ChunkName.decode(errors="ignore"), ToBrute, fullnewdatax.hex()),
-                ChunkName.decode(errors="ignore"),
-                FromError,
-            )
+        CheckPointRequest = bruteforce.success_checkpoint_request(
+            old_crc=OldCrc,
+            chunk_name=ChunkName,
+            full_new_data_hex=fullnewdatax.hex(),
+            png_bytes_hex=wanabyte.hex(),
+            data_offset=DataOffset,
+            chunk_length=ChunkLength,
+            to_brute=ToBrute,
+            from_error=FromError,
+        )
+        return CheckPoint(*CheckPointRequest.as_args())
 
     else:
         PRINT(
@@ -2580,42 +2560,19 @@ def SmashBruteBrawl(
                PRINT("-Saved Valid Image: %s"%pic)
 
 
-        if OldCrc:
-            return CheckPoint(
-                True,
-                False,
-                "SmashBruteBrawl",
-                ChunkName.decode(errors="ignore"),
-                ["-Bruteforcer has Failed OldCrc"],
-                File,
-                ChunkName,
-                ChunkLength,
-                DataOffset,
-                EditMode,
-                BfMode,
-                BruteCrc,
-                BruteLength,
-                OldCrc,
-                FromError,
-            )
-
-        else:
-            return CheckPoint(
-                True,
-                False,
-                "SmashBruteBrawl",
-                ChunkName.decode(errors="ignore"),
-                ["-Bruteforcer has Failed"],
-                File,
-                ChunkName,
-                ChunkLength,
-                DataOffset,
-                EditMode,
-                BfMode,
-                BruteCrc,
-                BruteLength,
-                FromError,
-            )
+        CheckPointRequest = bruteforce.failure_checkpoint_request(
+            old_crc=OldCrc,
+            file=File,
+            chunk_name=ChunkName,
+            chunk_length=ChunkLength,
+            data_offset=DataOffset,
+            edit_mode=EditMode,
+            bf_mode=BfMode,
+            brute_crc=BruteCrc,
+            brute_length=BruteLength,
+            from_error=FromError,
+        )
+        return CheckPoint(*CheckPointRequest.as_args())
 
 
 
