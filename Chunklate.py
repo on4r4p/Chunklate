@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, history, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, sorting, specs, stdio, ui, ui_runtime, writer
+from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, history, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer
 from chunklate.png import (
     PngFormatError,
     chunk_type_crc_matches,
@@ -5637,48 +5637,15 @@ def main():
                     os.system("cls")
             else:
                 FirStart = False
-        IBN = 0
-        IDAT_Bytes_Len = 0
-        IDAT_Datastream = ""
+        globals().update(runtime_state.main_loop_scan_reset_values())
         CHUNK_INFO_STATE.reset_idat()
         Sync_Chunk_Info_Legacy_State("idat")
-        Bad_Current_Name = False
-        Bad_Ancillary = False
-        Bad_No_Next_Chunk = False
-        Bad_Next_Name = False
-        Bad_Next_Ancillary = False
-        Bad_Length = False
-        Bad_Infos = False
-        Bad_Crc = False
-        Bad_Critical = False
-        Bad_Missplaced = False
-        Skip_Bad_Current_Name = False
-        Skip_Bad_Ancillary = False
-        Skip_Bad_No_Next_Chunk = False
-        Skip_Bad_Next_Name = False
-        Skip_Bad_Next_Ancillary = False
-        Skip_Bad_Length = False
-        Skip_Bad_Infos = False
-        Skip_Bad_Crc = False
-        Skip_Bad_Critical = False
-        Skip_Bad_Missplaced = False
-        Skip_Bad_Libpng = False
-        EOF = False
-        Show_Must_Go_On = False
+        globals().update(runtime_state.main_loop_error_reset_values())
         TmpFixIHDR = False
-        IDAT_Bytes_Len_History = []
-        IDAT_Avg_Len = ""
+        globals().update(runtime_state.main_loop_history_reset_values())
         CHUNK_INFO_STATE.reset_idat()
         Sync_Chunk_Info_Legacy_State("idat")
-        Chunks_History = []
-        Chunks_History_Index = []
-        Bytes_History = []
-        Loading_txt = ""
         # IFOP = []
-        ERRORSFLAG = []
-        PandoraBox = {}
-        Cornucopia = {}
-        SideNotes = []
         Chunklate(1)
 
         if CLONESWAR is False:
