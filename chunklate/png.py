@@ -950,6 +950,18 @@ def is_known_bad_srgb_iccp_chunk(chunk: PngChunk) -> bool:
     return b"IEC sRGB" in profile and b"acsp" in profile[:64]
 
 
+def known_bad_srgb_profile_warning(data: bytes) -> str:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return ""
+
+    if any(is_known_bad_srgb_iccp_chunk(chunk) for chunk in chunks):
+        return "libpng warning: iCCP: known incorrect sRGB profile"
+
+    return ""
+
+
 def repair_color_profile_chunks(
     data: bytes,
     *,

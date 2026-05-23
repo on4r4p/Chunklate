@@ -45,7 +45,7 @@ from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
     iter_chunks,
-    is_known_bad_srgb_iccp_chunk,
+    known_bad_srgb_profile_warning,
     legacy_crc_decision,
     legacy_length_decision,
 )
@@ -2869,14 +2869,9 @@ def LibpngCheck(file):
 def KnownBadSrgbProfileWarning(file):
     try:
         with open(file, "rb") as png_file:
-            chunks = list(iter_chunks(png_file.read()))
-    except (OSError, PngFormatError):
+            return known_bad_srgb_profile_warning(png_file.read())
+    except OSError:
         return ""
-
-    if any(is_known_bad_srgb_iccp_chunk(chunk) for chunk in chunks):
-        return "libpng warning: iCCP: known incorrect sRGB profile"
-
-    return ""
 
 
 def Double_Check(CType, ChunkLen, LastCType):

@@ -21,6 +21,7 @@ from chunklate.png import (
     infer_png_dimensions,
     iter_chunks,
     is_complete_png_with_valid_crc,
+    known_bad_srgb_profile_warning,
     legacy_crc_decision,
     legacy_chunk_window,
     legacy_length_decision,
@@ -553,6 +554,20 @@ def test_repair_known_chunk_type_case_accepts_other_coherent_chunks():
     assert all(chunk.crc_ok for chunk in chunks)
 
 
+def test_known_bad_srgb_profile_warning_detects_photoshop_iccp_profile():
+    profile = b"\x00\x00\x00\x00acsp" + b"\x00" * 12 + b"IEC sRGB profile"
+    iccp_data = b"Photoshop ICC profile\x00\x00" + zlib.compress(profile)
+    png = minimal_gray_png_with_chunk(b"iCCP", iccp_data)
+
+    assert known_bad_srgb_profile_warning(png) == (
+        "libpng warning: iCCP: known incorrect sRGB profile"
+    )
+
+
+def test_known_bad_srgb_profile_warning_ignores_invalid_png():
+    assert known_bad_srgb_profile_warning(b"not a png") == ""
+
+
 def test_repair_known_chunk_type_case_ignores_true_unknown_private_critical_chunk():
     original = (REPAIR_FIXTURES / "Unhandled-Critical-Chunk.png").read_bytes()
 
@@ -666,6 +681,14 @@ def main():
         ("Repair known chunk type case and CRC", test_repair_known_chunk_type_case_rebuilds_crc),
         ("Reject known chunk type case with incoherent data", test_repair_known_chunk_type_case_requires_coherent_data),
         ("Repair coherent sRGB chunk type case", test_repair_known_chunk_type_case_accepts_other_coherent_chunks),
+        (
+            "Detect known bad sRGB iCCP warning",
+            test_known_bad_srgb_profile_warning_detects_photoshop_iccp_profile,
+        ),
+        (
+            "Ignore invalid PNG for known bad sRGB warning",
+            test_known_bad_srgb_profile_warning_ignores_invalid_png,
+        ),
         (
             "Ignore true unknown private critical chunk",
             test_repair_known_chunk_type_case_ignores_true_unknown_private_critical_chunk,
