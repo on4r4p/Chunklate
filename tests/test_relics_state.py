@@ -710,14 +710,14 @@ def test_relics_module_routes_remembered_dummy_chunks():
 
 
 def test_pandorabox_add_keeps_legacy_error_numbering():
-    reset_relic_state()
+    pandora_box = {}
 
-    first = chunklate.PandoraBox_Add("Checksum", "Wrong Crc", {"IDAT_Tool_0": "newcrc"})
-    second = chunklate.PandoraBox_Add("Checksum", "Another Crc", {"IDAT_Tool_0": "other"})
+    first = relics.add_pandora_error(pandora_box, "Checksum", "Wrong Crc", {"IDAT_Tool_0": "newcrc"})
+    second = relics.add_pandora_error(pandora_box, "Checksum", "Another Crc", {"IDAT_Tool_0": "other"})
 
     assert first == "Checksum_Error_0:Wrong Crc"
     assert second == "Checksum_Error_1:Another Crc"
-    assert list(chunklate.PandoraBox) == [first, second]
+    assert list(pandora_box) == [first, second]
 
 
 def test_relics_records_checkpoint_registration_in_pandorabox():
@@ -832,8 +832,8 @@ def test_checkpoint_records_fixed_items_in_cornucopia():
 
 def test_pandemonium_snapshot_preserves_legacy_shared_reference():
     reset_relic_state()
-    chunklate.PandoraBox_Add("Checksum", "Wrong Crc", {"IDAT_Tool_0": "newcrc"})
-    chunklate.Cornucopia_Add("fixed-key", {"IDAT_Tool_0": "fixedcrc"})
+    relics.add_pandora_error(chunklate.PandoraBox, "Checksum", "Wrong Crc", {"IDAT_Tool_0": "newcrc"})
+    relics.add_cornucopia_fix(chunklate.Cornucopia, "fixed-key", {"IDAT_Tool_0": "fixedcrc"})
 
     chunklate.Pandemonium_Remember_Current_Sample()
 

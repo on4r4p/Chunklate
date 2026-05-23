@@ -131,20 +131,8 @@ def Pandemonium_Dummy_Chunk_Tools(file, error, tool_prefix):
     return relics.dummy_chunk_tools(Pandemonium[file][error], tool_prefix)
 
 
-def PandoraBox_Next_Error_Number(function):
-    return relics.next_error_number(PandoraBox, function)
-
-
-def PandoraBox_Add(function, info, tools):
-    return relics.add_pandora_error(PandoraBox, function, info, tools)
-
-
 def PandoraBox_Discard(key):
     return relics.discard_pandora_error(PandoraBox, key)
-
-
-def Cornucopia_Add(key, tools):
-    return relics.add_cornucopia_fix(Cornucopia, key, tools)
 
 
 def CheckPoint_Record_Finding(registration):
