@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from typing import Any
 
 
 def as_chunk_bytes(chunk: bytes | str) -> bytes:
@@ -74,3 +75,40 @@ def only_ihdr_allowed_after_png_header(
     if len(chunks_history) == 1 and chunks_history[0] == b"PNG":
         return tuple(chunk for chunk in chunks if chunk != b"IHDR")
     return None
+
+
+def the_good_place_missing_checkpoint_args(
+    to_fix_chunk: bytes,
+    bad_pos: int,
+    bad_start: int,
+    bad_end: int,
+) -> tuple[object, ...]:
+    return (
+        True,
+        False,
+        "TheGoodPlace",
+        to_fix_chunk,
+        ["-Missing Data Has Not Been Found : [%s]" % to_fix_chunk],
+        to_fix_chunk,
+        bad_pos,
+        bad_start,
+        bad_end,
+    )
+
+
+def the_good_place_found_checkpoint_args(
+    to_fix_chunk: bytes,
+    fix_position: Any,
+    rubber_tape: str,
+) -> tuple[object, ...]:
+    return (
+        True,
+        True,
+        "TheGoodPlace",
+        to_fix_chunk,
+        [
+            "-Found Missing Data:[%s] at Chunk Position:%s Starting at:%s Ending at:%s"
+            % (to_fix_chunk, fix_position.position, fix_position.start, fix_position.end)
+        ],
+        rubber_tape,
+    )

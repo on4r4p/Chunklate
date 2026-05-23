@@ -8,6 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import chunk_order
+from chunklate import nearby
 
 
 def test_as_chunk_bytes_preserves_bytes_and_encodes_text():
@@ -70,6 +71,32 @@ def test_only_ihdr_allowed_after_png_header():
     ) is None
 
 
+def test_the_good_place_checkpoint_args_preserve_missing_and_found_shapes():
+    assert chunk_order.the_good_place_missing_checkpoint_args(b"IHDR", 1, 20, 40) == (
+        True,
+        False,
+        "TheGoodPlace",
+        b"IHDR",
+        ["-Missing Data Has Not Been Found : [b'IHDR']"],
+        b"IHDR",
+        1,
+        20,
+        40,
+    )
+    assert chunk_order.the_good_place_found_checkpoint_args(
+        b"IHDR",
+        nearby.HistoryChunkPosition(2, 60, 90),
+        "fixed-data",
+    ) == (
+        True,
+        True,
+        "TheGoodPlace",
+        b"IHDR",
+        ["-Found Missing Data:[b'IHDR'] at Chunk Position:2 Starting at:60 Ending at:90"],
+        "fixed-data",
+    )
+
+
 def main():
     checks = [
         ("Chunk bytes coercion", test_as_chunk_bytes_preserves_bytes_and_encodes_text),
@@ -79,6 +106,7 @@ def main():
         ("Signature and IHDR placement", test_signature_and_ihdr_placement_decisions),
         ("PLTE and IDAT order decisions", test_plte_and_idat_order_decisions),
         ("Only IHDR after PNG header", test_only_ihdr_allowed_after_png_header),
+        ("TheGoodPlace checkpoint args", test_the_good_place_checkpoint_args_preserve_missing_and_found_shapes),
     ]
 
     print("Running chunk order tests")

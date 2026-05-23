@@ -3102,15 +3102,12 @@ def TheGoodPlace(Missplaced_Chunkname, Missplaced_Chunkpos, ToFix_Chunkname):
         )
         Candy("Cowsay", "This is not good..", "bad")
         return CheckPoint(
-            True,
-            False,
-            "TheGoodPlace",
-            ToFix_Chunkname,
-            ["-Missing Data Has Not Been Found : [%s]" % ToFix_Chunkname],
-            ToFix_Chunkname,
-            bad_pos,
-            bad_start,
-            bad_end,
+            *chunk_order.the_good_place_missing_checkpoint_args(
+                ToFix_Chunkname,
+                bad_pos,
+                bad_start,
+                bad_end,
+            )
         )
 
     else:
@@ -3133,15 +3130,11 @@ def TheGoodPlace(Missplaced_Chunkname, Missplaced_Chunkpos, ToFix_Chunkname):
             target_start=bad_start,
         )
         return CheckPoint(
-            True,
-            True,
-            "TheGoodPlace",
-            ToFix_Chunkname,
-            [
-                "-Found Missing Data:[%s] at Chunk Position:%s Starting at:%s Ending at:%s"
-                % (ToFix_Chunkname, FixPosition.position, FixPosition.start, FixPosition.end)
-            ],
-            Rubber_Tape,
+            *chunk_order.the_good_place_found_checkpoint_args(
+                ToFix_Chunkname,
+                FixPosition,
+                Rubber_Tape,
+            )
         )
 
     PRINT("")
