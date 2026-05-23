@@ -2232,52 +2232,21 @@ def SmashBruteBrawl(
             )
 
             if BfMode == "TwoBytes":
-                needle = 0
-                needle2 = len(bvalue.hex())
-                while bruteforce.twobytes_scan_has_window(ToBrute, needle2, needle, BrawlState):
-
-                     Minibar(Indication="%s/%s"%(n,max_iter))
-                      ##TODO maybe it would be better to just check Replace/Insert/Remove all in the same time.
-                     direct_match = False
-                     for edit_kind in bruteforce.iter_twobytes_edit_kinds(EditMode, ChunkName):
-                         candidate_data = bruteforce.twobytes_candidate_data(
-                             ToBrute,
-                             bvalue,
-                             needle,
-                             edit_kind,
-                         )
-                         newdatax = candidate_data.data
-                         bonusdatax = candidate_data.bonus_hex
-                         Lnx_New = candidate_data.length_bytes
-                         attempt = BuildAttempt(Lnx_New, bvalue, newdatax, Before_New, After_New)
-
-                         if ValidateAttempt(attempt, edit_kind):
-                             direct_match = True
-                             break
-
-                         ##Bonus Stage
-                         if Brute_LvL > 0:
-                             for newdataxplus in bruteforce.iter_twobytes_bonus_data(
-                                 bonusdatax,
-                                 new_data_len=len(newdatax),
-                                 skipped_hex_offset=needle,
-                                 skipped_hex_len=len(bvalue.hex()),
-                             ):
-                                 Minibar(Indication="%s/%s"%(n,max_iter))
-                                 Lnx_New = len(newdataxplus).to_bytes(4, "big")
-                                 attempt = BuildAttempt(Lnx_New, newdataxplus, newdataxplus, Before_New, After_New)
-                                 bonus_edit_kind = bruteforce.twobytes_bonus_edit_kind(OldCrc, edit_kind)
-
-                                 if ValidateAttempt(attempt, bonus_edit_kind, bonus=True):
-                                     if bonus_edit_kind is None:
-                                         print("-Bingo replace bonus stage")
-                                     break
-
-                     if direct_match:
-                         break
-
-                     ##masterloop
-                     needle += 2
+                bruteforce.run_twobytes_candidate_scan(
+                    to_brute=ToBrute,
+                    brute_bytes=bvalue,
+                    edit_mode=EditMode,
+                    chunk_name=ChunkName,
+                    brute_level=Brute_LvL,
+                    old_crc=OldCrc,
+                    before=Before_New,
+                    after=After_New,
+                    get_state=lambda: BrawlState,
+                    build_attempt=BuildAttempt,
+                    validate_attempt=ValidateAttempt,
+                    progress=lambda: Minibar(Indication="%s/%s"%(n,max_iter)),
+                    bonus_message=lambda: print("-Bingo replace bonus stage"),
+                )
 
             else:
                  attempt = BuildAttempt(Lnx_New, bvalue, bvalue, Before_New, After_New)

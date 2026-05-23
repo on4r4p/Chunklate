@@ -732,6 +732,77 @@ def twobytes_scan_has_window(
     )
 
 
+def run_twobytes_candidate_scan(
+    *,
+    to_brute: str,
+    brute_bytes: bytes,
+    edit_mode: str,
+    chunk_name: bytes,
+    brute_level: int,
+    old_crc: Any,
+    before: bytes,
+    after: bytes,
+    get_state: Any,
+    build_attempt: Any,
+    validate_attempt: Any,
+    progress: Any,
+    bonus_message: Any | None = None,
+) -> None:
+    needle = 0
+    brute_hex_len = len(brute_bytes.hex())
+
+    while twobytes_scan_has_window(to_brute, brute_hex_len, needle, get_state()):
+        progress()
+        direct_match = False
+
+        for edit_kind in iter_twobytes_edit_kinds(edit_mode, chunk_name):
+            candidate_data = twobytes_candidate_data(
+                to_brute,
+                brute_bytes,
+                needle,
+                edit_kind,
+            )
+            attempt = build_attempt(
+                candidate_data.length_bytes,
+                brute_bytes,
+                candidate_data.data,
+                before,
+                after,
+            )
+
+            if validate_attempt(attempt, edit_kind):
+                direct_match = True
+                break
+
+            if brute_level > 0:
+                for bonus_data in iter_twobytes_bonus_data(
+                    candidate_data.bonus_hex,
+                    new_data_len=len(candidate_data.data),
+                    skipped_hex_offset=needle,
+                    skipped_hex_len=brute_hex_len,
+                ):
+                    progress()
+                    length_bytes = len(bonus_data).to_bytes(4, "big")
+                    attempt = build_attempt(
+                        length_bytes,
+                        bonus_data,
+                        bonus_data,
+                        before,
+                        after,
+                    )
+                    bonus_edit_kind = twobytes_bonus_edit_kind(old_crc, edit_kind)
+
+                    if validate_attempt(attempt, bonus_edit_kind, bonus=True):
+                        if bonus_edit_kind is None and bonus_message is not None:
+                            bonus_message()
+                        break
+
+        if direct_match:
+            break
+
+        needle += 2
+
+
 def build_candidate_bytes(
     candidate: Any,
     chunk_format: list[str] | tuple[str, ...],

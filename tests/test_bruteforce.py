@@ -735,6 +735,94 @@ def test_twobytes_scan_has_window_preserves_legacy_loop_bounds():
     assert bruteforce.twobytes_scan_has_window("0011223344", 2, 0, matched) is False
 
 
+def test_run_twobytes_candidate_scan_accepts_direct_match():
+    state = {"value": bruteforce.BruteForceMatchState()}
+    attempts = []
+    progress_calls = []
+
+    def build_attempt(length_bytes, payload_data, crc_data, before, after):
+        return (length_bytes, payload_data, crc_data, before, after)
+
+    def validate_attempt(attempt, edit_kind=None, bonus=False):
+        attempts.append((attempt, edit_kind, bonus))
+        state["value"] = bruteforce.mark_candidate_match(state["value"], edit_kind)
+        return True
+
+    bruteforce.run_twobytes_candidate_scan(
+        to_brute="001122",
+        brute_bytes=b"\xaa",
+        edit_mode="Replace",
+        chunk_name=b"gAMA",
+        brute_level=0,
+        old_crc=False,
+        before=b"before",
+        after=b"after",
+        get_state=lambda: state["value"],
+        build_attempt=build_attempt,
+        validate_attempt=validate_attempt,
+        progress=lambda: progress_calls.append("tick"),
+    )
+
+    assert progress_calls == ["tick"]
+    assert attempts == [
+        (
+            (b"\x00\x00\x00\x03", b"\xaa", bytes.fromhex("aa1122"), b"before", b"after"),
+            "replace",
+            False,
+        )
+    ]
+    assert state["value"] == bruteforce.BruteForceMatchState(
+        bingo=True,
+        replace_flag=True,
+    )
+
+
+def test_run_twobytes_candidate_scan_preserves_oldcrc_replace_bonus_quirk():
+    state = {"value": bruteforce.BruteForceMatchState()}
+    attempts = []
+    bonus_messages = []
+
+    def build_attempt(length_bytes, payload_data, crc_data, before, after):
+        return (length_bytes, payload_data, crc_data)
+
+    def validate_attempt(attempt, edit_kind=None, bonus=False):
+        attempts.append((attempt, edit_kind, bonus))
+        if bonus:
+            state["value"] = bruteforce.mark_candidate_match(
+                state["value"],
+                edit_kind,
+                bonus=True,
+            )
+            return True
+        return False
+
+    bruteforce.run_twobytes_candidate_scan(
+        to_brute="001122",
+        brute_bytes=b"\xaa",
+        edit_mode="Replace",
+        chunk_name=b"gAMA",
+        brute_level=1,
+        old_crc=b"crc",
+        before=b"",
+        after=b"",
+        get_state=lambda: state["value"],
+        build_attempt=build_attempt,
+        validate_attempt=validate_attempt,
+        progress=lambda: None,
+        bonus_message=lambda: bonus_messages.append("bonus"),
+    )
+
+    assert attempts[:2] == [
+        ((b"\x00\x00\x00\x03", b"\xaa", bytes.fromhex("aa1122")), "replace", False),
+        ((b"\x00\x00\x00\x03", bytes.fromhex("aa0022"), bytes.fromhex("aa0022")), None, True),
+    ]
+    assert bonus_messages == ["bonus"]
+    assert state["value"] == bruteforce.BruteForceMatchState(
+        bingo=True,
+        bonus=True,
+    )
+
+
 def test_twobytes_bonus_candidate_data_preserves_legacy_hex_replacement():
     assert bruteforce.twobytes_bonus_candidate_data(
         "00aa223344",
@@ -876,6 +964,8 @@ def main():
         ("TwoBytes bonus candidates", test_iter_twobytes_bonus_data_preserves_legacy_skip_and_byte_range),
         ("TwoBytes bonus edit kind", test_twobytes_bonus_edit_kind_preserves_oldcrc_replace_bonus_quirk),
         ("TwoBytes scan window", test_twobytes_scan_has_window_preserves_legacy_loop_bounds),
+        ("TwoBytes direct scan runner", test_run_twobytes_candidate_scan_accepts_direct_match),
+        ("TwoBytes old CRC bonus runner", test_run_twobytes_candidate_scan_preserves_oldcrc_replace_bonus_quirk),
         ("TwoBytes bonus candidate data", test_twobytes_bonus_candidate_data_preserves_legacy_hex_replacement),
         ("Build Brutus candidate bytes", test_build_candidate_bytes_preserves_brutus_format_wrapping),
         ("Build Custom candidate bytes", test_build_candidate_bytes_preserves_custom_struct_replacement),
