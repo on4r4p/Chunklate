@@ -94,6 +94,21 @@ def test_magic_bingo_action_preserves_legacy_thresholds():
     )
 
 
+def test_rebuild_from_best_magic_preserves_legacy_suffix_cut():
+    rebuild = chunk_scanner.rebuild_from_best_magic(
+        "aaaabbbbccccdddd",
+        "11112222",
+        "bbbbcccc",
+    )
+
+    assert rebuild == chunk_scanner.BestMagicRebuild(
+        offset=4,
+        data_hex="11112222dddd",
+    )
+    assert rebuild.offset_byte == 2
+    assert rebuild.offset_hex == "0x2"
+
+
 def test_scan_known_chunks_until_idat_stops_at_first_idat():
     scan = chunk_scanner.scan_known_chunks_until_idat(
         "00" + b"IHDR".hex() + "11" + b"IDAT".hex() + "22" + b"IEND".hex(),
@@ -168,6 +183,7 @@ def main():
         ("magic bingo best signature", test_magic_bingo_scan_preserves_best_signature_and_progress_calls),
         ("magic bingo best count", test_magic_bingo_scan_counts_multiple_best_scores),
         ("magic bingo action", test_magic_bingo_action_preserves_legacy_thresholds),
+        ("rebuild from best magic", test_rebuild_from_best_magic_preserves_legacy_suffix_cut),
         ("known chunk scan until IDAT", test_scan_known_chunks_until_idat_stops_at_first_idat),
         ("known chunk scan without IDAT", test_scan_known_chunks_until_idat_reports_no_idat),
         ("nearest found chunk", test_nearest_found_chunk_uses_lowest_offset_and_previous_length),

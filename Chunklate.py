@@ -2437,13 +2437,13 @@ def FindFuckingMagic():
     MagicBingoAction = chunk_scanner.magic_bingo_action(MagicScan)
 
     if MagicBingoAction == "single_candidate":
-        pos = DATAX.find(BestBingoSig)
+        BestMagicRebuild = chunk_scanner.rebuild_from_best_magic(DATAX, FullMagic, BestBingoSig)
         PRINT("\n...\n")
         PRINT("-Done! %s\n" % Candy("Emoj", "good"))
         PRINT(
             "-Found at offset %s with a score of %s/32 :\n %s\n"
             % (
-                Candy("Color", "blue", hex(int(pos / 2))),
+                Candy("Color", "blue", BestMagicRebuild.offset_hex),
                 Candy("Color", "green", BestBingoScore),
                 Candy("Color", "purple", BestBingoSig),
             )
@@ -2454,15 +2454,14 @@ def FindFuckingMagic():
             "good",
         )
 
-        Odin = FullMagic + DATAX[pos + len(FullMagic) : :]
         return CheckPoint(
             False,
             False,
             "FindFuckingMagic",
             "PngSig",
             ["-Cutting at Magic"],
-            Odin,
-            hex(int(pos / 2)),
+            BestMagicRebuild.data_hex,
+            BestMagicRebuild.offset_hex,
         )
 
     elif MagicBingoAction == "multiple_candidates":

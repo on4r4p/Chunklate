@@ -128,6 +128,20 @@ class NearestFoundChunk:
         return hex(self.offset_byte)
 
 
+@dataclass(frozen=True)
+class BestMagicRebuild:
+    offset: int
+    data_hex: str
+
+    @property
+    def offset_byte(self) -> int:
+        return int(self.offset / 2)
+
+    @property
+    def offset_hex(self) -> str:
+        return hex(self.offset_byte)
+
+
 def magic_bingo_scan(
     data_hex: str,
     full_magic_hex: str,
@@ -180,6 +194,14 @@ def magic_bingo_action(
     if best_score >= minimum_score:
         return "multiple_candidates"
     return "too_low"
+
+
+def rebuild_from_best_magic(data_hex: str, full_magic_hex: str, best_signature: str) -> BestMagicRebuild:
+    offset = data_hex.find(best_signature)
+    return BestMagicRebuild(
+        offset=offset,
+        data_hex=full_magic_hex + data_hex[offset + len(full_magic_hex) : :],
+    )
 
 
 def scan_known_chunks_until_idat(data_hex: str, chunks: tuple[bytes, ...] | list[bytes]) -> KnownChunkScan:
