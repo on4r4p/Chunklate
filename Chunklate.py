@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, history, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, history, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer
 from chunklate.png import (
     PngFormatError,
     chunk_type_crc_matches,
@@ -2703,23 +2703,16 @@ def FindFuckingMagic():
 def Ancillary(Chunk):
     global Bad_Ancillary
     Candy("Title", "Ancillary Check:", Candy("Color", "white", Chunk))
-    Charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-    Semantics = []
     try:
         Chunk = Chunk.decode(errors="ignore")
     except Exception as e:
         Betterror(e, inspect.stack()[0][3])
 
-    for i in Chunk:
-        if i in Charset:
-            if i == i.upper():
-                Semantics.append(i)
-            elif i == i.lower():
-                Semantics.append(i)
-        else:
-            break
+    SemanticsResult = ancillary.chunk_name_semantics(Chunk)
+    Chunk = SemanticsResult.name
+    Semantics = list(SemanticsResult.letters)
 
-    if len(Semantics) != 4:
+    if not SemanticsResult.follows_naming:
         PRINT(
             "-[%s] is %s Chunks's naming conventions"
             % (Chunk, Candy("Color", "red", "Not Following"))
@@ -2740,7 +2733,7 @@ def Ancillary(Chunk):
         Candy(
             "Cowsay", "If this is a real Chunk this means that %s is :" % Chunk, "good"
         )
-        if Semantics[0] == Semantics[0].upper():
+        if SemanticsResult.is_critical:
             PRINT(
                 "-"
                 + Candy("Color", "green", Semantics[0])
@@ -2754,7 +2747,7 @@ def Ancillary(Chunk):
                 + ":"
                 + Candy("Color", "yellow", "Not Critical")
             )
-        if Semantics[1] == Semantics[1].upper():
+        if SemanticsResult.is_private:
             PRINT(
                 "-"
                 + Candy("Color", "green", Semantics[1])
@@ -2768,7 +2761,7 @@ def Ancillary(Chunk):
                 + ":"
                 + Candy("Color", "yellow", "Not Private")
             )
-        if Semantics[2] == Semantics[2].upper():
+        if SemanticsResult.is_reserved_valid:
             PRINT(
                 "-"
                 + Candy("Color", "green", Semantics[2])
@@ -2782,7 +2775,7 @@ def Ancillary(Chunk):
                 + ":"
                 + Candy("Color", "yellow", "Not Conform to PNG specifications")
             )
-        if Semantics[3] == Semantics[3].upper():
+        if SemanticsResult.is_unsafe_to_copy:
             PRINT(
                 "-"
                 + Candy("Color", "green", Semantics[3])
