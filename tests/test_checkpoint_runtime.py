@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+import sys
+from contextlib import contextmanager
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import Chunklate
+from chunklate import checkpoint_runtime
+
+
+@contextmanager
+def patched_attrs(module, **attrs):
+    old_values = {name: getattr(module, name) for name in attrs}
+    try:
+        for name, value in attrs.items():
+            setattr(module, name, value)
+        yield
+    finally:
+        for name, value in old_values.items():
+            setattr(module, name, value)
+
+
+def callback_runtime(calls):
+    def callback(name):
+        def inner(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return name
+
+        return inner
+
+    return checkpoint_runtime.CheckPointRuntime(
+        write_clone=callback("write_clone"),
+        dummy_chunk=callback("dummy_chunk"),
+        summarise=callback("summarise"),
+        find_fucking_magic=callback("find_fucking_magic"),
+        check_chunk_name=callback("check_chunk_name"),
+        save_clone=callback("save_clone"),
+        fix_it_felix=callback("fix_it_felix"),
+        relics=callback("relics"),
+        smash_brute_brawl=callback("smash_brute_brawl"),
+        candy=callback("candy"),
+        emit=callback("emit"),
+        end=callback("end"),
+    )
+
+
+def test_checkpoint_runtime_keeps_legacy_callbacks():
+    calls = []
+    runtime = callback_runtime(calls)
+
+    assert runtime.write_clone("data", "why") == "write_clone"
+    assert runtime.dummy_chunk(b"IEND", 1, 2, 3, "info") == "dummy_chunk"
+    assert runtime.save_clone("data", 1, 2, "info") == "save_clone"
+    assert runtime.fix_it_felix("LibpngCheck") == "fix_it_felix"
+
+    assert [call[0] for call in calls] == [
+        "write_clone",
+        "dummy_chunk",
+        "save_clone",
+        "fix_it_felix",
+    ]
+
+
+def test_checkpoint_runtime_runs_simple_actions():
+    calls = []
+    runtime = callback_runtime(calls)
+
+    assert checkpoint_runtime.run_write_clone(runtime, ("data",)) == (True, "write_clone")
+    assert checkpoint_runtime.run_dummy_chunk_from_the_good_place(
+        runtime,
+        (b"IEND", 10, 20, 30),
+        "dummy info",
+    ) == (True, "dummy_chunk")
+    assert checkpoint_runtime.run_return_value("value") == (True, "value")
+    assert checkpoint_runtime.run_summarise_and_write_clone(
+        runtime,
+        "summary",
+        ("data",),
+    ) == (True, "write_clone")
+    assert checkpoint_runtime.run_find_fucking_magic(runtime) == (True, "find_fucking_magic")
+    assert checkpoint_runtime.run_check_chunk_name(
+        runtime,
+        b"IDAT",
+        b"bADR",
+        ("0f",),
+    ) == (True, "check_chunk_name")
+    assert checkpoint_runtime.run_save_clone(
+        runtime,
+        ("data", 1, 2, "info"),
+    ) == (True, "save_clone")
+    assert checkpoint_runtime.run_save_clone_missing_bytes(
+        runtime,
+        (b"prefix", b"missing", b"suffix"),
+    ) == (True, "save_clone")
+    assert checkpoint_runtime.run_fix_it_felix_continue(runtime, "LibpngCheck") == (False, None)
+    assert checkpoint_runtime.run_fix_it_felix_return(runtime, "LibpngCheck") == (
+        True,
+        "fix_it_felix",
+    )
+
+    assert calls == [
+        ("write_clone", ("data", "-About to save."), {}),
+        ("dummy_chunk", (b"IEND", 10, 20, 30, "dummy info"), {}),
+        ("summarise", ("summary",), {}),
+        ("write_clone", ("data", "-About to save."), {}),
+        ("find_fucking_magic", (), {}),
+        ("check_chunk_name", (b"IDAT", 15, b"bADR", True), {}),
+        ("save_clone", ("data", 1, 2, "info"), {}),
+        (
+            "save_clone",
+            (b"prefix", b"suffix", b"missingsuffix", "Fixing Missing bytes corruption"),
+            {},
+        ),
+        ("fix_it_felix", ("LibpngCheck",), {}),
+        ("fix_it_felix", ("LibpngCheck",), {}),
+    ]
+
+
+def test_chunklate_checkpoint_runtime_uses_current_legacy_functions():
+    calls = []
+
+    def callback(name):
+        def inner(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return name
+
+        return inner
+
+    with patched_attrs(
+        Chunklate,
+        WriteClone=callback("write_clone"),
+        DummyChunk=callback("dummy_chunk"),
+        Summarise=callback("summarise"),
+        FindFuckingMagic=callback("find_fucking_magic"),
+        CheckChunkName=callback("check_chunk_name"),
+        SaveClone=callback("save_clone"),
+        FixItFelix=callback("fix_it_felix"),
+        Relics=callback("relics"),
+        SmashBruteBrawl=callback("smash_brute_brawl"),
+        Candy=callback("candy"),
+        PRINT=callback("emit"),
+        TheEnd=callback("end"),
+    ):
+        runtime = Chunklate.CheckPoint_Runtime()
+        assert runtime.write_clone("data", "why") == "write_clone"
+        assert runtime.relics("info") == "relics"
+        assert runtime.end() == "end"
+
+    assert [call[0] for call in calls] == ["write_clone", "relics", "end"]
+
+
+def main():
+    checks = [
+        ("CheckPointRuntime keeps callbacks", test_checkpoint_runtime_keeps_legacy_callbacks),
+        ("CheckPointRuntime runs simple actions", test_checkpoint_runtime_runs_simple_actions),
+        (
+            "Chunklate builds CheckPointRuntime from legacy functions",
+            test_chunklate_checkpoint_runtime_uses_current_legacy_functions,
+        ),
+    ]
+
+    print("Running CheckPoint runtime tests")
+    for label, check in checks:
+        print(f"  - {label} ... ", end="", flush=True)
+        check()
+        print("ok")
+
+    print(f"checkpoint runtime tests passed ({len(checks)} checks)")
+
+
+if __name__ == "__main__":
+    main()

@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, output, palette, palette_ui, prompts, relics, relics_runtime, sorting, specs, stdio, ui, writer
+from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, output, palette, palette_ui, prompts, relics, relics_runtime, sorting, specs, stdio, ui, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -132,51 +132,80 @@ def CheckPoint_Libpng_End_Success(message):
     TheEnd()
 
 
-def CheckPoint_Action_Write_Clone(decision, chunk, info, toolkit):
-    return True, WriteClone(toolkit[0], "-About to save.")
-
-
-def CheckPoint_Action_Dummy_Chunk_From_The_Good_Place(decision, chunk, info, toolkit):
-    return True, DummyChunk(toolkit[0], toolkit[1], toolkit[2], toolkit[3], info)
-
-
-def CheckPoint_Action_Return_Value(decision, chunk, info, toolkit):
-    return True, decision.return_value
-
-
-def CheckPoint_Action_Summarise_And_Write_Clone(decision, chunk, info, toolkit):
-    Summarise(decision.summary)
-    return True, WriteClone(toolkit[0], "-About to save.")
-
-
-def CheckPoint_Action_Find_Fucking_Magic(decision, chunk, info, toolkit):
-    return True, FindFuckingMagic()
-
-
-def CheckPoint_Action_Check_Chunk_Name(decision, chunk, info, toolkit):
-    return True, CheckChunkName(Raw_NextChunk, int(toolkit[0], 16), chunk, True)
-
-
-def CheckPoint_Action_Save_Clone(decision, chunk, info, toolkit):
-    return True, SaveClone(toolkit[0], toolkit[1], toolkit[2], toolkit[3])
-
-
-def CheckPoint_Action_Save_Clone_Missing_Bytes(decision, chunk, info, toolkit):
-    return True, SaveClone(
-        toolkit[0],
-        toolkit[2],
-        toolkit[1] + toolkit[2],
-        "Fixing Missing bytes corruption",
+def CheckPoint_Runtime():
+    return checkpoint_runtime.CheckPointRuntime(
+        write_clone=WriteClone,
+        dummy_chunk=DummyChunk,
+        summarise=Summarise,
+        find_fucking_magic=FindFuckingMagic,
+        check_chunk_name=CheckChunkName,
+        save_clone=SaveClone,
+        fix_it_felix=FixItFelix,
+        relics=Relics,
+        smash_brute_brawl=SmashBruteBrawl,
+        candy=Candy,
+        emit=PRINT,
+        end=TheEnd,
     )
 
 
+def CheckPoint_Action_Write_Clone(decision, chunk, info, toolkit):
+    return checkpoint_runtime.run_write_clone(CheckPoint_Runtime(), toolkit)
+
+
+def CheckPoint_Action_Dummy_Chunk_From_The_Good_Place(decision, chunk, info, toolkit):
+    return checkpoint_runtime.run_dummy_chunk_from_the_good_place(
+        CheckPoint_Runtime(),
+        toolkit,
+        info,
+    )
+
+
+def CheckPoint_Action_Return_Value(decision, chunk, info, toolkit):
+    return checkpoint_runtime.run_return_value(decision.return_value)
+
+
+def CheckPoint_Action_Summarise_And_Write_Clone(decision, chunk, info, toolkit):
+    return checkpoint_runtime.run_summarise_and_write_clone(
+        CheckPoint_Runtime(),
+        decision.summary,
+        toolkit,
+    )
+
+
+def CheckPoint_Action_Find_Fucking_Magic(decision, chunk, info, toolkit):
+    return checkpoint_runtime.run_find_fucking_magic(CheckPoint_Runtime())
+
+
+def CheckPoint_Action_Check_Chunk_Name(decision, chunk, info, toolkit):
+    return checkpoint_runtime.run_check_chunk_name(
+        CheckPoint_Runtime(),
+        Raw_NextChunk,
+        chunk,
+        toolkit,
+    )
+
+
+def CheckPoint_Action_Save_Clone(decision, chunk, info, toolkit):
+    return checkpoint_runtime.run_save_clone(CheckPoint_Runtime(), toolkit)
+
+
+def CheckPoint_Action_Save_Clone_Missing_Bytes(decision, chunk, info, toolkit):
+    return checkpoint_runtime.run_save_clone_missing_bytes(CheckPoint_Runtime(), toolkit)
+
+
 def CheckPoint_Action_Fix_It_Felix_Continue(decision, chunk, info, toolkit):
-    FixItFelix(decision.return_value)
-    return False, None
+    return checkpoint_runtime.run_fix_it_felix_continue(
+        CheckPoint_Runtime(),
+        decision.return_value,
+    )
 
 
 def CheckPoint_Action_Fix_It_Felix_Return(decision, chunk, info, toolkit):
-    return True, FixItFelix(decision.return_value)
+    return checkpoint_runtime.run_fix_it_felix_return(
+        CheckPoint_Runtime(),
+        decision.return_value,
+    )
 
 
 def CheckPoint_Action_Libpng_Warning_Relics(decision, chunk, info, toolkit):
