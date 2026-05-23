@@ -4899,86 +4899,90 @@ def Relics_Apply_No_Pandemonium_Repair_Decision(NoPandemoniumDecision):
 
 
 def Relics_Handle_Plte():
-    for key in PandoraBox:
-        if "-PLTE" not in str(key):
-            continue
+    PlteFinding = relics.first_current_plte_repair_finding(
+        PandoraBox,
+        Cornucopia,
+        skip_bad_current_name=Skip_Bad_Current_Name,
+        skip_bad_infos=Skip_Bad_Infos,
+        skip_bad_critical=Skip_Bad_Critical,
+    )
+    if PlteFinding is None:
+        return False, None
 
-        if not Skip_Bad_Current_Name and not Skip_Bad_Infos and not Skip_Bad_Critical:
-            if str(key) not in Cornucopia:
-                Candy("Cowsay", "Alright this is a tough one as PLTE is a critical chunk..", "bad")
-                #if not something to get intel about plte nbr and what TODO:
-                if not Bad_Crc:
+    Candy("Cowsay", "Alright this is a tough one as PLTE is a critical chunk..", "bad")
+    #if not something to get intel about plte nbr and what TODO:
+    if not Bad_Crc:
 
-                    Candy("Cowsay", "Crc is valid ...So this has been made on purpose..", "bad")
-                    Candy("Cowsay", "Anyway im just gona fill the gap then.", "com")
-                    Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
-                    Candy("Cowsay", "I will need you to manually click a few buttons for me.", "com")
-                    Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk but trust me this is useless as it wont work..", "com") ## no you should not it wont work
+        Candy("Cowsay", "Crc is valid ...So this has been made on purpose..", "bad")
+        Candy("Cowsay", "Anyway im just gona fill the gap then.", "com")
+        Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
+        Candy("Cowsay", "I will need you to manually click a few buttons for me.", "com")
+        Candy("Cowsay", "Or perhaps i could just remove that PLTE chunk but trust me this is useless as it wont work..", "com") ## no you should not it wont work
 
-                    Answer = Relics_Ask_Plte_Repair(False)
-                    PlteWindow = relics.plte_chunk_window(
-                        Chunks_History, Chunks_History_Index
-                    )
-                    should_return, result = Relics_Apply_Plte_Repair_Decision(
-                        relics.plte_repair_decision(
-                            Answer,
-                            PlteWindow,
-                            target_file=Sample_Name,
-                            quit_note="-User chose to quit.",
-                        )
-                    )
-                    if should_return:
-                        return True, result
+        Answer = Relics_Ask_Plte_Repair(False)
+        PlteWindow = relics.plte_chunk_window(
+            Chunks_History, Chunks_History_Index
+        )
+        should_return, result = Relics_Apply_Plte_Repair_Decision(
+            relics.plte_repair_decision(
+                Answer,
+                PlteWindow,
+                target_file=Sample_Name,
+                quit_note="-User chose to quit.",
+            )
+        )
+        if should_return:
+            return True, result
 
-                else:
+    else:
 
 
-                    Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
-                    Candy("Cowsay", "I ll have to bruteforce my way through until i end up with the old Crc.", "bad")
-                    Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
-                    Candy("Cowsay", "In many ways , its is the best solution in my opinion .", "com")
-                    Candy("Cowsay", "To give you an hint:Take the nbr of atoms in the univers multiply it by itself a couple of times.", "good")
-                    Candy("Cowsay", "And even there we would not be near to get every combination for a PLTE Chunk.", "bad")
-                    Candy("Cowsay", "Perhaps i could just remove that PLTE chunk but no it just wont work ..", "com")  ## no you should not it wont work
+        Candy("Cowsay", "Since i have no information about what to put in there ...", "bad")
+        Candy("Cowsay", "I ll have to bruteforce my way through until i end up with the old Crc.", "bad")
+        Candy("Cowsay", "Or maybe you do want to try to play with the PLTE manually ?", "com")
+        Candy("Cowsay", "In many ways , its is the best solution in my opinion .", "com")
+        Candy("Cowsay", "To give you an hint:Take the nbr of atoms in the univers multiply it by itself a couple of times.", "good")
+        Candy("Cowsay", "And even there we would not be near to get every combination for a PLTE Chunk.", "bad")
+        Candy("Cowsay", "Perhaps i could just remove that PLTE chunk but no it just wont work ..", "com")  ## no you should not it wont work
 
-                    Answer = Relics_Ask_Plte_Repair(True)
-                    PlteWindow = relics.plte_chunk_window(
-                        Chunks_History, Chunks_History_Index
-                    )
-                    Crc_to_match = DATAX[CrcoffI:CrcoffI+8]
-                    should_return, result = Relics_Apply_Plte_Repair_Decision(
-                        relics.plte_repair_decision(
-                            Answer,
-                            PlteWindow,
-                            target_file=Sample_Name,
-                            old_crc=Crc_to_match,
-                            quit_note="-User chose to quit.",
-                        )
-                    )
-                    if should_return:
-                        return True, result
+        Answer = Relics_Ask_Plte_Repair(True)
+        PlteWindow = relics.plte_chunk_window(
+            Chunks_History, Chunks_History_Index
+        )
+        Crc_to_match = DATAX[CrcoffI:CrcoffI+8]
+        should_return, result = Relics_Apply_Plte_Repair_Decision(
+            relics.plte_repair_decision(
+                Answer,
+                PlteWindow,
+                target_file=Sample_Name,
+                old_crc=Crc_to_match,
+                quit_note="-User chose to quit.",
+            )
+        )
+        if should_return:
+            return True, result
 
-                Candy(
-                    "Cowsay",
-                    "Shall i give it a try ? Otherwise Chunklate is going to exit.",
-                    "com",
-                )
-                Answer = Question()
-                if Answer is True:
-                    PlteWindow = relics.plte_chunk_window(
-                        Chunks_History, Chunks_History_Index
-                    )
-                    should_return, result = Relics_Apply_Plte_Repair_Decision(
-                        relics.plte_repair_decision(
-                            "bruteforce",
-                            PlteWindow,
-                            target_file=Sample_Name,
-                        )
-                    )
-                    if should_return:
-                        return True, result
-                else:
-                    TheEnd()
+    Candy(
+        "Cowsay",
+        "Shall i give it a try ? Otherwise Chunklate is going to exit.",
+        "com",
+    )
+    Answer = Question()
+    if Answer is True:
+        PlteWindow = relics.plte_chunk_window(
+            Chunks_History, Chunks_History_Index
+        )
+        should_return, result = Relics_Apply_Plte_Repair_Decision(
+            relics.plte_repair_decision(
+                "bruteforce",
+                PlteWindow,
+                target_file=Sample_Name,
+            )
+        )
+        if should_return:
+            return True, result
+    else:
+        TheEnd()
 
     return False, None
 

@@ -389,6 +389,37 @@ def test_relics_module_exposes_plte_interactive_prompts():
     assert relics.plte_repair_retry_prompt(True) == "Answer(Manually/bruteforce/Remove/Quit):"
 
 
+def test_relics_module_finds_current_plte_repair_finding():
+    pandora_box = {
+        "Checksum_Error_0:Wrong Crc b'IDAT'": {},
+        "GetInfo_Error_1:-PLTE Wrong Data": {},
+        "GetInfo_Error_2:-PLTE Other": {},
+    }
+    cornucopia = {"GetInfo_Error_2:-PLTE Other": {}}
+
+    assert relics.first_current_plte_repair_finding(
+        pandora_box,
+        cornucopia,
+        skip_bad_current_name=False,
+        skip_bad_infos=False,
+        skip_bad_critical=False,
+    ) == "GetInfo_Error_1:-PLTE Wrong Data"
+    assert relics.first_current_plte_repair_finding(
+        pandora_box,
+        cornucopia,
+        skip_bad_current_name=True,
+        skip_bad_infos=False,
+        skip_bad_critical=False,
+    ) is None
+    assert relics.first_current_plte_repair_finding(
+        {"GetInfo_Error_2:-PLTE Other": {}},
+        cornucopia,
+        skip_bad_current_name=False,
+        skip_bad_infos=False,
+        skip_bad_critical=False,
+    ) is None
+
+
 def test_relics_module_finds_plte_chunk_window():
     window = relics.plte_chunk_window(
         [b"IHDR", b"PLTE", b"IDAT"],
@@ -1319,6 +1350,7 @@ def main():
         ("Relics module summarises Pandemonium", test_relics_module_summarises_pandemonium_without_formatting),
         ("Relics module exposes PLTE choices", test_relics_module_exposes_plte_interactive_choices),
         ("Relics module exposes PLTE prompts", test_relics_module_exposes_plte_interactive_prompts),
+        ("Relics module finds current PLTE repair finding", test_relics_module_finds_current_plte_repair_finding),
         ("Relics module finds PLTE chunk window", test_relics_module_finds_plte_chunk_window),
         ("Relics module builds PLTE manual plan", test_relics_module_builds_plte_manual_plan),
         ("Relics module builds PLTE remove plan", test_relics_module_builds_plte_remove_plan),

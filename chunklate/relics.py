@@ -515,6 +515,25 @@ def plte_repair_retry_prompt(has_bad_crc: bool) -> str | None:
     return None
 
 
+def first_current_plte_repair_finding(
+    pandora_box: Mapping[Any, Any],
+    cornucopia: Mapping[Any, Any],
+    *,
+    skip_bad_current_name: bool,
+    skip_bad_infos: bool,
+    skip_bad_critical: bool,
+) -> Any | None:
+    if skip_bad_current_name or skip_bad_infos or skip_bad_critical:
+        return None
+
+    for key in pandora_box:
+        if "-PLTE" not in str(key):
+            continue
+        if str(key) not in cornucopia:
+            return key
+    return None
+
+
 def plte_chunk_window(
     chunks_history: list[Any] | tuple[Any, ...],
     chunks_history_index: list[Any] | tuple[Any, ...],
