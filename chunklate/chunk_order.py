@@ -25,6 +25,27 @@ def decode_chunk_names(chunks: Iterable[bytes]) -> list[str]:
     return [decode_chunk_name(chunk) for chunk in chunks]
 
 
+def seen_chunks_message(
+    sample_name: str,
+    used_chunks: Iterable[bytes],
+    separator: str = "",
+) -> str:
+    return (
+        " So far we came across those chunks in "
+        + sample_name
+        + separator
+        + str(decode_chunk_names(used_chunks))
+    )
+
+
+def critical_missing_print_line(chunk: bytes, missing_label: str) -> str:
+    return "-Critical Chunk %s is %s !" % (chunk, missing_label)
+
+
+def errors_ok_print_line(ok_label: str, good_emoj: str) -> str:
+    return "\n-Errors Check :" + ok_label + good_emoj
+
+
 def unique_seen_chunks(chunks_history: Sequence[bytes]) -> tuple[bytes, ...]:
     return tuple(dict.fromkeys(chunks_history))
 
@@ -75,6 +96,10 @@ def legacy_flags_unique_chunk_as_multiple(
     return lastchunk in set(unique_chunks) and lastchunk in excluded
 
 
+def multiple_chunk_print_line(colored_chunk: str, colored_cannot: str) -> str:
+    return "-%s chunk %s be used multiple times." % (colored_chunk, colored_cannot)
+
+
 def multiple_chunk_info() -> str:
     return "-Multiple"
 
@@ -87,12 +112,34 @@ def missplaced_checkpoint_args(to_fix: Sequence[str]) -> tuple[object, ...]:
     return (True, False, "CheckChunkOrder", "Missplaced", to_fix)
 
 
+def missplaced_failed_print_line(failed_label: str, bad_emoj: str) -> str:
+    return "\n-Missplaced Chunk Check :" + failed_label + bad_emoj
+
+
+def missplaced_ok_print_line(ok_label: str, good_emoj: str) -> str:
+    return "\n-Missplaced Chunk Check :" + ok_label + good_emoj
+
+
 def png_signature_is_misplaced(chunks_history: Sequence[bytes]) -> bool:
     return len(chunks_history) > 0 and chunks_history[0] != b"PNG"
 
 
+def png_signature_misplaced_print_line(colored_before: str, bad_emoj: str) -> str:
+    return "-PNG signature have to be placed %s all the other chunks. %s" % (
+        colored_before,
+        bad_emoj,
+    )
+
+
 def ihdr_is_misplaced(chunks_history: Sequence[bytes]) -> bool:
     return len(chunks_history) > 1 and chunks_history[1] != b"IHDR"
+
+
+def ihdr_misplaced_print_line(colored_before_all: str, bad_emoj: str) -> str:
+    return "-IHDR Chunk have to be placed %s and after Png Signature. %s" % (
+        colored_before_all,
+        bad_emoj,
+    )
 
 
 def ihdr_misplacement_already_recorded(pandora_box: Mapping[object, object]) -> bool:
@@ -127,6 +174,14 @@ def missplaced_before_plte_info(lastchunk: bytes) -> str:
     return "-%s is missplaced must appears before PLTE Chunk" % decode_chunk_name(lastchunk)
 
 
+def before_plte_print_line(colored_missplaced: str, chunk_name: str, bad_emoj: str) -> str:
+    return "-%s  %s must appears before PLTE Chunk. %s" % (
+        colored_missplaced,
+        chunk_name,
+        bad_emoj,
+    )
+
+
 def must_appear_before_idat(
     lastchunk: bytes,
     used_chunks: Sequence[bytes],
@@ -135,6 +190,14 @@ def must_appear_before_idat(
 ) -> bool:
     return b"IDAT" in used_chunks and (
         lastchunk in excluded or lastchunk in set(before_idat)
+    )
+
+
+def before_idat_print_line(colored_missplaced: str, chunk_name: str, bad_emoj: str) -> str:
+    return "-%s  %s must be before IDAT Chunk. %s" % (
+        colored_missplaced,
+        chunk_name,
+        bad_emoj,
     )
 
 
@@ -165,6 +228,20 @@ def has_idat(used_chunks: Sequence[bytes]) -> bool:
 
 def add_iend_exclusion(excluded: Sequence[bytes]) -> tuple[bytes, ...]:
     return tuple(list(excluded) + [b"IEND"])
+
+
+def before_plte_forget_message(colored_chunk: str, excluded_names: Sequence[str]) -> str:
+    return (
+        " %s chunk must be placed before any PLTE related chunks we can forget about thoses:\n%s"
+        % (colored_chunk, excluded_names)
+    )
+
+
+def after_plte_forget_message(lastchunk: bytes, excluded_names: Sequence[str]) -> str:
+    return (
+        " %s chunk must be placed after PLTE related chunks we can forget about thoses:\n%s"
+        % (lastchunk, excluded_names)
+    )
 
 
 def extend_exclusions_not_in(
@@ -223,6 +300,13 @@ def indexed_idat_previous_chunk_is_plte(used_chunks: Sequence[bytes]) -> bool:
 
 def is_idat_chunk(chunk: bytes) -> bool:
     return chunk == b"IDAT"
+
+
+def idat_next_candidates_message(no_order_chunks: Iterable[bytes]) -> str:
+    return (
+        " So ..the last Chunk Type was IDAT so we either looking for another IDAT,IEND or one of them:%s"
+        % decode_chunk_names(no_order_chunks)
+    )
 
 
 def the_good_place_missing_checkpoint_args(

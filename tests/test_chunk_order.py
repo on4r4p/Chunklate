@@ -20,6 +20,49 @@ def test_chunk_name_decoding_helpers_preserve_legacy_decode_errors_ignore():
     assert chunk_order.decode_chunk_name(b"IHDR") == "IHDR"
     assert chunk_order.decode_chunk_name(b"\xffID") == "ID"
     assert chunk_order.decode_chunk_names([b"IHDR", b"\xffID"]) == ["IHDR", "ID"]
+    assert chunk_order.seen_chunks_message("sample.png", [b"IHDR", b"IDAT"]) == (
+        " So far we came across those chunks in sample.png['IHDR', 'IDAT']"
+    )
+    assert chunk_order.seen_chunks_message("sample.png", [b"IHDR"], "\n ") == (
+        " So far we came across those chunks in sample.png\n ['IHDR']"
+    )
+
+
+def test_chunk_order_print_lines_preserve_legacy_text():
+    assert chunk_order.critical_missing_print_line(b"IEND", "MISSING") == (
+        "-Critical Chunk b'IEND' is MISSING !"
+    )
+    assert chunk_order.errors_ok_print_line(" OK ", ":)") == "\n-Errors Check : OK :)"
+    assert chunk_order.multiple_chunk_print_line("IHDR", "cannot") == (
+        "-IHDR chunk cannot be used multiple times."
+    )
+    assert chunk_order.png_signature_misplaced_print_line("Before", ":(") == (
+        "-PNG signature have to be placed Before all the other chunks. :("
+    )
+    assert chunk_order.ihdr_misplaced_print_line("Before all", ":(") == (
+        "-IHDR Chunk have to be placed Before all and after Png Signature. :("
+    )
+    assert chunk_order.before_plte_print_line("gAMA is missplaced", "gAMA", ":(") == (
+        "-gAMA is missplaced  gAMA must appears before PLTE Chunk. :("
+    )
+    assert chunk_order.before_idat_print_line("gAMA is missplaced", "gAMA", ":(") == (
+        "-gAMA is missplaced  gAMA must be before IDAT Chunk. :("
+    )
+    assert chunk_order.missplaced_failed_print_line(" FAILED ", ":(") == (
+        "\n-Missplaced Chunk Check : FAILED :("
+    )
+    assert chunk_order.missplaced_ok_print_line(" OK ", ":)") == (
+        "\n-Missplaced Chunk Check : OK :)"
+    )
+    assert chunk_order.before_plte_forget_message("gAMA", ["IHDR"]) == (
+        " gAMA chunk must be placed before any PLTE related chunks we can forget about thoses:\n['IHDR']"
+    )
+    assert chunk_order.after_plte_forget_message(b"tRNS", ["IHDR"]) == (
+        " b'tRNS' chunk must be placed after PLTE related chunks we can forget about thoses:\n['IHDR']"
+    )
+    assert chunk_order.idat_next_candidates_message([b"IEND", b"tEXt"]) == (
+        " So ..the last Chunk Type was IDAT so we either looking for another IDAT,IEND or one of them:['IEND', 'tEXt']"
+    )
 
 
 def test_missing_critical_chunks_preserves_legacy_messages_source():
@@ -204,6 +247,7 @@ def main():
     checks = [
         ("Chunk bytes coercion", test_as_chunk_bytes_preserves_bytes_and_encodes_text),
         ("Chunk name decoding", test_chunk_name_decoding_helpers_preserve_legacy_decode_errors_ignore),
+        ("Chunk order print lines", test_chunk_order_print_lines_preserve_legacy_text),
         ("Missing critical chunks", test_missing_critical_chunks_preserves_legacy_messages_source),
         ("Unique chunk exclusions", test_unique_seen_chunks_and_unique_exclusions_preserve_order),
         ("Legacy unique multiple check", test_legacy_unique_chunk_multiple_check_preserves_current_behavior),

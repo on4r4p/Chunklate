@@ -3181,8 +3181,10 @@ def CheckChunkOrder(lastchunk, mode):
         MissingCritical = chunk_order.missing_critical_chunks(Chunks_History, MINIMAL_CHUNKS)
         for chnk in MissingCritical:
             PRINT(
-                "-Critical Chunk %s is %s !"
-                % (chnk, Candy("Color", "red", "Missing"))
+                chunk_order.critical_missing_print_line(
+                    chnk,
+                    Candy("Color", "red", "Missing"),
+                )
             )
         ToFix.extend(chunk_order.missing_critical_infos(MissingCritical))
         if chunk_order.has_findings(ToFix):
@@ -3190,9 +3192,10 @@ def CheckChunkOrder(lastchunk, mode):
             # TheEnd()
         else:
             PRINT(
-                "\n-Errors Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
+                chunk_order.errors_ok_print_line(
+                    Candy("Color", "green", " OK "),
+                    Candy("Emoj", "good"),
+                )
             )
         return
 
@@ -3206,17 +3209,13 @@ def CheckChunkOrder(lastchunk, mode):
         #        PRINT(Excluded)
         Candy(
             "Cowsay",
-            " So far we came across those chunks in "
-            + Sample_Name
-            + "\n "
-            + str(chunk_order.decode_chunk_names(Used_Chunks)),
+            chunk_order.seen_chunks_message(Sample_Name, Used_Chunks, "\n "),
             "good",
         )
 
         if chunk_order.legacy_flags_unique_chunk_as_multiple(lastchunk, Excluded, UNIQUE_CHUNK):
             PRINT(
-                "-%s chunk %s be used multiple times."
-                % (
+                chunk_order.multiple_chunk_print_line(
                     Candy("Color", "red", chunk_order.decode_chunk_name(lastchunk)),
                     Candy("Color", "red", "cannot"),
                 )
@@ -3225,8 +3224,10 @@ def CheckChunkOrder(lastchunk, mode):
 
         if chunk_order.png_signature_is_misplaced(Chunks_History):
             PRINT(
-                "-PNG signature have to be placed %s all the other chunks. %s"
-                % (Candy("Color", "red", "Before"), Candy("Emoj", "bad"))
+                chunk_order.png_signature_misplaced_print_line(
+                    Candy("Color", "red", "Before"),
+                    Candy("Emoj", "bad"),
+                )
             )
             ToFix.append(chunk_order.missplaced_info())
         if chunk_order.ihdr_is_misplaced(Chunks_History):
@@ -3234,8 +3235,7 @@ def CheckChunkOrder(lastchunk, mode):
 
             if Done is False:
                 PRINT(
-                    "-IHDR Chunk have to be placed %s and after Png Signature. %s"
-                    % (
+                    chunk_order.ihdr_misplaced_print_line(
                         Candy("Color", "red", "Before all the other chunks"),
                         Candy("Emoj", "bad"),
                     )
@@ -3255,8 +3255,7 @@ def CheckChunkOrder(lastchunk, mode):
 
         if chunk_order.must_appear_before_plte(lastchunk, Used_Chunks, BEFORE_PLTE):
             PRINT(
-                "-%s  %s must appears before PLTE Chunk. %s"
-                % (
+                chunk_order.before_plte_print_line(
                     Candy(
                         "Color",
                         "red",
@@ -3271,8 +3270,7 @@ def CheckChunkOrder(lastchunk, mode):
 
         if chunk_order.must_appear_before_idat(lastchunk, Used_Chunks, Excluded, BEFORE_IDAT2):
             PRINT(
-                "-%s  %s must be before IDAT Chunk. %s"
-                % (
+                chunk_order.before_idat_print_line(
                     Candy(
                         "Color",
                         "red",
@@ -3288,15 +3286,17 @@ def CheckChunkOrder(lastchunk, mode):
         if chunk_order.has_findings(ToFix):
             CheckPoint(*chunk_order.missplaced_checkpoint_args(ToFix))
             PRINT(
-                "\n-Missplaced Chunk Check :"
-                + Candy("Color", "red", " FAILED ")
-                + Candy("Emoj", "bad")
+                chunk_order.missplaced_failed_print_line(
+                    Candy("Color", "red", " FAILED "),
+                    Candy("Emoj", "bad"),
+                )
             )
         else:
             PRINT(
-                "\n-Missplaced Chunk Check :"
-                + Candy("Color", "green", " OK ")
-                + Candy("Emoj", "good")
+                chunk_order.missplaced_ok_print_line(
+                    Candy("Color", "green", " OK "),
+                    Candy("Emoj", "good"),
+                )
             )
         return
 
@@ -3319,9 +3319,7 @@ def CheckChunkOrder(lastchunk, mode):
         Excluded = list(Chunk_Order_Context.excluded_chunks)
         Candy(
             "Cowsay",
-            " So far we came across those chunks in "
-            + Sample_Name
-            + str(chunk_order.decode_chunk_names(Used_Chunks)),
+            chunk_order.seen_chunks_message(Sample_Name, Used_Chunks),
             "good",
         )
 
@@ -3331,8 +3329,7 @@ def CheckChunkOrder(lastchunk, mode):
                 Excluded = list(chunk_order.extend_exclusions_not_in(Excluded, CHUNKS, BEFORE_PLTE))
                 Candy(
                     "Cowsay",
-                    " %s chunk must be placed before any PLTE related chunks we can forget about thoses:\n%s"
-                    % (
+                    chunk_order.before_plte_forget_message(
                         Candy("Color", "green", chunk_order.decode_chunk_name(lastchunk)),
                         chunk_order.decode_chunk_names(Excluded),
                     ),
@@ -3343,8 +3340,10 @@ def CheckChunkOrder(lastchunk, mode):
                 Excluded = list(chunk_order.extend_exclusions_in(Excluded, CHUNKS, BEFORE_PLTE))
                 Candy(
                     "Cowsay",
-                    " %s chunk must be placed after PLTE related chunks we can forget about thoses:\n%s"
-                    % (lastchunk, chunk_order.decode_chunk_names(Excluded)),
+                    chunk_order.after_plte_forget_message(
+                        lastchunk,
+                        chunk_order.decode_chunk_names(Excluded),
+                    ),
                     "bad",
                 )
 
@@ -3395,8 +3394,7 @@ def CheckChunkOrder(lastchunk, mode):
             if chunk_order.is_idat_chunk(lastchunk):
                 Candy(
                     "Cowsay",
-                    " So ..the last Chunk Type was IDAT so we either looking for another IDAT,IEND or one of them:%s"
-                    % chunk_order.decode_chunk_names(NO_ORDER_CHUNKS),
+                    chunk_order.idat_next_candidates_message(NO_ORDER_CHUNKS),
                     "com",
                 )
 
