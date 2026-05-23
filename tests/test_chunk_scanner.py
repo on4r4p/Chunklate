@@ -152,6 +152,15 @@ def test_prepend_magic_before_nearest_preserves_legacy_join():
     ) == "89504e470000000dcccc"
 
 
+def test_missing_chunks_before_idat_preserves_legacy_membership_check():
+    before_idat = [b"IHDR", b"PLTE"]
+
+    assert chunk_scanner.count_chunks_before_idat({b"IEND": 10}, before_idat) == 0
+    assert chunk_scanner.missing_chunks_before_idat({b"IEND": 10}, before_idat) is True
+    assert chunk_scanner.count_chunks_before_idat({b"IHDR": 4, b"IDAT": 20}, before_idat) == 1
+    assert chunk_scanner.missing_chunks_before_idat({b"IHDR": 4, b"IDAT": 20}, before_idat) is False
+
+
 def main():
     checks = [
         ("legacy globals", test_scan_legacy_chunk_exposes_window_and_legacy_globals),
@@ -164,6 +173,7 @@ def main():
         ("nearest found chunk", test_nearest_found_chunk_uses_lowest_offset_and_previous_length),
         ("nearest found chunk prefix", test_nearest_found_chunk_uses_prefix_when_no_previous_length),
         ("prepend magic before nearest", test_prepend_magic_before_nearest_preserves_legacy_join),
+        ("missing chunks before IDAT", test_missing_chunks_before_idat_preserves_legacy_membership_check),
     ]
 
     print("Running chunk scanner tests")

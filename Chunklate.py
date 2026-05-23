@@ -2568,9 +2568,7 @@ def FindFuckingMagic():
             for ck in ChunksFound:
                 PRINT("ChunksFound Chunk:%s index:%s" % (ck, ChunksFound[ck]))
 
-            FirstCheck = len([bidat for bidat in ChunksFound if bidat in BEFORE_IDAT])
-
-            if FirstCheck == 0:
+            if chunk_scanner.missing_chunks_before_idat(ChunksFound, BEFORE_IDAT):
                 Candy(
                     "Cowsay",
                     "Great...This is the worst situation..Some chunks are missing..",

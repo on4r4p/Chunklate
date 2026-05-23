@@ -234,3 +234,11 @@ def prepend_magic_before_nearest(
     nearest_offset: int,
 ) -> str:
     return magic_hex + length_hex + data_hex[nearest_offset::]
+
+
+def count_chunks_before_idat(chunks_found: dict[bytes, int], before_idat: tuple[bytes, ...] | list[bytes]) -> int:
+    return len([chunk for chunk in chunks_found if chunk in before_idat])
+
+
+def missing_chunks_before_idat(chunks_found: dict[bytes, int], before_idat: tuple[bytes, ...] | list[bytes]) -> bool:
+    return count_chunks_before_idat(chunks_found, before_idat) == 0
