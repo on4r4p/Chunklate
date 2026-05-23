@@ -95,34 +95,6 @@ def Error_Log(Err_to_log):
 # - Cornucopia holds fixes already accepted by CheckPoint/FixItFelix.
 # - WriteClone snapshots those two stores into Pandemonium/ArkOfCovenant so
 #   Relics can react to the repair history when libpng reports a later failure.
-def Cornucopia_Tool(key, tool_prefix, index):
-    return relics.tool_value(Cornucopia[key], tool_prefix, index)
-
-
-def PandoraBox_Wrong_Crc_Tools(key, tool_prefix):
-    return relics.wrong_crc_tools(PandoraBox[key], tool_prefix)
-
-
-def Pandemonium_Wrong_Crc_Tools(file, error, tool_prefix):
-    return relics.wrong_crc_tools(Pandemonium[file][error], tool_prefix)
-
-
-def PandoraBox_Wrong_Chunk_Name_Tools(key, tool_prefix):
-    return relics.wrong_chunk_name_tools(PandoraBox[key], tool_prefix)
-
-
-def PandoraBox_No_Next_Chunk_Tools(key, tool_prefix):
-    return relics.no_next_chunk_tools(PandoraBox[key], tool_prefix)
-
-
-def Pandemonium_Dummy_Chunk_Tools(file, error, tool_prefix):
-    return relics.dummy_chunk_tools(Pandemonium[file][error], tool_prefix)
-
-
-def PandoraBox_Discard(key):
-    return relics.discard_pandora_error(PandoraBox, key)
-
-
 def CheckPoint_Record_Finding(registration):
     if registration.side_note is not None:
         SideNotes.append(registration.side_note)
@@ -142,7 +114,7 @@ def CheckPoint_Print_Libpng_Critical(info):
 def CheckPoint_Discard_Libpng_Warning():
     for nb, key in enumerate(PandoraBox):
         if "libpng warning:" in str(key):
-            PandoraBox_Discard(key)
+            relics.discard_pandora_error(PandoraBox, key)
             SideNotes.append("-Found False-Positive :[Error:-%s]." % (str(key)))
             break
 
@@ -4852,7 +4824,7 @@ def Relics_Try_Current_Wrong_Crc_Fix():
         PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
         if Chunkname == "IDAT":
             chkd = WrongCrcRoute.tool_prefix
-            CrcTools = PandoraBox_Wrong_Crc_Tools(key, chkd)
+            CrcTools = relics.wrong_crc_tools(PandoraBox[key], chkd)
             Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
             Candy(
                 "Cowsay",
@@ -4997,9 +4969,8 @@ def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
             "good",
         )
 
-        CrcTools = Pandemonium_Wrong_Crc_Tools(
-            WrongCrcRoute.source,
-            WrongCrcRoute.error,
+        CrcTools = relics.wrong_crc_tools(
+            Pandemonium[WrongCrcRoute.source][WrongCrcRoute.error],
             WrongCrcRoute.tool_prefix,
         )
 
@@ -5148,7 +5119,9 @@ def Relics_Handle_Single_Pandemonium(FromError):
                 #PRINT("Chunkname:%s"% Chunkname)
                 # def Checksum(Ctype, Cdata, Crc,next=None):
                 chunk_tool_prefix = Chunkname + "_Tool_"
-                CrcTools = Pandemonium_Wrong_Crc_Tools(file, errors, chunk_tool_prefix)
+                CrcTools = relics.wrong_crc_tools(
+                    Pandemonium[file][errors], chunk_tool_prefix
+                )
                 Relics_Run_Wrong_Crc_Brawl_Plan(
                     relics.wrong_crc_brawl_plan(
                         relics.WrongCrcRoute(
@@ -5186,9 +5159,8 @@ def Relics_Handle_Remembered_Dummy_Chunks(FromError):
     for DummyRoute in relics.remembered_dummy_chunk_routes(
         Pandemonium, ALLCHUNKS, CRITICAL_CHUNKS
     ):
-        DummyTools = Pandemonium_Dummy_Chunk_Tools(
-            DummyRoute.source,
-            DummyRoute.error,
+        DummyTools = relics.dummy_chunk_tools(
+            Pandemonium[DummyRoute.source][DummyRoute.error],
             DummyRoute.tool_prefix,
         )
         ChunkName = DummyRoute.chunk_name
@@ -5432,7 +5404,7 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
 
     if CrcDecision.action != "already_in_cornucopia":
         PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-        CrcTools = PandoraBox_Wrong_Crc_Tools(key, chkd)
+        CrcTools = relics.wrong_crc_tools(PandoraBox[key], chkd)
 
         if CrcDecision.action == "ask_easy_crc_fix":
             Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
@@ -5552,12 +5524,12 @@ def FixItFelix_Libpng_Skip(decision, key, chkd):
 
 
 def FixItFelix_Libpng_Save_Existing_Solution(decision, key, chkd):
-    PRINT("\n-\033[1;32;49mSolved\033[m: %s"% Cornucopia_Tool(key, chkd, 3))
+    PRINT("\n-\033[1;32;49mSolved\033[m: %s"% relics.tool_value(Cornucopia[key], chkd, 3))
     SaveClone(
-        Cornucopia_Tool(key, chkd, 0),
-        Cornucopia_Tool(key, chkd, 1),
-        Cornucopia_Tool(key, chkd, 2),
-        Cornucopia_Tool(key, chkd, 3),
+        relics.tool_value(Cornucopia[key], chkd, 0),
+        relics.tool_value(Cornucopia[key], chkd, 1),
+        relics.tool_value(Cornucopia[key], chkd, 2),
+        relics.tool_value(Cornucopia[key], chkd, 3),
     )
     return True, GroundhogDay(Sample)
 
@@ -5597,7 +5569,7 @@ def FixItFelix_Wrong_Chunk_Name(key, chkd):
 
         if NameDecision.action != "save_existing_solution":
             PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-            NameTools = PandoraBox_Wrong_Chunk_Name_Tools(key, chkd)
+            NameTools = relics.wrong_chunk_name_tools(PandoraBox[key], chkd)
             Ancillary(NameTools.chunk_type)
 
             if Bad_Ancillary is True:
@@ -5699,12 +5671,12 @@ def FixItFelix_Wrong_Chunk_Name(key, chkd):
             else:
                 Skip_Bad_Current_Name = True
         else:
-            PRINT("\n-\033[1;32;49mSolved\033[m: %s"% Cornucopia_Tool(key, chkd, 4))
+            PRINT("\n-\033[1;32;49mSolved\033[m: %s"% relics.tool_value(Cornucopia[key], chkd, 4))
             return True, SaveClone(
-                Cornucopia_Tool(key, chkd, 0),
-                Cornucopia_Tool(key, chkd, 1),
-                Cornucopia_Tool(key, chkd, 2),
-                Cornucopia_Tool(key, chkd, 3),
+                relics.tool_value(Cornucopia[key], chkd, 0),
+                relics.tool_value(Cornucopia[key], chkd, 1),
+                relics.tool_value(Cornucopia[key], chkd, 2),
+                relics.tool_value(Cornucopia[key], chkd, 3),
             )
             pass
 
@@ -5725,7 +5697,7 @@ def FixItFelix_No_NextChunk_Discard_False_Positive():
                 "That one is a false positive im removing it ..",
                 "good",
             )
-            PandoraBox_Discard(pandora_key)
+            relics.discard_pandora_error(PandoraBox, pandora_key)
             SideNotes.append("-Found False-Positive :[Error:-No NextChunk].")
             Skip_Bad_No_Next_Chunk = True
             break
@@ -5908,7 +5880,7 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
 
     if Skip_Bad_No_Next_Chunk is False:
         FixItFelix_No_NextChunk_Print_Critical(key)
-        NoNextTools = PandoraBox_No_Next_Chunk_Tools(key, chkd)
+        NoNextTools = relics.no_next_chunk_tools(PandoraBox[key], chkd)
         NoNextDecision = fixit_felix.no_next_chunk_decision(
             current_chunk=Chunk,
             chunk_type=NoNextTools.chunk_type,
@@ -5930,7 +5902,7 @@ def FixItFelix_Gama_Zero(key):
     GamaDecision = fixit_felix.gama_zero_decision(key)
     if GamaDecision.action == "discard_false_positive":
         Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good") ##ME !!!
-        PandoraBox_Discard(GamaDecision.false_positive.finding)
+        relics.discard_pandora_error(PandoraBox, GamaDecision.false_positive.finding)
         SideNotes.append(GamaDecision.false_positive.note)
         return True, FixItFelix
 
