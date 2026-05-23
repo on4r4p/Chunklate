@@ -1223,24 +1223,12 @@ def Minibar(Indication=""):
     global GoBack
     global Loading_txt
     global Loading_sep
-    point = "."
-    space = " "
-
-    lnt = len(Loading_txt)
-    if lnt < MAXCHAR - len(Indication)+1 and GoBack is False:
-        Loading_txt = str(Indication)+(point * CharPos) + space
-        CharPos += 1
+    Step = ui.minibar_step(Indication, Loading_txt, CharPos, GoBack, MAXCHAR)
+    Loading_txt = Step.loading_text
+    CharPos = Step.char_pos
+    GoBack = Step.go_back
+    if Step.should_print:
         print(Loading_txt, end="\r")
-        lnt = len(Loading_txt)
-    else:
-        if lnt > len(Indication)+2:
-            GoBack = True
-            Loading_txt = str(Indication)+(point * CharPos) + space
-            CharPos -= 1
-            print(Loading_txt, end="\r")
-            lnt = len(Loading_txt)
-        else:
-            GoBack = False
 
 
 def Loadingbar(fishs, fishsize, loop, build):

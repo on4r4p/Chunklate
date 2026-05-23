@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 import random
 
 COLOR_CODES = {
@@ -13,6 +14,16 @@ COLOR_CODES = {
 }
 RESET = "\033[m"
 ANSI_SEQUENCES = tuple(code.encode() for code in COLOR_CODES.values()) + (RESET.encode(), b"\x0A")
+
+
+@dataclass(frozen=True)
+class MinibarStep:
+    loading_text: str
+    char_pos: int
+    go_back: bool
+    should_print: bool
+
+
 EMOJIS = {
     "good": (
         "¯\\(◉‿◉)/¯",
@@ -469,4 +480,39 @@ def render_chunklate_banner(os_name: str, random_int) -> tuple[str, ...]:
         toped,
         "  " + colored_len + title + colored_crc,
         boted,
+    )
+
+
+def minibar_step(
+    indication: str,
+    loading_text: str,
+    char_pos: int,
+    go_back: bool,
+    max_columns: int,
+) -> MinibarStep:
+    point = "."
+    space = " "
+
+    text_length = len(loading_text)
+    if text_length < max_columns - len(indication) + 1 and go_back is False:
+        return MinibarStep(
+            loading_text=str(indication) + (point * char_pos) + space,
+            char_pos=char_pos + 1,
+            go_back=go_back,
+            should_print=True,
+        )
+
+    if text_length > len(indication) + 2:
+        return MinibarStep(
+            loading_text=str(indication) + (point * char_pos) + space,
+            char_pos=char_pos - 1,
+            go_back=True,
+            should_print=True,
+        )
+
+    return MinibarStep(
+        loading_text=loading_text,
+        char_pos=char_pos,
+        go_back=False,
+        should_print=False,
     )

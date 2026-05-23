@@ -151,6 +151,33 @@ def test_render_chunklate_banner_preserves_legacy_color_calls():
     assert bottom.startswith("\033[1;31;49m╰\033[m")
 
 
+def test_minibar_step_preserves_forward_animation():
+    assert ui.minibar_step("3/9", "", 1, False, 20) == ui.MinibarStep(
+        loading_text="3/9. ",
+        char_pos=2,
+        go_back=False,
+        should_print=True,
+    )
+
+
+def test_minibar_step_preserves_backward_animation():
+    assert ui.minibar_step("3/9", "3/9...... ", 4, False, 5) == ui.MinibarStep(
+        loading_text="3/9.... ",
+        char_pos=3,
+        go_back=True,
+        should_print=True,
+    )
+
+
+def test_minibar_step_preserves_turnaround_without_print():
+    assert ui.minibar_step("3/9", "3/9..", 1, True, 20) == ui.MinibarStep(
+        loading_text="3/9..",
+        char_pos=1,
+        go_back=False,
+        should_print=False,
+    )
+
+
 def main():
     checks = [
         ("Colorize ANSI colors", test_colorize_preserves_legacy_ansi_colors),
@@ -166,6 +193,9 @@ def main():
         ("Emit printable message", test_emit_printable_message_uses_injected_emit_callback),
         ("Chunklate banner Windows", test_render_chunklate_banner_preserves_windows_layout),
         ("Chunklate banner color calls", test_render_chunklate_banner_preserves_legacy_color_calls),
+        ("Minibar forward", test_minibar_step_preserves_forward_animation),
+        ("Minibar backward", test_minibar_step_preserves_backward_animation),
+        ("Minibar turnaround", test_minibar_step_preserves_turnaround_without_print),
     ]
 
     print("Running UI tests")
