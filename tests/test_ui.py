@@ -199,6 +199,45 @@ def test_build_loadingbar_frames_preserves_legacy_animation_shape():
     ]
 
 
+def test_loadingbar_progress_keeps_frame_between_100_steps():
+    progress = ui.loadingbar_progress(
+        500,
+        3,
+        42,
+        ["frame0", "frame1"],
+        fish_pos=0,
+        len_fish_list=1,
+    )
+
+    assert progress == ui.LoadingbarProgress(text="042/500frame0", fish_pos=0)
+
+
+def test_loadingbar_progress_advances_every_100_steps():
+    progress = ui.loadingbar_progress(
+        500,
+        3,
+        100,
+        ["frame0", "frame1"],
+        fish_pos=0,
+        len_fish_list=1,
+    )
+
+    assert progress == ui.LoadingbarProgress(text="100/500frame1", fish_pos=1)
+
+
+def test_loadingbar_progress_wraps_at_last_frame():
+    progress = ui.loadingbar_progress(
+        500,
+        3,
+        200,
+        ["frame0", "frame1"],
+        fish_pos=1,
+        len_fish_list=1,
+    )
+
+    assert progress == ui.LoadingbarProgress(text="200/500frame0", fish_pos=0)
+
+
 def main():
     checks = [
         ("Colorize ANSI colors", test_colorize_preserves_legacy_ansi_colors),
@@ -218,6 +257,9 @@ def main():
         ("Minibar backward", test_minibar_step_preserves_backward_animation),
         ("Minibar turnaround", test_minibar_step_preserves_turnaround_without_print),
         ("Loadingbar frames", test_build_loadingbar_frames_preserves_legacy_animation_shape),
+        ("Loadingbar progress static", test_loadingbar_progress_keeps_frame_between_100_steps),
+        ("Loadingbar progress advance", test_loadingbar_progress_advances_every_100_steps),
+        ("Loadingbar progress wrap", test_loadingbar_progress_wraps_at_last_frame),
     ]
 
     print("Running UI tests")

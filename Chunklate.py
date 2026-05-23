@@ -1250,20 +1250,16 @@ def Loadingbar(fishs, fishsize, loop, build):
         FishPos = BuiltLoadingbar.fish_pos
     else:
 #        Pause("pas build")
-        if loop % 100 == 0:
-            if FishPos != LenFishList:
-                FishPos += 1
-            else:
-                FishPos = 0
-            print(
-                "%s/%s%s" % (str(loop).zfill(fishsize), fishs, ThksForTheFish[FishPos]),
-                end="\r",
-            )
-        else:
-            print(
-                "%s/%s%s" % (str(loop).zfill(fishsize), fishs, ThksForTheFish[FishPos]),
-                end="\r",
-            )
+        Progress = ui.loadingbar_progress(
+            fishs,
+            fishsize,
+            loop,
+            ThksForTheFish,
+            FishPos,
+            LenFishList,
+        )
+        FishPos = Progress.fish_pos
+        print(Progress.text, end="\r")
 
 
 def Sumform(waitforit, switch):

@@ -31,6 +31,12 @@ class LoadingbarFrames:
     fish_pos: int
 
 
+@dataclass(frozen=True)
+class LoadingbarProgress:
+    text: str
+    fish_pos: int
+
+
 EMOJIS = {
     "good": (
         "¯\\(◉‿◉)/¯",
@@ -586,4 +592,24 @@ def build_loadingbar_frames(fishs: int, fishsize: int, terminal_width: int) -> L
         frames=frames,
         len_fish_list=len(frames) - 1,
         fish_pos=0,
+    )
+
+
+def loadingbar_progress(
+    fishs: int,
+    fishsize: int,
+    loop: int,
+    frames: list[str],
+    fish_pos: int,
+    len_fish_list: int,
+) -> LoadingbarProgress:
+    if loop % 100 == 0:
+        if fish_pos != len_fish_list:
+            fish_pos += 1
+        else:
+            fish_pos = 0
+
+    return LoadingbarProgress(
+        text="%s/%s%s" % (str(loop).zfill(fishsize), fishs, frames[fish_pos]),
+        fish_pos=fish_pos,
     )
