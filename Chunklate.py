@@ -4870,9 +4870,13 @@ def Relics_Apply_Plte_Repair_Decision(PlteDecision):
 
 
 def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
-    for WrongCrcRoute in relics.idat_wrong_crc_routes(
-        relics.remembered_wrong_crc_routes(Pandemonium, ALLCHUNKS)
+    for BrawlRequest in relics.remembered_idat_wrong_crc_brawl_requests(
+        Pandemonium,
+        ALLCHUNKS,
+        target_file=FILE_Origin,
+        from_error=FromError,
     ):
+        WrongCrcRoute = BrawlRequest.route
         Candy(
             "Cowsay",
             "Perhaps that wasn't a Crc problem after all..",
@@ -4890,18 +4894,9 @@ def Relics_Handle_Remembered_Idat_Wrong_Crc(FromError):
             "good",
         )
 
-        CrcTools = relics.wrong_crc_tools(
-            Pandemonium[WrongCrcRoute.source][WrongCrcRoute.error],
-            WrongCrcRoute.tool_prefix,
-        )
-
-        relics_runtime.run_wrong_crc_brawl_plan(Relics_Runtime(),
-            relics.wrong_crc_brawl_plan(
-                WrongCrcRoute,
-                CrcTools,
-                target_file=FILE_Origin,
-                from_error=FromError,
-            )
+        relics_runtime.run_wrong_crc_brawl_plan(
+            Relics_Runtime(),
+            BrawlRequest.plan,
         )
 
 

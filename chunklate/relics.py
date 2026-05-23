@@ -227,6 +227,13 @@ class CurrentWrongCrcPromptContext:
     question_hash: int | None = None
 
 
+@dataclass(frozen=True)
+class RememberedWrongCrcBrawlRequest:
+    route: WrongCrcRoute
+    tools: WrongCrcTools
+    plan: WrongCrcBrawlPlan
+
+
 def chunk_label(chunk: Any) -> Any:
     if type(chunk) != bytes:
         return chunk
@@ -672,6 +679,36 @@ def single_pandemonium_decision(
         tools=crc_tools,
         plan=plan,
     )
+
+
+def remembered_idat_wrong_crc_brawl_requests(
+    pandemonium: Mapping[Any, Mapping[Any, Mapping[str, Any]]],
+    known_chunks: list[bytes] | tuple[bytes, ...],
+    *,
+    target_file: Any,
+    from_error: Any,
+) -> tuple[RememberedWrongCrcBrawlRequest, ...]:
+    requests = []
+    for route in idat_wrong_crc_routes(
+        remembered_wrong_crc_routes(pandemonium, known_chunks)
+    ):
+        crc_tools = wrong_crc_tools(
+            pandemonium[route.source][route.error],
+            route.tool_prefix,
+        )
+        requests.append(
+            RememberedWrongCrcBrawlRequest(
+                route=route,
+                tools=crc_tools,
+                plan=wrong_crc_brawl_plan(
+                    route,
+                    crc_tools,
+                    target_file=target_file,
+                    from_error=from_error,
+                ),
+            )
+        )
+    return tuple(requests)
 
 
 def dummy_chunk_brawl_plan(

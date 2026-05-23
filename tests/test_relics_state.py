@@ -258,6 +258,58 @@ def test_relics_module_filters_idat_wrong_crc_routes():
     assert relics.idat_wrong_crc_routes(routes) == (routes[0],)
 
 
+def test_relics_module_builds_remembered_idat_wrong_crc_brawl_requests():
+    pandemonium = {
+        "sample.0_Fixed.png": {
+            "Checksum_Error_0:Wrong Crc": relics.build_tools(
+                b"IDAT",
+                ("newcrc", 12, 20, b"IDAT", "0x2a", "oldcrc", 433, 100),
+            ),
+            "Checksum_Error_1:Wrong Crc": relics.build_tools(
+                b"PLTE",
+                ("newcrc", 30, 40, b"PLTE", "0x3a", "oldcrc", 768, 120),
+            ),
+        },
+    }
+
+    requests = relics.remembered_idat_wrong_crc_brawl_requests(
+        pandemonium,
+        [b"IDAT", b"PLTE"],
+        target_file="/tmp/origin.png",
+        from_error="libpng",
+    )
+
+    assert requests == (
+        relics.RememberedWrongCrcBrawlRequest(
+            route=relics.WrongCrcRoute(
+                source="sample.0_Fixed.png",
+                error="Checksum_Error_0:Wrong Crc",
+                chunk_name="IDAT",
+                tool_prefix="IDAT_Tool_",
+            ),
+            tools=relics.WrongCrcTools(
+                replacement_crc="newcrc",
+                start=12,
+                end=20,
+                chunk=b"IDAT",
+                offset="0x2a",
+                old_crc="oldcrc",
+                chunk_length=433,
+                data_offset=100,
+            ),
+            plan=relics.WrongCrcBrawlPlan(
+                target_file="/tmp/origin.png",
+                chunk=b"IDAT",
+                chunk_length=433,
+                data_offset=100,
+                from_error="libpng",
+                old_crc="oldcrc",
+                bf_mode="TwoBytes",
+            ),
+        ),
+    )
+
+
 def test_relics_module_preserves_pandemonium_policy_order():
     assert relics.pandemonium_policy_steps(0) == ()
     assert relics.pandemonium_policy_steps(1) == (
@@ -1258,6 +1310,10 @@ def main():
         ),
         ("Relics module routes remembered wrong CRC errors", test_relics_module_routes_remembered_wrong_crc_errors),
         ("Relics module filters IDAT wrong CRC routes", test_relics_module_filters_idat_wrong_crc_routes),
+        (
+            "Relics module builds remembered IDAT wrong CRC brawl requests",
+            test_relics_module_builds_remembered_idat_wrong_crc_brawl_requests,
+        ),
         ("Relics module preserves Pandemonium policy order", test_relics_module_preserves_pandemonium_policy_order),
         ("Relics module builds wrong CRC SaveClone plan", test_relics_module_builds_wrong_crc_save_clone_plan),
         ("Relics module summarises Pandemonium", test_relics_module_summarises_pandemonium_without_formatting),
