@@ -43,14 +43,12 @@ from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, ch
 from chunklate.png import (
     PngFormatError,
     chunk_at,
-    complete_iend_tail,
     chunk_type_crc_matches,
     detect_png_signature_recovery,
     iter_chunks,
     is_known_bad_srgb_iccp_chunk,
     legacy_crc_decision,
     legacy_length_decision,
-    repair_missing_ihdr_from_idat,
 )
 
 
@@ -3221,22 +3219,19 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
             FromError,
         )
 
+    DummyBuild = None
     if Chunkname == b"IHDR":
-        chunklen_spec, chunk_format, chunk_data,color_type = GetSpec(Chunkname,"Spec",Fields = ["Length","Format","Data","Color"])
-        DummyLength = SpecLength(Chunkname)
-        DummyName = hex(int.from_bytes(Chunkname, byteorder="big")).replace("0x", "")
-        DummyData = RandomSample(chunk_data,color_type,chunk_format)
-
-        DummyCrc = hex(binascii.crc32(Chunkname + bytes.fromhex(DummyData))).replace(
-            "0x", ""
+        DummyBuild = dummy_chunk.build_legacy_ihdr_dummy(
+            Chunkname,
+            get_spec=GetSpec,
+            spec_length=SpecLength,
+            random_sample=RandomSample,
         )
-        DumDum = DummyLength + DummyName + DummyData + DummyCrc
         Todo = False
-        Solved = False
 
 
     elif Chunkname == b"IDAT": ##TODO
-        Solved = False
+        pass
 
 
     elif Chunkname == b"IEND":
@@ -3247,16 +3242,16 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
 
     if DEBUG is True and not Todo:
         if Chunkname != b"IEND":
-            PRINT("chunklen_spec:%s"%str(chunklen_spec))
-            PRINT("chunk_format:%s"%str(chunk_format))
-            PRINT("color_type:%s"%str(color_type))
-        PRINT("dumylen:%s"% DummyLength)
-        PRINT("dumyname:%s"% DummyName)
-        PRINT("dumydata:%s"% DummyData)
-        PRINT("dumycrc:%s"% DummyCrc)
+            PRINT("chunklen_spec:%s"%str(DummyBuild.chunklen_spec))
+            PRINT("chunk_format:%s"%str(DummyBuild.chunk_format))
+            PRINT("color_type:%s"%str(DummyBuild.color_type))
+        PRINT("dumylen:%s"% DummyBuild.dummy_length)
+        PRINT("dumyname:%s"% DummyBuild.dummy_name)
+        PRINT("dumydata:%s"% DummyBuild.dummy_data)
+        PRINT("dumycrc:%s"% DummyBuild.dummy_crc)
         PRINT("bad_start:%s"% bad_start)
         PRINT("bad_end:%s"% bad_end)
-        PRINT("dumdum:%s"% DumDum)
+        PRINT("dumdum:%s"% DummyBuild.chunk_hex)
         PRINT("bad pos:%s"% bad_pos)
         PRINT("datax:%s"% DATAX[bad_start:bad_end])
 
@@ -3267,10 +3262,7 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
 #        TheEnd()
 
     if not Todo :
-        if Chunkname == b"IEND":
-            DummyFix = complete_iend_tail(bytes.fromhex(DATAX), int(bad_start / 2)).hex()
-        else:
-            DummyFix = DATAX[:bad_start] + DumDum + DATAX[bad_start:]
+        DummyFix = DATAX[:bad_start] + DummyBuild.chunk_hex + DATAX[bad_start:]
 
         Candy(
             "Cowsay",
@@ -3280,12 +3272,12 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
 
         return CheckPoint(
             True,
-            Solved,
+            DummyBuild.solved,
             "DummyChunk",
             Chunkname,
             ["Filling with a dummy chunk"],
             DummyFix,
-            len(DummyData),
+            len(DummyBuild.dummy_data),
             bad_pos,
             bad_start,
             bad_end,

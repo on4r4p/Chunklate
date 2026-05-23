@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import binascii
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from . import idat
 from .png import complete_iend_tail, repair_missing_ihdr_from_idat
@@ -14,6 +15,19 @@ class DummyChunkDecision:
     dummy_data_length: int = 0
     solved: bool = False
     repair: Any | None = None
+
+
+@dataclass(frozen=True)
+class LegacyDummyChunkBuild:
+    chunklen_spec: Any
+    chunk_format: Any
+    color_type: Any
+    dummy_length: str
+    dummy_name: str
+    dummy_data: str
+    dummy_crc: str
+    chunk_hex: str
+    solved: bool = False
 
 
 def decide_dummy_chunk(chunk_name: bytes, data_hex: str, bad_start_hex: int) -> DummyChunkDecision:
@@ -53,3 +67,35 @@ def decide_dummy_chunk(chunk_name: bytes, data_hex: str, bad_start_hex: int) -> 
         )
 
     return DummyChunkDecision(action="fallback")
+
+
+def build_legacy_ihdr_dummy(
+    chunk_name: bytes,
+    *,
+    get_spec: Callable[..., tuple[Any, Any, Any, Any]],
+    spec_length: Callable[[bytes], str],
+    random_sample: Callable[[Any, Any, Any], str],
+) -> LegacyDummyChunkBuild:
+    chunklen_spec, chunk_format, chunk_data, color_type = get_spec(
+        chunk_name,
+        "Spec",
+        Fields=["Length", "Format", "Data", "Color"],
+    )
+    dummy_length = spec_length(chunk_name)
+    dummy_name = hex(int.from_bytes(chunk_name, byteorder="big")).replace("0x", "")
+    dummy_data = random_sample(chunk_data, color_type, chunk_format)
+    dummy_crc = hex(binascii.crc32(chunk_name + bytes.fromhex(dummy_data))).replace(
+        "0x",
+        "",
+    )
+    return LegacyDummyChunkBuild(
+        chunklen_spec=chunklen_spec,
+        chunk_format=chunk_format,
+        color_type=color_type,
+        dummy_length=dummy_length,
+        dummy_name=dummy_name,
+        dummy_data=dummy_data,
+        dummy_crc=dummy_crc,
+        chunk_hex=dummy_length + dummy_name + dummy_data + dummy_crc,
+        solved=False,
+    )

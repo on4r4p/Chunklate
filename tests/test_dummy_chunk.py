@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import binascii
 import struct
 import sys
 import zlib
@@ -66,12 +67,38 @@ def test_dummy_chunk_decision_keeps_unknown_chunks_on_legacy_fallback():
     assert decision.solved is False
 
 
+def test_dummy_chunk_builds_legacy_ihdr_dummy_with_injected_helpers():
+    sample_data = "00000001000000010802000000"
+
+    build = dummy_chunk.build_legacy_ihdr_dummy(
+        b"IHDR",
+        get_spec=lambda *args, **kwargs: (26, ("!I",), ["1"], "2"),
+        spec_length=lambda chunk: "0000000d",
+        random_sample=lambda chunk_data, color_type, chunk_format: sample_data,
+    )
+
+    expected_crc = hex(binascii.crc32(b"IHDR" + bytes.fromhex(sample_data))).replace(
+        "0x",
+        "",
+    )
+    assert build.chunklen_spec == 26
+    assert build.chunk_format == ("!I",)
+    assert build.color_type == "2"
+    assert build.dummy_length == "0000000d"
+    assert build.dummy_name == "49484452"
+    assert build.dummy_data == sample_data
+    assert build.dummy_crc == expected_crc
+    assert build.chunk_hex == "0000000d49484452" + sample_data + expected_crc
+    assert build.solved is False
+
+
 def main():
     checks = [
         ("Missing IHDR decision", test_dummy_chunk_decision_rebuilds_missing_ihdr_from_idat),
         ("IEND completion decision", test_dummy_chunk_decision_completes_iend_tail),
         ("Partial IDAT blackfill decision", test_dummy_chunk_decision_rebuilds_partial_idat_blackfill),
         ("Fallback decision", test_dummy_chunk_decision_keeps_unknown_chunks_on_legacy_fallback),
+        ("Legacy IHDR dummy build", test_dummy_chunk_builds_legacy_ihdr_dummy_with_injected_helpers),
     ]
 
     print("Running dummy chunk tests")
