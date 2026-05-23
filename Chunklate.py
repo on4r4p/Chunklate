@@ -39,10 +39,9 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, output, palette, palette_ui, prompts, relics, relics_runtime, relics_ui, sorting, specs, stdio, ui, writer
+from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, nearby, output, palette, palette_ui, prompts, relics, relics_runtime, relics_ui, sorting, specs, stdio, ui, writer
 from chunklate.png import (
     PngFormatError,
-    chunk_at,
     chunk_type_crc_matches,
     detect_png_signature_recovery,
     iter_chunks,
@@ -3259,29 +3258,15 @@ def Remove_Extra_Bytes_Before_Chunk(CType, LastCType, Excluded):
 
     data = bytes.fromhex(DATAX)
     current_offset = int(CLoffI / 2)
-    candidates = set(ALLCHUNKS) - set(Excluded)
-
-    for extra_bytes in range(1, 9):
-        candidate_offset = current_offset + extra_bytes
-        candidate = chunk_at(data, candidate_offset)
-        if candidate is None:
-            continue
-        if candidate.chunk_type not in candidates:
-            continue
-        if not candidate.crc_ok:
-            continue
-
-        SolvedMsg = (
-            "-Found %s extra byte(s) before Chunk[%s] after Chunk[%s] at offset: %s"
-            % (
-                extra_bytes,
-                candidate.chunk_type.decode(errors="ignore"),
-                LastCType.decode(errors="ignore"),
-                hex(current_offset),
-            )
-        )
+    candidate = nearby.find_extra_bytes_before_chunk(
+        data,
+        current_offset=current_offset,
+        candidates=set(ALLCHUNKS) - set(Excluded),
+    )
+    if candidate is not None:
+        SolvedMsg = nearby.extra_bytes_solved_message(candidate, LastCType)
         SideNotes.append("-Remove_Extra_Bytes_Before_Chunk:%s" % SolvedMsg)
-        return SaveClone("", CLoffI, CLoffI + (extra_bytes * 2), SolvedMsg)
+        return SaveClone("", CLoffI, CLoffI + (candidate.extra_bytes * 2), SolvedMsg)
 
     return None
 
@@ -3299,12 +3284,14 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
     if CleanExtraBytes is not None:
         return CleanExtraBytes
 
-    if not any(c == CType for c in CHUNKS):
-          for ch, chi in zip(Chunks_History, Chunks_History_Index):
-                 if ch == LastCType:
-                        Needle = int(chi.split(":")[1]) + 16
-    else:
-         Needle = CLoffI + 16
+    Needle = nearby.initial_search_needle(
+        chunk_type=CType,
+        known_chunks=CHUNKS,
+        current_length_offset=CLoffI,
+        chunks_history=Chunks_History,
+        chunks_history_index=Chunks_History_Index,
+        last_chunk_type=LastCType,
+    )
 
     if DEBUG:
         PRINT("CType:%s"%CType)
@@ -3485,29 +3472,22 @@ def TheGoodPlace(Missplaced_Chunkname, Missplaced_Chunkpos, ToFix_Chunkname):
     Candy("Title", "TheGoodPlace :")
     Candy("Cowsay", "Mkay, so what do we have here ..", "com")
 
-    bad_pos = int(
-        Chunks_History_Index[Missplaced_Chunkpos].split(":")[0].replace(" ", "")
-    )
-    bad_start = int(
-        Chunks_History_Index[Missplaced_Chunkpos].split(":")[1].replace(" ", "")
-    )
-    bad_end = int(
-        Chunks_History_Index[Missplaced_Chunkpos].split(":")[2].replace(" ", "")
-    )
-    start, end, pos = None, None, None
+    BadPosition = nearby.parse_history_index(Chunks_History_Index[Missplaced_Chunkpos])
+    bad_pos = BadPosition.position
+    bad_start = BadPosition.start
+    bad_end = BadPosition.end
 
     for nb, key in enumerate(PandoraBox):
         if "Missplaced" in str(key):
             PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"%key)
 
-    for chnk, index in zip(Chunks_History, Chunks_History_Index):
-        if ToFix_Chunkname == chnk:
-            pos = int(index.split(":")[0].replace(" ", ""))
-            start = int(index.split(":")[1].replace(" ", ""))
-            end = int(index.split(":")[2].replace(" ", ""))
-            break  # Temp Break
+    FixPosition = nearby.find_history_chunk_position(
+        Chunks_History,
+        Chunks_History_Index,
+        ToFix_Chunkname,
+    )
 
-    if start == None and end == None:
+    if FixPosition is None:
 
         PRINT(
             "-Missing Data %s %s"
@@ -3532,16 +3512,19 @@ def TheGoodPlace(Missplaced_Chunkname, Missplaced_Chunkpos, ToFix_Chunkname):
             % (
                 Candy("Color", "green", "Missing Data"),
                 ToFix_Chunkname,
-                pos,
-                start,
-                end,
+                FixPosition.position,
+                FixPosition.start,
+                FixPosition.end,
                 Candy("Emoj", "good"),
             )
         )
         Candy("Cowsay", "Sounds good to me , where's my rubber tape already ?", "good")
-        Rubber = DATAX[start:end]
-        Tape = DATAX[:start] + DATAX[end:]
-        Rubber_Tape = Tape[:bad_start] + Rubber + Tape[bad_start:]
+        Rubber_Tape = nearby.relocate_missing_chunk(
+            DATAX,
+            source_start=FixPosition.start,
+            source_end=FixPosition.end,
+            target_start=bad_start,
+        )
         return CheckPoint(
             True,
             True,
@@ -3549,7 +3532,7 @@ def TheGoodPlace(Missplaced_Chunkname, Missplaced_Chunkpos, ToFix_Chunkname):
             ToFix_Chunkname,
             [
                 "-Found Missing Data:[%s] at Chunk Position:%s Starting at:%s Ending at:%s"
-                % (ToFix_Chunkname, pos, start, end)
+                % (ToFix_Chunkname, FixPosition.position, FixPosition.start, FixPosition.end)
             ],
             Rubber_Tape,
         )
