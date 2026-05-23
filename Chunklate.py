@@ -5584,12 +5584,14 @@ def main():
         # IFOP = []
         Chunklate(1)
 
-        if CLONESWAR is False:
-            Sample_Name = os.path.basename(Sample)
-        else:
-            Sample = CLONESWAR
-            Sample_Name = os.path.basename(CLONESWAR)
-            CLONESWAR = False
+        SampleSelection = runtime_state.select_sample(
+            Sample,
+            CLONESWAR,
+            basename=os.path.basename,
+        )
+        Sample = SampleSelection.sample
+        Sample_Name = SampleSelection.sample_name
+        CLONESWAR = SampleSelection.cloneswar
 
         print("-Proceeding with: %s"% Candy("Color", "white", Sample_Name))
         try:

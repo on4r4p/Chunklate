@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass(frozen=True)
+class SampleSelection:
+    sample: Any
+    sample_name: str
+    cloneswar: Any
+
 
 def main_loop_scan_reset_values() -> dict[str, object]:
     return {
@@ -50,3 +60,17 @@ def main_loop_history_reset_values() -> dict[str, object]:
         "Cornucopia": {},
         "SideNotes": [],
     }
+
+
+def select_sample(current_sample: Any, cloneswar: Any, *, basename) -> SampleSelection:
+    if cloneswar is False:
+        return SampleSelection(
+            sample=current_sample,
+            sample_name=basename(current_sample),
+            cloneswar=cloneswar,
+        )
+    return SampleSelection(
+        sample=cloneswar,
+        sample_name=basename(cloneswar),
+        cloneswar=False,
+    )

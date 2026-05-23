@@ -49,11 +49,56 @@ def test_main_loop_history_reset_values_preserve_fresh_containers():
     assert first["Chunks_History"] is not second["Chunks_History"]
 
 
+def test_select_sample_preserves_current_sample_when_cloneswar_is_false():
+    selection = runtime_state.select_sample(
+        "/tmp/sample.png",
+        False,
+        basename=lambda value: value.rsplit("/", 1)[-1],
+    )
+
+    assert selection == runtime_state.SampleSelection(
+        sample="/tmp/sample.png",
+        sample_name="sample.png",
+        cloneswar=False,
+    )
+
+
+def test_select_sample_uses_cloneswar_and_resets_it():
+    selection = runtime_state.select_sample(
+        "/tmp/original.png",
+        "/tmp/Folder_1/clone.png",
+        basename=lambda value: value.rsplit("/", 1)[-1],
+    )
+
+    assert selection == runtime_state.SampleSelection(
+        sample="/tmp/Folder_1/clone.png",
+        sample_name="clone.png",
+        cloneswar=False,
+    )
+
+
+def test_select_sample_preserves_legacy_identity_check_for_false():
+    selection = runtime_state.select_sample(
+        "/tmp/original.png",
+        "",
+        basename=lambda value: "basename:%s" % value,
+    )
+
+    assert selection == runtime_state.SampleSelection(
+        sample="",
+        sample_name="basename:",
+        cloneswar=False,
+    )
+
+
 def main():
     checks = [
         ("scan reset values", test_main_loop_scan_reset_values_preserve_legacy_defaults),
         ("error reset values", test_main_loop_error_reset_values_preserve_legacy_defaults),
         ("history reset values", test_main_loop_history_reset_values_preserve_fresh_containers),
+        ("select current sample", test_select_sample_preserves_current_sample_when_cloneswar_is_false),
+        ("select CLONESWAR sample", test_select_sample_uses_cloneswar_and_resets_it),
+        ("select sample identity check", test_select_sample_preserves_legacy_identity_check_for_false),
     ]
 
     print("Running runtime state tests")
