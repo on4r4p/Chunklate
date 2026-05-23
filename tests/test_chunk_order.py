@@ -52,6 +52,16 @@ def test_signature_and_ihdr_placement_decisions():
     assert chunk_order.ihdr_misplacement_already_recorded(
         {"Check_Error_0:Should be IHDR Instead At Chunk Number:1": {}}
     )
+    assert chunk_order.ihdr_misplacement_checkpoint_args([b"PNG", b"IDAT"]) == (
+        True,
+        False,
+        "CheckChunkOrder",
+        b"IDAT",
+        ["-Missplaced [b'IDAT'] Should be IHDR Instead At Chunk Number:1"],
+        b"IDAT",
+        1,
+        b"IHDR",
+    )
 
 
 def test_plte_and_idat_order_decisions():

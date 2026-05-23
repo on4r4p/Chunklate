@@ -53,6 +53,22 @@ def ihdr_misplacement_already_recorded(pandora_box: Mapping[object, object]) -> 
     return any("Should be IHDR Instead At Chunk Number:" in str(key) for key in pandora_box)
 
 
+def ihdr_misplacement_checkpoint_args(chunks_history: Sequence[bytes]) -> tuple[object, ...]:
+    return (
+        True,
+        False,
+        "CheckChunkOrder",
+        chunks_history[-1],
+        [
+            "-Missplaced [%s] Should be IHDR Instead At Chunk Number:%s"
+            % (chunks_history[-1], str(len(chunks_history) - 1))
+        ],
+        chunks_history[-1],
+        len(chunks_history) - 1,
+        b"IHDR",
+    )
+
+
 def must_appear_before_plte(
     lastchunk: bytes,
     used_chunks: Sequence[bytes],

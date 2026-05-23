@@ -3241,17 +3241,7 @@ def CheckChunkOrder(lastchunk, mode):
                 )
 
                 return CheckPoint(
-                    True,
-                    False,
-                    "CheckChunkOrder",
-                    Chunks_History[-1],
-                    [
-                        "-Missplaced [%s] Should be IHDR Instead At Chunk Number:%s"
-                        % (Chunks_History[-1], str(len(Chunks_History) - 1))
-                    ],
-                    Chunks_History[-1],
-                    len(Chunks_History) - 1,
-                    b"IHDR",
+                    *chunk_order.ihdr_misplacement_checkpoint_args(Chunks_History)
                 )
 
             elif DEBUG is True:
