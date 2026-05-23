@@ -112,6 +112,42 @@ def test_apply_custom_spec_selection_skips_minres_when_width_height_pair_is_inco
     )
 
 
+def test_build_chunks_spec_preserves_dynamic_legacy_values():
+    chunks_spec = specs.build_chunks_spec(
+        current_year=2026,
+        idat_byte_count=640,
+        max_resolution=100,
+        min_resolution=10,
+        min_resolution_product=90,
+    )
+
+    assert chunks_spec[b"IHDR"]["colortype:2:minres"] == (
+        360,
+        26,
+        ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+        (
+            "i for i in range(0,10)",
+            (8, 16),
+            "2",
+            "0",
+            "0",
+            (0, 1),
+        ),
+    )
+    assert chunks_spec[b"IHDR"]["colortype:2:minres:custom"][3][:2] == (
+        "i for i in range(1,10)",
+        "i for i in range(1,10)",
+    )
+    assert chunks_spec[b"tIME"]["nocolortype"][0] == ((1970 - 2026) * 12 * 31 * 23 * 59 * 60)
+    assert chunks_spec[b"tIME"]["nocolortype"][3][0] == "i for i in range(1970,2027)"
+    assert chunks_spec[b"IDAT"]["nocolortype"] == (
+        256,
+        (2, 4),
+        "!B",
+        ("i for i in range(0,256)",),
+    )
+
+
 def test_find_chunk_spec_preserves_nested_lookup_shape():
     chunks_spec = {
         b"IHDR": {"nocolortype": ("wrong",), "colortype:2:minres": ("right",)},
@@ -327,6 +363,7 @@ def main():
         ("Expand spec tuple length", test_expand_spec_values_preserves_tuple_length_multiplication),
         ("Custom spec selection", test_apply_custom_spec_selection_counts_selected_fields_and_minres_pair),
         ("Custom spec selection partial", test_apply_custom_spec_selection_skips_minres_when_width_height_pair_is_incomplete),
+        ("Build chunk specs", test_build_chunks_spec_preserves_dynamic_legacy_values),
         ("Find chunk spec", test_find_chunk_spec_preserves_nested_lookup_shape),
         ("Select spec fields", test_select_spec_fields_preserves_all_and_field_order),
         ("Resolve spec result", test_resolve_getspec_result_preserves_expansion_and_selected_fields),

@@ -249,6 +249,496 @@ def apply_custom_spec_selection(
     return custom_count, tuple(custom_struct)
 
 
+def build_chunks_spec(
+    current_year: int,
+    idat_byte_count: int,
+    max_resolution: int,
+    min_resolution: int,
+    min_resolution_product: int,
+) -> dict[bytes, dict[str, tuple[Any, Any, Any, Any]]]:
+    ThisYear = current_year
+    IBN = idat_byte_count
+    ibn = int(idat_byte_count / 64)
+    Mxr = max_resolution
+    Mnr = min_resolution
+    MnrF = min_resolution_product
+
+    return {
+            b"IHDR": {
+                "nocolortype:maxres": (
+                    ((Mxr - 1) * (Mxr - 1)) * 5 * 5 * 2,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%Mxr),
+                        ("i for i in range(1,%s)"%Mxr),
+                        (1, 2, 4, 8, 16),
+                        (0, 2, 3, 4, 6),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "nocolortype:medres": (
+                    ((ibn - 1) * (ibn - 1)) * 5 * 5 * 2,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%ibn),
+                        ("i for i in range(1,%s)"%ibn),
+                        (1, 2, 4, 8, 16),
+                        (0, 2, 3, 4, 6),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "nocolortype:minres:custom": (
+                    MnrF * 5 * 5 * 2,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        (1, 2, 4, 8, 16), (0, 2, 3, 4, 6), ("0"), ("0"), (0, 1)),
+                ),
+                "nocolortype:minres": (
+                    MnrF * 5 * 5 * 2,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (("i for i in range(1,%s)"%Mnr), (1, 2, 4, 8, 16), (0, 2, 3, 4, 6), ("0"), ("0"), (0, 1)),
+                ),
+                "colortype:0:minres:custom": (
+                    MnrF * 10,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        (1, 2, 4, 8, 16),
+                        ("0"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+
+                "colortype:0:minres": (
+                    MnrF * 10,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%Mnr),
+                        (1, 2, 4, 8, 16),
+                        ("0"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:0:medres": (
+                    ((ibn - 1) * (ibn - 1)) *10,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%ibn),
+                        ("i for i in range(1,%s)"%ibn),
+                        (1, 2, 4, 8, 16),
+                        ("0"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:0:maxres": (
+                    ((Mxr - 1) * (Mxr - 1)) *10,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%Mxr),
+                        ("i for i in range(1,%s)"%Mxr),
+                        (1, 2, 4, 8, 16),
+                        ("0"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:2:minres:custom": (
+                    MnrF * 4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        (8, 16),
+                        ("2"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+
+                "colortype:2:minres": (
+                    MnrF * 4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(0,%s)"%Mnr),
+                        (8, 16),
+                        ("2"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:2:medres": (
+                    ((ibn - 1) * (ibn - 1)) *4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%ibn),
+                        ("i for i in range(1,%s)"%ibn),
+                        (8, 16),
+                        ("2"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:2:maxres": (
+                    ((Mxr - 1) * (Mxr - 1)) *4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%Mxr),
+                        ("i for i in range(1,%s)"%Mxr),
+                        (8, 16),
+                        ("2"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:3:minres:custom": (
+                    MnrF * 8,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        (1, 2, 4, 8),
+                        ("3"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:3:minres": (
+                    MnrF * 8,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%Mnr),
+                        (1, 2, 4, 8),
+                        ("3"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:3:medres": (
+                    ((ibn - 1) * (ibn - 1)) *8,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%ibn),
+                        ("i for i in range(1,%s)"%ibn),
+                        (1, 2, 4, 8),
+                        ("3"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:3:maxres": (
+                    ((Mxr - 1) * (Mxr - 1)) *8,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%Mxr),
+                        ("i for i in range(1,%s)"%Mxr),
+                        (1, 2, 4, 8),
+                        ("3"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:4:minres:custom": (
+                    MnrF * 4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        (8, 16),
+                        ("4"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:4:minres": (
+                    MnrF * 4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%Mnr),
+                        (8, 16),
+                        ("4"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:4:medres": (
+                    ((ibn - 1) * (ibn - 1)) *4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%ibn),
+                        ("i for i in range(1,%s)"%ibn),
+                        (8, 16),
+                        ("4"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:4:maxres": (
+                    ((Mxr - 1) * (Mxr - 1)) *4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%Mxr),
+                        ("i for i in range(1,%s)"%Mxr),
+                        (8, 16),
+                        ("4"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:6:minres:custom": (
+                    MnrF * 4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        ("i for i in range(1,%s)"%int(IBN / 64)),
+                        (8, 16),
+                        ("6"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:6:minres": (
+                    MnrF * 4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%Mnr),
+                        (8, 16),
+                        ("6"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:6:medres": (
+                    ((ibn - 1) * (ibn - 1)) *4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%ibn),
+                        ("i for i in range(1,%s)"%ibn),
+                        (8, 16),
+                        ("6"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+                ),
+                "colortype:6:maxres": (
+                    ((Mxr - 1) * (Mxr - 1)) *4,
+                    26,
+                    ("!I", "!I", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1,%s)"%Mxr),
+                        ("i for i in range(1,%s)"%Mxr),
+                        (8, 16),
+                        ("6"),
+                        ("0"),
+                        ("0"),
+                        (0, 1),
+                    ),
+           ),
+            },
+            b"PLTE": {
+                "nocolortype": (
+                    16581375,
+                    (6, 1536),
+                    ("!B", "!B", "!B"),
+                    (
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                    ),
+                )
+            },
+            b"tRNS": {
+                "colortype:0": (65535, (4, 1024), ("!H"), ("i for i in range(0,65536)")),
+                "colortype:2": (
+                    196605,
+                    (12, 3072),
+                    ("!H", "!H", "!H"),
+                    (
+                        ("i for i in range(0,65536)"),
+                        ("i for i in range(0,65536)"),
+                        ("i for i in range(0,65536)"),
+                    ),
+                ),
+                "colortype:3": (255, (2, 512), ("!B"), ("i for i in range(0,256)")),
+            },
+            b"gAMA": {"nocolortype": (100000, 8, ("!I"), ("i for i in range(0,100001)"))},
+            b"cHRM": {
+                "nocolortype": (
+                    800000,
+                    64,
+                    ("!I", "!I", "!I", "!I", "!I", "!I", "!I", "!I"),
+                    (
+                        ("i for i in range(0,100001)"),
+                        ("i for i in range(0,100001)"),
+                        ("i for i in range(0,100001)"),
+                        ("i for i in range(0,100001)"),
+                        ("i for i in range(0,100001)"),
+                        ("i for i in range(0,100001)"),
+                        ("i for i in range(0,100001)"),
+                        ("i for i in range(0,100001)"),
+                    ),
+                )
+            },
+            b"sRGB": {"nocolortype": (4, 2, ("!B"), (0, 1, 2, 3))},
+            b"bKGD": {
+                "colortype:0": ((65535), 4, ("!H"), ("i for i in range(0,65536)")),
+                "colortype:2": (
+                    (196605),
+                    12,
+                    ("!H", "!H", "!H"),
+                    (
+                        ("i for i in range(0,65536)"),
+                        ("i for i in range(0,65536)"),
+                        ("i for i in range(0,65536)"),
+                    ),
+                ),
+                "colortype:3": ((255), 2, ("!B"), ("i for i in range(0,256)")),
+                "colortype:4": ((65535), 4, ("!H"), ("i for i in range(0,65536)")),
+                "colortype:6": (
+                    (196605),
+                    12,
+                    ("!H", "!H", "!H"),
+                    (
+                        ("i for i in range(0,65536)"),
+                        ("i for i in range(0,65536)"),
+                        ("i for i in range(0,65536)"),
+                    ),
+                ),
+            },
+            b"pHYs": {
+                "nocolortype": (
+                    (4611686014132420609),
+                    18,
+                    ("!I", "!I", "!B"),
+                    (
+                        ("i for i in range(0,2147483647)"),
+                        ("i for i in range(0,2147483647)"),
+                        (0, 1),
+                    ),
+                )
+            },
+            b"sBIT": {
+                "colortype:0": (255, 2, ("!B"), ("i for i in range(0,256)")),
+                "colortype:2": (
+                    16581375,
+                    6,
+                    ("!B", "!B", "!B"),
+                    (
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                    ),
+                ),
+                "colortype:3": (
+                    16581375,
+                    6,
+                    ("!B", "!B", "!B"),
+                    (
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                    ),
+                ),
+                "colortype:4": (
+                    65025,
+                    4,
+                    ("!B", "!B"),
+                    (("i for i in range(0,256)"), ("i for i in range(0,256)")),
+                ),
+                "colortype:6": (
+                    16581375,
+                    8,
+                    ("!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                        ("i for i in range(0,256)"),
+                    ),
+                ),
+            },
+            b"hIST": {"nocolortype": (65536, (4, 1024), ("!H"), ("i for i in range(0,65536)"))},
+            b"tIME": {
+                "nocolortype": (
+                    ((1970 - ThisYear) * 12 * 31 * 23 * 59 * 60),
+                    14,
+                    ("!H", "!B", "!B", "!B", "!B", "!B"),
+                    (
+                        ("i for i in range(1970,%s)"%str(ThisYear+1)),
+                        ("i for i in range(1,13)"),
+                        ("i for i in range(1,32)"),
+                        ("i for i in range(0,24)"),
+                        ("i for i in range(0,60)"),
+                        ("i for i in range(0,61)"),
+                    ),
+                )
+            },
+            b"IDAT": {
+                "nocolortype": (
+                    256,
+                    (2,4), #limited due to human life time .
+                    ("!B"),
+                    (
+                        ("i for i in range(0,256)"),
+                    ),
+                )
+            },
+            b"IEND": {"nocolortype": (1, 8, ("!I"), ("1229278788"))},
+
+        }
+
+
 def find_chunk_spec(chunks_spec: dict[Any, dict[Any, Any]], chunk_name: Any, color_type: str) -> Any | None:
     for key in chunks_spec:
         for color, bytes_spec in chunks_spec[key].items():
