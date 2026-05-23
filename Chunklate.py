@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, sorting, specs, stdio, ui, ui_runtime, writer
+from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, history, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, sorting, specs, stdio, ui, ui_runtime, writer
 from chunklate.png import (
     PngFormatError,
     chunk_type_crc_matches,
@@ -5605,39 +5605,27 @@ def main():
     if Args.FILENAME is None:
         print("-f,--filename arguments is missing.")
         sys.exit(1)
-    if Args.MAX_SAVES is not None and Args.MAX_SAVES < 1:
-        print("--max-saves arguments must be greater than zero.")
+    MaxSavesError = cli.max_saves_error(Args.MAX_SAVES)
+    if MaxSavesError is not None:
+        print(MaxSavesError)
         sys.exit(1)
 
     FILE_Origin = Args.FILENAME
-    if Args.OUTPUT_DIR is None:
-        FILE_DIR = ""
-    else:
-        FILE_DIR = os.path.join(os.path.abspath(Args.OUTPUT_DIR), "")
+    FILE_DIR = cli.output_file_dir(Args.OUTPUT_DIR, abspath=os.path.abspath, join=os.path.join)
+    if FILE_DIR:
         os.makedirs(FILE_DIR, exist_ok=True)
-    CLEAR = Args.CLEAR
-    PAUSE = Args.PAUSE
-    PAUSEDEBUG = Args.PAUSEDEBUG
-    PAUSEERROR = Args.PAUSEERROR
-    PAUSEDIALOGUE = Args.PAUSEDIALOGUE
-    NODIALOGUE = Args.NODIALOGUE
-    DEBUG = Args.DEBUG
-    AUTO = Args.AUTO
+    RuntimeFlags = cli.runtime_flags_from_args(Args)
+    CLEAR = RuntimeFlags.clear
+    PAUSE = RuntimeFlags.pause
+    PAUSEDEBUG = RuntimeFlags.pause_debug
+    PAUSEERROR = RuntimeFlags.pause_error
+    PAUSEDIALOGUE = RuntimeFlags.pause_dialogue
+    NODIALOGUE = RuntimeFlags.nodialogue
+    DEBUG = RuntimeFlags.debug
+    AUTO = RuntimeFlags.auto
     MAX_SAVES = Args.MAX_SAVES
     SAVE_COUNT = 0
     Sample = FILE_Origin
-
-    if PAUSEDEBUG is True:
-        DEBUG = True
-
-    if NODIALOGUE:
-         AUTO = True
-         DEBUG = False
-         PAUSEDEBUG = False
-         PAUSEDIALOGUE = False
-         PAUSEERROR = False
-         PAUSE = False
-         CLEAR = False
 
     while True:
 
