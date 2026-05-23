@@ -178,6 +178,27 @@ def test_minibar_step_preserves_turnaround_without_print():
     )
 
 
+def test_build_loadingbar_frames_preserves_legacy_animation_shape():
+    built = ui.build_loadingbar_frames(500, 3, terminal_width=24)
+
+    assert built.len_fish_list == len(built.frames) - 1
+    assert built.fish_pos == 0
+    assert len(built.frames) == 43
+    assert built.frames[:6] == [
+        "¸><(((º>",
+        "¸.⸌<(((º>",
+        "¸.·><(((º>",
+        "¸.·´⸝<(((º>",
+        "¸.·´¯><(((º>",
+        "¸.·´¯`⸌<(((º>",
+    ]
+    assert built.frames[-3:] == [
+        "          .·´¯`",
+        "           ·´¯`",
+        "            ´¯`",
+    ]
+
+
 def main():
     checks = [
         ("Colorize ANSI colors", test_colorize_preserves_legacy_ansi_colors),
@@ -196,6 +217,7 @@ def main():
         ("Minibar forward", test_minibar_step_preserves_forward_animation),
         ("Minibar backward", test_minibar_step_preserves_backward_animation),
         ("Minibar turnaround", test_minibar_step_preserves_turnaround_without_print),
+        ("Loadingbar frames", test_build_loadingbar_frames_preserves_legacy_animation_shape),
     ]
 
     print("Running UI tests")

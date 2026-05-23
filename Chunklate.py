@@ -1240,71 +1240,14 @@ def Loadingbar(fishs, fishsize, loop, build):
 
     if build:
 #        Pause("build")
-        ThksForTheFish = []
-        LenFishList = 0
-        FishPos = 0
-        fishbowl = "[" + "0".zfill(fishsize) + "/" + str(fishs) + "]"
-        Loading_txt = ""
-        GoBack = False
-        CharPos = 0
-        PosLine = 0
-        Tail = 0
-        MAXCHAR = (int(os.get_terminal_size(0)[0]) - 1) - len(fishbowl)
-        Line = "¸.·´¯`·.¸"
-        Linelst = []
-        FishR = ["><(((º>", "⸌<(((º>", "><(((º>", "⸝<(((º>"]
-        FishL = ["<º)))><", "<º)))>⸍", "<º)))><", "<º)))>⸜"]
-        Trail = 3 * len(Line)
-        TrailEnd = 0
-
-        for i in range(0, MAXCHAR + 7):
-            if PosLine <= len(Line) - 1:
-                Linelst.append(Line[PosLine])
-            else:
-                PosLine = 0
-                Linelst.append(Line[PosLine])
-            PosLine += 1
-
-        for i in range(MAXCHAR + Trail + 2):
-
-            Ln = len(Loading_txt)
-            if Ln < MAXCHAR - 7:
-                if CharPos >= Trail:
-                    Loading_txt = (" " * TrailEnd) + Loading_txt[TrailEnd:]
-                    Loading_txt += Linelst[CharPos]
-                    TrailEnd += 1
-                else:
-
-                    Loading_txt += Linelst[CharPos]
-
-                if Tail > 3:
-                    Tail = 0
-                ThksForTheFish.append(Loading_txt + FishR[Tail])
-                CharPos += 1
-                Ln = len(Loading_txt)
-                Tail += 1
-            else:
-
-                fishapear = (MAXCHAR - 7) - (CharPos)
-                Loading_txt = (" " * TrailEnd) + Loading_txt[TrailEnd:]
-                if fishapear >= -7:
-                    Loading_txt += Linelst[CharPos]
-                TrailEnd += 1
-
-                if Tail > 3:
-                    Tail = 0
-                ThksForTheFish.append(Loading_txt + FishR[Tail][:fishapear])
-                CharPos += 1
-                Tail += 1
-                if TrailEnd >= MAXCHAR + 2:
-
-                    Loading_txt = ""
-                    PosLine = 0
-                    Trail = 3 * len(Line)
-                    Tail = 0
-                    TrailEnd = 0
-                    CharPos = 0
-        LenFishList = len(ThksForTheFish) - 1
+        BuiltLoadingbar = ui.build_loadingbar_frames(
+            fishs,
+            fishsize,
+            int(os.get_terminal_size(0)[0]),
+        )
+        ThksForTheFish = BuiltLoadingbar.frames
+        LenFishList = BuiltLoadingbar.len_fish_list
+        FishPos = BuiltLoadingbar.fish_pos
     else:
 #        Pause("pas build")
         if loop % 100 == 0:

@@ -24,6 +24,13 @@ class MinibarStep:
     should_print: bool
 
 
+@dataclass(frozen=True)
+class LoadingbarFrames:
+    frames: list[str]
+    len_fish_list: int
+    fish_pos: int
+
+
 EMOJIS = {
     "good": (
         "¯\\(◉‿◉)/¯",
@@ -515,4 +522,68 @@ def minibar_step(
         char_pos=char_pos,
         go_back=False,
         should_print=False,
+    )
+
+
+def build_loadingbar_frames(fishs: int, fishsize: int, terminal_width: int) -> LoadingbarFrames:
+    frames = []
+    fishbowl = "[" + "0".zfill(fishsize) + "/" + str(fishs) + "]"
+    loading_text = ""
+    char_pos = 0
+    pos_line = 0
+    tail = 0
+    maxchar = (int(terminal_width) - 1) - len(fishbowl)
+    line = "¸.·´¯`·.¸"
+    linelst = []
+    fish_right = ["><(((º>", "⸌<(((º>", "><(((º>", "⸝<(((º>"]
+    trail = 3 * len(line)
+    trail_end = 0
+
+    for _ in range(0, maxchar + 7):
+        if pos_line <= len(line) - 1:
+            linelst.append(line[pos_line])
+        else:
+            pos_line = 0
+            linelst.append(line[pos_line])
+        pos_line += 1
+
+    for _ in range(maxchar + trail + 2):
+        text_length = len(loading_text)
+        if text_length < maxchar - 7:
+            if char_pos >= trail:
+                loading_text = (" " * trail_end) + loading_text[trail_end:]
+                loading_text += linelst[char_pos]
+                trail_end += 1
+            else:
+                loading_text += linelst[char_pos]
+
+            if tail > 3:
+                tail = 0
+            frames.append(loading_text + fish_right[tail])
+            char_pos += 1
+            tail += 1
+        else:
+            fishapear = (maxchar - 7) - char_pos
+            loading_text = (" " * trail_end) + loading_text[trail_end:]
+            if fishapear >= -7:
+                loading_text += linelst[char_pos]
+            trail_end += 1
+
+            if tail > 3:
+                tail = 0
+            frames.append(loading_text + fish_right[tail][:fishapear])
+            char_pos += 1
+            tail += 1
+            if trail_end >= maxchar + 2:
+                loading_text = ""
+                pos_line = 0
+                trail = 3 * len(line)
+                tail = 0
+                trail_end = 0
+                char_pos = 0
+
+    return LoadingbarFrames(
+        frames=frames,
+        len_fish_list=len(frames) - 1,
+        fish_pos=0,
     )
