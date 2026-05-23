@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, output, palette, palette_ui, prompts, relics, sorting, specs, stdio, ui, writer
+from chunklate import bruteforce, checkpoint, chunk_info, chunk_order, chunk_report, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, output, palette, palette_ui, prompts, relics, relics_runtime, sorting, specs, stdio, ui, writer
 from chunklate.png import (
     PngFormatError,
     chunk_at,
@@ -4816,6 +4816,22 @@ def Relics_Print_Pandemonium_Summary():
                 Relics_Print_Tool(nb3, tools, tools_values)
 
 
+def Relics_Runtime():
+    return relics_runtime.RelicsRuntime(
+        save_clone=SaveClone,
+        smash_brute_brawl=SmashBruteBrawl,
+        full_chunk_forcer_no_crc=FullChunkForcerNoCrc,
+        tk_manual_plte=Tk_Manual_Plte,
+        remove_chunk=RemoveChunk,
+        ask_choice=lambda prompt, choices, retry_prompt: decisions.ask_choice(
+            input,
+            prompt,
+            choices,
+            retry_prompt,
+        ),
+    )
+
+
 def Relics_Try_Current_Wrong_Crc_Fix():
     for WrongCrcRoute in relics.current_wrong_crc_routes(PandoraBox, Cornucopia, ALLCHUNKS):
         key = WrongCrcRoute.error
@@ -4842,7 +4858,7 @@ def Relics_Try_Current_Wrong_Crc_Fix():
 
 
 def Run_Save_Clone_Plan(SavePlan):
-    return SaveClone(
+    return Relics_Runtime().save_clone(
         SavePlan.fixed_data,
         SavePlan.start,
         SavePlan.end,
@@ -4857,7 +4873,7 @@ def Relics_Run_Wrong_Crc_Brawl_Plan(BrawlPlan):
     if BrawlPlan.brute_length is not None:
         kwargs["BruteLength"] = BrawlPlan.brute_length
 
-    return SmashBruteBrawl(
+    return Relics_Runtime().smash_brute_brawl(
         BrawlPlan.target_file,
         BrawlPlan.chunk,
         BrawlPlan.chunk_length,
@@ -4868,7 +4884,7 @@ def Relics_Run_Wrong_Crc_Brawl_Plan(BrawlPlan):
 
 
 def Relics_Run_Dummy_Chunk_Brawl_Plan(BrawlPlan):
-    return SmashBruteBrawl(
+    return Relics_Runtime().smash_brute_brawl(
         BrawlPlan.target_file,
         BrawlPlan.chunk,
         BrawlPlan.chunk_length,
@@ -4878,7 +4894,7 @@ def Relics_Run_Dummy_Chunk_Brawl_Plan(BrawlPlan):
 
 
 def Relics_Run_GetInfo_Brawl_Plan(BrawlPlan):
-    return SmashBruteBrawl(
+    return Relics_Runtime().smash_brute_brawl(
         BrawlPlan.target_file,
         BrawlPlan.chunk,
         BrawlPlan.chunk_length,
@@ -4889,7 +4905,7 @@ def Relics_Run_GetInfo_Brawl_Plan(BrawlPlan):
 
 
 def Relics_Run_Full_Chunk_Forcer_Plan(ForcerPlan):
-    return FullChunkForcerNoCrc(
+    return Relics_Runtime().full_chunk_forcer_no_crc(
         ForcerPlan.target_file,
         ForcerPlan.chunk,
         ForcerPlan.start,
@@ -4899,7 +4915,7 @@ def Relics_Run_Full_Chunk_Forcer_Plan(ForcerPlan):
 
 
 def Relics_Run_Plte_Manual_Plan(PltePlan):
-    return Tk_Manual_Plte(
+    return Relics_Runtime().tk_manual_plte(
         PltePlan.target_file,
         PltePlan.chunk,
         PltePlan.chunk_length,
@@ -4909,7 +4925,7 @@ def Relics_Run_Plte_Manual_Plan(PltePlan):
 
 
 def Relics_Run_Plte_Remove_Plan(PltePlan):
-    return RemoveChunk(
+    return Relics_Runtime().remove_chunk(
         PltePlan.start,
         PltePlan.end,
         PltePlan.info,
@@ -4921,7 +4937,7 @@ def Relics_Run_Plte_Brawl_Plan(PltePlan):
     if PltePlan.old_crc is not None:
         kwargs["OldCrc"] = PltePlan.old_crc
 
-    return SmashBruteBrawl(
+    return Relics_Runtime().smash_brute_brawl(
         PltePlan.target_file,
         PltePlan.chunk,
         PltePlan.chunk_length,
@@ -4932,8 +4948,7 @@ def Relics_Run_Plte_Brawl_Plan(PltePlan):
 
 
 def Relics_Ask_Plte_Repair(has_bad_crc):
-    return decisions.ask_choice(
-        input,
+    return Relics_Runtime().ask_choice(
         relics.plte_repair_prompt(has_bad_crc),
         relics.plte_repair_choices(has_bad_crc),
         relics.plte_repair_retry_prompt(has_bad_crc),

@@ -12,6 +12,7 @@ from . import (
     output,
     prompts,
     relics,
+    relics_runtime,
     specs,
     writer,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "output",
     "prompts",
     "relics",
+    "relics_runtime",
     "specs",
     "writer",
 ]
