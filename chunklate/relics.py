@@ -94,6 +94,12 @@ class NoPandemoniumPolicy:
 
 
 @dataclass(frozen=True)
+class NoPandemoniumPromptContext:
+    action: str
+    print_hits: tuple[Any, ...] = ()
+
+
+@dataclass(frozen=True)
 class WrongCrcBrawlPlan:
     target_file: Any
     chunk: Any
@@ -785,6 +791,29 @@ def getinfo_related_print_hits(
     printed_finding: Any,
 ) -> tuple[Any, ...]:
     return tuple(printed_finding for key in pandora_box if chunk_name in str(key))
+
+
+def no_pandemonium_prompt_context(
+    policy: NoPandemoniumPolicy,
+    pandora_box: Mapping[Any, Any],
+) -> NoPandemoniumPromptContext:
+    if policy.action == "getinfo_brawl":
+        return NoPandemoniumPromptContext(
+            "getinfo_brawl",
+            tuple(policy.struct_index_errors),
+        )
+
+    if policy.action == "full_chunk_forcer" and policy.known_chunk_route is not None:
+        return NoPandemoniumPromptContext(
+            "full_chunk_forcer",
+            getinfo_related_print_hits(
+                pandora_box,
+                policy.known_chunk_route.chunk_name,
+                policy.known_chunk_route.finding,
+            ),
+        )
+
+    return NoPandemoniumPromptContext("unsupported")
 
 
 def full_chunk_forcer_plan(

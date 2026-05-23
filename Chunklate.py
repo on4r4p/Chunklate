@@ -5166,11 +5166,15 @@ def Relics_Handle_No_Pandemonium(FromError):
 
     if len(PandoraBox) > 0:
         RelicsPolicy = relics.no_pandemonium_policy(PandoraBox, CRITICAL_CHUNKS, ALLCHUNKS)
+        PromptContext = relics.no_pandemonium_prompt_context(
+            RelicsPolicy,
+            PandoraBox,
+        )
 
-        if RelicsPolicy.action == "getinfo_brawl":
+        if PromptContext.action == "getinfo_brawl":
             ChosenErr = [
                 "\n-\033[1;31;49mCriticalHit\033[m: %s"%(k)
-                for k in RelicsPolicy.struct_index_errors
+                for k in PromptContext.print_hits
             ]
 
             for i in ChosenErr:PRINT(i)
@@ -5217,49 +5221,43 @@ def Relics_Handle_No_Pandemonium(FromError):
             if should_return:
                 return result
 
-        elif RelicsPolicy.action == "full_chunk_forcer":
-            KnownChunkRoute = RelicsPolicy.known_chunk_route
-            if KnownChunkRoute is not None:
-                [
-                    PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-                    for key in relics.getinfo_related_print_hits(
-                        PandoraBox,
-                        KnownChunkRoute.chunk_name,
-                        KnownChunkRoute.finding,
-                    )
-                ]
+        elif PromptContext.action == "full_chunk_forcer":
+            [
+                PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+                for key in PromptContext.print_hits
+            ]
 
-                Candy(
-                    "Cowsay",
-                    "This is bad ..i don't have enough info to handle this error quickly..",
-                    "com",
-                )
+            Candy(
+                "Cowsay",
+                "This is bad ..i don't have enough info to handle this error quickly..",
+                "com",
+            )
 
-                Candy(
-                    "Cowsay",
-                    "(I need to bruteforce every chunks until libpng is happy ...)",
-                    "com",
-                )
-                Candy(
-                    "Cowsay",
-                    "(And this will definitively take some ..time ...like years maybe..Are you ok ?)",
-                    "bad",
-                )
+            Candy(
+                "Cowsay",
+                "(I need to bruteforce every chunks until libpng is happy ...)",
+                "com",
+            )
+            Candy(
+                "Cowsay",
+                "(And this will definitively take some ..time ...like years maybe..Are you ok ?)",
+                "bad",
+            )
 
-                Answer = Question()
-                should_return, result = Relics_Apply_No_Pandemonium_Repair_Decision(
-                    relics.no_pandemonium_repair_decision(
-                        RelicsPolicy,
-                        Chunks_History,
-                        Chunks_History_Index,
-                        target_file=Sample_Name,
-                        from_error=FromError,
-                        chunks_len_not_fixed=CHUNKS_LEN_NOT_FIXED,
-                        answer=Answer,
-                    )
+            Answer = Question()
+            should_return, result = Relics_Apply_No_Pandemonium_Repair_Decision(
+                relics.no_pandemonium_repair_decision(
+                    RelicsPolicy,
+                    Chunks_History,
+                    Chunks_History_Index,
+                    target_file=Sample_Name,
+                    from_error=FromError,
+                    chunks_len_not_fixed=CHUNKS_LEN_NOT_FIXED,
+                    answer=Answer,
                 )
-                if should_return:
-                    return result
+            )
+            if should_return:
+                return result
 
     Candy(
         "Cowsay",

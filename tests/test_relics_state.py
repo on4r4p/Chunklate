@@ -823,6 +823,48 @@ def test_relics_module_preserves_legacy_getinfo_print_hits():
     )
 
 
+def test_relics_module_builds_no_pandemonium_prompt_contexts():
+    pandora_box = {
+        "GetInfo_Error_0:IDAT missing info": {},
+        "GetInfo_Error_1:IDAT other": {},
+        "GetInfo_Error_2:IHDR other": {},
+    }
+
+    assert relics.no_pandemonium_prompt_context(
+        relics.NoPandemoniumPolicy(
+            action="getinfo_brawl",
+            chunk_name="IHDR",
+            struct_index_errors=("StructIndex:0", "StructIndex:1"),
+        ),
+        pandora_box,
+    ) == relics.NoPandemoniumPromptContext(
+        "getinfo_brawl",
+        ("StructIndex:0", "StructIndex:1"),
+    )
+
+    assert relics.no_pandemonium_prompt_context(
+        relics.NoPandemoniumPolicy(
+            action="full_chunk_forcer",
+            known_chunk_route=relics.GetInfoChunkRoute(
+                "GetInfo_Error_0:IDAT missing info",
+                "IDAT",
+            ),
+        ),
+        pandora_box,
+    ) == relics.NoPandemoniumPromptContext(
+        "full_chunk_forcer",
+        (
+            "GetInfo_Error_0:IDAT missing info",
+            "GetInfo_Error_0:IDAT missing info",
+        ),
+    )
+
+    assert relics.no_pandemonium_prompt_context(
+        relics.NoPandemoniumPolicy(action="unsupported"),
+        pandora_box,
+    ) == relics.NoPandemoniumPromptContext("unsupported")
+
+
 def test_relics_module_builds_full_chunk_forcer_plan():
     plan = relics.full_chunk_forcer_plan(
         "IDAT",
@@ -1203,6 +1245,10 @@ def main():
         (
             "Relics module preserves legacy GetInfo print hits",
             test_relics_module_preserves_legacy_getinfo_print_hits,
+        ),
+        (
+            "Relics module builds no-Pandemonium prompt contexts",
+            test_relics_module_builds_no_pandemonium_prompt_contexts,
         ),
         ("Relics module builds FullChunkForcer plan", test_relics_module_builds_full_chunk_forcer_plan),
         (
