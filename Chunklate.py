@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, nearby, output, palette, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, sorting, specs, stdio, ui, ui_runtime, writer
+from chunklate import bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, decisions, dummy_chunk, error_log, fixit_felix, history, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, sorting, specs, stdio, ui, ui_runtime, writer
 from chunklate.png import (
     PngFormatError,
     chunk_type_crc_matches,
@@ -1787,23 +1787,23 @@ def Tk_Manual_Plte(
             PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
 
 
-    Before_New = bytes.fromhex(DATAX[:DataOffset])
-    After_New = bytes.fromhex(DATAX[DataOffset + (ChunkLength-DataOffset) :])
+    PaletteSession = palette_runtime.create_manual_palette_session(
+        data_hex=DATAX,
+        data_offset=DataOffset,
+        chunk_length=ChunkLength,
+        chunk_name=ChunkName,
+        guess_palette_count=Guess_Palettes_Nbr,
+    )
+    Before_New = PaletteSession.before
+    After_New = PaletteSession.after
+    wanabyte = PaletteSession.wanabyte
+    Palette_nbr = PaletteSession.palette_count
 
-    wanabyte = palette.initial_manual_palette_png(Before_New, ChunkName, After_New)
-
-
-    Palette_nbr = Guess_Palettes_Nbr(Before_New,After_New)
-
-    palette_state = palette_ui.create_palette_editor_state(Palette_nbr, wanabyte)
+    palette_state = PaletteSession.state
     Plte_Blst = palette_state.values
 
     if DEBUG is True:
-        fullnewdatax = (
-            wanabyte[len(Before_New):len(wanabyte) - len(After_New)]
-            if After_New
-            else wanabyte[len(Before_New):]
-        )
+        fullnewdatax = palette_runtime.manual_palette_full_new_data(PaletteSession)
         PRINT("File:%s"% File)
         PRINT("ChunkName:%s"% ChunkName)
         PRINT("DataOffset:%s"% DataOffset)
