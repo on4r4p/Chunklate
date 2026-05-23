@@ -3082,7 +3082,7 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
            break
         scopex = DATAX[Needle : Needle + 8]
         try:
-            scope = bytes.fromhex(scopex).lower()
+            scope = nearby.decode_scope(scopex)
         except Exception as e:
             Betterror(e, inspect.stack()[0][3])
             if DEBUG is True:

@@ -168,6 +168,20 @@ def test_nearby_debug_lines_preserve_legacy_formatting():
     ]
 
 
+def test_decode_scope_preserves_lowercase_chunk_comparison():
+    assert nearby.decode_scope("49484452") == b"ihdr"
+    assert nearby.decode_scope("69434350") == b"iccp"
+
+
+def test_decode_scope_preserves_invalid_hex_error():
+    try:
+        nearby.decode_scope("not-hex!")
+    except ValueError:
+        return
+
+    raise AssertionError("Expected ValueError")
+
+
 def test_relocate_missing_chunk_matches_legacy_rubber_tape():
     assert nearby.relocate_missing_chunk(
         "aaaabbbbccccdddd",
@@ -274,6 +288,8 @@ def main():
         ("extra bytes skips known current chunk", test_extra_bytes_before_chunk_candidate_skips_known_current_chunk),
         ("extra bytes candidate filters excluded chunks", test_extra_bytes_before_chunk_candidate_uses_all_chunks_minus_excluded),
         ("nearby debug lines", test_nearby_debug_lines_preserve_legacy_formatting),
+        ("decode scope", test_decode_scope_preserves_lowercase_chunk_comparison),
+        ("decode scope error", test_decode_scope_preserves_invalid_hex_error),
         ("relocate missing chunk", test_relocate_missing_chunk_matches_legacy_rubber_tape),
         ("null find default", test_null_find_preserves_legacy_default_search),
         ("null find custom", test_null_find_preserves_custom_step_search),

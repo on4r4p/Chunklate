@@ -243,6 +243,10 @@ def nearby_debug_lines(
     ]
 
 
+def decode_scope(scope_hex: str) -> bytes:
+    return bytes.fromhex(scope_hex).lower()
+
+
 def extra_bytes_solved_message(candidate: ExtraBytesCandidate, last_chunk_type: bytes) -> str:
     return "-Found %s extra byte(s) before Chunk[%s] after Chunk[%s] at offset: %s" % (
         candidate.extra_bytes,
