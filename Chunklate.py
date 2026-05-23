@@ -3423,8 +3423,8 @@ def NameShift():
          i = ShiftCandidate.search_index
          ioff = ShiftCandidate.type_offset
          value = ShiftCandidate.chunk_name
-         PRINT("\n-Current value of chunkname at offset %s : %s"%(str(CToffI),name_shift.current_chunk_value(DATAX, CToffI)))
-         SideNotes.append("-NameShift: Found correct chunkname i:%s Offset:%s data: %s"%(str(i),str(ioff),value))
+         PRINT(name_shift.current_chunk_value_line(CToffI, name_shift.current_chunk_value(DATAX, CToffI)))
+         SideNotes.append(name_shift.found_chunk_note(i, ioff, value))
          if ShiftCandidate.is_before:
              good_offset = ShiftCandidate.good_offset
              PRINT(Candy("Color", "green", "-Found valid chunkname %s at exactly %s bytes before.")%(value,str( int((good_offset)/2) )))
@@ -3460,7 +3460,7 @@ def NameShift():
                 )
 
                  Candy("Cowsay", "Found the culprit!", "good")
-                 SideNotes.append("-NameShift:Crc check is valid.")
+                 SideNotes.append(name_shift.crc_valid_note())
                  fixed = CrcView.fixed_hex
 
                  if ioff > CToffI:
@@ -3481,7 +3481,7 @@ def NameShift():
                               good_offset,
                           ):
 #                             print(name_shift.extra_bytes_expected_offset(LastChunkBeforeOffset.end, good_offset))
-                             SideNotes.append("-NameShift: Extra bytes has been found.")
+                             SideNotes.append(name_shift.extra_bytes_found_note())
                              Candy("Cowsay", "Found some extra bytes for some reason.. let's fix this now .", "good")
                              return name_shift.extra_bytes_repair_result(fixed, good_offset, CToffI)
                           else:
@@ -3491,7 +3491,7 @@ def NameShift():
                              TheEnd()
                  else:
                      Candy("Cowsay", "So there was some missing bytes after all let's fix this now .", "good")
-                     SideNotes.append("-NameShift: Missing bytes found.")
+                     SideNotes.append(name_shift.missing_bytes_found_note())
                      return name_shift.missing_bytes_repair_result(fixed, good_offset, CToffI)
 
              else:
@@ -3512,7 +3512,7 @@ def NameShift():
                     PRINT(Candy("Color", "yellow", "\n-ToDo"))
                     TheEnd()
 
-             SideNotes.append("-NameShift: Length part of %s was corrupted"%value)
+             SideNotes.append(name_shift.corrupted_length_note(value))
 
         else:
              PRINT(Candy("Color", "yellow", "\n-ToDo"))

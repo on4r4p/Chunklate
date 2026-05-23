@@ -30,6 +30,12 @@ def test_find_shifted_chunk_name_detects_current_offset():
     assert candidate.is_after is False
     assert candidate.expected_type_offset == type_offset
     assert name_shift.current_chunk_value(data_hex, type_offset) == b"IHDR"
+    assert name_shift.current_chunk_value_line(type_offset, b"IHDR") == (
+        "\n-Current value of chunkname at offset 20 : b'IHDR'"
+    )
+    assert name_shift.found_chunk_note(8, 20, b"IHDR") == (
+        "-NameShift: Found correct chunkname i:8 Offset:20 data: b'IHDR'"
+    )
 
 
 def test_find_shifted_chunk_name_detects_chunk_before_expected_offset():
@@ -133,6 +139,12 @@ def test_name_shift_extra_and_missing_byte_repair_helpers_preserve_legacy_lists(
         2,
         12,
     ]
+    assert name_shift.crc_valid_note() == "-NameShift:Crc check is valid."
+    assert name_shift.extra_bytes_found_note() == "-NameShift: Extra bytes has been found."
+    assert name_shift.missing_bytes_found_note() == "-NameShift: Missing bytes found."
+    assert name_shift.corrupted_length_note(b"IHDR") == (
+        "-NameShift: Length part of b'IHDR' was corrupted"
+    )
 
 
 def main():

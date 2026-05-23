@@ -60,6 +60,37 @@ def current_chunk_value(data_hex: str, type_offset: int) -> bytes:
     return bytes.fromhex(data_hex[type_offset:type_offset + 8])
 
 
+def current_chunk_value_line(type_offset: int, current_value: bytes) -> str:
+    return "\n-Current value of chunkname at offset %s : %s" % (
+        str(type_offset),
+        current_value,
+    )
+
+
+def found_chunk_note(search_index: int, type_offset: int, chunk_name: bytes) -> str:
+    return "-NameShift: Found correct chunkname i:%s Offset:%s data: %s" % (
+        str(search_index),
+        str(type_offset),
+        chunk_name,
+    )
+
+
+def crc_valid_note() -> str:
+    return "-NameShift:Crc check is valid."
+
+
+def extra_bytes_found_note() -> str:
+    return "-NameShift: Extra bytes has been found."
+
+
+def missing_bytes_found_note() -> str:
+    return "-NameShift: Missing bytes found."
+
+
+def corrupted_length_note(chunk_name: bytes) -> str:
+    return "-NameShift: Length part of %s was corrupted" % chunk_name
+
+
 def find_shifted_chunk_name(
     data_hex: str,
     type_offset: int,
