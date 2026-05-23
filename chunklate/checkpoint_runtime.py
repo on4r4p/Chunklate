@@ -4,6 +4,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from . import checkpoint
+
 
 LegacyCall = Callable[..., Any]
 
@@ -26,6 +28,67 @@ class CheckPointRuntime:
     print_libpng_critical: LegacyCall
     discard_libpng_warning: LegacyCall
     libpng_end_success: LegacyCall
+
+
+@dataclass(frozen=True)
+class CheckPointLoopRuntime:
+    record_finding: LegacyCall
+    apply_action: LegacyCall
+    pause_error: LegacyCall
+
+
+@dataclass(frozen=True)
+class CheckPointLoopContext:
+    error: bool
+    fixed: bool
+    function: Any
+    chunk: Any
+    infos: tuple[Any, ...]
+    toolkit: tuple[Any, ...]
+    brute_level: int
+    libpng_errors: tuple[str, ...]
+    libpng_finished_at_iend: bool
+    pause_error_enabled: bool
+
+
+def run_checkpoint_loop(
+    runtime: CheckPointLoopRuntime,
+    context: CheckPointLoopContext,
+) -> Any:
+    for info in context.infos:
+        registration = checkpoint.finding_registration(
+            error=context.error,
+            fixed=context.fixed,
+            function=context.function,
+            chunk=context.chunk,
+            info=info,
+            toolkit=context.toolkit,
+        )
+        if registration.should_record:
+            runtime.record_finding(registration)
+            if registration.store == "pandora_box" and context.pause_error_enabled:
+                runtime.pause_error("Pause:Error")
+
+        decision = checkpoint.action_decision(
+            error=context.error,
+            function=context.function,
+            chunk=context.chunk,
+            info=info,
+            toolkit=context.toolkit,
+            brute_level=context.brute_level,
+            libpng_errors=context.libpng_errors,
+            libpng_finished_at_iend=context.libpng_finished_at_iend,
+        )
+        should_return, result = runtime.apply_action(
+            decision,
+            context.chunk,
+            info,
+            context.toolkit,
+        )
+        if should_return:
+            return result
+
+    return ()
 
 
 def run_write_clone(runtime: CheckPointRuntime, toolkit: tuple[Any, ...]) -> tuple[bool, Any]:

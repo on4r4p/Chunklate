@@ -9,7 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import Chunklate
-from chunklate import checkpoint_runtime
+from chunklate import checkpoint, checkpoint_runtime
 
 
 @contextmanager
@@ -50,6 +50,96 @@ def callback_runtime(calls):
         discard_libpng_warning=callback("discard_libpng_warning"),
         libpng_end_success=callback("libpng_end_success"),
     )
+
+
+def test_checkpoint_loop_runtime_records_finding_pauses_and_applies_action():
+    calls = []
+
+    def record_finding(registration):
+        calls.append(("record_finding", registration))
+
+    def apply_action(decision, chunk, info, toolkit):
+        calls.append(("apply_action", decision, chunk, info, toolkit))
+        return False, None
+
+    def pause_error(prompt):
+        calls.append(("pause_error", prompt))
+
+    result = checkpoint_runtime.run_checkpoint_loop(
+        checkpoint_runtime.CheckPointLoopRuntime(
+            record_finding=record_finding,
+            apply_action=apply_action,
+            pause_error=pause_error,
+        ),
+        checkpoint_runtime.CheckPointLoopContext(
+            error=True,
+            fixed=False,
+            function="Checksum",
+            chunk=b"IDAT",
+            infos=("-Wrong Crc b'IDAT'",),
+            toolkit=("crc", 12, 20),
+            brute_level=0,
+            libpng_errors=(),
+            libpng_finished_at_iend=False,
+            pause_error_enabled=True,
+        ),
+    )
+
+    assert result == ()
+    registration = calls[0][1]
+    assert calls[0][0] == "record_finding"
+    assert registration.store == "pandora_box"
+    assert registration.side_note == "Error:-Wrong Crc b'IDAT'"
+    assert calls[1] == ("pause_error", "Pause:Error")
+    assert calls[2] == (
+        "apply_action",
+        checkpoint.CheckPointActionDecision(flags={"Bad_Crc": True}),
+        b"IDAT",
+        "-Wrong Crc b'IDAT'",
+        ("crc", 12, 20),
+    )
+
+
+def test_checkpoint_loop_runtime_returns_first_action_result():
+    calls = []
+
+    def apply_action(decision, chunk, info, toolkit):
+        calls.append((decision, chunk, info, toolkit))
+        return True, decision.return_value
+
+    result = checkpoint_runtime.run_checkpoint_loop(
+        checkpoint_runtime.CheckPointLoopRuntime(
+            record_finding=lambda registration: calls.append(registration),
+            apply_action=apply_action,
+            pause_error=lambda prompt: calls.append(prompt),
+        ),
+        checkpoint_runtime.CheckPointLoopContext(
+            error=False,
+            fixed=False,
+            function="FindMagic",
+            chunk=b"PNG",
+            infos=("-Found Magic",),
+            toolkit=(16,),
+            brute_level=0,
+            libpng_errors=(),
+            libpng_finished_at_iend=False,
+            pause_error_enabled=False,
+        ),
+    )
+
+    assert result == 16
+    assert calls == [
+        (
+            checkpoint.CheckPointActionDecision(
+                action="return_value",
+                side_note="-CheckPoint: Returning next position based on Magic Offset 16",
+                return_value=16,
+            ),
+            b"PNG",
+            "-Found Magic",
+            (16,),
+        )
+    ]
 
 
 def test_checkpoint_runtime_keeps_legacy_callbacks():
@@ -311,6 +401,8 @@ def test_chunklate_checkpoint_runtime_uses_current_legacy_functions():
 
 def main():
     checks = [
+        ("CheckPoint loop records and applies", test_checkpoint_loop_runtime_records_finding_pauses_and_applies_action),
+        ("CheckPoint loop returns action result", test_checkpoint_loop_runtime_returns_first_action_result),
         ("CheckPointRuntime keeps callbacks", test_checkpoint_runtime_keeps_legacy_callbacks),
         ("CheckPointRuntime runs simple actions", test_checkpoint_runtime_runs_simple_actions),
         ("CheckPointRuntime runs libpng actions", test_checkpoint_runtime_runs_libpng_actions),

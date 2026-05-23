@@ -5428,43 +5428,27 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
         if PAUSEDEBUG is True:
             Pause("Checkpoint pause")
 
-#def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
-    for info in infos:
-        Registration = checkpoint.finding_registration(
+    return checkpoint_runtime.run_checkpoint_loop(
+        checkpoint_runtime.CheckPointLoopRuntime(
+            record_finding=CheckPoint_Record_Finding,
+            apply_action=CheckPoint_Apply_Action_Decision,
+            pause_error=Pause,
+        ),
+        checkpoint_runtime.CheckPointLoopContext(
             error=error,
             fixed=fixed,
             function=function,
             chunk=chunk,
-            info=info,
-            toolkit=ToolKit,
-        )
-        if Registration.should_record:
-            CheckPoint_Record_Finding(Registration)
-            if Registration.store == "pandora_box" and PAUSEERROR is True:
-                Pause("Pause:Error")
-
-        ActionDecision = checkpoint.action_decision(
-            error=error,
-            function=function,
-            chunk=chunk,
-            info=info,
+            infos=tuple(infos),
             toolkit=ToolKit,
             brute_level=Brute_LvL,
-            libpng_errors=LIBPNG_ERR,
+            libpng_errors=tuple(LIBPNG_ERR),
             libpng_finished_at_iend=(
                 bool(Chunks_History) and Chunks_History[-1] == b"IEND" and EOF is True
             ),
-        )
-        should_return, result = CheckPoint_Apply_Action_Decision(
-            ActionDecision,
-            chunk,
-            info,
-            ToolKit,
-        )
-        if should_return:
-            return result
-
-    return ()
+            pause_error_enabled=PAUSEERROR,
+        ),
+    )
 
 
 def Pause(msg):
