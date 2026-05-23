@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import struct
 import sys
+from datetime import timedelta
 from pathlib import Path
 from itertools import islice
 
@@ -48,6 +49,26 @@ def test_length_range_preserves_legacy_single_and_tuple_specs():
 def test_iter_nbr_for_length_preserves_legacy_threshold():
     assert bruteforce.iter_nbr_for_length(2, 2, 0) is None
     assert bruteforce.iter_nbr_for_length(4, 2, 1) == 2
+
+
+def test_crash_iteration_decision_preserves_resume_skip_and_reset():
+    assert bruteforce.crash_iteration_decision(3, 10) == bruteforce.BruteForceCrashDecision(
+        skip=True,
+        crash_value=10,
+    )
+    assert bruteforce.crash_iteration_decision(10, 10) == bruteforce.BruteForceCrashDecision(
+        skip=False,
+        crash_value=False,
+    )
+    assert bruteforce.crash_iteration_decision(3, False) == bruteforce.BruteForceCrashDecision(
+        skip=False,
+        crash_value=False,
+    )
+
+
+def test_eta_seconds_after_sample_preserves_legacy_seconds_math():
+    assert bruteforce.eta_seconds_after_sample(timedelta(seconds=2), 100) == 20
+    assert bruteforce.eta_seconds_after_sample(timedelta(milliseconds=500), 100) == 5
 
 
 def test_initial_spec_request_preserves_custom_full_and_noncustom_short_specs():
@@ -517,6 +538,8 @@ def main():
         ("Fallback Custom to Brutus", test_resolve_mode_falls_back_to_brutus_when_custom_has_no_indexes),
         ("Length ranges", test_length_range_preserves_legacy_single_and_tuple_specs),
         ("IterNbr threshold", test_iter_nbr_for_length_preserves_legacy_threshold),
+        ("Crash resume decision", test_crash_iteration_decision_preserves_resume_skip_and_reset),
+        ("ETA seconds", test_eta_seconds_after_sample_preserves_legacy_seconds_math),
         ("Initial spec request", test_initial_spec_request_preserves_custom_full_and_noncustom_short_specs),
         ("Iteration spec request", test_iteration_spec_request_preserves_struct_indexes_and_iter_nbr),
         ("Spec request kwargs", test_spec_request_kwargs_matches_legacy_getspec_keyword_shape),

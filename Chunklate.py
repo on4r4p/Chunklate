@@ -2412,25 +2412,18 @@ def SmashBruteBrawl(
 #                   break
 
             if CRASH:
-                if n < CRASH:
+                CrashDecision = bruteforce.crash_iteration_decision(n, CRASH)
+                CRASH = CrashDecision.crash_value
+                if CrashDecision.skip:
                      continue
-                else:
-                    CRASH = False
             
 
             if n == 10:
                 PRINT("\n\n-BruteForce started at: %s"% Std)
                 endat = datetime.now() - Std
-
-                if endat.seconds != 0:
-                    ETA = int((endat.seconds * max_iter) / 10)
-                    timdeta= timedelta(seconds=ETA)
-                    PRINT("-Bruteforce can last a max of %s"%str(timdeta))
-                else:
-                    ETA = (endat * max_iter) / 10
-                    ETA = ETA.seconds
-                    timdeta= timedelta(seconds=ETA)
-                    PRINT("-Bruteforce can last a max of %s"%str(timdeta))
+                ETA = bruteforce.eta_seconds_after_sample(endat, max_iter)
+                timdeta= timedelta(seconds=ETA)
+                PRINT("-Bruteforce can last a max of %s"%str(timdeta))
                
                 guess = datetime.now() + timdeta
                 PRINT("-Bruteforce ending date time is estimated around %s\n"%str(guess))

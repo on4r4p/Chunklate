@@ -38,6 +38,12 @@ class BruteForceSpecRequest:
 
 
 @dataclass(frozen=True)
+class BruteForceCrashDecision:
+    skip: bool
+    crash_value: Any
+
+
+@dataclass(frozen=True)
 class BruteForceEditWindow:
     before: bytes
     to_brute: str
@@ -130,6 +136,22 @@ def iter_nbr_for_length(length: int, step: int, loop_index: int) -> int | None:
     if length > step:
         return loop_index + 1
     return None
+
+
+def crash_iteration_decision(loop_index: int, crash_value: Any) -> BruteForceCrashDecision:
+    if crash_value:
+        if loop_index < crash_value:
+            return BruteForceCrashDecision(True, crash_value)
+        return BruteForceCrashDecision(False, False)
+    return BruteForceCrashDecision(False, crash_value)
+
+
+def eta_seconds_after_sample(elapsed: Any, max_iter: int, sample_count: int = 10) -> int:
+    if elapsed.seconds != 0:
+        return int((elapsed.seconds * max_iter) / sample_count)
+
+    eta = (elapsed * max_iter) / sample_count
+    return eta.seconds
 
 
 def spec_request(
