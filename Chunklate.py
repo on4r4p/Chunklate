@@ -1954,7 +1954,8 @@ def SmashBruteBrawl(
 #            print("bryte:",ToBryte)
 #            print("bvaluehex:",bvalue.hex())
 #            input("hold")
-            if not bruteforce.has_libpng_error(result, LIBPNG_ERR):
+            ViewerCandidate = bruteforce.viewer_candidate_decision(result, LIBPNG_ERR)
+            if ViewerCandidate.acceptable:
 
 
                 with stderr_redirector(f):
@@ -2046,10 +2047,7 @@ def SmashBruteBrawl(
                        Summarise(bruteforce.viewer_timeout_save_failed_summary(tmpname, e, TryNumber))
                 if Answer is True:
 
-                    DIFF = bruteforce.highlighted_candidate_diff(
-                        DATAX[DataOffset:],
-                        ndx.hex(),
-                    )
+                    DIFF = bruteforce.accepted_candidate_diff(DATAX, DataOffset, ndx)
                     return(True)
 
 

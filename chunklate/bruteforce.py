@@ -122,6 +122,11 @@ class BruteForceViewerWaitState:
 
 
 @dataclass(frozen=True)
+class ViewerCandidateDecision:
+    acceptable: bool
+
+
+@dataclass(frozen=True)
 class BruteForceRuntimePlan:
     mode: str
     struct_indexes: tuple[int, ...]
@@ -572,6 +577,12 @@ def has_libpng_error(output: str, libpng_errors: tuple[str, ...] | list[str]) ->
     return any(error in output for error in libpng_errors)
 
 
+def viewer_candidate_decision(output: str, libpng_errors: tuple[str, ...] | list[str]) -> ViewerCandidateDecision:
+    return ViewerCandidateDecision(
+        acceptable=not has_libpng_error(output, libpng_errors),
+    )
+
+
 def process_command_is_tmp_png(cmdline: tuple[str, ...] | list[str]) -> bool:
     command = " ".join(cmdline)
     return "/tmp/tmp" in command and ".PNG" in command
@@ -595,6 +606,13 @@ def highlighted_candidate_diff(source_hex: str, candidate_hex: str) -> str:
         else:
             diff += candidate_hex[block[1] : block[2]]
     return diff
+
+
+def accepted_candidate_diff(data_hex: str, data_offset: int, candidate_bytes: bytes) -> str:
+    return highlighted_candidate_diff(
+        data_hex[data_offset:],
+        candidate_bytes.hex(),
+    )
 
 
 def viewer_try_number(loop_index: int) -> int:

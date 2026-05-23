@@ -591,6 +591,12 @@ def test_viewer_helpers_preserve_libpng_process_and_diff_decisions():
 
     assert bruteforce.has_libpng_error("ok", libpng_errors) is False
     assert bruteforce.has_libpng_error("prefix libpng error suffix", libpng_errors) is True
+    assert bruteforce.viewer_candidate_decision("ok", libpng_errors) == (
+        bruteforce.ViewerCandidateDecision(acceptable=True)
+    )
+    assert bruteforce.viewer_candidate_decision("prefix libpng error suffix", libpng_errors) == (
+        bruteforce.ViewerCandidateDecision(acceptable=False)
+    )
     assert bruteforce.process_command_is_tmp_png(("/usr/bin/display", "/tmp/tmpabcd.PNG")) is True
     assert bruteforce.process_command_is_tmp_png(("/usr/bin/display", "/home/user/out.png")) is False
     assert bruteforce.viewer_wait_step(False, 0) == bruteforce.BruteForceViewerWaitState(
@@ -611,6 +617,10 @@ def test_viewer_helpers_preserve_libpng_process_and_diff_decisions():
 
     assert (
         bruteforce.highlighted_candidate_diff("0011223344", "0011aa3344")
+        == "0011\033[1;32;49maa\033[m3344"
+    )
+    assert (
+        bruteforce.accepted_candidate_diff("ffffffff0011223344", 8, bytes.fromhex("0011aa3344"))
         == "0011\033[1;32;49maa\033[m3344"
     )
 
