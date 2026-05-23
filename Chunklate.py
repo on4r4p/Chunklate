@@ -5030,12 +5030,18 @@ def Relics_Handle_Single_Pandemonium(FromError):
 
     for nb1, (file, file_value) in enumerate(Pandemonium.items()):
         for nb2, (errors, errors_values) in enumerate(file_value.items()):
-            if "Wrong Crc" in errors:
-                for nb3, (tools, tools_values) in enumerate(
-                    errors_values.items()
-                ):
-                    Chunkname = relics.chunk_name_from_tool_keys(errors_values, ALLCHUNKS)
-
+            Decision = relics.single_pandemonium_decision(
+                nb1,
+                file,
+                errors,
+                errors_values,
+                known_chunks=ALLCHUNKS,
+                file_origin=FILE_Origin,
+                current_sample=Sample,
+                from_error=FromError,
+            )
+            if Decision.action == "wrong_crc_brawl":
+                Chunkname = Decision.route.chunk_name
                 Candy(
                     "Cowsay",
                     "Perhaps that wasn't a Crc problem after all..",
@@ -5054,27 +5060,9 @@ def Relics_Handle_Single_Pandemonium(FromError):
                 )
                 #PRINT("Chunkname:%s"% Chunkname)
                 # def Checksum(Ctype, Cdata, Crc,next=None):
-                chunk_tool_prefix = Chunkname + "_Tool_"
-                CrcTools = relics.wrong_crc_tools(
-                    Pandemonium[file][errors], chunk_tool_prefix
-                )
-                relics_runtime.run_wrong_crc_brawl_plan(Relics_Runtime(),
-                    relics.wrong_crc_brawl_plan(
-                        relics.WrongCrcRoute(
-                            source=file,
-                            error=errors,
-                            chunk_name=Chunkname,
-                            tool_prefix=chunk_tool_prefix,
-                        ),
-                        CrcTools,
-                        target_file=relics.remembered_sample_target(
-                            nb1,
-                            file,
-                            file_origin=FILE_Origin,
-                            current_sample=Sample,
-                        ),
-                        from_error=FromError,
-                    )
+                relics_runtime.run_wrong_crc_brawl_plan(
+                    Relics_Runtime(),
+                    Decision.plan,
                 )
                 return ()
             # print("%s:%s"%(Candy("Color","red","    [Error:%s]"%nb2),errors))

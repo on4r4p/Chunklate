@@ -200,6 +200,14 @@ class NoPandemoniumRepairDecision:
     plan: Any = None
 
 
+@dataclass(frozen=True)
+class SinglePandemoniumDecision:
+    action: str
+    route: WrongCrcRoute | None = None
+    tools: WrongCrcTools | None = None
+    plan: WrongCrcBrawlPlan | None = None
+
+
 def chunk_label(chunk: Any) -> Any:
     if type(chunk) != bytes:
         return chunk
@@ -557,6 +565,48 @@ def wrong_crc_brawl_plan(
         from_error=from_error,
         old_crc=tools.old_crc,
         brute_length=False,
+    )
+
+
+def single_pandemonium_decision(
+    sample_index: int,
+    remembered_sample: Any,
+    error: Any,
+    tools: Mapping[str, Any],
+    *,
+    known_chunks: list[bytes] | tuple[bytes, ...],
+    file_origin: Any,
+    current_sample: Any,
+    from_error: Any,
+) -> SinglePandemoniumDecision:
+    if "Wrong Crc" not in str(error):
+        return SinglePandemoniumDecision("unsupported")
+
+    chunk_name = chunk_name_from_tool_keys(tools, known_chunks)
+    chunk_tool_prefix = chunk_name + "_Tool_"
+    crc_tools = wrong_crc_tools(tools, chunk_tool_prefix)
+    route = WrongCrcRoute(
+        source=remembered_sample,
+        error=error,
+        chunk_name=chunk_name,
+        tool_prefix=chunk_tool_prefix,
+    )
+    plan = wrong_crc_brawl_plan(
+        route,
+        crc_tools,
+        target_file=remembered_sample_target(
+            sample_index,
+            remembered_sample,
+            file_origin=file_origin,
+            current_sample=current_sample,
+        ),
+        from_error=from_error,
+    )
+    return SinglePandemoniumDecision(
+        "wrong_crc_brawl",
+        route=route,
+        tools=crc_tools,
+        plan=plan,
     )
 
 

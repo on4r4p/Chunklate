@@ -460,6 +460,96 @@ def test_relics_module_builds_non_idat_wrong_crc_brawl_plan():
     )
 
 
+def test_relics_module_selects_single_pandemonium_wrong_crc_decision():
+    tools = relics.build_tools(
+        b"IDAT",
+        ("newcrc", 12, 20, b"IDAT", "0x2a", "oldcrc", 433, 100),
+    )
+
+    decision = relics.single_pandemonium_decision(
+        0,
+        "sample.0_Fixed.png",
+        "Checksum_Error_0:Wrong Crc",
+        tools,
+        known_chunks=(b"IDAT", b"PLTE"),
+        file_origin="/tmp/origin.png",
+        current_sample="/tmp/current.png",
+        from_error="libpng",
+    )
+
+    assert decision == relics.SinglePandemoniumDecision(
+        "wrong_crc_brawl",
+        route=relics.WrongCrcRoute(
+            source="sample.0_Fixed.png",
+            error="Checksum_Error_0:Wrong Crc",
+            chunk_name="IDAT",
+            tool_prefix="IDAT_Tool_",
+        ),
+        tools=relics.WrongCrcTools(
+            replacement_crc="newcrc",
+            start=12,
+            end=20,
+            chunk=b"IDAT",
+            offset="0x2a",
+            old_crc="oldcrc",
+            chunk_length=433,
+            data_offset=100,
+        ),
+        plan=relics.WrongCrcBrawlPlan(
+            target_file="/tmp/origin.png",
+            chunk=b"IDAT",
+            chunk_length=433,
+            data_offset=100,
+            from_error="libpng",
+            old_crc="oldcrc",
+            bf_mode="TwoBytes",
+        ),
+    )
+
+
+def test_relics_module_selects_single_pandemonium_remembered_target():
+    tools = relics.build_tools(
+        b"PLTE",
+        ("newcrc", 12, 20, b"PLTE", "0x2a", "oldcrc", 768, 100),
+    )
+
+    decision = relics.single_pandemonium_decision(
+        1,
+        "sample.1_Fixed.png",
+        "Checksum_Error_1:Wrong Crc",
+        tools,
+        known_chunks=(b"IDAT", b"PLTE"),
+        file_origin="/tmp/origin.png",
+        current_sample="/tmp/current.png",
+        from_error="libpng",
+    )
+
+    assert decision.plan == relics.WrongCrcBrawlPlan(
+        target_file="/tmp/sample.1_Fixed.png",
+        chunk=b"PLTE",
+        chunk_length=768,
+        data_offset=100,
+        from_error="libpng",
+        old_crc="oldcrc",
+        brute_length=False,
+    )
+
+
+def test_relics_module_selects_single_pandemonium_unsupported_decision():
+    decision = relics.single_pandemonium_decision(
+        0,
+        "sample.0_Fixed.png",
+        "Unsupported_Error",
+        {},
+        known_chunks=(b"IDAT", b"PLTE"),
+        file_origin="/tmp/origin.png",
+        current_sample="/tmp/current.png",
+        from_error="libpng",
+    )
+
+    assert decision == relics.SinglePandemoniumDecision("unsupported")
+
+
 def test_relics_module_resolves_remembered_sample_target():
     assert (
         relics.remembered_sample_target(
@@ -1031,6 +1121,18 @@ def main():
         (
             "Relics module builds non-IDAT wrong CRC brawl plan",
             test_relics_module_builds_non_idat_wrong_crc_brawl_plan,
+        ),
+        (
+            "Relics module selects single-Pandemonium wrong CRC decision",
+            test_relics_module_selects_single_pandemonium_wrong_crc_decision,
+        ),
+        (
+            "Relics module selects single-Pandemonium remembered target",
+            test_relics_module_selects_single_pandemonium_remembered_target,
+        ),
+        (
+            "Relics module selects single-Pandemonium unsupported decision",
+            test_relics_module_selects_single_pandemonium_unsupported_decision,
         ),
         ("Relics module resolves remembered sample target", test_relics_module_resolves_remembered_sample_target),
         ("Relics module builds dummy chunk brawl plan", test_relics_module_builds_dummy_chunk_brawl_plan),
