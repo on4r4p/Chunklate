@@ -142,6 +142,64 @@ def test_checkpoint_loop_runtime_returns_first_action_result():
     ]
 
 
+def test_checkpoint_debug_lines_preserve_legacy_print_shape():
+    long_bytes = b"x" * 120
+    long_text = "y" * 120
+    long_object = ["z" * 120]
+
+    lines = checkpoint_runtime.checkpoint_debug_lines(
+        error=True,
+        fixed=False,
+        function="Checksum",
+        infos=["-Wrong Crc"],
+        chunk=b"IDAT",
+        toolkit=(long_bytes, long_text, long_object, 12),
+        pandora_keys=("key1", b"key2"),
+    )
+
+    assert lines == (
+        "error:True",
+        "fixed:False",
+        "function:Checksum",
+        "infos:['-Wrong Crc']",
+        "chunk:b'IDAT'",
+        "ToolKit:",
+        "Arg0:b'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...To big to be displayed ...' type:<class 'bytes'>",
+        "Arg1:yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy...To big to be displayed ... type:<class 'str'>",
+        "Arg2:['zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz...To big to be displayed ... type:<class 'list'>",
+        "Arg3:12 type:<class 'int'>",
+        "Pandora:",
+        "key:key1",
+        "key:b'key2'",
+    )
+
+
+def test_emit_checkpoint_debug_uses_injected_emit_callback():
+    emitted = []
+
+    checkpoint_runtime.emit_checkpoint_debug(
+        emitted.append,
+        error=False,
+        fixed=True,
+        function="FindMagic",
+        infos=("-Found Magic",),
+        chunk=b"PNG",
+        toolkit=(16,),
+        pandora_keys=(),
+    )
+
+    assert emitted == [
+        "error:False",
+        "fixed:True",
+        "function:FindMagic",
+        "infos:-Found Magic",
+        "chunk:b'PNG'",
+        "ToolKit:",
+        "Arg0:16 type:<class 'int'>",
+        "Pandora:",
+    ]
+
+
 def test_checkpoint_runtime_keeps_legacy_callbacks():
     calls = []
     runtime = callback_runtime(calls)
@@ -403,6 +461,8 @@ def main():
     checks = [
         ("CheckPoint loop records and applies", test_checkpoint_loop_runtime_records_finding_pauses_and_applies_action),
         ("CheckPoint loop returns action result", test_checkpoint_loop_runtime_returns_first_action_result),
+        ("CheckPoint debug lines", test_checkpoint_debug_lines_preserve_legacy_print_shape),
+        ("CheckPoint debug emit callback", test_emit_checkpoint_debug_uses_injected_emit_callback),
         ("CheckPointRuntime keeps callbacks", test_checkpoint_runtime_keeps_legacy_callbacks),
         ("CheckPointRuntime runs simple actions", test_checkpoint_runtime_runs_simple_actions),
         ("CheckPointRuntime runs libpng actions", test_checkpoint_runtime_runs_libpng_actions),

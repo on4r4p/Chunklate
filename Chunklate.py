@@ -5404,26 +5404,16 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
     )
 
     if DEBUG is True:
-        PRINT("error:%s"% error)
-        PRINT("fixed:%s"% fixed)
-        PRINT("function:%s"% function)
-        PRINT("infos:%s"% infos)
-        PRINT("chunk:%s"% chunk)
-        PRINT("ToolKit:")
-        for i, a in enumerate(ToolKit):
-            if len(str(a)) > 100:
-                if type(a) == bytes:
-                    short_value = a[0:40] + b"...To big to be displayed ..."
-                elif type(a) == str:
-                    short_value = a[0:40] + "...To big to be displayed ..."
-                else:
-                    short_value = str(a)[0:40] + "...To big to be displayed ..."
-                PRINT("Arg%s:%s type:%s" % (i, short_value, type(a)))
-            else:
-                PRINT("Arg%s:%s type:%s" % (i, a, type(a)))
-        PRINT("Pandora:")
-        for nb, key in enumerate(PandoraBox):
-            PRINT("key:%s"% str(key))
+        checkpoint_runtime.emit_checkpoint_debug(
+            PRINT,
+            error=error,
+            fixed=fixed,
+            function=function,
+            infos=infos,
+            chunk=chunk,
+            toolkit=ToolKit,
+            pandora_keys=tuple(PandoraBox),
+        )
 
         if PAUSEDEBUG is True:
             Pause("Checkpoint pause")

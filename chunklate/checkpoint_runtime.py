@@ -51,6 +51,68 @@ class CheckPointLoopContext:
     pause_error_enabled: bool
 
 
+def checkpoint_debug_toolkit_value(value: Any, limit: int = 100) -> Any:
+    if len(str(value)) <= limit:
+        return value
+    if type(value) == bytes:
+        return value[0:40] + b"...To big to be displayed ..."
+    if type(value) == str:
+        return value[0:40] + "...To big to be displayed ..."
+    return str(value)[0:40] + "...To big to be displayed ..."
+
+
+def checkpoint_debug_lines(
+    *,
+    error: Any,
+    fixed: Any,
+    function: Any,
+    infos: Any,
+    chunk: Any,
+    toolkit: tuple[Any, ...],
+    pandora_keys: tuple[Any, ...],
+) -> tuple[str, ...]:
+    lines = [
+        "error:%s" % error,
+        "fixed:%s" % fixed,
+        "function:%s" % function,
+        "infos:%s" % infos,
+        "chunk:%s" % chunk,
+        "ToolKit:",
+    ]
+    for index, value in enumerate(toolkit):
+        lines.append(
+            "Arg%s:%s type:%s"
+            % (index, checkpoint_debug_toolkit_value(value), type(value))
+        )
+    lines.append("Pandora:")
+    for key in pandora_keys:
+        lines.append("key:%s" % str(key))
+    return tuple(lines)
+
+
+def emit_checkpoint_debug(
+    emit: LegacyCall,
+    *,
+    error: Any,
+    fixed: Any,
+    function: Any,
+    infos: Any,
+    chunk: Any,
+    toolkit: tuple[Any, ...],
+    pandora_keys: tuple[Any, ...],
+) -> None:
+    for line in checkpoint_debug_lines(
+        error=error,
+        fixed=fixed,
+        function=function,
+        infos=infos,
+        chunk=chunk,
+        toolkit=toolkit,
+        pandora_keys=pandora_keys,
+    ):
+        emit(line)
+
+
 def run_checkpoint_loop(
     runtime: CheckPointLoopRuntime,
     context: CheckPointLoopContext,
