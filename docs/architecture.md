@@ -109,12 +109,6 @@ for interactive use; tests can exercise the non-UI pieces directly.
 `chunklate/chunk_story.py`
 : Small helpers for logging, history, sorting, and human-readable chunk stories.
 
-## Legacy Names Kept On Purpose
-
-Names such as `FixItFelix`, `PandoraBox`, `Pandemonium`, `ArkOfCovenant`,
-`Cornucopia`, `Relics`, and `BrawlState` are intentionally preserved. The
-refactor moves logic around those concepts, but it should not erase the
-vocabulary of the project.
 
 ## Testing Contract
 
