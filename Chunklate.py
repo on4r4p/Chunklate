@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, name_shift, name_shift_runtime, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -1973,152 +1973,28 @@ def CheckChunkOrder(lastchunk, mode):
 
 
 def NameShift():
-    Candy("Title", "Checking around Chunk's position:")
-    Shifted = False
-    good_offset = False
-
-    if DEBUG is True:
-        for c, i in zip(Chunks_History, Chunks_History_Index):
-            PRINT("\nCame accross that chunk: %s"% c)
-            PRINT("With those index: %s"% i)
-        if PAUSEDEBUG is True:
-            Pause("-Debug Pause Press Return to continue:")
-    NameShiftContext = runtime_state.name_shift_runtime_context(
-        DATAX,
-        CToffI,
-        Chunks_History_Index,
-        ALLCHUNKS,
+    return name_shift_runtime.run_name_shift(
+        name_shift_runtime.NameShiftRuntime(
+            candy=Candy,
+            emit=PRINT,
+            pause=Pause,
+            end=TheEnd,
+            spec_length=SpecLength,
+            side_notes=SideNotes,
+            raw_print=print,
+        ),
+        name_shift_runtime.NameShiftContext(
+            name_shift_context=runtime_state.name_shift_runtime_context(
+                DATAX,
+                CToffI,
+                Chunks_History_Index,
+                ALLCHUNKS,
+            ),
+            chunks_history=tuple(Chunks_History),
+            debug=DEBUG,
+            pause_debug=PAUSEDEBUG,
+        ),
     )
-    ShiftCandidate = name_shift.find_shifted_chunk_name(
-        NameShiftContext.data_hex,
-        NameShiftContext.current_type_offset,
-        NameShiftContext.known_chunks,
-    )
-    if ShiftCandidate is not None:
-         i = ShiftCandidate.search_index
-         ioff = ShiftCandidate.type_offset
-         value = ShiftCandidate.chunk_name
-         PRINT(
-             name_shift.current_chunk_value_line(
-                 NameShiftContext.current_type_offset,
-                 name_shift.current_chunk_value(
-                     NameShiftContext.data_hex,
-                     NameShiftContext.current_type_offset,
-                 ),
-             )
-         )
-         SideNotes.append(name_shift.found_chunk_note(i, ioff, value))
-         if ShiftCandidate.is_before:
-             good_offset = ShiftCandidate.good_offset
-             PRINT(Candy("Color", "green", name_shift.valid_chunk_before_line(value, good_offset)))
-         elif ShiftCandidate.is_after:
-             good_offset = ShiftCandidate.good_offset
-             PRINT(Candy("Color", "green", name_shift.valid_chunk_after_line(value, good_offset)))
-         Shifted = True
-    if Shifted :
-
-        Candy("Cowsay", "Mokay ..Maybe some bytes are missing somewhere ..", "com")
-
-        lenioff = NameShiftContext.data_hex[ioff-8:ioff]
-        reallen = SpecLength(value, lenioff)
-
-        if name_shift.length_part_is_corrupted(lenioff, reallen):
-
-             Candy("Cowsay", "I knew there was something odd..", "bad")
-#             Candy("Cowsay", "The good news is we wont have to bruteforce all the previous chunk...", "com")
-             Candy("Cowsay", "That error seems to come from the length part .", "good")
-             CrcView = name_shift.shifted_chunk_crc_view(NameShiftContext.data_hex, ioff, value, reallen)
-             Crc = CrcView.file_crc
-             checksum = CrcView.checksum
-             if DEBUG:
-                 PRINT("-Crc from file: %s"%(str(checksum)))
-                 PRINT("-Actual Crc: %s\n"%(str(Crc)))
-
-             if CrcView.crc_matches:
-                 PRINT(
-                    name_shift.crc_ok_line(
-                        Candy("Color", "green", " OK "),
-                        Candy("Emoj", "good"),
-                    )
-                )
-
-                 Candy("Cowsay", "Found the culprit!", "good")
-                 SideNotes.append(name_shift.crc_valid_note())
-                 fixed = CrcView.fixed_hex
-
-                 if ioff > CToffI:
-                      LastChunkBeforeOffset = name_shift.last_history_chunk_before_offset(
-                          NameShiftContext.chunks_history_index,
-                          NameShiftContext.current_type_offset,
-                      )
-
-                      if LastChunkBeforeOffset is not None:
-#                          print("last_chunk_nbr:",LastChunkBeforeOffset.number)
-#                          print("last_chunk_start:",LastChunkBeforeOffset.start)
-#                          print("last_chunk_end:",LastChunkBeforeOffset.end)
-#                          print("last_chunk_len:",LastChunkBeforeOffset.length)
-
-                          if name_shift.extra_bytes_align_with_previous_chunk(
-                              ioff,
-                              LastChunkBeforeOffset.end,
-                              good_offset,
-                          ):
-#                             print(name_shift.extra_bytes_expected_offset(LastChunkBeforeOffset.end, good_offset))
-                             SideNotes.append(name_shift.extra_bytes_found_note())
-                             Candy("Cowsay", "Found some extra bytes for some reason.. let's fix this now .", "good")
-                             return name_shift.extra_bytes_repair_result(
-                                 fixed,
-                                 good_offset,
-                                 NameShiftContext.current_type_offset,
-                             )
-                          else:
-                             print("bad")
-                             print(name_shift.extra_bytes_expected_offset(LastChunkBeforeOffset.end, good_offset))
-                             PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                             TheEnd()
-                 else:
-                     Candy("Cowsay", "So there was some missing bytes after all let's fix this now .", "good")
-                     SideNotes.append(name_shift.missing_bytes_found_note())
-                     return name_shift.missing_bytes_repair_result(
-                         fixed,
-                         good_offset,
-                         NameShiftContext.current_type_offset,
-                     )
-
-             else:
-                PRINT(
-                    name_shift.crc_failed_line(
-                        Candy("Color", "red", " FAILED! "),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-                if name_shift.crc_value_is_empty(Crc, checksum):
-                    PRINT(name_shift.monkey_wanted_line(Candy("Color", "green", checksum)))
-                    PRINT(name_shift.monkey_got_line(Candy("Color", "red", Crc)))
-                    Candy("Cowsay", name_shift.missed_something_message(), "com")
-                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                    TheEnd()
-
-                if name_shift.checksum_needs_legacy_padding(checksum):
-                    checksum = name_shift.legacy_pad_checksum(checksum)
-                    PRINT(name_shift.monkey_wanted_line(Candy("Color", "green", checksum)))
-                    PRINT(name_shift.monkey_got_line(Candy("Color", "red", Crc)))
-                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                    TheEnd()
-
-             SideNotes.append(name_shift.corrupted_length_note(value))
-
-        else:
-             PRINT(Candy("Color", "yellow", "\n-ToDo"))
-             TheEnd()
-    else:
-        if Shifted:
-            Candy("Cowsay", "Something went wrong sorry ..", "bad")
-            PRINT(Candy("Color", "yellow", "\n-ToDo"))
-            TheEnd()
-        return False
-
-    TheEnd()
 
 
 def BruteChunk_Crc_Matches(candidates):
