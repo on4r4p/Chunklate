@@ -425,6 +425,40 @@ def test_run_repair_work_items_reports_no_result_when_nothing_handles():
     assert result == fixit_felix.FixItFelixRunResult(False)
 
 
+def test_dispatch_action_calls_matching_handler_with_args():
+    calls = []
+
+    def handle_action(*args):
+        calls.append(args)
+        return "handled"
+
+    result = fixit_felix.dispatch_action(
+        {"save_existing_solution": handle_action},
+        "save_existing_solution",
+        "FixItFelix libpng action",
+        "decision",
+        "finding",
+        "IDAT_Tool_",
+    )
+
+    assert result == "handled"
+    assert calls == [("decision", "finding", "IDAT_Tool_")]
+
+
+def test_dispatch_action_rejects_unknown_handler_with_legacy_message():
+    try:
+        fixit_felix.dispatch_action(
+            {},
+            "ask_easy_crc_fix",
+            "FixItFelix wrong-CRC action",
+            "decision",
+        )
+    except ValueError as exc:
+        assert str(exc) == "Unknown FixItFelix wrong-CRC action: ask_easy_crc_fix"
+    else:
+        raise AssertionError("Expected ValueError for unknown FixItFelix action")
+
+
 def test_dispatch_finding_work_item_calls_matching_handler():
     calls = []
     work_item = fixit_felix.FixItFelixWorkItem(
@@ -624,6 +658,8 @@ def main():
         ("Run work items returns automatic repair", test_run_repair_work_items_returns_first_automatic_repair_result),
         ("Run work items dispatches findings", test_run_repair_work_items_dispatches_findings_after_empty_automatic_repairs),
         ("Run work items reports no result", test_run_repair_work_items_reports_no_result_when_nothing_handles),
+        ("Dispatch action calls matching handler", test_dispatch_action_calls_matching_handler_with_args),
+        ("Dispatch action rejects unknown handler", test_dispatch_action_rejects_unknown_handler_with_legacy_message),
         ("Dispatch finding work item calls matching handler", test_dispatch_finding_work_item_calls_matching_handler),
         ("Dispatch finding work item rejects unknown handler", test_dispatch_finding_work_item_rejects_unknown_handler),
         ("Tool prefix preserves legacy labels", test_tool_prefix_for_chunk_preserves_legacy_bytes_and_string_labels),

@@ -98,6 +98,7 @@ class FixItFelixRunResult:
     result: Any = None
 
 
+ActionHandler = Callable[..., Any]
 FindingWorkItemHandler = Callable[[FixItFelixWorkItem, str, int, Any], tuple[bool, Any]]
 
 
@@ -270,6 +271,18 @@ def run_repair_work_items(
     return FixItFelixRunResult(False)
 
 
+def dispatch_action(
+    handlers: Mapping[str, ActionHandler],
+    action: str,
+    error_label: str,
+    *args: Any,
+) -> Any:
+    handler = handlers.get(action)
+    if handler is None:
+        raise ValueError("Unknown %s: %s" % (error_label, action))
+    return handler(*args)
+
+
 def dispatch_finding_work_item(
     handlers: Mapping[str, FindingWorkItemHandler],
     work_item: FixItFelixWorkItem,
@@ -277,10 +290,15 @@ def dispatch_finding_work_item(
     pandora_box_len: int,
     chunk: Any,
 ) -> tuple[bool, Any]:
-    handler = handlers.get(work_item.handler)
-    if handler is None:
-        raise ValueError("Unknown FixItFelix finding handler: %s" % work_item.handler)
-    return handler(work_item, chkd, pandora_box_len, chunk)
+    return dispatch_action(
+        handlers,
+        work_item.handler,
+        "FixItFelix finding handler",
+        work_item,
+        chkd,
+        pandora_box_len,
+        chunk,
+    )
 
 
 def tool_prefix_for_chunk(chunk: Any) -> str:

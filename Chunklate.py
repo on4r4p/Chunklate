@@ -4392,10 +4392,15 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
     if CrcDecision.action != "already_in_cornucopia":
         CrcTools = relics.wrong_crc_tools(PandoraBox[key], chkd)
 
-    handler = FIXIT_FELIX_WRONG_CRC_HANDLERS.get(CrcDecision.action)
-    if handler is None:
-        raise ValueError("Unknown FixItFelix wrong-CRC action: %s" % CrcDecision.action)
-    return handler(CrcDecision, key, chkd, CrcTools)
+    return fixit_felix.dispatch_action(
+        FIXIT_FELIX_WRONG_CRC_HANDLERS,
+        CrcDecision.action,
+        "FixItFelix wrong-CRC action",
+        CrcDecision,
+        key,
+        chkd,
+        CrcTools,
+    )
 
 
 def FixItFelix_Libpng_Print_Critical(key):
@@ -4471,10 +4476,14 @@ def FixItFelix_Libpng_Error(key, chkd):
         skip_bad_libpng=Skip_Bad_Libpng,
     )
 
-    handler = FIXIT_FELIX_LIBPNG_ERROR_HANDLERS.get(LibpngDecision.action)
-    if handler is None:
-        raise ValueError("Unknown FixItFelix libpng action: %s" % LibpngDecision.action)
-    return handler(LibpngDecision, key, chkd)
+    return fixit_felix.dispatch_action(
+        FIXIT_FELIX_LIBPNG_ERROR_HANDLERS,
+        LibpngDecision.action,
+        "FixItFelix libpng action",
+        LibpngDecision,
+        key,
+        chkd,
+    )
 
 
 def FixItFelix_Wrong_Chunk_Name_Print_Critical(key):
@@ -4614,10 +4623,15 @@ def FixItFelix_Wrong_Chunk_Name(key, chkd):
             Ancillary(NameTools.chunk_type)
             FixItFelix_Wrong_Chunk_Name_Describe(NameDecision)
 
-        handler = FIXIT_FELIX_WRONG_CHUNK_NAME_HANDLERS.get(NameDecision.action)
-        if handler is None:
-            raise ValueError("Unknown FixItFelix wrong-chunk-name action: %s" % NameDecision.action)
-        return handler(NameDecision, key, chkd, NameTools)
+        return fixit_felix.dispatch_action(
+            FIXIT_FELIX_WRONG_CHUNK_NAME_HANDLERS,
+            NameDecision.action,
+            "FixItFelix wrong-chunk-name action",
+            NameDecision,
+            key,
+            chkd,
+            NameTools,
+        )
 
     return False, None
 
@@ -4699,10 +4713,16 @@ FIXIT_FELIX_NO_NEXT_FALSE_POSITIVE_IEND_HANDLERS = {
 
 
 def FixItFelix_Apply_No_NextChunk_False_Positive_IEND_Decision(FalsePositiveDecision, key, chkd, Chunk, NoNextTools):
-    handler = FIXIT_FELIX_NO_NEXT_FALSE_POSITIVE_IEND_HANDLERS.get(FalsePositiveDecision.action)
-    if handler is None:
-        raise ValueError("Unknown no-next false-positive IEND action: %s" % FalsePositiveDecision.action)
-    return handler(FalsePositiveDecision, key, chkd, Chunk, NoNextTools)
+    return fixit_felix.dispatch_action(
+        FIXIT_FELIX_NO_NEXT_FALSE_POSITIVE_IEND_HANDLERS,
+        FalsePositiveDecision.action,
+        "no-next false-positive IEND action",
+        FalsePositiveDecision,
+        key,
+        chkd,
+        Chunk,
+        NoNextTools,
+    )
 
 
 def FixItFelix_No_NextChunk_Handle_False_Positive_IEND(decision, key, chkd, Chunk, NoNextTools):
@@ -4797,10 +4817,16 @@ FIXIT_FELIX_NO_NEXT_APPEND_IEND_HANDLERS = {
 
 
 def FixItFelix_Apply_No_NextChunk_Append_IEND_Decision(AppendDecision, key, chkd, Chunk, NoNextTools):
-    handler = FIXIT_FELIX_NO_NEXT_APPEND_IEND_HANDLERS.get(AppendDecision.action)
-    if handler is None:
-        raise ValueError("Unknown no-next append-IEND action: %s" % AppendDecision.action)
-    return handler(AppendDecision, key, chkd, Chunk, NoNextTools)
+    return fixit_felix.dispatch_action(
+        FIXIT_FELIX_NO_NEXT_APPEND_IEND_HANDLERS,
+        AppendDecision.action,
+        "no-next append-IEND action",
+        AppendDecision,
+        key,
+        chkd,
+        Chunk,
+        NoNextTools,
+    )
 
 
 def FixItFelix_No_NextChunk_Handle_Append_Missing_IEND(decision, key, chkd, Chunk, NoNextTools):
@@ -4856,10 +4882,16 @@ FIXIT_FELIX_NO_NEXT_CHUNK_HANDLERS = {
 
 
 def FixItFelix_Apply_No_NextChunk_Decision(decision, key, chkd, Chunk, NoNextTools):
-    handler = FIXIT_FELIX_NO_NEXT_CHUNK_HANDLERS.get(decision.action)
-    if handler is None:
-        raise ValueError("Unknown FixItFelix no-next-chunk action: %s" % decision.action)
-    return handler(decision, key, chkd, Chunk, NoNextTools)
+    return fixit_felix.dispatch_action(
+        FIXIT_FELIX_NO_NEXT_CHUNK_HANDLERS,
+        decision.action,
+        "FixItFelix no-next-chunk action",
+        decision,
+        key,
+        chkd,
+        Chunk,
+        NoNextTools,
+    )
 
 
 def FixItFelix_No_NextChunk(key, chkd, Chunk):
