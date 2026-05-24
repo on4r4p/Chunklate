@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from argparse import ArgumentParser, SUPPRESS
-from datetime import datetime,timedelta
+from datetime import datetime
 try:
     from PIL import Image,ImageShow,ImageTk
 except ModuleNotFoundError:
@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, bruteforce_result, bruteforce_viewer, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, bruteforce_result, bruteforce_runtime, bruteforce_viewer, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -1147,20 +1147,6 @@ def SmashBruteBrawl(
         if DEBUG is True:
             PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
 
-
-    def BuildAttempt(LN, payload_data, crc_data, before, after):
-        return bruteforce.prepare_candidate_attempt(
-            ChunkName,
-            LN,
-            payload_data,
-            crc_data,
-            before,
-            after,
-            brute_length=BruteLength,
-            brute_crc=BruteCrc,
-            old_crc=OldCrc,
-        )
-
     def LoadSpec(request):
         return GetSpec(
             ChunkName,
@@ -1170,6 +1156,8 @@ def SmashBruteBrawl(
 
     def SaveViewerError(error, def_name):
         return Betterror(error, def_name)
+
+    TmpImgLst = []
 
     def ViewerRuntime():
         return bruteforce_viewer.BruteForceViewerRuntime(
@@ -1195,213 +1183,51 @@ def SmashBruteBrawl(
             debug=DEBUG,
         )
 
-    def ShowPng(bpng,ndx):
-            global DIFF
-
-            ViewerResult = bruteforce_viewer.show_candidate(
-                ViewerRuntime(),
-                bpng,
-                ndx,
-                n,
-                debug_bytes=bvalue,
-            )
-            if ViewerResult.accepted:
-                DIFF = ViewerResult.diff
-            return ViewerResult.accepted
-
-
-    CNamex_New = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x", "")
-
-    BrawlState = bruteforce.BruteForceMatchState()
-    fullnewdatax = b""
-    wanabyte = b""
-    TmpSkip = True
-    TmpImgLst = []
-    result = "bad result"
-    ToBrute = ""
-
-    def ValidateAttempt(attempt, edit_kind=None, bonus=False):
-        nonlocal BrawlState, fullnewdatax, wanabyte
-
-        viewer_ok = True
-        if not OldCrc:
-            fullnewdatax = attempt.full_new_data
-            wanabyte = attempt.png_bytes
-            viewer_ok = ShowPng(wanabyte, fullnewdatax)
-
-        applied_attempt = bruteforce.apply_validated_candidate_attempt(
-            BrawlState,
-            attempt,
-            edit_kind,
-            bonus=bonus,
-            old_crc=OldCrc,
-            viewer_ok=viewer_ok,
+    def ShowPng(bpng, ndx, loop_index, debug_bytes):
+        return bruteforce_viewer.show_candidate(
+            ViewerRuntime(),
+            bpng,
+            ndx,
+            loop_index,
+            debug_bytes=debug_bytes,
         )
-        if applied_attempt is None:
-            return False
-
-        BrawlState = applied_attempt.state
-        fullnewdatax = applied_attempt.full_new_data
-        wanabyte = applied_attempt.png_bytes
-        return True
-
 
     bruteforce.register_image_viewers(ImageShow)
 
-
-
-    OldCrc = bruteforce.normalize_old_crc(OldCrc)
-
-    RuntimePlan = bruteforce.prepare_runtime_plan(
-        BfMode,
-        ChunkName,
-        PandoraBox,
-        LoadSpec,
+    ScanResult = bruteforce_runtime.run_scan(
+        bruteforce_runtime.SmashBruteBrawlRuntime(
+            load_spec=LoadSpec,
+            product=Product,
+            loadingbar=Loadingbar,
+            minibar=Minibar,
+            show_candidate=ShowPng,
+            emit=PRINT,
+            pause=Pause,
+            side_notes=SideNotes,
+        ),
+        bruteforce_runtime.SmashBruteBrawlContext(
+            file=File,
+            chunk_name=ChunkName,
+            chunk_length=ChunkLength,
+            data_offset=DataOffset,
+            from_error=FromError,
+            data_hex=DATAX,
+            pandora_box=PandoraBox,
+            edit_mode=EditMode,
+            bf_mode=BfMode,
+            brute_crc=BruteCrc,
+            brute_length=BruteLength,
+            old_crc=OldCrc,
+            brute_level=Brute_LvL,
+            crash=CRASH,
+            debug=DEBUG,
+            pause_debug=PAUSEDEBUG,
+        ),
     )
-    BfMode = RuntimePlan.mode
-    Sti = RuntimePlan.struct_indexes
-    if RuntimePlan.side_note is not None:
-        SideNotes.append(RuntimePlan.side_note)
-
-    LengthRange = RuntimePlan.length_range
-    maxchunklen = LengthRange.max_length
-    minchunklen = LengthRange.min_length
-    step = LengthRange.step
-
-    if DEBUG is True:
-
-        max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = (
-            bruteforce.load_iteration_spec(BfMode, Sti, None, LoadSpec)
-        )
-
-        PRINT("File:%s"% File)
-        PRINT("ChunkName:%s"% ChunkName)
-        PRINT("DataOffset:%s"% DataOffset)
-        PRINT("ChunkLength:%s"% ChunkLength)
-        PRINT("Brute_LvL:%s"% Brute_LvL)
-        PRINT("BruteCrc:%s"% BruteCrc)
-        PRINT("BruteLength:%s"%BruteLength)
-        PRINT("EditMode:%s"% EditMode)
-        PRINT("FromError:%s"% FromError)
-        PRINT("chunklen_spec:%s"% str(chunklen_spec))
-        PRINT("chunk_format:%s"% str(chunk_format))
-        PRINT("chunk_data:%s"% str(chunk_data))
-        PRINT("max_iter:%s"%max_iter)
-        PRINT("maxchunklen:%s"% maxchunklen)
-        PRINT("minchunklen:%s"% minchunklen)
-        PRINT("step:%s"% step)
-        if PAUSEDEBUG is True:
-            Pause("Pause:SmashBruteBrawl")
-
-    for n,ln in enumerate(range(minchunklen, maxchunklen, step)):
-
-        Std = datetime.now()
-        IterNbr = bruteforce.iter_nbr_for_length(ln, step, n)
-
-        max_iter, len_iter, chunklen_spec, chunk_format, chunk_data,color_type = (
-            bruteforce.load_iteration_spec(BfMode, Sti, IterNbr, LoadSpec)
-        )
-
-        Loadingbar(
-            max_iter, len_iter, None, True
-        )
-
-
-
-        EditWindow = bruteforce.edit_window(
-            DATAX,
-            DataOffset,
-            ChunkLength,
-            EditMode,
-            BfMode,
-            ln,
-        )
-        Before_New = EditWindow.before
-        ToBrute = EditWindow.to_brute
-        ToBryte = EditWindow.to_bryte
-        After_New = EditWindow.after
-
-        if EditWindow.replace_flag or EditWindow.insert_flag:
-                BrawlState = bruteforce.match_state_from_edit_window(EditWindow)
-                Lnx_New = EditWindow.length_bytes
-
-#        print("bfn:",Before_New)
-#        print("beforbrute",bytes.fromhex(DATAX[DataOffset+8:DataOffset+32]))
-#        print("Tobrute:",ToBrute)
-
-
-        shuffle = Product(chunk_data,color_type)
-        for n, i in enumerate(shuffle):
-                   #16581375
-#            if n < 16077370:
-#            if n < 254:
-#                 continue
-#            if Brute_LvL == 0:
-#                   break
-
-            if CRASH:
-                CrashDecision = bruteforce.crash_iteration_decision(n, CRASH)
-                CRASH = CrashDecision.crash_value
-                if CrashDecision.skip:
-                     continue
-
-
-            if n == 10:
-                PRINT("\n\n-BruteForce started at: %s"% Std)
-                endat = datetime.now() - Std
-                ETA = bruteforce.eta_seconds_after_sample(endat, max_iter)
-                timdeta= timedelta(seconds=ETA)
-                PRINT("-Bruteforce can last a max of %s"%str(timdeta))
-
-                guess = datetime.now() + timdeta
-                PRINT("-Bruteforce ending date time is estimated around %s\n"%str(guess))
-
-            bvalue = bruteforce.build_candidate_bytes(
-                i,
-                chunk_format,
-                BfMode,
-                struct_indexes=tuple(Sti),
-                to_bryte=ToBryte,
-            )
-
-            if BfMode == "TwoBytes":
-                bruteforce.run_twobytes_candidate_scan(
-                    to_brute=ToBrute,
-                    brute_bytes=bvalue,
-                    edit_mode=EditMode,
-                    chunk_name=ChunkName,
-                    brute_level=Brute_LvL,
-                    old_crc=OldCrc,
-                    before=Before_New,
-                    after=After_New,
-                    get_state=lambda: BrawlState,
-                    build_attempt=BuildAttempt,
-                    validate_attempt=ValidateAttempt,
-                    progress=lambda: Minibar(Indication="%s/%s"%(n,max_iter)),
-                    bonus_message=lambda: print("-Bingo replace bonus stage"),
-                )
-
-            else:
-                 attempt = BuildAttempt(Lnx_New, bvalue, bvalue, Before_New, After_New)
-                 Loadingbar(max_iter, len_iter, n, False)
-
-                 if OldCrc:
-    #                  with open("crc.plte","a+") as bd:
-    #                         save = "Data:%s Crc:%s"%(str(bvalue.hex()),str(checksum.hex()))
-    #                         bd.write(save+"\n")
-                      if ValidateAttempt(attempt):
-                          break
-                      continue
-
-                 else:
-                    if ValidateAttempt(attempt):
-                       break
-                    else:
-                       continue
-
-    ###realeta
-
-    ETA = (datetime.now() - Std).seconds
+    CRASH = ScanResult.crash
+    ETA = ScanResult.eta_seconds
+    if ScanResult.diff:
+        DIFF = ScanResult.diff
 
     return bruteforce_result.run_result(
         bruteforce_result.BruteForceResultRuntime(
@@ -1411,17 +1237,17 @@ def SmashBruteBrawl(
             side_notes=SideNotes,
         ),
         bruteforce_result.BruteForceResultContext(
-            state=BrawlState,
-            old_crc=OldCrc,
+            state=ScanResult.state,
+            old_crc=ScanResult.old_crc,
             file=File,
             chunk_name=ChunkName,
-            full_new_data_hex=fullnewdatax.hex(),
-            png_bytes_hex=wanabyte.hex(),
+            full_new_data_hex=ScanResult.full_new_data.hex(),
+            png_bytes_hex=ScanResult.png_bytes.hex(),
             data_offset=DataOffset,
             chunk_length=ChunkLength,
-            to_brute=ToBrute,
+            to_brute=ScanResult.to_brute,
             edit_mode=EditMode,
-            bf_mode=BfMode,
+            bf_mode=ScanResult.bf_mode,
             brute_crc=BruteCrc,
             brute_length=BruteLength,
             from_error=FromError,

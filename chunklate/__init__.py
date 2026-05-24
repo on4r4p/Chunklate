@@ -2,6 +2,7 @@
 
 from . import (
     bruteforce_result,
+    bruteforce_runtime,
     bruteforce_viewer,
     checkpoint,
     checkpoint_actions_runtime,
@@ -38,6 +39,7 @@ __all__ = [
     "PngChunk",
     "PngFormatError",
     "bruteforce_result",
+    "bruteforce_runtime",
     "bruteforce_viewer",
     "checkpoint",
     "checkpoint_actions_runtime",
