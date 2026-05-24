@@ -179,6 +179,26 @@ def test_name_shift_runtime_context_freezes_legacy_runtime_inputs():
     )
 
 
+def test_chunk_order_runtime_context_freezes_legacy_runtime_inputs():
+    chunks_history = [b"PNG", b"IHDR"]
+    unique_chunks = [b"PNG", b"IHDR"]
+
+    context = runtime_state.chunk_order_runtime_context(
+        "sample.png",
+        chunks_history,
+        unique_chunks,
+    )
+
+    chunks_history.append(b"IDAT")
+    unique_chunks.append(b"IEND")
+
+    assert context == runtime_state.ChunkOrderRuntimeContext(
+        sample_name="sample.png",
+        chunks_history=(b"PNG", b"IHDR"),
+        unique_chunks=(b"PNG", b"IHDR"),
+    )
+
+
 def main():
     checks = [
         ("scan reset values", test_main_loop_scan_reset_values_preserve_legacy_defaults),
@@ -193,6 +213,7 @@ def main():
         ("kitkat break decision", test_kitkat_break_decision_resets_only_true_flag),
         ("GroundhogDay relaunch args", test_groundhogday_relaunch_args_preserve_legacy_shape_without_mutating_input),
         ("NameShift runtime context", test_name_shift_runtime_context_freezes_legacy_runtime_inputs),
+        ("ChunkOrder runtime context", test_chunk_order_runtime_context_freezes_legacy_runtime_inputs),
     ]
 
     print("Running runtime state tests")

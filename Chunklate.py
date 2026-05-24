@@ -3168,6 +3168,11 @@ def CheckChunkOrder(lastchunk, mode):
     global SideNotes
 
     ToFix = []
+    ChunkOrderRuntimeContext = runtime_state.chunk_order_runtime_context(
+        Sample_Name,
+        Chunks_History,
+        UNIQUE_CHUNK,
+    )
 
     try:
         lastchunk = chunk_order.as_chunk_bytes(lastchunk)
@@ -3178,7 +3183,10 @@ def CheckChunkOrder(lastchunk, mode):
     if mode == "Critical":
 
         Candy("Title", "Critical Chunks Check :")
-        MissingCritical = chunk_order.missing_critical_chunks(Chunks_History, MINIMAL_CHUNKS)
+        MissingCritical = chunk_order.missing_critical_chunks(
+            ChunkOrderRuntimeContext.chunks_history,
+            MINIMAL_CHUNKS,
+        )
         for chnk in MissingCritical:
             PRINT(
                 chunk_order.critical_missing_print_line(
@@ -3203,17 +3211,24 @@ def CheckChunkOrder(lastchunk, mode):
         Candy("Title", "Missplaced Chunks Check:")
 
         Done = False
-        Chunk_Order_Context = chunk_order.build_chunk_order_context(Chunks_History, UNIQUE_CHUNK)
+        Chunk_Order_Context = chunk_order.build_chunk_order_context(
+            ChunkOrderRuntimeContext.chunks_history,
+            ChunkOrderRuntimeContext.unique_chunks,
+        )
         Used_Chunks = list(Chunk_Order_Context.used_chunks)
         Excluded = list(Chunk_Order_Context.excluded_chunks)
         #        PRINT(Excluded)
         Candy(
             "Cowsay",
-            chunk_order.seen_chunks_message(Sample_Name, Used_Chunks, "\n "),
+            chunk_order.seen_chunks_message(ChunkOrderRuntimeContext.sample_name, Used_Chunks, "\n "),
             "good",
         )
 
-        if chunk_order.legacy_flags_unique_chunk_as_multiple(lastchunk, Excluded, UNIQUE_CHUNK):
+        if chunk_order.legacy_flags_unique_chunk_as_multiple(
+            lastchunk,
+            Excluded,
+            ChunkOrderRuntimeContext.unique_chunks,
+        ):
             PRINT(
                 chunk_order.multiple_chunk_print_line(
                     Candy("Color", "red", chunk_order.decode_chunk_name(lastchunk)),
@@ -3222,7 +3237,7 @@ def CheckChunkOrder(lastchunk, mode):
             )
             ToFix.append(chunk_order.multiple_chunk_info())
 
-        if chunk_order.png_signature_is_misplaced(Chunks_History):
+        if chunk_order.png_signature_is_misplaced(ChunkOrderRuntimeContext.chunks_history):
             PRINT(
                 chunk_order.png_signature_misplaced_print_line(
                     Candy("Color", "red", "Before"),
@@ -3230,7 +3245,7 @@ def CheckChunkOrder(lastchunk, mode):
                 )
             )
             ToFix.append(chunk_order.missplaced_info())
-        if chunk_order.ihdr_is_misplaced(Chunks_History):
+        if chunk_order.ihdr_is_misplaced(ChunkOrderRuntimeContext.chunks_history):
             Done = chunk_order.ihdr_misplacement_already_recorded(PandoraBox)
 
             if Done is False:
@@ -3242,13 +3257,16 @@ def CheckChunkOrder(lastchunk, mode):
                 )
 
                 return CheckPoint(
-                    *chunk_order.ihdr_misplacement_checkpoint_args(Chunks_History)
+                    *chunk_order.ihdr_misplacement_checkpoint_args(ChunkOrderRuntimeContext.chunks_history)
                 )
 
             elif DEBUG is True:
                 PRINT(
                     "-Already Saved : Missplaced [%s]:Should be IHDR Instead At Chunk Number:%s"
-                    % (Chunks_History[-1], str(len(Chunks_History) - 1))
+                    % (
+                        ChunkOrderRuntimeContext.chunks_history[-1],
+                        str(len(ChunkOrderRuntimeContext.chunks_history) - 1),
+                    )
                 )
                 if PAUSEDEBUG is True:
                     Pause("Pause Debug")
@@ -3303,7 +3321,10 @@ def CheckChunkOrder(lastchunk, mode):
     if mode == "Fix":
 
         Candy("Title", "Checking Already Used Chunks :")
-        Header_Exclusions = chunk_order.only_ihdr_allowed_after_png_header(Chunks_History, CHUNKS)
+        Header_Exclusions = chunk_order.only_ihdr_allowed_after_png_header(
+            ChunkOrderRuntimeContext.chunks_history,
+            CHUNKS,
+        )
         if Header_Exclusions is not None:
 
             Candy(
@@ -3314,12 +3335,15 @@ def CheckChunkOrder(lastchunk, mode):
             Excluded = list(Header_Exclusions)
             return Excluded
 
-        Chunk_Order_Context = chunk_order.build_chunk_order_context(Chunks_History, UNIQUE_CHUNK)
+        Chunk_Order_Context = chunk_order.build_chunk_order_context(
+            ChunkOrderRuntimeContext.chunks_history,
+            ChunkOrderRuntimeContext.unique_chunks,
+        )
         Used_Chunks = list(Chunk_Order_Context.used_chunks)
         Excluded = list(Chunk_Order_Context.excluded_chunks)
         Candy(
             "Cowsay",
-            chunk_order.seen_chunks_message(Sample_Name, Used_Chunks),
+            chunk_order.seen_chunks_message(ChunkOrderRuntimeContext.sample_name, Used_Chunks),
             "good",
         )
 
@@ -3383,7 +3407,10 @@ def CheckChunkOrder(lastchunk, mode):
                     PRINT(Candy("Color", "yellow", chunk_order.todo_info()))
                     TheEnd()
 
-            elif chunk_order.may_have_missing_critical_palette(IHDR_Color, Chunks_History):
+            elif chunk_order.may_have_missing_critical_palette(
+                IHDR_Color,
+                ChunkOrderRuntimeContext.chunks_history,
+            ):
                 if Warning is False:
                     Warning = True
                     ToFix.append(chunk_order.missing_critical_palette_info())

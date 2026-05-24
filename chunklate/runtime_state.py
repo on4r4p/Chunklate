@@ -32,6 +32,13 @@ class NameShiftRuntimeContext:
     known_chunks: tuple[bytes, ...]
 
 
+@dataclass(frozen=True)
+class ChunkOrderRuntimeContext:
+    sample_name: str
+    chunks_history: tuple[bytes, ...]
+    unique_chunks: tuple[bytes, ...]
+
+
 def main_loop_scan_reset_values() -> dict[str, object]:
     return {
         "IBN": 0,
@@ -142,4 +149,16 @@ def name_shift_runtime_context(
         current_type_offset=current_type_offset,
         chunks_history_index=tuple(chunks_history_index),
         known_chunks=tuple(known_chunks),
+    )
+
+
+def chunk_order_runtime_context(
+    sample_name: str,
+    chunks_history: list[bytes],
+    unique_chunks: list[bytes],
+) -> ChunkOrderRuntimeContext:
+    return ChunkOrderRuntimeContext(
+        sample_name=sample_name,
+        chunks_history=tuple(chunks_history),
+        unique_chunks=tuple(unique_chunks),
     )
