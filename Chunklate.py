@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -2000,271 +2000,40 @@ def TheGoodPlace(Missplaced_Chunkname, Missplaced_Chunkpos, ToFix_Chunkname):
 
 def CheckChunkOrder(lastchunk, mode):
     global Warning
-    global SideNotes
+    def set_warning(value):
+        global Warning
+        Warning = value
 
-    ToFix = []
-    ChunkOrderRuntimeContext = runtime_state.chunk_order_runtime_context(
-        Sample_Name,
-        Chunks_History,
-        UNIQUE_CHUNK,
+    context = chunk_order_runtime.CheckChunkOrderContext(
+        chunk_order_context=runtime_state.chunk_order_runtime_context(
+            Sample_Name,
+            Chunks_History,
+            UNIQUE_CHUNK,
+        ),
+        minimal_chunks=tuple(MINIMAL_CHUNKS),
+        pandora_box=PandoraBox,
+        before_plte=tuple(BEFORE_PLTE),
+        before_idat2=tuple(BEFORE_IDAT2),
+        chunks=tuple(CHUNKS),
+        after_plte=tuple(AFTER_PLTE),
+        before_idat=tuple(BEFORE_IDAT),
+        ihdr_color=IHDR_Color,
+        no_order_chunks=tuple(NO_ORDER_CHUNKS),
+        debug=DEBUG,
+        pause_debug=PAUSEDEBUG,
     )
-
-    try:
-        lastchunk = chunk_order.as_chunk_bytes(lastchunk)
-    except AttributeError as e:
-        Betterror(e, inspect.stack()[0][3])
-        #      PRINT(Candy("Color","red","Error:"),Candy("Color","yellow",e))
-
-    if mode == "Critical":
-
-        Candy("Title", "Critical Chunks Check :")
-        MissingCritical = chunk_order.missing_critical_chunks(
-            ChunkOrderRuntimeContext.chunks_history,
-            MINIMAL_CHUNKS,
-        )
-        for chnk in MissingCritical:
-            PRINT(
-                chunk_order.critical_missing_print_line(
-                    chnk,
-                    Candy("Color", "red", "Missing"),
-                )
-            )
-        ToFix.extend(chunk_order.missing_critical_infos(MissingCritical))
-        if chunk_order.has_findings(ToFix):
-            CheckPoint(*chunk_order.critical_checkpoint_args(ToFix))
-            # TheEnd()
-        else:
-            PRINT(
-                chunk_order.errors_ok_print_line(
-                    Candy("Color", "green", " OK "),
-                    Candy("Emoj", "good"),
-                )
-            )
-        return
-
-    if mode == "TheGoodPlace":
-        Candy("Title", "Missplaced Chunks Check:")
-
-        Done = False
-        Chunk_Order_Context = chunk_order.build_chunk_order_context(
-            ChunkOrderRuntimeContext.chunks_history,
-            ChunkOrderRuntimeContext.unique_chunks,
-        )
-        Used_Chunks = list(Chunk_Order_Context.used_chunks)
-        Excluded = list(Chunk_Order_Context.excluded_chunks)
-        #        PRINT(Excluded)
-        Candy(
-            "Cowsay",
-            chunk_order.seen_chunks_message(ChunkOrderRuntimeContext.sample_name, Used_Chunks, "\n "),
-            "good",
-        )
-
-        if chunk_order.legacy_flags_unique_chunk_as_multiple(
-            lastchunk,
-            Excluded,
-            ChunkOrderRuntimeContext.unique_chunks,
-        ):
-            PRINT(
-                chunk_order.multiple_chunk_print_line(
-                    Candy("Color", "red", chunk_order.decode_chunk_name(lastchunk)),
-                    Candy("Color", "red", "cannot"),
-                )
-            )
-            ToFix.append(chunk_order.multiple_chunk_info())
-
-        if chunk_order.png_signature_is_misplaced(ChunkOrderRuntimeContext.chunks_history):
-            PRINT(
-                chunk_order.png_signature_misplaced_print_line(
-                    Candy("Color", "red", "Before"),
-                    Candy("Emoj", "bad"),
-                )
-            )
-            ToFix.append(chunk_order.missplaced_info())
-        if chunk_order.ihdr_is_misplaced(ChunkOrderRuntimeContext.chunks_history):
-            Done = chunk_order.ihdr_misplacement_already_recorded(PandoraBox)
-
-            if Done is False:
-                PRINT(
-                    chunk_order.ihdr_misplaced_print_line(
-                        Candy("Color", "red", "Before all the other chunks"),
-                        Candy("Emoj", "bad"),
-                    )
-                )
-
-                return CheckPoint(
-                    *chunk_order.ihdr_misplacement_checkpoint_args(ChunkOrderRuntimeContext.chunks_history)
-                )
-
-            elif DEBUG is True:
-                PRINT(
-                    "-Already Saved : Missplaced [%s]:Should be IHDR Instead At Chunk Number:%s"
-                    % (
-                        ChunkOrderRuntimeContext.chunks_history[-1],
-                        str(len(ChunkOrderRuntimeContext.chunks_history) - 1),
-                    )
-                )
-                if PAUSEDEBUG is True:
-                    Pause("Pause Debug")
-
-        if chunk_order.must_appear_before_plte(lastchunk, Used_Chunks, BEFORE_PLTE):
-            PRINT(
-                chunk_order.before_plte_print_line(
-                    Candy(
-                        "Color",
-                        "red",
-                        chunk_order.decode_chunk_name(lastchunk) + " is missplaced",
-                    ),
-                    chunk_order.decode_chunk_name(lastchunk),
-                    Candy("Emoj", "bad"),
-                )
-            )
-            # PRINT(Excluded)
-            ToFix.append(chunk_order.missplaced_before_plte_info(lastchunk))
-
-        if chunk_order.must_appear_before_idat(lastchunk, Used_Chunks, Excluded, BEFORE_IDAT2):
-            PRINT(
-                chunk_order.before_idat_print_line(
-                    Candy(
-                        "Color",
-                        "red",
-                        chunk_order.decode_chunk_name(lastchunk) + " is missplaced",
-                    ),
-                    chunk_order.decode_chunk_name(lastchunk),
-                    Candy("Emoj", "bad"),
-                )
-            )
-            # PRINT(Excluded)
-            ToFix.append(chunk_order.missplaced_info())
-
-        if chunk_order.has_findings(ToFix):
-            CheckPoint(*chunk_order.missplaced_checkpoint_args(ToFix))
-            PRINT(
-                chunk_order.missplaced_failed_print_line(
-                    Candy("Color", "red", " FAILED "),
-                    Candy("Emoj", "bad"),
-                )
-            )
-        else:
-            PRINT(
-                chunk_order.missplaced_ok_print_line(
-                    Candy("Color", "green", " OK "),
-                    Candy("Emoj", "good"),
-                )
-            )
-        return
-
-    if mode == "Fix":
-
-        Candy("Title", "Checking Already Used Chunks :")
-        Header_Exclusions = chunk_order.only_ihdr_allowed_after_png_header(
-            ChunkOrderRuntimeContext.chunks_history,
-            CHUNKS,
-        )
-        if Header_Exclusions is not None:
-
-            Candy(
-                "Cowsay",
-                chunk_order.only_ihdr_after_png_header_message(),
-                "com",
-            )
-            Excluded = list(Header_Exclusions)
-            return Excluded
-
-        Chunk_Order_Context = chunk_order.build_chunk_order_context(
-            ChunkOrderRuntimeContext.chunks_history,
-            ChunkOrderRuntimeContext.unique_chunks,
-        )
-        Used_Chunks = list(Chunk_Order_Context.used_chunks)
-        Excluded = list(Chunk_Order_Context.excluded_chunks)
-        Candy(
-            "Cowsay",
-            chunk_order.seen_chunks_message(ChunkOrderRuntimeContext.sample_name, Used_Chunks),
-            "good",
-        )
-
-        if not chunk_order.has_idat(Used_Chunks):
-
-            if chunk_order.must_stay_before_plte_without_ihdr(lastchunk, Used_Chunks, BEFORE_PLTE):
-                Excluded = list(chunk_order.extend_exclusions_not_in(Excluded, CHUNKS, BEFORE_PLTE))
-                Candy(
-                    "Cowsay",
-                    chunk_order.before_plte_forget_message(
-                        Candy("Color", "green", chunk_order.decode_chunk_name(lastchunk)),
-                        chunk_order.decode_chunk_names(Excluded),
-                    ),
-                    "bad",
-                )
-
-            if chunk_order.must_follow_plte(lastchunk, AFTER_PLTE):
-                Excluded = list(chunk_order.extend_exclusions_in(Excluded, CHUNKS, BEFORE_PLTE))
-                Candy(
-                    "Cowsay",
-                    chunk_order.after_plte_forget_message(
-                        lastchunk,
-                        chunk_order.decode_chunk_names(Excluded),
-                    ),
-                    "bad",
-                )
-
-            Excluded = list(chunk_order.add_iend_exclusion(Excluded))
-
-        elif chunk_order.has_idat(Used_Chunks):
-            Excluded = list(chunk_order.extend_exclusions_before_idat_after_idat(Excluded, CHUNKS, BEFORE_IDAT))
-
-#            print("Excluded:",Excluded)
-
-            if chunk_order.is_indexed_color(IHDR_Color):
-                print("excluded:\n",Excluded)
-                if not chunk_order.indexed_idat_previous_chunk_is_plte(Used_Chunks):
-                    (
-                        Indexed_Message,
-                        Plte_Message,
-                        Todo_Message,
-                    ) = chunk_order.indexed_idat_without_plte_messages()
-
-                    Candy(
-                        "Cowsay",
-                        Indexed_Message,
-                        "com",
-                    )
-
-                    Candy(
-                        "Cowsay",
-                        Plte_Message,
-                        "com",
-                    )
-
-                    Candy(
-                        "Cowsay",
-                        Todo_Message,
-                        "bad",
-                    )
-                    PRINT(Candy("Color", "yellow", chunk_order.todo_info()))
-                    TheEnd()
-
-            elif chunk_order.may_have_missing_critical_palette(
-                IHDR_Color,
-                ChunkOrderRuntimeContext.chunks_history,
-            ):
-                if Warning is False:
-                    Warning = True
-                    ToFix.append(chunk_order.missing_critical_palette_info())
-                    Candy(
-                        "Cowsay",
-                        chunk_order.missing_critical_palette_warning_message(
-                            Candy("Color", "red", "Critical Palette"),
-                            Candy("Color", "yellow", "Missing"),
-                        ),
-                        "com",
-                    )
-            if chunk_order.is_idat_chunk(lastchunk):
-                Candy(
-                    "Cowsay",
-                    chunk_order.idat_next_candidates_message(NO_ORDER_CHUNKS),
-                    "com",
-                )
-
-        return Excluded
+    runtime = chunk_order_runtime.CheckChunkOrderRuntime(
+        candy=Candy,
+        emit=PRINT,
+        checkpoint=CheckPoint,
+        pause=Pause,
+        end=TheEnd,
+        betterror=Betterror,
+        get_warning=lambda: Warning,
+        set_warning=set_warning,
+        raw_print=print,
+    )
+    return chunk_order_runtime.run_check_chunk_order(runtime, context, lastchunk, mode)
 
 
 
