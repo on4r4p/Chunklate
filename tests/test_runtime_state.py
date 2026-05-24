@@ -227,6 +227,103 @@ def test_relics_debug_runtime_context_freezes_history_and_keeps_error_stores():
     )
 
 
+def test_relics_runtime_context_freezes_lists_and_computes_old_crc():
+    pandemonium = {"sample.png": {}}
+    pandora_box = {"Error": {}}
+    cornucopia = {"Tool": {}}
+    side_notes = []
+    all_chunks = [b"IHDR", b"IDAT"]
+    critical_chunks = [b"IHDR"]
+    chunks_history = [b"PNG", b"IHDR"]
+    chunks_history_index = ["0:0:16:8"]
+
+    context = runtime_state.relics_runtime_context(
+        from_error="Relics",
+        pandemonium=pandemonium,
+        pandora_box=pandora_box,
+        cornucopia=cornucopia,
+        side_notes=side_notes,
+        all_chunks=all_chunks,
+        critical_chunks=critical_chunks,
+        chunks_history=chunks_history,
+        chunks_history_index=chunks_history_index,
+        file_origin="origin.png",
+        sample="sample.png",
+        sample_name="sample.png",
+        data_hex="00112233445566778899",
+        crc_offset=4,
+        bad_crc=True,
+        skip_bad_current_name=False,
+        skip_bad_infos=True,
+        skip_bad_critical=False,
+        skip_bad_crc=True,
+        chunks_len_not_fixed={b"IDAT"},
+        debug=True,
+        pause_debug=False,
+        pause_error=True,
+    )
+
+    all_chunks.append(b"IEND")
+    critical_chunks.append(b"IEND")
+    chunks_history.append(b"IDAT")
+    chunks_history_index.append("1:16:24:0")
+
+    assert context == runtime_state.RelicsRuntimeContext(
+        from_error="Relics",
+        pandemonium=pandemonium,
+        pandora_box=pandora_box,
+        cornucopia=cornucopia,
+        side_notes=side_notes,
+        all_chunks=(b"IHDR", b"IDAT"),
+        critical_chunks=(b"IHDR",),
+        chunks_history=(b"PNG", b"IHDR"),
+        chunks_history_index=("0:0:16:8",),
+        file_origin="origin.png",
+        sample="sample.png",
+        sample_name="sample.png",
+        bad_crc=True,
+        old_crc="22334455",
+        skip_bad_current_name=False,
+        skip_bad_infos=True,
+        skip_bad_critical=False,
+        skip_bad_crc=True,
+        chunks_len_not_fixed={b"IDAT"},
+        debug=True,
+        pause_debug=False,
+        pause_error=True,
+    )
+
+
+def test_relics_runtime_context_omits_old_crc_without_bad_crc():
+    context = runtime_state.relics_runtime_context(
+        from_error="Relics",
+        pandemonium={},
+        pandora_box={},
+        cornucopia={},
+        side_notes=[],
+        all_chunks=[],
+        critical_chunks=[],
+        chunks_history=[],
+        chunks_history_index=[],
+        file_origin="origin.png",
+        sample="sample.png",
+        sample_name="sample.png",
+        data_hex="00112233445566778899",
+        crc_offset=4,
+        bad_crc=False,
+        skip_bad_current_name=False,
+        skip_bad_infos=False,
+        skip_bad_critical=False,
+        skip_bad_crc=False,
+        chunks_len_not_fixed=(),
+        debug=False,
+        pause_debug=False,
+        pause_error=False,
+    )
+
+    assert context.old_crc is None
+
+
 def main():
     checks = [
         ("scan reset values", test_main_loop_scan_reset_values_preserve_legacy_defaults),
@@ -243,6 +340,8 @@ def main():
         ("NameShift runtime context", test_name_shift_runtime_context_freezes_legacy_runtime_inputs),
         ("ChunkOrder runtime context", test_chunk_order_runtime_context_freezes_legacy_runtime_inputs),
         ("Relics debug runtime context", test_relics_debug_runtime_context_freezes_history_and_keeps_error_stores),
+        ("Relics runtime context", test_relics_runtime_context_freezes_lists_and_computes_old_crc),
+        ("Relics runtime context without CRC", test_relics_runtime_context_omits_old_crc_without_bad_crc),
     ]
 
     print("Running runtime state tests")

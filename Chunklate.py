@@ -4243,13 +4243,38 @@ def Relics(FromError):
     Candy("Title", "Opening the Ark Of The Covenant :")
 
     RelicsRuntime = Relics_Runtime()
-    RelicsDebugContext = runtime_state.relics_debug_runtime_context(
-        debug=DEBUG,
+    RelicsContext = runtime_state.relics_runtime_context(
+        from_error=FromError,
         pandemonium=Pandemonium,
         pandora_box=PandoraBox,
+        cornucopia=Cornucopia,
+        side_notes=SideNotes,
+        all_chunks=ALLCHUNKS,
+        critical_chunks=CRITICAL_CHUNKS,
         chunks_history=Chunks_History,
         chunks_history_index=Chunks_History_Index,
+        file_origin=FILE_Origin,
+        sample=Sample,
+        sample_name=Sample_Name,
+        data_hex=DATAX,
+        crc_offset=CrcoffI,
+        bad_crc=Bad_Crc,
+        skip_bad_current_name=Skip_Bad_Current_Name,
+        skip_bad_infos=Skip_Bad_Infos,
+        skip_bad_critical=Skip_Bad_Critical,
+        skip_bad_crc=Skip_Bad_Crc,
+        chunks_len_not_fixed=CHUNKS_LEN_NOT_FIXED,
+        debug=DEBUG,
         pause_debug=PAUSEDEBUG,
+        pause_error=PAUSEERROR,
+    )
+    RelicsDebugContext = runtime_state.relics_debug_runtime_context(
+        debug=RelicsContext.debug,
+        pandemonium=RelicsContext.pandemonium,
+        pandora_box=RelicsContext.pandora_box,
+        chunks_history=RelicsContext.chunks_history,
+        chunks_history_index=RelicsContext.chunks_history_index,
+        pause_debug=RelicsContext.pause_debug,
     )
     relics_ui.emit_debug_state(
         debug=RelicsDebugContext.debug,
@@ -4262,25 +4287,25 @@ def Relics(FromError):
         pause=Pause,
     )
 
-    if len(Pandemonium) >= 1:
+    if len(RelicsContext.pandemonium) >= 1:
         relics_ui.emit_pandemonium_summary(
-            relics.pandemonium_summary(Pandemonium),
+            relics.pandemonium_summary(RelicsContext.pandemonium),
             emit=PRINT,
             candy=Candy,
         )
 
         ##Find a more efficient way to sort error by severity and behave procedurally
         ##tmp workaround
-        for PolicyStep in relics.pandemonium_policy_steps(len(Pandemonium)):
+        for PolicyStep in relics.pandemonium_policy_steps(len(RelicsContext.pandemonium)):
             if PolicyStep.action == "current_wrong_crc":
                 should_return, result = relics_runtime.handle_current_wrong_crc_flow(
                     RelicsRuntime,
                     relics,
                     relics_ui,
                     relics.current_wrong_crc_prompt_contexts(
-                        PandoraBox,
-                        Cornucopia,
-                        ALLCHUNKS,
+                        RelicsContext.pandora_box,
+                        RelicsContext.cornucopia,
+                        RelicsContext.all_chunks,
                     ),
                     ask=Question,
                     emit=PRINT,
@@ -4294,34 +4319,34 @@ def Relics(FromError):
                     RelicsRuntime,
                     relics_ui,
                     relics.remembered_idat_wrong_crc_brawl_requests(
-                        Pandemonium,
-                        ALLCHUNKS,
-                        target_file=FILE_Origin,
-                        from_error=FromError,
+                        RelicsContext.pandemonium,
+                        RelicsContext.all_chunks,
+                        target_file=RelicsContext.file_origin,
+                        from_error=RelicsContext.from_error,
                     ),
                     candy=Candy,
                 )
 
             elif PolicyStep.action == "plte":
                 PlteFinding = relics.first_current_plte_repair_finding(
-                    PandoraBox,
-                    Cornucopia,
-                    skip_bad_current_name=Skip_Bad_Current_Name,
-                    skip_bad_infos=Skip_Bad_Infos,
-                    skip_bad_critical=Skip_Bad_Critical,
+                    RelicsContext.pandora_box,
+                    RelicsContext.cornucopia,
+                    skip_bad_current_name=RelicsContext.skip_bad_current_name,
+                    skip_bad_infos=RelicsContext.skip_bad_infos,
+                    skip_bad_critical=RelicsContext.skip_bad_critical,
                 )
                 if PlteFinding is not None:
                     should_return, result = relics_runtime.handle_plte_repair_flow(
                         RelicsRuntime,
                         relics,
                         relics_ui,
-                        has_bad_crc=Bad_Crc,
-                        chunks_history=Chunks_History,
-                        chunks_history_index=Chunks_History_Index,
-                        target_file=Sample_Name,
-                        old_crc=DATAX[CrcoffI:CrcoffI+8] if Bad_Crc else None,
+                        has_bad_crc=RelicsContext.bad_crc,
+                        chunks_history=RelicsContext.chunks_history,
+                        chunks_history_index=RelicsContext.chunks_history_index,
+                        target_file=RelicsContext.sample_name,
+                        old_crc=RelicsContext.old_crc,
                         ask_fallback=Question,
-                        add_side_note=SideNotes.append,
+                        add_side_note=RelicsContext.side_notes.append,
                         the_end=TheEnd,
                         candy=Candy,
                     )
@@ -4333,15 +4358,15 @@ def Relics(FromError):
                     RelicsRuntime,
                     relics_ui,
                     relics.single_pandemonium_decisions(
-                        Pandemonium,
-                        known_chunks=ALLCHUNKS,
-                        file_origin=FILE_Origin,
-                        current_sample=Sample,
-                        from_error=FromError,
+                        RelicsContext.pandemonium,
+                        known_chunks=RelicsContext.all_chunks,
+                        file_origin=RelicsContext.file_origin,
+                        current_sample=RelicsContext.sample,
+                        from_error=RelicsContext.from_error,
                     ),
-                    debug=DEBUG,
-                    pause_debug=PAUSEDEBUG,
-                    pause_error=PAUSEERROR,
+                    debug=RelicsContext.debug,
+                    pause_debug=RelicsContext.pause_debug,
+                    pause_error=RelicsContext.pause_error,
                     pause=Pause,
                     the_end=TheEnd,
                     candy=Candy,
@@ -4353,11 +4378,11 @@ def Relics(FromError):
                     relics,
                     relics_ui,
                     relics.first_remembered_dummy_chunk_repair_request(
-                        Pandemonium,
-                        ALLCHUNKS,
-                        CRITICAL_CHUNKS,
+                        RelicsContext.pandemonium,
+                        RelicsContext.all_chunks,
+                        RelicsContext.critical_chunks,
                     ),
-                    from_error=FromError,
+                    from_error=RelicsContext.from_error,
                     ask=Question,
                     show_todo=lambda: relics_ui.emit_todo(emit=PRINT, candy=Candy),
                     the_end=TheEnd,
@@ -4368,11 +4393,15 @@ def Relics(FromError):
 
     RelicsPolicy = None
     PromptContext = None
-    if len(PandoraBox) > 0:
-        RelicsPolicy = relics.no_pandemonium_policy(PandoraBox, CRITICAL_CHUNKS, ALLCHUNKS)
+    if len(RelicsContext.pandora_box) > 0:
+        RelicsPolicy = relics.no_pandemonium_policy(
+            RelicsContext.pandora_box,
+            RelicsContext.critical_chunks,
+            RelicsContext.all_chunks,
+        )
         PromptContext = relics.no_pandemonium_prompt_context(
             RelicsPolicy,
-            PandoraBox,
+            RelicsContext.pandora_box,
         )
 
     return relics_runtime.handle_no_pandemonium_flow(
@@ -4381,12 +4410,12 @@ def Relics(FromError):
         relics_ui,
         policy=RelicsPolicy,
         prompt_context=PromptContext,
-        chunks_history=Chunks_History,
-        chunks_history_index=Chunks_History_Index,
-        target_file=Sample_Name,
-        from_error=FromError,
-        chunks_len_not_fixed=CHUNKS_LEN_NOT_FIXED,
-        skip_bad_crc=Skip_Bad_Crc,
+        chunks_history=RelicsContext.chunks_history,
+        chunks_history_index=RelicsContext.chunks_history_index,
+        target_file=RelicsContext.sample_name,
+        from_error=RelicsContext.from_error,
+        chunks_len_not_fixed=RelicsContext.chunks_len_not_fixed,
+        skip_bad_crc=RelicsContext.skip_bad_crc,
         ask=Question,
         emit=PRINT,
         candy=Candy,

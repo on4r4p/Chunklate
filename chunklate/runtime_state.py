@@ -49,6 +49,32 @@ class RelicsDebugRuntimeContext:
     pause_debug: bool
 
 
+@dataclass(frozen=True)
+class RelicsRuntimeContext:
+    from_error: Any
+    pandemonium: Any
+    pandora_box: Any
+    cornucopia: Any
+    side_notes: Any
+    all_chunks: tuple[bytes, ...]
+    critical_chunks: tuple[bytes, ...]
+    chunks_history: tuple[bytes, ...]
+    chunks_history_index: tuple[str, ...]
+    file_origin: Any
+    sample: Any
+    sample_name: Any
+    bad_crc: bool
+    old_crc: Any
+    skip_bad_current_name: bool
+    skip_bad_infos: bool
+    skip_bad_critical: bool
+    skip_bad_crc: bool
+    chunks_len_not_fixed: Any
+    debug: bool
+    pause_debug: bool
+    pause_error: bool
+
+
 def main_loop_scan_reset_values() -> dict[str, object]:
     return {
         "IBN": 0,
@@ -190,4 +216,56 @@ def relics_debug_runtime_context(
         chunks_history=tuple(chunks_history),
         chunks_history_index=tuple(chunks_history_index),
         pause_debug=pause_debug,
+    )
+
+
+def relics_runtime_context(
+    *,
+    from_error: Any,
+    pandemonium: Any,
+    pandora_box: Any,
+    cornucopia: Any,
+    side_notes: Any,
+    all_chunks: list[bytes],
+    critical_chunks: list[bytes],
+    chunks_history: list[bytes],
+    chunks_history_index: list[str],
+    file_origin: Any,
+    sample: Any,
+    sample_name: Any,
+    data_hex: str,
+    crc_offset: int,
+    bad_crc: bool,
+    skip_bad_current_name: bool,
+    skip_bad_infos: bool,
+    skip_bad_critical: bool,
+    skip_bad_crc: bool,
+    chunks_len_not_fixed: Any,
+    debug: bool,
+    pause_debug: bool,
+    pause_error: bool,
+) -> RelicsRuntimeContext:
+    return RelicsRuntimeContext(
+        from_error=from_error,
+        pandemonium=pandemonium,
+        pandora_box=pandora_box,
+        cornucopia=cornucopia,
+        side_notes=side_notes,
+        all_chunks=tuple(all_chunks),
+        critical_chunks=tuple(critical_chunks),
+        chunks_history=tuple(chunks_history),
+        chunks_history_index=tuple(chunks_history_index),
+        file_origin=file_origin,
+        sample=sample,
+        sample_name=sample_name,
+        bad_crc=bad_crc,
+        old_crc=data_hex[crc_offset:crc_offset + 8] if bad_crc else None,
+        skip_bad_current_name=skip_bad_current_name,
+        skip_bad_infos=skip_bad_infos,
+        skip_bad_critical=skip_bad_critical,
+        skip_bad_crc=skip_bad_crc,
+        chunks_len_not_fixed=chunks_len_not_fixed,
+        debug=debug,
+        pause_debug=pause_debug,
+        pause_error=pause_error,
     )
