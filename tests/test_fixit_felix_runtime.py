@@ -322,6 +322,189 @@ def test_apply_wrong_crc_rejects_unknown_action():
         raise AssertionError("Expected ValueError for unknown wrong-CRC action")
 
 
+def wrong_chunk_name_tools():
+    return SimpleNamespace(
+        chunk_type=b"zzzz",
+        chunk_length="13",
+        chunk_type_offset=128,
+        previous_chunk=b"IHDR",
+    )
+
+
+def wrong_chunk_name_runtime(
+    calls,
+    *,
+    answers=(),
+    bad_ancillary=False,
+    pandora_box=None,
+    cornucopia=None,
+):
+    answer_iter = iter(answers)
+
+    def record(name, result=None):
+        def callback(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return result
+
+        return callback
+
+    def question(*args, **kwargs):
+        calls.append(("question", args, kwargs))
+        return next(answer_iter)
+
+    return fixit_felix_runtime.WrongChunkNameRuntime(
+        emit=record("emit"),
+        candy=record("candy"),
+        question=question,
+        ancillary=record("ancillary"),
+        nearby_chunk=record("nearby_chunk", "nearby-result"),
+        brute_chunk=record("brute_chunk", "brute-result"),
+        save_clone=record("save_clone", "saved"),
+        set_skip_bad_next_name=record("set_skip_bad_next_name"),
+        set_skip_bad_current_name=record("set_skip_bad_current_name"),
+        bad_ancillary=lambda: bad_ancillary,
+        pandora_box=pandora_box if pandora_box is not None else {},
+        cornucopia=cornucopia if cornucopia is not None else {},
+    )
+
+
+def test_apply_wrong_chunk_name_length_probe_accepts_nearby_chunk():
+    calls = []
+    finding = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42 and length is not the same than before."
+    chkd = "zzzz_Tool_"
+    runtime = wrong_chunk_name_runtime(
+        calls,
+        answers=(True,),
+        bad_ancillary=True,
+        pandora_box={finding: {chkd + "0": b"zzzz"}},
+    )
+
+    result = fixit_felix_runtime.apply_wrong_chunk_name(
+        runtime,
+        fixit_felix.WrongChunkNameDecision("ask_length_probe", finding, True),
+        chkd,
+        wrong_chunk_name_tools(),
+    )
+
+    assert result == (True, "nearby-result")
+    assert ("ancillary", (b"zzzz",), {}) in calls
+    assert calls[-1] == (
+        "nearby_chunk",
+        (b"zzzz", "13", 128, False, finding),
+        {},
+    )
+
+
+def test_apply_wrong_chunk_name_length_probe_decline_then_bruteforce_decline_sets_skips():
+    calls = []
+    finding = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42 and length is not the same than before."
+    chkd = "zzzz_Tool_"
+    runtime = wrong_chunk_name_runtime(
+        calls,
+        answers=(False, False),
+        pandora_box={finding: {chkd + "0": b"zzzz"}},
+    )
+
+    result = fixit_felix_runtime.apply_wrong_chunk_name(
+        runtime,
+        fixit_felix.WrongChunkNameDecision("ask_length_probe", finding, True),
+        chkd,
+        wrong_chunk_name_tools(),
+    )
+
+    assert result == (False, None)
+    assert ("set_skip_bad_next_name", (True,), {}) in calls
+    assert calls[-1] == ("set_skip_bad_current_name", (True,), {})
+
+
+def test_apply_wrong_chunk_name_bruteforce_accepts_brute_chunk():
+    calls = []
+    finding = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"
+    chkd = "zzzz_Tool_"
+    runtime = wrong_chunk_name_runtime(
+        calls,
+        answers=(True,),
+        pandora_box={finding: {chkd + "0": b"zzzz"}},
+    )
+
+    result = fixit_felix_runtime.apply_wrong_chunk_name(
+        runtime,
+        fixit_felix.WrongChunkNameDecision("ask_bruteforce", finding, True),
+        chkd,
+        wrong_chunk_name_tools(),
+    )
+
+    assert result == (True, "brute-result")
+    assert calls[-1] == (
+        "brute_chunk",
+        (b"zzzz", b"IHDR", "13", finding),
+        {},
+    )
+
+
+def test_apply_wrong_chunk_name_saves_existing_solution():
+    calls = []
+    finding = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"
+    chkd = "zzzz_Tool_"
+    runtime = wrong_chunk_name_runtime(
+        calls,
+        cornucopia={
+            finding: {
+                chkd + "0": "fixed-data",
+                chkd + "1": 12,
+                chkd + "2": 20,
+                chkd + "3": "legacy note",
+                chkd + "4": "solved label",
+            }
+        },
+    )
+
+    result = fixit_felix_runtime.apply_wrong_chunk_name(
+        runtime,
+        fixit_felix.WrongChunkNameDecision("save_existing_solution", finding, True),
+        chkd,
+        None,
+    )
+
+    assert result == (True, "saved")
+    assert calls == [
+        ("emit", ("\n-\033[1;32;49mSolved\033[m: solved label",), {}),
+        ("save_clone", ("fixed-data", 12, 20, "legacy note"), {}),
+    ]
+
+
+def test_apply_wrong_chunk_name_rejects_missing_tools_for_action():
+    runtime = wrong_chunk_name_runtime([])
+
+    try:
+        fixit_felix_runtime.apply_wrong_chunk_name(
+            runtime,
+            fixit_felix.WrongChunkNameDecision("ask_bruteforce", "finding", True),
+            "zzzz_Tool_",
+            None,
+        )
+    except ValueError as exc:
+        assert str(exc) == "FixItFelix wrong-chunk-name action needs chunk tools: ask_bruteforce"
+    else:
+        raise AssertionError("Expected ValueError for missing wrong-chunk-name tools")
+
+
+def test_apply_wrong_chunk_name_rejects_unknown_action():
+    runtime = wrong_chunk_name_runtime([])
+
+    try:
+        fixit_felix_runtime.apply_wrong_chunk_name(
+            runtime,
+            SimpleNamespace(action="unknown", finding="finding", bad_crc=True),
+            "zzzz_Tool_",
+            wrong_chunk_name_tools(),
+        )
+    except ValueError as exc:
+        assert str(exc) == "Unknown FixItFelix wrong-chunk-name action: unknown"
+    else:
+        raise AssertionError("Expected ValueError for unknown wrong-chunk-name action")
+
+
 def libpng_runtime(
     calls,
     *,
@@ -596,6 +779,21 @@ def main():
         ),
         ("Apply wrong CRC rejects missing tools", test_apply_wrong_crc_rejects_missing_tools_for_action),
         ("Apply wrong CRC rejects unknown action", test_apply_wrong_crc_rejects_unknown_action),
+        (
+            "Apply wrong chunk name length probe accepts",
+            test_apply_wrong_chunk_name_length_probe_accepts_nearby_chunk,
+        ),
+        (
+            "Apply wrong chunk name length probe declines",
+            test_apply_wrong_chunk_name_length_probe_decline_then_bruteforce_decline_sets_skips,
+        ),
+        ("Apply wrong chunk name bruteforce accepts", test_apply_wrong_chunk_name_bruteforce_accepts_brute_chunk),
+        ("Apply wrong chunk name saves existing", test_apply_wrong_chunk_name_saves_existing_solution),
+        (
+            "Apply wrong chunk name rejects missing tools",
+            test_apply_wrong_chunk_name_rejects_missing_tools_for_action,
+        ),
+        ("Apply wrong chunk name rejects unknown action", test_apply_wrong_chunk_name_rejects_unknown_action),
         ("Apply libpng saves existing solution", test_apply_libpng_error_saves_existing_solution),
         ("Apply libpng accepts Relics prompt", test_apply_libpng_error_accepts_relics_prompt_and_sets_skip),
         ("Apply libpng declines Relics prompt", test_apply_libpng_error_declines_relics_prompt_and_ends),

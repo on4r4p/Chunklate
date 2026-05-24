@@ -56,6 +56,22 @@ class WrongCrcRuntime:
 
 
 @dataclass(frozen=True)
+class WrongChunkNameRuntime:
+    emit: Callable[[str], Any]
+    candy: Callable[..., Any]
+    question: Callable[..., Any]
+    ancillary: Callable[[Any], Any]
+    nearby_chunk: Callable[[Any, Any, Any, Any, Any], Any]
+    brute_chunk: Callable[[Any, Any, Any, Any], Any]
+    save_clone: Callable[[Any, Any, Any, Any], Any]
+    set_skip_bad_next_name: Callable[[bool], Any]
+    set_skip_bad_current_name: Callable[[bool], Any]
+    bad_ancillary: Callable[[], bool]
+    pandora_box: Any
+    cornucopia: Any
+
+
+@dataclass(frozen=True)
 class LibpngErrorRuntime:
     emit: Callable[[str], Any]
     candy: Callable[..., Any]
@@ -194,6 +210,145 @@ def apply_wrong_crc(
         return final_wrong_crc_question(runtime, decision.finding, chkd, tools)
 
     raise ValueError("Unknown FixItFelix wrong-CRC action: %s" % decision.action)
+
+
+def emit_wrong_chunk_name_critical(runtime: WrongChunkNameRuntime, finding: Any) -> None:
+    runtime.emit("\n-\033[1;31;49mCriticalHit\033[m: %s" % finding)
+
+
+def describe_wrong_chunk_name(
+    runtime: WrongChunkNameRuntime,
+    decision: fixit_felix.WrongChunkNameDecision,
+) -> None:
+    if runtime.bad_ancillary() is True:
+        runtime.candy(
+            "Cowsay",
+            "I don't know that chunk but it has passed Ancillary nomenclature check ..",
+            "com",
+        )
+        if decision.bad_crc is True:
+            runtime.candy(
+                "Cowsay",
+                "But since Crc is not valid there is more chances that this Chunkname is corrupt.",
+                "bad",
+            )
+        else:
+            runtime.candy(
+                "Cowsay",
+                "and since Crc is valid too this may be a legit private chunk..",
+                "com",
+            )
+    else:
+        runtime.candy(
+            "Cowsay",
+            "I don't know that chunk and it has failed Ancillary nomenclature check ..",
+            "bad",
+        )
+        if decision.bad_crc is True:
+            runtime.candy(
+                "Cowsay",
+                "And since Crc is wrong this definitely looks like a corrupted Chunkname .",
+                "bad",
+            )
+        else:
+            runtime.candy(
+                "Cowsay",
+                "But the CRC is still Valid !!! Usually this means that it has been made on purpose by someone...",
+                "bad",
+            )
+            runtime.candy(
+                "Cowsay",
+                "Or....SOMEHTING !!",
+                "com",
+            )
+
+
+def ask_wrong_chunk_name_bruteforce(
+    runtime: WrongChunkNameRuntime,
+    decision: fixit_felix.WrongChunkNameDecision,
+    chkd: str,
+    tools: relics.WrongChunkNameTools,
+) -> tuple[bool, Any]:
+    if decision.bad_crc is False:
+        runtime.candy(
+            "Cowsay",
+            "Do you want me to try to fix this regardless of CRC's validity ?",
+            "com",
+        )
+    else:
+        runtime.candy(
+            "Cowsay",
+            "How about im taking care of the rest ?",
+            "com",
+        )
+    uniqh = relics.question_hash(runtime.pandora_box, decision.finding, chkd)
+    answer = runtime.question(id=decision.finding, idhash=uniqh)
+    if answer is True:
+        return True, runtime.brute_chunk(
+            tools.chunk_type,
+            tools.previous_chunk,
+            tools.chunk_length,
+            str(decision.finding),
+        )
+
+    runtime.set_skip_bad_current_name(True)
+    return False, None
+
+
+def apply_wrong_chunk_name(
+    runtime: WrongChunkNameRuntime,
+    decision: fixit_felix.WrongChunkNameDecision,
+    chkd: str,
+    tools: relics.WrongChunkNameTools | None,
+) -> tuple[bool, Any]:
+    if decision.action == "save_existing_solution":
+        runtime.emit(
+            "\n-\033[1;32;49mSolved\033[m: %s"
+            % relics.tool_value(runtime.cornucopia[decision.finding], chkd, 4)
+        )
+        return True, runtime.save_clone(
+            relics.tool_value(runtime.cornucopia[decision.finding], chkd, 0),
+            relics.tool_value(runtime.cornucopia[decision.finding], chkd, 1),
+            relics.tool_value(runtime.cornucopia[decision.finding], chkd, 2),
+            relics.tool_value(runtime.cornucopia[decision.finding], chkd, 3),
+        )
+
+    if tools is None:
+        raise ValueError("FixItFelix wrong-chunk-name action needs chunk tools: %s" % decision.action)
+
+    emit_wrong_chunk_name_critical(runtime, decision.finding)
+    runtime.ancillary(tools.chunk_type)
+    describe_wrong_chunk_name(runtime, decision)
+
+    if decision.action == "ask_length_probe":
+        runtime.candy(
+            "Cowsay",
+            "By the way IDAT chunk's length is different from the one usually used for some reason..",
+            "com",
+        )
+        runtime.candy(
+            "Cowsay",
+            "May i suggest to start by checking if this a length problem ?",
+            "good",
+        )
+        uniqh = relics.question_hash(runtime.pandora_box, decision.finding, chkd)
+        answer = runtime.question(id=decision.finding, idhash=uniqh)
+        if answer is True:
+            return True, runtime.nearby_chunk(
+                tools.chunk_type,
+                tools.chunk_length,
+                tools.chunk_type_offset,
+                False,
+                decision.finding,
+            )
+
+        runtime.set_skip_bad_next_name(True)
+        return ask_wrong_chunk_name_bruteforce(runtime, decision, chkd, tools)
+
+    if decision.action == "ask_bruteforce":
+        return ask_wrong_chunk_name_bruteforce(runtime, decision, chkd, tools)
+
+    raise ValueError("Unknown FixItFelix wrong-chunk-name action: %s" % decision.action)
 
 
 def apply_libpng_error(
