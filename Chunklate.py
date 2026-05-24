@@ -3417,12 +3417,30 @@ def NameShift():
             PRINT("With those index: %s"% i)
         if PAUSEDEBUG is True:
             Pause("-Debug Pause Press Return to continue:")
-    ShiftCandidate = name_shift.find_shifted_chunk_name(DATAX, CToffI, ALLCHUNKS)
+    NameShiftContext = runtime_state.name_shift_runtime_context(
+        DATAX,
+        CToffI,
+        Chunks_History_Index,
+        ALLCHUNKS,
+    )
+    ShiftCandidate = name_shift.find_shifted_chunk_name(
+        NameShiftContext.data_hex,
+        NameShiftContext.current_type_offset,
+        NameShiftContext.known_chunks,
+    )
     if ShiftCandidate is not None:
          i = ShiftCandidate.search_index
          ioff = ShiftCandidate.type_offset
          value = ShiftCandidate.chunk_name
-         PRINT(name_shift.current_chunk_value_line(CToffI, name_shift.current_chunk_value(DATAX, CToffI)))
+         PRINT(
+             name_shift.current_chunk_value_line(
+                 NameShiftContext.current_type_offset,
+                 name_shift.current_chunk_value(
+                     NameShiftContext.data_hex,
+                     NameShiftContext.current_type_offset,
+                 ),
+             )
+         )
          SideNotes.append(name_shift.found_chunk_note(i, ioff, value))
          if ShiftCandidate.is_before:
              good_offset = ShiftCandidate.good_offset
@@ -3435,7 +3453,7 @@ def NameShift():
 
         Candy("Cowsay", "Mokay ..Maybe some bytes are missing somewhere ..", "com")
 
-        lenioff = DATAX[ioff-8:ioff]
+        lenioff = NameShiftContext.data_hex[ioff-8:ioff]
         reallen = SpecLength(value, lenioff)
 
         if name_shift.length_part_is_corrupted(lenioff, reallen):
@@ -3443,7 +3461,7 @@ def NameShift():
              Candy("Cowsay", "I knew there was something odd..", "bad")
 #             Candy("Cowsay", "The good news is we wont have to bruteforce all the previous chunk...", "com")
              Candy("Cowsay", "That error seems to come from the length part .", "good")
-             CrcView = name_shift.shifted_chunk_crc_view(DATAX, ioff, value, reallen)
+             CrcView = name_shift.shifted_chunk_crc_view(NameShiftContext.data_hex, ioff, value, reallen)
              Crc = CrcView.file_crc
              checksum = CrcView.checksum
              if DEBUG:
@@ -3464,8 +3482,8 @@ def NameShift():
 
                  if ioff > CToffI:
                       LastChunkBeforeOffset = name_shift.last_history_chunk_before_offset(
-                          Chunks_History_Index,
-                          CToffI,
+                          NameShiftContext.chunks_history_index,
+                          NameShiftContext.current_type_offset,
                       )
 
                       if LastChunkBeforeOffset is not None:
@@ -3482,7 +3500,11 @@ def NameShift():
 #                             print(name_shift.extra_bytes_expected_offset(LastChunkBeforeOffset.end, good_offset))
                              SideNotes.append(name_shift.extra_bytes_found_note())
                              Candy("Cowsay", "Found some extra bytes for some reason.. let's fix this now .", "good")
-                             return name_shift.extra_bytes_repair_result(fixed, good_offset, CToffI)
+                             return name_shift.extra_bytes_repair_result(
+                                 fixed,
+                                 good_offset,
+                                 NameShiftContext.current_type_offset,
+                             )
                           else:
                              print("bad")
                              print(name_shift.extra_bytes_expected_offset(LastChunkBeforeOffset.end, good_offset))
@@ -3491,7 +3513,11 @@ def NameShift():
                  else:
                      Candy("Cowsay", "So there was some missing bytes after all let's fix this now .", "good")
                      SideNotes.append(name_shift.missing_bytes_found_note())
-                     return name_shift.missing_bytes_repair_result(fixed, good_offset, CToffI)
+                     return name_shift.missing_bytes_repair_result(
+                         fixed,
+                         good_offset,
+                         NameShiftContext.current_type_offset,
+                     )
 
              else:
                 PRINT(

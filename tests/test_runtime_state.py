@@ -157,6 +157,28 @@ def test_groundhogday_relaunch_args_preserve_legacy_shape_without_mutating_input
     )
 
 
+def test_name_shift_runtime_context_freezes_legacy_runtime_inputs():
+    chunks_history_index = ["0:0:16:8"]
+    known_chunks = [b"IHDR"]
+
+    context = runtime_state.name_shift_runtime_context(
+        "89504e47",
+        42,
+        chunks_history_index,
+        known_chunks,
+    )
+
+    chunks_history_index.append("1:16:24:0")
+    known_chunks.append(b"IDAT")
+
+    assert context == runtime_state.NameShiftRuntimeContext(
+        data_hex="89504e47",
+        current_type_offset=42,
+        chunks_history_index=("0:0:16:8",),
+        known_chunks=(b"IHDR",),
+    )
+
+
 def main():
     checks = [
         ("scan reset values", test_main_loop_scan_reset_values_preserve_legacy_defaults),
@@ -170,6 +192,7 @@ def main():
         ("next chunk offset", test_next_chunk_offset_preserves_legacy_length_sum),
         ("kitkat break decision", test_kitkat_break_decision_resets_only_true_flag),
         ("GroundhogDay relaunch args", test_groundhogday_relaunch_args_preserve_legacy_shape_without_mutating_input),
+        ("NameShift runtime context", test_name_shift_runtime_context_freezes_legacy_runtime_inputs),
     ]
 
     print("Running runtime state tests")

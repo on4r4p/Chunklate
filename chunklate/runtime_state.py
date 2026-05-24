@@ -24,6 +24,14 @@ class GroundhogDayRelaunch:
     exec_args: list[str]
 
 
+@dataclass(frozen=True)
+class NameShiftRuntimeContext:
+    data_hex: str
+    current_type_offset: int
+    chunks_history_index: tuple[str, ...]
+    known_chunks: tuple[bytes, ...]
+
+
 def main_loop_scan_reset_values() -> dict[str, object]:
     return {
         "IBN": 0,
@@ -120,4 +128,18 @@ def groundhogday_relaunch_args(argv: list[str], new_day: str) -> GroundhogDayRel
         argv=next_argv,
         strargs="-cmd " + " ".join([item for item in next_argv]),
         exec_args=["-cmd "] + next_argv,
+    )
+
+
+def name_shift_runtime_context(
+    data_hex: str,
+    current_type_offset: int,
+    chunks_history_index: list[str],
+    known_chunks: list[bytes],
+) -> NameShiftRuntimeContext:
+    return NameShiftRuntimeContext(
+        data_hex=data_hex,
+        current_type_offset=current_type_offset,
+        chunks_history_index=tuple(chunks_history_index),
+        known_chunks=tuple(known_chunks),
     )
