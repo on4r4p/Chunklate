@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, bruteforce_viewer, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, bruteforce_result, bruteforce_viewer, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -1218,6 +1218,7 @@ def SmashBruteBrawl(
     TmpSkip = True
     TmpImgLst = []
     result = "bad result"
+    ToBrute = ""
 
     def ValidateAttempt(attempt, edit_kind=None, bonus=False):
         nonlocal BrawlState, fullnewdatax, wanabyte
@@ -1402,70 +1403,32 @@ def SmashBruteBrawl(
 
     ETA = (datetime.now() - Std).seconds
 
-    if BrawlState.bingo is True:
-
-
-        PRINT(
-            "-Bruteforce was %s %s"
-            % (Candy("Color", "green", "Successfull!"), Candy("Emoj", "good"))
-        )
-
-
-        if BrawlState.bonus:
-                Candy("Cowsay", bruteforce.BRUTE_FORCE_BONUS_NOTE, "bad")
-                SideNotes.append(bruteforce.BRUTE_FORCE_BONUS_NOTE)
-
-        for RepairMessage in bruteforce.success_repair_messages(BrawlState, ChunkName, DIFF):
-            PRINT(RepairMessage.line_template % Candy("Color", "green", ChunkName))
-            SideNotes.append(RepairMessage.side_note)
-
-
-        PRINT(DIFF)
-
-        Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
-
-
-        CheckPointRequest = bruteforce.success_checkpoint_request(
+    return bruteforce_result.run_result(
+        bruteforce_result.BruteForceResultRuntime(
+            emit=PRINT,
+            candy=Candy,
+            checkpoint=CheckPoint,
+            side_notes=SideNotes,
+        ),
+        bruteforce_result.BruteForceResultContext(
+            state=BrawlState,
             old_crc=OldCrc,
+            file=File,
             chunk_name=ChunkName,
             full_new_data_hex=fullnewdatax.hex(),
             png_bytes_hex=wanabyte.hex(),
             data_offset=DataOffset,
             chunk_length=ChunkLength,
             to_brute=ToBrute,
-            from_error=FromError,
-        )
-        return CheckPoint(*CheckPointRequest.as_args())
-
-    else:
-        PRINT(
-            "\n-Bruteforce has %s %s"
-            % (Candy("Color", "red", "Failed!"), Candy("Emoj", "bad"))
-        )
-
-        Candy("Cowsay", "I was afraid of this ...", "bad")
-        SideNotes.append(bruteforce.BRUTE_FORCE_FAILURE_NOTE)
-
-        if len(TmpImgLst) > 0:
-           Candy("Cowsay", "But while you were away i v saved some pictures maybe you should take a look ...", "bad")
-
-           for pic in TmpImgLst:
-               PRINT("-Saved Valid Image: %s"%pic)
-
-
-        CheckPointRequest = bruteforce.failure_checkpoint_request(
-            old_crc=OldCrc,
-            file=File,
-            chunk_name=ChunkName,
-            chunk_length=ChunkLength,
-            data_offset=DataOffset,
             edit_mode=EditMode,
             bf_mode=BfMode,
             brute_crc=BruteCrc,
             brute_length=BruteLength,
             from_error=FromError,
-        )
-        return CheckPoint(*CheckPointRequest.as_args())
+            diff=DIFF,
+            tmp_image_paths=tuple(TmpImgLst),
+        ),
+    )
 
 
 
