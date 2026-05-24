@@ -4940,11 +4940,18 @@ def FixItFelix_Critical_Miss(key):
     return False, None
 
 
+def FixItFelix_Automatic_Repair_Runtime():
+    return fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=SideNotes,
+        write_clone=WriteClone,
+    )
+
+
 def FixItFelix_Apply_Repair(repair):
-    AppliedRepair = fixit_felix.applied_repair(repair)
-    SideNotes.append(AppliedRepair.note)
-    WriteClone(AppliedRepair.data_hex, AppliedRepair.save_suffix)
-    return True
+    return fixit_felix_runtime.apply_repair(
+        FixItFelix_Automatic_Repair_Runtime(),
+        repair,
+    )
 
 
 def FixItFelix_Try_Automatic_Repair(name):

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -9,6 +10,25 @@ if str(ROOT) not in sys.path:
 
 from chunklate import fixit_felix
 from chunklate import fixit_felix_runtime
+
+
+def test_apply_repair_records_note_and_writes_clone():
+    side_notes = []
+    writes = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+    )
+    repair = SimpleNamespace(
+        data=b"fixed",
+        strategy="unit-test-repair",
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert side_notes == ["-FixItFelix:unit-test-repair."]
+    assert writes == [("6669786564", "-unit-test-repair.")]
 
 
 def recording_callbacks(calls):
@@ -100,6 +120,7 @@ def test_runtime_uses_automatic_repair_and_legacy_callbacks():
 
 def main():
     checks = [
+        ("Apply repair records note and writes clone", test_apply_repair_records_note_and_writes_clone),
         ("Finding handlers route callback arguments", test_finding_handlers_route_legacy_callback_arguments),
         ("Apply finding work item dispatches", test_apply_finding_work_item_dispatches_through_fixit_felix_dispatch),
         ("Runtime uses automatic repair and callbacks", test_runtime_uses_automatic_repair_and_legacy_callbacks),

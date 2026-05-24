@@ -17,6 +17,19 @@ class LegacyFixItFelixHandlers:
     critical_miss: Callable[[Any], tuple[bool, Any]]
 
 
+@dataclass(frozen=True)
+class AutomaticRepairRuntime:
+    side_notes: Any
+    write_clone: Callable[[Any, str], Any]
+
+
+def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool:
+    applied_repair = fixit_felix.applied_repair(repair)
+    runtime.side_notes.append(applied_repair.note)
+    runtime.write_clone(applied_repair.data_hex, applied_repair.save_suffix)
+    return True
+
+
 def finding_handlers(callbacks: LegacyFixItFelixHandlers) -> dict[str, fixit_felix.FindingWorkItemHandler]:
     return {
         "wrong_crc": lambda work_item, chkd, pandora_box_len, chunk: callbacks.wrong_crc(
