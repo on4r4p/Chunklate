@@ -5014,30 +5014,21 @@ def FixItFelix_Runtime():
     )
 
 
+def FixItFelix_Tool_Prefix(Chunk):
+    try:
+        return Chunk.decode(errors="ignore") + "_Tool_"
+    except AttributeError as e:
+        Betterror(e, "FixItFelix")
+        return fixit_felix.tool_prefix_for_chunk(Chunk)
+
+
 def FixItFelix(Chunk=None):
     Candy("Title", "Fix It Felix: ", Candy("Color", "white", Chunk))
     ##TODOFIND A WAY TO MAKE IT READABLE
 
-    global Skip_Bad_Current_Name
-    global Skip_Bad_Ancillary
-    global Skip_Bad_No_Next_Chunk
-    global Skip_Bad_Next_Name
-    global Skip_Bad_Next_Ancillary
-    global Skip_Bad_Infos
-    global Skip_Bad_Length
-    global Skip_Bad_Crc
-    global Skip_Bad_Missplaced
-    global Skip_Bad_Critical
-    global Skip_Bad_Libpng
-    global Old_Bad_Crc
-    global EOF
     global Show_Must_Go_On
 
-    try:
-        chkd = Chunk.decode(errors="ignore") + "_Tool_"
-    except AttributeError as e:
-        Betterror(e, inspect.stack()[0][3])
-        chkd = fixit_felix.tool_prefix_for_chunk(Chunk)
+    chkd = FixItFelix_Tool_Prefix(Chunk)
 
     if DEBUG is True:
         fixit_felix.emit_debug_report(PRINT, globals(), PandoraBox, Cornucopia)

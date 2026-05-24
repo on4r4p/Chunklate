@@ -87,6 +87,35 @@ def no_next_pandora_box(key, chkd, *, chunk_type=b"IDAT", chunk_length="12", pre
     }
 
 
+def test_fixit_felix_tool_prefix_accepts_bytes_without_betterror():
+    calls = []
+
+    with patched_attrs(
+        Chunklate,
+        Betterror=lambda *args: calls.append(args),
+    ):
+        result = Chunklate.FixItFelix_Tool_Prefix(b"IDAT")
+
+    assert result == "IDAT_Tool_"
+    assert calls == []
+
+
+def test_fixit_felix_tool_prefix_preserves_legacy_string_betterror():
+    calls = []
+
+    with patched_attrs(
+        Chunklate,
+        Betterror=lambda *args: calls.append(args),
+    ):
+        result = Chunklate.FixItFelix_Tool_Prefix("IDAT")
+
+    assert result == "IDAT_Tool_"
+    assert len(calls) == 1
+    error, function_name = calls[0]
+    assert isinstance(error, AttributeError)
+    assert function_name == "FixItFelix"
+
+
 def test_wrong_crc_easy_answer_saves_clone():
     reset_fixit_globals()
     key = "Checksum_Error_0:Wrong Crc b'IDAT'"
@@ -749,6 +778,8 @@ def test_no_next_skip_short_circuits():
 
 def main():
     checks = [
+        ("Tool prefix accepts bytes", test_fixit_felix_tool_prefix_accepts_bytes_without_betterror),
+        ("Tool prefix preserves string Betterror", test_fixit_felix_tool_prefix_preserves_legacy_string_betterror),
         ("Wrong CRC easy answer saves clone", test_wrong_crc_easy_answer_saves_clone),
         (
             "Wrong CRC easy decline keeps legacy skip state",
