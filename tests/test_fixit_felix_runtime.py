@@ -31,6 +31,53 @@ def test_apply_repair_records_note_and_writes_clone():
     assert writes == [("6669786564", "-unit-test-repair.")]
 
 
+def test_apply_gama_zero_discards_false_positive_and_returns_legacy_target():
+    finding = "GetInfo_Error_0:gAMA Chunk of 0 is Useless"
+    pandora_box = {finding: {"gAMA_Tool_0": "sample.png"}}
+    side_notes = []
+    candy_calls = []
+    target = object()
+    runtime = fixit_felix_runtime.GamaZeroRuntime(
+        candy=lambda *args: candy_calls.append(args),
+        pandora_box=pandora_box,
+        side_notes=side_notes,
+        return_value=target,
+    )
+
+    result = fixit_felix_runtime.apply_gama_zero(
+        runtime,
+        fixit_felix.gama_zero_decision(finding),
+    )
+
+    assert result == (True, target)
+    assert candy_calls == [
+        ("Cowsay", "Bah that's just a warning who cares ?! !", "good")
+    ]
+    assert pandora_box == {}
+    assert side_notes == [
+        "-Found False-Positive :[Error:-GetInfo_Error_0:gAMA Chunk of 0 is Useless]."
+    ]
+
+
+def test_apply_gama_zero_rejects_unknown_action():
+    runtime = fixit_felix_runtime.GamaZeroRuntime(
+        candy=lambda *args: None,
+        pandora_box={},
+        side_notes=[],
+        return_value=object(),
+    )
+
+    try:
+        fixit_felix_runtime.apply_gama_zero(
+            runtime,
+            SimpleNamespace(action="unknown"),
+        )
+    except ValueError as exc:
+        assert str(exc) == "Unknown FixItFelix gAMA action: unknown"
+    else:
+        raise AssertionError("Expected ValueError for unknown gAMA action")
+
+
 def recording_callbacks(calls):
     return fixit_felix_runtime.LegacyFixItFelixHandlers(
         wrong_crc=lambda finding, chkd, pandora_len: calls.append(
@@ -121,6 +168,8 @@ def test_runtime_uses_automatic_repair_and_legacy_callbacks():
 def main():
     checks = [
         ("Apply repair records note and writes clone", test_apply_repair_records_note_and_writes_clone),
+        ("Apply gAMA zero discards false positive", test_apply_gama_zero_discards_false_positive_and_returns_legacy_target),
+        ("Apply gAMA zero rejects unknown action", test_apply_gama_zero_rejects_unknown_action),
         ("Finding handlers route callback arguments", test_finding_handlers_route_legacy_callback_arguments),
         ("Apply finding work item dispatches", test_apply_finding_work_item_dispatches_through_fixit_felix_dispatch),
         ("Runtime uses automatic repair and callbacks", test_runtime_uses_automatic_repair_and_legacy_callbacks),

@@ -5,6 +5,7 @@ from typing import Any
 from typing import Callable
 
 from . import fixit_felix
+from . import relics
 
 
 @dataclass(frozen=True)
@@ -23,11 +24,32 @@ class AutomaticRepairRuntime:
     write_clone: Callable[[Any, str], Any]
 
 
+@dataclass(frozen=True)
+class GamaZeroRuntime:
+    candy: Callable[..., Any]
+    pandora_box: Any
+    side_notes: Any
+    return_value: Any
+
+
 def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool:
     applied_repair = fixit_felix.applied_repair(repair)
     runtime.side_notes.append(applied_repair.note)
     runtime.write_clone(applied_repair.data_hex, applied_repair.save_suffix)
     return True
+
+
+def apply_gama_zero(runtime: GamaZeroRuntime, decision: fixit_felix.GamaZeroDecision) -> tuple[bool, Any]:
+    if decision.action == "discard_false_positive":
+        runtime.candy("Cowsay", "Bah that's just a warning who cares ?! !", "good")
+        relics.discard_pandora_error(
+            runtime.pandora_box,
+            decision.false_positive.finding,
+        )
+        runtime.side_notes.append(decision.false_positive.note)
+        return True, runtime.return_value
+
+    raise ValueError("Unknown FixItFelix gAMA action: %s" % decision.action)
 
 
 def finding_handlers(callbacks: LegacyFixItFelixHandlers) -> dict[str, fixit_felix.FindingWorkItemHandler]:

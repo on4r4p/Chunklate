@@ -4917,15 +4917,20 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
     return False, None
 
 
-def FixItFelix_Gama_Zero(key):
-    GamaDecision = fixit_felix.gama_zero_decision(key)
-    if GamaDecision.action == "discard_false_positive":
-        Candy("Cowsay", "Bah that's just a warning who cares ?! !", "good") ##ME !!!
-        relics.discard_pandora_error(PandoraBox, GamaDecision.false_positive.finding)
-        SideNotes.append(GamaDecision.false_positive.note)
-        return True, FixItFelix
+def FixItFelix_Gama_Zero_Runtime():
+    return fixit_felix_runtime.GamaZeroRuntime(
+        candy=Candy,
+        pandora_box=PandoraBox,
+        side_notes=SideNotes,
+        return_value=FixItFelix,
+    )
 
-    raise ValueError("Unknown FixItFelix gAMA action: %s" % GamaDecision.action)
+
+def FixItFelix_Gama_Zero(key):
+    return fixit_felix_runtime.apply_gama_zero(
+        FixItFelix_Gama_Zero_Runtime(),
+        fixit_felix.gama_zero_decision(key),
+    )
 
 
 def FixItFelix_Critical_Miss(key):
