@@ -72,6 +72,38 @@ class WrongChunkNameRuntime:
 
 
 @dataclass(frozen=True)
+class NoNextChunkRuntime:
+    emit: Callable[[str], Any]
+    candy: Callable[..., Any]
+    question: Callable[..., Any]
+    side_notes: Any
+    pandora_box: Any
+    sample: Any
+    data_hex: str
+    cl_offset: Any
+    crc_offset: int
+    original_chunk_length_hex: str
+    raw_crc: Any
+    debug: bool
+    pause_debug: bool
+    pause_error: bool
+    bad_missplaced: bool
+    set_skip_bad_no_next_chunk: Callable[[bool], Any]
+    set_eof: Callable[[bool], Any]
+    eof: Callable[[], bool]
+    chunk_story: Callable[..., Any]
+    check_chunk_order: Callable[..., Any]
+    libpng_check: Callable[[Any], Any]
+    the_good_place: Callable[[Any, Any, Any], Any]
+    write_clone: Callable[[Any, str], Any]
+    the_end: Callable[[], Any]
+    pause: Callable[[str], Any]
+    debug_print: Callable[..., Any]
+    dummy_chunk: Callable[..., Any]
+    nearby_chunk: Callable[..., Any]
+
+
+@dataclass(frozen=True)
 class LibpngErrorRuntime:
     emit: Callable[[str], Any]
     candy: Callable[..., Any]
@@ -349,6 +381,248 @@ def apply_wrong_chunk_name(
         return ask_wrong_chunk_name_bruteforce(runtime, decision, chkd, tools)
 
     raise ValueError("Unknown FixItFelix wrong-chunk-name action: %s" % decision.action)
+
+
+def emit_no_next_critical(runtime: NoNextChunkRuntime, finding: Any) -> None:
+    runtime.emit("\n-\033[1;31;49mCriticalHit\033[m: %s" % finding)
+
+
+def discard_no_next_false_positive(runtime: NoNextChunkRuntime) -> None:
+    for pandora_key in list(runtime.pandora_box):
+        if "No NextChunk" in str(pandora_key):
+            runtime.candy(
+                "Cowsay",
+                "That one is a false positive im removing it ..",
+                "good",
+            )
+            relics.discard_pandora_error(runtime.pandora_box, pandora_key)
+            runtime.side_notes.append("-Found False-Positive :[Error:-No NextChunk].")
+            runtime.set_skip_bad_no_next_chunk(True)
+            break
+
+
+def no_next_missplaced_tools(runtime: NoNextChunkRuntime) -> list[Any] | None:
+    for pandora_key in runtime.pandora_box:
+        if "Missplaced" in str(pandora_key) and runtime.eof() is True:
+            return list(runtime.pandora_box[pandora_key].values())
+    return None
+
+
+def mark_no_next_iend_reached(runtime: NoNextChunkRuntime) -> None:
+    runtime.check_chunk_order(b"IEND", "Critical")
+    runtime.candy("Cowsay", "We have reached the end of file.", "good")
+    runtime.set_eof(True)
+    runtime.side_notes.append("-Reached the end of file.")
+
+
+def apply_no_next_false_positive_iend(
+    runtime: NoNextChunkRuntime,
+    decision: fixit_felix.NoNextFalsePositiveIendDecision,
+) -> tuple[bool, Any]:
+    if decision.action in ("libpng_check", "the_good_place", "continue"):
+        mark_no_next_iend_reached(runtime)
+
+        if decision.action == "libpng_check":
+            runtime.candy("Cowsay", "Ok let's feed the Kraken now..", "com")
+            return True, runtime.libpng_check(runtime.sample)
+
+        if decision.action == "the_good_place":
+            rustine = no_next_missplaced_tools(runtime)
+            if rustine is not None:
+                runtime.candy("Cowsay", "But the fun isnt over yet..", "com")
+                return True, runtime.the_good_place(rustine[0], rustine[1], rustine[2])
+
+        return False, None
+
+    if decision.action == "write_clean_iend_cut":
+        cleancut = bytes.fromhex(decision.cut_hex)
+        runtime.side_notes.append("-FixitFelix:Removing extra bytes after IEND chunk.")
+        return True, runtime.write_clone(cleancut, "-Saved")
+
+    if decision.action == "end_not_regular_iend":
+        runtime.emit(runtime.candy("Color", "yellow", "Not ending with regular IEND\n-ToDo"))
+        runtime.side_notes.append("-Not ending with regular IEND Chunk")
+        runtime.emit("-Exceptation: %s" % (str(fixit_felix.GOOD_IEND_HEX)))
+        runtime.emit("-Reality: %s" % (str(runtime.data_hex[-len(fixit_felix.GOOD_IEND_HEX) :])))
+        runtime.the_end()
+        return False, None
+
+    raise ValueError("Unknown no-next false-positive IEND action: %s" % decision.action)
+
+
+def handle_no_next_false_positive_iend(
+    runtime: NoNextChunkRuntime,
+) -> tuple[bool, Any]:
+    discard_no_next_false_positive(runtime)
+    runtime.chunk_story(
+        "add",
+        b"IEND",
+        runtime.cl_offset,
+        runtime.crc_offset + 8,
+        int(runtime.original_chunk_length_hex, 16),
+    )
+
+    false_positive_decision = fixit_felix.no_next_false_positive_iend_decision(
+        runtime.data_hex,
+        bad_missplaced=runtime.bad_missplaced,
+        has_missplaced_finding=any("Missplaced" in str(pandora_key) for pandora_key in runtime.pandora_box),
+    )
+    return apply_no_next_false_positive_iend(runtime, false_positive_decision)
+
+
+def handle_no_next_wrong_iend_length(runtime: NoNextChunkRuntime) -> tuple[bool, None]:
+    runtime.emit(
+        "-%s length for IEND %s "
+        % (runtime.candy("Color", "red", "Wrong"), runtime.candy("Emoj", "bad"))
+    )
+    runtime.emit(runtime.candy("Color", "yellow", "\n-ToDo"))
+    runtime.side_notes.append("-Wrong length for IEND")
+    runtime.the_end()
+    return False, None
+
+
+def print_no_next_append_debug(runtime: NoNextChunkRuntime) -> None:
+    if runtime.debug:
+        runtime.debug_print("CrcoffI:", runtime.crc_offset)
+        runtime.debug_print("Raw_Crc:", runtime.raw_crc)
+        runtime.debug_print("DATAX[crc]:", runtime.data_hex[runtime.crc_offset : runtime.crc_offset + 8])
+        if runtime.pause_debug is True or runtime.pause_error is True:
+            runtime.pause("Pause Debug")
+
+
+def report_no_next_exceeding(runtime: NoNextChunkRuntime, exceeding: str) -> None:
+    if len(exceeding) <= 0:
+        return
+
+    if int(len(exceeding) / 2) == 0:
+        runtime.candy("Cowsay", "Ah there is one bit left after the Crc ..", "com")
+    else:
+        runtime.candy("Cowsay", "Ah there are %s bytes left after the Crc .." % (str(int(len(exceeding) / 2))), "com")
+    runtime.side_notes.append("-Extra bits detected:%s" % str(exceeding))
+
+
+def apply_no_next_append_iend(
+    runtime: NoNextChunkRuntime,
+    decision: fixit_felix.NoNextAppendIendDecision,
+    finding: Any,
+) -> tuple[bool, Any]:
+    exceeding = decision.exceeding
+
+    if decision.action == "end_iend_inside_exceeding":
+        runtime.candy("Cowsay", "And it seems that the IEND chunk is inside it  ..", "com")
+        runtime.debug_print("-iendsample:", fixit_felix.GOOD_IEND_HEX)
+        runtime.debug_print("-exceeding:", exceeding)
+        runtime.side_notes.append("-Part or full IEND chunk detected:%s" % (str(exceeding)))
+        runtime.emit(runtime.candy("Color", "yellow", "\n-ToDo"))
+        runtime.the_end()
+        return False, None
+
+    if decision.action == "dummy_at_crc_tail":
+        if len(exceeding) > len(fixit_felix.GOOD_IEND_HEX):
+            runtime.candy("Cowsay", "But i don't know what to do with those bytes  ..", "com")
+            runtime.candy("Cowsay", "So..Im just going to append an IEND chunk there for the moment ..", "com")
+        else:
+            runtime.candy("Cowsay", "It doesn't looks like and IEND chunk ..", "bad")
+            runtime.candy("Cowsay", "And i don't know what to do with those bytes  ..", "com")
+            runtime.candy("Cowsay", "So..Im just going to append an IEND chunk there for the moment ..", "com")
+        runtime.debug_print("-exceeding:", exceeding)
+        return True, runtime.dummy_chunk(
+            b"IEND",
+            runtime.crc_offset + 8,
+            runtime.crc_offset + 8,
+            runtime.crc_offset + 8,
+            str(finding),
+        )
+
+    if decision.action == "dummy_at_eof":
+        if exceeding:
+            runtime.candy("Cowsay", "And it seems that it matches with some part of IEND chunk ..", "com")
+            runtime.candy("Cowsay", "I don't think this is a coincidence.", "good")
+            runtime.side_notes.append("-Part or full IEND chunk detected:%s" % (str(exceeding)))
+            runtime.debug_print("-iendsample:", fixit_felix.GOOD_IEND_HEX)
+            runtime.debug_print("-exceeding:", exceeding)
+        return True, runtime.dummy_chunk(
+            b"IEND",
+            len(runtime.data_hex),
+            len(runtime.data_hex),
+            len(runtime.data_hex),
+            str(finding),
+        )
+
+    raise ValueError("Unknown no-next append-IEND action: %s" % decision.action)
+
+
+def handle_no_next_append_missing_iend(
+    runtime: NoNextChunkRuntime,
+    finding: Any,
+) -> tuple[bool, Any]:
+    runtime.candy("Cowsay", "Well it seems that i need to add that IEND chunk myself after all ..", "bad")
+    print_no_next_append_debug(runtime)
+
+    append_decision = fixit_felix.no_next_append_iend_decision(
+        runtime.data_hex,
+        crc_offset=runtime.crc_offset,
+    )
+    report_no_next_exceeding(runtime, append_decision.exceeding)
+    return apply_no_next_append_iend(runtime, append_decision, finding)
+
+
+def handle_no_next_ask_length_probe(
+    runtime: NoNextChunkRuntime,
+    finding: Any,
+    chkd: str,
+    tools: relics.NoNextChunkTools,
+) -> tuple[bool, Any]:
+    runtime.emit(
+        "\n-End of File Reached but IEND Chunk is %s ! %s"
+        % (runtime.candy("Color", "red", " MISSING! "), runtime.candy("Emoj", "bad"))
+    )
+    runtime.side_notes.append("-End of File Reached but IEND Chunk is missing")
+    runtime.candy(
+        "Cowsay",
+        "A length error maybe ? Do you want me to have a look ?",
+        "com",
+    )
+    uniqh = relics.question_hash(runtime.pandora_box, finding, chkd)
+    answer = runtime.question(id=finding, idhash=uniqh)
+    if answer is True:
+        return True, runtime.nearby_chunk(
+            tools.chunk_type,
+            tools.chunk_length,
+            tools.previous_chunk,
+            False,
+            finding,
+        )
+
+    runtime.the_end()
+    return False, None
+
+
+def apply_no_next_chunk(
+    runtime: NoNextChunkRuntime,
+    decision: fixit_felix.NoNextChunkDecision,
+    finding: Any,
+    chkd: str,
+    tools: relics.NoNextChunkTools | None,
+) -> tuple[bool, Any]:
+    emit_no_next_critical(runtime, finding)
+
+    if tools is None:
+        raise ValueError("FixItFelix no-next-chunk action needs chunk tools: %s" % decision.action)
+
+    if decision.action == "false_positive_iend":
+        return handle_no_next_false_positive_iend(runtime)
+
+    if decision.action == "wrong_iend_length":
+        return handle_no_next_wrong_iend_length(runtime)
+
+    if decision.action == "append_missing_iend":
+        return handle_no_next_append_missing_iend(runtime, finding)
+
+    if decision.action == "ask_length_probe":
+        return handle_no_next_ask_length_probe(runtime, finding, chkd, tools)
+
+    raise ValueError("Unknown FixItFelix no-next-chunk action: %s" % decision.action)
 
 
 def apply_libpng_error(

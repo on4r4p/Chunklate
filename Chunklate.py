@@ -4430,261 +4430,48 @@ def FixItFelix_Wrong_Chunk_Name(key, chkd):
     return False, None
 
 
-def FixItFelix_No_NextChunk_Print_Critical(key):
-    PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
-
-
-def FixItFelix_No_NextChunk_Discard_False_Positive():
+def FixItFelix_Set_Skip_Bad_No_Next_Chunk(value):
     global Skip_Bad_No_Next_Chunk
 
-    for pandora_key in list(PandoraBox):
-        if "No NextChunk" in str(pandora_key):
-            Candy(
-                "Cowsay",
-                "That one is a false positive im removing it ..",
-                "good",
-            )
-            relics.discard_pandora_error(PandoraBox, pandora_key)
-            SideNotes.append("-Found False-Positive :[Error:-No NextChunk].")
-            Skip_Bad_No_Next_Chunk = True
-            break
+    Skip_Bad_No_Next_Chunk = value
 
 
-def FixItFelix_No_NextChunk_Missplaced_Tools():
-    for pandora_key in PandoraBox:
-        if "Missplaced" in str(pandora_key) and EOF is True:
-            return list(PandoraBox[pandora_key].values())
-    return None
-
-
-def FixItFelix_No_NextChunk_Mark_IEND_Reached():
+def FixItFelix_Set_EOF(value):
     global EOF
 
-    CheckChunkOrder(b"IEND", "Critical")
-    Candy("Cowsay", "We have reached the end of file.", "good")
-    EOF = True
-    SideNotes.append("-Reached the end of file.")
+    EOF = value
 
 
-def FixItFelix_No_NextChunk_False_Positive_Existing_IEND(FalsePositiveDecision, key, chkd, Chunk, NoNextTools):
-    FixItFelix_No_NextChunk_Mark_IEND_Reached()
-
-    if FalsePositiveDecision.action == "libpng_check":
-        Candy("Cowsay", "Ok let's feed the Kraken now..", "com")
-        return True, LibpngCheck(Sample)
-
-    if FalsePositiveDecision.action == "the_good_place":
-        rustine = FixItFelix_No_NextChunk_Missplaced_Tools()
-        if rustine is not None:
-            Candy("Cowsay", "But the fun isnt over yet..", "com")
-            return True, TheGoodPlace(rustine[0], rustine[1], rustine[2])
-
-    return False, None
-
-
-def FixItFelix_No_NextChunk_False_Positive_Clean_Cut(FalsePositiveDecision, key, chkd, Chunk, NoNextTools):
-    cleancut = bytes.fromhex(FalsePositiveDecision.cut_hex)
-    SideNotes.append("-FixitFelix:Removing extra bytes after IEND chunk.")
-    return True, WriteClone(cleancut, "-Saved")
-
-
-def FixItFelix_No_NextChunk_False_Positive_Not_Regular_IEND(FalsePositiveDecision, key, chkd, Chunk, NoNextTools):
-    PRINT(Candy("Color", "yellow", "Not ending with regular IEND\n-ToDo"))
-    SideNotes.append("-Not ending with regular IEND Chunk")
-    PRINT("-Exceptation: %s"%(str(fixit_felix.GOOD_IEND_HEX)))
-    PRINT("-Reality: %s"%(str(DATAX[-len(fixit_felix.GOOD_IEND_HEX) :])))
-    TheEnd()
-    return False, None
-
-
-FIXIT_FELIX_NO_NEXT_FALSE_POSITIVE_IEND_HANDLERS = {
-    "libpng_check": FixItFelix_No_NextChunk_False_Positive_Existing_IEND,
-    "the_good_place": FixItFelix_No_NextChunk_False_Positive_Existing_IEND,
-    "continue": FixItFelix_No_NextChunk_False_Positive_Existing_IEND,
-    "write_clean_iend_cut": FixItFelix_No_NextChunk_False_Positive_Clean_Cut,
-    "end_not_regular_iend": FixItFelix_No_NextChunk_False_Positive_Not_Regular_IEND,
-}
-
-
-def FixItFelix_Apply_No_NextChunk_False_Positive_IEND_Decision(FalsePositiveDecision, key, chkd, Chunk, NoNextTools):
-    return fixit_felix.dispatch_action(
-        FIXIT_FELIX_NO_NEXT_FALSE_POSITIVE_IEND_HANDLERS,
-        FalsePositiveDecision.action,
-        "no-next false-positive IEND action",
-        FalsePositiveDecision,
-        key,
-        chkd,
-        Chunk,
-        NoNextTools,
-    )
-
-
-def FixItFelix_No_NextChunk_Handle_False_Positive_IEND(decision, key, chkd, Chunk, NoNextTools):
-    FixItFelix_No_NextChunk_Discard_False_Positive()
-    ChunkStory("add", b"IEND", CLoffI, CrcoffI + 8, int(Orig_CL, 16))
-
-    FalsePositiveDecision = fixit_felix.no_next_false_positive_iend_decision(
-        DATAX,
-        bad_missplaced=Bad_Missplaced,
-        has_missplaced_finding=any("Missplaced" in str(pandora_key) for pandora_key in PandoraBox),
-    )
-    return FixItFelix_Apply_No_NextChunk_False_Positive_IEND_Decision(
-        FalsePositiveDecision,
-        key,
-        chkd,
-        Chunk,
-        NoNextTools,
-    )
-
-
-def FixItFelix_No_NextChunk_Handle_Wrong_IEND_Length(decision, key, chkd, Chunk, NoNextTools):
-    PRINT(
-        "-%s length for IEND %s "
-        % (Candy("Color", "red", "Wrong"), Candy("Emoj", "bad"))
-    )
-    PRINT(Candy("Color", "yellow", "\n-ToDo"))
-    SideNotes.append("-Wrong length for IEND")  # TODO
-    TheEnd()
-    return False, None
-
-
-def FixItFelix_No_NextChunk_Print_Append_Debug():
-    if DEBUG:
-        print("CrcoffI:",CrcoffI)
-        print("Raw_Crc:",Raw_Crc)
-        print("DATAX[crc]:",DATAX[CrcoffI:CrcoffI+8])
-        if PAUSEDEBUG is True or PAUSEERROR is True:
-            Pause("Pause Debug")
-
-
-def FixItFelix_No_NextChunk_Report_Exceeding(exceeding):
-    if len(exceeding) <= 0:
-        return
-
-    if int(len(exceeding)/2) == 0:
-        Candy("Cowsay", "Ah there is one bit left after the Crc ..", "com")
-    else:
-        Candy("Cowsay", "Ah there are %s bytes left after the Crc .."%(str(int(len(exceeding)/2))), "com")
-    SideNotes.append("-Extra bits detected:%s"%str(exceeding))
-
-
-def FixItFelix_No_NextChunk_Append_IEND_Inside_Exceeding(AppendDecision, key, chkd, Chunk, NoNextTools):
-    exceeding = AppendDecision.exceeding
-    Candy("Cowsay", "And it seems that the IEND chunk is inside it  ..", "com")
-    print("-iendsample:",fixit_felix.GOOD_IEND_HEX) #TODO use PRINT()
-    print("-exceeding:",exceeding)
-    SideNotes.append("-Part or full IEND chunk detected:%s"%(str(exceeding)))
-    PRINT(Candy("Color", "yellow", "\n-ToDo"))
-    TheEnd()
-    return False, None
-
-
-def FixItFelix_No_NextChunk_Append_Dummy_At_Crc_Tail(AppendDecision, key, chkd, Chunk, NoNextTools):
-    exceeding = AppendDecision.exceeding
-    if len(exceeding) > len(fixit_felix.GOOD_IEND_HEX):
-        Candy("Cowsay", "But i don't know what to do with those bytes  ..", "com")
-        Candy("Cowsay", "So..Im just going to append an IEND chunk there for the moment ..", "com")
-    else:
-        Candy("Cowsay", "It doesn't looks like and IEND chunk ..", "bad")
-        Candy("Cowsay", "And i don't know what to do with those bytes  ..", "com")
-        Candy("Cowsay", "So..Im just going to append an IEND chunk there for the moment ..", "com")
-    print("-exceeding:",exceeding)
-    return True, DummyChunk(b"IEND", CrcoffI+8, CrcoffI+8, CrcoffI+8, str(key))
-
-
-def FixItFelix_No_NextChunk_Append_Dummy_At_EOF(AppendDecision, key, chkd, Chunk, NoNextTools):
-    exceeding = AppendDecision.exceeding
-    if exceeding:
-        Candy("Cowsay", "And it seems that it matches with some part of IEND chunk ..", "com")
-        Candy("Cowsay", "I don't think this is a coincidence.", "good")
-        SideNotes.append("-Part or full IEND chunk detected:%s"%(str(exceeding)))
-        print("-iendsample:",fixit_felix.GOOD_IEND_HEX)
-        print("-exceeding:",exceeding)
-    return True, DummyChunk(b"IEND", len(DATAX), len(DATAX), len(DATAX), str(key))
-
-
-FIXIT_FELIX_NO_NEXT_APPEND_IEND_HANDLERS = {
-    "end_iend_inside_exceeding": FixItFelix_No_NextChunk_Append_IEND_Inside_Exceeding,
-    "dummy_at_crc_tail": FixItFelix_No_NextChunk_Append_Dummy_At_Crc_Tail,
-    "dummy_at_eof": FixItFelix_No_NextChunk_Append_Dummy_At_EOF,
-}
-
-
-def FixItFelix_Apply_No_NextChunk_Append_IEND_Decision(AppendDecision, key, chkd, Chunk, NoNextTools):
-    return fixit_felix.dispatch_action(
-        FIXIT_FELIX_NO_NEXT_APPEND_IEND_HANDLERS,
-        AppendDecision.action,
-        "no-next append-IEND action",
-        AppendDecision,
-        key,
-        chkd,
-        Chunk,
-        NoNextTools,
-    )
-
-
-def FixItFelix_No_NextChunk_Handle_Append_Missing_IEND(decision, key, chkd, Chunk, NoNextTools):
-    Candy("Cowsay", "Well it seems that i need to add that IEND chunk myself after all ..", "bad")
-    FixItFelix_No_NextChunk_Print_Append_Debug()
-
-    AppendDecision = fixit_felix.no_next_append_iend_decision(
-        DATAX,
+def FixItFelix_No_NextChunk_Runtime():
+    return fixit_felix_runtime.NoNextChunkRuntime(
+        emit=PRINT,
+        candy=Candy,
+        question=Question,
+        side_notes=SideNotes,
+        pandora_box=PandoraBox,
+        sample=Sample,
+        data_hex=DATAX,
+        cl_offset=CLoffI,
         crc_offset=CrcoffI,
-    )
-    FixItFelix_No_NextChunk_Report_Exceeding(AppendDecision.exceeding)
-    return FixItFelix_Apply_No_NextChunk_Append_IEND_Decision(
-        AppendDecision,
-        key,
-        chkd,
-        Chunk,
-        NoNextTools,
-    )
-
-
-def FixItFelix_No_NextChunk_Handle_Ask_Length_Probe(decision, key, chkd, Chunk, NoNextTools):
-    PRINT(
-        "\n-End of File Reached but IEND Chunk is %s ! %s"
-        % (Candy("Color", "red", " MISSING! "), Candy("Emoj", "bad"))
-    )
-    SideNotes.append("-End of File Reached but IEND Chunk is missing")
-    Candy(
-        "Cowsay",
-        "A length error maybe ? Do you want me to have a look ?",
-        "com",
-    )
-    uniqh = relics.question_hash(PandoraBox, key, chkd)
-    Answer = Question(id=key,idhash=uniqh)
-    if Answer is True:
-        return True, NearbyChunk(
-            NoNextTools.chunk_type,
-            NoNextTools.chunk_length,
-            NoNextTools.previous_chunk,
-            False,
-            key,
-        )
-
-    TheEnd()
-    return False, None
-
-
-FIXIT_FELIX_NO_NEXT_CHUNK_HANDLERS = {
-    "false_positive_iend": FixItFelix_No_NextChunk_Handle_False_Positive_IEND,
-    "wrong_iend_length": FixItFelix_No_NextChunk_Handle_Wrong_IEND_Length,
-    "append_missing_iend": FixItFelix_No_NextChunk_Handle_Append_Missing_IEND,
-    "ask_length_probe": FixItFelix_No_NextChunk_Handle_Ask_Length_Probe,
-}
-
-
-def FixItFelix_Apply_No_NextChunk_Decision(decision, key, chkd, Chunk, NoNextTools):
-    return fixit_felix.dispatch_action(
-        FIXIT_FELIX_NO_NEXT_CHUNK_HANDLERS,
-        decision.action,
-        "FixItFelix no-next-chunk action",
-        decision,
-        key,
-        chkd,
-        Chunk,
-        NoNextTools,
+        original_chunk_length_hex=Orig_CL,
+        raw_crc=Raw_Crc,
+        debug=DEBUG,
+        pause_debug=PAUSEDEBUG,
+        pause_error=PAUSEERROR,
+        bad_missplaced=Bad_Missplaced,
+        set_skip_bad_no_next_chunk=FixItFelix_Set_Skip_Bad_No_Next_Chunk,
+        set_eof=FixItFelix_Set_EOF,
+        eof=lambda: EOF,
+        chunk_story=ChunkStory,
+        check_chunk_order=CheckChunkOrder,
+        libpng_check=LibpngCheck,
+        the_good_place=TheGoodPlace,
+        write_clone=WriteClone,
+        the_end=TheEnd,
+        pause=Pause,
+        debug_print=print,
+        dummy_chunk=DummyChunk,
+        nearby_chunk=NearbyChunk,
     )
 
 
@@ -4692,7 +4479,6 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
     global Skip_Bad_No_Next_Chunk
 
     if Skip_Bad_No_Next_Chunk is False:
-        FixItFelix_No_NextChunk_Print_Critical(key)
         NoNextTools = relics.no_next_chunk_tools(PandoraBox[key], chkd)
         NoNextDecision = fixit_felix.no_next_chunk_decision(
             current_chunk=Chunk,
@@ -4700,11 +4486,11 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
             chunk_length=NoNextTools.chunk_length,
             bad_critical=Bad_Critical,
         )
-        return FixItFelix_Apply_No_NextChunk_Decision(
+        return fixit_felix_runtime.apply_no_next_chunk(
+            FixItFelix_No_NextChunk_Runtime(),
             NoNextDecision,
             key,
             chkd,
-            Chunk,
             NoNextTools,
         )
 

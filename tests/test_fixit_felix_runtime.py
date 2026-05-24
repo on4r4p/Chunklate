@@ -505,6 +505,205 @@ def test_apply_wrong_chunk_name_rejects_unknown_action():
         raise AssertionError("Expected ValueError for unknown wrong-chunk-name action")
 
 
+def no_next_tools(chunk_type=b"IDAT", chunk_length="12", previous_chunk=b"IDAT"):
+    return SimpleNamespace(
+        chunk_type=chunk_type,
+        chunk_length=chunk_length,
+        previous_chunk=previous_chunk,
+    )
+
+
+def no_next_runtime(
+    calls,
+    *,
+    pandora_box=None,
+    data_hex="",
+    crc_offset=0,
+    bad_missplaced=False,
+    eof=False,
+):
+    state = {"eof": eof}
+    side_notes = []
+
+    def record(name, result=None):
+        def callback(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return result
+
+        return callback
+
+    def set_eof(value):
+        calls.append(("set_eof", (value,), {}))
+        state["eof"] = value
+
+    return (
+        fixit_felix_runtime.NoNextChunkRuntime(
+            emit=record("emit"),
+            candy=record("candy", "colored"),
+            question=record("question", True),
+            side_notes=side_notes,
+            pandora_box=pandora_box if pandora_box is not None else {},
+            sample="sample.png",
+            data_hex=data_hex,
+            cl_offset=33,
+            crc_offset=crc_offset,
+            original_chunk_length_hex="0d",
+            raw_crc="raw-crc",
+            debug=False,
+            pause_debug=False,
+            pause_error=False,
+            bad_missplaced=bad_missplaced,
+            set_skip_bad_no_next_chunk=record("set_skip_bad_no_next_chunk"),
+            set_eof=set_eof,
+            eof=lambda: state["eof"],
+            chunk_story=record("chunk_story"),
+            check_chunk_order=record("check_chunk_order"),
+            libpng_check=record("libpng_check", "libpng-result"),
+            the_good_place=record("the_good_place", "good-place-result"),
+            write_clone=record("write_clone", "write-result"),
+            the_end=record("the_end"),
+            pause=record("pause"),
+            debug_print=record("debug_print"),
+            dummy_chunk=record("dummy_chunk", "dummy-result"),
+            nearby_chunk=record("nearby_chunk", "nearby-result"),
+        ),
+        side_notes,
+        state,
+    )
+
+
+def test_apply_no_next_false_positive_iend_runs_libpng_after_marking_eof():
+    calls = []
+    finding = "CheckLength_Error_0:-No NextChunk"
+    pandora_box = {finding: {"IEND_Tool_0": b"IEND"}}
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        pandora_box=pandora_box,
+        data_hex="aabbccdd" + fixit_felix.GOOD_IEND_HEX,
+    )
+
+    result = fixit_felix_runtime.apply_no_next_chunk(
+        runtime,
+        fixit_felix.NoNextChunkDecision("false_positive_iend", b"IEND", b"IEND", "0"),
+        finding,
+        "IEND_Tool_",
+        no_next_tools(chunk_type=b"IEND", chunk_length="0"),
+    )
+
+    assert result == (True, "libpng-result")
+    assert pandora_box == {}
+    assert state["eof"] is True
+    assert side_notes == [
+        "-Found False-Positive :[Error:-No NextChunk].",
+        "-Reached the end of file.",
+    ]
+    assert ("chunk_story", ("add", b"IEND", 33, 8, 13), {}) in calls
+    assert calls[-1] == ("libpng_check", ("sample.png",), {})
+
+
+def test_apply_no_next_false_positive_iend_writes_clean_cut():
+    calls = []
+    finding = "CheckLength_Error_0:-No NextChunk"
+    data_hex = "aabbccdd" + fixit_felix.GOOD_IEND_HEX + "ffee"
+    runtime, side_notes, _state = no_next_runtime(
+        calls,
+        pandora_box={finding: {"IEND_Tool_0": b"IEND"}},
+        data_hex=data_hex,
+    )
+
+    result = fixit_felix_runtime.apply_no_next_chunk(
+        runtime,
+        fixit_felix.NoNextChunkDecision("false_positive_iend", b"IEND", b"IEND", "0"),
+        finding,
+        "IEND_Tool_",
+        no_next_tools(chunk_type=b"IEND", chunk_length="0"),
+    )
+
+    assert result == (True, "write-result")
+    assert side_notes == [
+        "-Found False-Positive :[Error:-No NextChunk].",
+        "-FixitFelix:Removing extra bytes after IEND chunk.",
+    ]
+    assert calls[-1] == (
+        "write_clone",
+        (bytes.fromhex("aabbccdd" + fixit_felix.GOOD_IEND_HEX), "-Saved"),
+        {},
+    )
+
+
+def test_apply_no_next_wrong_iend_length_records_note_and_ends():
+    calls = []
+    runtime, side_notes, _state = no_next_runtime(calls)
+
+    result = fixit_felix_runtime.apply_no_next_chunk(
+        runtime,
+        fixit_felix.NoNextChunkDecision("wrong_iend_length", b"IDAT", b"IEND", "1"),
+        "CheckLength_Error_0:-No NextChunk",
+        "IEND_Tool_",
+        no_next_tools(chunk_type=b"IEND", chunk_length="1"),
+    )
+
+    assert result == (False, None)
+    assert side_notes == ["-Wrong length for IEND"]
+    assert calls[-1] == ("the_end", (), {})
+
+
+def test_apply_no_next_append_missing_iend_uses_dummy_at_crc_tail():
+    calls = []
+    finding = "CheckLength_Error_0:-No NextChunk"
+    runtime, side_notes, _state = no_next_runtime(calls, data_hex="aabbccddff")
+
+    result = fixit_felix_runtime.apply_no_next_chunk(
+        runtime,
+        fixit_felix.NoNextChunkDecision("append_missing_iend", b"IDAT", b"IDAT", "12"),
+        finding,
+        "IDAT_Tool_",
+        no_next_tools(),
+    )
+
+    assert result == (True, "dummy-result")
+    assert side_notes == ["-Extra bits detected:ff"]
+    assert calls[-1] == ("dummy_chunk", (b"IEND", 8, 8, 8, finding), {})
+
+
+def test_apply_no_next_ask_length_probe_routes_to_nearby_chunk():
+    calls = []
+    finding = "CheckLength_Error_0:-No NextChunk"
+    runtime, side_notes, _state = no_next_runtime(
+        calls,
+        pandora_box={finding: {"IDAT_Tool_0": b"IDAT"}},
+    )
+
+    result = fixit_felix_runtime.apply_no_next_chunk(
+        runtime,
+        fixit_felix.NoNextChunkDecision("ask_length_probe", b"IDAT", b"IDAT", "12"),
+        finding,
+        "IDAT_Tool_",
+        no_next_tools(),
+    )
+
+    assert result == (True, "nearby-result")
+    assert side_notes == ["-End of File Reached but IEND Chunk is missing"]
+    assert calls[-1] == ("nearby_chunk", (b"IDAT", "12", b"IDAT", False, finding), {})
+
+
+def test_apply_no_next_chunk_rejects_unknown_action():
+    runtime, _side_notes, _state = no_next_runtime([])
+
+    try:
+        fixit_felix_runtime.apply_no_next_chunk(
+            runtime,
+            SimpleNamespace(action="unknown"),
+            "finding",
+            "IDAT_Tool_",
+            no_next_tools(),
+        )
+    except ValueError as exc:
+        assert str(exc) == "Unknown FixItFelix no-next-chunk action: unknown"
+    else:
+        raise AssertionError("Expected ValueError for unknown no-next action")
+
+
 def libpng_runtime(
     calls,
     *,
@@ -794,6 +993,15 @@ def main():
             test_apply_wrong_chunk_name_rejects_missing_tools_for_action,
         ),
         ("Apply wrong chunk name rejects unknown action", test_apply_wrong_chunk_name_rejects_unknown_action),
+        (
+            "Apply no-next false positive runs libpng",
+            test_apply_no_next_false_positive_iend_runs_libpng_after_marking_eof,
+        ),
+        ("Apply no-next false positive clean cut", test_apply_no_next_false_positive_iend_writes_clean_cut),
+        ("Apply no-next wrong IEND length ends", test_apply_no_next_wrong_iend_length_records_note_and_ends),
+        ("Apply no-next appends dummy at CRC tail", test_apply_no_next_append_missing_iend_uses_dummy_at_crc_tail),
+        ("Apply no-next length probe routes nearby", test_apply_no_next_ask_length_probe_routes_to_nearby_chunk),
+        ("Apply no-next rejects unknown action", test_apply_no_next_chunk_rejects_unknown_action),
         ("Apply libpng saves existing solution", test_apply_libpng_error_saves_existing_solution),
         ("Apply libpng accepts Relics prompt", test_apply_libpng_error_accepts_relics_prompt_and_sets_skip),
         ("Apply libpng declines Relics prompt", test_apply_libpng_error_declines_relics_prompt_and_ends),
