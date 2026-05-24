@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, fixit_felix_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, fixit_felix_runtime, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -485,8 +485,32 @@ def Chunk_Report_Emoji(name):
 
 
 ####
+def GetInfo_Set_Legacy(**values):
+    globals().update(values)
+
+
+def GetInfo_Runtime():
+    return getinfo_runtime.GetInfoRuntime(
+        chunk_state=CHUNK_INFO_STATE,
+        set_legacy=GetInfo_Set_Legacy,
+        sync_legacy=Sync_Chunk_Info_Legacy_State,
+        max_resolution=Max_Res,
+        checkpoint=CheckPoint,
+        emit=PRINT,
+        candy=Candy,
+        color=Chunk_Report_Color,
+        emoji=Chunk_Report_Emoji,
+        raw_length=Raw_Length,
+        orig_cl=Orig_CL,
+        ihdr_color=IHDR_Color,
+        ihdr_depth=IHDR_Depht,
+        chunks_history=tuple(Chunks_History),
+        private_chunks=tuple(PRIVATE_CHUNKS),
+        allchunks=tuple(ALLCHUNKS),
+    )
+
+
 def GetInfo(Chunk, data, Dummy=False):
-    ToFix = []
     globals().update(
         iCCP_Name="",
         iTXt_String="",
@@ -495,383 +519,8 @@ def GetInfo(Chunk, data, Dummy=False):
         tEXt_Text="",
         tEXt_Key="",
     )
-    zTXt_String = ""
-    Name = ""
-    lastnm = ""
 
-    def set_legacy(**values):
-        globals().update(values)
-
-    def print_ok():
-        PRINT(
-            "\n-Errors Check :"
-            + Candy("Color", "green", " OK ")
-            + Candy("Emoj", "good")
-        )
-
-    def checkpoint_or_ok(check_data=None):
-        if len(ToFix) > 0:
-            if check_data is None:
-                CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-            else:
-                CheckPoint(True, False, "GetInfo", Chunk, ToFix, check_data)
-        else:
-            print_ok()
-
-    def checkpoint_only(check_data=None):
-        if len(ToFix) > 0:
-            if check_data is None:
-                CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-            else:
-                CheckPoint(True, False, "GetInfo", Chunk, ToFix, check_data)
-
-    Candy("Title", "Getting infos about:", Candy("Color", "white", str(Chunk)))
-
-    def handle_png():
-        Candy(
-            "Cowsay", " Well ..That's a start ..At least it looks like a png.", "good"
-        )
-
-    def handle_ihdr():
-        IHDR_Info = chunk_info.parse_ihdr(data, max_resolution=Max_Res())
-        CHUNK_INFO_STATE.apply_ihdr(IHDR_Info)
-        Sync_Chunk_Info_Legacy_State("ihdr")
-
-        chunk_report.render_ihdr(IHDR_Info, PRINT, Chunk_Report_Color)
-
-        ToFix.extend(IHDR_Info.fixes)
-        checkpoint_or_ok()
-
-    def handle_idat():
-        IDAT_Info = CHUNK_INFO_STATE.next_idat(data, Raw_Length)
-        CHUNK_INFO_STATE.apply_idat(IDAT_Info)
-        Sync_Chunk_Info_Legacy_State("idat")
-        chunk_report.render_idat(IDAT_Info, PRINT, Chunk_Report_Color)
-        ToFix.extend(IDAT_Info.fixes)
-        checkpoint_only()
-
-    def handle_phys():
-        pHYs_Info = chunk_info.parse_phys(data)
-        set_legacy(pHYs_Y=pHYs_Info.y, pHYs_X=pHYs_Info.x, pHYs_Unit=pHYs_Info.unit)
-
-        chunk_report.render_phys(pHYs_Info, PRINT, Chunk_Report_Color, Chunk_Report_Emoji)
-
-        ToFix.extend(pHYs_Info.fixes)
-        checkpoint_or_ok()
-
-    def handle_bkgd():
-        bKGD_Info = chunk_info.parse_bkgd(data, IHDR_Color, IHDR_Depht)
-        set_legacy(
-            bKGD_Gray=bKGD_Info.gray,
-            bKGD_Red=bKGD_Info.red,
-            bKGD_Green=bKGD_Info.green,
-            bKGD_Blue=bKGD_Info.blue,
-            bKGD_Index=bKGD_Info.index,
-        )
-
-        chunk_report.render_bkgd(bKGD_Info, PRINT, Chunk_Report_Color)
-
-        ToFix.extend(bKGD_Info.fixes)
-        checkpoint_or_ok()
-
-    def handle_plte():
-        PLTE_Info = chunk_info.parse_plte(data, IHDR_Depht)
-        CHUNK_INFO_STATE.apply_plte(PLTE_Info)
-        Sync_Chunk_Info_Legacy_State("plte")
-
-        chunk_report.render_plte(PLTE_R, PLTE_G, PLTE_B, PRINT, Chunk_Report_Color)
-
-        ToFix.extend(PLTE_Info.fixes)
-        checkpoint_or_ok()
-
-    def handle_splt():
-        sPLT_Info = chunk_info.parse_splt(
-            data,
-            previous_names=tuple(CHUNK_INFO_STATE.splt_name),
-        )
-        CHUNK_INFO_STATE.apply_splt(sPLT_Info)
-        Sync_Chunk_Info_Legacy_State("splt")
-
-        chunk_report.render_splt(
-            sPLT_Info,
-            sPLT_Red,
-            sPLT_Green,
-            sPLT_Blue,
-            sPLT_Alpha,
-            sPLT_Freq,
-            PRINT,
-            Chunk_Report_Color,
-        )
-
-        ToFix.extend(sPLT_Info.fixes)
-        checkpoint_or_ok(data)
-
-    def handle_hist():
-        hIST_Info = chunk_info.parse_hist(
-            data,
-            has_plte=b"PLTE" in Chunks_History,
-            has_splt=b"sPLT" in Chunks_History,
-            plte_entries=CHUNK_INFO_STATE.plte_entry_count(),
-            splt_entries=CHUNK_INFO_STATE.splt_entry_count(),
-        )
-        set_legacy(hIST=list(hIST_Info.entries))
-        chunk_report.render_hist(hIST, PRINT, Chunk_Report_Color)
-
-        ToFix.extend(hIST_Info.fixes)
-        checkpoint_or_ok(data)
-
-    def handle_time():
-        tIME_Current_Year = datetime.now().year
-        tIME_Info = chunk_info.parse_time(data, current_year=tIME_Current_Year)
-        set_legacy(
-            tIME_Yr=tIME_Info.year,
-            tIME_Mth=tIME_Info.month,
-            tIME_Day=tIME_Info.day,
-            tIME_Hr=tIME_Info.hour,
-            tIME_Min=tIME_Info.minute,
-            tIME_Sec=tIME_Info.second,
-        )
-        chunk_report.render_time(
-            tIME_Info,
-            tIME_Current_Year,
-            PRINT,
-            Chunk_Report_Color,
-            Chunk_Report_Emoji,
-        )
-        ToFix.extend(tIME_Info.fixes)
-        checkpoint_or_ok()
-
-    def handle_trns():
-        tRNS_Info = chunk_info.parse_trns(
-            data,
-            IHDR_Color,
-            has_plte=b"PLTE" in Chunks_History,
-            has_splt=b"sPLT" in Chunks_History,
-            plte_entries=len(CHUNK_INFO_STATE.plte_r),
-            splt_entries=len(CHUNK_INFO_STATE.splt_red),
-        )
-        set_legacy(
-            tRNS_Gray=tRNS_Info.gray,
-            tRNS_TrueR=tRNS_Info.true_r,
-            tRNS_TrueG=tRNS_Info.true_g,
-            tRNS_TrueB=tRNS_Info.true_b,
-        )
-        CHUNK_INFO_STATE.apply_trns(tRNS_Info)
-        Sync_Chunk_Info_Legacy_State("trns")
-
-        chunk_report.render_trns(tRNS_Info, PRINT, Chunk_Report_Color)
-
-        ToFix.extend(tRNS_Info.fixes)
-        checkpoint_or_ok()
-
-    def handle_srgb():
-        sRGB_Info = chunk_info.parse_srgb(data, has_chrm=b"cHRM" in Chunks_History)
-        set_legacy(sRGB=sRGB_Info.value)
-        chunk_report.render_srgb(
-            sRGB_Info,
-            b"cHRM" in Chunks_History,
-            PRINT,
-            Chunk_Report_Color,
-            Chunk_Report_Emoji,
-        )
-        ToFix.extend(sRGB_Info.fixes)
-
-        checkpoint_or_ok()
-
-    def handle_chrm():
-        cHRM_Info = chunk_info.parse_chrm(
-            data,
-            has_srgb_or_iccp=b"sRGB" in Chunks_History or b"iCCP" in Chunks_History,
-        )
-        CHUNK_INFO_STATE.apply_chrm(cHRM_Info)
-        Sync_Chunk_Info_Legacy_State("chrm")
-        chunk_report.render_chrm(
-            cHRM_Info,
-            b"sRGB" in Chunks_History or b"iCCP" in Chunks_History,
-            PRINT,
-            Chunk_Report_Color,
-            Chunk_Report_Emoji,
-        )
-        ToFix.extend(cHRM_Info.fixes)
-
-        checkpoint_or_ok()
-
-    def handle_gama():
-        gAMA_Info = chunk_info.parse_gama(data)
-        set_legacy(gAMA=gAMA_Info.value)
-        chunk_report.render_gama(gAMA_Info, PRINT, Chunk_Report_Color)
-        ToFix.extend(gAMA_Info.fixes)
-        checkpoint_only()
-
-    def handle_iccp():
-        iCCP_Info = chunk_info.parse_iccp(
-            data,
-            raw_length_hex=Orig_CL,
-            has_chrm=b"cHRM" in Chunks_History,
-        )
-        CHUNK_INFO_STATE.apply_iccp(iCCP_Info)
-        Sync_Chunk_Info_Legacy_State("iccp")
-
-        chunk_report.render_iccp(
-            iCCP_Info,
-            b"cHRM" in Chunks_History,
-            PRINT,
-            Chunk_Report_Color,
-            Chunk_Report_Emoji,
-        )
-        ToFix.extend(iCCP_Info.fixes)
-
-        checkpoint_or_ok()
-
-    def handle_sbit():
-        sBIT_Info = chunk_info.parse_sbit(data, IHDR_Color, IHDR_Depht)
-        CHUNK_INFO_STATE.apply_sbit(sBIT_Info)
-        Sync_Chunk_Info_Legacy_State("sbit")
-
-        chunk_report.render_sbit(sBIT_Info, PRINT, Chunk_Report_Color)
-
-        ToFix.extend(sBIT_Info.fixes)
-        checkpoint_or_ok()
-
-    def handle_offs():
-        oFFs_Info = chunk_info.parse_offs(data)
-        CHUNK_INFO_STATE.apply_offs(oFFs_Info)
-
-        chunk_report.render_offs(oFFs_Info, PRINT, Chunk_Report_Color, Chunk_Report_Emoji)
-        ToFix.extend(oFFs_Info.fixes)
-        checkpoint_or_ok()
-
-    def handle_pcal():
-        pCAL_Info = chunk_info.parse_pcal(data)
-        CHUNK_INFO_STATE.apply_pcal(pCAL_Info)
-        Sync_Chunk_Info_Legacy_State("pcal")
-
-        chunk_report.render_pcal(pCAL_Info, PRINT, Chunk_Report_Color)
-
-        ToFix.extend(pCAL_Info.fixes)
-        checkpoint_only()
-
-    def handle_gifg():
-        gIFg_Info = chunk_info.parse_gifg(data)
-        CHUNK_INFO_STATE.apply_gifg(gIFg_Info)
-        Sync_Chunk_Info_Legacy_State("gifg")
-
-        chunk_report.render_gifg(gIFg_Info, PRINT, Chunk_Report_Color)
-        ToFix.extend(gIFg_Info.fixes)
-
-        checkpoint_only()
-
-    def handle_gifx():
-        gIFx_Info = chunk_info.parse_gifx(data)
-        CHUNK_INFO_STATE.apply_gifx(gIFx_Info)
-        Sync_Chunk_Info_Legacy_State("gifx")
-
-        chunk_report.render_gifx(gIFx_Info, PRINT, Chunk_Report_Color)
-        ToFix.extend(gIFx_Info.fixes)
-
-        checkpoint_only()
-
-    def handle_ster():
-        sTER_Info = chunk_info.parse_ster(data)
-        CHUNK_INFO_STATE.apply_ster(sTER_Info)
-        Sync_Chunk_Info_Legacy_State("ster")
-
-        chunk_report.render_ster(sTER_Info, PRINT, Chunk_Report_Color)
-        ToFix.extend(sTER_Info.fixes)
-
-        checkpoint_only()
-
-    def handle_text():
-        tEXt_Info = chunk_info.parse_text(data)
-        CHUNK_INFO_STATE.apply_text(tEXt_Info)
-        Sync_Chunk_Info_Legacy_State("text")
-
-        chunk_report.render_text(tEXt_Info, PRINT, Chunk_Report_Color)
-
-        ToFix.extend(tEXt_Info.fixes)
-        checkpoint_only()
-
-    def handle_ztxt():
-        zTXt_Info = chunk_info.parse_ztxt(data)
-        CHUNK_INFO_STATE.apply_ztxt(zTXt_Info)
-        Sync_Chunk_Info_Legacy_State("ztxt")
-
-        chunk_report.render_ztxt(zTXt_Info, PRINT, Chunk_Report_Color)
-
-        ToFix.extend(zTXt_Info.fixes)
-        checkpoint_only()
-
-    def handle_itxt():
-        iTXt_Info = chunk_info.parse_itxt(data)
-        CHUNK_INFO_STATE.apply_itxt(iTXt_Info)
-        Sync_Chunk_Info_Legacy_State("itxt")
-
-        chunk_report.render_itxt(iTXt_Info, PRINT, Chunk_Report_Color)
-
-        ToFix.extend(iTXt_Info.fixes)
-        checkpoint_only()
-
-    def handle_exif():
-        eXIf_Info = chunk_info.parse_exif(data)
-        CHUNK_INFO_STATE.apply_exif(eXIf_Info)
-        Sync_Chunk_Info_Legacy_State("exif")
-
-        chunk_report.render_exif(eXIf_Info, PRINT, Chunk_Report_Color)
-        ToFix.extend(eXIf_Info.fixes)
-
-        checkpoint_only()
-
-    def handle_spal():
-        spAL_Info = chunk_info.parse_spal(data)
-        chunk_report.render_spal(spAL_Info, PRINT, Chunk_Report_Color)
-        ToFix.extend(spAL_Info.fixes)
-
-        checkpoint_only()
-
-    handlers = {
-        b"PNG": handle_png,
-        b"IHDR": handle_ihdr,
-        b"IDAT": handle_idat,
-        b"pHYs": handle_phys,
-        b"bKGD": handle_bkgd,
-        b"PLTE": handle_plte,
-        b"sPLT": handle_splt,
-        b"hIST": handle_hist,
-        b"tIME": handle_time,
-        b"tRNS": handle_trns,
-        b"sRGB": handle_srgb,
-        b"cHRM": handle_chrm,
-        b"gAMA": handle_gama,
-        b"iCCP": handle_iccp,
-        b"sBIT": handle_sbit,
-        b"oFFs": handle_offs,
-        b"pCAL": handle_pcal,
-        b"gIFg": handle_gifg,
-        b"gIFx": handle_gifx,
-        b"sTER": handle_ster,
-        b"tEXt": handle_text,
-        b"zTXt": handle_ztxt,
-        b"iTXt": handle_itxt,
-        b"eXIf": handle_exif,
-        b"spAL": handle_spal,
-    }
-
-    handler = handlers.get(Chunk)
-    if handler is not None:
-        handler()
-
-    if Chunk in PRIVATE_CHUNKS:
-        PRINT("-Private Chunk")
-
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
-
-    if Chunk not in ALLCHUNKS:
-
-        PRINT("-%s" % Candy("Color", "red", "Unknown Chunk."))
-
-        if len(ToFix) > 0:
-            CheckPoint(True, False, "GetInfo", Chunk, ToFix)
+    getinfo_runtime.run_getinfo(GetInfo_Runtime(), Chunk, data)
 
     if Dummy is False:
         CheckChunkOrder(Chunk, "TheGoodPlace")
