@@ -554,6 +554,49 @@ def handle_no_pandemonium_flow(
     the_end()
 
 
+def handle_no_pandemonium_context_flow(
+    runtime: RelicsRuntime,
+    relics_module: Any,
+    ui_module: Any,
+    context: Any,
+    *,
+    ask: Callable[[], Any],
+    emit: Callable[[str], Any],
+    candy: LegacyCall,
+    the_end: Callable[[], Any],
+) -> Any:
+    policy = None
+    prompt_context = None
+    if len(context.pandora_box) > 0:
+        policy = relics_module.no_pandemonium_policy(
+            context.pandora_box,
+            context.critical_chunks,
+            context.all_chunks,
+        )
+        prompt_context = relics_module.no_pandemonium_prompt_context(
+            policy,
+            context.pandora_box,
+        )
+
+    return handle_no_pandemonium_flow(
+        runtime,
+        relics_module,
+        ui_module,
+        policy=policy,
+        prompt_context=prompt_context,
+        chunks_history=context.chunks_history,
+        chunks_history_index=context.chunks_history_index,
+        target_file=context.sample_name,
+        from_error=context.from_error,
+        chunks_len_not_fixed=context.chunks_len_not_fixed,
+        skip_bad_crc=context.skip_bad_crc,
+        ask=ask,
+        emit=emit,
+        candy=candy,
+        the_end=the_end,
+    )
+
+
 def ask_plte_repair(runtime: RelicsRuntime, relics_module: Any, has_bad_crc: bool) -> Any:
     return runtime.ask_choice(
         relics_module.plte_repair_prompt(has_bad_crc),

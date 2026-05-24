@@ -4302,31 +4302,11 @@ def Relics(FromError):
     if handled:
         return result
 
-    RelicsPolicy = None
-    PromptContext = None
-    if len(RelicsContext.pandora_box) > 0:
-        RelicsPolicy = relics.no_pandemonium_policy(
-            RelicsContext.pandora_box,
-            RelicsContext.critical_chunks,
-            RelicsContext.all_chunks,
-        )
-        PromptContext = relics.no_pandemonium_prompt_context(
-            RelicsPolicy,
-            RelicsContext.pandora_box,
-        )
-
-    return relics_runtime.handle_no_pandemonium_flow(
+    return relics_runtime.handle_no_pandemonium_context_flow(
         RelicsRuntime,
         relics,
         relics_ui,
-        policy=RelicsPolicy,
-        prompt_context=PromptContext,
-        chunks_history=RelicsContext.chunks_history,
-        chunks_history_index=RelicsContext.chunks_history_index,
-        target_file=RelicsContext.sample_name,
-        from_error=RelicsContext.from_error,
-        chunks_len_not_fixed=RelicsContext.chunks_len_not_fixed,
-        skip_bad_crc=RelicsContext.skip_bad_crc,
+        RelicsContext,
         ask=Question,
         emit=PRINT,
         candy=Candy,
