@@ -4243,13 +4243,21 @@ def Relics(FromError):
     Candy("Title", "Opening the Ark Of The Covenant :")
 
     RelicsRuntime = Relics_Runtime()
-    relics_ui.emit_debug_state(
+    RelicsDebugContext = runtime_state.relics_debug_runtime_context(
         debug=DEBUG,
         pandemonium=Pandemonium,
         pandora_box=PandoraBox,
         chunks_history=Chunks_History,
         chunks_history_index=Chunks_History_Index,
         pause_debug=PAUSEDEBUG,
+    )
+    relics_ui.emit_debug_state(
+        debug=RelicsDebugContext.debug,
+        pandemonium=RelicsDebugContext.pandemonium,
+        pandora_box=RelicsDebugContext.pandora_box,
+        chunks_history=RelicsDebugContext.chunks_history,
+        chunks_history_index=RelicsDebugContext.chunks_history_index,
+        pause_debug=RelicsDebugContext.pause_debug,
         emit=PRINT,
         pause=Pause,
     )

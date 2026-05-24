@@ -199,6 +199,34 @@ def test_chunk_order_runtime_context_freezes_legacy_runtime_inputs():
     )
 
 
+def test_relics_debug_runtime_context_freezes_history_and_keeps_error_stores():
+    pandemonium = {"sample.png": {}}
+    pandora_box = {"Error": {}}
+    chunks_history = [b"PNG", b"IHDR"]
+    chunks_history_index = ["0:0:16:8"]
+
+    context = runtime_state.relics_debug_runtime_context(
+        debug=True,
+        pandemonium=pandemonium,
+        pandora_box=pandora_box,
+        chunks_history=chunks_history,
+        chunks_history_index=chunks_history_index,
+        pause_debug=False,
+    )
+
+    chunks_history.append(b"IDAT")
+    chunks_history_index.append("1:16:24:0")
+
+    assert context == runtime_state.RelicsDebugRuntimeContext(
+        debug=True,
+        pandemonium=pandemonium,
+        pandora_box=pandora_box,
+        chunks_history=(b"PNG", b"IHDR"),
+        chunks_history_index=("0:0:16:8",),
+        pause_debug=False,
+    )
+
+
 def main():
     checks = [
         ("scan reset values", test_main_loop_scan_reset_values_preserve_legacy_defaults),
@@ -214,6 +242,7 @@ def main():
         ("GroundhogDay relaunch args", test_groundhogday_relaunch_args_preserve_legacy_shape_without_mutating_input),
         ("NameShift runtime context", test_name_shift_runtime_context_freezes_legacy_runtime_inputs),
         ("ChunkOrder runtime context", test_chunk_order_runtime_context_freezes_legacy_runtime_inputs),
+        ("Relics debug runtime context", test_relics_debug_runtime_context_freezes_history_and_keeps_error_stores),
     ]
 
     print("Running runtime state tests")
