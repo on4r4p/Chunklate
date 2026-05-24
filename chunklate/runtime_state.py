@@ -40,16 +40,6 @@ class ChunkOrderRuntimeContext:
 
 
 @dataclass(frozen=True)
-class RelicsDebugRuntimeContext:
-    debug: bool
-    pandemonium: Any
-    pandora_box: Any
-    chunks_history: tuple[bytes, ...]
-    chunks_history_index: tuple[str, ...]
-    pause_debug: bool
-
-
-@dataclass(frozen=True)
 class RelicsRuntimeContext:
     from_error: Any
     pandemonium: Any
@@ -197,25 +187,6 @@ def chunk_order_runtime_context(
         sample_name=sample_name,
         chunks_history=tuple(chunks_history),
         unique_chunks=tuple(unique_chunks),
-    )
-
-
-def relics_debug_runtime_context(
-    *,
-    debug: bool,
-    pandemonium: Any,
-    pandora_box: Any,
-    chunks_history: list[bytes],
-    chunks_history_index: list[str],
-    pause_debug: bool,
-) -> RelicsDebugRuntimeContext:
-    return RelicsDebugRuntimeContext(
-        debug=debug,
-        pandemonium=pandemonium,
-        pandora_box=pandora_box,
-        chunks_history=tuple(chunks_history),
-        chunks_history_index=tuple(chunks_history_index),
-        pause_debug=pause_debug,
     )
 
 
