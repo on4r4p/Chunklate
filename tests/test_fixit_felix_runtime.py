@@ -141,6 +141,173 @@ def test_apply_critical_miss_rejects_unknown_action():
         raise AssertionError("Expected ValueError for unknown critical-miss action")
 
 
+def libpng_runtime(
+    calls,
+    *,
+    answer=True,
+    pandora_box=None,
+    cornucopia=None,
+    sample="sample.png",
+):
+    def record(name, result=None):
+        def callback(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return result
+
+        return callback
+
+    return fixit_felix_runtime.LibpngErrorRuntime(
+        emit=record("emit"),
+        candy=record("candy", "colored"),
+        question=record("question", answer),
+        the_end=record("the_end"),
+        run_relics=record("run_relics", "relics-result"),
+        save_clone=record("save_clone", "saved"),
+        groundhog_day=record("groundhog_day", "groundhog-result"),
+        set_skip_bad_libpng=record("set_skip_bad_libpng"),
+        pandora_box=pandora_box if pandora_box is not None else {},
+        cornucopia=cornucopia if cornucopia is not None else {},
+        sample=sample,
+    )
+
+
+def test_apply_libpng_error_saves_existing_solution():
+    calls = []
+    finding = "Libpng_Error_0:libpng error: bad adaptive filter"
+    chkd = "LibpngCheck_Tool_"
+    runtime = libpng_runtime(
+        calls,
+        cornucopia={
+            finding: {
+                chkd + "0": "fixed-data",
+                chkd + "1": 12,
+                chkd + "2": 20,
+                chkd + "3": "legacy save note",
+            }
+        },
+    )
+
+    result = fixit_felix_runtime.apply_libpng_error(
+        runtime,
+        fixit_felix.LibpngErrorDecision("save_existing_solution", finding),
+        chkd,
+    )
+
+    assert result == (True, "groundhog-result")
+    assert calls == [
+        ("emit", ("\n-\033[1;31;49mCriticalHit\033[m: %s" % finding,), {}),
+        ("emit", ("\n-\033[1;32;49mSolved\033[m: legacy save note",), {}),
+        ("save_clone", ("fixed-data", 12, 20, "legacy save note"), {}),
+        ("groundhog_day", ("sample.png",), {}),
+    ]
+
+
+def test_apply_libpng_error_accepts_relics_prompt_and_sets_skip():
+    calls = []
+    finding = "Libpng_Error_0:libpng error: bad adaptive filter"
+    chkd = "LibpngCheck_Tool_"
+    pandora_box = {
+        finding: {
+            chkd + "0": "candidate",
+            chkd + "1": 12,
+            chkd + "2": 20,
+        }
+    }
+    runtime = libpng_runtime(calls, pandora_box=pandora_box)
+
+    result = fixit_felix_runtime.apply_libpng_error(
+        runtime,
+        fixit_felix.LibpngErrorDecision("ask_relics", finding),
+        chkd,
+    )
+
+    assert result == (True, "relics-result")
+    assert calls[0] == ("emit", ("\n-\033[1;31;49mCriticalHit\033[m: %s" % finding,), {})
+    assert calls[-2:] == [
+        ("set_skip_bad_libpng", (True,), {}),
+        ("run_relics", (finding,), {}),
+    ]
+    question_calls = [call for call in calls if call[0] == "question"]
+    assert question_calls == [
+        (
+            "question",
+            (),
+            {
+                "id": finding,
+                "idhash": hash("candidate1220"),
+            },
+        )
+    ]
+
+
+def test_apply_libpng_error_declines_relics_prompt_and_ends():
+    calls = []
+    finding = "Libpng_Error_0:libpng error: bad adaptive filter"
+    runtime = libpng_runtime(calls, answer=False)
+
+    result = fixit_felix_runtime.apply_libpng_error(
+        runtime,
+        fixit_felix.LibpngErrorDecision("ask_relics", finding),
+        "LibpngCheck_Tool_",
+    )
+
+    assert result is None
+    assert calls[-2:] == [
+        ("candy", ("Cowsay", "See You Space Cowboy....", "good"), {}),
+        ("the_end", (), {}),
+    ]
+
+
+def test_apply_libpng_error_not_enough_image_data_ends_after_todo():
+    calls = []
+    finding = "Libpng_Error_0:libpng error: Not enough image data"
+    runtime = libpng_runtime(calls)
+
+    result = fixit_felix_runtime.apply_libpng_error(
+        runtime,
+        fixit_felix.LibpngErrorDecision("not_enough_image_data", finding),
+        "LibpngCheck_Tool_",
+    )
+
+    assert result is None
+    assert calls[-2:] == [
+        ("emit", ("colored",), {}),
+        ("the_end", (), {}),
+    ]
+
+
+def test_apply_libpng_error_skip_only_reports_critical_hit():
+    calls = []
+    finding = "Libpng_Error_0:libpng error: bad adaptive filter"
+    runtime = libpng_runtime(calls)
+
+    result = fixit_felix_runtime.apply_libpng_error(
+        runtime,
+        fixit_felix.LibpngErrorDecision("skip", finding),
+        "LibpngCheck_Tool_",
+    )
+
+    assert result == (False, None)
+    assert calls == [
+        ("emit", ("\n-\033[1;31;49mCriticalHit\033[m: %s" % finding,), {})
+    ]
+
+
+def test_apply_libpng_error_rejects_unknown_action():
+    runtime = libpng_runtime([])
+
+    try:
+        fixit_felix_runtime.apply_libpng_error(
+            runtime,
+            SimpleNamespace(action="unknown", finding="Libpng_Error_0:bad"),
+            "LibpngCheck_Tool_",
+        )
+    except ValueError as exc:
+        assert str(exc) == "Unknown FixItFelix libpng action: unknown"
+    else:
+        raise AssertionError("Expected ValueError for unknown libpng action")
+
+
 def recording_callbacks(calls):
     return fixit_felix_runtime.LegacyFixItFelixHandlers(
         wrong_crc=lambda finding, chkd, pandora_len: calls.append(
@@ -236,6 +403,12 @@ def main():
         ("Apply critical miss emits and pauses", test_apply_critical_miss_emits_and_pauses_on_debug_action),
         ("Apply critical miss continue skips pause", test_apply_critical_miss_continue_does_not_pause),
         ("Apply critical miss rejects unknown action", test_apply_critical_miss_rejects_unknown_action),
+        ("Apply libpng saves existing solution", test_apply_libpng_error_saves_existing_solution),
+        ("Apply libpng accepts Relics prompt", test_apply_libpng_error_accepts_relics_prompt_and_sets_skip),
+        ("Apply libpng declines Relics prompt", test_apply_libpng_error_declines_relics_prompt_and_ends),
+        ("Apply libpng not enough image data ends", test_apply_libpng_error_not_enough_image_data_ends_after_todo),
+        ("Apply libpng skip reports critical", test_apply_libpng_error_skip_only_reports_critical_hit),
+        ("Apply libpng rejects unknown action", test_apply_libpng_error_rejects_unknown_action),
         ("Finding handlers route callback arguments", test_finding_handlers_route_legacy_callback_arguments),
         ("Apply finding work item dispatches", test_apply_finding_work_item_dispatches_through_fixit_felix_dispatch),
         ("Runtime uses automatic repair and callbacks", test_runtime_uses_automatic_repair_and_legacy_callbacks),

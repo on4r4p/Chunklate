@@ -38,6 +38,25 @@ class CriticalMissRuntime:
     pause: Callable[[str], Any]
 
 
+@dataclass(frozen=True)
+class LibpngErrorRuntime:
+    emit: Callable[[str], Any]
+    candy: Callable[..., Any]
+    question: Callable[..., Any]
+    the_end: Callable[[], Any]
+    run_relics: Callable[[str], Any]
+    save_clone: Callable[[Any, Any, Any, Any], Any]
+    groundhog_day: Callable[[Any], Any]
+    set_skip_bad_libpng: Callable[[bool], Any]
+    pandora_box: Any
+    cornucopia: Any
+    sample: Any
+
+
+def emit_libpng_critical(runtime: LibpngErrorRuntime, finding: Any) -> None:
+    runtime.emit("\n-\033[1;31;49mCriticalHit\033[m: %s" % finding)
+
+
 def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool:
     applied_repair = fixit_felix.applied_repair(repair)
     runtime.side_notes.append(applied_repair.note)
@@ -70,6 +89,66 @@ def apply_critical_miss(
         return False, None
 
     raise ValueError("Unknown FixItFelix critical-miss action: %s" % decision.action)
+
+
+def apply_libpng_error(
+    runtime: LibpngErrorRuntime,
+    decision: fixit_felix.LibpngErrorDecision,
+    chkd: str,
+) -> Any:
+    emit_libpng_critical(runtime, decision.finding)
+
+    if decision.action == "not_enough_image_data":
+        runtime.candy("Cowsay", "Well this is as far as i could get for now. ", "bad")
+        runtime.candy("Cowsay", "At least i was able to get some pixels out of it ..", "com")
+        runtime.emit(runtime.candy("Color", "yellow", "\n-ToDo"))
+        runtime.the_end()
+        return None
+
+    if decision.action == "ask_relics":
+        runtime.candy(
+            "Cowsay",
+            "The All Mighty Libpng has spoken ...",
+            "com",
+        )
+        runtime.candy("Cowsay", "Damned!! We were so close !", "bad")
+        runtime.candy(
+            "Cowsay",
+            "We should go some step back before to see if we can do something else..",
+            "com",
+        )
+        runtime.candy(
+            "Cowsay",
+            "Are you agree ? Otherwise Chunklate is going to exit",
+            "com",
+        )
+        uniqh = relics.question_hash(runtime.pandora_box, decision.finding, chkd)
+        answer = runtime.question(id=decision.finding, idhash=uniqh)
+        if answer is True:
+            runtime.set_skip_bad_libpng(True)
+            return True, runtime.run_relics(str(decision.finding))
+
+        runtime.candy("Cowsay", "See You Space Cowboy....", "good")
+        runtime.the_end()
+        return None
+
+    if decision.action == "skip":
+        return False, None
+
+    if decision.action == "save_existing_solution":
+        runtime.emit(
+            "\n-\033[1;32;49mSolved\033[m: %s"
+            % relics.tool_value(runtime.cornucopia[decision.finding], chkd, 3)
+        )
+        runtime.save_clone(
+            relics.tool_value(runtime.cornucopia[decision.finding], chkd, 0),
+            relics.tool_value(runtime.cornucopia[decision.finding], chkd, 1),
+            relics.tool_value(runtime.cornucopia[decision.finding], chkd, 2),
+            relics.tool_value(runtime.cornucopia[decision.finding], chkd, 3),
+        )
+        return True, runtime.groundhog_day(runtime.sample)
+
+    raise ValueError("Unknown FixItFelix libpng action: %s" % decision.action)
 
 
 def finding_handlers(callbacks: LegacyFixItFelixHandlers) -> dict[str, fixit_felix.FindingWorkItemHandler]:
