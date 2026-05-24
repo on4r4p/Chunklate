@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, fixit_felix_runtime, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, fixit_felix_runtime, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -530,107 +530,17 @@ def GetInfo(Chunk, data, Dummy=False):
 ####
 
 
+def YouShallPass_Runtime():
+    return youshallpass_runtime.YouShallPassRuntime(
+        chunk_state=CHUNK_INFO_STATE,
+        sync_state=Sync_Chunk_Info_State_From_Legacy,
+        chunks_history=tuple(Chunks_History),
+        orig_cl=Orig_CL,
+    )
+
+
 def YouShallPass(Chunk, data):
-    def passes(info):
-        return len(info.fixes) == 0
-
-    def validate_bkgd():
-        Sync_Chunk_Info_State_From_Legacy("ihdr")
-        return passes(
-            chunk_info.parse_bkgd(data, CHUNK_INFO_STATE.ihdr_color, CHUNK_INFO_STATE.ihdr_depth)
-        )
-
-    def validate_plte():
-        Sync_Chunk_Info_State_From_Legacy("ihdr")
-        return passes(chunk_info.parse_plte(data, CHUNK_INFO_STATE.ihdr_depth))
-
-    def validate_splt():
-        Sync_Chunk_Info_State_From_Legacy("splt")
-        return passes(
-            chunk_info.parse_splt(
-                data,
-                previous_names=tuple(CHUNK_INFO_STATE.splt_name),
-            )
-        )
-
-    def validate_hist():
-        Sync_Chunk_Info_State_From_Legacy(("plte", "splt"))
-        return passes(
-            chunk_info.parse_hist(
-                data,
-                has_plte=b"PLTE" in Chunks_History,
-                has_splt=b"sPLT" in Chunks_History,
-                plte_entries=CHUNK_INFO_STATE.plte_entry_count(),
-                splt_entries=CHUNK_INFO_STATE.splt_entry_count(),
-            )
-        )
-
-    def validate_trns():
-        Sync_Chunk_Info_State_From_Legacy(("ihdr", "plte", "splt"))
-        return passes(
-            chunk_info.parse_trns(
-                data,
-                CHUNK_INFO_STATE.ihdr_color,
-                has_plte=b"PLTE" in Chunks_History,
-                has_splt=b"sPLT" in Chunks_History,
-                plte_entries=len(CHUNK_INFO_STATE.plte_r),
-                splt_entries=len(CHUNK_INFO_STATE.splt_red),
-            )
-        )
-
-    def validate_sbit():
-        Sync_Chunk_Info_State_From_Legacy("ihdr")
-        return passes(
-            chunk_info.parse_sbit(
-                data,
-                CHUNK_INFO_STATE.ihdr_color,
-                CHUNK_INFO_STATE.ihdr_depth,
-            )
-        )
-
-    validators = {
-        b"IHDR": lambda: passes(chunk_info.parse_ihdr(data)),
-        b"pHYs": lambda: passes(chunk_info.parse_phys(data)),
-        b"bKGD": validate_bkgd,
-        b"PLTE": validate_plte,
-        b"sPLT": validate_splt,
-        b"hIST": validate_hist,
-        b"tIME": lambda: passes(chunk_info.parse_time(data)),
-        b"tRNS": validate_trns,
-        b"sRGB": lambda: passes(
-            chunk_info.parse_srgb(data, has_chrm=b"cHRM" in Chunks_History)
-        ),
-        b"cHRM": lambda: passes(
-            chunk_info.parse_chrm(
-                data,
-                has_srgb_or_iccp=b"sRGB" in Chunks_History or b"iCCP" in Chunks_History,
-            )
-        ),
-        b"gAMA": lambda: passes(chunk_info.parse_gama(data)),
-        b"iCCP": lambda: passes(
-            chunk_info.parse_iccp(
-                data,
-                raw_length_hex=Orig_CL,
-                has_chrm=b"cHRM" in Chunks_History,
-            )
-        ),
-        b"sBIT": validate_sbit,
-        b"oFFs": lambda: passes(chunk_info.parse_offs(data)),
-        b"pCAL": lambda: passes(chunk_info.parse_pcal(data)),
-        b"gIFg": lambda: passes(chunk_info.parse_gifg(data)),
-        b"gIFx": lambda: passes(chunk_info.parse_gifx(data)),
-        b"sTER": lambda: passes(chunk_info.parse_ster(data)),
-        b"tEXt": lambda: passes(chunk_info.parse_text(data)),
-        b"zTXt": lambda: passes(chunk_info.parse_ztxt(data)),
-        b"iTXt": lambda: passes(chunk_info.parse_itxt(data)),
-        b"eXIf": lambda: passes(chunk_info.parse_exif(data)),
-    }
-
-    validator = validators.get(Chunk)
-    if validator is not None:
-        return validator()
-
-    return True
+    return youshallpass_runtime.youshallpass(YouShallPass_Runtime(), Chunk, data)
 
 
 def Sync_Chunk_Scanner_Legacy_State(scan):

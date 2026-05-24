@@ -26,6 +26,7 @@ from . import (
     specs,
     ui_runtime,
     writer,
+    youshallpass_runtime,
 )
 from .png import PNG_SIGNATURE, PngChunk, PngFormatError, find_signature_offset, iter_chunks
 
@@ -60,4 +61,5 @@ __all__ = [
     "specs",
     "ui_runtime",
     "writer",
+    "youshallpass_runtime",
 ]
