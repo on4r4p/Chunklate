@@ -5045,19 +5045,12 @@ def FixItFelix(Chunk=None):
         if PAUSEDEBUG is True:
             Pause("FixItFelix Debug Pause:")
 
-    PandoraBox_len = fixit_felix.effective_pandora_box_len(
-        PandoraBox,
-        bad_next_name=Bad_Next_Name,
-    )
-
-    RunResult = fixit_felix.run_repair_work_items(
+    RunResult = fixit_felix.run_repair_pipeline(
         FixItFelix_Runtime(),
-        fixit_felix.repair_work_items(
-            PandoraBox,
-            skip_bad_crc=Skip_Bad_Crc,
-        ),
+        PandoraBox,
+        skip_bad_crc=Skip_Bad_Crc,
+        bad_next_name=Bad_Next_Name,
         chkd=chkd,
-        pandora_box_len=PandoraBox_len,
         chunk=Chunk,
     )
     if RunResult.should_return:

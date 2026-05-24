@@ -338,6 +338,30 @@ def run_repair_work_items(
     return FixItFelixRunResult(False)
 
 
+def run_repair_pipeline(
+    runtime: FixItFelixRuntime,
+    findings: Iterable[object],
+    *,
+    skip_bad_crc: bool,
+    bad_next_name: bool,
+    chkd: str,
+    chunk: Any,
+) -> FixItFelixRunResult:
+    return run_repair_work_items(
+        runtime,
+        repair_work_items(
+            findings,
+            skip_bad_crc=skip_bad_crc,
+        ),
+        chkd=chkd,
+        pandora_box_len=effective_pandora_box_len(
+            findings,
+            bad_next_name=bad_next_name,
+        ),
+        chunk=chunk,
+    )
+
+
 def dispatch_action(
     handlers: Mapping[str, ActionHandler],
     action: str,

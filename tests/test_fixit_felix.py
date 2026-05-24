@@ -519,6 +519,48 @@ def test_run_repair_work_items_reports_no_result_when_nothing_handles():
     assert result == fixit_felix.FixItFelixRunResult(False)
 
 
+def test_run_repair_pipeline_builds_work_items_and_adjusted_pandora_len():
+    calls = []
+
+    def apply_finding(work_item, chkd, pandora_box_len, chunk):
+        calls.append((work_item, chkd, pandora_box_len, chunk))
+        return True, "handled"
+
+    findings = {
+        "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42": {},
+        "Checksum_Error_0:Wrong Crc": {},
+    }
+    runtime = fixit_felix.FixItFelixRuntime(
+        try_automatic_repair=lambda handler: calls.append(("auto", handler)) or None,
+        apply_finding_work_item=apply_finding,
+    )
+
+    result = fixit_felix.run_repair_pipeline(
+        runtime,
+        findings,
+        skip_bad_crc=True,
+        bad_next_name=True,
+        chkd="IDAT_Tool_",
+        chunk=b"IDAT",
+    )
+
+    automatic_count = len(fixit_felix.automatic_repair_order())
+    assert result == fixit_felix.FixItFelixRunResult(True, "handled")
+    assert calls[:automatic_count] == [
+        ("auto", handler) for handler in fixit_felix.automatic_repair_order()
+    ]
+    assert calls[automatic_count] == (
+        fixit_felix.FixItFelixWorkItem(
+            "finding",
+            "wrong_chunk_name",
+            "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42",
+        ),
+        "IDAT_Tool_",
+        1,
+        b"IDAT",
+    )
+
+
 def test_dispatch_action_calls_matching_handler_with_args():
     calls = []
 
@@ -755,6 +797,7 @@ def main():
         ("Run work items returns automatic repair", test_run_repair_work_items_returns_first_automatic_repair_result),
         ("Run work items dispatches findings", test_run_repair_work_items_dispatches_findings_after_empty_automatic_repairs),
         ("Run work items reports no result", test_run_repair_work_items_reports_no_result_when_nothing_handles),
+        ("Run repair pipeline builds adjusted work items", test_run_repair_pipeline_builds_work_items_and_adjusted_pandora_len),
         ("Dispatch action calls matching handler", test_dispatch_action_calls_matching_handler_with_args),
         ("Dispatch action rejects unknown handler", test_dispatch_action_rejects_unknown_handler_with_legacy_message),
         ("Dispatch finding work item calls matching handler", test_dispatch_finding_work_item_calls_matching_handler),
