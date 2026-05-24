@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from typing import Callable
@@ -95,6 +96,9 @@ class FixItFelixRuntime:
 class FixItFelixRunResult:
     should_return: bool
     result: Any = None
+
+
+FindingWorkItemHandler = Callable[[FixItFelixWorkItem, str, int, Any], tuple[bool, Any]]
 
 
 @dataclass(frozen=True)
@@ -264,6 +268,19 @@ def run_repair_work_items(
             return FixItFelixRunResult(True, result)
 
     return FixItFelixRunResult(False)
+
+
+def dispatch_finding_work_item(
+    handlers: Mapping[str, FindingWorkItemHandler],
+    work_item: FixItFelixWorkItem,
+    chkd: str,
+    pandora_box_len: int,
+    chunk: Any,
+) -> tuple[bool, Any]:
+    handler = handlers.get(work_item.handler)
+    if handler is None:
+        raise ValueError("Unknown FixItFelix finding handler: %s" % work_item.handler)
+    return handler(work_item, chkd, pandora_box_len, chunk)
 
 
 def tool_prefix_for_chunk(chunk: Any) -> str:

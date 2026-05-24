@@ -4966,10 +4966,13 @@ FIXIT_FELIX_FINDING_HANDLERS = {
 
 
 def FixItFelix_Apply_Finding_Work_Item(work_item, chkd, pandora_box_len, Chunk):
-    handler = FIXIT_FELIX_FINDING_HANDLERS.get(work_item.handler)
-    if handler is None:
-        raise ValueError("Unknown FixItFelix finding handler: %s" % work_item.handler)
-    return handler(work_item, chkd, pandora_box_len, Chunk)
+    return fixit_felix.dispatch_finding_work_item(
+        FIXIT_FELIX_FINDING_HANDLERS,
+        work_item,
+        chkd,
+        pandora_box_len,
+        Chunk,
+    )
 
 
 def FixItFelix_Runtime():
