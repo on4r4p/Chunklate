@@ -2,6 +2,7 @@
 import sys
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -833,6 +834,101 @@ def test_relics_runtime_handles_remembered_dummy_chunk_flow_decline_and_missing_
     assert [call[0] for call in calls] == ["ui-ancillary", "todo", "end", "end"]
 
 
+def test_relics_runtime_skips_pandemonium_flow_without_pandemonium():
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: None,
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    assert relics_runtime.handle_pandemonium_flow(
+        runtime,
+        relics,
+        object(),
+        SimpleNamespace(pandemonium={}),
+        ask=lambda **kwargs: True,
+        emit=lambda value: None,
+        pause=lambda message: None,
+        show_todo=lambda: None,
+        the_end=lambda: None,
+        candy=lambda *args: None,
+    ) == (False, None)
+
+
+def test_relics_runtime_handles_pandemonium_current_wrong_crc_first():
+    calls = []
+    emitted = []
+    pandora_box = {
+        "Checksum_Error_0:Wrong Crc b'IDAT'": {
+            "IDAT_Tool_0": "new-crc-data",
+            "IDAT_Tool_1": 12,
+            "IDAT_Tool_2": 20,
+            "IDAT_Tool_3": b"IDAT",
+            "IDAT_Tool_4": "0x2a",
+            "IDAT_Tool_5": "old-crc",
+        }
+    }
+
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: calls.append(("save", args, kwargs)) or "saved",
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)),
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    class FakeUi:
+        @staticmethod
+        def emit_pandemonium_summary(summary, *, emit, candy):
+            calls.append(("summary", tuple(summary)))
+
+        @staticmethod
+        def emit_critical_hit(value, *, emit):
+            emit("hit:%s" % value)
+
+        @staticmethod
+        def say_current_wrong_crc_idat(*, candy):
+            calls.append(("ui", "current-idat"))
+
+    context = SimpleNamespace(
+        pandemonium={"sample.png": {}},
+        pandora_box=pandora_box,
+        cornucopia={},
+        all_chunks=(b"IDAT",),
+    )
+
+    assert relics_runtime.handle_pandemonium_flow(
+        runtime,
+        relics,
+        FakeUi,
+        context,
+        ask=lambda **kwargs: calls.append(("ask", (), kwargs)) or True,
+        emit=emitted.append,
+        pause=lambda message: calls.append(("pause", message)),
+        show_todo=lambda: calls.append(("todo", (), {})),
+        the_end=lambda: calls.append(("end", (), {})),
+        candy=lambda *args: None,
+    ) == (True, "saved")
+
+    assert emitted == ["hit:Checksum_Error_0:Wrong Crc b'IDAT'"]
+    assert [call[0] for call in calls] == ["summary", "ui", "ask", "save"]
+    assert calls[-1] == (
+        "save",
+        (
+            "new-crc-data",
+            12,
+            20,
+            "-Found Chunk[b'IDAT'] has Wrong Crc at offset: 0x2a\n"
+            "-Replaced with: new-crc-data old value was: old-crc",
+        ),
+        {},
+    )
+
+
 def test_relics_runtime_applies_no_pandemonium_repair_decisions():
     calls = []
     runtime = relics_runtime.RelicsRuntime(
@@ -1116,6 +1212,14 @@ def main():
         (
             "RelicsRuntime handles remembered dummy chunk decline and missing request",
             test_relics_runtime_handles_remembered_dummy_chunk_flow_decline_and_missing_request,
+        ),
+        (
+            "RelicsRuntime skips empty Pandemonium flow",
+            test_relics_runtime_skips_pandemonium_flow_without_pandemonium,
+        ),
+        (
+            "RelicsRuntime handles Pandemonium current wrong CRC first",
+            test_relics_runtime_handles_pandemonium_current_wrong_crc_first,
         ),
         (
             "RelicsRuntime applies no-Pandemonium repair decisions",
