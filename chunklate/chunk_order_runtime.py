@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from . import chunk_order, runtime_state
+from . import chunk_order, nearby, runtime_state
 
 
 LegacyCall = Callable[..., Any]
@@ -39,20 +39,108 @@ class CheckChunkOrderRuntime:
     raw_print: LegacyCall = print
 
 
-def _color(runtime: CheckChunkOrderRuntime, color: str, value: Any) -> Any:
+@dataclass(frozen=True)
+class TheGoodPlaceContext:
+    data_hex: str
+    chunks_history: tuple[bytes, ...]
+    chunks_history_index: tuple[str, ...]
+    pandora_box: Any
+    debug: bool = False
+    pause_debug: bool = False
+
+
+@dataclass(frozen=True)
+class TheGoodPlaceRuntime:
+    candy: LegacyCall
+    emit: LegacyCall
+    checkpoint: LegacyCall
+    pause: LegacyCall
+    end: LegacyCall
+
+
+def _color(runtime: Any, color: str, value: Any) -> Any:
     return runtime.candy("Color", color, value)
 
 
-def _emoj(runtime: CheckChunkOrderRuntime, value: str) -> Any:
+def _emoj(runtime: Any, value: str) -> Any:
     return runtime.candy("Emoj", value)
 
 
-def _title(runtime: CheckChunkOrderRuntime, value: str) -> Any:
+def _title(runtime: Any, value: str) -> Any:
     return runtime.candy("Title", value)
 
 
-def _cowsay(runtime: CheckChunkOrderRuntime, message: str, mood: str) -> Any:
+def _cowsay(runtime: Any, message: str, mood: str) -> Any:
     return runtime.candy("Cowsay", message, mood)
+
+
+def run_the_good_place(
+    runtime: TheGoodPlaceRuntime,
+    context: TheGoodPlaceContext,
+    missplaced_chunk_name: bytes,
+    missplaced_chunk_pos: int,
+    to_fix_chunk_name: bytes,
+) -> Any:
+    _title(runtime, "TheGoodPlace :")
+    _cowsay(runtime, "Mkay, so what do we have here ..", "com")
+
+    bad_position = nearby.parse_history_index(
+        context.chunks_history_index[missplaced_chunk_pos]
+    )
+    bad_pos = bad_position.position
+    bad_start = bad_position.start
+    bad_end = bad_position.end
+
+    for key in context.pandora_box:
+        if "Missplaced" in str(key):
+            runtime.emit("\n-\033[1;31;49mCriticalHit\033[m: %s" % key)
+
+    fix_position = nearby.find_history_chunk_position(
+        context.chunks_history,
+        context.chunks_history_index,
+        to_fix_chunk_name,
+    )
+
+    if fix_position is None:
+        runtime.emit(
+            "-Missing Data %s %s"
+            % (_color(runtime, "red", "Has Not Been Found"), _emoj(runtime, "bad"))
+        )
+        _cowsay(runtime, "This is not good..", "bad")
+        return runtime.checkpoint(
+            *chunk_order.the_good_place_missing_checkpoint_args(
+                to_fix_chunk_name,
+                bad_pos,
+                bad_start,
+                bad_end,
+            )
+        )
+
+    runtime.emit(
+        "\n-Found %s:[%s] at Chunk Position:%s Starting at:%s Ending at:%s %s"
+        % (
+            _color(runtime, "green", "Missing Data"),
+            to_fix_chunk_name,
+            fix_position.position,
+            fix_position.start,
+            fix_position.end,
+            _emoj(runtime, "good"),
+        )
+    )
+    _cowsay(runtime, "Sounds good to me , where's my rubber tape already ?", "good")
+    rubber_tape = nearby.relocate_missing_chunk(
+        context.data_hex,
+        source_start=fix_position.start,
+        source_end=fix_position.end,
+        target_start=bad_start,
+    )
+    return runtime.checkpoint(
+        *chunk_order.the_good_place_found_checkpoint_args(
+            to_fix_chunk_name,
+            fix_position,
+            rubber_tape,
+        )
+    )
 
 
 def _build_context(context: CheckChunkOrderContext):

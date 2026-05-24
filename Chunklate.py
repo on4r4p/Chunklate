@@ -1911,91 +1911,26 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
 
 
 def TheGoodPlace(Missplaced_Chunkname, Missplaced_Chunkpos, ToFix_Chunkname):
-    Candy("Title", "TheGoodPlace :")
-    Candy("Cowsay", "Mkay, so what do we have here ..", "com")
-
-    BadPosition = nearby.parse_history_index(Chunks_History_Index[Missplaced_Chunkpos])
-    bad_pos = BadPosition.position
-    bad_start = BadPosition.start
-    bad_end = BadPosition.end
-
-    for nb, key in enumerate(PandoraBox):
-        if "Missplaced" in str(key):
-            PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"%key)
-
-    FixPosition = nearby.find_history_chunk_position(
-        Chunks_History,
-        Chunks_History_Index,
+    return chunk_order_runtime.run_the_good_place(
+        chunk_order_runtime.TheGoodPlaceRuntime(
+            candy=Candy,
+            emit=PRINT,
+            checkpoint=CheckPoint,
+            pause=Pause,
+            end=TheEnd,
+        ),
+        chunk_order_runtime.TheGoodPlaceContext(
+            data_hex=DATAX,
+            chunks_history=tuple(Chunks_History),
+            chunks_history_index=tuple(Chunks_History_Index),
+            pandora_box=PandoraBox,
+            debug=DEBUG,
+            pause_debug=PAUSEDEBUG,
+        ),
+        Missplaced_Chunkname,
+        Missplaced_Chunkpos,
         ToFix_Chunkname,
     )
-
-    if FixPosition is None:
-
-        PRINT(
-            "-Missing Data %s %s"
-            % (Candy("Color", "red", "Has Not Been Found"), Candy("Emoj", "bad"))
-        )
-        Candy("Cowsay", "This is not good..", "bad")
-        return CheckPoint(
-            *chunk_order.the_good_place_missing_checkpoint_args(
-                ToFix_Chunkname,
-                bad_pos,
-                bad_start,
-                bad_end,
-            )
-        )
-
-    else:
-        PRINT(
-            "\n-Found %s:[%s] at Chunk Position:%s Starting at:%s Ending at:%s %s"
-            % (
-                Candy("Color", "green", "Missing Data"),
-                ToFix_Chunkname,
-                FixPosition.position,
-                FixPosition.start,
-                FixPosition.end,
-                Candy("Emoj", "good"),
-            )
-        )
-        Candy("Cowsay", "Sounds good to me , where's my rubber tape already ?", "good")
-        Rubber_Tape = nearby.relocate_missing_chunk(
-            DATAX,
-            source_start=FixPosition.start,
-            source_end=FixPosition.end,
-            target_start=bad_start,
-        )
-        return CheckPoint(
-            *chunk_order.the_good_place_found_checkpoint_args(
-                ToFix_Chunkname,
-                FixPosition,
-                Rubber_Tape,
-            )
-        )
-
-    PRINT("")
-    if DEBUG is True:
-        PRINT("Missplaced_Chunkname:%s"% Chunks_History[Missplaced_Chunkpos])
-        PRINT(
-            "Chunks_History_Index[Missplaced_Chunkpos]:%s"%
-            Chunks_History_Index[Missplaced_Chunkpos],
-        )
-        PRINT("ToFix_Chunkname:%s"% ToFix_Chunkname)
-        PRINT("Chunk_History and Infos :")
-        for a, b in zip(Chunks_History, Chunks_History_Index):
-            PRINT("Chunk:%s"% a)
-            PRINT("Index Infos:%s"% b)
-        #        PRINT(Rubber in DATAX)
-        #        PRINT(Rubber in Tape)
-        #        PRINT(DATAX[:start])
-        #        PRINT("")
-        #        PRINT(Rubber)
-        #        PRINT("")
-        #        PRINT(DATAX[end:])
-        #        sys.exit()
-        if PAUSEDEBUG is True:
-            Pause("Pause Debug")
-
-    TheEnd()
 
 
 def CheckChunkOrder(lastchunk, mode):

@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chunklate import chunk_order, chunk_order_runtime, runtime_state
+from chunklate import chunk_order, chunk_order_runtime, nearby, runtime_state
 
 
 def build_runtime(calls, *, warning=False):
@@ -180,6 +180,60 @@ def test_fix_mode_missing_palette_warning_sets_warning_once():
     ) in calls
 
 
+def test_the_good_place_missing_data_routes_missing_checkpoint():
+    calls = []
+    runtime = chunk_order_runtime.TheGoodPlaceRuntime(
+        candy=build_runtime(calls)[0].candy,
+        emit=lambda message: calls.append(("emit", message)),
+        checkpoint=lambda *args: calls.append(("checkpoint", args)) or "checkpoint-result",
+        pause=lambda message: calls.append(("pause", message)),
+        end=lambda: calls.append(("end",)),
+    )
+    context = chunk_order_runtime.TheGoodPlaceContext(
+        data_hex="aaaabbbbccccdddd",
+        chunks_history=(b"PNG", b"IDAT"),
+        chunks_history_index=("0:0:4", "1:4:8"),
+        pandora_box={"Missplaced_error": {}},
+    )
+
+    result = chunk_order_runtime.run_the_good_place(runtime, context, b"IDAT", 1, b"IHDR")
+
+    assert result == "checkpoint-result"
+    assert ("emit", "\n-\033[1;31;49mCriticalHit\033[m: Missplaced_error") in calls
+    assert checkpoint_args(calls) == chunk_order.the_good_place_missing_checkpoint_args(
+        b"IHDR",
+        1,
+        4,
+        8,
+    )
+
+
+def test_the_good_place_found_data_relocates_chunk_and_routes_checkpoint():
+    calls = []
+    runtime = chunk_order_runtime.TheGoodPlaceRuntime(
+        candy=build_runtime(calls)[0].candy,
+        emit=lambda message: calls.append(("emit", message)),
+        checkpoint=lambda *args: calls.append(("checkpoint", args)) or "checkpoint-result",
+        pause=lambda message: calls.append(("pause", message)),
+        end=lambda: calls.append(("end",)),
+    )
+    context = chunk_order_runtime.TheGoodPlaceContext(
+        data_hex="aaaabbbbccccdddd",
+        chunks_history=(b"PNG", b"IDAT", b"IHDR"),
+        chunks_history_index=("0:0:4", "1:4:8", "2:8:12"),
+        pandora_box={},
+    )
+
+    result = chunk_order_runtime.run_the_good_place(runtime, context, b"IDAT", 1, b"IHDR")
+
+    assert result == "checkpoint-result"
+    assert checkpoint_args(calls) == chunk_order.the_good_place_found_checkpoint_args(
+        b"IHDR",
+        nearby.HistoryChunkPosition(2, 8, 12),
+        "aaaaccccbbbbdddd",
+    )
+
+
 def main():
     checks = [
         ("Critical checkpoint", test_critical_mode_routes_missing_chunks_to_checkpoint),
@@ -187,6 +241,8 @@ def main():
         ("TheGoodPlace IHDR", test_the_good_place_mode_preserves_ihdr_misplacement_checkpoint),
         ("Fix header exclusion", test_fix_mode_header_exclusion_returns_everything_except_ihdr),
         ("Fix missing palette warning", test_fix_mode_missing_palette_warning_sets_warning_once),
+        ("TheGoodPlace missing data", test_the_good_place_missing_data_routes_missing_checkpoint),
+        ("TheGoodPlace found data", test_the_good_place_found_data_relocates_chunk_and_routes_checkpoint),
     ]
 
     print("Running chunk order runtime tests")
