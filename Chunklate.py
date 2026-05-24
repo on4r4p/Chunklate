@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, bruteforce_result, bruteforce_runtime, bruteforce_viewer, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -1147,6 +1147,8 @@ def SmashBruteBrawl(
         if DEBUG is True:
             PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
 
+    TmpImgLst = []
+
     def LoadSpec(request):
         return GetSpec(
             ChunkName,
@@ -1157,14 +1159,22 @@ def SmashBruteBrawl(
     def SaveViewerError(error, def_name):
         return Betterror(error, def_name)
 
-    TmpImgLst = []
+    def SyncLegacyState(crash, eta_seconds, diff):
+        global CRASH
+        global DIFF
+        global ETA
+        CRASH = crash
+        ETA = eta_seconds
+        if diff:
+            DIFF = diff
 
-    def ViewerRuntime():
-        return bruteforce_viewer.BruteForceViewerRuntime(
-            data_hex=DATAX,
-            data_offset=DataOffset,
-            libpng_errors=tuple(LIBPNG_ERR),
-            tmp_image_paths=TmpImgLst,
+    return smash_bruteforce.run_legacy_smash_brute_brawl(
+        smash_bruteforce.SmashBruteBrawlLegacyRuntime(
+            load_spec=LoadSpec,
+            product=Product,
+            loadingbar=Loadingbar,
+            minibar=Minibar,
+            image_show=ImageShow,
             cv2=cv2,
             numpy=np,
             image=Image,
@@ -1173,39 +1183,17 @@ def SmashBruteBrawl(
             sleep=time.sleep,
             ask_timeout=inputimeout,
             naming=Naming,
-            file_origin=FILE_Origin,
             emit=PRINT,
             candy=Candy,
             summarise=Summarise,
             save_error=SaveViewerError,
             end=TheEnd,
-            raw_print=print,
-            debug=DEBUG,
-        )
-
-    def ShowPng(bpng, ndx, loop_index, debug_bytes):
-        return bruteforce_viewer.show_candidate(
-            ViewerRuntime(),
-            bpng,
-            ndx,
-            loop_index,
-            debug_bytes=debug_bytes,
-        )
-
-    bruteforce.register_image_viewers(ImageShow)
-
-    ScanResult = bruteforce_runtime.run_scan(
-        bruteforce_runtime.SmashBruteBrawlRuntime(
-            load_spec=LoadSpec,
-            product=Product,
-            loadingbar=Loadingbar,
-            minibar=Minibar,
-            show_candidate=ShowPng,
-            emit=PRINT,
-            pause=Pause,
+            checkpoint=CheckPoint,
             side_notes=SideNotes,
+            pause=Pause,
+            sync_state=SyncLegacyState,
         ),
-        bruteforce_runtime.SmashBruteBrawlContext(
+        smash_bruteforce.SmashBruteBrawlLegacyContext(
             file=File,
             chunk_name=ChunkName,
             chunk_length=ChunkLength,
@@ -1213,6 +1201,10 @@ def SmashBruteBrawl(
             from_error=FromError,
             data_hex=DATAX,
             pandora_box=PandoraBox,
+            libpng_errors=tuple(LIBPNG_ERR),
+            tmp_image_paths=TmpImgLst,
+            file_origin=FILE_Origin,
+            current_diff=DIFF,
             edit_mode=EditMode,
             bf_mode=BfMode,
             brute_crc=BruteCrc,
@@ -1222,37 +1214,6 @@ def SmashBruteBrawl(
             crash=CRASH,
             debug=DEBUG,
             pause_debug=PAUSEDEBUG,
-        ),
-    )
-    CRASH = ScanResult.crash
-    ETA = ScanResult.eta_seconds
-    if ScanResult.diff:
-        DIFF = ScanResult.diff
-
-    return bruteforce_result.run_result(
-        bruteforce_result.BruteForceResultRuntime(
-            emit=PRINT,
-            candy=Candy,
-            checkpoint=CheckPoint,
-            side_notes=SideNotes,
-        ),
-        bruteforce_result.BruteForceResultContext(
-            state=ScanResult.state,
-            old_crc=ScanResult.old_crc,
-            file=File,
-            chunk_name=ChunkName,
-            full_new_data_hex=ScanResult.full_new_data.hex(),
-            png_bytes_hex=ScanResult.png_bytes.hex(),
-            data_offset=DataOffset,
-            chunk_length=ChunkLength,
-            to_brute=ScanResult.to_brute,
-            edit_mode=EditMode,
-            bf_mode=ScanResult.bf_mode,
-            brute_crc=BruteCrc,
-            brute_length=BruteLength,
-            from_error=FromError,
-            diff=DIFF,
-            tmp_image_paths=tuple(TmpImgLst),
         ),
     )
 
