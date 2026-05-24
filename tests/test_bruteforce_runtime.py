@@ -153,10 +153,64 @@ def test_run_scan_preserves_viewer_acceptance_gate_and_diff():
     assert ("loadingbar", 2, 2, 1, False) in calls
 
 
+def test_run_scan_preserves_twobytes_oldcrc_path():
+    calls = []
+    chunk_name = b"gAMA"
+    old_crc = bruteforce.chunk_crc(chunk_name, b"\x07").hex()
+    runtime = build_runtime(calls, specs=simple_specs, product_values=[(7,)])
+
+    result = bruteforce_runtime.run_scan(
+        runtime,
+        base_context(
+            chunk_name=chunk_name,
+            chunk_length=1,
+            data_hex="0011223300aabbccddeeff",
+            bf_mode="TwoBytes",
+            old_crc=old_crc,
+        ),
+    )
+
+    assert result.state == bruteforce.BruteForceMatchState(
+        bingo=True,
+        replace_flag=True,
+    )
+    assert result.full_new_data == (
+        b"\x00\x00\x00\x01" + chunk_name + b"\x07" + bytes.fromhex(old_crc)
+    )
+    assert result.to_brute == "00"
+    assert [call[0] for call in calls].count("show_candidate") == 0
+    assert ("minibar", {"Indication": "0/2"}) in calls
+
+
+def test_run_scan_preserves_crash_resume_skip_and_reset():
+    calls = []
+    chunk_name = b"gAMA"
+    old_crc = bruteforce.chunk_crc(chunk_name, b"\x08").hex()
+    runtime = build_runtime(calls, specs=simple_specs, product_values=[(7,), (8,)])
+
+    result = bruteforce_runtime.run_scan(
+        runtime,
+        base_context(chunk_name=chunk_name, old_crc=old_crc, crash=1),
+    )
+
+    assert result.state == bruteforce.BruteForceMatchState(
+        bingo=True,
+        replace_flag=True,
+    )
+    assert result.crash is False
+    assert result.full_new_data == (
+        b"\x00\x00\x00\x01" + chunk_name + b"\x08" + bytes.fromhex(old_crc)
+    )
+    assert ("loadingbar", 2, 1, 0, False) not in calls
+    assert ("loadingbar", 2, 1, 1, False) in calls
+
+
 def main():
     checks = [
         ("OldCrc scan", test_run_scan_preserves_oldcrc_path_without_viewer),
         ("Viewer scan", test_run_scan_preserves_viewer_acceptance_gate_and_diff),
+        ("TwoBytes scan", test_run_scan_preserves_twobytes_oldcrc_path),
+        ("Crash resume", test_run_scan_preserves_crash_resume_skip_and_reset),
     ]
 
     print("Running bruteforce runtime tests")
