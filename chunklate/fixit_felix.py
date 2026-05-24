@@ -297,6 +297,20 @@ def debug_report_lines(
     return tuple(lines)
 
 
+def emit_debug_report(
+    emit: Callable[[str], Any],
+    values: Mapping[str, Any],
+    pandora_box: Mapping[Any, Mapping[Any, Any]],
+    cornucopia: Mapping[Any, Mapping[Any, Any]],
+) -> None:
+    for line in debug_report_lines(
+        debug_flag_values(values),
+        pandora_box,
+        cornucopia,
+    ):
+        emit(line)
+
+
 def run_repair_work_items(
     runtime: FixItFelixRuntime,
     work_items: Iterable[FixItFelixWorkItem],

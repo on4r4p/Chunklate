@@ -5040,12 +5040,7 @@ def FixItFelix(Chunk=None):
         chkd = fixit_felix.tool_prefix_for_chunk(Chunk)
 
     if DEBUG is True:
-        for line in fixit_felix.debug_report_lines(
-            fixit_felix.debug_flag_values(globals()),
-            PandoraBox,
-            Cornucopia,
-        ):
-            PRINT(line)
+        fixit_felix.emit_debug_report(PRINT, globals(), PandoraBox, Cornucopia)
 
         if PAUSEDEBUG is True:
             Pause("FixItFelix Debug Pause:")

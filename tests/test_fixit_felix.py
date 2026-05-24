@@ -421,6 +421,24 @@ def test_debug_report_lines_preserve_legacy_order_and_mapping_details():
     )
 
 
+def test_emit_debug_report_sends_legacy_lines_to_emit_callback():
+    values = {name: False for name in fixit_felix.DEBUG_FLAG_NAMES}
+    values["EOF"] = True
+    emitted = []
+
+    fixit_felix.emit_debug_report(
+        emitted.append,
+        values,
+        {"Pandora": {"tool": "value"}},
+        {},
+    )
+
+    assert emitted[:2] == ["EOF:True", "Bad_Current_Name:False"]
+    assert "PandoraBox toolkey:tool" in emitted
+    assert "PandoraBox keyvalue:value" in emitted
+    assert emitted[-1] == "Cornucopia:"
+
+
 def test_run_repair_work_items_returns_first_automatic_repair_result():
     calls = []
     runtime = fixit_felix.FixItFelixRuntime(
@@ -733,6 +751,7 @@ def main():
         ("Repair work items respect skip-bad-crc fallthrough", test_repair_work_items_respects_skip_bad_crc_route_fallthrough),
         ("Debug flag values selects legacy flags", test_debug_flag_values_selects_legacy_flags_in_order),
         ("Debug report lines preserve legacy order", test_debug_report_lines_preserve_legacy_order_and_mapping_details),
+        ("Emit debug report sends legacy lines", test_emit_debug_report_sends_legacy_lines_to_emit_callback),
         ("Run work items returns automatic repair", test_run_repair_work_items_returns_first_automatic_repair_result),
         ("Run work items dispatches findings", test_run_repair_work_items_dispatches_findings_after_empty_automatic_repairs),
         ("Run work items reports no result", test_run_repair_work_items_reports_no_result_when_nothing_handles),
