@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, name_shift, name_shift_runtime, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -1742,172 +1742,43 @@ def Remove_Extra_Bytes_Before_Chunk(CType, LastCType, Excluded):
 
 
 def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
-    Candy("Title", "Chunk N Destroy:")
-    Candy("Cowsay", "Now where shall i start..?", "com")
-    if DoubleCheck is False:
-        Excluded = CheckChunkOrder(LastCType, "Fix")
-    else:
-        Candy("Cowsay", " ==Safety Off==", "com")
-        Excluded = []
-
-    CleanExtraBytes = Remove_Extra_Bytes_Before_Chunk(CType, LastCType, Excluded)
-    if CleanExtraBytes is not None:
-        return CleanExtraBytes
-
-    Needle = nearby.initial_search_needle(
-        chunk_type=CType,
-        known_chunks=CHUNKS,
-        current_length_offset=CLoffI,
-        chunks_history=Chunks_History,
-        chunks_history_index=Chunks_History_Index,
-        last_chunk_type=LastCType,
+    return nearby_runtime.run_nearby_chunk(
+        nearby_runtime.NearbyChunkRuntime(
+            candy=Candy,
+            emit=PRINT,
+            checkpoint=CheckPoint,
+            check_chunk_order=CheckChunkOrder,
+            clean_extra_bytes=Remove_Extra_Bytes_Before_Chunk,
+            double_check=Double_Check,
+            fix_it_felix=FixItFelix,
+            betterror=Betterror,
+            pause=Pause,
+            end=TheEnd,
+            get_bad_critical=lambda: Bad_Critical,
+            side_notes=SideNotes,
+        ),
+        nearby_runtime.NearbyChunkContext(
+            data_hex=DATAX,
+            chunks=tuple(CHUNKS),
+            all_chunks=tuple(ALLCHUNKS),
+            current_length_offset=CLoffI,
+            current_length_offset_hex=CLoffX,
+            current_data_offset_byte=CDoffB,
+            chunks_history=tuple(Chunks_History),
+            chunks_history_index=tuple(Chunks_History_Index),
+            original_chunk_type=Orig_CT,
+            original_chunk_length=Orig_CL,
+            sample_name=Sample_Name,
+            debug=DEBUG,
+            pause_debug=PAUSEDEBUG,
+            pause_error=PAUSEERROR,
+        ),
+        CType,
+        ChunkLen,
+        LastCType,
+        DoubleCheck,
+        FromError,
     )
-
-    if DEBUG:
-        for DebugLine in nearby.nearby_debug_lines(
-            CType,
-            LastCType,
-            ChunkLen,
-            Orig_CT,
-            Needle,
-            DATAX,
-        ):
-            PRINT(DebugLine)
-
-    while Needle < len(DATAX):
-        if Needle + 8 > len(DATAX):
-           PRINT(Candy("Color", "yellow", "-End of File"))
-           break
-        scopex = DATAX[Needle : Needle + 8]
-        try:
-            scope = nearby.decode_scope(scopex)
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                PRINT(
-                    Candy("Color", "red", "Scopex:%s")% Candy("Color", "yellow", scopex)
-                )
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            TheEnd()
-
-
-        NeedleI = int(Needle / 2)
-        NeedleX = hex(int(Needle / 2))
-
-        for Chk in CHUNKS:
-            if nearby.scope_matches_chunk(scope, Chk):
-                Candy("Cowsay", " Bingo!!!", "good")
-                PRINT(
-                    "-Found the closest Chunk to our position:%s at offset %s %s"
-                    % (
-                        Candy("Color", "green", Chk),
-                        Candy("Color", "blue", NeedleX),
-                        Candy("Color", "yellow", NeedleI),
-                    )
-                )
-                if Chk in Excluded:
-                    PRINT(
-                        "\n-Chunk position is %s %s\n"
-                        % (Candy("Color", "red", "Not Valid "), Candy("Emoj", "bad"))
-                    )
-                    Candy(
-                        "Cowsay",
-                        " But that chunk [%s] is not supposed to be here .."
-                        % Candy("Color", "red", Chk),
-                        "com",
-                    )
-                    Candy("Cowsay", " ITS A TRAP !! RUN !!!!!!!", "bad")
-                    Candy(
-                        "Cowsay",
-                        " I seriously doubt that i could be of any uses with this one ..",
-                        "com",
-                    )
-                    Candy(
-                        "Cowsay",
-                        " If you are sure %s is a png i can try to fill the gap but i cannot guarantee any result.."
-                        % Candy("Color", "white", Sample_Name),
-                        "com",
-                    )
-                    if b"IHDR" not in Chunks_History:
-                        Candy("Cowsay", " Especially without IHDR chunk..", "bad")
-                    PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                    SideNotes.append("-NearbyChunk:Missplaced Chunk")
-                    TheEnd()
-                else:
-
-                    if not any(c == CType for c in CHUNKS):
-                        LengthRepair = nearby.unknown_chunk_length_repair(
-                            data_hex=DATAX,
-                            display_chunk=CType,
-                            checkpoint_length_offset=CLoffI,
-                            chunks_history=Chunks_History,
-                            chunks_history_index=Chunks_History_Index,
-                            last_chunk_type=LastCType,
-                            found_chunk=Chk,
-                            found_chunk_type_offset=Needle,
-                        )
-                        if LengthRepair is None:
-                            continue
-                    else:
-                        LengthRepair = nearby.known_chunk_length_repair(
-                            display_chunk=Orig_CT,
-                            old_length=Orig_CL,
-                            current_length_offset=CLoffI,
-                            current_length_offset_hex=CLoffX,
-                            current_data_offset_byte=CDoffB,
-                            found_chunk=Chk,
-                            found_chunk_type_offset=Needle,
-                        )
-
-                    PRINT(
-                        "-Chunk position is %s %s\n"
-                        % (Candy("Color", "green", "Valid "), Candy("Emoj", "good"))
-                    )
-                    PRINT(LengthRepair.print_message)
-
-                    return CheckPoint(
-                        True,
-                        True,
-                        "NearbyChunk",
-                        Orig_CT,
-                        [LengthRepair.solved_message],
-                        LengthRepair.fixed_length,
-                        LengthRepair.replace_start,
-                        LengthRepair.replace_end,
-                        Orig_CT,
-                        #                           SolvedMsg,
-                        FromError,
-                    )
-
-                    return ()
-        Needle += 1
-    if DoubleCheck is True:
-        Candy("Cowsay", " ...??NOTHING AGAIN!?!?!?!?", "bad")
-        CheckChunkOrder(LastCType, "Critical")
-        if not Bad_Critical:
-           Candy("Cowsay", "THEY PLAYED US LIKE A DAMN FIDDLE !!!", "bad")
-           Candy(
-            "Cowsay",
-            " ...??Just Reach the EOF and found nothing!!Can't do much about that sorry ...",
-            "com",
-           )
-           TheEnd()
-        else:
-            SideNotes.append("-NearbyChunk:Critical Chunk Missing: %s"%Bad_Critical)
-            return(FixItFelix(CType))
-    else:
-        Candy(
-            "Cowsay",
-            " ...??Just Reach the EOF and found nothing!!Can't do much about that sorry ...",
-            "com",
-        )
-
-    if ChunkLen != None and CType != None:
-        Double_Check(CType, ChunkLen, LastCType)
-
-    return ()
 
 
 def TheGoodPlace(Missplaced_Chunkname, Missplaced_Chunkpos, ToFix_Chunkname):
