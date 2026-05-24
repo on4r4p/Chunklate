@@ -1,6 +1,7 @@
 """Core helpers for Chunklate."""
 
 from . import (
+    bruteforce_viewer,
     checkpoint,
     checkpoint_actions_runtime,
     checkpoint_runtime,
@@ -35,6 +36,7 @@ __all__ = [
     "PNG_SIGNATURE",
     "PngChunk",
     "PngFormatError",
+    "bruteforce_viewer",
     "checkpoint",
     "checkpoint_actions_runtime",
     "checkpoint_runtime",

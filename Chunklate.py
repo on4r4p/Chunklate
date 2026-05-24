@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, bruteforce_viewer, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -1168,118 +1168,46 @@ def SmashBruteBrawl(
             **bruteforce.spec_request_kwargs(request),
         )
 
+    def SaveViewerError(error, def_name):
+        return Betterror(error, def_name)
+
+    def ViewerRuntime():
+        return bruteforce_viewer.BruteForceViewerRuntime(
+            data_hex=DATAX,
+            data_offset=DataOffset,
+            libpng_errors=tuple(LIBPNG_ERR),
+            tmp_image_paths=TmpImgLst,
+            cv2=cv2,
+            numpy=np,
+            image=Image,
+            psutil=psutil,
+            stderr_redirector=stderr_redirector,
+            sleep=time.sleep,
+            ask_timeout=inputimeout,
+            naming=Naming,
+            file_origin=FILE_Origin,
+            emit=PRINT,
+            candy=Candy,
+            summarise=Summarise,
+            save_error=SaveViewerError,
+            end=TheEnd,
+            raw_print=print,
+            debug=DEBUG,
+        )
+
     def ShowPng(bpng,ndx):
             global DIFF
-            global TmpImgLst
 
-            f = io.BytesIO()
-
-            with stderr_redirector(f):
-                try:
-                    cv2.imdecode(np.frombuffer(bpng, np.uint8), -1)
-                except:
-                    pass
-            result = "{0}".format(f.getvalue().decode("utf-8"))
-#            print("Result:",result)
-#            print("bryte:",ToBryte)
-#            print("bvaluehex:",bvalue.hex())
-#            input("hold")
-            ViewerCandidate = bruteforce.viewer_candidate_decision(result, LIBPNG_ERR)
-            if ViewerCandidate.acceptable:
-
-
-                with stderr_redirector(f):
-                    try:
-                         TmpI = Image.open(io.BytesIO(bpng))
-                         TmpIW,TmpIH = TmpI.size
-                         TmpI.show()
-                    except Exception as e:
-                         if bruteforce.has_libpng_error(str(e), LIBPNG_ERR):
-                             if not TmpI.mode == 'RGB':
-                                #print("bvalue:%s fullnewdatax:%s error:%s immode:%s"%(bvalue.hex(),fullnewdatax.hex(),str(e),str(TmpI.mode)),end="\r")
-                                TmpI = TmpI.convert('RGB')
-                                TmpIW,TmpIH = TmpI.size
-                                TmpI.show()
-                         elif DEBUG:
-                                print("bvalue:%s ndx:%s error:%s immode:%s"%(bvalue.hex(),ndx.hex(),str(e),str(TmpI.mode)),end="\r")
-#                         print("bvalue:%s fullnewdatax:%s error:%s immode:%s"%(bvalue.hex(),fullnewdatax.hex(),str(e),str(TmpI.mode)),end="\r")
-                PRINT("")
-#                bla = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
-#                cv2.imshow('bla',bla)
-#                TmpI.show()
-
-                PRINT("-Waiting for Image viewer to launch.")
-                bruteforce.wait_for_tmp_png_viewer(psutil.process_iter, time.sleep)
-
-                Candy("Cowsay", "Ah ! Iv got One !", "good")
-                TryNumber = bruteforce.viewer_try_number(n)
-                PRINT("-Tmp Image Number %s"%str(TryNumber))
-                PRINT("-Tmp Image Width: %s"%TmpIW)
-                PRINT("-Tmp Image Height: %s"%TmpIH)
-                Summarise(
-                    bruteforce.viewer_found_summary(
-                        TryNumber,
-                        TmpIW,
-                        TmpIH,
-                        datetime.now().strftime('%y-%m-%d:%H:%M:%S'),
-                    )
-                )
-                PRINT("")
-                Candy("Cowsay", "Does it looks good or should i keep trying ?", "com")
-                try:
-#                   Answer = Question(None, True)
-                    Answer = decisions.ask_yes_no(
-                        lambda prompt: inputimeout(prompt=prompt, timeout=23),
-                        "Answer(yes/no) auto answer in 23s:",
-                    )
-                    Summarise(bruteforce.viewer_user_choice_summary(Answer, TryNumber))
-                except EOFError as e:
-                    print(e)
-                    Candy("Cowsay", "Aouch my head ...Didn't see that one coming..", "bad")
-                    Candy("Cowsay", "Please close this terminal and open it again.", "com")
-                    Candy("Cowsay", "Then Launch Chunklate again like you did before,", "com")
-                    Candy("Cowsay", "But add --crash %s at the end of the argument."%(str(TryNumber)), "com")
-                    Candy("Cowsay", "And Everything would be fine i think!", "good")
-                    TheEnd()
-                except :
-                   Answer = False
-                   name, dir = Naming(FILE_Origin)
-
-                   PRINT("\n-Skipped No input given within time limit.\n")
-                   SaveResult = bruteforce.save_viewer_timeout_image(
-                       TmpI.save,
-                       dir,
-                       name,
-                       TmpIW,
-                       TmpIH,
-                       datetime.now().strftime('-%y%m%d%H%M%S-'),
-                       TryNumber,
-                   )
-                   if SaveResult.saved:
-                       Candy("Cowsay", "I took the liberty to save a copy of that image just in case.", "com")
-                       PRINT("-Image saved at:%s\n"%SaveResult.path)
-                       TmpImgLst.append(SaveResult.path)
-                       Summarise(SaveResult.summary)
-
-                   else:
-                       Betterror(SaveResult.error, inspect.stack()[0][3])
-                       PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", SaveResult.error))
-                       Summarise(SaveResult.summary)
-                if Answer is True:
-
-                    DIFF = bruteforce.accepted_candidate_diff(DATAX, DataOffset, ndx)
-                    return(True)
-
-
-                else:
-                    bruteforce.kill_tmp_png_viewers(psutil.process_iter())
-                    Candy("Cowsay", "Ok back to work..", "bad")
-                    return(False)
-
-            return(False)
-
-
-
+            ViewerResult = bruteforce_viewer.show_candidate(
+                ViewerRuntime(),
+                bpng,
+                ndx,
+                n,
+                debug_bytes=bvalue,
+            )
+            if ViewerResult.accepted:
+                DIFF = ViewerResult.diff
+            return ViewerResult.accepted
 
 
     CNamex_New = hex(int.from_bytes(ChunkName, byteorder="big")).replace("0x", "")
