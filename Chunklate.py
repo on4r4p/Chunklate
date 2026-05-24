@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, fixit_felix_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, fixit_felix_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -151,228 +151,32 @@ def CheckPoint_Runtime():
     )
 
 
-def CheckPoint_Action_Write_Clone(decision, chunk, info, toolkit):
-    return checkpoint_runtime.run_write_clone(CheckPoint_Runtime(), toolkit)
-
-
-def CheckPoint_Action_Dummy_Chunk_From_The_Good_Place(decision, chunk, info, toolkit):
-    return checkpoint_runtime.run_dummy_chunk_from_the_good_place(
-        CheckPoint_Runtime(),
-        toolkit,
-        info,
-    )
-
-
-def CheckPoint_Action_Return_Value(decision, chunk, info, toolkit):
-    return checkpoint_runtime.run_return_value(decision.return_value)
-
-
-def CheckPoint_Action_Summarise_And_Write_Clone(decision, chunk, info, toolkit):
-    return checkpoint_runtime.run_summarise_and_write_clone(
-        CheckPoint_Runtime(),
-        decision.summary,
-        toolkit,
-    )
-
-
-def CheckPoint_Action_Find_Fucking_Magic(decision, chunk, info, toolkit):
-    return checkpoint_runtime.run_find_fucking_magic(CheckPoint_Runtime())
-
-
-def CheckPoint_Action_Check_Chunk_Name(decision, chunk, info, toolkit):
-    return checkpoint_runtime.run_check_chunk_name(
-        CheckPoint_Runtime(),
-        Raw_NextChunk,
-        chunk,
-        toolkit,
-    )
-
-
-def CheckPoint_Action_Save_Clone(decision, chunk, info, toolkit):
-    return checkpoint_runtime.run_save_clone(CheckPoint_Runtime(), toolkit)
-
-
-def CheckPoint_Action_Save_Clone_Missing_Bytes(decision, chunk, info, toolkit):
-    return checkpoint_runtime.run_save_clone_missing_bytes(CheckPoint_Runtime(), toolkit)
-
-
-def CheckPoint_Action_Fix_It_Felix_Continue(decision, chunk, info, toolkit):
-    return checkpoint_runtime.run_fix_it_felix_continue(
-        CheckPoint_Runtime(),
-        decision.return_value,
-    )
-
-
-def CheckPoint_Action_Fix_It_Felix_Return(decision, chunk, info, toolkit):
-    return checkpoint_runtime.run_fix_it_felix_return(
-        CheckPoint_Runtime(),
-        decision.return_value,
-    )
-
-
-def CheckPoint_Action_Libpng_Warning_Relics(decision, chunk, info, toolkit):
-    return checkpoint_runtime.run_libpng_warning_relics(CheckPoint_Runtime(), info)
-
-
-def CheckPoint_Action_Discard_Libpng_Warning(decision, chunk, info, toolkit):
-    return checkpoint_runtime.run_discard_libpng_warning(
-        CheckPoint_Runtime(),
-        decision.action,
-        info,
-    )
-
-
-def CheckPoint_Action_Libpng_End_Success(decision, chunk, info, toolkit):
-    return checkpoint_runtime.run_libpng_end_success(CheckPoint_Runtime())
-
-
-def CheckPoint_SmashBruteBrawl_Relaunch(
-    toolkit,
-    from_error,
-    *,
-    bf_mode=None,
-    has_old_crc=False,
-    old_crc=None,
-):
-    return checkpoint_runtime.run_smash_brute_brawl_relaunch(
-        CheckPoint_Runtime(),
-        toolkit,
-        from_error,
-        bf_mode=bf_mode,
-        has_old_crc=has_old_crc,
-        old_crc=old_crc,
-    )
-
-
-def CheckPoint_Action_SmashBruteBrawl_Retry_IHDR(decision, chunk, info, toolkit):
+def CheckPoint_Set_Brute_LvL(value):
     global Brute_LvL
 
-    Brute_LvL += 1
-    SideNotes.append("-CheckPoint: %s" % info)
-    return checkpoint_runtime.run_smash_brute_brawl_retry_ihdr(
-        CheckPoint_Runtime(),
-        toolkit,
-        toolkit[8],
-        Brute_LvL,
-    )
+    Brute_LvL = value
 
 
-def CheckPoint_Action_SmashBruteBrawl_Ask_TwoBytes_Retry(decision, chunk, info, toolkit):
-    global Brute_LvL
-
-    Brute_LvL += 1
-    Answer = checkpoint_runtime.ask_smash_brute_brawl_twobytes_retry(
-        CheckPoint_Runtime(),
-        toolkit,
-        brute_level=Brute_LvL,
+def CheckPoint_Action_Runtime():
+    return checkpoint_actions_runtime.CheckPointActionRuntime(
+        checkpoint=CheckPoint_Runtime(),
+        side_notes=SideNotes,
+        apply_flags=CheckPoint_Apply_Flags,
+        raw_next_chunk=Raw_NextChunk,
+        get_brute_level=lambda: Brute_LvL,
+        set_brute_level=CheckPoint_Set_Brute_LvL,
         eta=ETA,
         ihdr_interlace=IHDR_Interlace,
     )
-    if Answer:
-        SideNotes.append("-CheckPoint: Increasing BfLvl: %s" % info)
-        if "OldCrc" in info:
-            CheckPoint_SmashBruteBrawl_Relaunch(
-                toolkit,
-                toolkit[9],
-                has_old_crc=True,
-                old_crc=toolkit[8],
-            )
-        else:
-            CheckPoint_SmashBruteBrawl_Relaunch(toolkit, toolkit[8])
-        return False, None
 
-    return CheckPoint_SmashBruteBrawl_Handle_TwoBytes_Decline(info, toolkit)
-
-
-def CheckPoint_SmashBruteBrawl_Handle_TwoBytes_Decline(info, toolkit):
-    if toolkit[1] == b"IDAT" and IHDR_Interlace == "1":
-        Answer = checkpoint_runtime.ask_smash_brute_brawl_dummy_idat_fallback(
-            CheckPoint_Runtime()
-        )
-        if Answer is True:
-            SideNotes.append("-CheckPoint:User choose to replace IDAT: %s" % info)
-            if "OldCrc" in info:
-                DummyChunk(toolkit[1], toolkit[3], toolkit[3], toolkit[2], toolkit[9])
-            else:
-                DummyChunk(toolkit[1], toolkit[3], toolkit[3], toolkit[2], toolkit[8])
-            return False, None
-
-        SideNotes.append("-CheckPoint: %s User chose to quit." % info)
-        TheEnd()
-        return False, None
-
-    return CheckPoint_Action_SmashBruteBrawl_End_Failed_NonCustom(
-        None,
-        None,
+def CheckPoint_Apply_Action_Decision(decision, chunk, info, toolkit):
+    return checkpoint_actions_runtime.apply_action_decision(
+        CheckPoint_Action_Runtime(),
+        decision,
+        chunk,
         info,
         toolkit,
     )
-
-
-def CheckPoint_Action_SmashBruteBrawl_End_Failed_NonCustom(decision, chunk, info, toolkit):
-    SideNotes.append("-CheckPoint: %s" % info)
-    return checkpoint_runtime.run_smash_brute_brawl_end_failed_noncustom(
-        CheckPoint_Runtime()
-    )
-
-
-def CheckPoint_Action_SmashBruteBrawl_Ask_Custom_Brutus(decision, chunk, info, toolkit):
-    global Brute_LvL
-
-    SideNotes.append(
-        "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!(CUSTOM END)"
-    )
-    Answer = checkpoint_runtime.ask_smash_brute_brawl_custom_brutus(CheckPoint_Runtime())
-    if Answer is True:
-        Brute_LvL = 0
-        CheckPoint_SmashBruteBrawl_Relaunch(toolkit, toolkit[8], bf_mode="Brutus")
-    else:
-        CheckPoint_Runtime().end()
-    return False, None
-
-
-def CheckPoint_Action_SmashBruteBrawl_End_Unhandled(decision, chunk, info, toolkit):
-    SideNotes.append("-CheckPoint: %s" % info)
-    return checkpoint_runtime.run_smash_brute_brawl_end_unhandled(CheckPoint_Runtime())
-
-
-CHECKPOINT_ACTION_HANDLERS = {
-    "write_clone": CheckPoint_Action_Write_Clone,
-    "dummy_chunk_from_the_good_place": CheckPoint_Action_Dummy_Chunk_From_The_Good_Place,
-    "return_value": CheckPoint_Action_Return_Value,
-    "summarise_and_write_clone": CheckPoint_Action_Summarise_And_Write_Clone,
-    "find_fucking_magic": CheckPoint_Action_Find_Fucking_Magic,
-    "check_chunk_name": CheckPoint_Action_Check_Chunk_Name,
-    "save_clone": CheckPoint_Action_Save_Clone,
-    "save_clone_missing_bytes": CheckPoint_Action_Save_Clone_Missing_Bytes,
-    "fix_it_felix_continue": CheckPoint_Action_Fix_It_Felix_Continue,
-    "fix_it_felix_return": CheckPoint_Action_Fix_It_Felix_Return,
-    "libpng_warning_relics": CheckPoint_Action_Libpng_Warning_Relics,
-    "discard_libpng_warning": CheckPoint_Action_Discard_Libpng_Warning,
-    "discard_libpng_warning_and_end": CheckPoint_Action_Discard_Libpng_Warning,
-    "libpng_end_success": CheckPoint_Action_Libpng_End_Success,
-    "smash_brute_brawl_retry_ihdr_harder": CheckPoint_Action_SmashBruteBrawl_Retry_IHDR,
-    "smash_brute_brawl_ask_twobytes_retry": CheckPoint_Action_SmashBruteBrawl_Ask_TwoBytes_Retry,
-    "smash_brute_brawl_end_failed_noncustom": CheckPoint_Action_SmashBruteBrawl_End_Failed_NonCustom,
-    "smash_brute_brawl_ask_custom_brutus": CheckPoint_Action_SmashBruteBrawl_Ask_Custom_Brutus,
-    "smash_brute_brawl_end_unhandled": CheckPoint_Action_SmashBruteBrawl_End_Unhandled,
-}
-
-
-def CheckPoint_Apply_Action_Decision(decision, chunk, info, toolkit):
-    if decision.side_note is not None:
-        SideNotes.append(decision.side_note)
-
-    CheckPoint_Apply_Flags(decision.flags)
-
-    if decision.action is None:
-        return False, None
-
-    handler = CHECKPOINT_ACTION_HANDLERS.get(decision.action)
-    if handler is not None:
-        return handler(decision, chunk, info, toolkit)
-
-    raise ValueError("Unknown CheckPoint action decision: %s" % decision.action)
 
 
 def Pandemonium_Remember_Current_Sample():

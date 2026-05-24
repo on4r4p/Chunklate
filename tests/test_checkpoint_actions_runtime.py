@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from chunklate import checkpoint, checkpoint_actions_runtime, checkpoint_runtime
+
+
+def build_runtime(
+    calls,
+    *,
+    brute_level=0,
+    eta=1,
+    ihdr_interlace="0",
+    question_answers=(True,),
+):
+    state = {"brute_level": brute_level}
+    side_notes = []
+    answers = iter(question_answers)
+
+    def callback(name, result=None):
+        def inner(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            if name == "question":
+                return next(answers)
+            if result is not None:
+                return result
+            return name
+
+        return inner
+
+    def apply_flags(flags):
+        calls.append(("apply_flags", (flags,), {}))
+
+    def set_brute_level(value):
+        calls.append(("set_brute_level", (value,), {}))
+        state["brute_level"] = value
+
+    checkpoint_rt = checkpoint_runtime.CheckPointRuntime(
+        write_clone=callback("write_clone"),
+        dummy_chunk=callback("dummy_chunk"),
+        summarise=callback("summarise"),
+        find_fucking_magic=callback("find_fucking_magic"),
+        check_chunk_name=callback("check_chunk_name"),
+        save_clone=callback("save_clone"),
+        fix_it_felix=callback("fix_it_felix"),
+        relics=callback("relics"),
+        smash_brute_brawl=callback("smash_brute_brawl"),
+        candy=callback("candy"),
+        emit=callback("emit"),
+        end=callback("end"),
+        question=callback("question"),
+        print_libpng_critical=callback("print_libpng_critical"),
+        discard_libpng_warning=callback("discard_libpng_warning"),
+        libpng_end_success=callback("libpng_end_success"),
+    )
+
+    runtime = checkpoint_actions_runtime.CheckPointActionRuntime(
+        checkpoint=checkpoint_rt,
+        side_notes=side_notes,
+        apply_flags=apply_flags,
+        raw_next_chunk=b"nEXT",
+        get_brute_level=lambda: state["brute_level"],
+        set_brute_level=set_brute_level,
+        eta=eta,
+        ihdr_interlace=ihdr_interlace,
+    )
+    return runtime, state, side_notes
+
+
+def test_apply_action_decision_applies_side_note_flags_and_write_clone():
+    calls = []
+    runtime, state, side_notes = build_runtime(calls)
+    decision = checkpoint.CheckPointActionDecision(
+        action="write_clone",
+        side_note="-note",
+        flags={"Bad_Crc": True},
+    )
+
+    result = checkpoint_actions_runtime.apply_action_decision(
+        runtime,
+        decision,
+        b"IDAT",
+        "-fixed",
+        (b"fixed-png",),
+    )
+
+    assert result == (True, "write_clone")
+    assert state["brute_level"] == 0
+    assert side_notes == ["-note"]
+    assert ("apply_flags", ({"Bad_Crc": True},), {}) in calls
+    assert ("write_clone", (b"fixed-png", "-About to save."), {}) in calls
+
+
+def test_apply_action_decision_rejects_unknown_action():
+    calls = []
+    runtime, state, side_notes = build_runtime(calls)
+    decision = checkpoint.CheckPointActionDecision(action="unknown-action")
+
+    try:
+        checkpoint_actions_runtime.apply_action_decision(
+            runtime,
+            decision,
+            b"IDAT",
+            "-info",
+            (),
+        )
+    except ValueError as exc:
+        assert "unknown-action" in str(exc)
+    else:
+        raise AssertionError("unknown action should raise ValueError")
+
+    assert state["brute_level"] == 0
+    assert side_notes == []
+    assert calls == [("apply_flags", (None,), {})]
+
+
+def test_twobytes_retry_preserves_old_crc_route():
+    calls = []
+    runtime, state, side_notes = build_runtime(calls, eta=2)
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "edit",
+        "TwoBytes",
+        "crc",
+        "length",
+        "old-crc",
+        "from-error",
+    )
+    decision = checkpoint.CheckPointActionDecision(
+        action="smash_brute_brawl_ask_twobytes_retry"
+    )
+
+    result = checkpoint_actions_runtime.apply_action_decision(
+        runtime,
+        decision,
+        b"IDAT",
+        "-Bruteforcer has Failed OldCrc",
+        toolkit,
+    )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 1
+    assert side_notes == [
+        "-CheckPoint: Increasing BfLvl: -Bruteforcer has Failed OldCrc"
+    ]
+    assert ("set_brute_level", (1,), {}) in calls
+    assert (
+        "smash_brute_brawl",
+        ("sample.png", b"IDAT", 4, 100, "from-error"),
+        {
+            "EditMode": "edit",
+            "BfMode": "TwoBytes",
+            "BruteCrc": "crc",
+            "BruteLength": "length",
+            "OldCrc": "old-crc",
+        },
+    ) in calls
+
+
+def test_custom_brutus_resets_brute_level_and_relaunches():
+    calls = []
+    runtime, state, side_notes = build_runtime(calls, brute_level=5)
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "edit",
+        "Custom",
+        "crc",
+        "length",
+        "from-error",
+    )
+    decision = checkpoint.CheckPointActionDecision(
+        action="smash_brute_brawl_ask_custom_brutus"
+    )
+
+    result = checkpoint_actions_runtime.apply_action_decision(
+        runtime,
+        decision,
+        b"IDAT",
+        "-Bruteforcer has Failed",
+        toolkit,
+    )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 0
+    assert side_notes == [
+        "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!(CUSTOM END)"
+    ]
+    assert ("set_brute_level", (0,), {}) in calls
+    assert (
+        "smash_brute_brawl",
+        ("sample.png", b"IDAT", 4, 100, "from-error"),
+        {
+            "EditMode": "edit",
+            "BfMode": "Brutus",
+            "BruteCrc": "crc",
+            "BruteLength": "length",
+        },
+    ) in calls
+
+
+def main():
+    checks = [
+        (
+            "Apply side notes, flags, and WriteClone",
+            test_apply_action_decision_applies_side_note_flags_and_write_clone,
+        ),
+        ("Reject unknown action", test_apply_action_decision_rejects_unknown_action),
+        ("Preserve TwoBytes OldCrc retry", test_twobytes_retry_preserves_old_crc_route),
+        ("Reset Custom Brutus retry", test_custom_brutus_resets_brute_level_and_relaunches),
+    ]
+
+    print("Running CheckPoint action runtime tests")
+    for label, check in checks:
+        print(f"  - {label} ... ", end="", flush=True)
+        check()
+        print("ok")
+
+    print(f"checkpoint action runtime tests passed ({len(checks)} checks)")
+
+
+if __name__ == "__main__":
+    main()

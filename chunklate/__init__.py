@@ -2,6 +2,7 @@
 
 from . import (
     checkpoint,
+    checkpoint_actions_runtime,
     checkpoint_runtime,
     cli,
     chunk_info,
@@ -32,6 +33,7 @@ __all__ = [
     "PngChunk",
     "PngFormatError",
     "checkpoint",
+    "checkpoint_actions_runtime",
     "checkpoint_runtime",
     "cli",
     "chunk_info",
