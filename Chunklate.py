@@ -22,7 +22,7 @@ try:
 except ModuleNotFoundError:
     tkinter = None
 
-import sys, os, binascii, random, time, zlib, io, inspect, types, difflib, collections, itertools, shutil
+import sys, os, random, time, zlib, io, inspect, types, collections, itertools, shutil
 
 try:
     import cv2
@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -1226,146 +1226,33 @@ def FullChunkForcerNoCrc(
     global SideNotes
     Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
     Chunk = Chunk.encode(errors="ignore")
-    Checklist = []
-    if DEBUG is True:
-        PRINT("file:%s"% File)
-        PRINT("chunk:%s"% Chunk)
-        PRINT("offd:%s"% DataOffset)
-        PRINT("cl:%s"% ChunkLength)
-        if PAUSEDEBUG is True:
-            Pause("Debug Pause:")
-
-    try:
-        with open(Sample, "rb") as f:
-            data = f.read()
-    except Exception as e:
-        Betterror(e, inspect.stack()[0][3])
-        PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-        TheEnd()
-
-    datax = data.hex()[DataOffset:ChunkLength]  # datax[16:-8]
-    Bingo = False
-    result = "result is empty"
-    needle = 0
-    needle2 = 2
-    while needle2 <= len(datax) and Bingo is False:
-        Minibar()
-        if needle < len(datax) - (needle2 - 1) and Bingo is False:
-            for hexa in range(0, 16 ** needle2):
-                newbyte = (hex(hexa).replace("0x", "")).zfill(needle2)
-                newdatax_copy = (
-                    datax[:needle] + newbyte + datax[needle + len(newbyte) :]
-                )
-                newdatax = bytes.fromhex(newdatax_copy)
-                checksum = (
-                    hex(binascii.crc32(Chunk + newdatax)).replace("0x", "").zfill(8)
-                )
-                #                PRINT("dataxt:%s"%datax[:16])
-                #                PRINT("newdataxt:%s"%newdatax.hex())
-                #                PRINT("checksum:%s"%checksum)
-                fullnewdatax = datax[:16] + newdatax.hex() + checksum
-                newfilewanabe = DATAX[:DataOffset] + fullnewdatax + DATAX[ChunkLength:]
-
-                #                PRINT(newdatax_copy)
-                try:
-                    f = io.BytesIO()
-                    with stderr_redirector(f):
-                        newfilewanarray = np.fromstring(
-                            bytes.fromhex(newfilewanabe), np.uint8
-                        )
-                        newfile = cv2.imdecode(newfilewanarray, cv2.IMREAD_COLOR)
-                        #                            img = cv2.imshow("image", newfile)
-                        cv2.imread(newfile)
-                    result = "{0}".format(f.getvalue().decode("utf-8"))
-                    PRINT(result)
-                    pause = input("pause")
-                except Exception as e:
-                    Betterror(e, inspect.stack()[0][3])
-                    PRINT(
-                        Candy("Color", "red", "Error FullChunkForcerNoCrc:"),
-                        Candy("Color", "yellow", e),
-                    )
-                    if (PAUSEDEBUG or PAUSEERROR) is True:
-                        Pause("Pause Debug")
-                if DEBUG is True:
-                    PRINT("fullnewdatax:%s"% fullnewdatax)
-                    if PAUSEDEBUG is True:
-                        Pause("Pause Debug")
-                if "libpng error" not in result and result != "result is empty":
-                    diffobj = difflib.SequenceMatcher(None, datax[16:], fullnewdatax)
-                    good = ""
-                    bad = ""
-                    for block in diffobj.get_opcodes():
-                        if block[0] != "equal":
-                            good += (
-                                "\033[1;32;49m%s\033[m"
-                                % fullnewdatax[block[1] : block[2]]
-                            )
-                            bad += (
-                                "\033[1;31;49m%s\033[m"
-                                % datax[16:][block[1] : block[2]]
-                            )
-                        else:
-                            good += fullnewdatax[block[1] : block[2]]
-                            bad += datax[16:][block[1] : block[2]]
-                    Bingo = True
-                    break
-            needle += 1
-        else:
-            needle = 0
-            needle2 += 2
-    #            PRINT("needle2 = ",needle2)
-    #            Pause("poz2")
-
-    if Bingo is True:
-        PRINT(
-            "-Bruteforce was %s %s"
-            % (Candy("Color", "green", "Successfull!"), Candy("Emoj", "good"))
-        )
-        PRINT(
-            "-Chunk %s has been repaired by changing those bytes:\n"
-            % Candy("Color", "green", Chunk)
-        )
-        PRINT(bad)
-        PRINT("\n-With those bytes:\n")
-        PRINT(good)
-        Candy("Cowsay", "Wow ...I wasn't sure this would work to be honest !", "good")
-        SideNotes.append(
-            "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce was successfull.\n-Chunk %s has been repaired by changing those bytes:\n%s\n-with bytes:\n%s"
-            % (Chunk, datax[16:], fullnewdatax)
-        )
-
-        return CheckPoint(
-            True,
-            True,
-            "FullChunkForcerNoCrc",
-            Chunk.decode(errors="ignore"),
-            ["-Data has been corrupted"],
-            fullnewdatax,
-            DataOffset,
-            DataOffset + ChunkLength,
-            "-Replacing Corrupted %s Data:\n%s\n-With:\n%s"
-            % (Chunk.decode(errors="ignore"), datax[16:], fullnewdatax),
-            Chunk.decode(errors="ignore"),
-            FromError,
-        )
-
-    else:
-        PRINT(
-            "-Bruteforce has %s %s"
-            % (Candy("Color", "red", "Failed!"), Candy("Emoj", "bad"))
-        )
-        Candy("Cowsay", "I was afraid of this ..Looks like we r stuck..", "bad")
-        SideNotes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")
-        TheEnd()
-        return CheckPoint(
-            True,
-            False,
-            "FullChunkForcerNoCrc",
-            Chunk.decode(errors="ignore"),
-            ["-Bruteforcer has Failed"],
-            FromError,
-        )
+    return full_chunk_forcer.run_legacy_full_chunk_forcer_no_crc(
+        full_chunk_forcer.FullChunkForcerRuntime(
+            emit=PRINT,
+            candy=Candy,
+            checkpoint=CheckPoint,
+            side_notes=SideNotes,
+            minibar=Minibar,
+            pause=Pause,
+            end=TheEnd,
+            save_error=lambda error, def_name: Betterror(error, def_name),
+            cv2=cv2,
+            numpy=np,
+            stderr_redirector=stderr_redirector,
+        ),
+        full_chunk_forcer.FullChunkForcerContext(
+            file=File,
+            chunk=Chunk,
+            data_offset=DataOffset,
+            chunk_length=ChunkLength,
+            from_error=FromError,
+            sample_path=Sample,
+            data_hex=DATAX,
+            debug=DEBUG,
+            pause_debug=PAUSEDEBUG,
+            pause_error=PAUSEERROR,
+        ),
+    )
 
 
 
