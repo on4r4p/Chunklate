@@ -345,6 +345,66 @@ def test_repair_work_items_respects_skip_bad_crc_route_fallthrough():
     assert items[-1].finding == "Checksum_Error_0:Wrong Crc"
 
 
+def test_debug_report_lines_preserve_legacy_order_and_mapping_details():
+    flags = {name: False for name in fixit_felix.DEBUG_FLAG_NAMES}
+    flags["EOF"] = True
+    flags["Bad_Crc"] = True
+    flags["Skip_Bad_Crc"] = None
+    pandora_box = {
+        "Checksum_Error_0:Wrong Crc": {
+            "IDAT_Tool_0": "fixed-data",
+            "IDAT_Tool_1": 12,
+        }
+    }
+    cornucopia = {
+        "Solved": {
+            "IEND_Tool_0": "clean-data",
+        }
+    }
+
+    lines = fixit_felix.debug_report_lines(flags, pandora_box, cornucopia)
+
+    assert lines[:23] == (
+        "EOF:True",
+        "Bad_Current_Name:False",
+        "Bad_Ancillary:False",
+        "Bad_No_Next_Chunk:False",
+        "Bad_Next_Name:False",
+        "Bad_Next_Ancillary:False",
+        "Bad_Length:False",
+        "Bad_Infos:False",
+        "Bad_Crc:True",
+        "Bad_Critical:False",
+        "Bad_Missplaced:False",
+        "Bad_Libpng:False",
+        "Skip_Bad_Current_Name:False",
+        "Skip_Bad_Ancillary:False",
+        "Skip_Bad_No_Next_Chunk:False",
+        "Skip_Bad_Next_Name:False",
+        "Skip_Bad_Next_Ancillary:False",
+        "Skip_Bad_Length:False",
+        "Skip_Bad_Infos:False",
+        "Skip_Bad_Crc:None",
+        "Skip_Bad_Critical:False",
+        "Skip_Bad_Missplaced:False",
+        "Skip_Bad_Libpng:False",
+    )
+    assert lines[23:] == (
+        "",
+        "PandoraBox:\n%s" % pandora_box,
+        "Len PandoraBox:1",
+        "PandoraBox toolkey:IDAT_Tool_0",
+        "PandoraBox keyvalue:fixed-data",
+        "PandoraBox toolkey:IDAT_Tool_1",
+        "PandoraBox keyvalue:12",
+        "",
+        "Cornucopia:",
+        "Len Cornucopia:1",
+        "Cornucopia toolkey:IEND_Tool_0",
+        "Cornucopia keyvalue:clean-data",
+    )
+
+
 def test_run_repair_work_items_returns_first_automatic_repair_result():
     calls = []
     runtime = fixit_felix.FixItFelixRuntime(
@@ -655,6 +715,7 @@ def main():
         ("Effective PandoraBox len preserves Bad_Next_Name adjustment", test_effective_pandora_box_len_preserves_bad_next_name_adjustment),
         ("Repair work items run automatic repairs first", test_repair_work_items_runs_automatic_repairs_before_pandorabox_routes),
         ("Repair work items respect skip-bad-crc fallthrough", test_repair_work_items_respects_skip_bad_crc_route_fallthrough),
+        ("Debug report lines preserve legacy order", test_debug_report_lines_preserve_legacy_order_and_mapping_details),
         ("Run work items returns automatic repair", test_run_repair_work_items_returns_first_automatic_repair_result),
         ("Run work items dispatches findings", test_run_repair_work_items_dispatches_findings_after_empty_automatic_repairs),
         ("Run work items reports no result", test_run_repair_work_items_reports_no_result_when_nothing_handles),

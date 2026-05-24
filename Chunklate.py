@@ -5040,46 +5040,36 @@ def FixItFelix(Chunk=None):
         chkd = fixit_felix.tool_prefix_for_chunk(Chunk)
 
     if DEBUG is True:
-        PRINT("EOF:%s"% EOF)
-        PRINT("Bad_Current_Name:%s"% Bad_Current_Name)
-        PRINT("Bad_Ancillary:%s"% Bad_Ancillary)
-        PRINT("Bad_No_Next_Chunk:%s"% Bad_No_Next_Chunk)
-        PRINT("Bad_Next_Name:%s"% Bad_Next_Name)
-        PRINT("Bad_Next_Ancillary:%s"% Bad_Next_Ancillary)
-        PRINT("Bad_Length:%s"% Bad_Length)
-        PRINT("Bad_Infos:%s"% Bad_Infos)
-        PRINT("Bad_Crc:%s"% Bad_Crc)
-        PRINT("Bad_Critical:%s"% Bad_Critical)
-        PRINT("Bad_Missplaced:%s"% Bad_Missplaced)
-        PRINT("Bad_Libpng:%s"% Bad_Libpng)
-        PRINT("Skip_Bad_Current_Name:%s"% Skip_Bad_Current_Name)
-        PRINT("Skip_Bad_Ancillary:%s"% Skip_Bad_Ancillary)
-        PRINT("Skip_Bad_No_Next_Chunk:%s"% Skip_Bad_No_Next_Chunk)
-        PRINT("Skip_Bad_Next_Name:%s"% Skip_Bad_Next_Name)
-        PRINT("Skip_Bad_Next_Ancillary:%s"% Skip_Bad_Next_Ancillary)
-        PRINT("Skip_Bad_Length:%s"% Skip_Bad_Length)
-        PRINT("Skip_Bad_Infos:%s"% Skip_Bad_Infos)
-        PRINT("Skip_Bad_Crc:%s"% Skip_Bad_Crc)
-        PRINT("Skip_Bad_Critical:%s"% Skip_Bad_Critical)
-        PRINT("Skip_Bad_Missplaced:%s"% Skip_Bad_Missplaced)
-        PRINT("Skip_Bad_Libpng:%s"% Skip_Bad_Libpng)
-        PRINT("")
-        PRINT("PandoraBox:\n%s"% PandoraBox)
-
-        for nb, key in enumerate(PandoraBox):
-
-            PRINT("Len PandoraBox:%s"% len(PandoraBox))
-            for toolkey, keyvalue in PandoraBox[key].items():
-                PRINT("PandoraBox toolkey:%s"% toolkey)
-                PRINT("PandoraBox keyvalue:%s"% keyvalue)
-
-        PRINT("")
-        PRINT("Cornucopia:")
-        for nb, key in enumerate(Cornucopia):
-            PRINT("Len Cornucopia:%s"% len(Cornucopia))
-            for toolkey, keyvalue in Cornucopia[key].items():
-                PRINT("Cornucopia toolkey:%s"% toolkey)
-                PRINT("Cornucopia keyvalue:%s"% keyvalue)
+        for line in fixit_felix.debug_report_lines(
+            {
+                "EOF": EOF,
+                "Bad_Current_Name": Bad_Current_Name,
+                "Bad_Ancillary": Bad_Ancillary,
+                "Bad_No_Next_Chunk": Bad_No_Next_Chunk,
+                "Bad_Next_Name": Bad_Next_Name,
+                "Bad_Next_Ancillary": Bad_Next_Ancillary,
+                "Bad_Length": Bad_Length,
+                "Bad_Infos": Bad_Infos,
+                "Bad_Crc": Bad_Crc,
+                "Bad_Critical": Bad_Critical,
+                "Bad_Missplaced": Bad_Missplaced,
+                "Bad_Libpng": Bad_Libpng,
+                "Skip_Bad_Current_Name": Skip_Bad_Current_Name,
+                "Skip_Bad_Ancillary": Skip_Bad_Ancillary,
+                "Skip_Bad_No_Next_Chunk": Skip_Bad_No_Next_Chunk,
+                "Skip_Bad_Next_Name": Skip_Bad_Next_Name,
+                "Skip_Bad_Next_Ancillary": Skip_Bad_Next_Ancillary,
+                "Skip_Bad_Length": Skip_Bad_Length,
+                "Skip_Bad_Infos": Skip_Bad_Infos,
+                "Skip_Bad_Crc": Skip_Bad_Crc,
+                "Skip_Bad_Critical": Skip_Bad_Critical,
+                "Skip_Bad_Missplaced": Skip_Bad_Missplaced,
+                "Skip_Bad_Libpng": Skip_Bad_Libpng,
+            },
+            PandoraBox,
+            Cornucopia,
+        ):
+            PRINT(line)
 
         if PAUSEDEBUG is True:
             Pause("FixItFelix Debug Pause:")

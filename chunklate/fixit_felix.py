@@ -71,6 +71,31 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "partial_idat_blackfill",
 )
 GOOD_IEND_HEX = "0000000049454e44ae426082"
+DEBUG_FLAG_NAMES: tuple[str, ...] = (
+    "EOF",
+    "Bad_Current_Name",
+    "Bad_Ancillary",
+    "Bad_No_Next_Chunk",
+    "Bad_Next_Name",
+    "Bad_Next_Ancillary",
+    "Bad_Length",
+    "Bad_Infos",
+    "Bad_Crc",
+    "Bad_Critical",
+    "Bad_Missplaced",
+    "Bad_Libpng",
+    "Skip_Bad_Current_Name",
+    "Skip_Bad_Ancillary",
+    "Skip_Bad_No_Next_Chunk",
+    "Skip_Bad_Next_Name",
+    "Skip_Bad_Next_Ancillary",
+    "Skip_Bad_Length",
+    "Skip_Bad_Infos",
+    "Skip_Bad_Crc",
+    "Skip_Bad_Critical",
+    "Skip_Bad_Missplaced",
+    "Skip_Bad_Libpng",
+)
 
 
 @dataclass(frozen=True)
@@ -242,6 +267,30 @@ def repair_work_items(findings: Iterable[object], *, skip_bad_crc: bool) -> tupl
         for finding in findings
     )
     return tuple(items)
+
+
+def debug_report_lines(
+    flags: Mapping[str, Any],
+    pandora_box: Mapping[Any, Mapping[Any, Any]],
+    cornucopia: Mapping[Any, Mapping[Any, Any]],
+) -> tuple[str, ...]:
+    lines = ["%s:%s" % (name, flags[name]) for name in DEBUG_FLAG_NAMES]
+    lines.extend(("", "PandoraBox:\n%s" % pandora_box))
+
+    for key in pandora_box:
+        lines.append("Len PandoraBox:%s" % len(pandora_box))
+        for toolkey, keyvalue in pandora_box[key].items():
+            lines.append("PandoraBox toolkey:%s" % toolkey)
+            lines.append("PandoraBox keyvalue:%s" % keyvalue)
+
+    lines.extend(("", "Cornucopia:"))
+    for key in cornucopia:
+        lines.append("Len Cornucopia:%s" % len(cornucopia))
+        for toolkey, keyvalue in cornucopia[key].items():
+            lines.append("Cornucopia toolkey:%s" % toolkey)
+            lines.append("Cornucopia keyvalue:%s" % keyvalue)
+
+    return tuple(lines)
 
 
 def run_repair_work_items(
