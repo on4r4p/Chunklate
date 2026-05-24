@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, fixit_felix_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -4963,54 +4963,21 @@ def FixItFelix_Try_Automatic_Repair(name):
     return FixItFelix_Apply_Repair(repair)
 
 
-def FixItFelix_Handle_Wrong_Crc(work_item, chkd, pandora_box_len, Chunk):
-    return FixItFelix_Wrong_Crc(work_item.finding, chkd, pandora_box_len)
-
-
-def FixItFelix_Handle_Libpng_Error(work_item, chkd, pandora_box_len, Chunk):
-    return FixItFelix_Libpng_Error(work_item.finding, chkd)
-
-
-def FixItFelix_Handle_Wrong_Chunk_Name(work_item, chkd, pandora_box_len, Chunk):
-    return FixItFelix_Wrong_Chunk_Name(work_item.finding, chkd)
-
-
-def FixItFelix_Handle_No_NextChunk(work_item, chkd, pandora_box_len, Chunk):
-    return FixItFelix_No_NextChunk(work_item.finding, chkd, Chunk)
-
-
-def FixItFelix_Handle_Gama_Zero(work_item, chkd, pandora_box_len, Chunk):
-    return FixItFelix_Gama_Zero(work_item.finding)
-
-
-def FixItFelix_Handle_Critical_Miss(work_item, chkd, pandora_box_len, Chunk):
-    return FixItFelix_Critical_Miss(work_item.finding)
-
-
-FIXIT_FELIX_FINDING_HANDLERS = {
-    "wrong_crc": FixItFelix_Handle_Wrong_Crc,
-    "libpng_error": FixItFelix_Handle_Libpng_Error,
-    "wrong_chunk_name": FixItFelix_Handle_Wrong_Chunk_Name,
-    "no_next_chunk": FixItFelix_Handle_No_NextChunk,
-    "gama_zero": FixItFelix_Handle_Gama_Zero,
-    "critical_miss": FixItFelix_Handle_Critical_Miss,
-}
-
-
-def FixItFelix_Apply_Finding_Work_Item(work_item, chkd, pandora_box_len, Chunk):
-    return fixit_felix.dispatch_finding_work_item(
-        FIXIT_FELIX_FINDING_HANDLERS,
-        work_item,
-        chkd,
-        pandora_box_len,
-        Chunk,
+def FixItFelix_Runtime_Callbacks():
+    return fixit_felix_runtime.LegacyFixItFelixHandlers(
+        wrong_crc=FixItFelix_Wrong_Crc,
+        libpng_error=FixItFelix_Libpng_Error,
+        wrong_chunk_name=FixItFelix_Wrong_Chunk_Name,
+        no_next_chunk=FixItFelix_No_NextChunk,
+        gama_zero=FixItFelix_Gama_Zero,
+        critical_miss=FixItFelix_Critical_Miss,
     )
 
 
 def FixItFelix_Runtime():
-    return fixit_felix.FixItFelixRuntime(
+    return fixit_felix_runtime.runtime(
         try_automatic_repair=FixItFelix_Try_Automatic_Repair,
-        apply_finding_work_item=FixItFelix_Apply_Finding_Work_Item,
+        callbacks=FixItFelix_Runtime_Callbacks(),
     )
 
 
