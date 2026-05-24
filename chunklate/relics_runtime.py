@@ -597,6 +597,57 @@ def handle_no_pandemonium_context_flow(
     )
 
 
+def handle_relics_context_flow(
+    runtime: RelicsRuntime,
+    relics_module: Any,
+    ui_module: Any,
+    context: Any,
+    *,
+    ask: Callable[..., Any],
+    emit: Callable[[str], Any],
+    pause: LegacyCall,
+    show_todo: Callable[[], Any],
+    the_end: Callable[[], Any],
+    candy: LegacyCall,
+) -> Any:
+    ui_module.emit_debug_state(
+        debug=context.debug,
+        pandemonium=context.pandemonium,
+        pandora_box=context.pandora_box,
+        chunks_history=context.chunks_history,
+        chunks_history_index=context.chunks_history_index,
+        pause_debug=context.pause_debug,
+        emit=emit,
+        pause=pause,
+    )
+
+    handled, result = handle_pandemonium_flow(
+        runtime,
+        relics_module,
+        ui_module,
+        context,
+        ask=ask,
+        emit=emit,
+        pause=pause,
+        show_todo=show_todo,
+        the_end=the_end,
+        candy=candy,
+    )
+    if handled:
+        return result
+
+    return handle_no_pandemonium_context_flow(
+        runtime,
+        relics_module,
+        ui_module,
+        context,
+        ask=ask,
+        emit=emit,
+        candy=candy,
+        the_end=the_end,
+    )
+
+
 def ask_plte_repair(runtime: RelicsRuntime, relics_module: Any, has_bad_crc: bool) -> Any:
     return runtime.ask_choice(
         relics_module.plte_repair_prompt(has_bad_crc),

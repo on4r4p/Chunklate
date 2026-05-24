@@ -1297,6 +1297,154 @@ def test_relics_runtime_handles_no_pandemonium_context_empty_failure():
     assert calls == [("ui", "intro"), ("ui", "failure"), ("end", (), {})]
 
 
+def test_relics_runtime_handles_full_context_pandemonium_flow():
+    calls = []
+    pandora_box = {
+        "Checksum_Error_0:Wrong Crc b'IDAT'": {
+            "IDAT_Tool_0": "new-crc-data",
+            "IDAT_Tool_1": 12,
+            "IDAT_Tool_2": 20,
+            "IDAT_Tool_3": b"IDAT",
+            "IDAT_Tool_4": "0x2a",
+            "IDAT_Tool_5": "old-crc",
+        }
+    }
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: calls.append(("save", args, kwargs)) or "saved",
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)),
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    class FakeUi:
+        @staticmethod
+        def emit_debug_state(**kwargs):
+            calls.append(("debug", kwargs["debug"], kwargs["pause_debug"]))
+            if kwargs["debug"] and kwargs["pause_debug"]:
+                kwargs["pause"]("debug-pause")
+
+        @staticmethod
+        def emit_pandemonium_summary(summary, *, emit, candy):
+            calls.append(("summary", tuple(summary)))
+
+        @staticmethod
+        def emit_critical_hit(value, *, emit):
+            calls.append(("hit", value))
+
+        @staticmethod
+        def say_current_wrong_crc_idat(*, candy):
+            calls.append(("ui", "current-idat"))
+
+    context = SimpleNamespace(
+        debug=True,
+        pause_debug=True,
+        pandemonium={"sample.png": {}},
+        pandora_box=pandora_box,
+        chunks_history=(b"IHDR", b"IDAT"),
+        chunks_history_index=("0:8:21", "1:33:277"),
+        cornucopia={},
+        all_chunks=(b"IDAT",),
+    )
+
+    assert relics_runtime.handle_relics_context_flow(
+        runtime,
+        relics,
+        FakeUi,
+        context,
+        ask=lambda **kwargs: calls.append(("ask", (), kwargs)) or True,
+        emit=lambda value: calls.append(("emit", value)),
+        pause=lambda message: calls.append(("pause", message)),
+        show_todo=lambda: calls.append(("todo", (), {})),
+        the_end=lambda: calls.append(("end", (), {})),
+        candy=lambda *args: None,
+    ) == "saved"
+
+    assert [call[0] for call in calls] == [
+        "debug",
+        "pause",
+        "summary",
+        "hit",
+        "ui",
+        "ask",
+        "save",
+    ]
+
+
+def test_relics_runtime_handles_full_context_no_pandemonium_flow():
+    calls = []
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)) or "brawl",
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    class FakeUi:
+        @staticmethod
+        def emit_debug_state(**kwargs):
+            calls.append(("debug", kwargs["debug"]))
+
+        @staticmethod
+        def say_no_pandemonium_intro(*, emit, candy):
+            calls.append(("ui", "intro"))
+
+        @staticmethod
+        def emit_prompt_context_hits(prompt_context, *, emit):
+            calls.append(("ui", "hits", prompt_context.print_hits))
+
+        @staticmethod
+        def say_no_pandemonium_getinfo(*, skip_bad_crc, candy):
+            calls.append(("ui", "getinfo", skip_bad_crc))
+
+        @staticmethod
+        def say_no_pandemonium_forcer(*, candy):
+            calls.append(("ui", "forcer"))
+
+        @staticmethod
+        def say_no_pandemonium_failure(*, candy):
+            calls.append(("ui", "failure"))
+
+    context = SimpleNamespace(
+        debug=False,
+        pause_debug=False,
+        pandemonium={},
+        pandora_box={"GetInfo_Error_0:StructIndex: b'IDAT'": {}},
+        chunks_history=(b"IHDR", b"IDAT"),
+        chunks_history_index=("0:8:21", "1:33:277"),
+        critical_chunks=(b"IDAT",),
+        all_chunks=(b"IHDR", b"IDAT"),
+        sample_name="sample.png",
+        from_error="GetInfo",
+        chunks_len_not_fixed=(b"IDAT",),
+        skip_bad_crc=False,
+    )
+
+    assert relics_runtime.handle_relics_context_flow(
+        runtime,
+        relics,
+        FakeUi,
+        context,
+        ask=lambda **kwargs: True,
+        emit=lambda value: calls.append(("emit", value)),
+        pause=lambda message: calls.append(("pause", message)),
+        show_todo=lambda: calls.append(("todo", (), {})),
+        the_end=lambda: calls.append(("end", (), {})),
+        candy=lambda *args: None,
+    ) == "brawl"
+
+    assert calls == [
+        ("debug", False),
+        ("ui", "intro"),
+        ("ui", "hits", ("GetInfo_Error_0:StructIndex: b'IDAT'",)),
+        ("ui", "getinfo", False),
+        ("brawl", ("sample.png", "IDAT", 277, 33, "GetInfo"), {"BfMode": "Brutus"}),
+    ]
+
+
 def main():
     checks = [
         ("RelicsRuntime keeps callbacks", test_relics_runtime_keeps_legacy_callbacks),
@@ -1367,6 +1515,14 @@ def main():
         (
             "RelicsRuntime handles no-Pandemonium context empty failure",
             test_relics_runtime_handles_no_pandemonium_context_empty_failure,
+        ),
+        (
+            "RelicsRuntime handles full context Pandemonium flow",
+            test_relics_runtime_handles_full_context_pandemonium_flow,
+        ),
+        (
+            "RelicsRuntime handles full context no-Pandemonium flow",
+            test_relics_runtime_handles_full_context_no_pandemonium_flow,
         ),
     ]
 

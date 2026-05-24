@@ -4268,26 +4268,7 @@ def Relics(FromError):
         pause_debug=PAUSEDEBUG,
         pause_error=PAUSEERROR,
     )
-    RelicsDebugContext = runtime_state.relics_debug_runtime_context(
-        debug=RelicsContext.debug,
-        pandemonium=RelicsContext.pandemonium,
-        pandora_box=RelicsContext.pandora_box,
-        chunks_history=RelicsContext.chunks_history,
-        chunks_history_index=RelicsContext.chunks_history_index,
-        pause_debug=RelicsContext.pause_debug,
-    )
-    relics_ui.emit_debug_state(
-        debug=RelicsDebugContext.debug,
-        pandemonium=RelicsDebugContext.pandemonium,
-        pandora_box=RelicsDebugContext.pandora_box,
-        chunks_history=RelicsDebugContext.chunks_history,
-        chunks_history_index=RelicsDebugContext.chunks_history_index,
-        pause_debug=RelicsDebugContext.pause_debug,
-        emit=PRINT,
-        pause=Pause,
-    )
-
-    handled, result = relics_runtime.handle_pandemonium_flow(
+    return relics_runtime.handle_relics_context_flow(
         RelicsRuntime,
         relics,
         relics_ui,
@@ -4296,19 +4277,6 @@ def Relics(FromError):
         emit=PRINT,
         pause=Pause,
         show_todo=lambda: relics_ui.emit_todo(emit=PRINT, candy=Candy),
-        the_end=TheEnd,
-        candy=Candy,
-    )
-    if handled:
-        return result
-
-    return relics_runtime.handle_no_pandemonium_context_flow(
-        RelicsRuntime,
-        relics,
-        relics_ui,
-        RelicsContext,
-        ask=Question,
-        emit=PRINT,
         candy=Candy,
         the_end=TheEnd,
     )
