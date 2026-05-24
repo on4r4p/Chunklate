@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, error_log, fixit_felix, fixit_felix_runtime, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, getinfo_runtime, history, libpng_check, name_shift, nearby, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -2130,126 +2130,33 @@ def RandomSample(data,colortype,chunk_format):
     return specs.random_sample_hex(data, colortype, chunk_format, random.random)
 
 
-def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_pos is not used well enough
-    Candy("Title", "Creating DummyChunk:")
-
-    #    for c, i in zip(Chunks_History, Chunks_History_Index):
-    #        PRINT("chunk:%s index:%s" % (c, i))
-    Todo = True
-
-
-    Candy(
-        "Cowsay",
-        "Mkay i will need to get some infos on the file before..",
-        "com",
+def DummyChunk_Runtime():
+    return dummy_chunk_runtime.DummyChunkRuntime(
+        data_hex=DATAX,
+        side_notes=SideNotes,
+        candy=Candy,
+        emit=PRINT,
+        checkpoint=CheckPoint,
+        end=TheEnd,
+        pause=Pause,
+        get_spec=GetSpec,
+        spec_length=SpecLength,
+        random_sample=RandomSample,
+        repair_note=fixit_felix.repair_note,
+        debug=DEBUG,
+        pause_debug=PAUSEDEBUG,
     )
 
-    #TODO
-    DummyDecision = dummy_chunk.decide_dummy_chunk(Chunkname, DATAX, bad_start)
-    if DummyDecision.action in ("strict_ihdr_repair", "partial_idat_blackfill"):
-            if DummyDecision.repair is not None:
-                SideNotes.append(fixit_felix.repair_note(DummyDecision.repair))
-            return CheckPoint(
-                True,
-                True,
-                "DummyChunk",
-                Chunkname,
-                ["Filling with a dummy chunk"],
-                DummyDecision.fixed_data_hex,
-                DummyDecision.dummy_data_length,
-                bad_pos,
-                bad_start,
-                bad_end,
-                FromError,
-            )
 
-    if DummyDecision.action == "complete_iend":
-        Candy(
-            "Cowsay",
-            "Fake datas ready to be served! Bonne appetit !",
-            "good",
-        )
-        return CheckPoint(
-            True,
-            DummyDecision.solved,
-            "DummyChunk",
-            Chunkname,
-            ["Filling with a dummy chunk"],
-            DummyDecision.fixed_data_hex,
-            DummyDecision.dummy_data_length,
-            bad_pos,
-            bad_start,
-            bad_end,
-            FromError,
-        )
-
-    DummyBuild = None
-    if Chunkname == b"IHDR":
-        DummyBuild = dummy_chunk.build_legacy_ihdr_dummy(
-            Chunkname,
-            get_spec=GetSpec,
-            spec_length=SpecLength,
-            random_sample=RandomSample,
-        )
-        Todo = False
-
-
-    elif Chunkname == b"IDAT": ##TODO
-        pass
-
-
-    elif Chunkname == b"IEND":
-        PRINT(Candy("Color", "yellow", "\n-ToDo"))
-        TheEnd()
-
-
-
-    if DEBUG is True and not Todo:
-        if Chunkname != b"IEND":
-            PRINT("chunklen_spec:%s"%str(DummyBuild.chunklen_spec))
-            PRINT("chunk_format:%s"%str(DummyBuild.chunk_format))
-            PRINT("color_type:%s"%str(DummyBuild.color_type))
-        PRINT("dumylen:%s"% DummyBuild.dummy_length)
-        PRINT("dumyname:%s"% DummyBuild.dummy_name)
-        PRINT("dumydata:%s"% DummyBuild.dummy_data)
-        PRINT("dumycrc:%s"% DummyBuild.dummy_crc)
-        PRINT("bad_start:%s"% bad_start)
-        PRINT("bad_end:%s"% bad_end)
-        PRINT("dumdum:%s"% DummyBuild.chunk_hex)
-        PRINT("bad pos:%s"% bad_pos)
-        PRINT("datax:%s"% DATAX[bad_start:bad_end])
-
-        if PAUSEDEBUG is True:
-                Pause("Pause Debug")
-
-#        print("Chunks_History:\n",Chunks_History)
-#        TheEnd()
-
-    if not Todo :
-        DummyFix = DATAX[:bad_start] + DummyBuild.chunk_hex + DATAX[bad_start:]
-
-        Candy(
-            "Cowsay",
-            "Fake datas ready to be served! Bonne appetit !",
-            "good",
-        )
-
-        return CheckPoint(
-            True,
-            DummyBuild.solved,
-            "DummyChunk",
-            Chunkname,
-            ["Filling with a dummy chunk"],
-            DummyFix,
-            len(DummyBuild.dummy_data),
-            bad_pos,
-            bad_start,
-            bad_end,
-            FromError,
-        )
-    else:
-        PRINT(Candy("Color", "yellow", "\n-ToDo"))
-        TheEnd()
+def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_pos is not used well enough
+    return dummy_chunk_runtime.run_dummy_chunk(
+        DummyChunk_Runtime(),
+        Chunkname,
+        bad_pos,
+        bad_start,
+        bad_end,
+        FromError,
+    )
 
 
 def Remove_Extra_Bytes_Before_Chunk(CType, LastCType, Excluded):
