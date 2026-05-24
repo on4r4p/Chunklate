@@ -77,6 +77,16 @@ def wrong_chunk_name_pandora_box(key, chkd):
     }
 
 
+def no_next_pandora_box(key, chkd, *, chunk_type=b"IDAT", chunk_length="12", previous_chunk=b"IDAT"):
+    return {
+        key: {
+            chkd + "0": chunk_type,
+            chkd + "1": chunk_length,
+            chkd + "2": previous_chunk,
+        }
+    }
+
+
 def test_wrong_crc_easy_answer_saves_clone():
     reset_fixit_globals()
     key = "Checksum_Error_0:Wrong Crc b'IDAT'"
@@ -434,6 +444,26 @@ def test_libpng_error_skip_only_reports_critical_hit():
     assert result is None
 
 
+def test_libpng_error_not_enough_image_data_calls_the_end():
+    reset_fixit_globals()
+    key = "Libpng_Error_0:libpng error: Not enough image data"
+    end_calls = []
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        TheEnd=lambda: end_calls.append("end"),
+    ):
+        result = Chunklate.FixItFelix_Libpng_Error(
+            key,
+            "LibpngCheck_Tool_",
+        )
+
+    assert result is None
+    assert end_calls == ["end"]
+
+
 def test_no_next_false_positive_iend_feeds_libpng_after_tail_iend():
     reset_fixit_globals()
     key = "CheckLength_Error_0:-No NextChunk"
@@ -472,6 +502,108 @@ def test_no_next_false_positive_iend_feeds_libpng_after_tail_iend():
     ]
 
 
+def test_no_next_false_positive_iend_with_missplaced_routes_the_good_place():
+    reset_fixit_globals()
+    key = "CheckLength_Error_0:-No NextChunk"
+    misplaced_key = "CheckChunkOrder_Error_0:Missplaced IEND"
+    chkd = "IEND_Tool_"
+    Chunklate.Bad_Missplaced = True
+    Chunklate.PandoraBox = no_next_pandora_box(
+        key,
+        chkd,
+        chunk_type=b"IEND",
+        chunk_length="0",
+        previous_chunk=b"IDAT",
+    )
+    Chunklate.PandoraBox[misplaced_key] = {
+        "IEND_Tool_0": b"IEND",
+        "IEND_Tool_1": 12,
+        "IEND_Tool_2": 20,
+    }
+    Chunklate.DATAX = "aabbccdd" + fixit_felix.GOOD_IEND_HEX
+    calls = {"chunk_story": [], "check_order": [], "good_place": []}
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        ChunkStory=lambda *args: calls["chunk_story"].append(args),
+        CheckChunkOrder=lambda *args: calls["check_order"].append(args),
+        TheGoodPlace=lambda *args: calls["good_place"].append(args) or "good-place-result",
+    ):
+        should_return, result = Chunklate.FixItFelix_No_NextChunk(key, chkd, b"IEND")
+
+    assert should_return is True
+    assert result == "good-place-result"
+    assert list(Chunklate.PandoraBox) == [misplaced_key]
+    assert calls["chunk_story"] == [("add", b"IEND", 0, 8, 0)]
+    assert calls["check_order"] == [(b"IEND", "Critical")]
+    assert calls["good_place"] == [(b"IEND", 12, 20)]
+    assert Chunklate.SideNotes == [
+        "-Found False-Positive :[Error:-No NextChunk].",
+        "-Reached the end of file.",
+    ]
+
+
+def test_no_next_false_positive_iend_writes_clean_cut_when_extra_bytes_follow_iend():
+    reset_fixit_globals()
+    key = "CheckLength_Error_0:-No NextChunk"
+    chkd = "IEND_Tool_"
+    Chunklate.PandoraBox = no_next_pandora_box(
+        key,
+        chkd,
+        chunk_type=b"IEND",
+        chunk_length="0",
+        previous_chunk=b"IDAT",
+    )
+    Chunklate.DATAX = "aabbccdd" + fixit_felix.GOOD_IEND_HEX + "ffee"
+    writes = []
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        ChunkStory=lambda *args: None,
+        WriteClone=lambda *args: writes.append(args) or "write-result",
+    ):
+        should_return, result = Chunklate.FixItFelix_No_NextChunk(key, chkd, b"IEND")
+
+    assert should_return is True
+    assert result == "write-result"
+    assert writes == [(bytes.fromhex("aabbccdd" + fixit_felix.GOOD_IEND_HEX), "-Saved")]
+    assert Chunklate.SideNotes == [
+        "-Found False-Positive :[Error:-No NextChunk].",
+        "-FixitFelix:Removing extra bytes after IEND chunk.",
+    ]
+
+
+def test_no_next_wrong_iend_length_records_note_and_ends():
+    reset_fixit_globals()
+    key = "CheckLength_Error_0:-No NextChunk"
+    chkd = "IEND_Tool_"
+    end_calls = []
+    Chunklate.PandoraBox = no_next_pandora_box(
+        key,
+        chkd,
+        chunk_type=b"IEND",
+        chunk_length="1",
+        previous_chunk=b"IDAT",
+    )
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        TheEnd=lambda: end_calls.append("end"),
+    ):
+        should_return, result = Chunklate.FixItFelix_No_NextChunk(key, chkd, b"IDAT")
+
+    assert should_return is False
+    assert result is None
+    assert end_calls == ["end"]
+    assert Chunklate.SideNotes == ["-Wrong length for IEND"]
+
+
 def test_no_next_append_missing_iend_uses_dummy_at_crc_tail():
     reset_fixit_globals()
     key = "CheckLength_Error_0:-No NextChunk"
@@ -507,6 +639,64 @@ def test_no_next_append_missing_iend_uses_dummy_at_crc_tail():
     assert Chunklate.SideNotes == ["-Extra bits detected:ff"]
 
 
+def test_no_next_append_missing_iend_uses_dummy_at_eof_for_partial_iend():
+    reset_fixit_globals()
+    key = "CheckLength_Error_0:-No NextChunk"
+    chkd = "IDAT_Tool_"
+    Chunklate.Bad_Critical = True
+    Chunklate.CrcoffI = 0
+    partial_iend = fixit_felix.GOOD_IEND_HEX[:10]
+    Chunklate.DATAX = "aabbccdd" + partial_iend
+    Chunklate.PandoraBox = no_next_pandora_box(key, chkd)
+    dummy_calls = []
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        print=lambda *args, **kwargs: None,
+        DummyChunk=lambda *args: dummy_calls.append(args) or "dummy-eof",
+    ):
+        should_return, result = Chunklate.FixItFelix_No_NextChunk(key, chkd, b"IDAT")
+
+    assert should_return is True
+    assert result == "dummy-eof"
+    assert dummy_calls == [(b"IEND", len(Chunklate.DATAX), len(Chunklate.DATAX), len(Chunklate.DATAX), key)]
+    assert Chunklate.SideNotes == [
+        "-Extra bits detected:%s" % partial_iend,
+        "-Part or full IEND chunk detected:%s" % partial_iend,
+    ]
+
+
+def test_no_next_append_missing_iend_inside_exceeding_records_todo_and_ends():
+    reset_fixit_globals()
+    key = "CheckLength_Error_0:-No NextChunk"
+    chkd = "IDAT_Tool_"
+    Chunklate.Bad_Critical = True
+    Chunklate.CrcoffI = 0
+    exceeding = "ff" + fixit_felix.GOOD_IEND_HEX + "aa"
+    Chunklate.DATAX = "aabbccdd" + exceeding
+    Chunklate.PandoraBox = no_next_pandora_box(key, chkd)
+    end_calls = []
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        print=lambda *args, **kwargs: None,
+        TheEnd=lambda: end_calls.append("end"),
+    ):
+        should_return, result = Chunklate.FixItFelix_No_NextChunk(key, chkd, b"IDAT")
+
+    assert should_return is False
+    assert result is None
+    assert end_calls == ["end"]
+    assert Chunklate.SideNotes == [
+        "-Extra bits detected:%s" % exceeding,
+        "-Part or full IEND chunk detected:%s" % exceeding,
+    ]
+
+
 def test_no_next_ask_length_probe_routes_to_nearbychunk():
     reset_fixit_globals()
     key = "CheckLength_Error_0:-No NextChunk"
@@ -537,6 +727,24 @@ def test_no_next_ask_length_probe_routes_to_nearbychunk():
     assert result == "nearby-result"
     assert nearby_calls == [(b"IDAT", "12", b"IDAT", False, key)]
     assert Chunklate.SideNotes == ["-End of File Reached but IEND Chunk is missing"]
+
+
+def test_no_next_skip_short_circuits():
+    reset_fixit_globals()
+    Chunklate.Skip_Bad_No_Next_Chunk = True
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not print")),
+    ):
+        should_return, result = Chunklate.FixItFelix_No_NextChunk(
+            "CheckLength_Error_0:-No NextChunk",
+            "IDAT_Tool_",
+            b"IDAT",
+        )
+
+    assert should_return is False
+    assert result is None
 
 
 def main():
@@ -577,9 +785,28 @@ def main():
         ("Libpng error saves existing solution", test_libpng_error_saves_existing_solution_from_cornucopia),
         ("Libpng error ask relics sets skip", test_libpng_error_ask_relics_sets_skip_and_returns_relics),
         ("Libpng error skip reports only critical hit", test_libpng_error_skip_only_reports_critical_hit),
+        ("Libpng not enough image data ends", test_libpng_error_not_enough_image_data_calls_the_end),
         ("No-next false positive feeds libpng", test_no_next_false_positive_iend_feeds_libpng_after_tail_iend),
+        (
+            "No-next false positive with misplaced routes TheGoodPlace",
+            test_no_next_false_positive_iend_with_missplaced_routes_the_good_place,
+        ),
+        (
+            "No-next false positive writes clean cut",
+            test_no_next_false_positive_iend_writes_clean_cut_when_extra_bytes_follow_iend,
+        ),
+        ("No-next wrong IEND length ends", test_no_next_wrong_iend_length_records_note_and_ends),
         ("No-next append missing IEND uses dummy chunk", test_no_next_append_missing_iend_uses_dummy_at_crc_tail),
+        (
+            "No-next append missing IEND uses dummy at EOF",
+            test_no_next_append_missing_iend_uses_dummy_at_eof_for_partial_iend,
+        ),
+        (
+            "No-next append missing IEND inside exceeding ends",
+            test_no_next_append_missing_iend_inside_exceeding_records_todo_and_ends,
+        ),
         ("No-next ask length probe routes to NearbyChunk", test_no_next_ask_length_probe_routes_to_nearbychunk),
+        ("No-next skip short circuits", test_no_next_skip_short_circuits),
     ]
 
     print("Running FixItFelix action tests")
