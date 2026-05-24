@@ -32,17 +32,139 @@ def reset_fixit_globals():
     Chunklate.SideNotes = []
     Chunklate.PandoraBox = {}
     Chunklate.Cornucopia = {}
+    Chunklate.Skip_Bad_Crc = False
     Chunklate.Skip_Bad_Libpng = False
     Chunklate.Skip_Bad_No_Next_Chunk = False
+    Chunklate.Old_Bad_Crc = None
     Chunklate.EOF = False
     Chunklate.Bad_Critical = False
     Chunklate.Bad_Missplaced = False
+    Chunklate.DEBUG = False
+    Chunklate.PAUSEDEBUG = False
     Chunklate.Sample = "sample.png"
     Chunklate.DATAX = ""
     Chunklate.CLoffI = 0
     Chunklate.CrcoffI = 0
     Chunklate.Orig_CL = "0"
     Chunklate.Raw_Crc = ""
+
+
+def wrong_crc_pandora_box(key, chkd):
+    return {
+        key: {
+            chkd + "0": "fixed-crc-data",
+            chkd + "1": 12,
+            chkd + "2": 20,
+            chkd + "3": b"IDAT",
+            chkd + "4": "0x2a",
+            chkd + "5": "old-crc",
+        }
+    }
+
+
+def test_wrong_crc_easy_answer_saves_clone():
+    reset_fixit_globals()
+    key = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    Chunklate.PandoraBox = wrong_crc_pandora_box(key, chkd)
+    save_calls = []
+
+    def fake_save_clone(data, start, end, note):
+        save_calls.append((data, start, end, note))
+        return "saved"
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        Question=lambda **kwargs: True,
+        SaveClone=fake_save_clone,
+    ):
+        should_return, result = Chunklate.FixItFelix_Wrong_Crc(key, chkd, 1)
+
+    assert should_return is True
+    assert result == "saved"
+    assert save_calls == [
+        (
+            "fixed-crc-data",
+            12,
+            20,
+            "-Found Chunk[b'IDAT'] has Wrong Crc at offset: 0x2a\n"
+            "-Replaced with: fixed-crc-data old value was: old-crc",
+        )
+    ]
+    assert Chunklate.Skip_Bad_Crc is False
+    assert Chunklate.Old_Bad_Crc is None
+
+
+def test_wrong_crc_easy_decline_then_final_decline_keeps_legacy_skip_none_and_saves():
+    reset_fixit_globals()
+    key = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    answers = iter((False, False))
+    Chunklate.PandoraBox = wrong_crc_pandora_box(key, chkd)
+    save_calls = []
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        Question=lambda **kwargs: next(answers),
+        SaveClone=lambda *args: save_calls.append(args) or "saved",
+    ):
+        should_return, result = Chunklate.FixItFelix_Wrong_Crc(key, chkd, 1)
+
+    assert should_return is True
+    assert result == "saved"
+    assert Chunklate.Skip_Bad_Crc is None
+    assert Chunklate.Old_Bad_Crc is None
+    assert len(save_calls) == 1
+
+
+def test_wrong_crc_other_errors_defer_sets_story_and_old_crc():
+    reset_fixit_globals()
+    key = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    Chunklate.PandoraBox = wrong_crc_pandora_box(key, chkd)
+    Chunklate.CLoffI = 33
+    Chunklate.CrcoffI = 101
+    Chunklate.Orig_CL = "0d"
+    story_calls = []
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        Question=lambda **kwargs: True,
+        ChunkStory=lambda *args: story_calls.append(args),
+    ):
+        should_return, result = Chunklate.FixItFelix_Wrong_Crc(key, chkd, 3)
+
+    assert should_return is False
+    assert result is None
+    assert story_calls == [("add", b"IDAT", 33, 109, 13)]
+    assert Chunklate.Old_Bad_Crc == "old-crc"
+    assert Chunklate.Skip_Bad_Crc is True
+
+
+def test_wrong_crc_already_in_cornucopia_does_not_require_pandora_tools():
+    reset_fixit_globals()
+    key = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    printed = []
+    Chunklate.Cornucopia = {key: {}}
+
+    with patched_attrs(
+        Chunklate,
+        DEBUG=True,
+        PAUSEDEBUG=True,
+        PRINT=lambda message, *args, **kwargs: printed.append(message),
+    ):
+        should_return, result = Chunklate.FixItFelix_Wrong_Crc(key, chkd, 1)
+
+    assert should_return is False
+    assert result is None
+    assert printed[-1] == "-Cornucopia is True"
 
 
 def test_gama_zero_discards_false_positive():
@@ -289,6 +411,16 @@ def test_no_next_ask_length_probe_routes_to_nearbychunk():
 
 def main():
     checks = [
+        ("Wrong CRC easy answer saves clone", test_wrong_crc_easy_answer_saves_clone),
+        (
+            "Wrong CRC easy decline keeps legacy skip state",
+            test_wrong_crc_easy_decline_then_final_decline_keeps_legacy_skip_none_and_saves,
+        ),
+        ("Wrong CRC other errors defer to story", test_wrong_crc_other_errors_defer_sets_story_and_old_crc),
+        (
+            "Wrong CRC already in Cornucopia does not need Pandora tools",
+            test_wrong_crc_already_in_cornucopia_does_not_require_pandora_tools,
+        ),
         ("gAMA zero discards false positive", test_gama_zero_discards_false_positive),
         ("Critical miss uses debug pause decision", test_critical_miss_uses_debug_pause_decision),
         ("Critical miss skips pause without debug gate", test_critical_miss_does_not_pause_without_debug_gate),
