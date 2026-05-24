@@ -125,6 +125,14 @@ def test_shifted_chunk_crc_view_builds_legacy_crc_values_and_fixed_hex():
     assert name_shift.missed_something_message() == (
         " Hold on a sec ... Must have missed something..."
     )
+    assert name_shift.length_part_is_corrupted("00000001", "00000002") is True
+    assert name_shift.length_part_is_corrupted("00000002", "00000002") is False
+    assert name_shift.crc_value_is_empty("", "0x1") is True
+    assert name_shift.crc_value_is_empty("0x1", "") is True
+    assert name_shift.crc_value_is_empty("0x1", "0x2") is False
+    assert name_shift.checksum_needs_legacy_padding("0x1") is True
+    assert name_shift.checksum_needs_legacy_padding("0x12345678") is False
+    assert name_shift.legacy_pad_checksum("0x1") == "0x00000001"
 
 
 def test_shifted_chunk_crc_view_detects_crc_mismatch():

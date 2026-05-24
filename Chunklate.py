@@ -3408,7 +3408,6 @@ def CheckChunkOrder(lastchunk, mode):
 
 def NameShift():
     Candy("Title", "Checking around Chunk's position:")
-    ToFix = []
     Shifted = False
     good_offset = False
 
@@ -3439,7 +3438,7 @@ def NameShift():
         lenioff = DATAX[ioff-8:ioff]
         reallen = SpecLength(value, lenioff)
 
-        if lenioff != reallen:
+        if name_shift.length_part_is_corrupted(lenioff, reallen):
 
              Candy("Cowsay", "I knew there was something odd..", "bad")
 #             Candy("Cowsay", "The good news is we wont have to bruteforce all the previous chunk...", "com")
@@ -3501,15 +3500,15 @@ def NameShift():
                         Candy("Emoj", "bad"),
                     )
                 )
-                if len(Crc) == 0 or len(checksum) == 0:
+                if name_shift.crc_value_is_empty(Crc, checksum):
                     PRINT(name_shift.monkey_wanted_line(Candy("Color", "green", checksum)))
                     PRINT(name_shift.monkey_got_line(Candy("Color", "red", Crc)))
                     Candy("Cowsay", name_shift.missed_something_message(), "com")
                     PRINT(Candy("Color", "yellow", "\n-ToDo"))
                     TheEnd()
 
-                if len(checksum) < 10:
-                    checksum = "0x" + (checksum[2::].zfill(8))
+                if name_shift.checksum_needs_legacy_padding(checksum):
+                    checksum = name_shift.legacy_pad_checksum(checksum)
                     PRINT(name_shift.monkey_wanted_line(Candy("Color", "green", checksum)))
                     PRINT(name_shift.monkey_got_line(Candy("Color", "red", Crc)))
                     PRINT(Candy("Color", "yellow", "\n-ToDo"))

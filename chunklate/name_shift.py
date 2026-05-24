@@ -109,6 +109,22 @@ def missed_something_message() -> str:
     return " Hold on a sec ... Must have missed something..."
 
 
+def length_part_is_corrupted(file_length: str, spec_length: str) -> bool:
+    return file_length != spec_length
+
+
+def crc_value_is_empty(file_crc: str, checksum: str) -> bool:
+    return len(file_crc) == 0 or len(checksum) == 0
+
+
+def checksum_needs_legacy_padding(checksum: str) -> bool:
+    return len(checksum) < 10
+
+
+def legacy_pad_checksum(checksum: str) -> str:
+    return "0x" + checksum[2::].zfill(8)
+
+
 def crc_valid_note() -> str:
     return "-NameShift:Crc check is valid."
 
