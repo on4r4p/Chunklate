@@ -32,6 +32,12 @@ class GamaZeroRuntime:
     return_value: Any
 
 
+@dataclass(frozen=True)
+class CriticalMissRuntime:
+    emit: Callable[[str], Any]
+    pause: Callable[[str], Any]
+
+
 def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool:
     applied_repair = fixit_felix.applied_repair(repair)
     runtime.side_notes.append(applied_repair.note)
@@ -50,6 +56,20 @@ def apply_gama_zero(runtime: GamaZeroRuntime, decision: fixit_felix.GamaZeroDeci
         return True, runtime.return_value
 
     raise ValueError("Unknown FixItFelix gAMA action: %s" % decision.action)
+
+
+def apply_critical_miss(
+    runtime: CriticalMissRuntime,
+    decision: fixit_felix.CriticalMissDecision,
+) -> tuple[bool, Any]:
+    runtime.emit("\n-\033[1;31;49mCriticalMiss\033[m: %s" % decision.finding)
+    if decision.action == "pause_debug":
+        runtime.pause("Pause:Debug")
+        return False, None
+    if decision.action == "continue":
+        return False, None
+
+    raise ValueError("Unknown FixItFelix critical-miss action: %s" % decision.action)
 
 
 def finding_handlers(callbacks: LegacyFixItFelixHandlers) -> dict[str, fixit_felix.FindingWorkItemHandler]:

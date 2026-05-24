@@ -78,6 +78,69 @@ def test_apply_gama_zero_rejects_unknown_action():
         raise AssertionError("Expected ValueError for unknown gAMA action")
 
 
+def test_apply_critical_miss_emits_and_pauses_on_debug_action():
+    emitted = []
+    pauses = []
+    runtime = fixit_felix_runtime.CriticalMissRuntime(
+        emit=emitted.append,
+        pause=pauses.append,
+    )
+    finding = "CheckChunkOrder_Error_0:Critical"
+
+    result = fixit_felix_runtime.apply_critical_miss(
+        runtime,
+        fixit_felix.critical_miss_decision(
+            finding,
+            debug=True,
+            pause_debug=True,
+        ),
+    )
+
+    assert result == (False, None)
+    assert emitted == ["\n-\033[1;31;49mCriticalMiss\033[m: %s" % finding]
+    assert pauses == ["Pause:Debug"]
+
+
+def test_apply_critical_miss_continue_does_not_pause():
+    emitted = []
+    pauses = []
+    runtime = fixit_felix_runtime.CriticalMissRuntime(
+        emit=emitted.append,
+        pause=pauses.append,
+    )
+    finding = "CheckChunkOrder_Error_0:Critical"
+
+    result = fixit_felix_runtime.apply_critical_miss(
+        runtime,
+        fixit_felix.critical_miss_decision(
+            finding,
+            debug=True,
+            pause_debug=False,
+        ),
+    )
+
+    assert result == (False, None)
+    assert emitted == ["\n-\033[1;31;49mCriticalMiss\033[m: %s" % finding]
+    assert pauses == []
+
+
+def test_apply_critical_miss_rejects_unknown_action():
+    runtime = fixit_felix_runtime.CriticalMissRuntime(
+        emit=lambda message: None,
+        pause=lambda message: None,
+    )
+
+    try:
+        fixit_felix_runtime.apply_critical_miss(
+            runtime,
+            SimpleNamespace(action="unknown", finding="Critical"),
+        )
+    except ValueError as exc:
+        assert str(exc) == "Unknown FixItFelix critical-miss action: unknown"
+    else:
+        raise AssertionError("Expected ValueError for unknown critical-miss action")
+
+
 def recording_callbacks(calls):
     return fixit_felix_runtime.LegacyFixItFelixHandlers(
         wrong_crc=lambda finding, chkd, pandora_len: calls.append(
@@ -170,6 +233,9 @@ def main():
         ("Apply repair records note and writes clone", test_apply_repair_records_note_and_writes_clone),
         ("Apply gAMA zero discards false positive", test_apply_gama_zero_discards_false_positive_and_returns_legacy_target),
         ("Apply gAMA zero rejects unknown action", test_apply_gama_zero_rejects_unknown_action),
+        ("Apply critical miss emits and pauses", test_apply_critical_miss_emits_and_pauses_on_debug_action),
+        ("Apply critical miss continue skips pause", test_apply_critical_miss_continue_does_not_pause),
+        ("Apply critical miss rejects unknown action", test_apply_critical_miss_rejects_unknown_action),
         ("Finding handlers route callback arguments", test_finding_handlers_route_legacy_callback_arguments),
         ("Apply finding work item dispatches", test_apply_finding_work_item_dispatches_through_fixit_felix_dispatch),
         ("Runtime uses automatic repair and callbacks", test_runtime_uses_automatic_repair_and_legacy_callbacks),

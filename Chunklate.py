@@ -4933,16 +4933,22 @@ def FixItFelix_Gama_Zero(key):
     )
 
 
-def FixItFelix_Critical_Miss(key):
-    CriticalMissDecision = fixit_felix.critical_miss_decision(
-        key,
-        debug=DEBUG,
-        pause_debug=PAUSEDEBUG,
+def FixItFelix_Critical_Miss_Runtime():
+    return fixit_felix_runtime.CriticalMissRuntime(
+        emit=PRINT,
+        pause=Pause,
     )
-    PRINT("\n-\033[1;31;49mCriticalMiss\033[m: %s"%key)
-    if CriticalMissDecision.action == "pause_debug":
-        Pause("Pause:Debug")
-    return False, None
+
+
+def FixItFelix_Critical_Miss(key):
+    return fixit_felix_runtime.apply_critical_miss(
+        FixItFelix_Critical_Miss_Runtime(),
+        fixit_felix.critical_miss_decision(
+            key,
+            debug=DEBUG,
+            pause_debug=PAUSEDEBUG,
+        ),
+    )
 
 
 def FixItFelix_Automatic_Repair_Runtime():
