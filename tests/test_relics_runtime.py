@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import Chunklate
-from chunklate import relics, relics_runtime
+from chunklate import relics, relics_runtime, runtime_state
 
 
 @contextmanager
@@ -130,6 +130,75 @@ def test_chunklate_relics_runtime_uses_current_legacy_functions():
         "remove_chunk",
         "ask_choice",
     ]
+
+
+def test_chunklate_relics_context_captures_current_legacy_globals():
+    pandemonium = {"sample.png": {}}
+    pandora_box = {"Error": {}}
+    cornucopia = {"Fixed": {}}
+    side_notes = []
+    all_chunks = [b"IHDR", b"IDAT"]
+    critical_chunks = [b"IHDR"]
+    chunks_history = [b"PNG", b"IHDR"]
+    chunks_history_index = ["0:0:16:8"]
+    chunks_len_not_fixed = {b"IDAT"}
+
+    with patched_attrs(
+        Chunklate,
+        Pandemonium=pandemonium,
+        PandoraBox=pandora_box,
+        Cornucopia=cornucopia,
+        SideNotes=side_notes,
+        ALLCHUNKS=all_chunks,
+        CRITICAL_CHUNKS=critical_chunks,
+        Chunks_History=chunks_history,
+        Chunks_History_Index=chunks_history_index,
+        FILE_Origin="origin.png",
+        Sample="sample.png",
+        Sample_Name="sample.png",
+        DATAX="00112233445566778899",
+        CrcoffI=4,
+        Bad_Crc=True,
+        Skip_Bad_Current_Name=False,
+        Skip_Bad_Infos=True,
+        Skip_Bad_Critical=False,
+        Skip_Bad_Crc=True,
+        CHUNKS_LEN_NOT_FIXED=chunks_len_not_fixed,
+        DEBUG=True,
+        PAUSEDEBUG=False,
+        PAUSEERROR=True,
+    ):
+        context = Chunklate.Relics_Context("Relics")
+
+    all_chunks.append(b"IEND")
+    critical_chunks.append(b"IEND")
+    chunks_history.append(b"IDAT")
+    chunks_history_index.append("1:16:24:0")
+
+    assert context == runtime_state.RelicsRuntimeContext(
+        from_error="Relics",
+        pandemonium=pandemonium,
+        pandora_box=pandora_box,
+        cornucopia=cornucopia,
+        side_notes=side_notes,
+        all_chunks=(b"IHDR", b"IDAT"),
+        critical_chunks=(b"IHDR",),
+        chunks_history=(b"PNG", b"IHDR"),
+        chunks_history_index=("0:0:16:8",),
+        file_origin="origin.png",
+        sample="sample.png",
+        sample_name="sample.png",
+        bad_crc=True,
+        old_crc="22334455",
+        skip_bad_current_name=False,
+        skip_bad_infos=True,
+        skip_bad_critical=False,
+        skip_bad_crc=True,
+        chunks_len_not_fixed=chunks_len_not_fixed,
+        debug=True,
+        pause_debug=False,
+        pause_error=True,
+    )
 
 
 def test_relics_runtime_runs_save_clone_plan():
@@ -1449,6 +1518,7 @@ def main():
     checks = [
         ("RelicsRuntime keeps callbacks", test_relics_runtime_keeps_legacy_callbacks),
         ("Chunklate builds RelicsRuntime from legacy functions", test_chunklate_relics_runtime_uses_current_legacy_functions),
+        ("Chunklate builds RelicsContext from legacy globals", test_chunklate_relics_context_captures_current_legacy_globals),
         ("RelicsRuntime runs SaveClone plans", test_relics_runtime_runs_save_clone_plan),
         ("RelicsRuntime runs brawl plans", test_relics_runtime_runs_brawl_plans),
         ("RelicsRuntime runs PLTE and forcer plans", test_relics_runtime_runs_plte_and_forcer_plans),

@@ -4239,11 +4239,8 @@ def Relics_Runtime():
     )
 
 
-def Relics(FromError):
-    Candy("Title", "Opening the Ark Of The Covenant :")
-
-    RelicsRuntime = Relics_Runtime()
-    RelicsContext = runtime_state.relics_runtime_context(
+def Relics_Context(FromError):
+    return runtime_state.relics_runtime_context(
         from_error=FromError,
         pandemonium=Pandemonium,
         pandora_box=PandoraBox,
@@ -4268,11 +4265,16 @@ def Relics(FromError):
         pause_debug=PAUSEDEBUG,
         pause_error=PAUSEERROR,
     )
+
+
+def Relics(FromError):
+    Candy("Title", "Opening the Ark Of The Covenant :")
+
     return relics_runtime.handle_relics_context_flow(
-        RelicsRuntime,
+        Relics_Runtime(),
         relics,
         relics_ui,
-        RelicsContext,
+        Relics_Context(FromError),
         ask=Question,
         emit=PRINT,
         pause=Pause,
