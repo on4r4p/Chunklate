@@ -4477,130 +4477,147 @@ def FixItFelix_Libpng_Error(key, chkd):
     return handler(LibpngDecision, key, chkd)
 
 
-def FixItFelix_Wrong_Chunk_Name(key, chkd):
-    global Skip_Bad_Current_Name
+def FixItFelix_Wrong_Chunk_Name_Print_Critical(key):
+    PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+
+
+def FixItFelix_Wrong_Chunk_Name_Describe(NameDecision):
+    if Bad_Ancillary is True:
+        Candy(
+            "Cowsay",
+            "I don't know that chunk but it has passed Ancillary nomenclature check ..",
+            "com",
+        )
+        if Bad_Crc is True:
+            Candy(
+                "Cowsay",
+                "But since Crc is not valid there is more chances that this Chunkname is corrupt.",
+                "bad",
+            )
+        else:
+            Candy(
+                "Cowsay",
+                "and since Crc is valid too this may be a legit private chunk..",
+                "com",
+            )
+    else:
+        Candy(
+            "Cowsay",
+            "I don't know that chunk and it has failed Ancillary nomenclature check ..",
+            "bad",
+        )
+        if Bad_Crc is True:
+            Candy(
+                "Cowsay",
+                "And since Crc is wrong this definitely looks like a corrupted Chunkname .",
+                "bad",
+            )
+        else:
+            Candy(
+                "Cowsay",
+                "But the CRC is still Valid !!! Usually this means that it has been made on purpose by someone...",
+                "bad",
+            )
+            Candy(
+                "Cowsay",
+                "Or....SOMEHTING !!",
+                "com",
+            )
+
+
+def FixItFelix_Wrong_Chunk_Name_Ask_Length_Probe(NameDecision, key, chkd, NameTools):
     global Skip_Bad_Next_Name
 
-    if Skip_Bad_Current_Name is False:
+    Candy(
+        "Cowsay",
+        "By the way IDAT chunk's length is different from the one usually used for some reason..",
+        "com",
+    )
+    Candy(
+        "Cowsay",
+        "May i suggest to start by checking if this a length problem ?",
+        "good",
+    )
+    uniqh = relics.question_hash(PandoraBox, key, chkd)
+    Answer = Question(id=key,idhash=uniqh)
+    if Answer is True:
+        return True, NearbyChunk(
+            NameTools.chunk_type,
+            NameTools.chunk_length,
+            NameTools.chunk_type_offset,
+            False,
+            key,
+        )
 
+    Skip_Bad_Next_Name = True
+    return FixItFelix_Wrong_Chunk_Name_Ask_Bruteforce(NameDecision, key, chkd, NameTools)
+
+
+def FixItFelix_Wrong_Chunk_Name_Ask_Bruteforce(NameDecision, key, chkd, NameTools):
+    global Skip_Bad_Current_Name
+
+    if NameDecision.bad_crc is False:
+        Candy(
+            "Cowsay",
+            "Do you want me to try to fix this regardless of CRC's validity ?",
+            "com",
+        )
+    else:
+        Candy(
+            "Cowsay",
+            "How about im taking care of the rest ?",
+            "com",
+        )
+    uniqh = relics.question_hash(PandoraBox, key, chkd)
+    Answer = Question(id=key,idhash=uniqh)
+    if Answer is True:
+        return True, BruteChunk(
+            NameTools.chunk_type,
+            NameTools.previous_chunk,
+            NameTools.chunk_length,
+            str(key),
+        )
+
+    Skip_Bad_Current_Name = True
+    return False, None
+
+
+def FixItFelix_Wrong_Chunk_Name_Save_Existing(NameDecision, key, chkd, NameTools):
+    PRINT("\n-\033[1;32;49mSolved\033[m: %s"% relics.tool_value(Cornucopia[key], chkd, 4))
+    return True, SaveClone(
+        relics.tool_value(Cornucopia[key], chkd, 0),
+        relics.tool_value(Cornucopia[key], chkd, 1),
+        relics.tool_value(Cornucopia[key], chkd, 2),
+        relics.tool_value(Cornucopia[key], chkd, 3),
+    )
+
+
+FIXIT_FELIX_WRONG_CHUNK_NAME_HANDLERS = {
+    "ask_length_probe": FixItFelix_Wrong_Chunk_Name_Ask_Length_Probe,
+    "ask_bruteforce": FixItFelix_Wrong_Chunk_Name_Ask_Bruteforce,
+    "save_existing_solution": FixItFelix_Wrong_Chunk_Name_Save_Existing,
+}
+
+
+def FixItFelix_Wrong_Chunk_Name(key, chkd):
+    if Skip_Bad_Current_Name is False:
         NameDecision = fixit_felix.wrong_chunk_name_decision(
             key,
             solved=str(key) in Cornucopia,
             bad_crc=Bad_Crc,
         )
 
+        NameTools = None
         if NameDecision.action != "save_existing_solution":
-            PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+            FixItFelix_Wrong_Chunk_Name_Print_Critical(key)
             NameTools = relics.wrong_chunk_name_tools(PandoraBox[key], chkd)
             Ancillary(NameTools.chunk_type)
+            FixItFelix_Wrong_Chunk_Name_Describe(NameDecision)
 
-            if Bad_Ancillary is True:
-                Candy(
-                    "Cowsay",
-                    "I don't know that chunk but it has passed Ancillary nomenclature check ..",
-                    "com",
-                )
-                if Bad_Crc is True:
-                    Candy(
-                        "Cowsay",
-                        "But since Crc is not valid there is more chances that this Chunkname is corrupt.",
-                        "bad",
-                    )
-                else:
-
-                    Candy(
-                        "Cowsay",
-                        "and since Crc is valid too this may be a legit private chunk..",
-                        "com",
-                    )
-
-            else:
-
-                Candy(
-                    "Cowsay",
-                    "I don't know that chunk and it has failed Ancillary nomenclature check ..",
-                    "bad",
-                )
-                if Bad_Crc is True:
-                    Candy(
-                        "Cowsay",
-                        "And since Crc is wrong this definitely looks like a corrupted Chunkname .",
-                        "bad",
-                    )
-                else:
-
-                    Candy(
-                        "Cowsay",
-                        "But the CRC is still Valid !!! Usually this means that it has been made on purpose by someone...",
-                        "bad",
-                    )
-
-                    Candy(
-                        "Cowsay",
-                        "Or....SOMEHTING !!",
-                        "com",
-                    )
-
-            if NameDecision.action == "ask_length_probe":
-                Candy(
-                    "Cowsay",
-                    "By the way IDAT chunk's length is different from the one usually used for some reason..",
-                    "com",
-                )
-                Candy(
-                    "Cowsay",
-                    "May i suggest to start by checking if this a length problem ?",
-                    "good",
-                )
-                uniqh = relics.question_hash(PandoraBox, key, chkd)
-                Answer = Question(id=key,idhash=uniqh)
-                if Answer is True:
-
-                    return True, NearbyChunk(
-                        NameTools.chunk_type,
-                        NameTools.chunk_length,
-                        NameTools.chunk_type_offset,
-                        False,
-                        key,
-                    )
-
-                else:
-                    Skip_Bad_Next_Name = True
-                    #Pause("Else")
-            if NameDecision.bad_crc is False:
-                Candy(
-                    "Cowsay",
-                    "Do you want me to try to fix this regardless of CRC's validity ?",
-                    "com",
-                )
-            else:
-
-                Candy(
-                    "Cowsay",
-                    "How about im taking care of the rest ?",
-                    "com",
-                )
-            uniqh = relics.question_hash(PandoraBox, key, chkd)
-            Answer = Question(id=key,idhash=uniqh)
-            if Answer is True:
-                return True, BruteChunk(
-                    NameTools.chunk_type,
-                    NameTools.previous_chunk,
-                    NameTools.chunk_length,
-                    str(key),
-                )
-
-            else:
-                Skip_Bad_Current_Name = True
-        else:
-            PRINT("\n-\033[1;32;49mSolved\033[m: %s"% relics.tool_value(Cornucopia[key], chkd, 4))
-            return True, SaveClone(
-                relics.tool_value(Cornucopia[key], chkd, 0),
-                relics.tool_value(Cornucopia[key], chkd, 1),
-                relics.tool_value(Cornucopia[key], chkd, 2),
-                relics.tool_value(Cornucopia[key], chkd, 3),
-            )
-            pass
+        handler = FIXIT_FELIX_WRONG_CHUNK_NAME_HANDLERS.get(NameDecision.action)
+        if handler is None:
+            raise ValueError("Unknown FixItFelix wrong-chunk-name action: %s" % NameDecision.action)
+        return handler(NameDecision, key, chkd, NameTools)
 
     return False, None
 

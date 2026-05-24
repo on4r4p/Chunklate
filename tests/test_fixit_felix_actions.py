@@ -35,10 +35,14 @@ def reset_fixit_globals():
     Chunklate.Skip_Bad_Crc = False
     Chunklate.Skip_Bad_Libpng = False
     Chunklate.Skip_Bad_No_Next_Chunk = False
+    Chunklate.Skip_Bad_Current_Name = False
+    Chunklate.Skip_Bad_Next_Name = False
     Chunklate.Old_Bad_Crc = None
     Chunklate.EOF = False
     Chunklate.Bad_Critical = False
     Chunklate.Bad_Missplaced = False
+    Chunklate.Bad_Crc = False
+    Chunklate.Bad_Ancillary = False
     Chunklate.DEBUG = False
     Chunklate.PAUSEDEBUG = False
     Chunklate.Sample = "sample.png"
@@ -58,6 +62,17 @@ def wrong_crc_pandora_box(key, chkd):
             chkd + "3": b"IDAT",
             chkd + "4": "0x2a",
             chkd + "5": "old-crc",
+        }
+    }
+
+
+def wrong_chunk_name_pandora_box(key, chkd):
+    return {
+        key: {
+            chkd + "0": b"zzzz",
+            chkd + "1": "13",
+            chkd + "2": 128,
+            chkd + "3": b"IHDR",
         }
     }
 
@@ -165,6 +180,121 @@ def test_wrong_crc_already_in_cornucopia_does_not_require_pandora_tools():
     assert should_return is False
     assert result is None
     assert printed[-1] == "-Cornucopia is True"
+
+
+def test_wrong_chunk_name_length_probe_accept_routes_to_nearby_chunk():
+    reset_fixit_globals()
+    key = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42 and length is not the same than before."
+    chkd = "zzzz_Tool_"
+    Chunklate.PandoraBox = wrong_chunk_name_pandora_box(key, chkd)
+    nearby_calls = []
+    ancillary_calls = []
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        Question=lambda **kwargs: True,
+        Ancillary=lambda chunk: ancillary_calls.append(chunk),
+        NearbyChunk=lambda *args: nearby_calls.append(args) or "nearby-result",
+    ):
+        should_return, result = Chunklate.FixItFelix_Wrong_Chunk_Name(key, chkd)
+
+    assert should_return is True
+    assert result == "nearby-result"
+    assert ancillary_calls == [b"zzzz"]
+    assert nearby_calls == [(b"zzzz", "13", 128, False, key)]
+    assert Chunklate.Skip_Bad_Next_Name is False
+    assert Chunklate.Skip_Bad_Current_Name is False
+
+
+def test_wrong_chunk_name_length_probe_decline_then_bruteforce_decline_sets_skips():
+    reset_fixit_globals()
+    key = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42 and length is not the same than before."
+    chkd = "zzzz_Tool_"
+    answers = iter((False, False))
+    Chunklate.Bad_Crc = True
+    Chunklate.PandoraBox = wrong_chunk_name_pandora_box(key, chkd)
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        Question=lambda **kwargs: next(answers),
+        Ancillary=lambda chunk: None,
+    ):
+        should_return, result = Chunklate.FixItFelix_Wrong_Chunk_Name(key, chkd)
+
+    assert should_return is False
+    assert result is None
+    assert Chunklate.Skip_Bad_Next_Name is True
+    assert Chunklate.Skip_Bad_Current_Name is True
+
+
+def test_wrong_chunk_name_bruteforce_accept_routes_to_brute_chunk():
+    reset_fixit_globals()
+    key = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"
+    chkd = "zzzz_Tool_"
+    Chunklate.Bad_Crc = True
+    Chunklate.PandoraBox = wrong_chunk_name_pandora_box(key, chkd)
+    brute_calls = []
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        Question=lambda **kwargs: True,
+        Ancillary=lambda chunk: None,
+        BruteChunk=lambda *args: brute_calls.append(args) or "brute-result",
+    ):
+        should_return, result = Chunklate.FixItFelix_Wrong_Chunk_Name(key, chkd)
+
+    assert should_return is True
+    assert result == "brute-result"
+    assert brute_calls == [(b"zzzz", b"IHDR", "13", key)]
+    assert Chunklate.Skip_Bad_Current_Name is False
+
+
+def test_wrong_chunk_name_save_existing_solution_uses_cornucopia():
+    reset_fixit_globals()
+    key = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"
+    chkd = "zzzz_Tool_"
+    save_calls = []
+    Chunklate.Cornucopia = {
+        key: {
+            chkd + "0": "fixed-data",
+            chkd + "1": 12,
+            chkd + "2": 20,
+            chkd + "3": "legacy note",
+            chkd + "4": "solved label",
+        }
+    }
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        SaveClone=lambda *args: save_calls.append(args) or "saved",
+    ):
+        should_return, result = Chunklate.FixItFelix_Wrong_Chunk_Name(key, chkd)
+
+    assert should_return is True
+    assert result == "saved"
+    assert save_calls == [("fixed-data", 12, 20, "legacy note")]
+
+
+def test_wrong_chunk_name_skip_current_name_short_circuits():
+    reset_fixit_globals()
+    key = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"
+    Chunklate.Skip_Bad_Current_Name = True
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not print")),
+    ):
+        should_return, result = Chunklate.FixItFelix_Wrong_Chunk_Name(key, "zzzz_Tool_")
+
+    assert should_return is False
+    assert result is None
 
 
 def test_gama_zero_discards_false_positive():
@@ -420,6 +550,26 @@ def main():
         (
             "Wrong CRC already in Cornucopia does not need Pandora tools",
             test_wrong_crc_already_in_cornucopia_does_not_require_pandora_tools,
+        ),
+        (
+            "Wrong chunk name length probe accepts NearbyChunk",
+            test_wrong_chunk_name_length_probe_accept_routes_to_nearby_chunk,
+        ),
+        (
+            "Wrong chunk name length probe decline sets skips",
+            test_wrong_chunk_name_length_probe_decline_then_bruteforce_decline_sets_skips,
+        ),
+        (
+            "Wrong chunk name bruteforce accepts BruteChunk",
+            test_wrong_chunk_name_bruteforce_accept_routes_to_brute_chunk,
+        ),
+        (
+            "Wrong chunk name saves existing solution",
+            test_wrong_chunk_name_save_existing_solution_uses_cornucopia,
+        ),
+        (
+            "Wrong chunk name skip short circuits",
+            test_wrong_chunk_name_skip_current_name_short_circuits,
         ),
         ("gAMA zero discards false positive", test_gama_zero_discards_false_positive),
         ("Critical miss uses debug pause decision", test_critical_miss_uses_debug_pause_decision),
