@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -1908,330 +1908,68 @@ def BruteChunk_Save_Auto_Name(CType, FromError, ChunkName, reason):
     )
 
 
-def BruteChunk(CType, LastCType, ChunkLen, FromError):
-    Candy("Title", "Chunk Scrabble Solver:")
-    ErrorA = False
-    BingoLst = []
-    ToFix = []
-    if DEBUG is True:
-        PRINT(CType)
-        PRINT(LastCType)
-        PRINT(ChunkLen)
-        PRINT(FromError)
-        if PAUSEDEBUG is True:
-            Pause("Pause:Debug")
-
-    if type(CType) == bytes:
-        CTypeLst = [i.lower() for i in CType.decode(errors="ignore")]
-    else:
-        CTypeLst = [i.lower() for i in CType]
-
-
-    Candy(
-        "Cowsay", "Before going any further i need to check something real quick...", "com"
-    )
-
-    Shifted_Bit = NameShift()
-
-    if Shifted_Bit:
-        SolvedMsg = "-Chunk length has been corrupted due to some missing bytes."
-        Fixed = Shifted_Bit[0]
-        FixedLn = Shifted_Bit[1]
-        FixedOff = Shifted_Bit[2]
-        return CheckPoint(
-            True,
-            True,
-            "CheckChunkName",
-            Orig_CT,
-            [SolvedMsg],
-            Fixed,
-            FixedLn,
-            FixedOff,
-            SolvedMsg,
-            FromError,
-        )
-
-    Candy(
-        "Cowsay", " Maybe it's name got corrupted somehow. Let's see about that.", "com"
-    )
-
-    Excluded = CheckChunkOrder(LastCType, "Fix")
-    Candidates = [name for name in CHUNKS if name not in Excluded]
-    CrcMatches = BruteChunk_Crc_Matches(Candidates)
-    if len(CrcMatches) == 1:
-        ChunkName = CrcMatches[0]
-        PRINT(
-            "-"
-            + str(Candy("Color", "green", "CRC Solved."))
-            + str(Candy("Emoj", "good"))
-        )
-        Candy(
-            "Cowsay",
-            " Stored CRC matches chunk name: %s" % Candy("Color", "green", ChunkName.decode(errors="ignore")),
-            "good",
-        )
-        return BruteChunk_Save_Auto_Name(CType, FromError, ChunkName, "stored CRC matched candidate chunk name")
-
-    for name in Candidates:
-        if name not in Excluded:
-            Bingo = 0
-            ChkLst = [i.lower() for i in name.decode(errors="ignore")]
-
-            for i, j in zip(CTypeLst, ChkLst):
-                if i == j:
-                    Bingo += 1
-            BingoLst.append(str(Bingo) + " " + name.decode(errors="ignore"))
-
-    # [PRINT(i) for i in BingoLst]
-
-    BingoLst.sort(key=SplitDigits)
-    BingoLst = BingoLst[::-1]
-
-    BestBingoScore = BingoLst[0].split(" ")[0]
-    BestBingoName = BingoLst[0].split(" ")[1]
-
-    BestBingoCount = len(
-        [b.count(BestBingoScore) for b in BingoLst if int(b.count(BestBingoScore)) > 0]
-    )
-
-    if BestBingoCount <= 2 and int(BestBingoScore) >= 2:
-
-        PRINT(
-            "-"
-            + str(Candy("Color", "green", "Scrabble Solved."))
-            + str(Candy("Emoj", "good"))
-        )
-        Candy(
-            "Cowsay",
-            " Ah looks like we've got a winner! :%s"
-            % Candy("Color", "green", BestBingoName),
-            "good",
-        )
-
-        Bchanged = str(len(CType) - int(BestBingoScore))
-        SolvedMsg = (
-            "-Found Chunk[%s] has wrong name at offset: %s but BruteChunk changed %s bytes turning it into a valid Chunk name: %s"
-            % (Orig_CT, CToffX, Bchanged, BestBingoName)
-        )
-
-        return CheckPoint(
-            True,
-            True,
-            "CheckChunkName",
-            Orig_CT,
-            [SolvedMsg],
-            BestBingoName.encode().hex(),
-            CToffI,
-            CToffI + 8,
-            Orig_CT,
-            SolvedMsg,
-            FromError,
-        )
-    else:
-        UnknownPrivateCriticalRemoval = FixItFelix_Try_Unknown_Private_Critical_Removal()
-        if UnknownPrivateCriticalRemoval is not None:
-            return UnknownPrivateCriticalRemoval
-
-        Candy("Title", "WHO'S THAT POKEMON !?:")
-        Candy("Cowsay", " Arg that's all gibberish ...", "com")
-        PRINT(
-            "\nI need you to choose something looking a like [%s] that is actually a real chunk name can you help ?\nOk Please select the right name for the chunk:\n"
-            % Candy("Color", "purple", str(CType))
-        )
-
-        for i, j in enumerate(BingoLst):
-            PRINT(
-                "Score %s ,if you choose this name enter number: %s"
-                % (Candy("Color", "green", j), Candy("Color", "yellow", i))
-            )
-
-        PRINT(
-            "\nIf you feel as lost as me then this might be a Length Problem type : wtf"
-        )
-        PRINT("\nOr Type quit to ...quit.\n")
-        PokemonChoice = prompts.ask_pokemon_choice(
+def ChunkName_Runtime():
+    return chunk_name_runtime.ChunkNameRuntime(
+        candy=Candy,
+        emit=PRINT,
+        checkpoint=CheckPoint,
+        pause=Pause,
+        end=TheEnd,
+        betterror=Betterror,
+        name_shift=NameShift,
+        check_chunk_order=CheckChunkOrder,
+        nearby_chunk=NearbyChunk,
+        save_clone=SaveClone,
+        crc_matches=BruteChunk_Crc_Matches,
+        save_auto_name=BruteChunk_Save_Auto_Name,
+        unknown_private_critical_removal=lambda: FixItFelix_Try_Automatic_Repair(
+            "unknown_private_critical_removal"
+        ),
+        ask_pokemon_choice=lambda count, on_invalid: prompts.ask_pokemon_choice(
             input,
-            len(BingoLst),
-            on_invalid=lambda choice: PRINT("choice:%s"% choice),
-        )
-        if PokemonChoice.action == "select":
-            answer = BingoLst[PokemonChoice.index].split(" ")[1]
-            SaveClone(
-                answer.encode().hex(),
-                CToffI,
-                CToffI+8,
-                "-Found Chunk[%s] has wrong name at offset: %s\n-Chunk seems corrupted user has decided to choose Chunk[%s] as a replacement."
-                % (Orig_CT, CToffX, BingoLst[PokemonChoice.index].encode()),
-            )
-            return ()
-        if PokemonChoice.action == "quit":
-            Candy("Cowsay", " Take Care Bye !", "good")
-            TheEnd()
-        if PokemonChoice.action == "length":
-            Candy("Cowsay", " Fine , time to investigate that length..", "com")
-            NearbyChunk(CType, ChunkLen, LastCType, False)
-            return ()
+            count,
+            on_invalid=on_invalid,
+        ),
+    )
+
+
+def ChunkName_Context():
+    return chunk_name_runtime.ChunkNameContext(
+        chunks=tuple(CHUNKS),
+        all_chunks=tuple(ALLCHUNKS),
+        chunks_history=tuple(Chunks_History),
+        original_chunk_type=Orig_CT,
+        original_chunk_length=Orig_CL,
+        current_type_offset=CToffI,
+        current_type_offset_hex=CToffX,
+        idat_average_length=IDAT_Avg_Len,
+        original_next_chunk=Orig_NC,
+        next_chunk_offset=NCoffI,
+        debug=DEBUG,
+        pause_debug=PAUSEDEBUG,
+    )
+
+
+def BruteChunk(CType, LastCType, ChunkLen, FromError):
+    return chunk_name_runtime.run_brute_chunk(
+        ChunkName_Runtime(),
+        ChunkName_Context(),
+        CType,
+        LastCType,
+        ChunkLen,
+        FromError,
+    )
 
 
 def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
-
-    if type(ChunkType) == bytes:
-        CType = ChunkType
-    elif type(ChunkType) != bytes:
-        try:
-            CType = bytes.fromhex(ChunkType)
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            CType = ChunkType.encode(errors="ignore")
-
-    if Next != None:
-        Candy("Title", "Checking Next Chunk Type:", Candy("Color", "white", CType))
-    else:
-        Candy("Title", "Checking Current Chunk Type:", Candy("Color", "white", CType))
-
-    for name in ALLCHUNKS:
-        if name.lower() == CType.lower():
-            if name == CType:
-                PRINT(
-                    "\n-Chunk name:"
-                    + Candy("Color", "green", " OK! ")
-                    + Candy("Emoj", "good")
-                )
-                if Next == None:
-                    return CheckPoint(
-                        False,
-                        False,
-                        "CheckChunkName",
-                        CType,
-                        [
-                            "-Name is valid for Chunk[%s]." % CType,
-                        ],
-                        Next,
-                    )
-                else:
-
-                    return CheckPoint(
-                        False,
-                        False,
-                        "CheckChunkName",
-                        CType,
-                        [
-                            "-Name is valid for next Chunk[%s]." % CType,
-                        ],
-                        Next,
-                    )
-
-            else:
-                PRINT(
-                    "\n-Chunk name:"
-                    + Candy("Color", "red", " FAILED! ")
-                    + Candy("Emoj", "bad")
-                )
-                PRINT("\nMonkey wanted Banana :%s"%Candy("Color", "green", name))
-                PRINT("Monkey got Pullover :%s"%Candy("Color", "red", CType))
-                PRINT("")
-                if Next == None:
-                    return CheckPoint(
-                        True,
-                        False,
-                        "CheckChunkName",
-                        CType,
-                        [
-                            "-Found Chunk[%s] Wrong Ancillary in known Chunk name at offset: %s"
-                            % (Orig_CT, CToffX)
-                        ],
-                        CToffX,
-                        CToffI,
-                        CToffI + 8,
-                        Orig_CT,
-                        name,
-                        Next,
-                    )
-                else:
-
-                    return CheckPoint(
-                        True,
-                        False,
-                        "CheckChunkName",
-                        CType,
-                        [
-                            "-Found Next Chunk[%s] Wrong Ancillary in known Chunk name at offset: %s"
-                            % (Orig_CT, CToffX)
-                        ],
-                        CToffX,
-                        CToffI,
-                        CToffI + 8,
-                        Orig_CT,
-                        name,
-                        Next,
-                    )
-
-    PRINT("\n-Chunk name:" + Candy("Color", "red", " FAILED! ") + Candy("Emoj", "bad"))
-    if Next == None:
-        Candy(
-            "Cowsay",
-            "Mokay That could explain all this mess...",
-            "com",
-        )
-        if (
-            (Chunks_History[-1] == b"IDAT")
-            and (IDAT_Avg_Len != int(ChunkLen, 16))
-            and Orig_NC != b"IEND"
-        ):
-            return CheckPoint(
-                True,
-                False,
-                "CheckChunkName",
-                CType,
-                [
-                    "-Found Chunk[%s] has Wrong Chunk name at offset: %s and length is not the same than before."
-                    % (CType, CToffX)
-                ],
-                CType,
-                ChunkLen,
-                CToffI,
-                LastCType,
-                Next,
-            )
-        else:
-            return CheckPoint(
-                True,
-                False,
-                "CheckChunkName",
-                CType,
-                [
-                    "-Found Chunk[%s] has Wrong Chunk name at offset: %s"
-                    % (CType, CToffX)
-                ],
-                CType,
-                ChunkLen,
-                CToffI,
-                LastCType,
-                Next,
-            )
-    else:
-
-        Candy(
-            "Cowsay",
-            "But let's ignore it for now we will see about that later ...",
-            "com",
-        )
-
-        return CheckPoint(
-            True,
-            False,
-            "CheckChunkName",
-            CType,
-            [
-                "-Found Next Chunk[%s] has Wrong Chunk name after Chunk[%s] "
-                % (Orig_NC, LastCType)
-            ],
-            Orig_NC,
-            ChunkLen,
-            NCoffI,
-            LastCType,
-            Next,
-        )
+    return chunk_name_runtime.run_check_chunk_name(
+        ChunkName_Runtime(),
+        ChunkName_Context(),
+        ChunkType,
+        ChunkLen,
+        LastCType,
+        Next,
+    )
 
 
 def SpecLength(chunk_name, chunk_length=None):
