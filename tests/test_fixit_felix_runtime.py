@@ -141,6 +141,187 @@ def test_apply_critical_miss_rejects_unknown_action():
         raise AssertionError("Expected ValueError for unknown critical-miss action")
 
 
+def wrong_crc_tools():
+    return SimpleNamespace(
+        replacement_crc="fixed-crc-data",
+        start=12,
+        end=20,
+        chunk=b"IDAT",
+        offset="0x2a",
+        old_crc="old-crc",
+    )
+
+
+def wrong_crc_runtime(
+    calls,
+    *,
+    answers=(),
+    pandora_box=None,
+    cl_offset=33,
+    crc_offset=101,
+    original_chunk_length_hex="0d",
+    debug=False,
+    pause_debug=False,
+):
+    answer_iter = iter(answers)
+
+    def record(name, result=None):
+        def callback(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return result
+
+        return callback
+
+    def question(*args, **kwargs):
+        calls.append(("question", args, kwargs))
+        return next(answer_iter)
+
+    return fixit_felix_runtime.WrongCrcRuntime(
+        emit=record("emit"),
+        candy=record("candy"),
+        question=question,
+        save_clone=record("save_clone", "saved"),
+        chunk_story=record("chunk_story"),
+        set_skip_bad_crc=record("set_skip_bad_crc"),
+        set_old_bad_crc=record("set_old_bad_crc"),
+        pandora_box=pandora_box if pandora_box is not None else {},
+        cl_offset=cl_offset,
+        crc_offset=crc_offset,
+        original_chunk_length_hex=original_chunk_length_hex,
+        debug=debug,
+        pause_debug=pause_debug,
+    )
+
+
+def test_apply_wrong_crc_easy_answer_saves_clone():
+    calls = []
+    finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(True,),
+        pandora_box={finding: {chkd + "0": "fixed-crc-data"}},
+    )
+
+    result = fixit_felix_runtime.apply_wrong_crc(
+        runtime,
+        fixit_felix.WrongCrcDecision("ask_easy_crc_fix", finding, 0),
+        chkd,
+        wrong_crc_tools(),
+    )
+
+    assert result == (True, "saved")
+    assert calls[-1] == (
+        "save_clone",
+        (
+            "fixed-crc-data",
+            12,
+            20,
+            "-Found Chunk[b'IDAT'] has Wrong Crc at offset: 0x2a\n"
+            "-Replaced with: fixed-crc-data old value was: old-crc",
+        ),
+        {},
+    )
+
+
+def test_apply_wrong_crc_easy_decline_then_final_decline_keeps_skip_none_and_saves():
+    calls = []
+    finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(False, False),
+        pandora_box={finding: {chkd + "0": "fixed-crc-data"}},
+    )
+
+    result = fixit_felix_runtime.apply_wrong_crc(
+        runtime,
+        fixit_felix.WrongCrcDecision("ask_easy_crc_fix", finding, 0),
+        chkd,
+        wrong_crc_tools(),
+    )
+
+    assert result == (True, "saved")
+    assert ("set_skip_bad_crc", (None,), {}) in calls
+    assert calls[-1][0] == "save_clone"
+
+
+def test_apply_wrong_crc_other_errors_defers_to_chunk_story():
+    calls = []
+    finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(True,),
+        pandora_box={finding: {chkd + "0": "fixed-crc-data"}},
+    )
+
+    result = fixit_felix_runtime.apply_wrong_crc(
+        runtime,
+        fixit_felix.WrongCrcDecision("ask_other_errors_first", finding, 2),
+        chkd,
+        wrong_crc_tools(),
+    )
+
+    assert result == (False, None)
+    assert calls[-3:] == [
+        ("chunk_story", ("add", b"IDAT", 33, 109, 13), {}),
+        ("set_old_bad_crc", ("old-crc",), {}),
+        ("set_skip_bad_crc", (True,), {}),
+    ]
+
+
+def test_apply_wrong_crc_already_in_cornucopia_uses_debug_emit_without_tools():
+    calls = []
+    finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    runtime = wrong_crc_runtime(calls, debug=True, pause_debug=True)
+
+    result = fixit_felix_runtime.apply_wrong_crc(
+        runtime,
+        fixit_felix.WrongCrcDecision("already_in_cornucopia", finding, 0),
+        "IDAT_Tool_",
+        None,
+    )
+
+    assert result == (False, None)
+    assert calls == [
+        ("emit", ("\n-\033[1;31;49mCriticalHit\033[m: %s" % finding,), {}),
+        ("emit", ("-Cornucopia is True",), {}),
+    ]
+
+
+def test_apply_wrong_crc_rejects_missing_tools_for_action():
+    runtime = wrong_crc_runtime([])
+
+    try:
+        fixit_felix_runtime.apply_wrong_crc(
+            runtime,
+            fixit_felix.WrongCrcDecision("ask_easy_crc_fix", "finding", 0),
+            "IDAT_Tool_",
+            None,
+        )
+    except ValueError as exc:
+        assert str(exc) == "FixItFelix wrong-CRC action needs CRC tools: ask_easy_crc_fix"
+    else:
+        raise AssertionError("Expected ValueError for missing wrong-CRC tools")
+
+
+def test_apply_wrong_crc_rejects_unknown_action():
+    runtime = wrong_crc_runtime([])
+
+    try:
+        fixit_felix_runtime.apply_wrong_crc(
+            runtime,
+            SimpleNamespace(action="unknown", finding="finding"),
+            "IDAT_Tool_",
+            wrong_crc_tools(),
+        )
+    except ValueError as exc:
+        assert str(exc) == "Unknown FixItFelix wrong-CRC action: unknown"
+    else:
+        raise AssertionError("Expected ValueError for unknown wrong-CRC action")
+
+
 def libpng_runtime(
     calls,
     *,
@@ -403,6 +584,18 @@ def main():
         ("Apply critical miss emits and pauses", test_apply_critical_miss_emits_and_pauses_on_debug_action),
         ("Apply critical miss continue skips pause", test_apply_critical_miss_continue_does_not_pause),
         ("Apply critical miss rejects unknown action", test_apply_critical_miss_rejects_unknown_action),
+        ("Apply wrong CRC easy answer saves clone", test_apply_wrong_crc_easy_answer_saves_clone),
+        (
+            "Apply wrong CRC easy decline keeps skip none",
+            test_apply_wrong_crc_easy_decline_then_final_decline_keeps_skip_none_and_saves,
+        ),
+        ("Apply wrong CRC other errors defers", test_apply_wrong_crc_other_errors_defers_to_chunk_story),
+        (
+            "Apply wrong CRC Cornucopia debug path",
+            test_apply_wrong_crc_already_in_cornucopia_uses_debug_emit_without_tools,
+        ),
+        ("Apply wrong CRC rejects missing tools", test_apply_wrong_crc_rejects_missing_tools_for_action),
+        ("Apply wrong CRC rejects unknown action", test_apply_wrong_crc_rejects_unknown_action),
         ("Apply libpng saves existing solution", test_apply_libpng_error_saves_existing_solution),
         ("Apply libpng accepts Relics prompt", test_apply_libpng_error_accepts_relics_prompt_and_sets_skip),
         ("Apply libpng declines Relics prompt", test_apply_libpng_error_declines_relics_prompt_and_ends),

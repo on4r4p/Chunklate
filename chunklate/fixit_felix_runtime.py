@@ -39,6 +39,23 @@ class CriticalMissRuntime:
 
 
 @dataclass(frozen=True)
+class WrongCrcRuntime:
+    emit: Callable[[str], Any]
+    candy: Callable[..., Any]
+    question: Callable[..., Any]
+    save_clone: Callable[[Any, Any, Any, Any], Any]
+    chunk_story: Callable[..., Any]
+    set_skip_bad_crc: Callable[[Any], Any]
+    set_old_bad_crc: Callable[[Any], Any]
+    pandora_box: Any
+    cl_offset: Any
+    crc_offset: Any
+    original_chunk_length_hex: str
+    debug: bool
+    pause_debug: bool
+
+
+@dataclass(frozen=True)
 class LibpngErrorRuntime:
     emit: Callable[[str], Any]
     candy: Callable[..., Any]
@@ -89,6 +106,94 @@ def apply_critical_miss(
         return False, None
 
     raise ValueError("Unknown FixItFelix critical-miss action: %s" % decision.action)
+
+
+def emit_wrong_crc_critical(runtime: WrongCrcRuntime, finding: Any) -> None:
+    runtime.emit("\n-\033[1;31;49mCriticalHit\033[m: %s" % finding)
+
+
+def save_wrong_crc(runtime: WrongCrcRuntime, tools: relics.WrongCrcTools) -> tuple[bool, Any]:
+    save_plan = relics.wrong_crc_save_clone_plan(tools)
+    return True, runtime.save_clone(
+        save_plan.fixed_data,
+        save_plan.start,
+        save_plan.end,
+        save_plan.info,
+    )
+
+
+def defer_wrong_crc(runtime: WrongCrcRuntime, tools: relics.WrongCrcTools) -> tuple[bool, None]:
+    runtime.chunk_story(
+        "add",
+        tools.chunk,
+        runtime.cl_offset,
+        runtime.crc_offset + 8,
+        int(runtime.original_chunk_length_hex, 16),
+    )
+    runtime.set_old_bad_crc(tools.old_crc)
+    runtime.set_skip_bad_crc(True)
+    return False, None
+
+
+def final_wrong_crc_question(
+    runtime: WrongCrcRuntime,
+    finding: Any,
+    chkd: str,
+    tools: relics.WrongCrcTools,
+) -> tuple[bool, Any]:
+    uniqh = relics.question_hash(runtime.pandora_box, finding, chkd)
+    answer = runtime.question(id=finding, idhash=uniqh)
+    if answer is False:
+        return save_wrong_crc(runtime, tools)
+    return defer_wrong_crc(runtime, tools)
+
+
+def apply_wrong_crc(
+    runtime: WrongCrcRuntime,
+    decision: fixit_felix.WrongCrcDecision,
+    chkd: str,
+    tools: relics.WrongCrcTools | None,
+) -> tuple[bool, Any]:
+    emit_wrong_crc_critical(runtime, decision.finding)
+
+    if decision.action == "already_in_cornucopia":
+        if runtime.debug is True and runtime.pause_debug is True:
+            runtime.emit("-Cornucopia is True")
+        return False, None
+
+    if tools is None:
+        raise ValueError("FixItFelix wrong-CRC action needs CRC tools: %s" % decision.action)
+
+    if decision.action == "ask_easy_crc_fix":
+        runtime.candy("Cowsay", "Crc checksum is not valid !!!", "bad")
+        runtime.candy(
+            "Cowsay",
+            "This looks like an easy fix since there is no real errors beside the Crc issue.Do you wish to try to fix it ?",
+            "com",
+        )
+        uniqh = relics.question_hash(runtime.pandora_box, decision.finding, chkd)
+        answer = runtime.question(id=decision.finding, idhash=uniqh)
+        if answer is True:
+            return save_wrong_crc(runtime, tools)
+
+        runtime.set_skip_bad_crc(None)
+        return final_wrong_crc_question(runtime, decision.finding, chkd, tools)
+
+    if decision.action == "ask_other_errors_first":
+        runtime.candy(
+            "Cowsay",
+            "Crc checksum is not valid and there are %s other errors !"
+            % decision.other_error_count,
+            "bad",
+        )
+        runtime.candy(
+            "Cowsay",
+            "We may want to fix them first before jumping on that Crc what do you think ?",
+            "com",
+        )
+        return final_wrong_crc_question(runtime, decision.finding, chkd, tools)
+
+    raise ValueError("Unknown FixItFelix wrong-CRC action: %s" % decision.action)
 
 
 def apply_libpng_error(

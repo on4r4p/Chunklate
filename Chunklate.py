@@ -4296,88 +4296,34 @@ def LockDown():
         PRINT(folder)
 
 
-def FixItFelix_Wrong_Crc_Print_Critical(key):
-    PRINT("\n-\033[1;31;49mCriticalHit\033[m: %s"% key)
+def FixItFelix_Set_Skip_Bad_Crc(value):
+    global Skip_Bad_Crc
+
+    Skip_Bad_Crc = value
 
 
-def FixItFelix_Wrong_Crc_Save(CrcTools):
-    return True, relics_runtime.run_save_clone_plan(
-        Relics_Runtime(),
-        relics.wrong_crc_save_clone_plan(CrcTools),
-    )
-
-
-def FixItFelix_Wrong_Crc_Defer(CrcTools):
+def FixItFelix_Set_Old_Bad_Crc(value):
     global Old_Bad_Crc
-    global Skip_Bad_Crc
 
-    ChunkStory(
-        "add",
-        CrcTools.chunk,
-        CLoffI,
-        CrcoffI + 8,
-        int(Orig_CL, 16),
+    Old_Bad_Crc = value
+
+
+def FixItFelix_Wrong_Crc_Runtime():
+    return fixit_felix_runtime.WrongCrcRuntime(
+        emit=PRINT,
+        candy=Candy,
+        question=Question,
+        save_clone=SaveClone,
+        chunk_story=ChunkStory,
+        set_skip_bad_crc=FixItFelix_Set_Skip_Bad_Crc,
+        set_old_bad_crc=FixItFelix_Set_Old_Bad_Crc,
+        pandora_box=PandoraBox,
+        cl_offset=CLoffI,
+        crc_offset=CrcoffI,
+        original_chunk_length_hex=Orig_CL,
+        debug=DEBUG,
+        pause_debug=PAUSEDEBUG,
     )
-    Old_Bad_Crc = CrcTools.old_crc
-    Skip_Bad_Crc = True
-    return False, None
-
-
-def FixItFelix_Wrong_Crc_Final_Question(key, chkd, CrcTools):
-    uniqh = relics.question_hash(PandoraBox, key, chkd)
-    Answer = Question(id=key,idhash=uniqh)
-    if Answer is False:
-        return FixItFelix_Wrong_Crc_Save(CrcTools)
-    return FixItFelix_Wrong_Crc_Defer(CrcTools)
-
-
-def FixItFelix_Wrong_Crc_Ask_Easy(CrcDecision, key, chkd, CrcTools):
-    global Skip_Bad_Crc
-
-    Candy("Cowsay", "Crc checksum is not valid !!!", "bad")
-    Candy(
-        "Cowsay",
-        "This looks like an easy fix since there is no real errors beside the Crc issue.Do you wish to try to fix it ?",
-        "com",
-    )
-    uniqh = relics.question_hash(PandoraBox, key, chkd)
-    Answer = Question(id=key,idhash=uniqh)
-    if Answer is True:
-        return FixItFelix_Wrong_Crc_Save(CrcTools)
-
-    Skip_Bad_Crc = None
-    return FixItFelix_Wrong_Crc_Final_Question(key, chkd, CrcTools)
-
-
-def FixItFelix_Wrong_Crc_Ask_Other_Errors(CrcDecision, key, chkd, CrcTools):
-    Candy(
-        "Cowsay",
-        "Crc checksum is not valid and there are %s other errors !"
-        % CrcDecision.other_error_count,
-        "bad",
-    )
-
-    Candy(
-        "Cowsay",
-        "We may want to fix them first before jumping on that Crc what do you think ?",
-        "com",
-    )
-    return FixItFelix_Wrong_Crc_Final_Question(key, chkd, CrcTools)
-
-
-def FixItFelix_Wrong_Crc_Already_In_Cornucopia(CrcDecision, key, chkd, CrcTools):
-    if DEBUG is True:
-        if PAUSEDEBUG is True:
-            PRINT("-Cornucopia is True")
-
-    return False, None
-
-
-FIXIT_FELIX_WRONG_CRC_HANDLERS = {
-    "already_in_cornucopia": FixItFelix_Wrong_Crc_Already_In_Cornucopia,
-    "ask_easy_crc_fix": FixItFelix_Wrong_Crc_Ask_Easy,
-    "ask_other_errors_first": FixItFelix_Wrong_Crc_Ask_Other_Errors,
-}
 
 
 def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
@@ -4387,17 +4333,13 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
         pandora_box_len=PandoraBox_len,
     )
 
-    FixItFelix_Wrong_Crc_Print_Critical(key)
     CrcTools = None
     if CrcDecision.action != "already_in_cornucopia":
         CrcTools = relics.wrong_crc_tools(PandoraBox[key], chkd)
 
-    return fixit_felix.dispatch_action(
-        FIXIT_FELIX_WRONG_CRC_HANDLERS,
-        CrcDecision.action,
-        "FixItFelix wrong-CRC action",
+    return fixit_felix_runtime.apply_wrong_crc(
+        FixItFelix_Wrong_Crc_Runtime(),
         CrcDecision,
-        key,
         chkd,
         CrcTools,
     )
