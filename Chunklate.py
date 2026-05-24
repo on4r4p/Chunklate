@@ -4224,7 +4224,7 @@ def WriteClone(data,infos):
 
 
 def Relics_Runtime():
-    return relics_runtime.RelicsRuntime(
+    return relics_runtime.build_relics_runtime(
         save_clone=SaveClone,
         smash_brute_brawl=SmashBruteBrawl,
         full_chunk_forcer_no_crc=FullChunkForcerNoCrc,

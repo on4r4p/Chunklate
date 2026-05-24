@@ -49,6 +49,34 @@ def test_relics_runtime_keeps_legacy_callbacks():
     assert len(calls) == 6
 
 
+def test_relics_runtime_builder_keeps_named_legacy_callbacks():
+    calls = []
+
+    def callback(*args, **kwargs):
+        calls.append((args, kwargs))
+        return "called"
+
+    runtime = relics_runtime.build_relics_runtime(
+        save_clone=callback,
+        smash_brute_brawl=callback,
+        full_chunk_forcer_no_crc=callback,
+        tk_manual_plte=callback,
+        remove_chunk=callback,
+        ask_choice=callback,
+    )
+
+    assert runtime == relics_runtime.RelicsRuntime(
+        save_clone=callback,
+        smash_brute_brawl=callback,
+        full_chunk_forcer_no_crc=callback,
+        tk_manual_plte=callback,
+        remove_chunk=callback,
+        ask_choice=callback,
+    )
+    assert runtime.save_clone("data") == "called"
+    assert calls == [(("data",), {})]
+
+
 def test_chunklate_relics_runtime_uses_current_legacy_functions():
     calls = []
 

@@ -20,6 +20,25 @@ class RelicsRuntime:
     ask_choice: AskChoice
 
 
+def build_relics_runtime(
+    *,
+    save_clone: LegacyCall,
+    smash_brute_brawl: LegacyCall,
+    full_chunk_forcer_no_crc: LegacyCall,
+    tk_manual_plte: LegacyCall,
+    remove_chunk: LegacyCall,
+    ask_choice: AskChoice,
+) -> RelicsRuntime:
+    return RelicsRuntime(
+        save_clone=save_clone,
+        smash_brute_brawl=smash_brute_brawl,
+        full_chunk_forcer_no_crc=full_chunk_forcer_no_crc,
+        tk_manual_plte=tk_manual_plte,
+        remove_chunk=remove_chunk,
+        ask_choice=ask_choice,
+    )
+
+
 def run_save_clone_plan(runtime: RelicsRuntime, save_plan: Any) -> Any:
     return runtime.save_clone(
         save_plan.fixed_data,
