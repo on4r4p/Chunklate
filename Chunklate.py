@@ -5041,31 +5041,7 @@ def FixItFelix(Chunk=None):
 
     if DEBUG is True:
         for line in fixit_felix.debug_report_lines(
-            {
-                "EOF": EOF,
-                "Bad_Current_Name": Bad_Current_Name,
-                "Bad_Ancillary": Bad_Ancillary,
-                "Bad_No_Next_Chunk": Bad_No_Next_Chunk,
-                "Bad_Next_Name": Bad_Next_Name,
-                "Bad_Next_Ancillary": Bad_Next_Ancillary,
-                "Bad_Length": Bad_Length,
-                "Bad_Infos": Bad_Infos,
-                "Bad_Crc": Bad_Crc,
-                "Bad_Critical": Bad_Critical,
-                "Bad_Missplaced": Bad_Missplaced,
-                "Bad_Libpng": Bad_Libpng,
-                "Skip_Bad_Current_Name": Skip_Bad_Current_Name,
-                "Skip_Bad_Ancillary": Skip_Bad_Ancillary,
-                "Skip_Bad_No_Next_Chunk": Skip_Bad_No_Next_Chunk,
-                "Skip_Bad_Next_Name": Skip_Bad_Next_Name,
-                "Skip_Bad_Next_Ancillary": Skip_Bad_Next_Ancillary,
-                "Skip_Bad_Length": Skip_Bad_Length,
-                "Skip_Bad_Infos": Skip_Bad_Infos,
-                "Skip_Bad_Crc": Skip_Bad_Crc,
-                "Skip_Bad_Critical": Skip_Bad_Critical,
-                "Skip_Bad_Missplaced": Skip_Bad_Missplaced,
-                "Skip_Bad_Libpng": Skip_Bad_Libpng,
-            },
+            fixit_felix.debug_flag_values(globals()),
             PandoraBox,
             Cornucopia,
         ):

@@ -345,11 +345,23 @@ def test_repair_work_items_respects_skip_bad_crc_route_fallthrough():
     assert items[-1].finding == "Checksum_Error_0:Wrong Crc"
 
 
+def test_debug_flag_values_selects_legacy_flags_in_order():
+    values = {name: "value:%s" % name for name in fixit_felix.DEBUG_FLAG_NAMES}
+    values["unrelated"] = "ignored"
+
+    flags = fixit_felix.debug_flag_values(values)
+
+    assert tuple(flags) == fixit_felix.DEBUG_FLAG_NAMES
+    assert flags["EOF"] == "value:EOF"
+    assert flags["Skip_Bad_Libpng"] == "value:Skip_Bad_Libpng"
+    assert "unrelated" not in flags
+
+
 def test_debug_report_lines_preserve_legacy_order_and_mapping_details():
-    flags = {name: False for name in fixit_felix.DEBUG_FLAG_NAMES}
-    flags["EOF"] = True
-    flags["Bad_Crc"] = True
-    flags["Skip_Bad_Crc"] = None
+    values = {name: False for name in fixit_felix.DEBUG_FLAG_NAMES}
+    values["EOF"] = True
+    values["Bad_Crc"] = True
+    values["Skip_Bad_Crc"] = None
     pandora_box = {
         "Checksum_Error_0:Wrong Crc": {
             "IDAT_Tool_0": "fixed-data",
@@ -362,7 +374,11 @@ def test_debug_report_lines_preserve_legacy_order_and_mapping_details():
         }
     }
 
-    lines = fixit_felix.debug_report_lines(flags, pandora_box, cornucopia)
+    lines = fixit_felix.debug_report_lines(
+        fixit_felix.debug_flag_values(values),
+        pandora_box,
+        cornucopia,
+    )
 
     assert lines[:23] == (
         "EOF:True",
@@ -715,6 +731,7 @@ def main():
         ("Effective PandoraBox len preserves Bad_Next_Name adjustment", test_effective_pandora_box_len_preserves_bad_next_name_adjustment),
         ("Repair work items run automatic repairs first", test_repair_work_items_runs_automatic_repairs_before_pandorabox_routes),
         ("Repair work items respect skip-bad-crc fallthrough", test_repair_work_items_respects_skip_bad_crc_route_fallthrough),
+        ("Debug flag values selects legacy flags", test_debug_flag_values_selects_legacy_flags_in_order),
         ("Debug report lines preserve legacy order", test_debug_report_lines_preserve_legacy_order_and_mapping_details),
         ("Run work items returns automatic repair", test_run_repair_work_items_returns_first_automatic_repair_result),
         ("Run work items dispatches findings", test_run_repair_work_items_dispatches_findings_after_empty_automatic_repairs),

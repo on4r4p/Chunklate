@@ -269,6 +269,10 @@ def repair_work_items(findings: Iterable[object], *, skip_bad_crc: bool) -> tupl
     return tuple(items)
 
 
+def debug_flag_values(values: Mapping[str, Any]) -> dict[str, Any]:
+    return {name: values[name] for name in DEBUG_FLAG_NAMES}
+
+
 def debug_report_lines(
     flags: Mapping[str, Any],
     pandora_box: Mapping[Any, Mapping[Any, Any]],
