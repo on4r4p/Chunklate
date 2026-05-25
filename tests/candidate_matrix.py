@@ -53,13 +53,13 @@ CANDIDATE_CASES: tuple[CandidateCase, ...] = (
     CandidateCase(
         "plte_length_mod_three.png",
         f"{BROKEN_SUITE}/plte_length_mod_three.png",
-        CANDIDATE_FOR_STRICT_REPAIR,
+        ALREADY_STRICT_ELSEWHERE,
         ("PLTE Total palettes number must be divisible by 3",),
     ),
     CandidateCase(
         "plte_too_many_entries.png",
         f"{BROKEN_SUITE}/plte_too_many_entries.png",
-        CANDIDATE_FOR_STRICT_REPAIR,
+        ALREADY_STRICT_ELSEWHERE,
         ("PLTE Wrong RED 1 palettes not in bitdepht range",),
     ),
     CandidateCase(

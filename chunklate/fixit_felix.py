@@ -11,6 +11,7 @@ from .png import (
     repair_color_profile_chunks,
     repair_empty_plte,
     repair_ihdr,
+    repair_indexed_plte,
     repair_known_chunk_type_case,
     repair_missing_chunk_data_byte,
     repair_unknown_private_critical_chunks,
@@ -567,7 +568,7 @@ def plte_cleanup(
     if not has_finding(findings, "PLTE"):
         return None
 
-    return repair_empty_plte(data)
+    return repair_empty_plte(data) or repair_indexed_plte(data)
 
 
 def missing_chunk_data_byte(data: bytes, findings: Iterable[object]) -> Any | None:

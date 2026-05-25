@@ -37,6 +37,7 @@ from chunklate.png import (
     repair_ihdr,
     repair_ihdr_from_idat,
     repair_ihdr_preserving_crc,
+    repair_indexed_plte,
     repair_known_chunk_type_case,
     repair_missing_ihdr_from_idat,
     repair_missing_chunk_data_byte,
@@ -47,6 +48,7 @@ from chunklate.png import (
 
 FIXTURE = ROOT / "schaik-javapng-samples" / "basn0g01.png"
 REPAIR_FIXTURES = ROOT / "Png_Errors_handled_by_Chunklate_So_Far"
+BROKEN_FIXTURES = ROOT / "schaik-javapng-samples" / "brokenjavapngsuite"
 
 
 def test_read_valid_png_chunks_from_fixture():
@@ -56,6 +58,26 @@ def test_read_valid_png_chunks_from_fixture():
     assert chunks[0].length == 13
     assert chunks[-1].chunk_type == b"IEND"
     assert all(chunk.crc_ok for chunk in chunks)
+
+
+def test_repair_indexed_plte_rebuilds_malformed_palette():
+    repaired = repair_indexed_plte((BROKEN_FIXTURES / "plte_length_mod_three.png").read_bytes())
+
+    assert repaired is not None
+    assert repaired.strategy == "rebuilt malformed indexed PLTE as grayscale palette"
+    assert validate_png_structure(repaired.data).errors == ()
+    plte = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"PLTE")
+    assert plte.length == 768
+
+
+def test_repair_indexed_plte_truncates_palette_with_too_many_entries():
+    repaired = repair_indexed_plte((BROKEN_FIXTURES / "plte_too_many_entries.png").read_bytes())
+
+    assert repaired is not None
+    assert repaired.strategy == "truncated indexed PLTE to bit depth entry count"
+    assert validate_png_structure(repaired.data).errors == ()
+    plte = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"PLTE")
+    assert plte.length == 48
 
 
 def test_find_signature_inside_prefixed_data():
@@ -855,6 +877,8 @@ def main():
         ),
         ("Remove empty optional truecolor PLTE", test_repair_empty_plte_removes_optional_truecolor_palette),
         ("Rebuild empty indexed PLTE", test_repair_empty_plte_rebuilds_indexed_palette),
+        ("Rebuild malformed indexed PLTE", test_repair_indexed_plte_rebuilds_malformed_palette),
+        ("Truncate oversized indexed PLTE", test_repair_indexed_plte_truncates_palette_with_too_many_entries),
         ("Repair missing data byte using shifted CRC", test_repair_missing_chunk_data_byte_uses_shifted_crc),
         ("Repair known chunk type case and CRC", test_repair_known_chunk_type_case_rebuilds_crc),
         ("Reject known chunk type case with incoherent data", test_repair_known_chunk_type_case_requires_coherent_data),

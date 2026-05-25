@@ -253,6 +253,20 @@ REPAIR_MATRIX: tuple[RepairCase, ...] = (
         expected_outputs=("PLTE_Empty_Good_Crc.0_Fixed.png",),
     ),
     RepairCase(
+        fixture="plte_length_mod_three.png",
+        corruption="PLTE length is not divisible by three",
+        expected_strategy="rebuild malformed indexed PLTE",
+        max_saves=1,
+        expected_outputs=("plte_length_mod_three.0_Fixed.png",),
+    ),
+    RepairCase(
+        fixture="plte_too_many_entries.png",
+        corruption="PLTE contains too many entries for indexed bit depth",
+        expected_strategy="truncate indexed PLTE",
+        max_saves=1,
+        expected_outputs=("plte_too_many_entries.0_Fixed.png",),
+    ),
+    RepairCase(
         fixture="Private_Critical_Chunk_Bad_Crc.png",
         corruption="unknown private critical chunk with bad CRC",
         expected_strategy="remove unsafe private critical chunk",
@@ -393,6 +407,21 @@ _VALIDATORS_BY_FIXTURE = {
     ),
     "PLTE_Empty_Bad_Crc.png": VALID_32_NO_PLTE,
     "PLTE_Empty_Good_Crc.png": VALID_32_PALETTE,
+    "plte_length_mod_three.png": VALID_32_PALETTE,
+    "plte_too_many_entries.png": (
+        "chunk_order_exact:IHDR,gAMA,sBIT,PLTE,IDAT,IEND",
+        "first_chunk:IHDR",
+        "ihdr_dimensions:32x32",
+        "has_chunk:PLTE",
+        "has_chunk:sBIT",
+        "plte_non_empty",
+        "plte_len:48",
+        "gama_non_zero",
+        "idat_chunk_count:1",
+        "idat_decompress",
+        "idat_decompressed_len:544",
+        "last_chunk:IEND",
+    ),
     "Private_Critical_Chunk_Bad_Crc.png": VALID_32_PALETTE + ("missing_chunk:baMA",),
     "Private_Critical_Chunk_Crc_Valid.png": VALID_32_PALETTE + ("missing_chunk:baMA",),
     "Wrong-Chunk-Name-Bad-Crc.png": (
@@ -509,6 +538,12 @@ _SUMMARY_MARKERS_BY_FIXTURE = {
     ),
     "PLTE_Empty_Good_Crc.png": (
         "rebuilt empty indexed PLTE as grayscale palette",
+    ),
+    "plte_length_mod_three.png": (
+        "rebuilt malformed indexed PLTE as grayscale palette",
+    ),
+    "plte_too_many_entries.png": (
+        "truncated indexed PLTE to bit depth entry count",
     ),
     "Private_Critical_Chunk_Bad_Crc.png": (
         "turning it into a valid Chunk name: gAMA",

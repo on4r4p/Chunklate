@@ -1167,6 +1167,73 @@ def grayscale_palette(entry_count: int) -> bytes | None:
     return bytes(palette)
 
 
+def repair_indexed_plte(data: bytes) -> PlteRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    if ihdr is None:
+        return None
+
+    ihdr_values = _parse_ihdr_data(ihdr)
+    if ihdr_values is None:
+        return None
+
+    _width, _height, bit_depth, color_type, _method, _filter_method, _interlace = ihdr_values
+    if color_type != 3 or bit_depth not in (1, 2, 4, 8):
+        return None
+
+    indices = indexed_png_indices(data)
+    if indices is None:
+        return None
+
+    max_entries = 2 ** bit_depth
+    required_entries = max(indices, default=0) + 1
+    if required_entries > max_entries:
+        return None
+
+    plte = next((chunk for chunk in chunks if chunk.chunk_type == b"PLTE"), None)
+    if plte is None:
+        first_idat = next((chunk for chunk in chunks if chunk.chunk_type == b"IDAT"), None)
+        palette = grayscale_palette(max_entries)
+        if first_idat is None or palette is None:
+            return None
+        return PlteRepair(
+            data=data[: first_idat.offset] + build_png_chunk(b"PLTE", palette) + data[first_idat.offset :],
+            strategy="inserted missing indexed PLTE as grayscale palette",
+        )
+
+    if plte.length % 3 != 0:
+        palette = grayscale_palette(max_entries)
+        if palette is None:
+            return None
+        return PlteRepair(
+            data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
+            strategy="rebuilt malformed indexed PLTE as grayscale palette",
+        )
+
+    entry_count = plte.length // 3
+    if entry_count > max_entries:
+        palette = plte.data[: max_entries * 3]
+        return PlteRepair(
+            data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
+            strategy="truncated indexed PLTE to bit depth entry count",
+        )
+
+    if entry_count < required_entries:
+        palette = grayscale_palette(max_entries)
+        if palette is None:
+            return None
+        return PlteRepair(
+            data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
+            strategy="rebuilt undersized indexed PLTE as grayscale palette",
+        )
+
+    return None
+
+
 def repair_empty_plte(data: bytes) -> PlteRepair | None:
     try:
         chunks = list(iter_chunks(data))
