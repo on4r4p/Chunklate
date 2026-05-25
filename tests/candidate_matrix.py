@@ -66,15 +66,21 @@ CANDIDATE_CASES: tuple[CandidateCase, ...] = (
         "gama_after_idat.png",
         f"{BROKEN_SUITE}/gama_after_idat.png",
         NEEDS_REPAIR_STRATEGY,
-        ("IndexError: list index out of range",),
-        known_python_traceback=True,
+        (
+            "Error:-Missplaced",
+            "Error:-No NextChunk",
+            "-Reached the end of file.",
+        ),
     ),
     CandidateCase(
         "plte_after_idat.png",
         f"{BROKEN_SUITE}/plte_after_idat.png",
         NEEDS_REPAIR_STRATEGY,
-        ("IndexError: list index out of range",),
-        known_python_traceback=True,
+        (
+            "Error:-Missplaced",
+            "Error:-No NextChunk",
+            "-Reached the end of file.",
+        ),
     ),
     CandidateCase(
         "multiple_ihdr.png",

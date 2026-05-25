@@ -535,9 +535,11 @@ def apply_no_next_false_positive_iend(
 
         if decision.action == "the_good_place":
             rustine = no_next_missplaced_tools(runtime)
-            if rustine is not None:
+            if rustine is not None and len(rustine) >= 3:
                 runtime.candy("Cowsay", "But the fun isnt over yet..", "com")
                 return True, runtime.the_good_place(rustine[0], rustine[1], rustine[2])
+            runtime.candy("Cowsay", "Ok let's feed the Kraken now..", "com")
+            return True, runtime.libpng_check(runtime.sample)
 
         return False, None
 

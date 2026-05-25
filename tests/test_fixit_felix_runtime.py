@@ -631,6 +631,26 @@ def test_apply_no_next_false_positive_iend_writes_clean_cut():
     )
 
 
+def test_apply_no_next_false_positive_iend_falls_back_when_missplaced_tools_are_incomplete():
+    calls = []
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        bad_missplaced=True,
+        pandora_box={"ChunkOrder_Error_0:-Missplaced": {"Only_One_Tool": b"gAMA"}},
+    )
+
+    result = fixit_felix_runtime.apply_no_next_false_positive_iend(
+        runtime,
+        fixit_felix.NoNextFalsePositiveIendDecision("the_good_place"),
+    )
+
+    assert result == (True, "libpng-result")
+    assert state["eof"] is True
+    assert side_notes == ["-Reached the end of file."]
+    assert all(call[0] != "the_good_place" for call in calls)
+    assert calls[-1] == ("libpng_check", ("sample.png",), {})
+
+
 def test_apply_no_next_wrong_iend_length_records_note_and_ends():
     calls = []
     runtime, side_notes, _state = no_next_runtime(calls)
