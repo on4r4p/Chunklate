@@ -49,6 +49,24 @@ class ManualPaletteSetupContext:
 
 
 @dataclass(frozen=True)
+class ManualPaletteSaveRuntime:
+    save_checkpoint: Callable = palette_ui.save_checkpoint
+
+
+@dataclass(frozen=True)
+class ManualPaletteSaveContext:
+    window: object
+    cancel: bool
+    chunk_length: int
+    data_offset: int
+    from_error: object
+    wanabyte: bytes
+    palette_state: object
+    fallback_values: list
+    fallback_sliders: list
+
+
+@dataclass(frozen=True)
 class PaletteCountGuessRuntime:
     cv2: object
     numpy: object
@@ -183,6 +201,38 @@ def sync_palette_legacy_state(namespace: dict, palette_state) -> None:
         namespace["Plte_Blst"] = palette_state.values
         namespace["slider_list"] = palette_state.sliders
         namespace["wanabyte"] = palette_state.wanabyte
+
+
+def manual_palette_save_active_state(context: ManualPaletteSaveContext) -> tuple[list, list, bytes]:
+    if context.palette_state is not None:
+        return (
+            context.palette_state.values,
+            context.palette_state.sliders,
+            context.palette_state.wanabyte,
+        )
+    return context.fallback_values, context.fallback_sliders, context.wanabyte
+
+
+def save_manual_palette(
+    runtime: ManualPaletteSaveRuntime,
+    context: ManualPaletteSaveContext,
+) -> palette_ui.PaletteSaveCheckpoint:
+    active_values, active_sliders, active_wanabyte = manual_palette_save_active_state(context)
+
+    for slider in active_sliders:
+        slider.clean()
+
+    context.window.destroy()
+    context.window.quit()
+
+    return runtime.save_checkpoint(
+        cancel=context.cancel,
+        palette_values=active_values,
+        wanabyte=active_wanabyte,
+        chunk_length=context.chunk_length,
+        data_offset=context.data_offset,
+        from_error=context.from_error,
+    )
 
 
 def guess_palette_count(

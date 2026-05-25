@@ -673,26 +673,19 @@ def Tk_update_scrollregion_Plte(event):
     canvas_slider.configure(scrollregion=canvas_slider.bbox("all"))
 
 def Tk_Save_Plte(Tkwin,Cancel,ChunkLength,DataOffset,FromError,wanabyte):
-    global slider_list
-    global palette_state
-
-    active_sliders = palette_state.sliders if palette_state is not None else slider_list
-    active_values = palette_state.values if palette_state is not None else Plte_Blst
-    active_wanabyte = palette_state.wanabyte if palette_state is not None else wanabyte
-
-    for slider in active_sliders:
-         slider.clean()
-
-    Tkwin.destroy()
-    Tkwin.quit()
-
-    CheckpointCall = palette_ui.save_checkpoint(
-        cancel=Cancel,
-        palette_values=active_values,
-        wanabyte=active_wanabyte,
-        chunk_length=ChunkLength,
-        data_offset=DataOffset,
-        from_error=FromError,
+    CheckpointCall = palette_runtime.save_manual_palette(
+        palette_runtime.ManualPaletteSaveRuntime(),
+        palette_runtime.ManualPaletteSaveContext(
+            window=Tkwin,
+            cancel=Cancel,
+            chunk_length=ChunkLength,
+            data_offset=DataOffset,
+            from_error=FromError,
+            wanabyte=wanabyte,
+            palette_state=palette_state,
+            fallback_values=Plte_Blst,
+            fallback_sliders=slider_list,
+        ),
     )
     return CheckPoint(
         CheckpointCall.error,

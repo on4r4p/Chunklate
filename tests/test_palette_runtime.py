@@ -45,6 +45,26 @@ class FakeImageHash:
         return next(self.values)
 
 
+class FakeSlider:
+    def __init__(self, name):
+        self.name = name
+        self.cleaned = False
+
+    def clean(self):
+        self.cleaned = True
+
+
+class FakeWindow:
+    def __init__(self):
+        self.calls = []
+
+    def destroy(self):
+        self.calls.append("destroy")
+
+    def quit(self):
+        self.calls.append("quit")
+
+
 @contextmanager
 def clean_stderr(stream):
     yield stream
@@ -246,6 +266,85 @@ def test_sync_palette_legacy_state_ignores_none_state():
     assert namespace == {"Plte_Blst": ["old"], "slider_list": ["old"], "wanabyte": b"old"}
 
 
+def test_save_manual_palette_uses_palette_state_cleans_sliders_and_closes_window():
+    calls = []
+    sliders = [FakeSlider("a"), FakeSlider("b")]
+    window = FakeWindow()
+    state = palette_ui.PaletteEditorState(
+        values=["empty", 0],
+        sliders=sliders,
+        wanabyte=b"state-png",
+    )
+
+    checkpoint = palette_runtime.save_manual_palette(
+        palette_runtime.ManualPaletteSaveRuntime(
+            save_checkpoint=lambda **kwargs: calls.append(("save_checkpoint", kwargs)) or "checkpoint"
+        ),
+        palette_runtime.ManualPaletteSaveContext(
+            window=window,
+            cancel=False,
+            chunk_length=12,
+            data_offset=4,
+            from_error="source",
+            wanabyte=b"fallback-png",
+            palette_state=state,
+            fallback_values=["fallback"],
+            fallback_sliders=[FakeSlider("fallback")],
+        ),
+    )
+
+    assert checkpoint == "checkpoint"
+    assert [slider.cleaned for slider in sliders] == [True, True]
+    assert window.calls == ["destroy", "quit"]
+    assert calls == [
+        (
+            "save_checkpoint",
+            {
+                "cancel": False,
+                "palette_values": ["empty", 0],
+                "wanabyte": b"state-png",
+                "chunk_length": 12,
+                "data_offset": 4,
+                "from_error": "source",
+            },
+        )
+    ]
+
+
+def test_save_manual_palette_falls_back_to_legacy_values_without_palette_state():
+    fallback_slider = FakeSlider("fallback")
+    window = FakeWindow()
+
+    checkpoint = palette_runtime.save_manual_palette(
+        palette_runtime.ManualPaletteSaveRuntime(),
+        palette_runtime.ManualPaletteSaveContext(
+            window=window,
+            cancel=True,
+            chunk_length=12,
+            data_offset=4,
+            from_error="source",
+            wanabyte=b"png",
+            palette_state=None,
+            fallback_values=["empty", 0, 1],
+            fallback_sliders=[fallback_slider],
+        ),
+    )
+
+    assert fallback_slider.cleaned is True
+    assert window.calls == ["destroy", "quit"]
+    assert checkpoint.error is True
+    assert checkpoint.fixed is False
+    assert checkpoint.function == "Tk_Save_Plte"
+    assert checkpoint.toolkit == (
+        "706e67",
+        4,
+        16,
+        "-Manually modify PLTE datas has been canceled by user.",
+        b"PLTE",
+        "source",
+    )
+
+
 def test_guess_palette_count_uses_phash_distance_and_records_side_note():
     calls = []
     side_notes = []
@@ -348,6 +447,8 @@ def main():
         ("Full new data", test_manual_palette_full_new_data_returns_chunk_bytes_between_slices),
         ("Sync palette legacy state", test_sync_palette_legacy_state_updates_namespace_when_state_exists),
         ("Sync palette none state", test_sync_palette_legacy_state_ignores_none_state),
+        ("Manual palette save state", test_save_manual_palette_uses_palette_state_cleans_sliders_and_closes_window),
+        ("Manual palette save fallback", test_save_manual_palette_falls_back_to_legacy_values_without_palette_state),
         ("Guess palette count", test_guess_palette_count_uses_phash_distance_and_records_side_note),
         ("Guess palette fallback", test_guess_palette_count_preserves_ihdr_depth_fallback),
         ("Guess palette libpng error", test_guess_palette_count_routes_libpng_error_to_end),
