@@ -12,6 +12,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate.png import iter_chunks, is_complete_png_with_valid_crc, validate_png_structure
+from repair_matrix import (
+    LEGACY_CRC_ONLY_REPAIR_CASES,
+    PILLOW_LENIENT_REPAIR_CASES,
+    PILLOW_ONLY_REPAIR_CASES,
+    REPAIR_CASES,
+    UNCOVERED_REPAIR_CASES,
+)
 
 try:
     from PIL import Image
@@ -21,64 +28,6 @@ except ModuleNotFoundError:
 
 CHUNKLATE = ROOT / "Chunklate.py"
 FIXTURES = ROOT / "Png_Errors_handled_by_Chunklate_So_Far"
-
-
-REPAIR_CASES = {
-    "Bad-Chunk-Lenght-Missing-Bit.png": (1, ("Bad-Chunk-Lenght-Missing-Bit.0_Fixed.png",)),
-    "Bad-Chunk-Length-Missing-Bit.png": (1, ("Bad-Chunk-Length-Missing-Bit.0_Fixed.png",)),
-    "Bad-Chunk-Length-Exceeding-Bit.png": (1, ("Bad-Chunk-Length-Exceeding-Bit.0_Fixed.png",)),
-    "Classic-Bad-Chunk-Crc.png": (1, ("Classic-Bad-Chunk-Crc.0_Fixed.png",)),
-    "Classic-Bad-Chunk-Length.png": (1, ("Classic-Bad-Chunk-Length.0_Fixed.png",)),
-    "Good-Chunk-lenght-Missing-Bit.png": (1, ("Good-Chunk-lenght-Missing-Bit.0_Fixed.png",)),
-    "IHDR-Messed-Up-Bad-Crc.png": (1, ("IHDR-Messed-Up-Bad-Crc.0_Fixed.png",)),
-    "IHDR-Wrong-Height-Above-Estimated-Max-Resolution.png": (
-        1,
-        ("IHDR-Wrong-Height-Above-Estimated-Max-Resolution.0_Fixed.png",),
-    ),
-    "IHDR-Wrong-Quick.png": (1, ("IHDR-Wrong-Quick.0_Fixed.png",)),
-    "IHDR-Wrong-Width-Bad-Crc.png": (1, ("IHDR-Wrong-Width-Bad-Crc.0_Fixed.png",)),
-    "IHDR-Wrong-Width.png": (1, ("IHDR-Wrong-Width.0_Fixed.png",)),
-    "IHDR_Messed_Up_Crc_Valid.png": (1, ("IHDR_Messed_Up_Crc_Valid.0_Fixed.png",)),
-    "IHDR_Missplaced.png": (1, ("IHDR_Missplaced.0_Fixed.png",)),
-    "IEND_Missing.png": (1, ("IEND_Missing.0_Fixed.png",)),
-    "IEND_Missing_And_Extra_Bytes.png": (1, ("IEND_Missing_And_Extra_Bytes.0_Fixed.png",)),
-    "IDAT_Partial_Blackfill.png": (1, ("IDAT_Partial_Blackfill.0_Fixed.png",)),
-    "IncorrectSrgbProfile.png": (1, ("IncorrectSrgbProfile.0_Fixed.png",)),
-    "Incorrect_Srgb_Profile.png": (1, ("Incorrect_Srgb_Profile.0_Fixed.png",)),
-    "Missplaced_Ihdr.png": (1, ("Missplaced_Ihdr.0_Fixed.png",)),
-    "No_Png_Header.png": (1, ("No_Png_Header.0_Fixed.png",)),
-    "No_Png_Header_Corrupted_Length.png": (1, ("No_Png_Header_Corrupted_Length.0_Fixed.png",)),
-    "No_Png_Header_Missing_Chunk_Corrupted.png": (
-        2,
-        ("No_Png_Header_Missing_Chunk_Corrupted.1_Fixed.png",),
-    ),
-    "PLTE_Empty_Bad_Crc.png": (1, ("PLTE_Empty_Bad_Crc.0_Fixed.png",)),
-    "PLTE_Empty_Good_Crc.png": (1, ("PLTE_Empty_Good_Crc.0_Fixed.png",)),
-    "Private_Critical_Chunk_Bad_Crc.png": (2, ("Private_Critical_Chunk_Bad_Crc.1_Fixed.png",)),
-    "Private_Critical_Chunk_Crc_Valid.png": (2, ("Private_Critical_Chunk_Crc_Valid.1_Fixed.png",)),
-    "Wrong-Chunk-Name-Bad-Crc.png": (1, ("Wrong-Chunk-Name-Bad-Crc.0_Fixed.png",)),
-    "Wrong-Chunk-Name-Crc-Valid.png": (2, ("Wrong-Chunk-Name-Crc-Valid.1_Fixed.png",)),
-    "chunk_crc.png": (1, ("chunk_crc.0_Fixed.png",)),
-    "chunk_private_critical.png": (1, ("chunk_private_critical.0_Fixed.png",)),
-    "chunk_private_critical_badcrc.png": (2, ("chunk_private_critical_badcrc.1_Fixed.png",)),
-    "chunk_private_critical_goodcrc.png": (2, ("chunk_private_critical_goodcrc.1_Fixed.png",)),
-    "chunk_type.png": (2, ("chunk_type.1_Fixed.png",)),
-    "gama_zero.png": (1, ("gama_zero.0_Fixed.png",)),
-    "ihdr_image_size.png": (1, ("ihdr_image_size.0_Fixed.png",)),
-    "Unhandled-Critical-Chunk.png": (1, ("Unhandled-Critical-Chunk.0_Fixed.png",)),
-}
-
-
-PILLOW_LENIENT_REPAIR_CASES = {}
-
-
-LEGACY_CRC_ONLY_REPAIR_CASES = {}
-
-
-PILLOW_ONLY_REPAIR_CASES = {}
-
-
-UNCOVERED_REPAIR_CASES = {}
 
 
 def repair_validation_errors(path):
