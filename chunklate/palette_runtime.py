@@ -91,6 +91,43 @@ class ManualPaletteActionContext:
 
 
 @dataclass(frozen=True)
+class ManualPaletteEditorRuntime:
+    tkinter_module: object
+    render_preview: Callable
+    create_window: Callable = palette_ui.create_palette_editor_window
+    build_layout: Callable = palette_ui.build_editor_layout
+    create_frames: Callable = palette_ui.create_palette_editor_frames
+    create_buttons: Callable = palette_ui.create_palette_action_buttons
+    build_action_specs: Callable | None = None
+    create_slider_canvas: Callable = palette_ui.create_palette_slider_canvas
+    create_sliders: Callable = palette_ui.create_palette_sliders
+    set_state_sliders: Callable = palette_ui.set_palette_state_sliders
+
+
+@dataclass(frozen=True)
+class ManualPaletteEditorContext:
+    title: str
+    session: ManualPaletteSession
+    pil_image: object
+    chunk_length: int
+    data_offset: int
+    from_error: object
+    scale_factory: Callable
+    update_scrollregion: Callable
+    action_runtime: ManualPaletteActionRuntime
+
+
+@dataclass(frozen=True)
+class ManualPaletteEditor:
+    window: object
+    layout: palette_ui.PaletteEditorLayout
+    frames: palette_ui.PaletteEditorFrames
+    action_buttons: dict
+    slider_canvas: palette_ui.PaletteSliderCanvas
+    sliders: list
+
+
+@dataclass(frozen=True)
 class PaletteCountGuessRuntime:
     cv2: object
     numpy: object
@@ -310,6 +347,75 @@ def build_manual_palette_action_specs(
             context.from_error,
             context.wanabyte,
         ),
+    )
+
+
+def create_manual_palette_editor(
+    runtime: ManualPaletteEditorRuntime,
+    context: ManualPaletteEditorContext,
+) -> ManualPaletteEditor:
+    window = runtime.create_window(
+        tkinter_module=runtime.tkinter_module,
+        title=context.title,
+    )
+    layout = runtime.build_layout(window.winfo_screenwidth(), context.pil_image.size)
+    frames = runtime.create_frames(
+        tkinter_module=runtime.tkinter_module,
+        window=window,
+        layout=layout,
+    )
+
+    runtime.render_preview(context.session.wanabyte, layout.basewidth, layout.hsize)
+    build_action_specs = runtime.build_action_specs or build_manual_palette_action_specs
+
+    action_buttons = runtime.create_buttons(
+        tkinter_module=runtime.tkinter_module,
+        master=frames.action,
+        specs=build_action_specs(
+            context.action_runtime,
+            ManualPaletteActionContext(
+                before=context.session.before,
+                after=context.session.after,
+                height=layout.hsize,
+                width=layout.basewidth,
+                window=window,
+                chunk_length=context.chunk_length,
+                data_offset=context.data_offset,
+                from_error=context.from_error,
+                wanabyte=context.session.wanabyte,
+            ),
+        ),
+        grid_options={"padx": 10, "pady": 5},
+    )
+
+    slider_canvas = runtime.create_slider_canvas(
+        tkinter_module=runtime.tkinter_module,
+        master=frames.slider,
+        height=layout.hsize,
+        width=layout.canvas_width,
+        canvas_grid_options={"row": 0, "column": 1, "padx": 10, "pady": 5},
+        scrollbar_grid_options={"row": 0, "column": 0, "sticky": "ns"},
+    )
+    sliders = runtime.create_sliders(
+        palette_count=context.session.palette_count,
+        scale_factory=context.scale_factory,
+        master=slider_canvas.frame,
+        before=context.session.before,
+        after=context.session.after,
+        height=layout.hsize,
+        width=layout.basewidth,
+        slider_length=layout.slider_length,
+    )
+    runtime.set_state_sliders(context.session.state, sliders)
+    slider_canvas.canvas.bind("<Configure>", context.update_scrollregion)
+
+    return ManualPaletteEditor(
+        window=window,
+        layout=layout,
+        frames=frames,
+        action_buttons=action_buttons,
+        slider_canvas=slider_canvas,
+        sliders=sliders,
     )
 
 

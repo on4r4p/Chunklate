@@ -22,11 +22,15 @@ def test_tk_manual_plte_keeps_tk_ui_but_delegates_non_ui_setup():
     attrs = {item.attr for item in ast.walk(node) if isinstance(item, ast.Attribute)}
 
     assert "create_manual_palette_setup" in attrs
+    assert "create_manual_palette_editor" in attrs
     assert "create_manual_palette_session" not in attrs
     assert "manual_palette_full_new_data" not in attrs
     assert "imdecode" not in attrs
     assert "fromarray" not in attrs
-    assert "create_palette_editor_window" in attrs
+    assert "create_palette_editor_window" not in attrs
+    assert "create_palette_editor_frames" not in attrs
+    assert "create_palette_slider_canvas" not in attrs
+    assert "create_palette_sliders" not in attrs
     assert "mainloop" in attrs
 
 

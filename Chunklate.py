@@ -766,32 +766,21 @@ def Tk_Manual_Plte(
     im = PaletteSetup.image_array
     pil_image = PaletteSetup.pil_image
 
-    window = palette_ui.create_palette_editor_window(
-        tkinter_module=tkinter,
-        title="PLTE Editor:%s"%FILE_Origin,
-    )
-
-    layout = palette_ui.build_editor_layout(window.winfo_screenwidth(), pil_image.size)
-    basewidth = layout.basewidth
-    hsize = layout.hsize
-
-    editor_frames = palette_ui.create_palette_editor_frames(
-        tkinter_module=tkinter,
-        window=window,
-        layout=layout,
-    )
-    frame_img = editor_frames.img
-
-    Tk_Render_Plte_Preview(wanabyte, basewidth, hsize)
-
-    frame_slider = editor_frames.slider
-    frame_action = editor_frames.action
-
-    action_buttons = palette_ui.create_palette_action_buttons(
-        tkinter_module=tkinter,
-        master=frame_action,
-        specs=palette_runtime.build_manual_palette_action_specs(
-            palette_runtime.ManualPaletteActionRuntime(
+    PaletteEditor = palette_runtime.create_manual_palette_editor(
+        palette_runtime.ManualPaletteEditorRuntime(
+            tkinter_module=tkinter,
+            render_preview=Tk_Render_Plte_Preview,
+        ),
+        palette_runtime.ManualPaletteEditorContext(
+            title="PLTE Editor:%s"%FILE_Origin,
+            session=PaletteSession,
+            pil_image=pil_image,
+            chunk_length=ChunkLength,
+            data_offset=DataOffset,
+            from_error=FromError,
+            scale_factory=Tk_Gen_Scale_Plte,
+            update_scrollregion=Tk_update_scrollregion_Plte,
+            action_runtime=palette_runtime.ManualPaletteActionRuntime(
                 web_safe=Tk_Web_Safe_Plte,
                 web_random=Tk_Web_Safe_Randomize_Plte,
                 x11=Tk_X11_Plte,
@@ -799,20 +788,19 @@ def Tk_Manual_Plte(
                 randomize=Tk_Randomize_Plte,
                 save_palette=Tk_Save_Plte,
             ),
-            palette_runtime.ManualPaletteActionContext(
-                before=Before_New,
-                after=After_New,
-                height=hsize,
-                width=basewidth,
-                window=window,
-                chunk_length=ChunkLength,
-                data_offset=DataOffset,
-                from_error=FromError,
-                wanabyte=wanabyte,
-            ),
         ),
-        grid_options={"padx": 10, "pady": 5},
     )
+    window = PaletteEditor.window
+    layout = PaletteEditor.layout
+    basewidth = layout.basewidth
+    hsize = layout.hsize
+    editor_frames = PaletteEditor.frames
+    frame_img = editor_frames.img
+
+    frame_slider = editor_frames.slider
+    frame_action = editor_frames.action
+
+    action_buttons = PaletteEditor.action_buttons
     x216_btn = action_buttons["x216_btn"]
     random_web_btn = action_buttons["random_web_btn"]
     x11_btn = action_buttons["x11_btn"]
@@ -822,33 +810,15 @@ def Tk_Manual_Plte(
     cancel_btn = action_buttons["cancel_btn"]
 
 
-    slider_canvas = palette_ui.create_palette_slider_canvas(
-        tkinter_module=tkinter,
-        master=frame_slider,
-        height=hsize,
-        width=layout.canvas_width,
-        canvas_grid_options={"row": 0, "column": 1, "padx": 10, "pady": 5},
-        scrollbar_grid_options={"row": 0, "column": 0, "sticky": "ns"},
-    )
+    slider_canvas = PaletteEditor.slider_canvas
     canvas_slider = slider_canvas.canvas
     frame_canvas = slider_canvas.frame
     slider_scroll = slider_canvas.scrollbar
 
-    slider_list = palette_ui.create_palette_sliders(
-        palette_count=Palette_nbr,
-        scale_factory=Tk_Gen_Scale_Plte,
-        master=frame_canvas,
-        before=Before_New,
-        after=After_New,
-        height=hsize,
-        width=basewidth,
-        slider_length=layout.slider_length,
-    )
-    palette_ui.set_palette_state_sliders(palette_state, slider_list)
+    slider_list = PaletteEditor.sliders
     Sync_Palette_Legacy_State()
 
 
-    canvas_slider.bind("<Configure>", Tk_update_scrollregion_Plte)
     window.mainloop()
 
 

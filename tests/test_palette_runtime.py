@@ -58,11 +58,26 @@ class FakeWindow:
     def __init__(self):
         self.calls = []
 
+    def winfo_screenwidth(self):
+        return 2100
+
     def destroy(self):
         self.calls.append("destroy")
 
     def quit(self):
         self.calls.append("quit")
+
+
+class FakeCanvas:
+    def __init__(self):
+        self.binds = []
+
+    def bind(self, event, callback):
+        self.binds.append((event, callback))
+
+
+class FakePilImage:
+    size = (100, 50)
 
 
 @contextmanager
@@ -401,6 +416,122 @@ def test_build_manual_palette_action_specs_preserves_legacy_callbacks():
     ]
 
 
+def test_create_manual_palette_editor_wires_window_frames_actions_and_sliders():
+    calls = []
+    window = FakeWindow()
+    layout = palette_ui.PaletteEditorLayout(
+        basewidth=1000,
+        hsize=500,
+        action_width=2000,
+        action_height=50,
+        canvas_width=985,
+        slider_length=970,
+    )
+    frames = palette_ui.PaletteEditorFrames(
+        img="frame-img",
+        slider="frame-slider",
+        action="frame-action",
+    )
+    canvas = FakeCanvas()
+    slider_canvas = palette_ui.PaletteSliderCanvas(
+        canvas=canvas,
+        frame="frame-canvas",
+        scrollbar="scrollbar",
+    )
+    state = palette_ui.PaletteEditorState(values=["empty", "empty"], sliders=[], wanabyte=b"png")
+    session = palette_runtime.ManualPaletteSession(
+        before=b"before",
+        after=b"after",
+        wanabyte=b"png",
+        palette_count=2,
+        state=state,
+    )
+
+    def action_runtime_callback(*args, **kwargs):
+        calls.append(("action_runtime", args, kwargs))
+
+    action_runtime = palette_runtime.ManualPaletteActionRuntime(
+        web_safe=action_runtime_callback,
+        web_random=action_runtime_callback,
+        x11=action_runtime_callback,
+        x11_random=action_runtime_callback,
+        randomize=action_runtime_callback,
+        save_palette=action_runtime_callback,
+    )
+    update_scrollregion = object()
+    scale_factory = object()
+
+    editor = palette_runtime.create_manual_palette_editor(
+        palette_runtime.ManualPaletteEditorRuntime(
+            tkinter_module="tk",
+            render_preview=lambda data, width, height: calls.append(("render_preview", data, width, height)),
+            create_window=lambda **kwargs: calls.append(("create_window", kwargs)) or window,
+            build_layout=lambda screen_width, image_size: calls.append(
+                ("build_layout", screen_width, image_size)
+            ) or layout,
+            create_frames=lambda **kwargs: calls.append(("create_frames", kwargs)) or frames,
+            build_action_specs=lambda runtime, context: calls.append(
+                ("build_action_specs", runtime, context)
+            ) or ("spec",),
+            create_buttons=lambda **kwargs: calls.append(("create_buttons", kwargs)) or {"save_btn": "save"},
+            create_slider_canvas=lambda **kwargs: calls.append(("create_slider_canvas", kwargs)) or slider_canvas,
+            create_sliders=lambda **kwargs: calls.append(("create_sliders", kwargs)) or ["slider-a", "slider-b"],
+            set_state_sliders=lambda target, sliders: calls.append(("set_state_sliders", target, sliders)),
+        ),
+        palette_runtime.ManualPaletteEditorContext(
+            title="PLTE Editor:file.png",
+            session=session,
+            pil_image=FakePilImage(),
+            chunk_length=12,
+            data_offset=4,
+            from_error="source",
+            scale_factory=scale_factory,
+            update_scrollregion=update_scrollregion,
+            action_runtime=action_runtime,
+        ),
+    )
+
+    assert editor.window is window
+    assert editor.layout is layout
+    assert editor.frames is frames
+    assert editor.action_buttons == {"save_btn": "save"}
+    assert editor.slider_canvas is slider_canvas
+    assert editor.sliders == ["slider-a", "slider-b"]
+    assert canvas.binds == [("<Configure>", update_scrollregion)]
+    assert ("render_preview", b"png", 1000, 500) in calls
+    assert calls[0] == ("create_window", {"tkinter_module": "tk", "title": "PLTE Editor:file.png"})
+    assert ("build_layout", 2100, (100, 50)) in calls
+    assert ("set_state_sliders", state, ["slider-a", "slider-b"]) in calls
+
+    action_call = next(call for call in calls if call[0] == "build_action_specs")
+    assert action_call[1] is action_runtime
+    assert action_call[2].before == b"before"
+    assert action_call[2].after == b"after"
+    assert action_call[2].height == 500
+    assert action_call[2].width == 1000
+    assert action_call[2].window is window
+    assert action_call[2].chunk_length == 12
+    assert action_call[2].data_offset == 4
+    assert action_call[2].from_error == "source"
+    assert action_call[2].wanabyte == b"png"
+
+    create_buttons_call = next(call for call in calls if call[0] == "create_buttons")
+    assert create_buttons_call[1]["tkinter_module"] == "tk"
+    assert create_buttons_call[1]["master"] == "frame-action"
+    assert create_buttons_call[1]["specs"] == ("spec",)
+    assert create_buttons_call[1]["grid_options"] == {"padx": 10, "pady": 5}
+
+    create_sliders_call = next(call for call in calls if call[0] == "create_sliders")
+    assert create_sliders_call[1]["palette_count"] == 2
+    assert create_sliders_call[1]["scale_factory"] is scale_factory
+    assert create_sliders_call[1]["master"] == "frame-canvas"
+    assert create_sliders_call[1]["before"] == b"before"
+    assert create_sliders_call[1]["after"] == b"after"
+    assert create_sliders_call[1]["height"] == 500
+    assert create_sliders_call[1]["width"] == 1000
+    assert create_sliders_call[1]["slider_length"] == 970
+
+
 def test_guess_palette_count_uses_phash_distance_and_records_side_note():
     calls = []
     side_notes = []
@@ -506,6 +637,7 @@ def main():
         ("Manual palette save state", test_save_manual_palette_uses_palette_state_cleans_sliders_and_closes_window),
         ("Manual palette save fallback", test_save_manual_palette_falls_back_to_legacy_values_without_palette_state),
         ("Manual palette action specs", test_build_manual_palette_action_specs_preserves_legacy_callbacks),
+        ("Manual palette editor", test_create_manual_palette_editor_wires_window_frames_actions_and_sliders),
         ("Guess palette count", test_guess_palette_count_uses_phash_distance_and_records_side_note),
         ("Guess palette fallback", test_guess_palette_count_preserves_ihdr_depth_fallback),
         ("Guess palette libpng error", test_guess_palette_count_routes_libpng_error_to_end),
