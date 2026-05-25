@@ -26,7 +26,7 @@ def test_smash_brute_brawl_stays_a_legacy_bridge():
     assert "bruteforce_runtime" not in names
     assert "bruteforce_result" not in names
     assert "bruteforce_viewer" not in names
-    assert "run_legacy_smash_brute_brawl" in attrs
+    assert "run_legacy_smash_brute_brawl_from_namespace" in attrs
 
     forbidden_attrs = {
         "BruteForceResultContext",
@@ -49,8 +49,8 @@ def test_smash_brute_brawl_only_keeps_small_legacy_adapters():
         if isinstance(item, ast.FunctionDef)
     }
 
-    assert nested_functions == {"LoadSpec", "SaveViewerError", "SyncLegacyState"}
-    assert node.end_lineno - node.lineno + 1 <= 100
+    assert nested_functions == set()
+    assert node.end_lineno - node.lineno + 1 <= 35
 
 
 def main():

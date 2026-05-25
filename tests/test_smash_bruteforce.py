@@ -8,6 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import bruteforce, bruteforce_runtime, bruteforce_viewer, smash_bruteforce
+from types import SimpleNamespace
 
 
 def build_runtime(calls, *, scan_result, result_value="legacy-result"):
@@ -133,6 +134,145 @@ def find_call(calls, name):
     return matches[0]
 
 
+def build_namespace(calls):
+    namespace = {
+        "Candy": lambda *args: calls.append(("candy", args)) or "candy",
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "DEBUG": False,
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "GetSpec": lambda *args, **kwargs: calls.append(("get_spec", args, kwargs)) or "loaded-spec",
+        "Product": lambda *args: calls.append(("product", args)),
+        "Loadingbar": lambda *args: calls.append(("loadingbar", args)),
+        "Minibar": lambda **kwargs: calls.append(("minibar", kwargs)),
+        "ImageShow": "ImageShow",
+        "cv2": "cv2",
+        "np": "numpy",
+        "Image": "Image",
+        "psutil": "psutil",
+        "stderr_redirector": lambda stream: stream,
+        "time": SimpleNamespace(sleep=lambda seconds: calls.append(("sleep", seconds))),
+        "inputimeout": lambda **kwargs: calls.append(("inputimeout", kwargs)) or "yes",
+        "Naming": lambda file_origin: ("name.png", "/tmp"),
+        "Summarise": lambda message: calls.append(("summarise", message)),
+        "TheEnd": lambda: calls.append(("end",)),
+        "CheckPoint": lambda *args: calls.append(("checkpoint", args)),
+        "SideNotes": [],
+        "Pause": lambda message: calls.append(("pause", message)),
+        "DATAX": "89504e47",
+        "PandoraBox": {"key": "value"},
+        "LIBPNG_ERR": ("libpng error",),
+        "FILE_Origin": "/tmp/broken.png",
+        "DIFF": "old-diff",
+        "Brute_LvL": 2,
+        "CRASH": False,
+        "PAUSEDEBUG": False,
+    }
+    return namespace
+
+
+def test_legacy_namespace_entry_builds_bridge_and_syncs_legacy_state():
+    calls = []
+    namespace = build_namespace(calls)
+
+    def bridge(runtime, context):
+        calls.append(("bridge", runtime, context))
+        assert runtime.load_spec(
+            bruteforce.BruteForceSpecRequest(
+                "Spec",
+                fields=("Length",),
+                struct_indexes=(1,),
+                iter_nbr=2,
+            )
+        ) == "loaded-spec"
+        runtime.sync_state("crash", 123, "new-diff")
+        return "bridge-result"
+
+    result = smash_bruteforce.run_legacy_smash_brute_brawl_from_namespace(
+        namespace,
+        "broken.png",
+        "IDAT",
+        4,
+        16,
+        "Relics",
+        "Replace",
+        "TwoBytes",
+        True,
+        False,
+        "old-crc",
+        bridge=bridge,
+    )
+
+    assert result == "bridge-result"
+    assert namespace["TmpImgLst"] == []
+    assert namespace["CRASH"] == "crash"
+    assert namespace["ETA"] == 123
+    assert namespace["DIFF"] == "new-diff"
+    assert ("candy", ("Title", "Attempting Bruteforce To Repair Corrupted Chunk Data:")) in calls
+    assert (
+        "get_spec",
+        (b"IDAT", "Spec"),
+        {"Fields": ["Length"], "StructIndex": [1], "IterNbr": 2},
+    ) in calls
+
+    _name, runtime, context = find_call(calls, "bridge")
+    assert runtime.side_notes is namespace["SideNotes"]
+    assert context == smash_bruteforce.SmashBruteBrawlLegacyContext(
+        file="broken.png",
+        chunk_name=b"IDAT",
+        chunk_length=4,
+        data_offset=16,
+        from_error="Relics",
+        data_hex="89504e47",
+        pandora_box={"key": "value"},
+        libpng_errors=("libpng error",),
+        tmp_image_paths=namespace["TmpImgLst"],
+        file_origin="/tmp/broken.png",
+        current_diff="old-diff",
+        edit_mode="Replace",
+        bf_mode="TwoBytes",
+        brute_crc=True,
+        brute_length=False,
+        old_crc="old-crc",
+        brute_level=2,
+        crash=False,
+        debug=False,
+        pause_debug=False,
+    )
+
+
+def test_legacy_namespace_entry_preserves_bytes_chunk_name_error_path():
+    calls = []
+    namespace = build_namespace(calls)
+    namespace["DEBUG"] = True
+
+    def candy(kind, *args):
+        calls.append(("candy", (kind,) + args))
+        if kind == "Color":
+            return "<%s:%s>" % (args[0], args[1])
+        return "candy"
+
+    namespace["Candy"] = candy
+
+    def bridge(runtime, context):
+        calls.append(("bridge", context.chunk_name))
+        return "bridge-result"
+
+    result = smash_bruteforce.run_legacy_smash_brute_brawl_from_namespace(
+        namespace,
+        "broken.png",
+        b"IDAT",
+        4,
+        16,
+        "Relics",
+        bridge=bridge,
+    )
+
+    assert result == "bridge-result"
+    assert ("betterror", "'bytes' object has no attribute 'encode'", "SmashBruteBrawl") in calls
+    assert ("bridge", b"IDAT") in calls
+    assert any(call[0] == "emit" and "<red:Error:" in call[1] for call in calls)
+
+
 def test_legacy_bridge_builds_scan_context_syncs_state_and_runs_result():
     calls = []
     context = base_context()
@@ -243,6 +383,8 @@ def test_legacy_bridge_wires_viewer_runtime_and_preserves_existing_diff_fallback
 
 def main():
     checks = [
+        ("Namespace bridge", test_legacy_namespace_entry_builds_bridge_and_syncs_legacy_state),
+        ("Namespace bytes chunk", test_legacy_namespace_entry_preserves_bytes_chunk_name_error_path),
         ("Bridge scan/result", test_legacy_bridge_builds_scan_context_syncs_state_and_runs_result),
         ("Bridge viewer/fallback", test_legacy_bridge_wires_viewer_runtime_and_preserves_existing_diff_fallback),
     ]

@@ -65,6 +65,103 @@ class SmashBruteBrawlLegacyRuntime:
     run_result: LegacyCall = bruteforce_result.run_result
 
 
+def run_legacy_smash_brute_brawl_from_namespace(
+    namespace: dict[str, Any],
+    file: Any,
+    chunk_name: Any,
+    chunk_length: int,
+    data_offset: int,
+    from_error: Any,
+    edit_mode: str = "Replace",
+    bf_mode: str = "Brutus",
+    brute_crc: bool = True,
+    brute_length: bool = True,
+    old_crc: Any = False,
+    *,
+    bridge: LegacyCall | None = None,
+) -> Any:
+    if bridge is None:
+        bridge = run_legacy_smash_brute_brawl
+
+    namespace["Candy"]("Title", "Attempting Bruteforce To Repair Corrupted Chunk Data:")
+    try:
+        chunk_name = chunk_name.encode(errors="ignore")
+    except Exception as exc:
+        namespace["Betterror"](exc, "SmashBruteBrawl")
+        if namespace["DEBUG"] is True:
+            namespace["PRINT"](
+                namespace["Candy"]("Color", "red", "Error:%s")
+                % namespace["Candy"]("Color", "yellow", exc)
+            )
+
+    namespace["TmpImgLst"] = []
+
+    def load_spec(request):
+        return namespace["GetSpec"](
+            chunk_name,
+            request.mode,
+            **bruteforce.spec_request_kwargs(request),
+        )
+
+    def save_viewer_error(error, def_name):
+        return namespace["Betterror"](error, def_name)
+
+    def sync_legacy_state(crash, eta_seconds, diff):
+        namespace["CRASH"] = crash
+        namespace["ETA"] = eta_seconds
+        if diff:
+            namespace["DIFF"] = diff
+
+    return bridge(
+        SmashBruteBrawlLegacyRuntime(
+            load_spec=load_spec,
+            product=namespace["Product"],
+            loadingbar=namespace["Loadingbar"],
+            minibar=namespace["Minibar"],
+            image_show=namespace.get("ImageShow"),
+            cv2=namespace.get("cv2"),
+            numpy=namespace.get("np"),
+            image=namespace.get("Image"),
+            psutil=namespace.get("psutil"),
+            stderr_redirector=namespace["stderr_redirector"],
+            sleep=namespace["time"].sleep,
+            ask_timeout=namespace["inputimeout"],
+            naming=namespace["Naming"],
+            emit=namespace["PRINT"],
+            candy=namespace["Candy"],
+            summarise=namespace["Summarise"],
+            save_error=save_viewer_error,
+            end=namespace["TheEnd"],
+            checkpoint=namespace["CheckPoint"],
+            side_notes=namespace["SideNotes"],
+            pause=namespace["Pause"],
+            sync_state=sync_legacy_state,
+        ),
+        SmashBruteBrawlLegacyContext(
+            file=file,
+            chunk_name=chunk_name,
+            chunk_length=chunk_length,
+            data_offset=data_offset,
+            from_error=from_error,
+            data_hex=namespace["DATAX"],
+            pandora_box=namespace["PandoraBox"],
+            libpng_errors=tuple(namespace["LIBPNG_ERR"]),
+            tmp_image_paths=namespace["TmpImgLst"],
+            file_origin=namespace["FILE_Origin"],
+            current_diff=namespace["DIFF"],
+            edit_mode=edit_mode,
+            bf_mode=bf_mode,
+            brute_crc=brute_crc,
+            brute_length=brute_length,
+            old_crc=old_crc,
+            brute_level=namespace["Brute_LvL"],
+            crash=namespace["CRASH"],
+            debug=namespace["DEBUG"],
+            pause_debug=namespace["PAUSEDEBUG"],
+        ),
+    )
+
+
 def build_viewer_runtime(
     runtime: SmashBruteBrawlLegacyRuntime,
     context: SmashBruteBrawlLegacyContext,

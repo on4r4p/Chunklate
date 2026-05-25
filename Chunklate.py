@@ -1107,88 +1107,18 @@ def SmashBruteBrawl(
     BruteLength=True,
     OldCrc=False,
 ):
-    global SideNotes
-    global CRASH
-    global DIFF
-    global TmpImgLst
-    global ETA
-
-    Candy("Title", "Attempting Bruteforce To Repair Corrupted Chunk Data:")
-    try:
-        ChunkName = ChunkName.encode(errors="ignore")
-    except Exception as e:
-        Betterror(e, inspect.stack()[0][3])
-        if DEBUG is True:
-            PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-
-    TmpImgLst = []
-
-    def LoadSpec(request):
-        return GetSpec(
-            ChunkName,
-            request.mode,
-            **bruteforce.spec_request_kwargs(request),
-        )
-
-    def SaveViewerError(error, def_name):
-        return Betterror(error, def_name)
-
-    def SyncLegacyState(crash, eta_seconds, diff):
-        global CRASH
-        global DIFF
-        global ETA
-        CRASH = crash
-        ETA = eta_seconds
-        if diff:
-            DIFF = diff
-
-    return smash_bruteforce.run_legacy_smash_brute_brawl(
-        smash_bruteforce.SmashBruteBrawlLegacyRuntime(
-            load_spec=LoadSpec,
-            product=Product,
-            loadingbar=Loadingbar,
-            minibar=Minibar,
-            image_show=ImageShow,
-            cv2=cv2,
-            numpy=np,
-            image=Image,
-            psutil=psutil,
-            stderr_redirector=stderr_redirector,
-            sleep=time.sleep,
-            ask_timeout=inputimeout,
-            naming=Naming,
-            emit=PRINT,
-            candy=Candy,
-            summarise=Summarise,
-            save_error=SaveViewerError,
-            end=TheEnd,
-            checkpoint=CheckPoint,
-            side_notes=SideNotes,
-            pause=Pause,
-            sync_state=SyncLegacyState,
-        ),
-        smash_bruteforce.SmashBruteBrawlLegacyContext(
-            file=File,
-            chunk_name=ChunkName,
-            chunk_length=ChunkLength,
-            data_offset=DataOffset,
-            from_error=FromError,
-            data_hex=DATAX,
-            pandora_box=PandoraBox,
-            libpng_errors=tuple(LIBPNG_ERR),
-            tmp_image_paths=TmpImgLst,
-            file_origin=FILE_Origin,
-            current_diff=DIFF,
-            edit_mode=EditMode,
-            bf_mode=BfMode,
-            brute_crc=BruteCrc,
-            brute_length=BruteLength,
-            old_crc=OldCrc,
-            brute_level=Brute_LvL,
-            crash=CRASH,
-            debug=DEBUG,
-            pause_debug=PAUSEDEBUG,
-        ),
+    return smash_bruteforce.run_legacy_smash_brute_brawl_from_namespace(
+        globals(),
+        File,
+        ChunkName,
+        ChunkLength,
+        DataOffset,
+        FromError,
+        EditMode,
+        BfMode,
+        BruteCrc,
+        BruteLength,
+        OldCrc,
     )
 
 
