@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from candidate_matrix import CANDIDATE_CASES
+from candidate_matrix import ALLOWED_CANDIDATE_STATUSES, CANDIDATE_CASES
 
 
 CHUNKLATE = ROOT / "Chunklate.py"
@@ -56,6 +56,16 @@ def test_candidate_corpus_files_exist():
     assert missing == []
 
 
+def test_candidate_corpus_cases_are_classified():
+    failures = []
+
+    for case in CANDIDATE_CASES:
+        if case.status not in ALLOWED_CANDIDATE_STATUSES:
+            failures.append(f"{case.fixture}: unknown status {case.status!r}")
+
+    assert failures == []
+
+
 def test_candidate_corpus_runs_without_python_crash_or_repo_output(tmp_path):
     failures = []
 
@@ -67,11 +77,18 @@ def test_candidate_corpus_runs_without_python_crash_or_repo_output(tmp_path):
             continue
 
         combined_output = result.stdout + result.stderr
+        summary = output_dir / f"Summary_Of_{Path(case.fixture).stem}"
+        diagnostic_output = combined_output
+        if summary.exists():
+            diagnostic_output += summary.read_text(errors="replace")
         has_traceback = "Traceback (most recent call last)" in combined_output
         if has_traceback and not case.known_python_traceback:
             failures.append(f"{case.fixture}: Python traceback")
         if case.known_python_traceback and not has_traceback:
             failures.append(f"{case.fixture}: expected known traceback is gone; reclassify it")
+        for marker in case.diagnostic_markers:
+            if marker not in diagnostic_output:
+                failures.append(f"{case.fixture}: missing diagnostic marker {marker!r}")
         if output_dir.exists() and not output_dir.is_relative_to(tmp_path):
             failures.append(f"{case.fixture}: output outside tmp_path: {output_dir}")
 
@@ -81,6 +98,7 @@ def test_candidate_corpus_runs_without_python_crash_or_repo_output(tmp_path):
 def main():
     checks = [
         ("candidate files", test_candidate_corpus_files_exist),
+        ("candidate classification", test_candidate_corpus_cases_are_classified),
         ("candidate run smoke", test_candidate_corpus_runs_without_python_crash_or_repo_output),
     ]
 
