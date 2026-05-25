@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, magic_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, libpng_check, magic_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -186,6 +186,7 @@ def Pandemonium_Remember_Current_Sample():
 def IDAT_Bytes_Nbr():  # tmpworkaround
     global IBN
     IBN = specs.estimate_idat_bytes_from_hex(DATAX, tuple(CHUNKS))
+    return IBN
 
 
 
@@ -207,65 +208,38 @@ def Max_Res():
 
 
 def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
-
-    if DEBUG:
-         PRINT("GetChunk:%s"%GetChunk)
-         PRINT("Mode:%s"%Mode)
-         PRINT("Fields:%s"%Fields)
-
-    if IBN == 0:
-            IDAT_Bytes_Nbr()
-
-    context = specs.build_getspec_context(
-        current_year=datetime.now().year,
-        chunk_name=GetChunk,
-        mode=Mode,
-        idat_byte_count=IBN,
-        max_resolution=Max_Res(),
-        brute_level=Brute_LvL,
-        ihdr_color=IHDR_Color,
-        ihdr_height=IHDR_Height,
-        ihdr_width=IHDR_Width,
-        pandora_box=PandoraBox,
-        cornucopia=Cornucopia,
-        pandemonium=Pandemonium,
-        allchunks=ALLCHUNKS,
-        skip_bad_crc=Skip_Bad_Crc,
+    return getspec_runtime.run_getspec(
+        getspec_runtime.GetSpecRuntime(
+            emit=PRINT,
+            candy=Candy,
+            betterror=Betterror,
+            pause=Pause,
+            end=TheEnd,
+            max_resolution=Max_Res,
+            refresh_idat_byte_count=IDAT_Bytes_Nbr,
+            current_year=lambda: datetime.now().year,
+        ),
+        getspec_runtime.GetSpecContext(
+            idat_byte_count=IBN,
+            brute_level=Brute_LvL,
+            ihdr_color=IHDR_Color,
+            ihdr_height=IHDR_Height,
+            ihdr_width=IHDR_Width,
+            pandora_box=PandoraBox,
+            cornucopia=Cornucopia,
+            pandemonium=Pandemonium,
+            allchunks=tuple(ALLCHUNKS),
+            skip_bad_crc=Skip_Bad_Crc,
+            debug=DEBUG,
+            pause_debug=PAUSEDEBUG,
+            pause_error=PAUSEERROR,
+        ),
+        GetChunk,
+        Mode,
+        Fields,
+        StructIndex,
+        IterNbr,
     )
-
-    if DEBUG:
-            if GetChunk in specs.GETSPEC_COLOR_CHUNKS:
-                PRINT("-ColorType set to:%s"% context.color_type)
-            PRINT(
-                "-Smalest resolution estimation based on file size: %s*%s"
-                % (context.min_resolution, context.min_resolution)
-            )
-
-    try:
-        result = specs.resolve_getspec(
-            context,
-            GetChunk,
-            Fields,
-            Mode,
-            StructIndex,
-            IterNbr,
-        )
-    except (NameError, ValueError) as e:
-        Betterror(e, inspect.stack()[0][3])
-        if DEBUG is True:
-           PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-        if PAUSEDEBUG is True or PAUSEERROR is True:
-             Pause("Pause Debug")
-        TheEnd()
-
-    if result is not None:
-        return result
-
-    PRINT("-Error in GetSpec: Didnt Found matching result")
-    PRINT("GetColor:%s"% context.color_type)
-    PRINT("GetChunk:%s"% GetChunk)
-    PRINT(Candy("Color", "yellow", "\n-ToDo"))
-    return
 
 
 def Sync_Chunk_Info_Legacy_State(section=None):
