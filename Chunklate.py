@@ -790,14 +790,26 @@ def Tk_Manual_Plte(
     action_buttons = palette_ui.create_palette_action_buttons(
         tkinter_module=tkinter,
         master=frame_action,
-        specs=palette_ui.build_palette_action_button_specs(
-            web_safe=lambda: Tk_Web_Safe_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth),
-            web_random=lambda: Tk_Web_Safe_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth),
-            x11=lambda: Tk_X11_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth),
-            x11_random=lambda: Tk_X11_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth),
-            randomize=lambda: Tk_Randomize_Plte(bfn=Before_New,afn=After_New,h=hsize,w=basewidth),
-            save=lambda: Tk_Save_Plte(window,False,ChunkLength,DataOffset,FromError,wanabyte),
-            cancel=lambda: Tk_Save_Plte(window,True,ChunkLength,DataOffset,FromError,wanabyte),
+        specs=palette_runtime.build_manual_palette_action_specs(
+            palette_runtime.ManualPaletteActionRuntime(
+                web_safe=Tk_Web_Safe_Plte,
+                web_random=Tk_Web_Safe_Randomize_Plte,
+                x11=Tk_X11_Plte,
+                x11_random=Tk_X11_Randomize_Plte,
+                randomize=Tk_Randomize_Plte,
+                save_palette=Tk_Save_Plte,
+            ),
+            palette_runtime.ManualPaletteActionContext(
+                before=Before_New,
+                after=After_New,
+                height=hsize,
+                width=basewidth,
+                window=window,
+                chunk_length=ChunkLength,
+                data_offset=DataOffset,
+                from_error=FromError,
+                wanabyte=wanabyte,
+            ),
         ),
         grid_options={"padx": 10, "pady": 5},
     )

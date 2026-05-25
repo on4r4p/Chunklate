@@ -345,6 +345,62 @@ def test_save_manual_palette_falls_back_to_legacy_values_without_palette_state()
     )
 
 
+def test_build_manual_palette_action_specs_preserves_legacy_callbacks():
+    calls = []
+
+    def record(name):
+        def callback(*args, **kwargs):
+            calls.append((name, args, kwargs))
+
+        return callback
+
+    specs = palette_runtime.build_manual_palette_action_specs(
+        palette_runtime.ManualPaletteActionRuntime(
+            web_safe=record("web_safe"),
+            web_random=record("web_random"),
+            x11=record("x11"),
+            x11_random=record("x11_random"),
+            randomize=record("randomize"),
+            save_palette=record("save_palette"),
+        ),
+        palette_runtime.ManualPaletteActionContext(
+            before=b"before",
+            after=b"after",
+            height=50,
+            width=100,
+            window="window",
+            chunk_length=12,
+            data_offset=4,
+            from_error="source",
+            wanabyte=b"png",
+        ),
+    )
+
+    assert [spec.name for spec in specs] == [
+        "x216_btn",
+        "random_web_btn",
+        "x11_btn",
+        "random_classic_btn",
+        "random_btn",
+        "save_btn",
+        "cancel_btn",
+    ]
+
+    for spec in specs:
+        spec.command()
+
+    palette_kwargs = {"bfn": b"before", "afn": b"after", "h": 50, "w": 100}
+    assert calls == [
+        ("web_safe", (), palette_kwargs),
+        ("web_random", (), palette_kwargs),
+        ("x11", (), palette_kwargs),
+        ("x11_random", (), palette_kwargs),
+        ("randomize", (), palette_kwargs),
+        ("save_palette", ("window", False, 12, 4, "source", b"png"), {}),
+        ("save_palette", ("window", True, 12, 4, "source", b"png"), {}),
+    ]
+
+
 def test_guess_palette_count_uses_phash_distance_and_records_side_note():
     calls = []
     side_notes = []
@@ -449,6 +505,7 @@ def main():
         ("Sync palette none state", test_sync_palette_legacy_state_ignores_none_state),
         ("Manual palette save state", test_save_manual_palette_uses_palette_state_cleans_sliders_and_closes_window),
         ("Manual palette save fallback", test_save_manual_palette_falls_back_to_legacy_values_without_palette_state),
+        ("Manual palette action specs", test_build_manual_palette_action_specs_preserves_legacy_callbacks),
         ("Guess palette count", test_guess_palette_count_uses_phash_distance_and_records_side_note),
         ("Guess palette fallback", test_guess_palette_count_preserves_ihdr_depth_fallback),
         ("Guess palette libpng error", test_guess_palette_count_routes_libpng_error_to_end),

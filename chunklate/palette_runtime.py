@@ -67,6 +67,30 @@ class ManualPaletteSaveContext:
 
 
 @dataclass(frozen=True)
+class ManualPaletteActionRuntime:
+    web_safe: Callable
+    web_random: Callable
+    x11: Callable
+    x11_random: Callable
+    randomize: Callable
+    save_palette: Callable
+    build_specs: Callable = palette_ui.build_palette_action_button_specs
+
+
+@dataclass(frozen=True)
+class ManualPaletteActionContext:
+    before: bytes
+    after: bytes
+    height: int
+    width: int
+    window: object
+    chunk_length: int
+    data_offset: int
+    from_error: object
+    wanabyte: bytes
+
+
+@dataclass(frozen=True)
 class PaletteCountGuessRuntime:
     cv2: object
     numpy: object
@@ -232,6 +256,60 @@ def save_manual_palette(
         chunk_length=context.chunk_length,
         data_offset=context.data_offset,
         from_error=context.from_error,
+    )
+
+
+def build_manual_palette_action_specs(
+    runtime: ManualPaletteActionRuntime,
+    context: ManualPaletteActionContext,
+) -> tuple[palette_ui.PaletteActionButtonSpec, ...]:
+    return runtime.build_specs(
+        web_safe=lambda: runtime.web_safe(
+            bfn=context.before,
+            afn=context.after,
+            h=context.height,
+            w=context.width,
+        ),
+        web_random=lambda: runtime.web_random(
+            bfn=context.before,
+            afn=context.after,
+            h=context.height,
+            w=context.width,
+        ),
+        x11=lambda: runtime.x11(
+            bfn=context.before,
+            afn=context.after,
+            h=context.height,
+            w=context.width,
+        ),
+        x11_random=lambda: runtime.x11_random(
+            bfn=context.before,
+            afn=context.after,
+            h=context.height,
+            w=context.width,
+        ),
+        randomize=lambda: runtime.randomize(
+            bfn=context.before,
+            afn=context.after,
+            h=context.height,
+            w=context.width,
+        ),
+        save=lambda: runtime.save_palette(
+            context.window,
+            False,
+            context.chunk_length,
+            context.data_offset,
+            context.from_error,
+            context.wanabyte,
+        ),
+        cancel=lambda: runtime.save_palette(
+            context.window,
+            True,
+            context.chunk_length,
+            context.data_offset,
+            context.from_error,
+            context.wanabyte,
+        ),
     )
 
 
