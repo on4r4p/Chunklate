@@ -22,6 +22,19 @@ class CheckPointActionRuntime:
     ihdr_interlace: str
 
 
+def build_checkpoint_action_runtime_from_namespace(namespace: dict[str, Any]) -> CheckPointActionRuntime:
+    return CheckPointActionRuntime(
+        checkpoint=namespace["CheckPoint_Runtime"](),
+        side_notes=namespace["SideNotes"],
+        apply_flags=namespace["CheckPoint_Apply_Flags"],
+        raw_next_chunk=namespace["Raw_NextChunk"],
+        get_brute_level=lambda: namespace["Brute_LvL"],
+        set_brute_level=lambda value: namespace.__setitem__("Brute_LvL", value),
+        eta=namespace["ETA"],
+        ihdr_interlace=namespace["IHDR_Interlace"],
+    )
+
+
 def action_write_clone(runtime: CheckPointActionRuntime, decision, chunk, info, toolkit):
     return checkpoint_runtime.run_write_clone(runtime.checkpoint, toolkit)
 

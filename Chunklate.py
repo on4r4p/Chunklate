@@ -105,24 +105,7 @@ def CheckPoint_Libpng_End_Success(message):
 
 
 def CheckPoint_Runtime():
-    return checkpoint_runtime.CheckPointRuntime(
-        write_clone=WriteClone,
-        dummy_chunk=DummyChunk,
-        summarise=Summarise,
-        find_fucking_magic=FindFuckingMagic,
-        check_chunk_name=CheckChunkName,
-        save_clone=SaveClone,
-        fix_it_felix=FixItFelix,
-        relics=Relics,
-        smash_brute_brawl=SmashBruteBrawl,
-        candy=Candy,
-        emit=PRINT,
-        end=TheEnd,
-        question=Question,
-        print_libpng_critical=CheckPoint_Print_Libpng_Critical,
-        discard_libpng_warning=CheckPoint_Discard_Libpng_Warning,
-        libpng_end_success=CheckPoint_Libpng_End_Success,
-    )
+    return checkpoint_runtime.build_checkpoint_runtime_from_namespace(globals())
 
 
 def CheckPoint_Set_Brute_LvL(value):
@@ -132,16 +115,7 @@ def CheckPoint_Set_Brute_LvL(value):
 
 
 def CheckPoint_Action_Runtime():
-    return checkpoint_actions_runtime.CheckPointActionRuntime(
-        checkpoint=CheckPoint_Runtime(),
-        side_notes=SideNotes,
-        apply_flags=CheckPoint_Apply_Flags,
-        raw_next_chunk=Raw_NextChunk,
-        get_brute_level=lambda: Brute_LvL,
-        set_brute_level=CheckPoint_Set_Brute_LvL,
-        eta=ETA,
-        ihdr_interlace=IHDR_Interlace,
-    )
+    return checkpoint_actions_runtime.build_checkpoint_action_runtime_from_namespace(globals())
 
 def CheckPoint_Apply_Action_Decision(decision, chunk, info, toolkit):
     return checkpoint_actions_runtime.apply_action_decision(
@@ -790,23 +764,7 @@ def SaveClone(DataFix, start, end, infos):
 
 
 def WriteClone(data,infos):
-    return writer_runtime.run_write_clone(
-        writer_runtime.build_write_clone_runtime(
-            namespace=globals(),
-            remember_current_sample=Pandemonium_Remember_Current_Sample,
-            betterror=Betterror,
-            end=TheEnd,
-            candy=Candy,
-            emit=PRINT,
-            pause=Pause,
-            summarise=Summarise,
-            exit_process=sys.exit,
-            side_notes=SideNotes,
-        ),
-        writer_runtime.build_write_clone_context(globals()),
-        data,
-        infos,
-    )
+    return writer_runtime.run_write_clone_from_namespace(globals(), data, infos)
 
 
 def Relics_Runtime():
@@ -1053,24 +1011,14 @@ def FixItFelix(Chunk=None):
     Show_Must_Go_On = True
 
 def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
-    return checkpoint_runtime.run_checkpoint(
-        checkpoint_runtime.build_checkpoint_entry_runtime(
-            candy=Candy,
-            emit=PRINT,
-            pause_debug=Pause,
-            record_finding=CheckPoint_Record_Finding,
-            apply_action=CheckPoint_Apply_Action_Decision,
-            pause_error=Pause,
-        ),
-        checkpoint_runtime.build_checkpoint_entry_context(
-            globals(),
-            error=error,
-            fixed=fixed,
-            function=function,
-            chunk=chunk,
-            infos=tuple(infos),
-            toolkit=ToolKit,
-        ),
+    return checkpoint_runtime.run_checkpoint_from_namespace(
+        globals(),
+        error=error,
+        fixed=fixed,
+        function=function,
+        chunk=chunk,
+        infos=infos,
+        toolkit=ToolKit,
     )
 
 

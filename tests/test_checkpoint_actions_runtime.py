@@ -209,6 +209,34 @@ def test_custom_brutus_resets_brute_level_and_relaunches():
     ) in calls
 
 
+def test_checkpoint_action_namespace_builder_wires_state_and_callbacks():
+    calls = []
+    checkpoint_rt = object()
+    namespace = {
+        "CheckPoint_Runtime": lambda: calls.append(("checkpoint_runtime",)) or checkpoint_rt,
+        "SideNotes": [],
+        "CheckPoint_Apply_Flags": lambda flags: calls.append(("flags", flags)),
+        "Raw_NextChunk": b"nEXT",
+        "Brute_LvL": 3,
+        "ETA": 7,
+        "IHDR_Interlace": "1",
+    }
+
+    runtime = checkpoint_actions_runtime.build_checkpoint_action_runtime_from_namespace(namespace)
+
+    assert runtime.checkpoint is checkpoint_rt
+    assert runtime.side_notes is namespace["SideNotes"]
+    assert runtime.apply_flags is namespace["CheckPoint_Apply_Flags"]
+    assert runtime.raw_next_chunk == b"nEXT"
+    assert runtime.get_brute_level() == 3
+    runtime.set_brute_level(4)
+    assert namespace["Brute_LvL"] == 4
+    assert runtime.eta == 7
+    assert runtime.ihdr_interlace == "1"
+    runtime.apply_flags({"Bad_Crc": True})
+    assert calls == [("checkpoint_runtime",), ("flags", {"Bad_Crc": True})]
+
+
 def main():
     checks = [
         (
@@ -218,6 +246,7 @@ def main():
         ("Reject unknown action", test_apply_action_decision_rejects_unknown_action),
         ("Preserve TwoBytes OldCrc retry", test_twobytes_retry_preserves_old_crc_route),
         ("Reset Custom Brutus retry", test_custom_brutus_resets_brute_level_and_relaunches),
+        ("Namespace action runtime", test_checkpoint_action_namespace_builder_wires_state_and_callbacks),
     ]
 
     print("Running CheckPoint action runtime tests")

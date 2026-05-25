@@ -275,6 +275,61 @@ def test_checkpoint_entry_builders_preserve_legacy_namespace_mapping():
     )
 
 
+def test_checkpoint_namespace_entry_bridge_builds_runtime_and_context():
+    calls = []
+    namespace = {
+        "Candy": lambda *args: calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Pause": lambda prompt: calls.append(("pause", prompt)),
+        "CheckPoint_Record_Finding": lambda registration: calls.append(("record", registration)),
+        "CheckPoint_Apply_Action_Decision": lambda decision, chunk, info, toolkit: (
+            calls.append(("apply", decision, chunk, info, toolkit)) or (True, "done")
+        ),
+        "Brute_LvL": 2,
+        "LIBPNG_ERR": ["libpng error:"],
+        "Chunks_History": [b"IHDR"],
+        "EOF": False,
+        "PandoraBox": {"key": "value"},
+        "DEBUG": True,
+        "PAUSEDEBUG": False,
+        "PAUSEERROR": True,
+    }
+
+    def runner(runtime, context):
+        assert runtime.candy is namespace["Candy"]
+        assert runtime.emit is namespace["PRINT"]
+        assert runtime.pause_debug is namespace["Pause"]
+        assert runtime.record_finding is namespace["CheckPoint_Record_Finding"]
+        assert runtime.apply_action is namespace["CheckPoint_Apply_Action_Decision"]
+        assert runtime.pause_error is namespace["Pause"]
+        assert context.error is True
+        assert context.fixed is False
+        assert context.function == "Checksum"
+        assert context.chunk == b"IDAT"
+        assert context.infos == ("-Wrong Crc",)
+        assert context.toolkit == ("tool",)
+        assert context.brute_level == 2
+        assert context.libpng_errors == ("libpng error:",)
+        assert context.libpng_finished_at_iend is False
+        assert context.pandora_keys == ("key",)
+        assert context.debug is True
+        assert context.pause_error_enabled is True
+        return "checkpoint"
+
+    result = checkpoint_runtime.run_checkpoint_from_namespace(
+        namespace,
+        error=True,
+        fixed=False,
+        function="Checksum",
+        chunk=b"IDAT",
+        infos=["-Wrong Crc"],
+        toolkit=("tool",),
+        runner=runner,
+    )
+
+    assert result == "checkpoint"
+
+
 def test_checkpoint_debug_lines_preserve_legacy_print_shape():
     long_bytes = b"x" * 120
     long_text = "y" * 120
@@ -597,6 +652,7 @@ def main():
         ("CheckPoint entry routes loop", test_checkpoint_entry_runtime_emits_header_and_routes_loop),
         ("CheckPoint entry debug", test_checkpoint_entry_runtime_preserves_debug_and_pause),
         ("CheckPoint entry builders", test_checkpoint_entry_builders_preserve_legacy_namespace_mapping),
+        ("CheckPoint namespace entry bridge", test_checkpoint_namespace_entry_bridge_builds_runtime_and_context),
         ("CheckPoint debug lines", test_checkpoint_debug_lines_preserve_legacy_print_shape),
         ("CheckPoint debug emit callback", test_emit_checkpoint_debug_uses_injected_emit_callback),
         ("CheckPointRuntime keeps callbacks", test_checkpoint_runtime_keeps_legacy_callbacks),

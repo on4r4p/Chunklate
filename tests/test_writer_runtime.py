@@ -122,6 +122,68 @@ def test_write_clone_builders_wire_namespace_and_context():
     assert side_notes == ["-Saving to : /tmp/Folder_sample/sample.0_Fixed.png"]
 
 
+def test_write_clone_namespace_bridge_builds_runtime_and_context():
+    calls = []
+    side_notes = []
+
+    class FakeSys:
+        def exit(self, code):
+            calls.append(("exit", code))
+
+    namespace = {
+        "FILE_Origin": "sample.png",
+        "FILE_DIR": "/tmp",
+        "SAVE_COUNT": 3,
+        "MAX_SAVES": 5,
+        "PAUSE": True,
+        "Sample": "old.png",
+        "Have_A_KitKat": False,
+        "Pandemonium_Remember_Current_Sample": lambda: calls.append(("remember",)),
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "TheEnd": lambda: calls.append(("end",)),
+        "Candy": lambda kind, *args: "<%s:%s>" % (args[0], args[1]) if kind == "Color" else "candy",
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Pause": lambda message: calls.append(("pause", message)),
+        "Summarise": lambda infos: calls.append(("summarise", infos)),
+        "sys": FakeSys(),
+        "SideNotes": side_notes,
+    }
+
+    def runner(runtime, context, data, infos):
+        assert runtime.remember_current_sample is namespace["Pandemonium_Remember_Current_Sample"]
+        assert runtime.betterror is namespace["Betterror"]
+        assert runtime.end is namespace["TheEnd"]
+        assert runtime.candy is namespace["Candy"]
+        assert runtime.emit is namespace["PRINT"]
+        assert runtime.pause is namespace["Pause"]
+        assert runtime.summarise is namespace["Summarise"]
+        assert runtime.side_notes is side_notes
+        assert context == writer_runtime.WriteCloneContext(
+            file_origin="sample.png",
+            file_dir="/tmp",
+            save_count=3,
+            max_saves=5,
+            pause_enabled=True,
+        )
+        assert (data, infos) == ("89504e47", "summary")
+        runtime.set_sample("new.png")
+        runtime.set_save_count(4)
+        runtime.set_have_a_kitkat(True)
+        return "written"
+
+    result = writer_runtime.run_write_clone_from_namespace(
+        namespace,
+        "89504e47",
+        "summary",
+        runner=runner,
+    )
+
+    assert result == "written"
+    assert namespace["Sample"] == "new.png"
+    assert namespace["SAVE_COUNT"] == 4
+    assert namespace["Have_A_KitKat"] is True
+
+
 def test_write_clone_runtime_writes_updates_state_and_summarises():
     calls = []
     side_notes = []
@@ -254,6 +316,7 @@ def test_run_save_clone_preserves_bad_hex_error_path_before_write():
 def main():
     checks = [
         ("Write builders", test_write_clone_builders_wire_namespace_and_context),
+        ("Write namespace bridge", test_write_clone_namespace_bridge_builds_runtime_and_context),
         ("Write and state", test_write_clone_runtime_writes_updates_state_and_summarises),
         ("Pause and max saves", test_write_clone_runtime_preserves_pause_and_max_saves_exit),
         ("Prepare error", test_write_clone_runtime_prepare_error_routes_betterror_and_end),

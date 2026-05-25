@@ -78,6 +78,27 @@ class CheckPointEntryContext:
     pause_error_enabled: bool = False
 
 
+def build_checkpoint_runtime_from_namespace(namespace: dict[str, Any]) -> CheckPointRuntime:
+    return CheckPointRuntime(
+        write_clone=namespace["WriteClone"],
+        dummy_chunk=namespace["DummyChunk"],
+        summarise=namespace["Summarise"],
+        find_fucking_magic=namespace["FindFuckingMagic"],
+        check_chunk_name=namespace["CheckChunkName"],
+        save_clone=namespace["SaveClone"],
+        fix_it_felix=namespace["FixItFelix"],
+        relics=namespace["Relics"],
+        smash_brute_brawl=namespace["SmashBruteBrawl"],
+        candy=namespace["Candy"],
+        emit=namespace["PRINT"],
+        end=namespace["TheEnd"],
+        question=namespace["Question"],
+        print_libpng_critical=namespace["CheckPoint_Print_Libpng_Critical"],
+        discard_libpng_warning=namespace["CheckPoint_Discard_Libpng_Warning"],
+        libpng_end_success=namespace["CheckPoint_Libpng_End_Success"],
+    )
+
+
 def build_checkpoint_entry_runtime(
     *,
     candy: LegacyCall,
@@ -94,6 +115,17 @@ def build_checkpoint_entry_runtime(
         record_finding=record_finding,
         apply_action=apply_action,
         pause_error=pause_error,
+    )
+
+
+def build_checkpoint_entry_runtime_from_namespace(namespace: dict[str, Any]) -> CheckPointEntryRuntime:
+    return build_checkpoint_entry_runtime(
+        candy=namespace["Candy"],
+        emit=namespace["PRINT"],
+        pause_debug=namespace["Pause"],
+        record_finding=namespace["CheckPoint_Record_Finding"],
+        apply_action=namespace["CheckPoint_Apply_Action_Decision"],
+        pause_error=namespace["Pause"],
     )
 
 
@@ -126,6 +158,33 @@ def build_checkpoint_entry_context(
         debug=namespace["DEBUG"],
         pause_debug_enabled=namespace["PAUSEDEBUG"],
         pause_error_enabled=namespace["PAUSEERROR"],
+    )
+
+
+def run_checkpoint_from_namespace(
+    namespace: dict[str, Any],
+    *,
+    error: bool,
+    fixed: bool,
+    function: Any,
+    chunk: Any,
+    infos: Any,
+    toolkit: tuple[Any, ...],
+    runner: LegacyCall | None = None,
+) -> Any:
+    if runner is None:
+        runner = run_checkpoint
+    return runner(
+        build_checkpoint_entry_runtime_from_namespace(namespace),
+        build_checkpoint_entry_context(
+            namespace,
+            error=error,
+            fixed=fixed,
+            function=function,
+            chunk=chunk,
+            infos=tuple(infos),
+            toolkit=toolkit,
+        ),
     )
 
 

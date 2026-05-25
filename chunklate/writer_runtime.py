@@ -82,6 +82,21 @@ def build_write_clone_runtime(
     )
 
 
+def build_write_clone_runtime_from_namespace(namespace: dict[str, Any]) -> WriteCloneRuntime:
+    return build_write_clone_runtime(
+        namespace=namespace,
+        remember_current_sample=namespace["Pandemonium_Remember_Current_Sample"],
+        betterror=namespace["Betterror"],
+        end=namespace["TheEnd"],
+        candy=namespace["Candy"],
+        emit=namespace["PRINT"],
+        pause=namespace["Pause"],
+        summarise=namespace["Summarise"],
+        exit_process=namespace["sys"].exit,
+        side_notes=namespace["SideNotes"],
+    )
+
+
 def build_write_clone_context(namespace: dict[str, Any]) -> WriteCloneContext:
     return WriteCloneContext(
         file_origin=namespace["FILE_Origin"],
@@ -142,6 +157,21 @@ def run_write_clone(
         runtime.exit_process(0)
 
     return None
+
+
+def run_write_clone_from_namespace(
+    namespace: dict[str, Any],
+    data: Any,
+    infos: Any,
+    *,
+    runner: LegacyCall = run_write_clone,
+) -> None:
+    return runner(
+        build_write_clone_runtime_from_namespace(namespace),
+        build_write_clone_context(namespace),
+        data,
+        infos,
+    )
 
 
 def run_remove_chunk(
