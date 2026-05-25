@@ -2239,56 +2239,16 @@ def FixItFelix(Chunk=None):
     Show_Must_Go_On = True
 
 def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
-    global Bad_Current_Name
-    global Bad_Ancillary
-    global Bad_No_Next_Chunk
-    global Bad_Next_Name
-    global Bad_Next_Ancillary
-    global Bad_Infos
-    global Bad_Length
-    global Bad_Crc
-    global Bad_Missplaced
-    global Bad_Critical
-    global Bad_Libpng
-    global Brute_LvL
-    global SideNotes
-    global ERRORSFLAG
-    global Cornucopia
-    global PandoraBox
-
-    Candy("Title", "CheckPoint")
-    PRINT(
-        r"""
-   ( (
-    ) )
-  ........
-  |      |]
-  \      /
-   `----'"""
-    )
-
-    if DEBUG is True:
-        checkpoint_runtime.emit_checkpoint_debug(
-            PRINT,
-            error=error,
-            fixed=fixed,
-            function=function,
-            infos=infos,
-            chunk=chunk,
-            toolkit=ToolKit,
-            pandora_keys=tuple(PandoraBox),
-        )
-
-        if PAUSEDEBUG is True:
-            Pause("Checkpoint pause")
-
-    return checkpoint_runtime.run_checkpoint_loop(
-        checkpoint_runtime.CheckPointLoopRuntime(
+    return checkpoint_runtime.run_checkpoint(
+        checkpoint_runtime.CheckPointEntryRuntime(
+            candy=Candy,
+            emit=PRINT,
+            pause_debug=Pause,
             record_finding=CheckPoint_Record_Finding,
             apply_action=CheckPoint_Apply_Action_Decision,
             pause_error=Pause,
         ),
-        checkpoint_runtime.CheckPointLoopContext(
+        checkpoint_runtime.CheckPointEntryContext(
             error=error,
             fixed=fixed,
             function=function,
@@ -2300,6 +2260,9 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
             libpng_finished_at_iend=(
                 bool(Chunks_History) and Chunks_History[-1] == b"IEND" and EOF is True
             ),
+            pandora_keys=tuple(PandoraBox),
+            debug=DEBUG,
+            pause_debug_enabled=PAUSEDEBUG,
             pause_error_enabled=PAUSEERROR,
         ),
     )

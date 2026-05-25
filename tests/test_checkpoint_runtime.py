@@ -142,6 +142,90 @@ def test_checkpoint_loop_runtime_returns_first_action_result():
     ]
 
 
+def test_checkpoint_entry_runtime_emits_header_and_routes_loop():
+    calls = []
+
+    def apply_action(decision, chunk, info, toolkit):
+        calls.append(("apply_action", decision, chunk, info, toolkit))
+        return True, "done"
+
+    result = checkpoint_runtime.run_checkpoint(
+        checkpoint_runtime.CheckPointEntryRuntime(
+            candy=lambda *args: calls.append(("candy", args)),
+            emit=lambda message: calls.append(("emit", message)),
+            pause_debug=lambda prompt: calls.append(("pause_debug", prompt)),
+            record_finding=lambda registration: calls.append(("record_finding", registration)),
+            apply_action=apply_action,
+            pause_error=lambda prompt: calls.append(("pause_error", prompt)),
+        ),
+        checkpoint_runtime.CheckPointEntryContext(
+            error=False,
+            fixed=False,
+            function="FindMagic",
+            chunk=b"PNG",
+            infos=("-Found Magic",),
+            toolkit=(16,),
+            brute_level=0,
+            libpng_errors=(),
+            libpng_finished_at_iend=False,
+            pandora_keys=(),
+            debug=False,
+            pause_debug_enabled=False,
+            pause_error_enabled=False,
+        ),
+    )
+
+    assert result == "done"
+    assert calls[0] == ("candy", ("Title", "CheckPoint"))
+    assert calls[1] == ("emit", checkpoint_runtime.CHECKPOINT_COFFEE)
+    assert calls[2] == (
+        "apply_action",
+        checkpoint.CheckPointActionDecision(
+            action="return_value",
+            side_note="-CheckPoint: Returning next position based on Magic Offset 16",
+            return_value=16,
+        ),
+        b"PNG",
+        "-Found Magic",
+        (16,),
+    )
+
+
+def test_checkpoint_entry_runtime_preserves_debug_and_pause():
+    calls = []
+
+    checkpoint_runtime.run_checkpoint(
+        checkpoint_runtime.CheckPointEntryRuntime(
+            candy=lambda *args: calls.append(("candy", args)),
+            emit=lambda message: calls.append(("emit", message)),
+            pause_debug=lambda prompt: calls.append(("pause_debug", prompt)),
+            record_finding=lambda registration: calls.append(("record_finding", registration)),
+            apply_action=lambda decision, chunk, info, toolkit: (False, None),
+            pause_error=lambda prompt: calls.append(("pause_error", prompt)),
+        ),
+        checkpoint_runtime.CheckPointEntryContext(
+            error=True,
+            fixed=False,
+            function="Checksum",
+            chunk=b"IDAT",
+            infos=("-Wrong Crc",),
+            toolkit=("crc",),
+            brute_level=0,
+            libpng_errors=(),
+            libpng_finished_at_iend=False,
+            pandora_keys=("PandoraKey",),
+            debug=True,
+            pause_debug_enabled=True,
+            pause_error_enabled=False,
+        ),
+    )
+
+    assert ("emit", "error:True") in calls
+    assert ("emit", "Pandora:") in calls
+    assert ("emit", "key:PandoraKey") in calls
+    assert ("pause_debug", "Checkpoint pause") in calls
+
+
 def test_checkpoint_debug_lines_preserve_legacy_print_shape():
     long_bytes = b"x" * 120
     long_text = "y" * 120
@@ -461,6 +545,8 @@ def main():
     checks = [
         ("CheckPoint loop records and applies", test_checkpoint_loop_runtime_records_finding_pauses_and_applies_action),
         ("CheckPoint loop returns action result", test_checkpoint_loop_runtime_returns_first_action_result),
+        ("CheckPoint entry routes loop", test_checkpoint_entry_runtime_emits_header_and_routes_loop),
+        ("CheckPoint entry debug", test_checkpoint_entry_runtime_preserves_debug_and_pause),
         ("CheckPoint debug lines", test_checkpoint_debug_lines_preserve_legacy_print_shape),
         ("CheckPoint debug emit callback", test_emit_checkpoint_debug_uses_injected_emit_callback),
         ("CheckPointRuntime keeps callbacks", test_checkpoint_runtime_keeps_legacy_callbacks),

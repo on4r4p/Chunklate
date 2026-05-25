@@ -38,6 +38,16 @@ class CheckPointLoopRuntime:
 
 
 @dataclass(frozen=True)
+class CheckPointEntryRuntime:
+    candy: LegacyCall
+    emit: LegacyCall
+    pause_debug: LegacyCall
+    record_finding: LegacyCall
+    apply_action: LegacyCall
+    pause_error: LegacyCall
+
+
+@dataclass(frozen=True)
 class CheckPointLoopContext:
     error: bool
     fixed: bool
@@ -49,6 +59,32 @@ class CheckPointLoopContext:
     libpng_errors: tuple[str, ...]
     libpng_finished_at_iend: bool
     pause_error_enabled: bool
+
+
+@dataclass(frozen=True)
+class CheckPointEntryContext:
+    error: bool
+    fixed: bool
+    function: Any
+    chunk: Any
+    infos: tuple[Any, ...]
+    toolkit: tuple[Any, ...]
+    brute_level: int
+    libpng_errors: tuple[str, ...]
+    libpng_finished_at_iend: bool
+    pandora_keys: tuple[Any, ...]
+    debug: bool = False
+    pause_debug_enabled: bool = False
+    pause_error_enabled: bool = False
+
+
+CHECKPOINT_COFFEE = r"""
+   ( (
+    ) )
+  ........
+  |      |]
+  \      /
+   `----'"""
 
 
 def checkpoint_debug_toolkit_value(value: Any, limit: int = 100) -> Any:
@@ -151,6 +187,49 @@ def run_checkpoint_loop(
             return result
 
     return ()
+
+
+def run_checkpoint(
+    runtime: CheckPointEntryRuntime,
+    context: CheckPointEntryContext,
+) -> Any:
+    runtime.candy("Title", "CheckPoint")
+    runtime.emit(CHECKPOINT_COFFEE)
+
+    if context.debug is True:
+        emit_checkpoint_debug(
+            runtime.emit,
+            error=context.error,
+            fixed=context.fixed,
+            function=context.function,
+            infos=context.infos,
+            chunk=context.chunk,
+            toolkit=context.toolkit,
+            pandora_keys=context.pandora_keys,
+        )
+
+        if context.pause_debug_enabled is True:
+            runtime.pause_debug("Checkpoint pause")
+
+    return run_checkpoint_loop(
+        CheckPointLoopRuntime(
+            record_finding=runtime.record_finding,
+            apply_action=runtime.apply_action,
+            pause_error=runtime.pause_error,
+        ),
+        CheckPointLoopContext(
+            error=context.error,
+            fixed=context.fixed,
+            function=context.function,
+            chunk=context.chunk,
+            infos=context.infos,
+            toolkit=context.toolkit,
+            brute_level=context.brute_level,
+            libpng_errors=context.libpng_errors,
+            libpng_finished_at_iend=context.libpng_finished_at_iend,
+            pause_error_enabled=context.pause_error_enabled,
+        ),
+    )
 
 
 def run_write_clone(runtime: CheckPointRuntime, toolkit: tuple[Any, ...]) -> tuple[bool, Any]:
