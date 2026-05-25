@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, magic_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -1351,217 +1351,28 @@ def FindMagic():
 
 
 def FindFuckingMagic():
-    global SideNotes
-
-    Candy("Title", "Looking harder for magic header:")
-    Candy("Cowsay", " This may take me sometimes please wait ..", "com")
-    Magic = "89504e470d0a1a0a"
-    FullMagic = "89504e470d0a1a0a0000000d49484452"
-    MagicScan = chunk_scanner.magic_bingo_scan(DATAX, FullMagic, progress=Minibar)
-    BingoList = MagicScan.bingo_list
-    BestBingoScore = MagicScan.best_score
-    BestBingoSig = MagicScan.best_signature
-    BestBingoCount = MagicScan.best_count
-    MagicBingoAction = chunk_scanner.magic_bingo_action(MagicScan)
-
-    if MagicBingoAction == "single_candidate":
-        BestMagicRebuild = chunk_scanner.rebuild_from_best_magic(DATAX, FullMagic, BestBingoSig)
-        PRINT("\n...\n")
-        PRINT("-Done! %s\n" % Candy("Emoj", "good"))
-        PRINT(
-            "-Found at offset %s with a score of %s/32 :\n %s\n"
-            % (
-                Candy("Color", "blue", BestMagicRebuild.offset_hex),
-                Candy("Color", "green", BestBingoScore),
-                Candy("Color", "purple", BestBingoSig),
-            )
-        )
-        Candy(
-            "Cowsay",
-            " I think this is a good start to work with.Lets see where that leads us...",
-            "good",
-        )
-
-        return CheckPoint(
-            False,
-            False,
-            "FindFuckingMagic",
-            "PngSig",
-            ["-Cutting at Magic"],
-            BestMagicRebuild.data_hex,
-            BestMagicRebuild.offset_hex,
-        )
-
-    elif MagicBingoAction == "multiple_candidates":
-        # PRINT("count:%s"%BestBingoCount)
-        # PRINT("score:%s"%BestBingoScore)
-        PRINT("\n\n")
-        PRINT("\n\n...")
-        [PRINT(BingoList[i]) for i in range(0, 20)]
-        PRINT(
-            "\n\n-Found multiple %s png signatures"
-            % Candy("Color", "yellow", "potentials")
-        )
-        Candy("Cowsay", " Looks like i gonna have to test them all.", "bad")
-        PRINT(Candy("Color", "yellow", "\n-ToDo"))
-        SideNotes.append(
-            "-FindFuckingMagic:Found multiple potentials png signatures\n-Not Implemented yet"
-        )
-        Candy("Cowsay", "Erf this case is not implemented yet ...", "bad")
-        TheEnd()
-    else:
-        PRINT("\n\n")
-        [PRINT(BingoList[i]) for i in range(0, 20)]
-        PRINT("\n\n-Matching score :%s"% Candy("Color", "red", "too low"))
-        PRINT("\n...\n-Done\n")
-        Candy(
-            "Cowsay",
-            " Im afraid i wasn't able to find anything that looks like a png signature.",
-            "com",
-        )
-        Candy(
-            "Cowsay",
-            "Maybe i could try to find if there any Known Chunks names in this file ?",
-            "good",
-        )
-
-        SideNotes.append(
-            "-FindFuckingMagic:Png signatures matching score are too low\nLooking for any known Chunks in file-"
-        )
-
-        try:
-            KnownChunkScan = chunk_scanner.scan_known_chunks_until_idat(DATAX, CHUNKS)
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            if DEBUG is True:
-                PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-                if PAUSEDEBUG is True or PAUSEERROR is True:
-                    Pause("Pause Debug")
-            TheEnd()
-
-        ChunksFound = KnownChunkScan.chunks_found
-        CheckIdat = KnownChunkScan.found_idat
-
-        for Hit in KnownChunkScan.hits:
-            Candy("Cowsay", " Bingo!!!", "good")
-            PRINT(
-                "-Found the closest Chunk to our position:%s at offset %s %s"
-                % (
-                    Candy("Color", "green", Hit.chunk),
-                    Candy("Color", "blue", Hit.offset_hex),
-                    Candy("Color", "yellow", Hit.offset_byte),
-                )
-            )
-            if Hit.is_idat:
-                Candy(
-                    "Cowsay",
-                    "No need to go any further i think i have enough data now...",
-                    "com",
-                )
-
-        if len(ChunksFound) == 0:
-            Candy(
-                "Cowsay",
-                " ...??Just Reach the EOF and found nothing!!",
-                "bad",
-            )
-            Candy(
-                "Cowsay",
-                "Can't do much about that sorry ...",
-                "com",
-            )
-            SideNotes.append(
-                "-FindFuckingMagic:Haven't found any known png chunk in this file."
-            )
-            TheEnd()
-        elif CheckIdat is False:
-            Candy(
-                "Cowsay",
-                " ...??Havn't found any IDAT Chunk!!",
-                "bad",
-            )
-            Candy(
-                "Cowsay",
-                "Can't do much about that sorry ...",
-                "com",
-            )
-            SideNotes.append(
-                "-FindFuckingMagic:Haven't found any IDAT chunk in this file."
-            )
-            TheEnd()
-
-        else:
-
-            for ck in ChunksFound:
-                PRINT("ChunksFound Chunk:%s index:%s" % (ck, ChunksFound[ck]))
-
-            if chunk_scanner.missing_chunks_before_idat(ChunksFound, BEFORE_IDAT):
-                Candy(
-                    "Cowsay",
-                    "Great...This is the worst situation..Some chunks are missing..",
-                    "bad",
-                )
-                Candy(
-                    "Cowsay",
-                    "Will need to take care of this later.",
-                    "com",
-                )
-
-                Candy(
-                    "Cowsay",
-                    "I just hope there were no PLTE inside or Missing IDAT!",
-                    "com",
-                )
-                Candy(
-                    "Cowsay",
-                    "Cause i will not be able to repair this file without many years of bruteforcing !!",
-                    "bad",
-                )
-
-                SideNotes.append(
-                    "-FindFuckingMagic:Chunks known to be found before IDAT are missing."
-                )
-
-            Candy(
-                "Cowsay",
-                "Kay .. Let me try somthing.",
-                "com",
-            )
-            Candy(
-                "Cowsay",
-                "Im going to prepend the PNG Chuck before the nearest Chunk and we'll see from there !",
-                "good",
-            )
-            NearestChunk = chunk_scanner.nearest_found_chunk(DATAX, ChunksFound)
-            NearestPos = NearestChunk.offset
-            NearestChk = NearestChunk.chunk
-            Lenx = NearestChunk.preceding_length
-
-            Specheck = SpecLength(NearestChk, Lenx)
-
-            if Specheck != Lenx and type(Specheck) != list:
-                Lenx = Specheck
-            elif type(Specheck) == list:
-                PRINT(Candy("Color", "yellow", "\n-ToDo"))
-                pass  # brutefore
-            NearestPosX = NearestChunk.offset_hex
-
-            Odin = chunk_scanner.prepend_magic_before_nearest(DATAX, Magic, Lenx, NearestPos)
-            if DEBUG is True:
-                PRINT("New:")
-                PRINT(Odin[: NearestPos + 64])
-                PRINT("Old:")
-                PRINT(DATAX[: NearestPos + 64])
-
-            return CheckPoint(
-                False,
-                False,
-                "FindFuckingMagic",
-                "PngSig",
-                ["-Prepending Magic"],
-                Odin,
-                NearestPosX,
-            )
+    return magic_runtime.run_find_fucking_magic(
+        magic_runtime.FindMagicRuntime(
+            candy=Candy,
+            emit=PRINT,
+            checkpoint=CheckPoint,
+            end=TheEnd,
+            betterror=Betterror,
+            pause=Pause,
+            spec_length=SpecLength,
+            minibar=Minibar,
+            side_notes=SideNotes,
+        ),
+        magic_runtime.FindMagicContext(
+            data_hex=DATAX,
+            chunks=tuple(CHUNKS),
+            before_idat=tuple(BEFORE_IDAT),
+            sample_name=Sample_Name,
+            debug=DEBUG,
+            pause_debug=PAUSEDEBUG,
+            pause_error=PAUSEERROR,
+        ),
+    )
 
 
 def Ancillary(Chunk):
