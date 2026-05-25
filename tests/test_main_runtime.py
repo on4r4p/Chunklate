@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chunklate import cli, main_runtime
+from chunklate import cli, main_runtime, runtime_state
 
 
 class ExitReached(Exception):
@@ -260,6 +260,78 @@ def test_reset_main_loop_state_uses_fresh_history_containers_each_time():
     assert namespace["PandoraBox"] is not first_pandora
 
 
+def build_sample_runtime(calls, *, data=b"png", load_error=None):
+    def candy(kind, *args):
+        calls.append(("candy", (kind,) + args))
+        if kind == "Color":
+            return "<%s:%s>" % (args[0], args[1])
+        return "candy:%s" % kind
+
+    def load_sample_data(sample):
+        calls.append(("load", sample))
+        if load_error is not None:
+            raise load_error
+        return runtime_state.sample_data_from_bytes(data)
+
+    return main_runtime.MainSampleRuntime(
+        basename=lambda sample: "base-" + str(sample),
+        load_sample_data=load_sample_data,
+        raw_print=lambda *args: calls.append(("raw_print", args)),
+        candy=candy,
+        emit=lambda message: calls.append(("emit", message)),
+        betterror=lambda error, name: calls.append(("betterror", str(error), name)),
+        exit_process=lambda code: calls.append(("exit", code)),
+    )
+
+
+def test_load_main_sample_selects_current_sample_and_loads_data():
+    calls = []
+
+    state = main_runtime.load_main_sample(
+        build_sample_runtime(calls, data=b"\x89PNG"),
+        main_runtime.MainSampleContext(sample="sample.png", cloneswar=False),
+    )
+
+    assert state == main_runtime.MainSampleState(
+        sample="sample.png",
+        sample_name="base-sample.png",
+        cloneswar=False,
+        data_bytes=b"\x89PNG",
+        data_hex="89504e47",
+    )
+    assert ("raw_print", ("-Proceeding with: <white:base-sample.png>",)) in calls
+    assert ("load", "sample.png") in calls
+    assert ("candy", ("Cowsay", " <green:base-sample.png> is loaded!", "good")) in calls
+
+
+def test_load_main_sample_uses_cloneswar_then_resets_it():
+    calls = []
+
+    state = main_runtime.load_main_sample(
+        build_sample_runtime(calls),
+        main_runtime.MainSampleContext(sample="origin.png", cloneswar="clone.png"),
+    )
+
+    assert state.sample == "clone.png"
+    assert state.sample_name == "base-clone.png"
+    assert state.cloneswar is False
+    assert ("load", "clone.png") in calls
+
+
+def test_load_main_sample_routes_load_error_to_legacy_error_path():
+    calls = []
+
+    state = main_runtime.load_main_sample(
+        build_sample_runtime(calls, load_error=OSError("missing")),
+        main_runtime.MainSampleContext(sample="missing.png", cloneswar=False),
+    )
+
+    assert state is None
+    assert ("betterror", "missing", "main") in calls
+    assert ("emit", "<red:Error:<yellow:missing>>") in calls
+    assert ("exit", 1) in calls
+
+
 def main():
     checks = [
         ("main options state", test_apply_main_cli_options_builds_initial_state),
@@ -271,6 +343,9 @@ def main():
         ("legacy globals", test_legacy_globals_from_main_cli_options_maps_runtime_flags),
         ("loop reset state", test_reset_main_loop_state_updates_legacy_globals_and_preserves_local_tmp_fixihdr),
         ("loop reset fresh containers", test_reset_main_loop_state_uses_fresh_history_containers_each_time),
+        ("load sample", test_load_main_sample_selects_current_sample_and_loads_data),
+        ("load clone sample", test_load_main_sample_uses_cloneswar_then_resets_it),
+        ("load sample error", test_load_main_sample_routes_load_error_to_legacy_error_path),
     ]
 
     print("Running main runtime tests")

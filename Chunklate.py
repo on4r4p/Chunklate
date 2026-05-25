@@ -2043,27 +2043,28 @@ def main():
         TmpFixIHDR = MainLoopReset.tmp_fix_ihdr
         # IFOP = []
 
-        SampleSelection = runtime_state.select_sample(
-            Sample,
-            CLONESWAR,
-            basename=os.path.basename,
+        LoadedMainSample = main_runtime.load_main_sample(
+            main_runtime.MainSampleRuntime(
+                basename=os.path.basename,
+                load_sample_data=lambda sample: runtime_state.load_sample_data(sample, opener=open),
+                raw_print=print,
+                candy=Candy,
+                emit=PRINT,
+                betterror=Betterror,
+                exit_process=sys.exit,
+            ),
+            main_runtime.MainSampleContext(
+                sample=Sample,
+                cloneswar=CLONESWAR,
+            ),
         )
-        Sample = SampleSelection.sample
-        Sample_Name = SampleSelection.sample_name
-        CLONESWAR = SampleSelection.cloneswar
-
-        print("-Proceeding with: %s"% Candy("Color", "white", Sample_Name))
-        try:
-            LoadedSample = runtime_state.load_sample_data(Sample, opener=open)
-        except Exception as e:
-            Betterror(e, inspect.stack()[0][3])
-            PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-            sys.exit(1)
-
-        DATA_BYTES = LoadedSample.data_bytes
-        DATAX = LoadedSample.data_hex
-
-        Candy("Cowsay", " %s is loaded!" % Candy("Color", "green", Sample_Name), "good")
+        if LoadedMainSample is None:
+            return
+        Sample = LoadedMainSample.sample
+        Sample_Name = LoadedMainSample.sample_name
+        CLONESWAR = LoadedMainSample.cloneswar
+        DATA_BYTES = LoadedMainSample.data_bytes
+        DATAX = LoadedMainSample.data_hex
         Offset = FindMagic()
         if Offset != None:
 

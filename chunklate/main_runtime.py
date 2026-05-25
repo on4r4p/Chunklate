@@ -48,6 +48,33 @@ class MainLoopResetState:
     tmp_fix_ihdr: bool
 
 
+@dataclass(frozen=True)
+class MainSampleRuntime:
+    basename: Callable[[Any], str]
+    load_sample_data: Callable = runtime_state.load_sample_data
+    select_sample: Callable = runtime_state.select_sample
+    raw_print: Callable[..., Any] = print
+    candy: Callable[..., Any] = lambda *args, **kwargs: ""
+    emit: Callable[[str], Any] = print
+    betterror: Callable[[Exception, str], Any] = lambda error, name: None
+    exit_process: Callable[[int], Any] = lambda code: None
+
+
+@dataclass(frozen=True)
+class MainSampleContext:
+    sample: Any
+    cloneswar: Any
+
+
+@dataclass(frozen=True)
+class MainSampleState:
+    sample: Any
+    sample_name: str
+    cloneswar: Any
+    data_bytes: bytes
+    data_hex: str
+
+
 def apply_main_cli_options(
     runtime: MainCliOptionsRuntime,
     args: Any,
@@ -142,3 +169,42 @@ def reset_main_loop_state(runtime: MainLoopResetRuntime) -> MainLoopResetState:
     runtime.banner(1)
 
     return MainLoopResetState(tmp_fix_ihdr=tmp_fix_ihdr)
+
+
+def load_main_sample(
+    runtime: MainSampleRuntime,
+    context: MainSampleContext,
+) -> MainSampleState | None:
+    sample_selection = runtime.select_sample(
+        context.sample,
+        context.cloneswar,
+        basename=runtime.basename,
+    )
+
+    runtime.raw_print(
+        "-Proceeding with: %s"
+        % runtime.candy("Color", "white", sample_selection.sample_name)
+    )
+    try:
+        loaded_sample = runtime.load_sample_data(sample_selection.sample)
+    except Exception as exc:
+        runtime.betterror(exc, "main")
+        runtime.emit(
+            runtime.candy("Color", "red", "Error:%s")
+            % runtime.candy("Color", "yellow", exc)
+        )
+        runtime.exit_process(1)
+        return None
+
+    runtime.candy(
+        "Cowsay",
+        " %s is loaded!" % runtime.candy("Color", "green", sample_selection.sample_name),
+        "good",
+    )
+    return MainSampleState(
+        sample=sample_selection.sample,
+        sample_name=sample_selection.sample_name,
+        cloneswar=sample_selection.cloneswar,
+        data_bytes=loaded_sample.data_bytes,
+        data_hex=loaded_sample.data_hex,
+    )
