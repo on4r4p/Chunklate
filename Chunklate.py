@@ -1082,20 +1082,8 @@ def SpecLength(chunk_name, chunk_length=None):
 
 
 def CheckLength(Cdata, Clen, Ctype):
-    return chunk_validation_runtime.run_check_length(
-        chunk_validation_runtime.ChunkValidationRuntime(
-            candy=Candy,
-            emit=PRINT,
-            checkpoint=CheckPoint,
-            end=TheEnd,
-            chunk_story_add_if_no_next=chunk_story.add_if_no_next,
-        ),
-        chunk_validation_runtime.CheckLengthContext(
-            data_bytes=DATA_BYTES,
-            current_length_offset=CLoffI,
-            previous_chunk=Chunks_History[-1],
-            idat_average_length=IDAT_Avg_Len,
-        ),
+    return chunk_validation_runtime.run_check_length_from_namespace(
+        globals(),
         Cdata,
         Clen,
         Ctype,
@@ -1122,26 +1110,8 @@ def Question(id=None,idhash=None, skipauto=False):
 
 
 def Checksum(Ctype, Cdata, Crc, next=None):
-    return chunk_validation_runtime.run_checksum(
-        chunk_validation_runtime.ChunkValidationRuntime(
-            candy=Candy,
-            emit=PRINT,
-            checkpoint=CheckPoint,
-            end=TheEnd,
-            chunk_story_add_if_no_next=chunk_story.add_if_no_next,
-        ),
-        chunk_validation_runtime.ChecksumContext(
-            current_length_offset=CLoffI,
-            crc_offset=CrcoffI,
-            crc_offset_hex=CrcoffX,
-            original_chunk_type=Orig_CT,
-            original_crc=Orig_CRC,
-            original_length=Orig_CL,
-            current_data_offset=CDoffI,
-            chunks_history=Chunks_History,
-            chunks_history_index=Chunks_History_Index,
-            debug=DEBUG,
-        ),
+    return chunk_validation_runtime.run_checksum_from_namespace(
+        globals(),
         Ctype,
         Cdata,
         Crc,

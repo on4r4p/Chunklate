@@ -48,6 +48,40 @@ class ChunkValidationRuntime:
     chunk_story_add_if_no_next: LegacyCall
 
 
+def build_chunk_validation_runtime_from_namespace(namespace: dict[str, Any]) -> ChunkValidationRuntime:
+    return ChunkValidationRuntime(
+        candy=namespace["Candy"],
+        emit=namespace["PRINT"],
+        checkpoint=namespace["CheckPoint"],
+        end=namespace["TheEnd"],
+        chunk_story_add_if_no_next=namespace["chunk_story"].add_if_no_next,
+    )
+
+
+def build_check_length_context_from_namespace(namespace: dict[str, Any]) -> CheckLengthContext:
+    return CheckLengthContext(
+        data_bytes=namespace["DATA_BYTES"],
+        current_length_offset=namespace["CLoffI"],
+        previous_chunk=namespace["Chunks_History"][-1],
+        idat_average_length=namespace["IDAT_Avg_Len"],
+    )
+
+
+def build_checksum_context_from_namespace(namespace: dict[str, Any]) -> ChecksumContext:
+    return ChecksumContext(
+        current_length_offset=namespace["CLoffI"],
+        crc_offset=namespace["CrcoffI"],
+        crc_offset_hex=namespace["CrcoffX"],
+        original_chunk_type=namespace["Orig_CT"],
+        original_crc=namespace["Orig_CRC"],
+        original_length=namespace["Orig_CL"],
+        current_data_offset=namespace["CDoffI"],
+        chunks_history=namespace["Chunks_History"],
+        chunks_history_index=namespace["Chunks_History_Index"],
+        debug=namespace["DEBUG"],
+    )
+
+
 def _color(runtime: ChunkValidationRuntime, color: str, value: Any) -> Any:
     return runtime.candy("Color", color, value)
 
@@ -105,6 +139,23 @@ def run_check_length(
             chunk_length,
             context.previous_chunk,
         )
+    )
+
+
+def run_check_length_from_namespace(
+    namespace: dict[str, Any],
+    chunk_data: Any,
+    chunk_length: str,
+    chunk_type: bytes,
+    *,
+    runner: LegacyCall = run_check_length,
+) -> Any:
+    return runner(
+        build_chunk_validation_runtime_from_namespace(namespace),
+        build_check_length_context_from_namespace(namespace),
+        chunk_data,
+        chunk_length,
+        chunk_type,
     )
 
 
@@ -188,4 +239,23 @@ def run_checksum(
             context.original_length,
             context.current_data_offset,
         )
+    )
+
+
+def run_checksum_from_namespace(
+    namespace: dict[str, Any],
+    chunk_type_hex: str,
+    chunk_data_hex: str,
+    crc_hex: str,
+    next_chunk: Any = None,
+    *,
+    runner: LegacyCall = run_checksum,
+) -> Any:
+    return runner(
+        build_chunk_validation_runtime_from_namespace(namespace),
+        build_checksum_context_from_namespace(namespace),
+        chunk_type_hex,
+        chunk_data_hex,
+        crc_hex,
+        next_chunk,
     )
