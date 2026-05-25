@@ -8,41 +8,47 @@ means the output has a valid PNG structure and CRCs, passes Pillow verification
 when Pillow is installed, satisfies repair-specific validators, and writes a
 summary containing the declared repair markers.
 
+Current validators also lock exact output shape where it matters: chunk order,
+number of `IDAT` chunks, decompressed `IDAT` size, and exact `PLTE` size.
+
 ## Validation Levels
 
 `32x32 indexed`
-: `IHDR` first, dimensions `32x32`, non-empty `PLTE`, non-zero `gAMA`,
-  decompressible `IDAT`, `IEND` last.
+: order `IHDR,gAMA,PLTE,IDAT,IEND`, dimensions `32x32`, `PLTE` length `768`,
+  one decompressible `IDAT` with decompressed length `1056`, non-zero `gAMA`.
 
 `32x32 indexed, no gAMA`
-: Same as `32x32 indexed`, but `gAMA` is not required.
+: order `IHDR,PLTE,IDAT,IEND`, dimensions `32x32`, `PLTE` length `768`,
+  one decompressible `IDAT` with decompressed length `1056`.
 
 `32x32 no PLTE`
-: `IHDR` first, dimensions `32x32`, no `PLTE`, non-zero `gAMA`,
-  decompressible `IDAT`, `IEND` last.
+: order `IHDR,gAMA,IDAT,IEND`, dimensions `32x32`, no `PLTE`, non-zero
+  `gAMA`, one decompressible `IDAT` with decompressed length `6176`.
 
 `260x195`
-: `IHDR` first, dimensions `260x195`, non-zero `gAMA`, decompressible `IDAT`,
-  `IEND` last.
+: order `IHDR,gAMA,cHRM,bKGD,tIME,IDAT*2,tEXt*2,IEND`, dimensions `260x195`,
+  two `IDAT` chunks with decompressed length `202995`, non-zero `gAMA`.
 
 `477x599`
-: `IHDR` first, dimensions `477x599`, non-zero `gAMA`, decompressible `IDAT`,
-  `IEND` last.
+: order `IHDR,gAMA,cHRM,bKGD,pHYs,tIME,IDAT*19,tEXt*2,IEND`, dimensions
+  `477x599`, nineteen `IDAT` chunks with decompressed length `857768`,
+  non-zero `gAMA`.
 
 `272x170 without iCCP`
-: `IHDR` first, dimensions `272x170`, no `iCCP`, non-zero `gAMA`,
-  decompressible `IDAT`, `IEND` last.
+: order `IHDR,gAMA,cHRM,pHYs,IDAT*2,IEND`, dimensions `272x170`, no `iCCP`,
+  two `IDAT` chunks with decompressed length `185130`, non-zero `gAMA`.
 
 `1920x1200`
-: `IHDR` first, dimensions `1920x1200`, decompressible `IDAT`, `IEND` last.
+: order `IHDR,sBIT,IDAT*97,IEND`, dimensions `1920x1200`, ninety-seven
+  `IDAT` chunks with decompressed length `9217200`.
 
 `partial IDAT blackfill`
-: `IHDR` first, dimensions `1x10`, decompressible rebuilt `IDAT`,
-  decompressed length `40`, `IEND` last.
+: order `IHDR,IDAT,IEND`, dimensions `1x10`, one rebuilt `IDAT` with
+  decompressed length `40`.
 
 `1642x1095`
-: `IHDR` first, dimensions `1642x1095`, non-zero `gAMA`,
-  decompressible `IDAT`, `IEND` last.
+: order `IHDR,sRGB,gAMA,pHYs,IDAT*4,IEND`, dimensions `1642x1095`, four
+  `IDAT` chunks with decompressed length `5395065`, non-zero `gAMA`.
 
 ## Cases
 
