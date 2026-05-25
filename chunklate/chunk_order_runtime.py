@@ -143,6 +143,44 @@ def run_the_good_place(
     )
 
 
+def build_the_good_place_runtime_from_namespace(namespace: dict[str, Any]) -> TheGoodPlaceRuntime:
+    return TheGoodPlaceRuntime(
+        candy=namespace["Candy"],
+        emit=namespace["PRINT"],
+        checkpoint=namespace["CheckPoint"],
+        pause=namespace["Pause"],
+        end=namespace["TheEnd"],
+    )
+
+
+def build_the_good_place_context_from_namespace(namespace: dict[str, Any]) -> TheGoodPlaceContext:
+    return TheGoodPlaceContext(
+        data_hex=namespace["DATAX"],
+        chunks_history=tuple(namespace["Chunks_History"]),
+        chunks_history_index=tuple(namespace["Chunks_History_Index"]),
+        pandora_box=namespace["PandoraBox"],
+        debug=namespace["DEBUG"],
+        pause_debug=namespace["PAUSEDEBUG"],
+    )
+
+
+def run_the_good_place_from_namespace(
+    namespace: dict[str, Any],
+    missplaced_chunk_name: bytes,
+    missplaced_chunk_pos: int,
+    to_fix_chunk_name: bytes,
+    *,
+    runner: LegacyCall = run_the_good_place,
+) -> Any:
+    return runner(
+        build_the_good_place_runtime_from_namespace(namespace),
+        build_the_good_place_context_from_namespace(namespace),
+        missplaced_chunk_name,
+        missplaced_chunk_pos,
+        to_fix_chunk_name,
+    )
+
+
 def _build_context(context: CheckChunkOrderContext):
     chunk_order_context = chunk_order.build_chunk_order_context(
         context.chunk_order_context.chunks_history,

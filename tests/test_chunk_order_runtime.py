@@ -297,6 +297,52 @@ def test_namespace_helper_builds_check_chunk_order_runtime_and_context():
     assert result == "checked"
 
 
+def test_the_good_place_namespace_helper_builds_runtime_and_context():
+    calls = []
+    namespace = {
+        "DATAX": "aaaabbbbccccdddd",
+        "Chunks_History": [b"PNG", b"IDAT", b"IHDR"],
+        "Chunks_History_Index": ["0:0:4", "1:4:8", "2:8:12"],
+        "PandoraBox": {"Missplaced_error": {}},
+        "DEBUG": True,
+        "PAUSEDEBUG": False,
+        "Candy": lambda *args: calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "CheckPoint": lambda *args: calls.append(("checkpoint", args)),
+        "Pause": lambda message: calls.append(("pause", message)),
+        "TheEnd": lambda: calls.append(("end",)),
+    }
+
+    def runner(runtime, context, missplaced_chunk_name, missplaced_chunk_pos, to_fix_chunk_name):
+        assert runtime.candy is namespace["Candy"]
+        assert runtime.emit is namespace["PRINT"]
+        assert runtime.checkpoint is namespace["CheckPoint"]
+        assert runtime.pause is namespace["Pause"]
+        assert runtime.end is namespace["TheEnd"]
+        assert context.data_hex == "aaaabbbbccccdddd"
+        assert context.chunks_history == (b"PNG", b"IDAT", b"IHDR")
+        assert context.chunks_history_index == ("0:0:4", "1:4:8", "2:8:12")
+        assert context.pandora_box == {"Missplaced_error": {}}
+        assert context.debug is True
+        assert context.pause_debug is False
+        assert (missplaced_chunk_name, missplaced_chunk_pos, to_fix_chunk_name) == (
+            b"IDAT",
+            1,
+            b"IHDR",
+        )
+        return "placed"
+
+    result = chunk_order_runtime.run_the_good_place_from_namespace(
+        namespace,
+        b"IDAT",
+        1,
+        b"IHDR",
+        runner=runner,
+    )
+
+    assert result == "placed"
+
+
 def main():
     checks = [
         ("Critical checkpoint", test_critical_mode_routes_missing_chunks_to_checkpoint),
@@ -307,6 +353,7 @@ def main():
         ("TheGoodPlace missing data", test_the_good_place_missing_data_routes_missing_checkpoint),
         ("TheGoodPlace found data", test_the_good_place_found_data_relocates_chunk_and_routes_checkpoint),
         ("Namespace check order", test_namespace_helper_builds_check_chunk_order_runtime_and_context),
+        ("Namespace TheGoodPlace", test_the_good_place_namespace_helper_builds_runtime_and_context),
     ]
 
     print("Running chunk order runtime tests")

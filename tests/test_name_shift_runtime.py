@@ -124,12 +124,51 @@ def test_name_shift_runtime_keeps_legacy_double_end_when_length_is_not_corrupted
     assert ("emit", "<yellow:\n-ToDo>") in calls
 
 
+def test_name_shift_namespace_helper_builds_runtime_and_context():
+    calls = []
+    side_notes = []
+    namespace = {
+        "Candy": lambda *args: calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Pause": lambda message: calls.append(("pause", message)),
+        "TheEnd": lambda: calls.append(("end",)),
+        "SpecLength": lambda *args: calls.append(("spec_length", args)),
+        "SideNotes": side_notes,
+        "DATAX": "00" * 16,
+        "CToffI": 8,
+        "Chunks_History_Index": ["0:0:4"],
+        "ALLCHUNKS": [b"IHDR", b"IDAT"],
+        "Chunks_History": [b"PNG", b"IHDR"],
+        "DEBUG": True,
+        "PAUSEDEBUG": False,
+    }
+
+    def runner(runtime, context):
+        assert runtime.candy is namespace["Candy"]
+        assert runtime.emit is namespace["PRINT"]
+        assert runtime.pause is namespace["Pause"]
+        assert runtime.end is namespace["TheEnd"]
+        assert runtime.spec_length is namespace["SpecLength"]
+        assert runtime.side_notes is side_notes
+        assert context.name_shift_context.data_hex == "00" * 16
+        assert context.name_shift_context.current_type_offset == 8
+        assert context.name_shift_context.chunks_history_index == ("0:0:4",)
+        assert context.name_shift_context.known_chunks == (b"IHDR", b"IDAT")
+        assert context.chunks_history == (b"PNG", b"IHDR")
+        assert context.debug is True
+        assert context.pause_debug is False
+        return "shifted"
+
+    assert name_shift_runtime.run_name_shift_from_namespace(namespace, runner=runner) == "shifted"
+
+
 def main():
     checks = [
         ("No candidate", test_name_shift_runtime_returns_false_without_candidate),
         ("Extra bytes repair", test_name_shift_runtime_repairs_extra_bytes_when_crc_matches),
         ("Missing bytes repair", test_name_shift_runtime_repairs_missing_bytes_when_crc_matches),
         ("Legacy double end", test_name_shift_runtime_keeps_legacy_double_end_when_length_is_not_corrupted),
+        ("Namespace bridge", test_name_shift_namespace_helper_builds_runtime_and_context),
     ]
 
     print("Running name shift runtime tests")

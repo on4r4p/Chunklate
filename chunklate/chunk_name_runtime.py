@@ -445,6 +445,47 @@ def build_chunk_name_context_from_namespace(namespace: dict[str, Any]) -> ChunkN
     )
 
 
+def save_auto_name_from_namespace(
+    namespace: dict[str, Any],
+    chunk_type: Any,
+    from_error: Any,
+    chunk_name: bytes,
+    reason: str,
+) -> Any:
+    if type(chunk_type) == bytes:
+        chunk_type_bytes = chunk_type
+    else:
+        chunk_type_bytes = str(chunk_type).encode(errors="ignore")
+
+    changed = sum(1 for old, new in zip(chunk_type_bytes, chunk_name) if old != new)
+    chunk_name_text = chunk_name.decode(errors="ignore")
+    solved_msg = (
+        "-Found Chunk[%s] has wrong name at offset: %s but BruteChunk changed %s bytes "
+        "turning it into a valid Chunk name: %s (%s)"
+        % (
+            namespace["Orig_CT"],
+            namespace["CToffX"],
+            changed,
+            chunk_name_text,
+            reason,
+        )
+    )
+
+    return namespace["CheckPoint"](
+        True,
+        True,
+        "CheckChunkName",
+        namespace["Orig_CT"],
+        [solved_msg],
+        chunk_name.hex(),
+        namespace["CToffI"],
+        namespace["CToffI"] + 8,
+        namespace["Orig_CT"],
+        solved_msg,
+        from_error,
+    )
+
+
 def run_brute_chunk_from_namespace(
     namespace: dict[str, Any],
     chunk_type: Any,

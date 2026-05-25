@@ -312,6 +312,44 @@ def test_chunk_name_namespace_run_helpers_pass_legacy_arguments():
     ) == "check"
 
 
+def test_save_auto_name_from_namespace_preserves_checkpoint_payload():
+    calls = []
+    namespace = build_namespace(calls)
+    namespace["CheckPoint"] = lambda *args: calls.append(("checkpoint", args)) or "saved"
+
+    result = chunk_name_runtime.save_auto_name_from_namespace(
+        namespace,
+        b"bad!",
+        "Relics",
+        b"IDAT",
+        "stored CRC matched candidate chunk name",
+    )
+
+    solved_msg = (
+        "-Found Chunk[b'bad!'] has wrong name at offset: 0x8 but BruteChunk changed 4 bytes "
+        "turning it into a valid Chunk name: IDAT (stored CRC matched candidate chunk name)"
+    )
+    assert result == "saved"
+    assert calls == [
+        (
+            "checkpoint",
+            (
+                True,
+                True,
+                "CheckChunkName",
+                b"bad!",
+                [solved_msg],
+                "49444154",
+                16,
+                24,
+                b"bad!",
+                solved_msg,
+                "Relics",
+            ),
+        )
+    ]
+
+
 def main():
     checks = [
         ("Valid current chunk", test_check_chunk_name_accepts_exact_current_chunk),
@@ -322,6 +360,7 @@ def main():
         ("Pokemon length", test_brute_chunk_pokemon_length_choice_routes_nearby_chunk),
         ("Namespace builders", test_chunk_name_namespace_builders_preserve_runtime_callbacks_and_context),
         ("Namespace runners", test_chunk_name_namespace_run_helpers_pass_legacy_arguments),
+        ("Namespace auto save", test_save_auto_name_from_namespace_preserves_checkpoint_payload),
     ]
 
     print("Running chunk name runtime tests")

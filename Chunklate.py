@@ -639,22 +639,8 @@ def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
 
 
 def TheGoodPlace(Missplaced_Chunkname, Missplaced_Chunkpos, ToFix_Chunkname):
-    return chunk_order_runtime.run_the_good_place(
-        chunk_order_runtime.TheGoodPlaceRuntime(
-            candy=Candy,
-            emit=PRINT,
-            checkpoint=CheckPoint,
-            pause=Pause,
-            end=TheEnd,
-        ),
-        chunk_order_runtime.TheGoodPlaceContext(
-            data_hex=DATAX,
-            chunks_history=tuple(Chunks_History),
-            chunks_history_index=tuple(Chunks_History_Index),
-            pandora_box=PandoraBox,
-            debug=DEBUG,
-            pause_debug=PAUSEDEBUG,
-        ),
+    return chunk_order_runtime.run_the_good_place_from_namespace(
+        globals(),
         Missplaced_Chunkname,
         Missplaced_Chunkpos,
         ToFix_Chunkname,
@@ -667,28 +653,7 @@ def CheckChunkOrder(lastchunk, mode):
 
 
 def NameShift():
-    return name_shift_runtime.run_name_shift(
-        name_shift_runtime.NameShiftRuntime(
-            candy=Candy,
-            emit=PRINT,
-            pause=Pause,
-            end=TheEnd,
-            spec_length=SpecLength,
-            side_notes=SideNotes,
-            raw_print=print,
-        ),
-        name_shift_runtime.NameShiftContext(
-            name_shift_context=runtime_state.name_shift_runtime_context(
-                DATAX,
-                CToffI,
-                Chunks_History_Index,
-                ALLCHUNKS,
-            ),
-            chunks_history=tuple(Chunks_History),
-            debug=DEBUG,
-            pause_debug=PAUSEDEBUG,
-        ),
-    )
+    return name_shift_runtime.run_name_shift_from_namespace(globals())
 
 
 def BruteChunk_Crc_Matches(candidates):
@@ -703,31 +668,12 @@ def BruteChunk_Crc_Matches(candidates):
 
 
 def BruteChunk_Save_Auto_Name(CType, FromError, ChunkName, reason):
-    if type(CType) == bytes:
-        CTypeBytes = CType
-    else:
-        CTypeBytes = str(CType).encode(errors="ignore")
-
-    Bchanged = sum(1 for old, new in zip(CTypeBytes, ChunkName) if old != new)
-    ChunkNameText = ChunkName.decode(errors="ignore")
-    SolvedMsg = (
-        "-Found Chunk[%s] has wrong name at offset: %s but BruteChunk changed %s bytes "
-        "turning it into a valid Chunk name: %s (%s)"
-        % (Orig_CT, CToffX, Bchanged, ChunkNameText, reason)
-    )
-
-    return CheckPoint(
-        True,
-        True,
-        "CheckChunkName",
-        Orig_CT,
-        [SolvedMsg],
-        ChunkName.hex(),
-        CToffI,
-        CToffI + 8,
-        Orig_CT,
-        SolvedMsg,
+    return chunk_name_runtime.save_auto_name_from_namespace(
+        globals(),
+        CType,
         FromError,
+        ChunkName,
+        reason,
     )
 
 

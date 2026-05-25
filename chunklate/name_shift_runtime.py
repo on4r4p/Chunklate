@@ -235,3 +235,40 @@ def run_name_shift(runtime: NameShiftRuntime, context: NameShiftContext) -> Any:
 
     runtime.end()
     return None
+
+
+def build_name_shift_runtime_from_namespace(namespace: dict[str, Any]) -> NameShiftRuntime:
+    return NameShiftRuntime(
+        candy=namespace["Candy"],
+        emit=namespace["PRINT"],
+        pause=namespace["Pause"],
+        end=namespace["TheEnd"],
+        spec_length=namespace["SpecLength"],
+        side_notes=namespace["SideNotes"],
+        raw_print=namespace.get("print", print),
+    )
+
+
+def build_name_shift_context_from_namespace(namespace: dict[str, Any]) -> NameShiftContext:
+    return NameShiftContext(
+        name_shift_context=runtime_state.name_shift_runtime_context(
+            namespace["DATAX"],
+            namespace["CToffI"],
+            namespace["Chunks_History_Index"],
+            namespace["ALLCHUNKS"],
+        ),
+        chunks_history=tuple(namespace["Chunks_History"]),
+        debug=namespace["DEBUG"],
+        pause_debug=namespace["PAUSEDEBUG"],
+    )
+
+
+def run_name_shift_from_namespace(
+    namespace: dict[str, Any],
+    *,
+    runner: LegacyCall = run_name_shift,
+) -> Any:
+    return runner(
+        build_name_shift_runtime_from_namespace(namespace),
+        build_name_shift_context_from_namespace(namespace),
+    )
