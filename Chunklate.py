@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, magic_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, magic_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -1774,48 +1774,24 @@ def SpecLength(chunk_name, chunk_length=None):
 
 
 def CheckLength(Cdata, Clen, Ctype):
-
-    Candy("Title", "Checking Data Length:", Candy("Color", "white", str(Clen)))
-    LengthDecision = legacy_length_decision(
-        DATA_BYTES,
-        CLoffI,
-        previous_chunk=Chunks_History[-1],
-        idat_average_length=IDAT_Avg_Len,
+    return chunk_validation_runtime.run_check_length(
+        chunk_validation_runtime.ChunkValidationRuntime(
+            candy=Candy,
+            emit=PRINT,
+            checkpoint=CheckPoint,
+            end=TheEnd,
+            chunk_story_add_if_no_next=chunk_story.add_if_no_next,
+        ),
+        chunk_validation_runtime.CheckLengthContext(
+            data_bytes=DATA_BYTES,
+            current_length_offset=CLoffI,
+            previous_chunk=Chunks_History[-1],
+            idat_average_length=IDAT_Avg_Len,
+        ),
+        Cdata,
+        Clen,
+        Ctype,
     )
-
-    Candy(
-        "Cowsay",
-        " So ..The length part is saying that data is %s bytes long."
-        % Candy("Color", "yellow", LengthDecision.declared_length),
-        "com",
-    )
-
-    #    ToBitstory(int(Clen, 16))
-
-    if LengthDecision.is_huge:
-        Candy("Cowsay", " Really!? That much ?", "com")
-
-    if LengthDecision.idat_length_differs:
-        Candy(
-            "Cowsay", "Weird why does the length is not the same as before ?", "com"
-        )
-
-    if LengthDecision.checkpoint_error:
-        Candy(
-            "Cowsay",
-            " ..And this is what iv found there ... : "
-            + Candy("Color", "red", "[NOTHING]"),
-            "com",
-        )
-        return CheckPoint(*legacy_length_checkpoint_args(LengthDecision, Ctype, Clen, Chunks_History[-1]))
-    else:
-        Candy(
-            "Cowsay",
-            " ..So depending on that the next chunk seems to be : "
-            + Candy("Color", "yellow", LengthDecision.next_chunk_type),
-            "com",
-        )
-        return CheckPoint(*legacy_length_checkpoint_args(LengthDecision, Ctype, Clen, Chunks_History[-1]))
 
 
 
@@ -1838,88 +1814,31 @@ def Question(id=None,idhash=None, skipauto=False):
 
 
 def Checksum(Ctype, Cdata, Crc, next=None):
-    Candy("Title", "Check Crc Validity:")
-    CrcDecision = legacy_crc_decision(Ctype, Cdata, Crc)
-    Ctype = CrcDecision.chunk_type
-    Cdata = CrcDecision.chunk_data
-    Crc = CrcDecision.stored_crc_hex
-    checksum = CrcDecision.computed_crc_hex
-    if DEBUG:
-        for DebugLine in legacy_crc_debug_lines(CrcDecision):
-            PRINT(DebugLine)
-
-    if CrcDecision.ok:
-        PRINT(
-            "-Crc Check :"
-            + Candy("Color", "green", " OK ")
-            + Candy("Emoj", "good")
-            + "\n"
-        )
-        chunk_story.add_if_no_next(
-            Chunks_History,
-            Chunks_History_Index,
-            next,
-            Ctype,
-            CLoffI,
-            CrcoffI + 8,
-            int(Orig_CL, 16),
-        )
-        return CheckPoint(
-            *legacy_crc_checkpoint_args(
-                CrcDecision,
-                CrcoffI,
-                Orig_CT,
-                CrcoffX,
-                Orig_CRC,
-                Orig_CL,
-                CDoffI,
-            )
-        )
-    else:
-        PRINT(
-            "-Crc Check :" + Candy("Color", "red", " FAILED! ") + Candy("Emoj", "bad")
-        )
-        if len(Crc) == 0 or len(checksum) == 0:
-            MonkeyWanted, MonkeyGot = legacy_crc_monkey_lines(
-                Candy("Color", "green", checksum),
-                Candy("Color", "red", Crc),
-            )
-            PRINT(MonkeyWanted)
-            PRINT(MonkeyGot)
-            Candy("Cowsay", " Hold on a sec ... Must have missed something...", "com")
-            PRINT("")
-            TheEnd()
-
-        checksum = CrcDecision.normalized_computed_crc
-        MonkeyWanted, MonkeyGot = legacy_crc_monkey_lines(
-            Candy("Color", "green", checksum),
-            Candy("Color", "red", Crc),
-        )
-        PRINT(MonkeyWanted)
-        PRINT(MonkeyGot)
-
-        ##TODO tmpworkaround need to fix wrong behavor due to this line below
-        chunk_story.add_if_no_next(
-            Chunks_History,
-            Chunks_History_Index,
-            next,
-            Ctype,
-            CLoffI,
-            CrcoffI + 8,
-            int(Orig_CL, 16),
-        )
-
-        return CheckPoint(
-            *legacy_crc_checkpoint_args(
-                CrcDecision,
-                CrcoffI,
-                Orig_CT,
-                CrcoffX,
-                Orig_CRC,
-                Orig_CL,
-                CDoffI,
-            )
-        )
+    return chunk_validation_runtime.run_checksum(
+        chunk_validation_runtime.ChunkValidationRuntime(
+            candy=Candy,
+            emit=PRINT,
+            checkpoint=CheckPoint,
+            end=TheEnd,
+            chunk_story_add_if_no_next=chunk_story.add_if_no_next,
+        ),
+        chunk_validation_runtime.ChecksumContext(
+            current_length_offset=CLoffI,
+            crc_offset=CrcoffI,
+            crc_offset_hex=CrcoffX,
+            original_chunk_type=Orig_CT,
+            original_crc=Orig_CRC,
+            original_length=Orig_CL,
+            current_data_offset=CDoffI,
+            chunks_history=Chunks_History,
+            chunks_history_index=Chunks_History_Index,
+            debug=DEBUG,
+        ),
+        Ctype,
+        Cdata,
+        Crc,
+        next,
+    )
 
 
 def RemoveChunk(start,length,infos):
