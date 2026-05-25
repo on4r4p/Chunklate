@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, libpng_check, libpng_runtime, magic_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, writer_runtime, youshallpass_runtime
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, libpng_check, libpng_runtime, magic_runtime, main_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, writer_runtime, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -2000,42 +2000,25 @@ def main():
     parser = cli.configure_parser(ArgumentParser())
 
     Args, unknown = parser.parse_known_args()
-    LegacyUnknown = cli.parse_legacy_unknown_options(unknown)
-    if LegacyUnknown.cloneswar is not None:
-        CLONESWAR = LegacyUnknown.cloneswar
-    if LegacyUnknown.crash_error is not None:
-        print(LegacyUnknown.crash_error)
-        sys.exit(1)
-    if LegacyUnknown.crash is not None:
-        CRASH = LegacyUnknown.crash
-
-    if len(sys.argv) == 1:
-        parser.print_help(sys.stderr)
-        sys.exit(1)
-    if Args.FILENAME is None:
-        print("-f,--filename arguments is missing.")
-        sys.exit(1)
-    MaxSavesError = cli.max_saves_error(Args.MAX_SAVES)
-    if MaxSavesError is not None:
-        print(MaxSavesError)
-        sys.exit(1)
-
-    FILE_Origin = Args.FILENAME
-    FILE_DIR = cli.output_file_dir(Args.OUTPUT_DIR, abspath=os.path.abspath, join=os.path.join)
-    if FILE_DIR:
-        os.makedirs(FILE_DIR, exist_ok=True)
-    RuntimeFlags = cli.runtime_flags_from_args(Args)
-    CLEAR = RuntimeFlags.clear
-    PAUSE = RuntimeFlags.pause
-    PAUSEDEBUG = RuntimeFlags.pause_debug
-    PAUSEERROR = RuntimeFlags.pause_error
-    PAUSEDIALOGUE = RuntimeFlags.pause_dialogue
-    NODIALOGUE = RuntimeFlags.nodialogue
-    DEBUG = RuntimeFlags.debug
-    AUTO = RuntimeFlags.auto
-    MAX_SAVES = Args.MAX_SAVES
-    SAVE_COUNT = 0
-    Sample = FILE_Origin
+    MainOptions = main_runtime.apply_main_cli_options(
+        main_runtime.MainCliOptionsRuntime(
+            print_error=print,
+            exit_process=sys.exit,
+            make_dirs=os.makedirs,
+            abspath=os.path.abspath,
+            join=os.path.join,
+            stderr=sys.stderr,
+        ),
+        Args,
+        unknown,
+        argv_len=len(sys.argv),
+        parser=parser,
+        current_cloneswar=CLONESWAR,
+        current_crash=CRASH,
+    )
+    if MainOptions is None:
+        return
+    globals().update(main_runtime.legacy_globals_from_main_cli_options(MainOptions))
 
     while True:
 
