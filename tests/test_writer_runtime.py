@@ -152,12 +152,70 @@ def test_write_clone_runtime_write_error_routes_betterror_emit_and_end():
     assert state["have_a_kitkat"] is False
 
 
+def clone_patch_runtime(calls, *, data_hex="0011223344556677"):
+    state = {"show_must_go_on": False}
+
+    def candy(kind, *args):
+        calls.append(("candy", (kind,) + args))
+        return "candy:%s" % kind
+
+    runtime = writer_runtime.ClonePatchRuntime(
+        data_hex=data_hex,
+        candy=candy,
+        emit=lambda message: calls.append(("emit", message)),
+        betterror=lambda error, name: calls.append(("betterror", str(error), name)),
+        write_clone=lambda data, infos: calls.append(("write_clone", data, infos)) or "written",
+        set_show_must_go_on=lambda value: state.__setitem__("show_must_go_on", value),
+    )
+    return runtime, state
+
+
+def test_run_remove_chunk_builds_fixed_data_and_writes_clone():
+    calls = []
+    runtime, state = clone_patch_runtime(calls)
+
+    result = writer_runtime.run_remove_chunk(runtime, 4, 10, "infos")
+
+    assert result == "written"
+    assert ("candy", ("Title", "Removing Chunk")) in calls
+    assert ("write_clone", "0011556677", "infos") in calls
+    assert state == {"show_must_go_on": False}
+
+
+def test_run_save_clone_builds_fixed_data_sets_flag_and_writes_clone():
+    calls = []
+    runtime, state = clone_patch_runtime(calls)
+
+    result = writer_runtime.run_save_clone(runtime, "aabb", 4, 10, "infos")
+
+    assert result == "written"
+    assert state == {"show_must_go_on": True}
+    assert ("candy", ("Title", "Saving Clone")) in calls
+    assert ("emit", "-Data : b'\\xaa\\xbb'\n") in calls
+    assert ("write_clone", "0011aabb556677", "infos") in calls
+
+
+def test_run_save_clone_preserves_bad_hex_error_path_before_write():
+    calls = []
+    runtime, state = clone_patch_runtime(calls)
+
+    result = writer_runtime.run_save_clone(runtime, "not-hex", 4, 10, "infos")
+
+    assert result == "written"
+    assert state == {"show_must_go_on": True}
+    assert any(call[0] == "betterror" and call[2] == "SaveClone" for call in calls)
+    assert ("write_clone", "0011not-hex556677", "infos") in calls
+
+
 def main():
     checks = [
         ("Write and state", test_write_clone_runtime_writes_updates_state_and_summarises),
         ("Pause and max saves", test_write_clone_runtime_preserves_pause_and_max_saves_exit),
         ("Prepare error", test_write_clone_runtime_prepare_error_routes_betterror_and_end),
         ("Write error", test_write_clone_runtime_write_error_routes_betterror_emit_and_end),
+        ("Remove chunk", test_run_remove_chunk_builds_fixed_data_and_writes_clone),
+        ("Save clone", test_run_save_clone_builds_fixed_data_sets_flag_and_writes_clone),
+        ("Save clone bad hex", test_run_save_clone_preserves_bad_hex_error_path_before_write),
     ]
 
     print("Running writer runtime tests")

@@ -4,6 +4,8 @@ from collections.abc import MutableSequence
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from . import writer
+
 
 LegacyCall = Callable[..., Any]
 
@@ -33,6 +35,18 @@ class WriteCloneRuntime:
     set_save_count: Callable[[int], Any]
     set_have_a_kitkat: Callable[[bool], Any]
     side_notes: MutableSequence[str]
+
+
+@dataclass(frozen=True)
+class ClonePatchRuntime:
+    data_hex: str
+    candy: LegacyCall
+    emit: LegacyCall
+    betterror: LegacyCall
+    write_clone: LegacyCall
+    set_show_must_go_on: Callable[[bool], Any]
+    remove_hex_range: LegacyCall = writer.remove_hex_range
+    replace_hex_range: LegacyCall = writer.replace_hex_range
 
 
 def run_write_clone(
@@ -85,3 +99,32 @@ def run_write_clone(
         runtime.exit_process(0)
 
     return None
+
+
+def run_remove_chunk(
+    runtime: ClonePatchRuntime,
+    start: int,
+    length: int,
+    infos: Any,
+) -> Any:
+    runtime.candy("Title", "Removing Chunk")
+    fix = runtime.remove_hex_range(runtime.data_hex, start, length)
+    return runtime.write_clone(fix, infos)
+
+
+def run_save_clone(
+    runtime: ClonePatchRuntime,
+    data_fix: str,
+    start: int,
+    end: int,
+    infos: Any,
+) -> Any:
+    runtime.set_show_must_go_on(True)
+    runtime.candy("Title", "Saving Clone")
+    try:
+        runtime.emit("-Data : %s\n" % bytes.fromhex(data_fix))
+    except Exception as exc:
+        runtime.betterror(exc, "SaveClone")
+
+    fix = runtime.replace_hex_range(runtime.data_hex, data_fix, start, end)
+    return runtime.write_clone(fix, infos)

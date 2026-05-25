@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, libpng_check, magic_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, writer_runtime, youshallpass_runtime
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, libpng_check, libpng_runtime, magic_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, writer_runtime, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -1014,40 +1014,26 @@ def NullFind(data, search4=None):
 
 
 def LibpngCheck(file):
-    Candy("Title", "Libpng Returned :%s" % (Candy("Color", "white", Sample_Name)))
-    result = libpng_check.libpng_result(
+    return libpng_runtime.run_libpng_check(
+        libpng_runtime.LibpngCheckRuntime(
+            candy=Candy,
+            emit=PRINT,
+            checkpoint=CheckPoint,
+        ),
+        libpng_runtime.LibpngCheckContext(
+            sample_name=Sample_Name,
+            libpng_errors=LIBPNG_ERR,
+            cv2_module=cv2,
+            image_module=Image,
+            stderr_redirector=stderr_redirector,
+            warning_reader=KnownBadSrgbProfileWarning,
+        ),
         file,
-        cv2_module=cv2,
-        image_module=Image,
-        stderr_redirector=stderr_redirector,
-        warning_reader=KnownBadSrgbProfileWarning,
     )
-    PRINT("Result:%s"%result)
-    if not libpng_check.result_has_error(result, LIBPNG_ERR):
-        PRINT(
-            "-Libpng Check: %s %s"
-            % (Candy("Color", "green", "Ok!"), Candy("Emoj", "good"))
-        )
-
-        Candy(
-            "Cowsay",
-            "Good ! The AllMighty Libpng is happy !",
-            "good",
-        )
-
-        return CheckPoint(*libpng_check.checkpoint_args(file, result, LIBPNG_ERR))
-
-    else:
-        PRINT(
-            "-Libpng Check: %s %s"
-            % (Candy("Color", "red", "FAILED!"), Candy("Emoj", "bad"))
-        )
-
-        return CheckPoint(*libpng_check.checkpoint_args(file, result, LIBPNG_ERR))
 
 
 def KnownBadSrgbProfileWarning(file):
-    return libpng_check.known_bad_srgb_profile_warning_for_file(file)
+    return libpng_runtime.run_known_bad_srgb_profile_warning(file)
 
 
 def Double_Check(CType, ChunkLen, LastCType):
@@ -1433,23 +1419,35 @@ def Checksum(Ctype, Cdata, Crc, next=None):
 
 
 def RemoveChunk(start,length,infos):
-    Candy("Title", "Removing Chunk")
-    Fix = writer.remove_hex_range(DATAX, start, length)
-    WriteClone(Fix,infos)
+    return writer_runtime.run_remove_chunk(
+        writer_runtime.ClonePatchRuntime(
+            data_hex=DATAX,
+            candy=Candy,
+            emit=PRINT,
+            betterror=Betterror,
+            write_clone=WriteClone,
+            set_show_must_go_on=lambda value: globals().__setitem__("Show_Must_Go_On", value),
+        ),
+        start,
+        length,
+        infos,
+    )
 
 def SaveClone(DataFix, start, end, infos):
-    global Show_Must_Go_On
-    Show_Must_Go_On = True
-
-    Candy("Title", "Saving Clone")
-    try:
-        PRINT("-Data : %s\n" % bytes.fromhex(DataFix))
-    except Exception as e:
-        Betterror(e, inspect.stack()[0][3])
-
-
-    Fix = writer.replace_hex_range(DATAX, DataFix, start, end)
-    WriteClone(Fix,infos)
+    return writer_runtime.run_save_clone(
+        writer_runtime.ClonePatchRuntime(
+            data_hex=DATAX,
+            candy=Candy,
+            emit=PRINT,
+            betterror=Betterror,
+            write_clone=WriteClone,
+            set_show_must_go_on=lambda value: globals().__setitem__("Show_Must_Go_On", value),
+        ),
+        DataFix,
+        start,
+        end,
+        infos,
+    )
 
 
 def WriteClone(data,infos):
