@@ -821,6 +821,17 @@ def finding_handlers(callbacks: LegacyFixItFelixHandlers) -> dict[str, fixit_fel
     }
 
 
+def build_legacy_fixit_felix_handlers_from_namespace(namespace: dict[str, Any]) -> LegacyFixItFelixHandlers:
+    return LegacyFixItFelixHandlers(
+        wrong_crc=namespace["FixItFelix_Wrong_Crc"],
+        libpng_error=namespace["FixItFelix_Libpng_Error"],
+        wrong_chunk_name=namespace["FixItFelix_Wrong_Chunk_Name"],
+        no_next_chunk=namespace["FixItFelix_No_NextChunk"],
+        gama_zero=namespace["FixItFelix_Gama_Zero"],
+        critical_miss=namespace["FixItFelix_Critical_Miss"],
+    )
+
+
 def apply_finding_work_item(
     callbacks: LegacyFixItFelixHandlers,
     work_item: fixit_felix.FixItFelixWorkItem,
@@ -851,4 +862,39 @@ def runtime(
             pandora_box_len,
             chunk,
         ),
+    )
+
+
+def build_fixit_felix_runtime_from_namespace(namespace: dict[str, Any]) -> fixit_felix.FixItFelixRuntime:
+    return runtime(
+        try_automatic_repair=namespace["FixItFelix_Try_Automatic_Repair"],
+        callbacks=build_legacy_fixit_felix_handlers_from_namespace(namespace),
+    )
+
+
+def run_fixit_felix_pipeline_from_namespace(
+    namespace: dict[str, Any],
+    chunk: Any,
+    chkd: str,
+    *,
+    runner: Callable[..., fixit_felix.FixItFelixRunResult] = fixit_felix.run_repair_pipeline,
+) -> fixit_felix.FixItFelixRunResult:
+    if namespace["DEBUG"] is True:
+        fixit_felix.emit_debug_report(
+            namespace["PRINT"],
+            namespace,
+            namespace["PandoraBox"],
+            namespace["Cornucopia"],
+        )
+
+        if namespace["PAUSEDEBUG"] is True:
+            namespace["Pause"]("FixItFelix Debug Pause:")
+
+    return runner(
+        build_fixit_felix_runtime_from_namespace(namespace),
+        namespace["PandoraBox"],
+        skip_bad_crc=namespace["Skip_Bad_Crc"],
+        bad_next_name=namespace["Bad_Next_Name"],
+        chkd=chkd,
+        chunk=chunk,
     )

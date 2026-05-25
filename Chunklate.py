@@ -1461,21 +1461,11 @@ def FixItFelix_Try_Automatic_Repair(name):
 
 
 def FixItFelix_Runtime_Callbacks():
-    return fixit_felix_runtime.LegacyFixItFelixHandlers(
-        wrong_crc=FixItFelix_Wrong_Crc,
-        libpng_error=FixItFelix_Libpng_Error,
-        wrong_chunk_name=FixItFelix_Wrong_Chunk_Name,
-        no_next_chunk=FixItFelix_No_NextChunk,
-        gama_zero=FixItFelix_Gama_Zero,
-        critical_miss=FixItFelix_Critical_Miss,
-    )
+    return fixit_felix_runtime.build_legacy_fixit_felix_handlers_from_namespace(globals())
 
 
 def FixItFelix_Runtime():
-    return fixit_felix_runtime.runtime(
-        try_automatic_repair=FixItFelix_Try_Automatic_Repair,
-        callbacks=FixItFelix_Runtime_Callbacks(),
-    )
+    return fixit_felix_runtime.build_fixit_felix_runtime_from_namespace(globals())
 
 
 def FixItFelix_Tool_Prefix(Chunk):
@@ -1493,20 +1483,10 @@ def FixItFelix(Chunk=None):
     global Show_Must_Go_On
 
     chkd = FixItFelix_Tool_Prefix(Chunk)
-
-    if DEBUG is True:
-        fixit_felix.emit_debug_report(PRINT, globals(), PandoraBox, Cornucopia)
-
-        if PAUSEDEBUG is True:
-            Pause("FixItFelix Debug Pause:")
-
-    RunResult = fixit_felix.run_repair_pipeline(
-        FixItFelix_Runtime(),
-        PandoraBox,
-        skip_bad_crc=Skip_Bad_Crc,
-        bad_next_name=Bad_Next_Name,
-        chkd=chkd,
-        chunk=Chunk,
+    RunResult = fixit_felix_runtime.run_fixit_felix_pipeline_from_namespace(
+        globals(),
+        Chunk,
+        chkd,
     )
     if RunResult.should_return:
         return RunResult.result

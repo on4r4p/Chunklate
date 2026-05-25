@@ -1105,6 +1105,89 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert automatic.write_clone is namespace["WriteClone"]
 
 
+def test_namespace_pipeline_builder_preserves_debug_and_repair_wiring():
+    calls = []
+    pandora_box = {"finding": {"IDAT_Tool_0": "tool-data"}}
+    cornucopia = {}
+
+    def callback(name):
+        def inner(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return name
+
+        return inner
+
+    namespace = {
+        "PRINT": callback("PRINT"),
+        "Pause": callback("Pause"),
+        "FixItFelix_Try_Automatic_Repair": callback("automatic_repair"),
+        "FixItFelix_Wrong_Crc": callback("wrong_crc"),
+        "FixItFelix_Libpng_Error": callback("libpng_error"),
+        "FixItFelix_Wrong_Chunk_Name": callback("wrong_chunk_name"),
+        "FixItFelix_No_NextChunk": callback("no_next_chunk"),
+        "FixItFelix_Gama_Zero": callback("gama_zero"),
+        "FixItFelix_Critical_Miss": callback("critical_miss"),
+        "PandoraBox": pandora_box,
+        "Cornucopia": cornucopia,
+        "Skip_Bad_Crc": False,
+        "Bad_Next_Name": False,
+        "DEBUG": True,
+        "PAUSEDEBUG": True,
+    }
+    for name in fixit_felix.DEBUG_FLAG_NAMES:
+        namespace.setdefault(name, False)
+
+    handlers = fixit_felix_runtime.build_legacy_fixit_felix_handlers_from_namespace(namespace)
+    assert handlers.wrong_crc is namespace["FixItFelix_Wrong_Crc"]
+    assert handlers.libpng_error is namespace["FixItFelix_Libpng_Error"]
+    assert handlers.wrong_chunk_name is namespace["FixItFelix_Wrong_Chunk_Name"]
+    assert handlers.no_next_chunk is namespace["FixItFelix_No_NextChunk"]
+    assert handlers.gama_zero is namespace["FixItFelix_Gama_Zero"]
+    assert handlers.critical_miss is namespace["FixItFelix_Critical_Miss"]
+
+    fix_runtime = fixit_felix_runtime.build_fixit_felix_runtime_from_namespace(namespace)
+    assert fix_runtime.try_automatic_repair("plte_cleanup") == "automatic_repair"
+    assert fix_runtime.apply_finding_work_item(
+        fixit_felix.FixItFelixWorkItem("finding", "wrong_crc", "finding"),
+        "IDAT_Tool_",
+        3,
+        b"IDAT",
+    ) == "wrong_crc"
+
+    def runner(runtime, findings, *, skip_bad_crc, bad_next_name, chkd, chunk):
+        calls.append(
+            (
+                "runner",
+                (findings, skip_bad_crc, bad_next_name, chkd, chunk),
+                {},
+            )
+        )
+        assert runtime.try_automatic_repair("known_chunk_type_case") == "automatic_repair"
+        assert runtime.apply_finding_work_item(
+            fixit_felix.FixItFelixWorkItem("finding", "critical_miss", "finding"),
+            chkd,
+            1,
+            chunk,
+        ) == "critical_miss"
+        return fixit_felix.FixItFelixRunResult(True, "pipeline-result")
+
+    result = fixit_felix_runtime.run_fixit_felix_pipeline_from_namespace(
+        namespace,
+        b"IDAT",
+        "IDAT_Tool_",
+        runner=runner,
+    )
+
+    assert result == fixit_felix.FixItFelixRunResult(True, "pipeline-result")
+    assert ("Pause", ("FixItFelix Debug Pause:",), {}) in calls
+    assert (
+        "runner",
+        (pandora_box, False, False, "IDAT_Tool_", b"IDAT"),
+        {},
+    ) in calls
+    assert any(call[0] == "PRINT" and str(call[1][0]).startswith("EOF:") for call in calls)
+
+
 def main():
     checks = [
         ("Apply repair records note and writes clone", test_apply_repair_records_note_and_writes_clone),
@@ -1159,6 +1242,7 @@ def main():
         ("Apply finding work item dispatches", test_apply_finding_work_item_dispatches_through_fixit_felix_dispatch),
         ("Runtime uses automatic repair and callbacks", test_runtime_uses_automatic_repair_and_legacy_callbacks),
         ("Namespace runtime builders", test_namespace_runtime_builders_preserve_legacy_wiring),
+        ("Namespace pipeline builder", test_namespace_pipeline_builder_preserves_debug_and_repair_wiring),
     ]
 
     print("Running FixItFelix runtime tests")
