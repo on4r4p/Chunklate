@@ -359,3 +359,61 @@ def run_find_fucking_magic(runtime: FindMagicRuntime, context: FindMagicContext)
     if action == "multiple_candidates":
         return _run_multiple_candidates(runtime, scan)
     return _run_too_low(runtime, context, scan)
+
+
+def build_find_magic_runtime_from_namespace(
+    namespace: dict[str, Any],
+    *,
+    include_chunk_story: bool = False,
+) -> FindMagicRuntime:
+    kwargs = {}
+    if include_chunk_story:
+        kwargs["chunk_story"] = namespace["ChunkStory"]
+
+    return FindMagicRuntime(
+        candy=namespace["Candy"],
+        emit=namespace["PRINT"],
+        checkpoint=namespace["CheckPoint"],
+        end=namespace["TheEnd"],
+        betterror=namespace["Betterror"],
+        pause=namespace["Pause"],
+        spec_length=namespace["SpecLength"],
+        minibar=namespace["Minibar"],
+        side_notes=namespace["SideNotes"],
+        **kwargs,
+    )
+
+
+def build_find_magic_context_from_namespace(namespace: dict[str, Any]) -> FindMagicContext:
+    return FindMagicContext(
+        data_bytes=namespace["DATA_BYTES"],
+        data_hex=namespace["DATAX"],
+        chunks=tuple(namespace["CHUNKS"]),
+        before_idat=tuple(namespace["BEFORE_IDAT"]),
+        sample_name=namespace["Sample_Name"],
+        debug=namespace["DEBUG"],
+        pause_debug=namespace["PAUSEDEBUG"],
+        pause_error=namespace["PAUSEERROR"],
+    )
+
+
+def run_find_magic_from_namespace(
+    namespace: dict[str, Any],
+    *,
+    runner: LegacyCall = run_find_magic,
+) -> Any:
+    return runner(
+        build_find_magic_runtime_from_namespace(namespace, include_chunk_story=True),
+        build_find_magic_context_from_namespace(namespace),
+    )
+
+
+def run_find_fucking_magic_from_namespace(
+    namespace: dict[str, Any],
+    *,
+    runner: LegacyCall = run_find_fucking_magic,
+) -> Any:
+    return runner(
+        build_find_magic_runtime_from_namespace(namespace),
+        build_find_magic_context_from_namespace(namespace),
+    )

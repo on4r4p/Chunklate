@@ -172,6 +172,72 @@ def test_find_magic_runtime_too_low_prepends_magic_before_nearest_chunk():
     )
 
 
+def build_namespace(calls, side_notes):
+    return {
+        "Candy": lambda *args: calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "CheckPoint": lambda *args: calls.append(("checkpoint", args)),
+        "TheEnd": lambda: calls.append(("end",)),
+        "Betterror": lambda *args: calls.append(("betterror", args)),
+        "Pause": lambda message: calls.append(("pause", message)),
+        "SpecLength": lambda *args: calls.append(("spec", args)),
+        "Minibar": lambda: calls.append(("minibar",)),
+        "SideNotes": side_notes,
+        "ChunkStory": lambda *args: calls.append(("story", args)),
+        "DATA_BYTES": b"png",
+        "DATAX": "706e67",
+        "CHUNKS": [b"IHDR", b"IDAT"],
+        "BEFORE_IDAT": [b"IHDR"],
+        "Sample_Name": "sample.png",
+        "DEBUG": True,
+        "PAUSEDEBUG": False,
+        "PAUSEERROR": True,
+    }
+
+
+def test_find_magic_namespace_bridge_injects_chunk_story_and_context():
+    calls = []
+    side_notes = []
+    namespace = build_namespace(calls, side_notes)
+
+    def runner(runtime, context):
+        assert runtime.candy is namespace["Candy"]
+        assert runtime.emit is namespace["PRINT"]
+        assert runtime.checkpoint is namespace["CheckPoint"]
+        assert runtime.end is namespace["TheEnd"]
+        assert runtime.betterror is namespace["Betterror"]
+        assert runtime.pause is namespace["Pause"]
+        assert runtime.spec_length is namespace["SpecLength"]
+        assert runtime.minibar is namespace["Minibar"]
+        assert runtime.side_notes is side_notes
+        assert runtime.chunk_story is namespace["ChunkStory"]
+        assert context.data_bytes == b"png"
+        assert context.data_hex == "706e67"
+        assert context.chunks == (b"IHDR", b"IDAT")
+        assert context.before_idat == (b"IHDR",)
+        assert context.sample_name == "sample.png"
+        assert context.debug is True
+        assert context.pause_debug is False
+        assert context.pause_error is True
+        return "magic"
+
+    assert magic_runtime.run_find_magic_from_namespace(namespace, runner=runner) == "magic"
+
+
+def test_find_fucking_magic_namespace_bridge_keeps_default_chunk_story():
+    calls = []
+    side_notes = []
+    namespace = build_namespace(calls, side_notes)
+
+    def runner(runtime, context):
+        runtime.chunk_story("add", "PNG")
+        assert not [call for call in calls if call[0] == "story"]
+        assert context.sample_name == "sample.png"
+        return "hard-magic"
+
+    assert magic_runtime.run_find_fucking_magic_from_namespace(namespace, runner=runner) == "hard-magic"
+
+
 def main():
     checks = [
         ("Header found", test_find_header_magic_runtime_found_at_start_records_story_and_checkpoint),
@@ -180,6 +246,8 @@ def main():
         ("Single candidate", test_find_magic_runtime_single_candidate_cuts_at_best_magic),
         ("No known chunks", test_find_magic_runtime_too_low_without_known_chunks_ends_with_note),
         ("Prepend nearest", test_find_magic_runtime_too_low_prepends_magic_before_nearest_chunk),
+        ("Namespace FindMagic", test_find_magic_namespace_bridge_injects_chunk_story_and_context),
+        ("Namespace FindFuckingMagic", test_find_fucking_magic_namespace_bridge_keeps_default_chunk_story),
     ]
 
     print("Running magic runtime tests")

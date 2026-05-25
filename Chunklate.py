@@ -843,56 +843,11 @@ def FullChunkForcerNoCrc(
 
 
 def FindMagic():
-    return magic_runtime.run_find_magic(
-        magic_runtime.FindMagicRuntime(
-            candy=Candy,
-            emit=PRINT,
-            checkpoint=CheckPoint,
-            end=TheEnd,
-            betterror=Betterror,
-            pause=Pause,
-            spec_length=SpecLength,
-            minibar=Minibar,
-            side_notes=SideNotes,
-            chunk_story=ChunkStory,
-        ),
-        magic_runtime.FindMagicContext(
-            data_bytes=DATA_BYTES,
-            data_hex=DATAX,
-            chunks=tuple(CHUNKS),
-            before_idat=tuple(BEFORE_IDAT),
-            sample_name=Sample_Name,
-            debug=DEBUG,
-            pause_debug=PAUSEDEBUG,
-            pause_error=PAUSEERROR,
-        ),
-    )
+    return magic_runtime.run_find_magic_from_namespace(globals())
 
 
 def FindFuckingMagic():
-    return magic_runtime.run_find_fucking_magic(
-        magic_runtime.FindMagicRuntime(
-            candy=Candy,
-            emit=PRINT,
-            checkpoint=CheckPoint,
-            end=TheEnd,
-            betterror=Betterror,
-            pause=Pause,
-            spec_length=SpecLength,
-            minibar=Minibar,
-            side_notes=SideNotes,
-        ),
-        magic_runtime.FindMagicContext(
-            data_bytes=DATA_BYTES,
-            data_hex=DATAX,
-            chunks=tuple(CHUNKS),
-            before_idat=tuple(BEFORE_IDAT),
-            sample_name=Sample_Name,
-            debug=DEBUG,
-            pause_debug=PAUSEDEBUG,
-            pause_error=PAUSEERROR,
-        ),
-    )
+    return magic_runtime.run_find_fucking_magic_from_namespace(globals())
 
 
 def Ancillary(Chunk):
