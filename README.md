@@ -81,6 +81,10 @@ Architecture overview:
 
     docs/architecture.md
 
+Repair matrix:
+
+    docs/repair_matrix.md
+
 Or without pytest:
 
     ./tests/test_cli.py
