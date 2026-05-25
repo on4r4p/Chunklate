@@ -72,6 +72,56 @@ def apply_options(calls, parsed_args=None, unknown=(), argv_len=2):
     )
 
 
+def test_build_main_runtime_helpers_wire_callbacks():
+    calls = []
+    namespace = {}
+
+    cli_runtime = main_runtime.build_cli_options_runtime(
+        print_error=lambda message: calls.append(("print", message)),
+        exit_process=lambda code: calls.append(("exit", code)),
+        make_dirs=lambda path, **kwargs: calls.append(("makedirs", path, kwargs)),
+        abspath=lambda path: "/abs/" + path,
+        join=lambda *parts: "/".join(parts),
+        stderr="stderr",
+    )
+    clear_runtime = main_runtime.build_clear_screen_runtime(
+        stderr_write=lambda value: calls.append(("stderr", value)),
+        system=lambda value: calls.append(("system", value)),
+        os_name="posix",
+    )
+    reset_runtime = main_runtime.build_loop_reset_runtime(
+        namespace=namespace,
+        reset_chunk_info_idat=lambda: calls.append(("reset",)),
+        sync_chunk_info_legacy_state=lambda section: calls.append(("sync", section)),
+        banner=lambda mode: calls.append(("banner", mode)),
+    )
+    sample_runtime = main_runtime.build_sample_runtime(
+        basename=lambda value: "base-" + str(value),
+        load_sample_data=lambda sample: runtime_state.sample_data_from_bytes(b"png"),
+        raw_print=lambda *args: calls.append(("raw_print", args)),
+        candy=lambda *args: "candy",
+        emit=lambda message: calls.append(("emit", message)),
+        betterror=lambda error, name: calls.append(("betterror", str(error), name)),
+        exit_process=lambda code: calls.append(("sample_exit", code)),
+    )
+    chunk_walk_runtime = main_runtime.build_chunk_walk_runtime(
+        namespace=namespace,
+        chunk_by_chunk=lambda offset: calls.append(("chunk_by_chunk", offset)),
+        check_length=lambda *args: calls.append(("check_length", args)),
+        check_chunk_name=lambda *args: calls.append(("check_chunk_name", args)),
+        get_info=lambda *args: calls.append(("get_info", args)),
+        checksum=lambda *args: calls.append(("checksum", args)),
+        fix_it_felix=lambda chunk: calls.append(("fix_it_felix", chunk)),
+    )
+
+    assert cli_runtime.stderr == "stderr"
+    assert cli_runtime.abspath("out") == "/abs/out"
+    assert clear_runtime.os_name == "posix"
+    assert reset_runtime.namespace is namespace
+    assert sample_runtime.basename("sample.png") == "base-sample.png"
+    assert chunk_walk_runtime.namespace is namespace
+
+
 def test_apply_main_cli_options_builds_initial_state():
     calls = []
 
@@ -467,6 +517,7 @@ def test_run_main_chunk_walk_stops_when_kitkat_breaks():
 
 def main():
     checks = [
+        ("runtime builders", test_build_main_runtime_helpers_wire_callbacks),
         ("main options state", test_apply_main_cli_options_builds_initial_state),
         ("legacy clone/crash", test_apply_main_cli_options_preserves_legacy_unknown_clone_and_crash),
         ("invalid crash", test_apply_main_cli_options_exits_on_invalid_crash),

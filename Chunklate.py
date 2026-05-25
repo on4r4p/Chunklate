@@ -2001,7 +2001,7 @@ def main():
 
     Args, unknown = parser.parse_known_args()
     MainOptions = main_runtime.apply_main_cli_options(
-        main_runtime.MainCliOptionsRuntime(
+        main_runtime.build_cli_options_runtime(
             print_error=print,
             exit_process=sys.exit,
             make_dirs=os.makedirs,
@@ -2023,7 +2023,7 @@ def main():
     while True:
 
         ClearScreenState = main_runtime.run_main_clear_screen(
-            main_runtime.MainClearScreenRuntime(
+            main_runtime.build_clear_screen_runtime(
                 stderr_write=sys.stderr.write,
                 system=os.system,
                 os_name=os.name,
@@ -2035,7 +2035,7 @@ def main():
         )
         FirStart = ClearScreenState.fir_start
         MainLoopReset = main_runtime.reset_main_loop_state(
-            main_runtime.MainLoopResetRuntime(
+            main_runtime.build_loop_reset_runtime(
                 namespace=globals(),
                 reset_chunk_info_idat=CHUNK_INFO_STATE.reset_idat,
                 sync_chunk_info_legacy_state=Sync_Chunk_Info_Legacy_State,
@@ -2046,7 +2046,7 @@ def main():
         # IFOP = []
 
         LoadedMainSample = main_runtime.load_main_sample(
-            main_runtime.MainSampleRuntime(
+            main_runtime.build_sample_runtime(
                 basename=os.path.basename,
                 load_sample_data=lambda sample: runtime_state.load_sample_data(sample, opener=open),
                 raw_print=print,
@@ -2069,7 +2069,7 @@ def main():
         DATAX = LoadedMainSample.data_hex
         Offset = FindMagic()
         main_runtime.run_main_chunk_walk(
-            main_runtime.MainChunkWalkRuntime(
+            main_runtime.build_chunk_walk_runtime(
                 namespace=globals(),
                 chunk_by_chunk=ChunkbyChunk,
                 check_length=CheckLength,

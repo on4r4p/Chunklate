@@ -118,6 +118,95 @@ class MainChunkWalkState:
     offset: Any
 
 
+def build_cli_options_runtime(
+    *,
+    print_error: Callable[[str], Any],
+    exit_process: Callable[[int], Any],
+    make_dirs: Callable[..., Any],
+    abspath: Callable[[str], str],
+    join: Callable[..., str],
+    stderr: Any,
+) -> MainCliOptionsRuntime:
+    return MainCliOptionsRuntime(
+        print_error=print_error,
+        exit_process=exit_process,
+        make_dirs=make_dirs,
+        abspath=abspath,
+        join=join,
+        stderr=stderr,
+    )
+
+
+def build_loop_reset_runtime(
+    *,
+    namespace: dict[str, Any],
+    reset_chunk_info_idat: Callable[[], Any],
+    sync_chunk_info_legacy_state: Callable[[str], Any],
+    banner: Callable[[int], Any],
+) -> MainLoopResetRuntime:
+    return MainLoopResetRuntime(
+        namespace=namespace,
+        reset_chunk_info_idat=reset_chunk_info_idat,
+        sync_chunk_info_legacy_state=sync_chunk_info_legacy_state,
+        banner=banner,
+    )
+
+
+def build_clear_screen_runtime(
+    *,
+    stderr_write: Callable[[str], Any],
+    system: Callable[[str], Any],
+    os_name: str,
+) -> MainClearScreenRuntime:
+    return MainClearScreenRuntime(
+        stderr_write=stderr_write,
+        system=system,
+        os_name=os_name,
+    )
+
+
+def build_sample_runtime(
+    *,
+    basename: Callable[[Any], str],
+    load_sample_data: Callable,
+    raw_print: Callable[..., Any],
+    candy: Callable[..., Any],
+    emit: Callable[[str], Any],
+    betterror: Callable[[Exception, str], Any],
+    exit_process: Callable[[int], Any],
+) -> MainSampleRuntime:
+    return MainSampleRuntime(
+        basename=basename,
+        load_sample_data=load_sample_data,
+        raw_print=raw_print,
+        candy=candy,
+        emit=emit,
+        betterror=betterror,
+        exit_process=exit_process,
+    )
+
+
+def build_chunk_walk_runtime(
+    *,
+    namespace: dict[str, Any],
+    chunk_by_chunk: Callable[[int], Any],
+    check_length: Callable[..., Any],
+    check_chunk_name: Callable[..., Any],
+    get_info: Callable[..., Any],
+    checksum: Callable[..., Any],
+    fix_it_felix: Callable[[Any], Any],
+) -> MainChunkWalkRuntime:
+    return MainChunkWalkRuntime(
+        namespace=namespace,
+        chunk_by_chunk=chunk_by_chunk,
+        check_length=check_length,
+        check_chunk_name=check_chunk_name,
+        get_info=get_info,
+        checksum=checksum,
+        fix_it_felix=fix_it_felix,
+    )
+
+
 def apply_main_cli_options(
     runtime: MainCliOptionsRuntime,
     args: Any,
