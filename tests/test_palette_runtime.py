@@ -532,6 +532,140 @@ def test_create_manual_palette_editor_wires_window_frames_actions_and_sliders():
     assert create_sliders_call[1]["slider_length"] == 970
 
 
+def test_create_manual_palette_editor_from_namespace_wires_legacy_globals():
+    calls = []
+    state = palette_ui.PaletteEditorState(values=["empty", "empty"], sliders=[], wanabyte=b"png")
+    session = palette_runtime.ManualPaletteSession(
+        before=b"before",
+        after=b"after",
+        wanabyte=b"png",
+        palette_count=2,
+        state=state,
+    )
+    setup = palette_runtime.ManualPaletteSetup(
+        chunk_name=b"PLTE",
+        session=session,
+        image_array="image-array",
+        pil_image=FakePilImage(),
+    )
+    editor = palette_runtime.ManualPaletteEditor(
+        window=FakeWindow(),
+        layout=palette_ui.PaletteEditorLayout(
+            basewidth=1000,
+            hsize=500,
+            action_width=2000,
+            action_height=50,
+            canvas_width=985,
+            slider_length=970,
+        ),
+        frames=palette_ui.PaletteEditorFrames(
+            img="frame-img",
+            slider="frame-slider",
+            action="frame-action",
+        ),
+        action_buttons={"save_btn": "save"},
+        slider_canvas=palette_ui.PaletteSliderCanvas(
+            canvas=FakeCanvas(),
+            frame="frame-canvas",
+            scrollbar="scrollbar",
+        ),
+        sliders=["slider-a", "slider-b"],
+    )
+
+    def callback(name):
+        def inner(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return name
+
+        return inner
+
+    scale_factory = object()
+    update_scrollregion = object()
+    namespace = {
+        "Candy": callback("Candy"),
+        "PRINT": callback("PRINT"),
+        "Betterror": callback("Betterror"),
+        "cv2": "cv2",
+        "np": "np",
+        "Image": "Image",
+        "Guess_Palettes_Nbr": callback("Guess_Palettes_Nbr"),
+        "DATAX": "001122",
+        "DEBUG": True,
+        "tkinter": "tk",
+        "Tk_Render_Plte_Preview": callback("Tk_Render_Plte_Preview"),
+        "FILE_Origin": "origin.png",
+        "Tk_Gen_Scale_Plte": scale_factory,
+        "Tk_update_scrollregion_Plte": update_scrollregion,
+        "Tk_Web_Safe_Plte": callback("Tk_Web_Safe_Plte"),
+        "Tk_Web_Safe_Randomize_Plte": callback("Tk_Web_Safe_Randomize_Plte"),
+        "Tk_X11_Plte": callback("Tk_X11_Plte"),
+        "Tk_X11_Randomize_Plte": callback("Tk_X11_Randomize_Plte"),
+        "Tk_Randomize_Plte": callback("Tk_Randomize_Plte"),
+        "Tk_Save_Plte": callback("Tk_Save_Plte"),
+        "Sync_Palette_Legacy_State": callback("Sync_Palette_Legacy_State"),
+    }
+
+    def setup_creator(runtime, context):
+        assert runtime.candy is namespace["Candy"]
+        assert runtime.emit is namespace["PRINT"]
+        assert runtime.betterror is namespace["Betterror"]
+        assert runtime.cv2 == "cv2"
+        assert runtime.numpy == "np"
+        assert runtime.image == "Image"
+        assert runtime.guess_palette_count is namespace["Guess_Palettes_Nbr"]
+        assert context == palette_runtime.ManualPaletteSetupContext(
+            file="sample.png",
+            chunk_name="PLTE",
+            chunk_length=12,
+            data_offset=4,
+            data_hex="001122",
+            debug=True,
+        )
+        return setup
+
+    def editor_creator(runtime, context):
+        assert runtime.tkinter_module == "tk"
+        assert runtime.render_preview is namespace["Tk_Render_Plte_Preview"]
+        assert context.title == "PLTE Editor:origin.png"
+        assert context.session is session
+        assert context.pil_image is setup.pil_image
+        assert context.chunk_length == 12
+        assert context.data_offset == 4
+        assert context.from_error == "source"
+        assert context.scale_factory is scale_factory
+        assert context.update_scrollregion is update_scrollregion
+        assert context.action_runtime.web_safe is namespace["Tk_Web_Safe_Plte"]
+        assert context.action_runtime.web_random is namespace["Tk_Web_Safe_Randomize_Plte"]
+        assert context.action_runtime.x11 is namespace["Tk_X11_Plte"]
+        assert context.action_runtime.x11_random is namespace["Tk_X11_Randomize_Plte"]
+        assert context.action_runtime.randomize is namespace["Tk_Randomize_Plte"]
+        assert context.action_runtime.save_palette is namespace["Tk_Save_Plte"]
+        return editor
+
+    result = palette_runtime.create_manual_palette_editor_from_namespace(
+        namespace,
+        "sample.png",
+        "PLTE",
+        12,
+        4,
+        "source",
+        setup_creator=setup_creator,
+        editor_creator=editor_creator,
+    )
+
+    assert result is editor
+    assert namespace["wanabyte"] == b"png"
+    assert namespace["palette_state"] is state
+    assert namespace["Plte_Blst"] == ["empty", "empty"]
+    assert namespace["im"] == "image-array"
+    assert namespace["pil_image"] is setup.pil_image
+    assert namespace["window"] is editor.window
+    assert namespace["frame_img"] == "frame-img"
+    assert namespace["canvas_slider"] is editor.slider_canvas.canvas
+    assert namespace["slider_list"] == ["slider-a", "slider-b"]
+    assert calls == [("Sync_Palette_Legacy_State", (), {})]
+
+
 def test_guess_palette_count_uses_phash_distance_and_records_side_note():
     calls = []
     side_notes = []
@@ -638,6 +772,10 @@ def main():
         ("Manual palette save fallback", test_save_manual_palette_falls_back_to_legacy_values_without_palette_state),
         ("Manual palette action specs", test_build_manual_palette_action_specs_preserves_legacy_callbacks),
         ("Manual palette editor", test_create_manual_palette_editor_wires_window_frames_actions_and_sliders),
+        (
+            "Manual palette namespace editor",
+            test_create_manual_palette_editor_from_namespace_wires_legacy_globals,
+        ),
         ("Guess palette count", test_guess_palette_count_uses_phash_distance_and_records_side_note),
         ("Guess palette fallback", test_guess_palette_count_preserves_ihdr_depth_fallback),
         ("Guess palette libpng error", test_guess_palette_count_routes_libpng_error_to_end),

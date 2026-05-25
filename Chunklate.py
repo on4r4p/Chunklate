@@ -706,96 +706,15 @@ def Tk_Manual_Plte(
     DataOffset,
     FromError
 ):
-    global SideNotes
-    global Plte_Blst
-    global palette_state
-    global window,tk_image,frame_img,pil_image,im,canvas_slider,slider_list,wanabyte
-
-    PaletteSetup = palette_runtime.create_manual_palette_setup(
-        palette_runtime.ManualPaletteSetupRuntime(
-            candy=Candy,
-            emit=PRINT,
-            betterror=Betterror,
-            cv2=cv2,
-            numpy=np,
-            image=Image,
-            guess_palette_count=Guess_Palettes_Nbr,
-        ),
-        palette_runtime.ManualPaletteSetupContext(
-            file=File,
-            chunk_name=ChunkName,
-            chunk_length=ChunkLength,
-            data_offset=DataOffset,
-            data_hex=DATAX,
-            debug=DEBUG,
-        ),
+    PaletteEditor = palette_runtime.create_manual_palette_editor_from_namespace(
+        globals(),
+        File,
+        ChunkName,
+        ChunkLength,
+        DataOffset,
+        FromError,
     )
-    PaletteSession = PaletteSetup.session
-    Before_New = PaletteSession.before
-    After_New = PaletteSession.after
-    wanabyte = PaletteSession.wanabyte
-    Palette_nbr = PaletteSession.palette_count
-
-    palette_state = PaletteSession.state
-    Plte_Blst = palette_state.values
-
-    im = PaletteSetup.image_array
-    pil_image = PaletteSetup.pil_image
-
-    PaletteEditor = palette_runtime.create_manual_palette_editor(
-        palette_runtime.ManualPaletteEditorRuntime(
-            tkinter_module=tkinter,
-            render_preview=Tk_Render_Plte_Preview,
-        ),
-        palette_runtime.ManualPaletteEditorContext(
-            title="PLTE Editor:%s"%FILE_Origin,
-            session=PaletteSession,
-            pil_image=pil_image,
-            chunk_length=ChunkLength,
-            data_offset=DataOffset,
-            from_error=FromError,
-            scale_factory=Tk_Gen_Scale_Plte,
-            update_scrollregion=Tk_update_scrollregion_Plte,
-            action_runtime=palette_runtime.ManualPaletteActionRuntime(
-                web_safe=Tk_Web_Safe_Plte,
-                web_random=Tk_Web_Safe_Randomize_Plte,
-                x11=Tk_X11_Plte,
-                x11_random=Tk_X11_Randomize_Plte,
-                randomize=Tk_Randomize_Plte,
-                save_palette=Tk_Save_Plte,
-            ),
-        ),
-    )
-    window = PaletteEditor.window
-    layout = PaletteEditor.layout
-    basewidth = layout.basewidth
-    hsize = layout.hsize
-    editor_frames = PaletteEditor.frames
-    frame_img = editor_frames.img
-
-    frame_slider = editor_frames.slider
-    frame_action = editor_frames.action
-
-    action_buttons = PaletteEditor.action_buttons
-    x216_btn = action_buttons["x216_btn"]
-    random_web_btn = action_buttons["random_web_btn"]
-    x11_btn = action_buttons["x11_btn"]
-    random_classic_btn = action_buttons["random_classic_btn"]
-    random_btn = action_buttons["random_btn"]
-    save_btn = action_buttons["save_btn"]
-    cancel_btn = action_buttons["cancel_btn"]
-
-
-    slider_canvas = PaletteEditor.slider_canvas
-    canvas_slider = slider_canvas.canvas
-    frame_canvas = slider_canvas.frame
-    slider_scroll = slider_canvas.scrollbar
-
-    slider_list = PaletteEditor.sliders
-    Sync_Palette_Legacy_State()
-
-
-    window.mainloop()
+    PaletteEditor.window.mainloop()
 
 
 def SmashBruteBrawl(

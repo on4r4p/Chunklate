@@ -257,6 +257,35 @@ def create_manual_palette_setup(
     )
 
 
+def build_manual_palette_setup_runtime_from_namespace(namespace: dict) -> ManualPaletteSetupRuntime:
+    return ManualPaletteSetupRuntime(
+        candy=namespace["Candy"],
+        emit=namespace["PRINT"],
+        betterror=namespace["Betterror"],
+        cv2=namespace["cv2"],
+        numpy=namespace["np"],
+        image=namespace["Image"],
+        guess_palette_count=namespace["Guess_Palettes_Nbr"],
+    )
+
+
+def build_manual_palette_setup_context_from_namespace(
+    namespace: dict,
+    file: object,
+    chunk_name: object,
+    chunk_length: int,
+    data_offset: int,
+) -> ManualPaletteSetupContext:
+    return ManualPaletteSetupContext(
+        file=file,
+        chunk_name=chunk_name,
+        chunk_length=chunk_length,
+        data_offset=data_offset,
+        data_hex=namespace["DATAX"],
+        debug=namespace["DEBUG"],
+    )
+
+
 def sync_palette_legacy_state(namespace: dict, palette_state) -> None:
     if palette_state is not None:
         namespace["Plte_Blst"] = palette_state.values
@@ -417,6 +446,103 @@ def create_manual_palette_editor(
         slider_canvas=slider_canvas,
         sliders=sliders,
     )
+
+
+def build_manual_palette_action_runtime_from_namespace(namespace: dict) -> ManualPaletteActionRuntime:
+    return ManualPaletteActionRuntime(
+        web_safe=namespace["Tk_Web_Safe_Plte"],
+        web_random=namespace["Tk_Web_Safe_Randomize_Plte"],
+        x11=namespace["Tk_X11_Plte"],
+        x11_random=namespace["Tk_X11_Randomize_Plte"],
+        randomize=namespace["Tk_Randomize_Plte"],
+        save_palette=namespace["Tk_Save_Plte"],
+    )
+
+
+def build_manual_palette_editor_runtime_from_namespace(namespace: dict) -> ManualPaletteEditorRuntime:
+    return ManualPaletteEditorRuntime(
+        tkinter_module=namespace["tkinter"],
+        render_preview=namespace["Tk_Render_Plte_Preview"],
+    )
+
+
+def build_manual_palette_editor_context_from_namespace(
+    namespace: dict,
+    setup: ManualPaletteSetup,
+    chunk_length: int,
+    data_offset: int,
+    from_error: object,
+) -> ManualPaletteEditorContext:
+    return ManualPaletteEditorContext(
+        title="PLTE Editor:%s" % namespace["FILE_Origin"],
+        session=setup.session,
+        pil_image=setup.pil_image,
+        chunk_length=chunk_length,
+        data_offset=data_offset,
+        from_error=from_error,
+        scale_factory=namespace["Tk_Gen_Scale_Plte"],
+        update_scrollregion=namespace["Tk_update_scrollregion_Plte"],
+        action_runtime=build_manual_palette_action_runtime_from_namespace(namespace),
+    )
+
+
+def sync_manual_palette_editor_namespace(
+    namespace: dict,
+    setup: ManualPaletteSetup,
+    editor: ManualPaletteEditor,
+) -> None:
+    session = setup.session
+    namespace["wanabyte"] = session.wanabyte
+    namespace["palette_state"] = session.state
+    namespace["Plte_Blst"] = session.state.values
+    namespace["im"] = setup.image_array
+    namespace["pil_image"] = setup.pil_image
+    namespace["window"] = editor.window
+    namespace["frame_img"] = editor.frames.img
+    namespace["canvas_slider"] = editor.slider_canvas.canvas
+    namespace["slider_list"] = editor.sliders
+    namespace["Sync_Palette_Legacy_State"]()
+
+
+def create_manual_palette_editor_from_namespace(
+    namespace: dict,
+    file: object,
+    chunk_name: object,
+    chunk_length: int,
+    data_offset: int,
+    from_error: object,
+    *,
+    setup_creator: Callable = create_manual_palette_setup,
+    editor_creator: Callable = create_manual_palette_editor,
+) -> ManualPaletteEditor:
+    setup = setup_creator(
+        build_manual_palette_setup_runtime_from_namespace(namespace),
+        build_manual_palette_setup_context_from_namespace(
+            namespace,
+            file,
+            chunk_name,
+            chunk_length,
+            data_offset,
+        ),
+    )
+    namespace["wanabyte"] = setup.session.wanabyte
+    namespace["palette_state"] = setup.session.state
+    namespace["Plte_Blst"] = setup.session.state.values
+    namespace["im"] = setup.image_array
+    namespace["pil_image"] = setup.pil_image
+
+    editor = editor_creator(
+        build_manual_palette_editor_runtime_from_namespace(namespace),
+        build_manual_palette_editor_context_from_namespace(
+            namespace,
+            setup,
+            chunk_length,
+            data_offset,
+            from_error,
+        ),
+    )
+    sync_manual_palette_editor_namespace(namespace, setup, editor)
+    return editor
 
 
 def guess_palette_count(
