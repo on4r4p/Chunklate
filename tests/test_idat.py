@@ -13,16 +13,38 @@ from chunklate import idat
 from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks, validate_png_structure
 
 
-def build_rgb_png(width, height, filtered_scanlines, *, idat_data=None, interlace=0):
+def build_rgb_png(width, height, filtered_scanlines, *, idat_data=None, idat_parts=None, interlace=0):
     ihdr = struct.pack("!IIBBBBB", width, height, 8, 2, 0, 0, interlace)
     if idat_data is None:
         idat_data = zlib.compress(filtered_scanlines)
+    if idat_parts is None:
+        idat_parts = (idat_data,)
     return (
         PNG_SIGNATURE
         + build_png_chunk(b"IHDR", ihdr)
-        + build_png_chunk(b"IDAT", idat_data)
+        + b"".join(build_png_chunk(b"IDAT", part) for part in idat_parts)
         + IEND_CHUNK
     )
+
+
+def split_bytes(data, *sizes):
+    parts = []
+    offset = 0
+    for size in sizes:
+        parts.append(data[offset:offset + size])
+        offset += size
+    parts.append(data[offset:])
+    return tuple(parts)
+
+
+def find_truncated_candidate(filtered, predicate, *, width=1, height=10):
+    compressed = zlib.compress(filtered, level=0)
+    for cut in range(2, len(compressed)):
+        candidate = build_rgb_png(width, height, filtered, idat_data=compressed[:cut])
+        analysis = idat.analyze_partial_idat(candidate)
+        if predicate(analysis):
+            return candidate, analysis
+    raise AssertionError("could not build truncated IDAT candidate")
 
 
 def test_dummy_scanline_preserves_legacy_sample_width():
@@ -99,18 +121,34 @@ def test_analyze_partial_idat_reports_complete_non_interlaced_stream():
     assert analysis.decompression_error == ""
 
 
+def test_analyze_partial_idat_concatenates_complete_multi_idat_stream():
+    filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
+    compressed = zlib.compress(filtered)
+    candidate = build_rgb_png(
+        1,
+        3,
+        filtered,
+        idat_data=compressed,
+        idat_parts=split_bytes(compressed, 2, 4),
+    )
+
+    analysis = idat.analyze_partial_idat(candidate)
+
+    assert analysis.supported is True
+    assert analysis.complete is True
+    assert analysis.partial is False
+    assert analysis.usable_scanlines == 3
+    assert analysis.recovered_scanlines == filtered
+    assert analysis.idat_stream_size == len(compressed)
+
+
 def test_analyze_partial_idat_keeps_good_scanlines_until_truncated_stream_error():
     filtered = b"".join(b"\x00" + bytes((row, row, row)) for row in range(10))
-    compressed = zlib.compress(filtered)
-    truncated = None
-    for cut in range(2, len(compressed)):
-        candidate = build_rgb_png(1, 10, filtered, idat_data=compressed[:cut])
-        analysis = idat.analyze_partial_idat(candidate)
-        if analysis.usable_scanlines > 0 and analysis.decompression_error:
-            truncated = analysis
-            break
+    _candidate, truncated = find_truncated_candidate(
+        filtered,
+        lambda analysis: analysis.usable_scanlines > 0 and analysis.decompression_error,
+    )
 
-    assert truncated is not None
     assert truncated.supported is True
     assert truncated.complete is False
     assert truncated.partial is True
@@ -119,13 +157,97 @@ def test_analyze_partial_idat_keeps_good_scanlines_until_truncated_stream_error(
     assert truncated.decompression_error == "incomplete zlib stream"
 
 
+def test_analyze_partial_idat_recovers_truncated_multi_idat_stream():
+    filtered = b"".join(b"\x00" + bytes((row, row, row)) for row in range(10))
+    compressed = zlib.compress(filtered, level=0)
+    split = max(3, len(compressed) // 3)
+    truncated_stream = compressed[:-3]
+    candidate = build_rgb_png(
+        1,
+        10,
+        filtered,
+        idat_data=truncated_stream,
+        idat_parts=split_bytes(truncated_stream, split, split),
+    )
+
+    analysis = idat.analyze_partial_idat(candidate)
+    repair = idat.rebuild_partial_idat_blackfill(candidate)
+
+    assert analysis.supported is True
+    assert analysis.complete is False
+    assert analysis.partial is True
+    assert analysis.usable_scanlines > 0
+    assert analysis.recovered_scanlines.startswith(filtered[:4])
+    assert analysis.decompression_error == "incomplete zlib stream"
+    assert repair is not None
+    assert validate_png_structure(repair.data).ok
+
+
+def test_analyze_partial_idat_reports_bad_adler_with_recovered_scanlines():
+    filtered = b"".join(b"\x00" + bytes((row, row, row)) for row in range(3))
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+
+    analysis = idat.analyze_partial_idat(build_rgb_png(1, 3, filtered, idat_data=bytes(compressed)))
+
+    assert analysis.supported is True
+    assert analysis.complete is False
+    assert analysis.partial is True
+    assert analysis.usable_scanlines == 3
+    assert analysis.recovered_scanlines == filtered
+    assert analysis.decompression_error
+
+
+def test_analyze_partial_idat_rejects_broken_zlib_header_without_scanlines():
+    filtered = b"\x00abc"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[0] = 0
+    compressed[1] = 0
+
+    analysis = idat.analyze_partial_idat(build_rgb_png(1, 1, filtered, idat_data=bytes(compressed)))
+
+    assert analysis.supported is True
+    assert analysis.complete is False
+    assert analysis.partial is False
+    assert analysis.usable_scanlines == 0
+    assert analysis.recovered_scanlines == b""
+    assert analysis.decompression_error
+    assert idat.rebuild_partial_idat_blackfill(build_rgb_png(1, 1, filtered, idat_data=bytes(compressed))) is None
+
+
+def test_analyze_partial_idat_discards_partial_scanline_tail():
+    scanline_size = 7
+    filtered = b"".join(
+        b"\x00" + bytes((row, row, row, row, row, row))
+        for row in range(4)
+    )
+    _candidate, analysis = find_truncated_candidate(
+        filtered,
+        lambda analysis: (
+            analysis.usable_scanlines >= 1
+            and analysis.decompression_error
+            and analysis.decompressed_size % scanline_size != 0
+        ),
+        width=2,
+        height=4,
+    )
+
+    assert analysis.complete is False
+    assert analysis.partial is True
+    assert analysis.complete_scanlines == analysis.usable_scanlines
+    assert len(analysis.recovered_scanlines) == analysis.usable_scanlines * scanline_size
+    assert analysis.recovered_scanlines == filtered[:len(analysis.recovered_scanlines)]
+
+
 def test_analyze_partial_idat_rejects_unsupported_interlace_before_repair_logic():
     filtered = b"\x00abc"
-    analysis = idat.analyze_partial_idat(build_rgb_png(1, 1, filtered, interlace=1))
+    candidate = build_rgb_png(1, 1, filtered, interlace=1)
+    analysis = idat.analyze_partial_idat(candidate)
 
     assert analysis.supported is False
     assert analysis.complete is False
     assert analysis.reason == "interlaced PNG is not supported"
+    assert idat.rebuild_partial_idat_blackfill(candidate) is None
 
 
 def test_analyze_partial_idat_reports_invalid_stream_without_scanlines():
@@ -186,8 +308,28 @@ def main():
             test_analyze_partial_idat_reports_complete_non_interlaced_stream,
         ),
         (
+            "Partial IDAT complete multi-IDAT stream",
+            test_analyze_partial_idat_concatenates_complete_multi_idat_stream,
+        ),
+        (
             "Partial IDAT truncated stream",
             test_analyze_partial_idat_keeps_good_scanlines_until_truncated_stream_error,
+        ),
+        (
+            "Partial IDAT truncated multi-IDAT stream",
+            test_analyze_partial_idat_recovers_truncated_multi_idat_stream,
+        ),
+        (
+            "Partial IDAT bad Adler",
+            test_analyze_partial_idat_reports_bad_adler_with_recovered_scanlines,
+        ),
+        (
+            "Partial IDAT broken zlib header",
+            test_analyze_partial_idat_rejects_broken_zlib_header_without_scanlines,
+        ),
+        (
+            "Partial IDAT scanline tail",
+            test_analyze_partial_idat_discards_partial_scanline_tail,
         ),
         (
             "Partial IDAT unsupported interlace",
