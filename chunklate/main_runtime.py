@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import cli
+from . import cli, runtime_state
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,22 @@ class MainCliOptionsState:
     sample: str
     cloneswar: Any
     crash: Any
+
+
+@dataclass(frozen=True)
+class MainLoopResetRuntime:
+    namespace: dict[str, Any]
+    reset_chunk_info_idat: Callable[[], Any]
+    sync_chunk_info_legacy_state: Callable[[str], Any]
+    banner: Callable[[int], Any]
+    scan_reset_values: Callable = runtime_state.main_loop_scan_reset_values
+    error_reset_values: Callable = runtime_state.main_loop_error_reset_values
+    history_reset_values: Callable = runtime_state.main_loop_history_reset_values
+
+
+@dataclass(frozen=True)
+class MainLoopResetState:
+    tmp_fix_ihdr: bool
 
 
 def apply_main_cli_options(
@@ -110,3 +126,19 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "CLONESWAR": options.cloneswar,
         "CRASH": options.crash,
     }
+
+
+def reset_main_loop_state(runtime: MainLoopResetRuntime) -> MainLoopResetState:
+    runtime.namespace.update(runtime.scan_reset_values())
+    runtime.reset_chunk_info_idat()
+    runtime.sync_chunk_info_legacy_state("idat")
+
+    runtime.namespace.update(runtime.error_reset_values())
+    tmp_fix_ihdr = False
+
+    runtime.namespace.update(runtime.history_reset_values())
+    runtime.reset_chunk_info_idat()
+    runtime.sync_chunk_info_legacy_state("idat")
+    runtime.banner(1)
+
+    return MainLoopResetState(tmp_fix_ihdr=tmp_fix_ihdr)

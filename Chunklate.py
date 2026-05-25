@@ -2032,16 +2032,16 @@ def main():
             sys.stderr.write("\033c")
         elif ClearDecision.action == "cls":
             os.system("cls")
-        globals().update(runtime_state.main_loop_scan_reset_values())
-        CHUNK_INFO_STATE.reset_idat()
-        Sync_Chunk_Info_Legacy_State("idat")
-        globals().update(runtime_state.main_loop_error_reset_values())
-        TmpFixIHDR = False
-        globals().update(runtime_state.main_loop_history_reset_values())
-        CHUNK_INFO_STATE.reset_idat()
-        Sync_Chunk_Info_Legacy_State("idat")
+        MainLoopReset = main_runtime.reset_main_loop_state(
+            main_runtime.MainLoopResetRuntime(
+                namespace=globals(),
+                reset_chunk_info_idat=CHUNK_INFO_STATE.reset_idat,
+                sync_chunk_info_legacy_state=Sync_Chunk_Info_Legacy_State,
+                banner=Chunklate,
+            )
+        )
+        TmpFixIHDR = MainLoopReset.tmp_fix_ihdr
         # IFOP = []
-        Chunklate(1)
 
         SampleSelection = runtime_state.select_sample(
             Sample,

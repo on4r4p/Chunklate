@@ -207,6 +207,59 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
     }
 
 
+def test_reset_main_loop_state_updates_legacy_globals_and_preserves_local_tmp_fixihdr():
+    calls = []
+    namespace = {"TmpFixIHDR": "global value"}
+
+    reset_state = main_runtime.reset_main_loop_state(
+        main_runtime.MainLoopResetRuntime(
+            namespace=namespace,
+            reset_chunk_info_idat=lambda: calls.append(("reset_idat",)),
+            sync_chunk_info_legacy_state=lambda section: calls.append(("sync", section)),
+            banner=lambda mode: calls.append(("banner", mode)),
+        )
+    )
+
+    assert reset_state == main_runtime.MainLoopResetState(tmp_fix_ihdr=False)
+    assert namespace["IBN"] == 0
+    assert namespace["IDAT_Datastream"] == ""
+    assert namespace["Bad_Crc"] is False
+    assert namespace["EOF"] is False
+    assert namespace["Chunks_History"] == []
+    assert namespace["PandoraBox"] == {}
+    assert namespace["TmpFixIHDR"] == "global value"
+    assert calls == [
+        ("reset_idat",),
+        ("sync", "idat"),
+        ("reset_idat",),
+        ("sync", "idat"),
+        ("banner", 1),
+    ]
+
+
+def test_reset_main_loop_state_uses_fresh_history_containers_each_time():
+    namespace = {}
+    runtime = main_runtime.MainLoopResetRuntime(
+        namespace=namespace,
+        reset_chunk_info_idat=lambda: None,
+        sync_chunk_info_legacy_state=lambda section: None,
+        banner=lambda mode: None,
+    )
+
+    main_runtime.reset_main_loop_state(runtime)
+    first_history = namespace["Chunks_History"]
+    first_pandora = namespace["PandoraBox"]
+    first_history.append(b"IHDR")
+    first_pandora["error"] = "value"
+
+    main_runtime.reset_main_loop_state(runtime)
+
+    assert namespace["Chunks_History"] == []
+    assert namespace["Chunks_History"] is not first_history
+    assert namespace["PandoraBox"] == {}
+    assert namespace["PandoraBox"] is not first_pandora
+
+
 def main():
     checks = [
         ("main options state", test_apply_main_cli_options_builds_initial_state),
@@ -216,6 +269,8 @@ def main():
         ("missing filename", test_apply_main_cli_options_exits_without_filename),
         ("bad max saves", test_apply_main_cli_options_exits_on_bad_max_saves),
         ("legacy globals", test_legacy_globals_from_main_cli_options_maps_runtime_flags),
+        ("loop reset state", test_reset_main_loop_state_updates_legacy_globals_and_preserves_local_tmp_fixihdr),
+        ("loop reset fresh containers", test_reset_main_loop_state_uses_fresh_history_containers_each_time),
     ]
 
     print("Running main runtime tests")
