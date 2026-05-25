@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, magic_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, history, libpng_check, magic_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -1719,58 +1719,17 @@ def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
 
 
 def SpecLength(chunk_name, chunk_length=None):
-    global SideNotes
-
-    if chunk_length:
-        Candy("Title", "Get Length from Spec:")
-        Candy("Cowsay", "Kay ..Just Checking if the length part is legit..", "com")
-
-
-    chunklen_spec = GetSpec(chunk_name,"Spec",Fields=["Length"])[0]
-
-    if type(chunklen_spec) == tuple:
-          PRINT(Candy("Color", "yellow", "\n-ToDotuple"))
-          TheEnd()
-    else:
-          LengthCheck = specs.check_spec_length(chunklen_spec, chunk_length)
-          real_length = LengthCheck.real_length
-          if not LengthCheck.has_provided_length:
-                return LengthCheck.returned_length
-
-          PRINT("-Real %s Length: %s " % (chunk_name, real_length))
-          if LengthCheck.matches:
-                Candy(
-                    "Cowsay",
-                    "Looks good to me !",
-                    "good",
-                    )
-                SideNotes.append(
-                    "-SpecLength:Giving correct length:  %s -"
-                    % chunk_length
-                    )
-                return LengthCheck.returned_length
-          else:
-                PRINT(
-                    "-Given %s Length was : %s "
-                    % (chunk_name, chunk_length)
-                    )
-                Candy(
-                       "Cowsay",
-                       "Length part is corrupted!",
-                       "bad",
-                        )
-                SideNotes.append(
-                    "-SpecLength:Giving correct length:  %s -" % real_length
-                    )
-                PRINT("\n-Returning correct fixed length :%s"% real_length)
-                return LengthCheck.returned_length
-
-                                # PRINT("Chunk:%s"%key)
-                                # PRINT("name:%s value:%s"%(name,value))
-                                # PRINT("min:%s, max:%s"%(value[0],value[1]))
-    PRINT(Candy("Color", "yellow", "\n-Requested Spec %s has not been found."%chunk_name))
-    PRINT(Candy("Color", "yellow", "\n-ToDo"))
-    TheEnd()
+    return spec_length_runtime.run_spec_length(
+        spec_length_runtime.SpecLengthRuntime(
+            candy=Candy,
+            emit=PRINT,
+            end=TheEnd,
+            get_spec=GetSpec,
+            side_notes=SideNotes,
+        ),
+        chunk_name,
+        chunk_length,
+    )
 
 
 def CheckLength(Cdata, Clen, Ctype):
