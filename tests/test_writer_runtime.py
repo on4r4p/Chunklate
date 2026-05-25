@@ -78,6 +78,50 @@ def base_context(**updates):
     return writer_runtime.WriteCloneContext(**values)
 
 
+def test_write_clone_builders_wire_namespace_and_context():
+    calls = []
+    side_notes = []
+    namespace = {
+        "FILE_Origin": "sample.png",
+        "FILE_DIR": "/tmp",
+        "SAVE_COUNT": 3,
+        "MAX_SAVES": 5,
+        "PAUSE": True,
+        "Sample": "old.png",
+        "Have_A_KitKat": False,
+    }
+
+    runtime = writer_runtime.build_write_clone_runtime(
+        namespace=namespace,
+        remember_current_sample=lambda: calls.append(("remember",)),
+        betterror=lambda error, name: calls.append(("betterror", str(error), name)),
+        end=lambda: calls.append(("end",)),
+        candy=lambda kind, *args: "<%s:%s>" % (args[0], args[1]) if kind == "Color" else "candy",
+        emit=lambda message: calls.append(("emit", message)),
+        pause=lambda message: calls.append(("pause", message)),
+        summarise=lambda infos: calls.append(("summarise", infos)),
+        exit_process=lambda code: calls.append(("exit", code)),
+        side_notes=side_notes,
+        prepare_clone_write=lambda *args: calls.append(("prepare", args)) or clone_plan(save_count=4),
+        write_prepared_clone=lambda plan: calls.append(("write", plan)),
+    )
+    context = writer_runtime.build_write_clone_context(namespace)
+
+    assert context == writer_runtime.WriteCloneContext(
+        file_origin="sample.png",
+        file_dir="/tmp",
+        save_count=3,
+        max_saves=5,
+        pause_enabled=True,
+    )
+    writer_runtime.run_write_clone(runtime, context, "89504e47", "summary")
+
+    assert namespace["Sample"] == "/tmp/Folder_sample/sample.0_Fixed.png"
+    assert namespace["SAVE_COUNT"] == 4
+    assert namespace["Have_A_KitKat"] is True
+    assert side_notes == ["-Saving to : /tmp/Folder_sample/sample.0_Fixed.png"]
+
+
 def test_write_clone_runtime_writes_updates_state_and_summarises():
     calls = []
     side_notes = []
@@ -209,6 +253,7 @@ def test_run_save_clone_preserves_bad_hex_error_path_before_write():
 
 def main():
     checks = [
+        ("Write builders", test_write_clone_builders_wire_namespace_and_context),
         ("Write and state", test_write_clone_runtime_writes_updates_state_and_summarises),
         ("Pause and max saves", test_write_clone_runtime_preserves_pause_and_max_saves_exit),
         ("Prepare error", test_write_clone_runtime_prepare_error_routes_betterror_and_end),

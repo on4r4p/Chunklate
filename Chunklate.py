@@ -1451,27 +1451,10 @@ def SaveClone(DataFix, start, end, infos):
 
 
 def WriteClone(data,infos):
-    global Sample
-    global Have_A_KitKat
-    global SAVE_COUNT
-
-    def set_sample(value):
-        global Sample
-        Sample = value
-
-    def set_save_count(value):
-        global SAVE_COUNT
-        SAVE_COUNT = value
-
-    def set_have_a_kitkat(value):
-        global Have_A_KitKat
-        Have_A_KitKat = value
-
     return writer_runtime.run_write_clone(
-        writer_runtime.WriteCloneRuntime(
+        writer_runtime.build_write_clone_runtime(
+            namespace=globals(),
             remember_current_sample=Pandemonium_Remember_Current_Sample,
-            prepare_clone_write=writer.prepare_clone_write,
-            write_prepared_clone=writer.write_prepared_clone,
             betterror=Betterror,
             end=TheEnd,
             candy=Candy,
@@ -1479,18 +1462,9 @@ def WriteClone(data,infos):
             pause=Pause,
             summarise=Summarise,
             exit_process=sys.exit,
-            set_sample=set_sample,
-            set_save_count=set_save_count,
-            set_have_a_kitkat=set_have_a_kitkat,
             side_notes=SideNotes,
         ),
-        writer_runtime.WriteCloneContext(
-            file_origin=FILE_Origin,
-            file_dir=FILE_DIR,
-            save_count=SAVE_COUNT,
-            max_saves=MAX_SAVES,
-            pause_enabled=PAUSE,
-        ),
+        writer_runtime.build_write_clone_context(globals()),
         data,
         infos,
     )

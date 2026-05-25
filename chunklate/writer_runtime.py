@@ -49,6 +49,49 @@ class ClonePatchRuntime:
     replace_hex_range: LegacyCall = writer.replace_hex_range
 
 
+def build_write_clone_runtime(
+    *,
+    namespace: dict[str, Any],
+    remember_current_sample: LegacyCall,
+    betterror: LegacyCall,
+    end: LegacyCall,
+    candy: LegacyCall,
+    emit: LegacyCall,
+    pause: LegacyCall,
+    summarise: LegacyCall,
+    exit_process: Callable[[int], Any],
+    side_notes: MutableSequence[str],
+    prepare_clone_write: LegacyCall = writer.prepare_clone_write,
+    write_prepared_clone: LegacyCall = writer.write_prepared_clone,
+) -> WriteCloneRuntime:
+    return WriteCloneRuntime(
+        remember_current_sample=remember_current_sample,
+        prepare_clone_write=prepare_clone_write,
+        write_prepared_clone=write_prepared_clone,
+        betterror=betterror,
+        end=end,
+        candy=candy,
+        emit=emit,
+        pause=pause,
+        summarise=summarise,
+        exit_process=exit_process,
+        set_sample=lambda value: namespace.__setitem__("Sample", value),
+        set_save_count=lambda value: namespace.__setitem__("SAVE_COUNT", value),
+        set_have_a_kitkat=lambda value: namespace.__setitem__("Have_A_KitKat", value),
+        side_notes=side_notes,
+    )
+
+
+def build_write_clone_context(namespace: dict[str, Any]) -> WriteCloneContext:
+    return WriteCloneContext(
+        file_origin=namespace["FILE_Origin"],
+        file_dir=namespace["FILE_DIR"],
+        save_count=namespace["SAVE_COUNT"],
+        max_saves=namespace["MAX_SAVES"],
+        pause_enabled=namespace["PAUSE"],
+    )
+
+
 def run_write_clone(
     runtime: WriteCloneRuntime,
     context: WriteCloneContext,
