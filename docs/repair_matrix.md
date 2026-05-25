@@ -25,6 +25,11 @@ number of `IDAT` chunks, decompressed `IDAT` size, and exact `PLTE` size.
 : order `IHDR,gAMA,IDAT,IEND`, dimensions `32x32`, no `PLTE`, non-zero
   `gAMA`, one decompressible `IDAT` with decompressed length `6176`.
 
+`32x32 indexed, 4-bit palette`
+: order `IHDR,gAMA,sBIT,PLTE,IDAT,IEND`, dimensions `32x32`, `PLTE`
+  length `48`, one decompressible `IDAT` with decompressed length `544`,
+  non-zero `gAMA`.
+
 `260x195`
 : order `IHDR,gAMA,cHRM,bKGD,tIME,IDAT*2,tEXt*2,IEND`, dimensions `260x195`,
   two `IDAT` chunks with decompressed length `202995`, non-zero `gAMA`.
@@ -78,6 +83,8 @@ number of `IDAT` chunks, decompressed `IDAT` size, and exact `PLTE` size.
 | `No_Png_Header_Missing_Chunk_Corrupted.png` | missing PNG signature and missing/corrupted IHDR | rebuild missing IHDR | 32x32 indexed with `hIST` present |
 | `PLTE_Empty_Bad_Crc.png` | empty PLTE with bad CRC | repair empty PLTE | 32x32 no PLTE |
 | `PLTE_Empty_Good_Crc.png` | empty PLTE with valid CRC | repair empty PLTE | 32x32 indexed |
+| `plte_length_mod_three.png` | PLTE length is not divisible by three | rebuild malformed indexed PLTE | 32x32 indexed |
+| `plte_too_many_entries.png` | PLTE contains too many entries for indexed bit depth | truncate indexed PLTE | 32x32 indexed, 4-bit palette |
 | `Private_Critical_Chunk_Bad_Crc.png` | unknown private critical chunk with bad CRC | remove unsafe private critical chunk | 32x32 indexed without `baMA` |
 | `Private_Critical_Chunk_Crc_Valid.png` | unknown private critical chunk with valid CRC | remove unsafe private critical chunk | 32x32 indexed without `baMA` |
 | `Wrong-Chunk-Name-Bad-Crc.png` | wrong chunk name with bad CRC | repair chunk name | 1642x1095 |
