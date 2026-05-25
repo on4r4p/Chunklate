@@ -91,6 +91,12 @@ def run_validator(validator: str, context: RepairValidationContext) -> list[str]
         return validate_ihdr_dimensions(context, argument)
     if name == "idat_decompressed_len":
         return validate_idat_decompressed_len(context, argument)
+    if name == "idat_chunk_count":
+        return validate_idat_chunk_count(context, argument)
+    if name == "chunk_order_exact":
+        return validate_chunk_order_exact(context, argument)
+    if name == "plte_len":
+        return validate_plte_len(context, argument)
     if name == "has_chunk":
         return validate_has_chunk(context, argument)
     if name == "missing_chunk":
@@ -148,6 +154,18 @@ def validate_idat_decompressed_len(context: RepairValidationContext, expected: s
     return []
 
 
+def validate_idat_chunk_count(context: RepairValidationContext, expected: str) -> list[str]:
+    chunks = read_chunks(context)
+    if isinstance(chunks, Exception):
+        return ["cannot count IDAT chunks: %s" % chunks]
+
+    expected_count = int(expected)
+    actual_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    if actual_count != expected_count:
+        return ["expected %s IDAT chunks, got %s" % (expected_count, actual_count)]
+    return []
+
+
 def decompress_idat(context: RepairValidationContext) -> tuple[list[str], bytes]:
     chunks = read_chunks(context)
     if isinstance(chunks, Exception):
@@ -176,6 +194,18 @@ def validate_plte_non_empty(context: RepairValidationContext) -> list[str]:
     return []
 
 
+def validate_plte_len(context: RepairValidationContext, expected: str) -> list[str]:
+    chunks = read_chunks(context)
+    if isinstance(chunks, Exception):
+        return ["cannot read PLTE chunk: %s" % chunks]
+
+    expected_len = int(expected)
+    plte_lengths = [len(chunk.data) for chunk in chunks if chunk.chunk_type == b"PLTE"]
+    if plte_lengths != [expected_len]:
+        return ["expected one PLTE length %s, got %s" % (expected_len, plte_lengths)]
+    return []
+
+
 def validate_gama_non_zero(context: RepairValidationContext) -> list[str]:
     chunks = read_chunks(context)
     if isinstance(chunks, Exception):
@@ -191,6 +221,50 @@ def validate_gama_non_zero(context: RepairValidationContext) -> list[str]:
     if any(value == 0 for value in gama_values):
         return ["gAMA value is still zero"]
     return []
+
+
+def validate_chunk_order_exact(context: RepairValidationContext, expected: str) -> list[str]:
+    chunks = read_chunks(context)
+    if isinstance(chunks, Exception):
+        return ["cannot read chunk order: %s" % chunks]
+
+    try:
+        expected_names = expand_chunk_order_spec(expected)
+    except ValueError as exc:
+        return ["invalid chunk_order_exact spec %r: %s" % (expected, exc)]
+
+    actual_names = [chunk.chunk_type for chunk in chunks]
+    if actual_names != expected_names:
+        return [
+            "expected chunk order %s, got %s"
+            % (format_chunk_names(expected_names), format_chunk_names(actual_names))
+        ]
+    return []
+
+
+def expand_chunk_order_spec(spec: str) -> list[bytes]:
+    names: list[bytes] = []
+    for raw_token in spec.split(","):
+        token = raw_token.strip()
+        if not token:
+            raise ValueError("empty chunk name")
+
+        name, separator, count_text = token.partition("*")
+        if separator:
+            count = int(count_text)
+        else:
+            count = 1
+        if count < 1:
+            raise ValueError("repeat count must be positive")
+        if len(name) != 4:
+            raise ValueError("chunk name %r is not 4 bytes" % name)
+
+        names.extend([name.encode()] * count)
+    return names
+
+
+def format_chunk_names(names: list[bytes]) -> str:
+    return ",".join(name.decode("latin1") for name in names)
 
 
 def validate_has_chunk(context: RepairValidationContext, chunk_name: str) -> list[str]:
