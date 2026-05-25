@@ -234,3 +234,66 @@ def run_legacy_full_chunk_forcer_no_crc(
         return run_success(runtime, context, candidate)
 
     return run_failure(runtime, context)
+
+
+def build_full_chunk_forcer_runtime_from_namespace(namespace: dict[str, Any]) -> FullChunkForcerRuntime:
+    return FullChunkForcerRuntime(
+        emit=namespace["PRINT"],
+        candy=namespace["Candy"],
+        checkpoint=namespace["CheckPoint"],
+        side_notes=namespace["SideNotes"],
+        minibar=namespace["Minibar"],
+        pause=namespace["Pause"],
+        end=namespace["TheEnd"],
+        save_error=lambda error, def_name: namespace["Betterror"](error, def_name),
+        cv2=namespace["cv2"],
+        numpy=namespace["np"],
+        stderr_redirector=namespace["stderr_redirector"],
+    )
+
+
+def build_full_chunk_forcer_context_from_namespace(
+    namespace: dict[str, Any],
+    file: Any,
+    chunk: bytes,
+    data_offset: int,
+    chunk_length: int,
+    from_error: Any,
+) -> FullChunkForcerContext:
+    return FullChunkForcerContext(
+        file=file,
+        chunk=chunk,
+        data_offset=data_offset,
+        chunk_length=chunk_length,
+        from_error=from_error,
+        sample_path=namespace["Sample"],
+        data_hex=namespace["DATAX"],
+        debug=namespace["DEBUG"],
+        pause_debug=namespace["PAUSEDEBUG"],
+        pause_error=namespace["PAUSEERROR"],
+    )
+
+
+def run_full_chunk_forcer_no_crc_from_namespace(
+    namespace: dict[str, Any],
+    file: Any,
+    chunk: Any,
+    data_offset: int,
+    chunk_length: int,
+    from_error: Any,
+    *,
+    runner: LegacyCall = run_legacy_full_chunk_forcer_no_crc,
+) -> Any:
+    namespace["Candy"]("Title", "Attempting To Repair Corrupted Chunk Data:")
+    chunk = chunk.encode(errors="ignore")
+    return runner(
+        build_full_chunk_forcer_runtime_from_namespace(namespace),
+        build_full_chunk_forcer_context_from_namespace(
+            namespace,
+            file,
+            chunk,
+            data_offset,
+            chunk_length,
+            from_error,
+        ),
+    )

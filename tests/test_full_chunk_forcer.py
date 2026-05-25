@@ -230,12 +230,77 @@ def test_full_chunk_forcer_read_error_calls_end_without_checkpoint():
     assert not [call for call in calls if call[0] == "checkpoint"]
 
 
+def test_full_chunk_forcer_namespace_bridge_preserves_legacy_wiring_and_title():
+    calls = []
+    side_notes = []
+    namespace = {
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Candy": lambda *args: calls.append(("candy", args)) or "candy",
+        "CheckPoint": lambda *args: calls.append(("checkpoint", args)),
+        "SideNotes": side_notes,
+        "Minibar": lambda: calls.append(("minibar",)),
+        "Pause": lambda message: calls.append(("pause", message)),
+        "TheEnd": lambda: calls.append(("end",)),
+        "Betterror": lambda *args: calls.append(("betterror", args)),
+        "cv2": "cv2",
+        "np": "np",
+        "stderr_redirector": "redirector",
+        "Sample": "sample.png",
+        "DATAX": "001122",
+        "DEBUG": True,
+        "PAUSEDEBUG": False,
+        "PAUSEERROR": True,
+    }
+
+    def runner(runtime, context):
+        assert runtime.emit is namespace["PRINT"]
+        assert runtime.candy is namespace["Candy"]
+        assert runtime.checkpoint is namespace["CheckPoint"]
+        assert runtime.side_notes is side_notes
+        assert runtime.minibar is namespace["Minibar"]
+        assert runtime.pause is namespace["Pause"]
+        assert runtime.end is namespace["TheEnd"]
+        runtime.save_error(ValueError("boom"), "Name")
+        assert runtime.cv2 == "cv2"
+        assert runtime.numpy == "np"
+        assert runtime.stderr_redirector == "redirector"
+        assert context.file == "broken.png"
+        assert context.chunk == b"gAMA"
+        assert context.data_offset == 8
+        assert context.chunk_length == 24
+        assert context.from_error == "Relics"
+        assert context.sample_path == "sample.png"
+        assert context.data_hex == "001122"
+        assert context.debug is True
+        assert context.pause_debug is False
+        assert context.pause_error is True
+        return "forced"
+
+    result = full_chunk_forcer.run_full_chunk_forcer_no_crc_from_namespace(
+        namespace,
+        "broken.png",
+        "gAMA",
+        8,
+        24,
+        "Relics",
+        runner=runner,
+    )
+
+    assert result == "forced"
+    assert ("candy", ("Title", "Attempting To Repair Corrupted Chunk Data:")) in calls
+    betterror_call = next(call for call in calls if call[0] == "betterror")
+    assert isinstance(betterror_call[1][0], ValueError)
+    assert str(betterror_call[1][0]) == "boom"
+    assert betterror_call[1][1] == "Name"
+
+
 def main():
     checks = [
         ("Build candidate", test_build_candidate_preserves_legacy_slices_and_crc),
         ("Success checkpoint", test_full_chunk_forcer_success_routes_checkpoint_and_side_note),
         ("Failure checkpoint", test_full_chunk_forcer_failure_routes_theend_and_checkpoint),
         ("Read error", test_full_chunk_forcer_read_error_calls_end_without_checkpoint),
+        ("Namespace bridge", test_full_chunk_forcer_namespace_bridge_preserves_legacy_wiring_and_title),
     ]
 
     print("Running full chunk forcer tests")

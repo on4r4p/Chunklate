@@ -830,35 +830,13 @@ def SmashBruteBrawl(
 def FullChunkForcerNoCrc(
     File, Chunk, DataOffset, ChunkLength, FromError
 ):  ## need to be merged with SmashBruteBrawl
-    global SideNotes
-    Candy("Title", "Attempting To Repair Corrupted Chunk Data:")
-    Chunk = Chunk.encode(errors="ignore")
-    return full_chunk_forcer.run_legacy_full_chunk_forcer_no_crc(
-        full_chunk_forcer.FullChunkForcerRuntime(
-            emit=PRINT,
-            candy=Candy,
-            checkpoint=CheckPoint,
-            side_notes=SideNotes,
-            minibar=Minibar,
-            pause=Pause,
-            end=TheEnd,
-            save_error=lambda error, def_name: Betterror(error, def_name),
-            cv2=cv2,
-            numpy=np,
-            stderr_redirector=stderr_redirector,
-        ),
-        full_chunk_forcer.FullChunkForcerContext(
-            file=File,
-            chunk=Chunk,
-            data_offset=DataOffset,
-            chunk_length=ChunkLength,
-            from_error=FromError,
-            sample_path=Sample,
-            data_hex=DATAX,
-            debug=DEBUG,
-            pause_debug=PAUSEDEBUG,
-            pause_error=PAUSEERROR,
-        ),
+    return full_chunk_forcer.run_full_chunk_forcer_no_crc_from_namespace(
+        globals(),
+        File,
+        Chunk,
+        DataOffset,
+        ChunkLength,
+        FromError,
     )
 
 
