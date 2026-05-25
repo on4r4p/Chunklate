@@ -10,6 +10,12 @@ if str(ROOT) not in sys.path:
 from chunklate import getspec_runtime, specs
 
 
+class FakeDateTime:
+    @classmethod
+    def now(cls):
+        return type("Now", (), {"year": 2030})()
+
+
 def build_runtime(calls, *, idat_count=640, max_resolution=100):
     def candy(kind, *args):
         calls.append(("candy", (kind,) + args))
@@ -139,6 +145,78 @@ def test_getspec_runtime_resolve_error_routes_legacy_debug_pause_and_end():
     assert ("end",) in calls
 
 
+def test_getspec_namespace_helper_builds_runtime_context_and_preserves_args():
+    calls = []
+    namespace = {
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Candy": lambda *args: calls.append(("candy", args)) or "candy",
+        "Betterror": lambda *args: calls.append(("betterror", args)),
+        "Pause": lambda message: calls.append(("pause", message)),
+        "TheEnd": lambda: calls.append(("end",)),
+        "Max_Res": lambda: calls.append(("max_resolution",)) or 500,
+        "IDAT_Bytes_Nbr": lambda: calls.append(("idat_bytes",)) or 640,
+        "datetime": FakeDateTime,
+        "IBN": 123,
+        "Brute_LvL": 4,
+        "IHDR_Color": "3",
+        "IHDR_Height": 20,
+        "IHDR_Width": 30,
+        "PandoraBox": {"pandora": True},
+        "Cornucopia": {"corn": True},
+        "Pandemonium": {"panic": True},
+        "ALLCHUNKS": [b"IHDR", b"IDAT"],
+        "Skip_Bad_Crc": True,
+        "DEBUG": True,
+        "PAUSEDEBUG": False,
+        "PAUSEERROR": True,
+    }
+
+    def runner(runtime, context, get_chunk, mode, fields, struct_index, iter_count):
+        assert runtime.emit is namespace["PRINT"]
+        assert runtime.candy is namespace["Candy"]
+        assert runtime.betterror is namespace["Betterror"]
+        assert runtime.pause is namespace["Pause"]
+        assert runtime.end is namespace["TheEnd"]
+        assert runtime.max_resolution() == 500
+        assert runtime.refresh_idat_byte_count() == 640
+        assert runtime.current_year() == 2030
+        assert context.idat_byte_count == 123
+        assert context.brute_level == 4
+        assert context.ihdr_color == "3"
+        assert context.ihdr_height == 20
+        assert context.ihdr_width == 30
+        assert context.pandora_box == {"pandora": True}
+        assert context.cornucopia == {"corn": True}
+        assert context.pandemonium == {"panic": True}
+        assert context.allchunks == (b"IHDR", b"IDAT")
+        assert context.skip_bad_crc is True
+        assert context.debug is True
+        assert context.pause_debug is False
+        assert context.pause_error is True
+        assert (get_chunk, mode, fields, struct_index, iter_count) == (
+            b"IHDR",
+            "Spec",
+            ["Length"],
+            1,
+            2,
+        )
+        return "spec"
+
+    result = getspec_runtime.run_getspec_from_namespace(
+        namespace,
+        b"IHDR",
+        "Spec",
+        ["Length"],
+        1,
+        2,
+        runner=runner,
+    )
+
+    assert result == "spec"
+    assert ("max_resolution",) in calls
+    assert ("idat_bytes",) in calls
+
+
 def main():
     checks = [
         ("Resolved spec", test_getspec_runtime_returns_resolved_spec_fields),
@@ -146,6 +224,7 @@ def main():
         ("Debug output", test_getspec_runtime_preserves_debug_output),
         ("Missing spec", test_getspec_runtime_missing_spec_emits_legacy_todo),
         ("Resolve error", test_getspec_runtime_resolve_error_routes_legacy_debug_pause_and_end),
+        ("Namespace bridge", test_getspec_namespace_helper_builds_runtime_context_and_preserves_args),
     ]
 
     print("Running GetSpec runtime tests")

@@ -125,3 +125,55 @@ def run_getspec(
     runtime.emit("GetChunk:%s" % get_chunk)
     runtime.emit(runtime.candy("Color", "yellow", "\n-ToDo"))
     return None
+
+
+def build_getspec_runtime_from_namespace(namespace: dict[str, Any]) -> GetSpecRuntime:
+    return GetSpecRuntime(
+        emit=namespace["PRINT"],
+        candy=namespace["Candy"],
+        betterror=namespace["Betterror"],
+        pause=namespace["Pause"],
+        end=namespace["TheEnd"],
+        max_resolution=namespace["Max_Res"],
+        refresh_idat_byte_count=namespace["IDAT_Bytes_Nbr"],
+        current_year=lambda: namespace["datetime"].now().year,
+    )
+
+
+def build_getspec_context_from_namespace(namespace: dict[str, Any]) -> GetSpecContext:
+    return GetSpecContext(
+        idat_byte_count=namespace["IBN"],
+        brute_level=namespace["Brute_LvL"],
+        ihdr_color=namespace["IHDR_Color"],
+        ihdr_height=namespace["IHDR_Height"],
+        ihdr_width=namespace["IHDR_Width"],
+        pandora_box=namespace["PandoraBox"],
+        cornucopia=namespace["Cornucopia"],
+        pandemonium=namespace["Pandemonium"],
+        allchunks=tuple(namespace["ALLCHUNKS"]),
+        skip_bad_crc=namespace["Skip_Bad_Crc"],
+        debug=namespace["DEBUG"],
+        pause_debug=namespace["PAUSEDEBUG"],
+        pause_error=namespace["PAUSEERROR"],
+    )
+
+
+def run_getspec_from_namespace(
+    namespace: dict[str, Any],
+    get_chunk: bytes,
+    mode: str,
+    fields: list[str] | tuple[str, ...] = ("All",),
+    struct_index: Any = None,
+    iter_count: int = 1,
+    *,
+    runner: LegacyCall = run_getspec,
+) -> Any:
+    return runner(
+        build_getspec_runtime_from_namespace(namespace),
+        build_getspec_context_from_namespace(namespace),
+        get_chunk,
+        mode,
+        fields,
+        struct_index,
+        iter_count,
+    )

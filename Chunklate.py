@@ -208,32 +208,8 @@ def Max_Res():
 
 
 def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
-    return getspec_runtime.run_getspec(
-        getspec_runtime.GetSpecRuntime(
-            emit=PRINT,
-            candy=Candy,
-            betterror=Betterror,
-            pause=Pause,
-            end=TheEnd,
-            max_resolution=Max_Res,
-            refresh_idat_byte_count=IDAT_Bytes_Nbr,
-            current_year=lambda: datetime.now().year,
-        ),
-        getspec_runtime.GetSpecContext(
-            idat_byte_count=IBN,
-            brute_level=Brute_LvL,
-            ihdr_color=IHDR_Color,
-            ihdr_height=IHDR_Height,
-            ihdr_width=IHDR_Width,
-            pandora_box=PandoraBox,
-            cornucopia=Cornucopia,
-            pandemonium=Pandemonium,
-            allchunks=tuple(ALLCHUNKS),
-            skip_bad_crc=Skip_Bad_Crc,
-            debug=DEBUG,
-            pause_debug=PAUSEDEBUG,
-            pause_error=PAUSEERROR,
-        ),
+    return getspec_runtime.run_getspec_from_namespace(
+        globals(),
         GetChunk,
         Mode,
         Fields,
