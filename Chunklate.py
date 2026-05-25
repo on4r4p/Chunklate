@@ -1901,67 +1901,12 @@ def PRINT(msg):
 #        print(msg)
 
 def main():
-    global IDAT_Bytes_Len
-    global IBN
-    global IDAT_Datastream
-    global idatcounter
     global FirStart
-    global FILE_Origin
-    global CLEAR
-    global CRASH
-    global PAUSE
-    global DEBUG
-    global PAUSEDEBUG
-    global PAUSEERROR
-    global PAUSEDIALOGUE
-    global NODIALOGUE
-    global AUTO
     global CLONESWAR
-    global Bad_Ancillary
-    global FILE_DIR
     global DATAX
     global DATA_BYTES
-    global ERRORSFLAG
-    global PandoraBox
-    global Cornucopia
-    global IDAT_Bytes_Len_History
-    global IDAT_Avg_Len
-    global Chunks_History
-    global Chunks_History_Index
-    global Bytes_History
-    global Loading_txt
-    global Bad_No_Next_Chunk
-    global Bad_Current_Name
-    global Bad_Ancillary
-    global Bad_Next_Name
-    global Bad_Next_Ancillary
-    global Bad_Infos
-    global Bad_Length
-    global Bad_Crc
-    global Bad_Missplaced
-    global Bad_Critical
-    global Bad_Libpng
-    global Skip_Bad_Current_Name
-    global Skip_Bad_Ancillary
-    global Skip_Bad_No_Next_Chunk
-    global Skip_Bad_Next_Name
-    global Skip_Bad_Next_Ancillary
-    global Skip_Bad_Infos
-    global Skip_Bad_Length
-    global Skip_Bad_Crc
-    global Skip_Bad_Missplaced
-    global Skip_Bad_Critical
-    global Skip_Bad_Libpng
-    global EOF
-    global IFOP
-    global Show_Must_Go_On
-    global SideNotes
     global Sample
     global Sample_Name
-    global Have_A_KitKat
-    global StopBar
-    global MAX_SAVES
-    global SAVE_COUNT
 
     parser = cli.configure_parser(ArgumentParser())
 
@@ -2049,10 +1994,6 @@ def main():
                 data_hex=DATAX,
             ),
         )
-
-        # print("Reached End of %s\n"%Sample_Name)
-        # CheckChunkOrder(b'IEND',"Critical")
-        # TheEnd()
 
 
 ###

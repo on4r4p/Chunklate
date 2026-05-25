@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import ast
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -70,6 +71,34 @@ def apply_options(calls, parsed_args=None, unknown=(), argv_len=2):
         current_cloneswar=False,
         current_crash=False,
     )
+
+
+def chunklate_main_node():
+    module = ast.parse((ROOT / "Chunklate.py").read_text())
+    for node in module.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "main":
+            return node
+    raise AssertionError("Chunklate.main not found")
+
+
+def test_chunklate_main_keeps_only_direct_assignment_globals_and_no_dead_reached_end_comment():
+    source = (ROOT / "Chunklate.py").read_text()
+    main_node = chunklate_main_node()
+    global_names = []
+    for node in ast.walk(main_node):
+        if isinstance(node, ast.Global):
+            global_names.extend(node.names)
+
+    assert global_names == [
+        "FirStart",
+        "CLONESWAR",
+        "DATAX",
+        "DATA_BYTES",
+        "Sample",
+        "Sample_Name",
+    ]
+    assert "Reached End" not in source
+    assert "CheckChunkOrder(b'IEND',\"Critical\")" not in source
 
 
 def test_build_main_runtime_helpers_wire_callbacks():
@@ -517,6 +546,7 @@ def test_run_main_chunk_walk_stops_when_kitkat_breaks():
 
 def main():
     checks = [
+        ("main cleanup boundary", test_chunklate_main_keeps_only_direct_assignment_globals_and_no_dead_reached_end_comment),
         ("runtime builders", test_build_main_runtime_helpers_wire_callbacks),
         ("main options state", test_apply_main_cli_options_builds_initial_state),
         ("legacy clone/crash", test_apply_main_cli_options_preserves_legacy_unknown_clone_and_crash),
