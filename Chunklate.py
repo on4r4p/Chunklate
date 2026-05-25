@@ -1863,7 +1863,7 @@ def FixItFelix(Chunk=None):
 
 def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
     return checkpoint_runtime.run_checkpoint(
-        checkpoint_runtime.CheckPointEntryRuntime(
+        checkpoint_runtime.build_checkpoint_entry_runtime(
             candy=Candy,
             emit=PRINT,
             pause_debug=Pause,
@@ -1871,22 +1871,14 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
             apply_action=CheckPoint_Apply_Action_Decision,
             pause_error=Pause,
         ),
-        checkpoint_runtime.CheckPointEntryContext(
+        checkpoint_runtime.build_checkpoint_entry_context(
+            globals(),
             error=error,
             fixed=fixed,
             function=function,
             chunk=chunk,
             infos=tuple(infos),
             toolkit=ToolKit,
-            brute_level=Brute_LvL,
-            libpng_errors=tuple(LIBPNG_ERR),
-            libpng_finished_at_iend=(
-                bool(Chunks_History) and Chunks_History[-1] == b"IEND" and EOF is True
-            ),
-            pandora_keys=tuple(PandoraBox),
-            debug=DEBUG,
-            pause_debug_enabled=PAUSEDEBUG,
-            pause_error_enabled=PAUSEERROR,
         ),
     )
 

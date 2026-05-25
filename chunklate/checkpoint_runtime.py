@@ -78,6 +78,57 @@ class CheckPointEntryContext:
     pause_error_enabled: bool = False
 
 
+def build_checkpoint_entry_runtime(
+    *,
+    candy: LegacyCall,
+    emit: LegacyCall,
+    pause_debug: LegacyCall,
+    record_finding: LegacyCall,
+    apply_action: LegacyCall,
+    pause_error: LegacyCall,
+) -> CheckPointEntryRuntime:
+    return CheckPointEntryRuntime(
+        candy=candy,
+        emit=emit,
+        pause_debug=pause_debug,
+        record_finding=record_finding,
+        apply_action=apply_action,
+        pause_error=pause_error,
+    )
+
+
+def build_checkpoint_entry_context(
+    namespace: dict[str, Any],
+    *,
+    error: bool,
+    fixed: bool,
+    function: Any,
+    chunk: Any,
+    infos: Any,
+    toolkit: tuple[Any, ...],
+) -> CheckPointEntryContext:
+    chunks_history = namespace["Chunks_History"]
+    return CheckPointEntryContext(
+        error=error,
+        fixed=fixed,
+        function=function,
+        chunk=chunk,
+        infos=tuple(infos),
+        toolkit=toolkit,
+        brute_level=namespace["Brute_LvL"],
+        libpng_errors=tuple(namespace["LIBPNG_ERR"]),
+        libpng_finished_at_iend=(
+            bool(chunks_history)
+            and chunks_history[-1] == b"IEND"
+            and namespace["EOF"] is True
+        ),
+        pandora_keys=tuple(namespace["PandoraBox"]),
+        debug=namespace["DEBUG"],
+        pause_debug_enabled=namespace["PAUSEDEBUG"],
+        pause_error_enabled=namespace["PAUSEERROR"],
+    )
+
+
 CHECKPOINT_COFFEE = r"""
    ( (
     ) )

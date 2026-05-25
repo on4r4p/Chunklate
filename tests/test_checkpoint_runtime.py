@@ -226,6 +226,55 @@ def test_checkpoint_entry_runtime_preserves_debug_and_pause():
     assert ("pause_debug", "Checkpoint pause") in calls
 
 
+def test_checkpoint_entry_builders_preserve_legacy_namespace_mapping():
+    calls = []
+    namespace = {
+        "Brute_LvL": 2,
+        "LIBPNG_ERR": ["libpng error:", "libpng warning:"],
+        "Chunks_History": [b"IHDR", b"IEND"],
+        "EOF": True,
+        "PandoraBox": {"key": "value"},
+        "DEBUG": True,
+        "PAUSEDEBUG": False,
+        "PAUSEERROR": True,
+    }
+
+    runtime = checkpoint_runtime.build_checkpoint_entry_runtime(
+        candy=lambda *args: calls.append(("candy", args)),
+        emit=lambda message: calls.append(("emit", message)),
+        pause_debug=lambda prompt: calls.append(("pause_debug", prompt)),
+        record_finding=lambda registration: calls.append(("record", registration)),
+        apply_action=lambda decision, chunk, info, toolkit: (True, "result"),
+        pause_error=lambda prompt: calls.append(("pause_error", prompt)),
+    )
+    context = checkpoint_runtime.build_checkpoint_entry_context(
+        namespace,
+        error=True,
+        fixed=False,
+        function="LibpngCheck",
+        chunk="LibpngCheck",
+        infos=["-error"],
+        toolkit=("tool",),
+    )
+
+    assert isinstance(runtime, checkpoint_runtime.CheckPointEntryRuntime)
+    assert context == checkpoint_runtime.CheckPointEntryContext(
+        error=True,
+        fixed=False,
+        function="LibpngCheck",
+        chunk="LibpngCheck",
+        infos=("-error",),
+        toolkit=("tool",),
+        brute_level=2,
+        libpng_errors=("libpng error:", "libpng warning:"),
+        libpng_finished_at_iend=True,
+        pandora_keys=("key",),
+        debug=True,
+        pause_debug_enabled=False,
+        pause_error_enabled=True,
+    )
+
+
 def test_checkpoint_debug_lines_preserve_legacy_print_shape():
     long_bytes = b"x" * 120
     long_text = "y" * 120
@@ -547,6 +596,7 @@ def main():
         ("CheckPoint loop returns action result", test_checkpoint_loop_runtime_returns_first_action_result),
         ("CheckPoint entry routes loop", test_checkpoint_entry_runtime_emits_header_and_routes_loop),
         ("CheckPoint entry debug", test_checkpoint_entry_runtime_preserves_debug_and_pause),
+        ("CheckPoint entry builders", test_checkpoint_entry_builders_preserve_legacy_namespace_mapping),
         ("CheckPoint debug lines", test_checkpoint_debug_lines_preserve_legacy_print_shape),
         ("CheckPoint debug emit callback", test_emit_checkpoint_debug_uses_injected_emit_callback),
         ("CheckPointRuntime keeps callbacks", test_checkpoint_runtime_keeps_legacy_callbacks),
