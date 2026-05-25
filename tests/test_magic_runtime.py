@@ -8,6 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import magic_runtime
+from chunklate.png import PNG_SIGNATURE
 
 
 def build_runtime(calls, side_notes=None, *, spec_length=None):
@@ -41,6 +42,7 @@ def build_runtime(calls, side_notes=None, *, spec_length=None):
 
 def base_context(data_hex, **updates):
     values = {
+        "data_bytes": bytes.fromhex(data_hex),
         "data_hex": data_hex,
         "chunks": (b"IHDR", b"IDAT", b"IEND"),
         "before_idat": (b"IHDR",),
@@ -72,6 +74,65 @@ def test_find_magic_runtime_single_candidate_cuts_at_best_magic():
         ["-Cutting at Magic"],
         magic_runtime.FULL_MAGIC + ("bb" * 30),
         "0x1",
+    )
+
+
+def test_find_header_magic_runtime_found_at_start_records_story_and_checkpoint():
+    calls = []
+    runtime = build_runtime(calls)
+    data_hex = (PNG_SIGNATURE + b"tail").hex()
+
+    result = magic_runtime.run_find_magic(runtime, base_context(data_hex))
+
+    assert result == "checkpoint-result"
+    assert ("candy", ("Title", "Looking for magic header:")) in calls
+    assert checkpoint_args(calls) == (
+        False,
+        False,
+        "FindMagic",
+        "PngSig",
+        ["-Found Magic"],
+        len(magic_runtime.MAGIC),
+    )
+
+
+def test_find_header_magic_runtime_cut_at_signature_routes_checkpoint():
+    calls = []
+    story_calls = []
+    runtime = build_runtime(calls)
+    runtime = magic_runtime.FindMagicRuntime(
+        **{**runtime.__dict__, "chunk_story": lambda *args: story_calls.append(args)}
+    )
+    data = b"junk" + PNG_SIGNATURE + b"tail"
+
+    result = magic_runtime.run_find_magic(runtime, base_context(data.hex()))
+
+    assert result == "checkpoint-result"
+    assert story_calls == [("add", "PNG", 8, 24, 4)]
+    assert checkpoint_args(calls) == (
+        False,
+        False,
+        "FindMagic",
+        "PngSig",
+        ["Cutting at Magic"],
+        (PNG_SIGNATURE + b"tail").hex(),
+        "0x4",
+    )
+
+
+def test_find_header_magic_runtime_deep_search_checkpoint():
+    calls = []
+    runtime = build_runtime(calls)
+
+    result = magic_runtime.run_find_magic(runtime, base_context((b"not a png").hex()))
+
+    assert result == "checkpoint-result"
+    assert checkpoint_args(calls) == (
+        False,
+        False,
+        "FindMagic",
+        "PngSig",
+        ["-dig a little bit deeper"],
     )
 
 
@@ -113,6 +174,9 @@ def test_find_magic_runtime_too_low_prepends_magic_before_nearest_chunk():
 
 def main():
     checks = [
+        ("Header found", test_find_header_magic_runtime_found_at_start_records_story_and_checkpoint),
+        ("Header cut", test_find_header_magic_runtime_cut_at_signature_routes_checkpoint),
+        ("Header deep search", test_find_header_magic_runtime_deep_search_checkpoint),
         ("Single candidate", test_find_magic_runtime_single_candidate_cuts_at_best_magic),
         ("No known chunks", test_find_magic_runtime_too_low_without_known_chunks_ends_with_note),
         ("Prepend nearest", test_find_magic_runtime_too_low_prepends_magic_before_nearest_chunk),

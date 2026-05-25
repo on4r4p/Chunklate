@@ -1258,96 +1258,30 @@ def FullChunkForcerNoCrc(
 
 
 def FindMagic():
-    global SideNotes
-
-    Candy("Title", "Looking for magic header:")
-
-    magic = "89504e470d0a1a0a"
-    lenmagic = len(magic)
-    MagicRecovery = detect_png_signature_recovery(DATA_BYTES)
-
-    if MagicRecovery.action in ("found_at_start", "cut_at_signature"):
-        pos = MagicRecovery.signature_hex_offset
-        ChunkStory("add", "PNG", pos, pos + lenmagic, int(pos / 2))
-        PRINT(
-            "-%s is Magic : %s\n"
-            % (
-                Candy("Color", "white", Sample_Name),
-                Candy("Color", "green", DATAX[:lenmagic]),
-            )
-        )
-        PRINT(
-            "-Found Png Signature at offset (%s/%s/%s): (%s/%s/%s)\n"
-            % (
-                Candy("Color", "yellow", "Hex"),
-                Candy("Color", "blue", "Bytes"),
-                Candy("Color", "purple", "Index"),
-                Candy("Color", "yellow", hex(int(pos / 2))),
-                Candy("Color", "blue", int(pos / 2)),
-                Candy("Color", "purple", pos),
-            )
-        )
-        if MagicRecovery.action == "cut_at_signature":
-            PRINT("-File does not start with a png signature.")
-            Candy("Cowsay", " Mkay ...Things just keeps better and better ..", "bad")
-            PRINT(
-                "-Cutting %s bytes from %s since png header starts at offset %s ."
-                % (
-                    Candy("Color", "white", Sample_Name),
-                    Candy("Color", "blue", int(pos / 2)),
-                    Candy("Color", "white", Sample_Name),
-                    Candy("Color", "blue", hex(int(pos / 2))),
-                )
-            )
-            return CheckPoint(*legacy_find_magic_checkpoint_args(MagicRecovery, lenmagic))
-
-        return CheckPoint(*legacy_find_magic_checkpoint_args(MagicRecovery, lenmagic))
-
-    PRINT(
-        "-File %s start with valid png signature .%s\n"
-        % (Candy("Color", "red", "does not"), Candy("Emoj", "bad"))
+    return magic_runtime.run_find_magic(
+        magic_runtime.FindMagicRuntime(
+            candy=Candy,
+            emit=PRINT,
+            checkpoint=CheckPoint,
+            end=TheEnd,
+            betterror=Betterror,
+            pause=Pause,
+            spec_length=SpecLength,
+            minibar=Minibar,
+            side_notes=SideNotes,
+            chunk_story=ChunkStory,
+        ),
+        magic_runtime.FindMagicContext(
+            data_bytes=DATA_BYTES,
+            data_hex=DATAX,
+            chunks=tuple(CHUNKS),
+            before_idat=tuple(BEFORE_IDAT),
+            sample_name=Sample_Name,
+            debug=DEBUG,
+            pause_debug=PAUSEDEBUG,
+            pause_error=PAUSEERROR,
+        ),
     )
-    Candy("Cowsay", " This better be a real png or else ....", "bad")
-
-    if MagicRecovery.action == "linefeed_signature_candidate":
-        if MagicRecovery.linefeed_pattern == "minor_linefeed_corruption":
-            PRINT(
-                "-Some bytes are %s from Png Signature.."
-                % Candy("Color", "red", "missing")
-            )
-            Candy(
-                "Cowsay",
-                " %s seems corrupted due to line feed conversion...It doesnt look that bad...But I ll keep that in mind while im on it.."
-                % (Candy("Color", "white", Sample_Name, "bad")),
-            )
-            SideNotes.append(
-                "-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented."
-            )
-            PRINT(Candy("Color", "yellow", "\n-ToDo"))
-            # FullChunkForcerWithCrc()
-            TheEnd()
-
-        if MagicRecovery.linefeed_pattern == "major_linefeed_corruption":
-            Candy(
-                "Cowsay",
-                " Hang on a sec....This is bad news i m afraid..",
-                "com",
-            )
-            Candy(
-                "Cowsay",
-                " %s is badly corrupted ...I cannot guarantee any results and it may take forever to find a solution..."
-                % Sample_Name,
-                "com",
-            )
-            PRINT(Candy("Color", "yellow", "\n-ToDo"))
-            SideNotes.append(
-                "-Major Corruption due to line feed conversion\n-File may not be recovered.\n-Not yet implemented."
-            )
-            PRINT(Candy("Color", "yellow", "\n-ToDo"))
-            TheEnd()
-
-    Candy("Cowsay", " Ok let's dig a little bit deeper..", "bad")
-    return CheckPoint(*legacy_find_magic_checkpoint_args(MagicRecovery, lenmagic))
 
 
 def FindFuckingMagic():
@@ -1364,6 +1298,7 @@ def FindFuckingMagic():
             side_notes=SideNotes,
         ),
         magic_runtime.FindMagicContext(
+            data_bytes=DATA_BYTES,
             data_hex=DATAX,
             chunks=tuple(CHUNKS),
             before_idat=tuple(BEFORE_IDAT),

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import chunk_scanner
+from .png import detect_png_signature_recovery, legacy_find_magic_checkpoint_args
 
 
 LegacyCall = Callable[..., Any]
@@ -15,6 +16,7 @@ FULL_MAGIC = "89504e470d0a1a0a0000000d49484452"
 
 @dataclass(frozen=True)
 class FindMagicContext:
+    data_bytes: bytes
     data_hex: str
     chunks: tuple[bytes, ...]
     before_idat: tuple[bytes, ...]
@@ -35,6 +37,7 @@ class FindMagicRuntime:
     spec_length: LegacyCall
     minibar: LegacyCall
     side_notes: MutableSequence[Any]
+    chunk_story: LegacyCall = lambda *args, **kwargs: None
 
 
 def _color(runtime: FindMagicRuntime, color: str, value: Any) -> Any:
@@ -43,6 +46,97 @@ def _color(runtime: FindMagicRuntime, color: str, value: Any) -> Any:
 
 def _emoj(runtime: FindMagicRuntime, value: str) -> Any:
     return runtime.candy("Emoj", value)
+
+
+def _cowsay(runtime: FindMagicRuntime, message: str, mood: str | None = None) -> Any:
+    if mood is None:
+        return runtime.candy("Cowsay", message)
+    return runtime.candy("Cowsay", message, mood)
+
+
+def run_find_magic(runtime: FindMagicRuntime, context: FindMagicContext) -> Any:
+    runtime.candy("Title", "Looking for magic header:")
+    recovery = detect_png_signature_recovery(context.data_bytes)
+    magic_length = len(MAGIC)
+
+    if recovery.action in ("found_at_start", "cut_at_signature"):
+        pos = recovery.signature_hex_offset
+        runtime.chunk_story("add", "PNG", pos, pos + magic_length, int(pos / 2))
+        runtime.emit(
+            "-%s is Magic : %s\n"
+            % (
+                _color(runtime, "white", context.sample_name),
+                _color(runtime, "green", context.data_hex[:magic_length]),
+            )
+        )
+        runtime.emit(
+            "-Found Png Signature at offset (%s/%s/%s): (%s/%s/%s)\n"
+            % (
+                _color(runtime, "yellow", "Hex"),
+                _color(runtime, "blue", "Bytes"),
+                _color(runtime, "purple", "Index"),
+                _color(runtime, "yellow", hex(int(pos / 2))),
+                _color(runtime, "blue", int(pos / 2)),
+                _color(runtime, "purple", pos),
+            )
+        )
+        if recovery.action == "cut_at_signature":
+            runtime.emit("-File does not start with a png signature.")
+            _cowsay(runtime, " Mkay ...Things just keeps better and better ..", "bad")
+            runtime.emit(
+                "-Cutting %s bytes from %s since png header starts at offset %s ."
+                % (
+                    _color(runtime, "blue", int(pos / 2)),
+                    _color(runtime, "white", context.sample_name),
+                    _color(runtime, "blue", hex(int(pos / 2))),
+                )
+            )
+            return runtime.checkpoint(*legacy_find_magic_checkpoint_args(recovery, magic_length))
+
+        return runtime.checkpoint(*legacy_find_magic_checkpoint_args(recovery, magic_length))
+
+    runtime.emit(
+        "-File %s start with valid png signature .%s\n"
+        % (_color(runtime, "red", "does not"), _emoj(runtime, "bad"))
+    )
+    _cowsay(runtime, " This better be a real png or else ....", "bad")
+
+    if recovery.action == "linefeed_signature_candidate":
+        if recovery.linefeed_pattern == "minor_linefeed_corruption":
+            runtime.emit(
+                "-Some bytes are %s from Png Signature.."
+                % _color(runtime, "red", "missing")
+            )
+            _cowsay(
+                runtime,
+                " %s seems corrupted due to line feed conversion...It doesnt look that bad...But I ll keep that in mind while im on it.."
+                % _color(runtime, "white", context.sample_name),
+            )
+            runtime.side_notes.append(
+                "-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented."
+            )
+            runtime.emit(_color(runtime, "yellow", "\n-ToDo"))
+            runtime.end()
+            return None
+
+        if recovery.linefeed_pattern == "major_linefeed_corruption":
+            _cowsay(runtime, " Hang on a sec....This is bad news i m afraid..", "com")
+            _cowsay(
+                runtime,
+                " %s is badly corrupted ...I cannot guarantee any results and it may take forever to find a solution..."
+                % context.sample_name,
+                "com",
+            )
+            runtime.emit(_color(runtime, "yellow", "\n-ToDo"))
+            runtime.side_notes.append(
+                "-Major Corruption due to line feed conversion\n-File may not be recovered.\n-Not yet implemented."
+            )
+            runtime.emit(_color(runtime, "yellow", "\n-ToDo"))
+            runtime.end()
+            return None
+
+    _cowsay(runtime, " Ok let's dig a little bit deeper..", "bad")
+    return runtime.checkpoint(*legacy_find_magic_checkpoint_args(recovery, magic_length))
 
 
 def _emit_first_twenty(runtime: FindMagicRuntime, bingo_list: list[str]) -> None:
