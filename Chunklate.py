@@ -710,62 +710,28 @@ def Tk_Save_Plte(Tkwin,Cancel,ChunkLength,DataOffset,FromError,wanabyte):
 
 
 def Guess_Palettes_Nbr(bfn,afn):
-    global SideNotes
-
-    Hashs_Lst = []
-    PLTE_Guess_Nbr = None
-    palette_values = []
-    f = io.BytesIO()
-    for n,colorx in enumerate(X11_Colors):
-        palette_values.append(int(colorx, 16))
-        wanabyte = palette.build_palette_png(bfn, palette_values, afn)
-        f = io.BytesIO()
-
-        with stderr_redirector(f):
-             try:
-                 im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
-             except Exception as e:
-                 pass
-        result = "{0}".format(f.getvalue().decode("utf-8"))
-        if any(s in result for s in LIBPNG_ERR):
-             print("-Error Guess_Palettes_Nbr():",result)
-#             return()
-             TheEnd()
-#        name, dir = Naming(FILE_Origin)
-#        tmpname =  dir+"/"+"BF-TST-"+str(datetime.now().strftime('-%y%m%d%H%M%S-'))+name
-#        with open(tmpname, "wb") as f:
-#                 f.write(wanabyte)
-#        print("-Saved here:",tmpname)
-
-        try:
-            pil_image = Image.fromarray(im)
-        except Exception as e:
-           Betterror(e, inspect.stack()[0][3])
-           print("-Error Guess_Palettes_Nbr():",e)
-           TheEnd()
-
-#        current_hash = imagehash.colorhash(pil_image)
-#        current_hash = imagehash.dhash(pil_image)
-#        current_hash = imagehash.average_hash(pil_image)
-        current_hash = imagehash.phash(pil_image)
-        Hashs_Lst.append(current_hash)
-        if len(Hashs_Lst) > 1:
-             distance_last = Hashs_Lst[-2] - Hashs_Lst[-1]
-             distance_orig = Hashs_Lst[0] - Hashs_Lst[-1]
-#             print("-Palette:%s len(hlst):last hash:%s current hash:%s distance(last-current):%s distance(first-current):%s"%(n,Hashs_Lst[-2],Hashs_Lst[-1],distance_last,distance_orig))
-#             if current_hash in Hashs_Lst:
-#                 print("        current hash %s already in Hashs_Lst"%(current_hash))
-             if distance_last != 0:
-                     PLTE_Guess_Nbr = n
-
-    if PLTE_Guess_Nbr:
-        PRINT("-PLTE palettes number estimation: %s"% Candy("Color", "green", str(PLTE_Guess_Nbr)))
-        SideNotes.append("-PLTE palettes number estimation: %s"%str(PLTE_Guess_Nbr))
-        return(PLTE_Guess_Nbr)
-    else:
-        PRINT(Candy("Color", "yellow", "Warning:%s")%"Could not estimate palette number.")
-        SideNotes.append("Warning:Could not estimate palette number.Returning Max Palettes number according to IHDR Depht")
-        return(2 ** int(IHDR_Depht)-1)
+    return palette_runtime.guess_palette_count(
+        palette_runtime.PaletteCountGuessRuntime(
+            cv2=cv2,
+            numpy=np,
+            image=Image,
+            imagehash=imagehash,
+            stderr_redirector=stderr_redirector,
+            betterror=Betterror,
+            emit=PRINT,
+            candy=Candy,
+            end=TheEnd,
+            raw_print=print,
+            side_notes=SideNotes,
+        ),
+        palette_runtime.PaletteCountGuessContext(
+            x11_colors=tuple(X11_Colors),
+            libpng_errors=tuple(LIBPNG_ERR),
+            ihdr_depth=IHDR_Depht,
+        ),
+        bfn,
+        afn,
+    )
 
 
 
