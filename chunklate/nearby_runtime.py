@@ -44,6 +44,34 @@ class NearbyChunkRuntime:
     side_notes: MutableSequence[Any]
 
 
+@dataclass(frozen=True)
+class DoubleCheckContext:
+    data_hex: str
+    sample_name: str
+
+
+@dataclass(frozen=True)
+class DoubleCheckRuntime:
+    candy: LegacyCall
+    emit: LegacyCall
+    end: LegacyCall
+    nearby_chunk: LegacyCall
+
+
+@dataclass(frozen=True)
+class RemoveExtraBytesContext:
+    data_hex: str
+    current_length_offset: int
+    known_chunks: tuple[bytes, ...]
+    all_chunks: tuple[bytes, ...]
+
+
+@dataclass(frozen=True)
+class RemoveExtraBytesRuntime:
+    save_clone: LegacyCall
+    side_notes: MutableSequence[Any]
+
+
 def _color(runtime: NearbyChunkRuntime, color: str, value: Any) -> Any:
     return runtime.candy("Color", color, value)
 
@@ -231,6 +259,75 @@ def _scan_for_nearby_chunk(
         needle += 1
 
     return None
+
+
+def run_remove_extra_bytes_before_chunk(
+    runtime: RemoveExtraBytesRuntime,
+    context: RemoveExtraBytesContext,
+    chunk_type: bytes,
+    last_chunk_type: bytes,
+    excluded: list[bytes],
+) -> Any:
+    candidate = nearby.extra_bytes_before_chunk_candidate(
+        context.data_hex,
+        current_length_offset=context.current_length_offset,
+        chunk_type=chunk_type,
+        known_chunks=context.known_chunks,
+        all_chunks=context.all_chunks,
+        excluded_chunks=excluded,
+    )
+    if candidate is None:
+        return None
+
+    solved_message = nearby.extra_bytes_solved_message(candidate, last_chunk_type)
+    runtime.side_notes.append("-Remove_Extra_Bytes_Before_Chunk:%s" % solved_message)
+    return runtime.save_clone(
+        "",
+        context.current_length_offset,
+        context.current_length_offset + (candidate.extra_bytes * 2),
+        solved_message,
+    )
+
+
+def run_double_check(
+    runtime: DoubleCheckRuntime,
+    context: DoubleCheckContext,
+    chunk_type: bytes,
+    chunk_length: Any,
+    last_chunk_type: bytes,
+) -> Any:
+    runtime.candy("Title", "Double Check:")
+    runtime.candy(
+        "Cowsay",
+        "Or maybe am i missing something ? Just let me double check again just to be sure...",
+        "com",
+    )
+
+    double_check_file_length = nearby.double_check_file_length(context.data_hex)
+    if double_check_file_length.is_too_short:
+        runtime.emit(
+            "%s: %s is %s bytes long Png minimum size is 67 bytes ."
+            % (
+                runtime.candy("Color", "red", "-Wrong File Length"),
+                runtime.candy("Color", "white", context.sample_name),
+                runtime.candy("Color", "red", str(double_check_file_length.byte_length)),
+            )
+        )
+        runtime.candy(
+            "Cowsay",
+            "ERrr...There are not enought byte in %s to be a valid png." % (context.sample_name),
+            "bad",
+        )
+        runtime.candy("Cowsay", "I can't help you much further sorry.", "com")
+        runtime.end()
+
+    runtime.candy(
+        "Cowsay",
+        " But this time let's forget about the usual specifications of png format so This way i will be able to know if a chunk is missing somewhere.",
+        "good",
+    )
+
+    return runtime.nearby_chunk(chunk_type, chunk_length, last_chunk_type, DoubleCheck=True)
 
 
 def run_nearby_chunk(

@@ -8,6 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import nearby, nearby_runtime
+from chunklate.png import PNG_SIGNATURE, build_png_chunk
 
 
 def build_runtime(calls, side_notes=None, *, excluded=(), clean_result=None, bad_critical=False):
@@ -38,6 +39,31 @@ def build_runtime(calls, side_notes=None, *, excluded=(), clean_result=None, bad
     )
 
 
+def build_remove_extra_runtime(calls, side_notes=None):
+    if side_notes is None:
+        side_notes = []
+
+    return nearby_runtime.RemoveExtraBytesRuntime(
+        save_clone=lambda *args: calls.append(("save_clone", args)) or "saved",
+        side_notes=side_notes,
+    )
+
+
+def build_double_check_runtime(calls):
+    def candy(kind, *args):
+        calls.append(("candy", (kind,) + args))
+        if kind == "Color":
+            return "<%s:%s>" % (args[0], args[1])
+        return "candy:%s" % kind
+
+    return nearby_runtime.DoubleCheckRuntime(
+        candy=candy,
+        emit=lambda message: calls.append(("emit", message)),
+        end=lambda: calls.append(("end",)),
+        nearby_chunk=lambda *args, **kwargs: calls.append(("nearby_chunk", args, kwargs)) or "nearby-result",
+    )
+
+
 def base_context(**updates):
     values = {
         "data_hex": ("00" * 8) + b"IDAT".hex() + ("00" * 8),
@@ -54,6 +80,17 @@ def base_context(**updates):
     }
     values.update(updates)
     return nearby_runtime.NearbyChunkContext(**values)
+
+
+def remove_extra_context(data_hex, **updates):
+    values = {
+        "data_hex": data_hex,
+        "current_length_offset": len(PNG_SIGNATURE) * 2,
+        "known_chunks": (b"IDAT",),
+        "all_chunks": (b"IHDR", b"IDAT", b"IEND"),
+    }
+    values.update(updates)
+    return nearby_runtime.RemoveExtraBytesContext(**values)
 
 
 def checkpoint_args(calls):
@@ -159,12 +196,94 @@ def test_nearby_runtime_doublecheck_missing_critical_routes_fixit():
     assert side_notes == ["-NearbyChunk:Critical Chunk Missing: b'IEND'"]
 
 
+def test_remove_extra_bytes_runtime_routes_save_clone():
+    calls = []
+    side_notes = []
+    data = PNG_SIGNATURE + b"XX" + build_png_chunk(b"IHDR", b"\x00" * 13)
+
+    result = nearby_runtime.run_remove_extra_bytes_before_chunk(
+        build_remove_extra_runtime(calls, side_notes),
+        remove_extra_context(data.hex()),
+        b"fake",
+        b"PNG",
+        [],
+    )
+
+    solved_message = "-Found 2 extra byte(s) before Chunk[IHDR] after Chunk[PNG] at offset: 0x8"
+    assert result == "saved"
+    assert side_notes == ["-Remove_Extra_Bytes_Before_Chunk:%s" % solved_message]
+    assert calls == [("save_clone", ("", 16, 20, solved_message))]
+
+
+def test_remove_extra_bytes_runtime_returns_none_without_candidate():
+    calls = []
+    side_notes = []
+    data = PNG_SIGNATURE + b"XX" + build_png_chunk(b"IHDR", b"\x00" * 13)
+
+    result = nearby_runtime.run_remove_extra_bytes_before_chunk(
+        build_remove_extra_runtime(calls, side_notes),
+        remove_extra_context(data.hex(), known_chunks=(b"IHDR",)),
+        b"IHDR",
+        b"PNG",
+        [],
+    )
+
+    assert result is None
+    assert calls == []
+    assert side_notes == []
+
+
+def test_double_check_runtime_routes_safety_off_nearby_search():
+    calls = []
+
+    result = nearby_runtime.run_double_check(
+        build_double_check_runtime(calls),
+        nearby_runtime.DoubleCheckContext(data_hex="00" * 67, sample_name="sample.png"),
+        b"fake",
+        "00000000",
+        b"IHDR",
+    )
+
+    assert result == "nearby-result"
+    assert ("candy", ("Title", "Double Check:")) in calls
+    assert (
+        "nearby_chunk",
+        (b"fake", "00000000", b"IHDR"),
+        {"DoubleCheck": True},
+    ) in calls
+
+
+def test_double_check_runtime_preserves_short_file_end_before_fallback_when_end_returns():
+    calls = []
+
+    result = nearby_runtime.run_double_check(
+        build_double_check_runtime(calls),
+        nearby_runtime.DoubleCheckContext(data_hex="00" * 66, sample_name="short.png"),
+        b"fake",
+        "00000000",
+        b"IHDR",
+    )
+
+    assert result == "nearby-result"
+    assert ("end",) in calls
+    assert any(call[0] == "emit" and "-Wrong File Length" in call[1] for call in calls)
+    assert (
+        "nearby_chunk",
+        (b"fake", "00000000", b"IHDR"),
+        {"DoubleCheck": True},
+    ) in calls
+
+
 def main():
     checks = [
         ("Clean extra bytes", test_nearby_runtime_returns_clean_extra_bytes_before_scan),
         ("Known chunk checkpoint", test_nearby_runtime_known_chunk_routes_length_repair_checkpoint),
         ("Excluded trap", test_nearby_runtime_excluded_found_chunk_routes_legacy_trap),
         ("Doublecheck critical", test_nearby_runtime_doublecheck_missing_critical_routes_fixit),
+        ("Remove extra bytes", test_remove_extra_bytes_runtime_routes_save_clone),
+        ("Remove extra bytes none", test_remove_extra_bytes_runtime_returns_none_without_candidate),
+        ("Double check", test_double_check_runtime_routes_safety_off_nearby_search),
+        ("Double check short file", test_double_check_runtime_preserves_short_file_end_before_fallback_when_end_returns),
     ]
 
     print("Running nearby runtime tests")

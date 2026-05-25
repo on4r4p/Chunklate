@@ -1395,46 +1395,21 @@ def KnownBadSrgbProfileWarning(file):
 
 
 def Double_Check(CType, ChunkLen, LastCType):
-
-    Candy("Title", "Double Check:")
-
-
-    Candy(
-        "Cowsay",
-        "Or maybe am i missing something ? Just let me double check again just to be sure...",
-        "com",
+    return nearby_runtime.run_double_check(
+        nearby_runtime.DoubleCheckRuntime(
+            candy=Candy,
+            emit=PRINT,
+            end=TheEnd,
+            nearby_chunk=NearbyChunk,
+        ),
+        nearby_runtime.DoubleCheckContext(
+            data_hex=DATAX,
+            sample_name=Sample_Name,
+        ),
+        CType,
+        ChunkLen,
+        LastCType,
     )
-    DoubleCheckFileLength = nearby.double_check_file_length(DATAX)
-    if DoubleCheckFileLength.is_too_short:
-        PRINT(
-            "%s: %s is %s bytes long Png minimum size is 67 bytes ."
-            % (
-                Candy("Color", "red","-Wrong File Length"),
-                Candy("Color", "white", Sample_Name),
-                Candy("Color", "red", str(DoubleCheckFileLength.byte_length)),
-            )
-        )
-
-        Candy(
-            "Cowsay",
-            "ERrr...There are not enought byte in %s to be a valid png."%(Sample_Name),
-            "bad",
-        )
-
-        Candy(
-            "Cowsay",
-            "I can't help you much further sorry.",
-            "com",
-        )
-        TheEnd()
-
-    Candy(
-        "Cowsay",
-        " But this time let's forget about the usual specifications of png format so This way i will be able to know if a chunk is missing somewhere.",
-        "good",
-    )
-
-    NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck=True)
 
 
 def RandomSample(data,colortype,chunk_format):
@@ -1471,20 +1446,21 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
 
 
 def Remove_Extra_Bytes_Before_Chunk(CType, LastCType, Excluded):
-    candidate = nearby.extra_bytes_before_chunk_candidate(
-        DATAX,
-        current_length_offset=CLoffI,
-        chunk_type=CType,
-        known_chunks=CHUNKS,
-        all_chunks=ALLCHUNKS,
-        excluded_chunks=Excluded,
+    return nearby_runtime.run_remove_extra_bytes_before_chunk(
+        nearby_runtime.RemoveExtraBytesRuntime(
+            save_clone=SaveClone,
+            side_notes=SideNotes,
+        ),
+        nearby_runtime.RemoveExtraBytesContext(
+            data_hex=DATAX,
+            current_length_offset=CLoffI,
+            known_chunks=tuple(CHUNKS),
+            all_chunks=tuple(ALLCHUNKS),
+        ),
+        CType,
+        LastCType,
+        Excluded,
     )
-    if candidate is not None:
-        SolvedMsg = nearby.extra_bytes_solved_message(candidate, LastCType)
-        SideNotes.append("-Remove_Extra_Bytes_Before_Chunk:%s" % SolvedMsg)
-        return SaveClone("", CLoffI, CLoffI + (candidate.extra_bytes * 2), SolvedMsg)
-
-    return None
 
 
 def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
