@@ -260,6 +260,54 @@ def test_reset_main_loop_state_uses_fresh_history_containers_each_time():
     assert namespace["PandoraBox"] is not first_pandora
 
 
+def test_run_main_clear_screen_preserves_startup_skip():
+    calls = []
+
+    state = main_runtime.run_main_clear_screen(
+        main_runtime.MainClearScreenRuntime(
+            stderr_write=lambda value: calls.append(("stderr", value)),
+            system=lambda value: calls.append(("system", value)),
+            os_name="posix",
+        ),
+        main_runtime.MainClearScreenContext(clear=True, fir_start=True),
+    )
+
+    assert state == main_runtime.MainClearScreenState(fir_start=False)
+    assert calls == []
+
+
+def test_run_main_clear_screen_writes_ansi_reset_on_posix_after_startup():
+    calls = []
+
+    state = main_runtime.run_main_clear_screen(
+        main_runtime.MainClearScreenRuntime(
+            stderr_write=lambda value: calls.append(("stderr", value)),
+            system=lambda value: calls.append(("system", value)),
+            os_name="posix",
+        ),
+        main_runtime.MainClearScreenContext(clear=True, fir_start=False),
+    )
+
+    assert state == main_runtime.MainClearScreenState(fir_start=False)
+    assert calls == [("stderr", "\033c")]
+
+
+def test_run_main_clear_screen_calls_cls_on_windows_after_startup():
+    calls = []
+
+    state = main_runtime.run_main_clear_screen(
+        main_runtime.MainClearScreenRuntime(
+            stderr_write=lambda value: calls.append(("stderr", value)),
+            system=lambda value: calls.append(("system", value)),
+            os_name="nt",
+        ),
+        main_runtime.MainClearScreenContext(clear=True, fir_start=False),
+    )
+
+    assert state == main_runtime.MainClearScreenState(fir_start=False)
+    assert calls == [("system", "cls")]
+
+
 def build_sample_runtime(calls, *, data=b"png", load_error=None):
     def candy(kind, *args):
         calls.append(("candy", (kind,) + args))
@@ -428,6 +476,9 @@ def main():
         ("legacy globals", test_legacy_globals_from_main_cli_options_maps_runtime_flags),
         ("loop reset state", test_reset_main_loop_state_updates_legacy_globals_and_preserves_local_tmp_fixihdr),
         ("loop reset fresh containers", test_reset_main_loop_state_uses_fresh_history_containers_each_time),
+        ("clear screen startup", test_run_main_clear_screen_preserves_startup_skip),
+        ("clear screen posix", test_run_main_clear_screen_writes_ansi_reset_on_posix_after_startup),
+        ("clear screen windows", test_run_main_clear_screen_calls_cls_on_windows_after_startup),
         ("load sample", test_load_main_sample_selects_current_sample_and_loads_data),
         ("load clone sample", test_load_main_sample_uses_cloneswar_then_resets_it),
         ("load sample error", test_load_main_sample_routes_load_error_to_legacy_error_path),

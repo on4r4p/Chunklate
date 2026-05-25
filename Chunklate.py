@@ -2022,16 +2022,18 @@ def main():
 
     while True:
 
-        ClearDecision = cli.clear_screen_decision(
-            clear=CLEAR,
-            fir_start=FirStart,
-            os_name=os.name,
+        ClearScreenState = main_runtime.run_main_clear_screen(
+            main_runtime.MainClearScreenRuntime(
+                stderr_write=sys.stderr.write,
+                system=os.system,
+                os_name=os.name,
+            ),
+            main_runtime.MainClearScreenContext(
+                clear=CLEAR,
+                fir_start=FirStart,
+            ),
         )
-        FirStart = ClearDecision.fir_start
-        if ClearDecision.action == "ansi_reset":
-            sys.stderr.write("\033c")
-        elif ClearDecision.action == "cls":
-            os.system("cls")
+        FirStart = ClearScreenState.fir_start
         MainLoopReset = main_runtime.reset_main_loop_state(
             main_runtime.MainLoopResetRuntime(
                 namespace=globals(),

@@ -49,6 +49,25 @@ class MainLoopResetState:
 
 
 @dataclass(frozen=True)
+class MainClearScreenRuntime:
+    stderr_write: Callable[[str], Any]
+    system: Callable[[str], Any]
+    os_name: str
+    clear_screen_decision: Callable = cli.clear_screen_decision
+
+
+@dataclass(frozen=True)
+class MainClearScreenContext:
+    clear: bool
+    fir_start: bool
+
+
+@dataclass(frozen=True)
+class MainClearScreenState:
+    fir_start: bool
+
+
+@dataclass(frozen=True)
 class MainSampleRuntime:
     basename: Callable[[Any], str]
     load_sample_data: Callable = runtime_state.load_sample_data
@@ -193,6 +212,22 @@ def reset_main_loop_state(runtime: MainLoopResetRuntime) -> MainLoopResetState:
     runtime.banner(1)
 
     return MainLoopResetState(tmp_fix_ihdr=tmp_fix_ihdr)
+
+
+def run_main_clear_screen(
+    runtime: MainClearScreenRuntime,
+    context: MainClearScreenContext,
+) -> MainClearScreenState:
+    decision = runtime.clear_screen_decision(
+        clear=context.clear,
+        fir_start=context.fir_start,
+        os_name=runtime.os_name,
+    )
+    if decision.action == "ansi_reset":
+        runtime.stderr_write("\033c")
+    elif decision.action == "cls":
+        runtime.system("cls")
+    return MainClearScreenState(fir_start=decision.fir_start)
 
 
 def load_main_sample(
