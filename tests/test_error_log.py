@@ -2,6 +2,7 @@
 import sys
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -73,6 +74,43 @@ def test_append_error_log_writes_and_appends(tmp_path):
     )
 
 
+def test_append_error_log_from_namespace_writes_and_records_side_note(tmp_path):
+    side_notes = []
+    namespace = {
+        "sys": SimpleNamespace(path=[str(tmp_path)]),
+        "SideNotes": side_notes,
+        "Betterror": lambda error, name: None,
+        "inspect": SimpleNamespace(stack=lambda: [SimpleNamespace(function="test")]),
+    }
+
+    error_log.append_error_log_from_namespace(namespace, "boom")
+
+    assert side_notes == ["boom"]
+    assert (tmp_path / "Chunklate_Errors.log").read_text().endswith("boom\n")
+
+
+def test_betterror_from_namespace_formats_prints_and_delegates_to_error_log():
+    calls = []
+    namespace = {
+        "sys": sys,
+        "inspect": SimpleNamespace(stack=lambda: [SimpleNamespace(function="test")]),
+        "DEBUG": True,
+        "PRINT": lambda message: calls.append(("print", message)),
+        "Error_Log": lambda message: calls.append(("error_log", message)) or "logged",
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+    }
+
+    try:
+        raise RuntimeError("bad")
+    except RuntimeError as exc:
+        result = error_log.betterror_from_namespace(namespace, exc, "Fn")
+
+    assert result == "logged"
+    assert calls[0][0] == "print"
+    assert "File: test_error_log.py has encounter a <class 'RuntimeError'> error in Fn()" in calls[0][1]
+    assert calls[1][0] == "error_log"
+
+
 def main():
     tmp = __import__("tempfile").TemporaryDirectory()
     tmpdir = Path(tmp.name)
@@ -83,6 +121,8 @@ def main():
         ("Exception from exc_info", test_format_exception_from_exc_info_uses_traceback_location),
         ("Exception from exc_info requires traceback", test_format_exception_from_exc_info_requires_traceback),
         ("Append log", lambda: test_append_error_log_writes_and_appends(tmpdir)),
+        ("Append log namespace", lambda: test_append_error_log_from_namespace_writes_and_records_side_note(tmpdir)),
+        ("Betterror namespace", test_betterror_from_namespace_formats_prints_and_delegates_to_error_log),
     ]
 
     try:

@@ -613,3 +613,33 @@ def loadingbar_progress(
         text="%s/%s%s" % (str(loop).zfill(fishsize), fishs, frames[fish_pos]),
         fish_pos=fish_pos,
     )
+
+
+def run_loadingbar_from_namespace(
+    namespace: dict,
+    fishs: int,
+    fishsize: int,
+    loop: int,
+    build: bool,
+) -> None:
+    if build:
+        built = build_loadingbar_frames(
+            fishs,
+            fishsize,
+            int(namespace["os"].get_terminal_size(0)[0]),
+        )
+        namespace["ThksForTheFish"] = built.frames
+        namespace["LenFishList"] = built.len_fish_list
+        namespace["FishPos"] = built.fish_pos
+        return
+
+    progress = loadingbar_progress(
+        fishs,
+        fishsize,
+        loop,
+        namespace["ThksForTheFish"],
+        namespace["FishPos"],
+        namespace["LenFishList"],
+    )
+    namespace["FishPos"] = progress.fish_pos
+    namespace["print"](progress.text, end="\r")

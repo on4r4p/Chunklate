@@ -238,6 +238,24 @@ def test_loadingbar_progress_wraps_at_last_frame():
     assert progress == ui.LoadingbarProgress(text="200/500frame0", fish_pos=0)
 
 
+def test_run_loadingbar_from_namespace_builds_and_prints_progress():
+    calls = []
+    namespace = {
+        "os": type("FakeOs", (), {"get_terminal_size": staticmethod(lambda fd: (24, 80))})(),
+        "print": lambda *args, **kwargs: calls.append(("print", args, kwargs)),
+    }
+
+    ui.run_loadingbar_from_namespace(namespace, 500, 3, 0, True)
+
+    assert namespace["LenFishList"] == len(namespace["ThksForTheFish"]) - 1
+    assert namespace["FishPos"] == 0
+
+    ui.run_loadingbar_from_namespace(namespace, 500, 3, 100, False)
+
+    assert namespace["FishPos"] == 1
+    assert calls == [("print", ("100/500" + namespace["ThksForTheFish"][1],), {"end": "\r"})]
+
+
 def main():
     checks = [
         ("Colorize ANSI colors", test_colorize_preserves_legacy_ansi_colors),
@@ -260,6 +278,7 @@ def main():
         ("Loadingbar progress static", test_loadingbar_progress_keeps_frame_between_100_steps),
         ("Loadingbar progress advance", test_loadingbar_progress_advances_every_100_steps),
         ("Loadingbar progress wrap", test_loadingbar_progress_wraps_at_last_frame),
+        ("Loadingbar namespace bridge", test_run_loadingbar_from_namespace_builds_and_prints_progress),
     ]
 
     print("Running UI tests")

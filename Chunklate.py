@@ -54,37 +54,11 @@ from chunklate.png import (
 
 
 def Betterror(error_msg, def_name): ##useless since 3.11
-    try:
-        Err_to_log = error_log.format_exception_from_exc_info(
-            sys.exc_info(),
-            def_name,
-            error_msg,
-        )
-        if DEBUG is True:
-            PRINT(Err_to_log)
-
-    except Exception as e:
-        Betterror(e, inspect.stack()[0][3])
-        Err_to_log = error_log.format_exception_from_exc_info(
-            sys.exc_info(),
-            "Betterror",
-            e,
-        )
-        if DEBUG is True:
-            PRINT(Err_to_log)
-
-    return Error_Log(Err_to_log)
+    return error_log.betterror_from_namespace(globals(), error_msg, def_name)
 
 
 def Error_Log(Err_to_log):
-    global SideNotes
-    try:
-        error_log.append_error_log(Err_to_log, str(sys.path[0]))
-        if 1 == 1:  # if DEBUG is True:
-            SideNotes.append(Err_to_log)
-
-    except Exception as e:
-        Betterror(e, inspect.stack()[0][3])
+    return error_log.append_error_log_from_namespace(globals(), Err_to_log)
 
 
 # Relics state model:
@@ -347,34 +321,7 @@ def Minibar(Indication=""):
 
 
 def Loadingbar(fishs, fishsize, loop, build):
-
-    global ThksForTheFish
-    global FishPos
-    global LenFishList
-
-
-    if build:
-#        Pause("build")
-        BuiltLoadingbar = ui.build_loadingbar_frames(
-            fishs,
-            fishsize,
-            int(os.get_terminal_size(0)[0]),
-        )
-        ThksForTheFish = BuiltLoadingbar.frames
-        LenFishList = BuiltLoadingbar.len_fish_list
-        FishPos = BuiltLoadingbar.fish_pos
-    else:
-#        Pause("pas build")
-        Progress = ui.loadingbar_progress(
-            fishs,
-            fishsize,
-            loop,
-            ThksForTheFish,
-            FishPos,
-            LenFishList,
-        )
-        FishPos = Progress.fish_pos
-        print(Progress.text, end="\r")
+    return ui.run_loadingbar_from_namespace(globals(), fishs, fishsize, loop, build)
 
 
 def Sumform(waitforit, switch):
@@ -382,29 +329,7 @@ def Sumform(waitforit, switch):
 
 
 def Summarise(infos, Summary_Footer=False):
-    global Summary_Header
-    global SideNotes
-
-    sep = "\n\n『" + Sample_Name + " :』\n"
-    title = Sumform("▇ ▆ =|C|h|u|n|k|l|a|t|e| |S|u|m|m|a|r|y|= ▆ ▇", True)
-    eof = Sumform("_,-=|S|u|m|m|a|r|y| |E|n|d|=-,_", False)
-    infos = output.summary_body(infos, SideNotes)
-
-    filename = output.summary_path(FILE_Origin, FILE_DIR)
-    print(Candy("Color", "green", "-Saving Summary : "), filename)
-    with open(filename, "a+") as f:
-
-        if Summary_Header is True:
-            f.write(title)
-            Summary_Header = False
-
-        if infos is not None:
-            f.write(sep)
-            f.write(infos)
-
-        if Summary_Footer is True:
-            f.write(output.render_summary_footer(globals(), eof))
-    SideNotes = []
+    return output.run_summarise_from_namespace(globals(), infos, Summary_Footer)
 
 def Legacy_UI_Runtime():
     return ui_runtime.LegacyUiRuntime(

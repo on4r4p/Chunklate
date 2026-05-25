@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import os
 from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
@@ -296,3 +297,38 @@ def the_end_debug_lines(
         chunks_history,
         "IDAT_Bytes_Len:%s" % idat_bytes_len,
     ]
+
+
+def run_summarise_from_namespace(
+    namespace: dict[str, Any],
+    infos: Any,
+    summary_footer: bool = False,
+) -> None:
+    sep = "\n\n『" + namespace["Sample_Name"] + " :』\n"
+    title = summary_separator(
+        "▇ ▆ =|C|h|u|n|k|l|a|t|e| |S|u|m|m|a|r|y|= ▆ ▇",
+        True,
+        namespace["MAXCHAR"],
+    )
+    eof = summary_separator(
+        "_,-=|S|u|m|m|a|r|y| |E|n|d|=-,_",
+        False,
+        namespace["MAXCHAR"],
+    )
+    body = summary_body(infos, namespace["SideNotes"])
+
+    filename = summary_path(namespace["FILE_Origin"], namespace["FILE_DIR"])
+    builtins.print(namespace["Candy"]("Color", "green", "-Saving Summary : "), filename)
+    with builtins.open(filename, "a+") as handle:
+
+        if namespace["Summary_Header"] is True:
+            handle.write(title)
+            namespace["Summary_Header"] = False
+
+        if body is not None:
+            handle.write(sep)
+            handle.write(body)
+
+        if summary_footer is True:
+            handle.write(render_summary_footer(namespace, eof))
+    namespace["SideNotes"] = []

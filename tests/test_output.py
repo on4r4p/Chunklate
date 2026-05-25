@@ -190,6 +190,28 @@ def test_the_end_debug_lines_preserve_legacy_values():
     ]
 
 
+def test_run_summarise_from_namespace_writes_summary_and_resets_notes(tmp_path):
+    namespace = {
+        "Sample_Name": "sample.png",
+        "MAXCHAR": 80,
+        "SideNotes": ["note"],
+        "FILE_Origin": "sample.png",
+        "FILE_DIR": str(tmp_path),
+        "Candy": lambda kind, color, value: "<%s:%s>" % (color, value),
+        "Summary_Header": True,
+    }
+
+    output.run_summarise_from_namespace(namespace, "fixed", False)
+
+    summary = tmp_path / "Folder_sample" / "Summary_Of_sample"
+    text = summary.read_text()
+    assert "C|h|u|n|k|l|a|t|e" in text
+    assert "『sample.png :』" in text
+    assert "\nnote\nfixed\n" in text
+    assert namespace["Summary_Header"] is False
+    assert namespace["SideNotes"] == []
+
+
 def main():
     tmpdir = tempfile.TemporaryDirectory()
     tmp_path = Path(tmpdir.name)
@@ -204,6 +226,7 @@ def main():
         ("Summary footer preserves sections", test_render_summary_footer_preserves_legacy_sections),
         ("Summary separator preserves spacing", test_summary_separator_preserves_legacy_spacing),
         ("TheEnd debug lines", test_the_end_debug_lines_preserve_legacy_values),
+        ("Summarise namespace bridge", lambda: test_run_summarise_from_namespace_writes_summary_and_resets_notes(tmp_path)),
     ]
 
     try:

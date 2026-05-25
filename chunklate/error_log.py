@@ -52,3 +52,34 @@ def append_error_log(message: str, base_path: str, *, now: datetime | None = Non
     with open(logfile, "a+") as handle:
         handle.write(format_error_log_entry(message, now=now))
     return logfile
+
+
+def append_error_log_from_namespace(namespace: dict[str, Any], message: str) -> None:
+    try:
+        append_error_log(message, str(namespace["sys"].path[0]))
+        namespace["SideNotes"].append(message)
+    except Exception as exc:
+        namespace["Betterror"](exc, namespace["inspect"].stack()[0][3])
+
+
+def betterror_from_namespace(namespace: dict[str, Any], error_msg: Any, def_name: str) -> Any:
+    try:
+        error_to_log = format_exception_from_exc_info(
+            namespace["sys"].exc_info(),
+            def_name,
+            error_msg,
+        )
+        if namespace["DEBUG"] is True:
+            namespace["PRINT"](error_to_log)
+
+    except Exception as exc:
+        namespace["Betterror"](exc, namespace["inspect"].stack()[0][3])
+        error_to_log = format_exception_from_exc_info(
+            namespace["sys"].exc_info(),
+            "Betterror",
+            exc,
+        )
+        if namespace["DEBUG"] is True:
+            namespace["PRINT"](error_to_log)
+
+    return namespace["Error_Log"](error_to_log)
