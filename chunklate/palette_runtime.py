@@ -20,6 +20,35 @@ class ManualPaletteSession:
 
 
 @dataclass(frozen=True)
+class ManualPaletteSetup:
+    chunk_name: bytes
+    session: ManualPaletteSession
+    image_array: object
+    pil_image: object
+
+
+@dataclass(frozen=True)
+class ManualPaletteSetupRuntime:
+    candy: Callable
+    emit: Callable
+    betterror: Callable
+    cv2: object
+    numpy: object
+    image: object
+    guess_palette_count: GuessPaletteCount
+
+
+@dataclass(frozen=True)
+class ManualPaletteSetupContext:
+    file: object
+    chunk_name: object
+    chunk_length: int
+    data_offset: int
+    data_hex: str
+    debug: bool = False
+
+
+@dataclass(frozen=True)
 class PaletteCountGuessRuntime:
     cv2: object
     numpy: object
@@ -58,6 +87,42 @@ def manual_palette_full_new_data(session: ManualPaletteSession) -> bytes:
     return session.wanabyte[len(session.before) :]
 
 
+def manual_palette_debug_lines(
+    context: ManualPaletteSetupContext,
+    chunk_name: bytes,
+    session: ManualPaletteSession,
+) -> tuple[str, ...]:
+    full_new_data = manual_palette_full_new_data(session)
+    return (
+        "File:%s" % context.file,
+        "ChunkName:%s" % chunk_name,
+        "DataOffset:%s" % context.data_offset,
+        "ChunkLength:%s" % context.chunk_length,
+        "Before_New:%s" % session.before.hex(),
+        "After_New:%s" % session.after[:20].hex(),
+        "fullnewdatax:%s" % full_new_data.hex(),
+        "Palette_nbr:%s" % session.palette_count,
+    )
+
+
+def encode_manual_palette_chunk_name(
+    runtime: ManualPaletteSetupRuntime,
+    chunk_name: object,
+    *,
+    debug: bool,
+) -> object:
+    try:
+        return chunk_name.encode(errors="ignore")
+    except Exception as exc:
+        runtime.betterror(exc, "Tk_Manual_Plte")
+        if debug is True:
+            runtime.emit(
+                runtime.candy("Color", "red", "Error:%s")
+                % runtime.candy("Color", "yellow", exc)
+            )
+        return chunk_name
+
+
 def create_manual_palette_session(
     *,
     data_hex: str,
@@ -76,6 +141,48 @@ def create_manual_palette_session(
         palette_count=palette_count,
         state=palette_ui.create_palette_editor_state(palette_count, wanabyte),
     )
+
+
+def create_manual_palette_setup(
+    runtime: ManualPaletteSetupRuntime,
+    context: ManualPaletteSetupContext,
+) -> ManualPaletteSetup:
+    runtime.candy("Title", "Manually Bruteforcing Chunk Datas:")
+    chunk_name = encode_manual_palette_chunk_name(
+        runtime,
+        context.chunk_name,
+        debug=context.debug,
+    )
+    session = create_manual_palette_session(
+        data_hex=context.data_hex,
+        data_offset=context.data_offset,
+        chunk_length=context.chunk_length,
+        chunk_name=chunk_name,
+        guess_palette_count=runtime.guess_palette_count,
+    )
+
+    if context.debug is True:
+        for line in manual_palette_debug_lines(context, chunk_name, session):
+            runtime.emit(line)
+
+    image_array = runtime.cv2.imdecode(
+        runtime.numpy.frombuffer(session.wanabyte, runtime.numpy.uint8),
+        -1,
+    )
+    pil_image = runtime.image.fromarray(image_array)
+    return ManualPaletteSetup(
+        chunk_name=chunk_name,
+        session=session,
+        image_array=image_array,
+        pil_image=pil_image,
+    )
+
+
+def sync_palette_legacy_state(namespace: dict, palette_state) -> None:
+    if palette_state is not None:
+        namespace["Plte_Blst"] = palette_state.values
+        namespace["slider_list"] = palette_state.sliders
+        namespace["wanabyte"] = palette_state.wanabyte
 
 
 def guess_palette_count(

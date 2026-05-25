@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chunklate import palette, palette_runtime
+from chunklate import palette, palette_runtime, palette_ui
 
 
 class EndReached(Exception):
@@ -89,6 +89,24 @@ def build_guess_runtime(calls, side_notes=None, *, hashes=(10, 10, 15), stderr_r
     )
 
 
+def build_manual_setup_runtime(calls):
+    def candy(kind, *args):
+        calls.append(("candy", (kind,) + args))
+        if kind == "Color":
+            return "<%s:%s>" % (args[0], args[1])
+        return "candy:%s" % kind
+
+    return palette_runtime.ManualPaletteSetupRuntime(
+        candy=candy,
+        emit=lambda message: calls.append(("emit", message)),
+        betterror=lambda error, name: calls.append(("betterror", str(error), name)),
+        cv2=FakeCv2(),
+        numpy=FakeNumpy(),
+        image=FakeImage(),
+        guess_palette_count=lambda before, after: calls.append(("guess", before, after)) or 3,
+    )
+
+
 def guess_context(**updates):
     values = {
         "x11_colors": ("000000", "111111", "222222"),
@@ -135,6 +153,54 @@ def test_create_manual_palette_session_builds_initial_png_and_state():
     assert session.state.wanabyte == session.wanabyte
 
 
+def test_create_manual_palette_setup_builds_session_image_and_debug_report():
+    calls = []
+
+    setup = palette_runtime.create_manual_palette_setup(
+        build_manual_setup_runtime(calls),
+        palette_runtime.ManualPaletteSetupContext(
+            file="sample.png",
+            chunk_name="PLTE",
+            chunk_length=10,
+            data_offset=4,
+            data_hex="0011223344556677",
+            debug=True,
+        ),
+    )
+
+    assert setup.chunk_name == b"PLTE"
+    assert setup.session.before == bytes.fromhex("0011")
+    assert setup.session.after == bytes.fromhex("556677")
+    assert setup.session.palette_count == 3
+    assert setup.image_array == ("decoded", setup.session.wanabyte, -1)
+    assert setup.pil_image == ("image", setup.image_array)
+    assert ("candy", ("Title", "Manually Bruteforcing Chunk Datas:")) in calls
+    assert ("guess", bytes.fromhex("0011"), bytes.fromhex("556677")) in calls
+    assert ("emit", "File:sample.png") in calls
+    assert ("emit", "ChunkName:b'PLTE'") in calls
+    assert ("emit", "Palette_nbr:3") in calls
+
+
+def test_create_manual_palette_setup_preserves_bytes_chunk_name_error_path():
+    calls = []
+
+    setup = palette_runtime.create_manual_palette_setup(
+        build_manual_setup_runtime(calls),
+        palette_runtime.ManualPaletteSetupContext(
+            file="sample.png",
+            chunk_name=b"PLTE",
+            chunk_length=10,
+            data_offset=4,
+            data_hex="0011223344556677",
+            debug=True,
+        ),
+    )
+
+    assert setup.chunk_name == b"PLTE"
+    assert ("betterror", "'bytes' object has no attribute 'encode'", "Tk_Manual_Plte") in calls
+    assert any(call[0] == "emit" and "<red:Error:" in call[1] for call in calls)
+
+
 def test_manual_palette_full_new_data_returns_chunk_bytes_between_slices():
     session = palette_runtime.ManualPaletteSession(
         before=b"aa",
@@ -153,6 +219,31 @@ def test_manual_palette_full_new_data_returns_chunk_bytes_between_slices():
 
     assert palette_runtime.manual_palette_full_new_data(session) == b"PLTE"
     assert palette_runtime.manual_palette_full_new_data(no_after) == b"PLTE"
+
+
+def test_sync_palette_legacy_state_updates_namespace_when_state_exists():
+    state = palette_ui.PaletteEditorState(
+        values=["00"],
+        wanabyte=b"png",
+        sliders=["slider"],
+    )
+    namespace = {"Plte_Blst": [], "slider_list": [], "wanabyte": b""}
+
+    palette_runtime.sync_palette_legacy_state(namespace, state)
+
+    assert namespace == {
+        "Plte_Blst": ["00"],
+        "slider_list": ["slider"],
+        "wanabyte": b"png",
+    }
+
+
+def test_sync_palette_legacy_state_ignores_none_state():
+    namespace = {"Plte_Blst": ["old"], "slider_list": ["old"], "wanabyte": b"old"}
+
+    palette_runtime.sync_palette_legacy_state(namespace, None)
+
+    assert namespace == {"Plte_Blst": ["old"], "slider_list": ["old"], "wanabyte": b"old"}
 
 
 def test_guess_palette_count_uses_phash_distance_and_records_side_note():
@@ -252,7 +343,11 @@ def main():
         ("After index", test_manual_palette_after_index_preserves_legacy_expression),
         ("Before/after slices", test_manual_palette_slices_preserve_legacy_before_after_cut),
         ("Manual palette session", test_create_manual_palette_session_builds_initial_png_and_state),
+        ("Manual palette setup", test_create_manual_palette_setup_builds_session_image_and_debug_report),
+        ("Manual palette bytes chunk", test_create_manual_palette_setup_preserves_bytes_chunk_name_error_path),
         ("Full new data", test_manual_palette_full_new_data_returns_chunk_bytes_between_slices),
+        ("Sync palette legacy state", test_sync_palette_legacy_state_updates_namespace_when_state_exists),
+        ("Sync palette none state", test_sync_palette_legacy_state_ignores_none_state),
         ("Guess palette count", test_guess_palette_count_uses_phash_distance_and_records_side_note),
         ("Guess palette fallback", test_guess_palette_count_preserves_ihdr_depth_fallback),
         ("Guess palette libpng error", test_guess_palette_count_routes_libpng_error_to_end),

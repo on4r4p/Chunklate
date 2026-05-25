@@ -537,12 +537,7 @@ def Tk_Render_Plte_Preview(wanabyte, w, h):
 
 
 def Sync_Palette_Legacy_State():
-    global Plte_Blst, slider_list, wanabyte
-
-    if palette_state is not None:
-        Plte_Blst = palette_state.values
-        slider_list = palette_state.sliders
-        wanabyte = palette_state.wanabyte
+    return palette_runtime.sync_palette_legacy_state(globals(), palette_state)
 
 
 def Tk_ImgUpdate_Plte(event,nbr=None,bfn=None,afn=None,w=None,h=None):
@@ -747,23 +742,26 @@ def Tk_Manual_Plte(
     global palette_state
     global window,tk_image,frame_img,pil_image,im,canvas_slider,slider_list,wanabyte
 
-    Candy("Title", "Manually Bruteforcing Chunk Datas:")
-
-    try:
-        ChunkName = ChunkName.encode(errors="ignore")
-    except Exception as e:
-        Betterror(e, inspect.stack()[0][3])
-        if DEBUG is True:
-            PRINT(Candy("Color", "red", "Error:%s")% Candy("Color", "yellow", e))
-
-
-    PaletteSession = palette_runtime.create_manual_palette_session(
-        data_hex=DATAX,
-        data_offset=DataOffset,
-        chunk_length=ChunkLength,
-        chunk_name=ChunkName,
-        guess_palette_count=Guess_Palettes_Nbr,
+    PaletteSetup = palette_runtime.create_manual_palette_setup(
+        palette_runtime.ManualPaletteSetupRuntime(
+            candy=Candy,
+            emit=PRINT,
+            betterror=Betterror,
+            cv2=cv2,
+            numpy=np,
+            image=Image,
+            guess_palette_count=Guess_Palettes_Nbr,
+        ),
+        palette_runtime.ManualPaletteSetupContext(
+            file=File,
+            chunk_name=ChunkName,
+            chunk_length=ChunkLength,
+            data_offset=DataOffset,
+            data_hex=DATAX,
+            debug=DEBUG,
+        ),
     )
+    PaletteSession = PaletteSetup.session
     Before_New = PaletteSession.before
     After_New = PaletteSession.after
     wanabyte = PaletteSession.wanabyte
@@ -772,20 +770,8 @@ def Tk_Manual_Plte(
     palette_state = PaletteSession.state
     Plte_Blst = palette_state.values
 
-    if DEBUG is True:
-        fullnewdatax = palette_runtime.manual_palette_full_new_data(PaletteSession)
-        PRINT("File:%s"% File)
-        PRINT("ChunkName:%s"% ChunkName)
-        PRINT("DataOffset:%s"% DataOffset)
-        PRINT("ChunkLength:%s"% ChunkLength)
-        PRINT("Before_New:%s"% Before_New.hex())
-        PRINT("After_New:%s"% After_New[:20].hex())
-        PRINT("fullnewdatax:%s"%fullnewdatax.hex())
-        PRINT("Palette_nbr:%s"%Palette_nbr)
-
-
-    im = cv2.imdecode(np.frombuffer(wanabyte, np.uint8), -1)
-    pil_image = Image.fromarray(im)
+    im = PaletteSetup.image_array
+    pil_image = PaletteSetup.pil_image
 
     window = palette_ui.create_palette_editor_window(
         tkinter_module=tkinter,
