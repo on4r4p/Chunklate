@@ -16,9 +16,11 @@ from repair_matrix import (
     LEGACY_CRC_ONLY_REPAIR_CASES,
     PILLOW_LENIENT_REPAIR_CASES,
     PILLOW_ONLY_REPAIR_CASES,
+    REPAIR_MATRIX,
     REPAIR_CASES,
     UNCOVERED_REPAIR_CASES,
 )
+from repair_validators import validate_repaired_case
 
 try:
     from PIL import Image
@@ -76,31 +78,29 @@ def run_chunklate_repair(fixture_name, tmp_path, max_saves):
 def test_repair_cases_produce_expected_valid_pngs(tmp_path):
     failures = []
 
-    for fixture_name, (max_saves, expected_fixed_names) in REPAIR_CASES.items():
-        result, output_dir = run_chunklate_repair(fixture_name, tmp_path, max_saves)
+    for repair_case in REPAIR_MATRIX:
+        result, output_dir = run_chunklate_repair(
+            repair_case.fixture,
+            tmp_path,
+            repair_case.max_saves,
+        )
 
         if result.returncode != 0:
-            failures.append(f"{fixture_name}: rc={result.returncode}; stderr={result.stderr[-500:]}")
+            failures.append(f"{repair_case.fixture}: rc={result.returncode}; stderr={result.stderr[-500:]}")
             continue
 
         if not output_dir.exists():
-            failures.append(f"{fixture_name}: no output directory; rc={result.returncode}")
+            failures.append(f"{repair_case.fixture}: no output directory; rc={result.returncode}")
             continue
 
-        for fixed_name in expected_fixed_names:
+        for fixed_name in repair_case.expected_outputs:
             fixed_path = output_dir / fixed_name
             if not fixed_path.exists():
-                failures.append(f"{fixture_name}: missing {fixed_name}; rc={result.returncode}")
+                failures.append(f"{repair_case.fixture}: missing {fixed_name}; rc={result.returncode}")
             else:
-                validation_errors = repair_validation_errors(fixed_path)
+                validation_errors = validate_repaired_case(repair_case, fixed_path)
                 if validation_errors:
-                    failures.append(
-                        f"{fixture_name}: invalid repaired PNG {fixed_name}: "
-                        f"{'; '.join(validation_errors)}"
-                    )
-                    continue
-                if fixture_name not in PILLOW_LENIENT_REPAIR_CASES and not pillow_verify_ok(fixed_path):
-                    failures.append(f"{fixture_name}: Pillow rejected repaired PNG {fixed_name}")
+                    failures.append(f"{repair_case.fixture}: {'; '.join(validation_errors)}")
 
     assert failures == []
 
@@ -176,6 +176,7 @@ def test_all_current_repair_fixtures_are_classified():
 
     assert fixture_names - classified_names == set()
     assert classified_names - fixture_names == set()
+    assert {repair.fixture for repair in REPAIR_MATRIX if not repair.validators} == set()
 
 
 def test_missing_ihdr_repair_summary_includes_selected_candidate(tmp_path):
@@ -227,39 +228,35 @@ def run_repair_cases_verbose(tmp_path):
     failures = []
 
     print("Running repair regression tests")
-    for fixture_name, (max_saves, expected_fixed_names) in REPAIR_CASES.items():
+    for repair_case in REPAIR_MATRIX:
         print(
-            f"  - {fixture_name} -> max_saves={max_saves}, "
-            f"expect={', '.join(expected_fixed_names)} ... ",
+            f"  - {repair_case.fixture} -> max_saves={repair_case.max_saves}, "
+            f"expect={', '.join(repair_case.expected_outputs)} ... ",
             end="",
             flush=True,
         )
-        result, output_dir = run_chunklate_repair(fixture_name, tmp_path, max_saves)
+        result, output_dir = run_chunklate_repair(repair_case.fixture, tmp_path, repair_case.max_saves)
 
         if result.returncode != 0:
-            failures.append(f"{fixture_name}: rc={result.returncode}; stderr={result.stderr[-500:]}")
+            failures.append(f"{repair_case.fixture}: rc={result.returncode}; stderr={result.stderr[-500:]}")
             print("failed")
             continue
 
         missing_or_invalid = []
-        for fixed_name in expected_fixed_names:
+        for fixed_name in repair_case.expected_outputs:
             fixed_path = output_dir / fixed_name
             if not fixed_path.exists():
                 missing_or_invalid.append(f"missing {fixed_name}")
             else:
-                validation_errors = repair_validation_errors(fixed_path)
+                validation_errors = validate_repaired_case(repair_case, fixed_path)
                 if validation_errors:
-                    missing_or_invalid.append(
-                        f"invalid repaired PNG {fixed_name}: {'; '.join(validation_errors)}"
-                    )
-                elif fixture_name not in PILLOW_LENIENT_REPAIR_CASES and not pillow_verify_ok(fixed_path):
-                    missing_or_invalid.append(f"Pillow rejected {fixed_name}")
+                    missing_or_invalid.append(f"{fixed_name}: {'; '.join(validation_errors)}")
 
         if missing_or_invalid:
-            failures.append(f"{fixture_name}: {', '.join(missing_or_invalid)}")
+            failures.append(f"{repair_case.fixture}: {', '.join(missing_or_invalid)}")
             print("failed")
-        elif fixture_name in PILLOW_LENIENT_REPAIR_CASES:
-            print(f"ok (PNG/CRC only; {PILLOW_LENIENT_REPAIR_CASES[fixture_name]})")
+        elif repair_case.fixture in PILLOW_LENIENT_REPAIR_CASES:
+            print(f"ok (PNG/CRC only; {PILLOW_LENIENT_REPAIR_CASES[repair_case.fixture]})")
         else:
             print("ok")
 

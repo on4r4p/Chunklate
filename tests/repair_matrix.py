@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -12,6 +12,55 @@ class RepairCase:
     expected_outputs: tuple[str, ...]
     summary_contains: tuple[str, ...] = ()
     validators: tuple[str, ...] = ()
+
+
+VALID_32_PALETTE = (
+    "first_chunk:IHDR",
+    "ihdr_dimensions:32x32",
+    "has_chunk:PLTE",
+    "plte_non_empty",
+    "gama_non_zero",
+    "idat_decompress",
+    "last_chunk:IEND",
+)
+VALID_32_PALETTE_NO_GAMA = (
+    "first_chunk:IHDR",
+    "ihdr_dimensions:32x32",
+    "has_chunk:PLTE",
+    "plte_non_empty",
+    "idat_decompress",
+    "last_chunk:IEND",
+)
+VALID_32_NO_PLTE = (
+    "first_chunk:IHDR",
+    "ihdr_dimensions:32x32",
+    "missing_chunk:PLTE",
+    "gama_non_zero",
+    "idat_decompress",
+    "last_chunk:IEND",
+)
+VALID_260 = (
+    "first_chunk:IHDR",
+    "ihdr_dimensions:260x195",
+    "gama_non_zero",
+    "idat_decompress",
+    "last_chunk:IEND",
+)
+VALID_477 = (
+    "first_chunk:IHDR",
+    "ihdr_dimensions:477x599",
+    "gama_non_zero",
+    "idat_decompress",
+    "last_chunk:IEND",
+)
+VALID_272_PROFILE_REMOVED = (
+    "first_chunk:IHDR",
+    "ihdr_dimensions:272x170",
+    "missing_chunk:iCCP",
+    "gama_non_zero",
+    "idat_decompress",
+    "last_chunk:IEND",
+)
 
 
 REPAIR_MATRIX: tuple[RepairCase, ...] = (
@@ -267,6 +316,75 @@ REPAIR_MATRIX: tuple[RepairCase, ...] = (
         max_saves=1,
         expected_outputs=("Unhandled-Critical-Chunk.0_Fixed.png",),
     ),
+)
+
+
+_VALIDATORS_BY_FIXTURE = {
+    "Bad-Chunk-Lenght-Missing-Bit.png": VALID_32_PALETTE,
+    "Bad-Chunk-Length-Missing-Bit.png": VALID_32_PALETTE,
+    "Bad-Chunk-Length-Exceeding-Bit.png": VALID_32_PALETTE,
+    "Classic-Bad-Chunk-Crc.png": VALID_32_PALETTE,
+    "Classic-Bad-Chunk-Length.png": VALID_32_PALETTE,
+    "Good-Chunk-lenght-Missing-Bit.png": VALID_32_PALETTE,
+    "IHDR-Messed-Up-Bad-Crc.png": VALID_260,
+    "IHDR-Wrong-Height-Above-Estimated-Max-Resolution.png": VALID_477,
+    "IHDR-Wrong-Quick.png": VALID_477,
+    "IHDR-Wrong-Width-Bad-Crc.png": VALID_477,
+    "IHDR-Wrong-Width.png": VALID_477,
+    "IHDR_Messed_Up_Crc_Valid.png": VALID_32_PALETTE,
+    "IHDR_Missplaced.png": VALID_32_PALETTE,
+    "IEND_Missing.png": VALID_260,
+    "IEND_Missing_And_Extra_Bytes.png": (
+        "first_chunk:IHDR",
+        "ihdr_dimensions:1920x1200",
+        "idat_decompress",
+        "last_chunk:IEND",
+    ),
+    "IDAT_Partial_Blackfill.png": (
+        "first_chunk:IHDR",
+        "ihdr_dimensions:1x10",
+        "idat_decompress",
+        "idat_decompressed_len:40",
+        "last_chunk:IEND",
+    ),
+    "IncorrectSrgbProfile.png": VALID_272_PROFILE_REMOVED,
+    "Incorrect_Srgb_Profile.png": VALID_272_PROFILE_REMOVED,
+    "Missplaced_Ihdr.png": VALID_32_PALETTE,
+    "No_Png_Header.png": VALID_260,
+    "No_Png_Header_Corrupted_Length.png": VALID_260,
+    "No_Png_Header_Missing_Chunk_Corrupted.png": VALID_32_PALETTE + ("has_chunk:hIST",),
+    "PLTE_Empty_Bad_Crc.png": VALID_32_NO_PLTE,
+    "PLTE_Empty_Good_Crc.png": VALID_32_PALETTE,
+    "Private_Critical_Chunk_Bad_Crc.png": VALID_32_PALETTE + ("missing_chunk:baMA",),
+    "Private_Critical_Chunk_Crc_Valid.png": VALID_32_PALETTE + ("missing_chunk:baMA",),
+    "Wrong-Chunk-Name-Bad-Crc.png": (
+        "first_chunk:IHDR",
+        "ihdr_dimensions:1642x1095",
+        "gama_non_zero",
+        "idat_decompress",
+        "last_chunk:IEND",
+    ),
+    "Wrong-Chunk-Name-Crc-Valid.png": VALID_32_PALETTE,
+    "chunk_crc.png": VALID_32_PALETTE,
+    "chunk_private_critical.png": VALID_32_PALETTE + ("missing_chunk:GaMA",),
+    "chunk_private_critical_badcrc.png": VALID_32_PALETTE + ("missing_chunk:baMA",),
+    "chunk_private_critical_goodcrc.png": VALID_32_PALETTE + ("missing_chunk:baMA",),
+    "chunk_type.png": VALID_32_PALETTE,
+    "gama_zero.png": (
+        "first_chunk:IHDR",
+        "ihdr_dimensions:32x32",
+        "missing_chunk:gAMA",
+        "idat_decompress",
+        "last_chunk:IEND",
+    ),
+    "ihdr_image_size.png": VALID_32_PALETTE,
+    "Unhandled-Critical-Chunk.png": VALID_32_PALETTE_NO_GAMA + ("missing_chunk:QpZZ",),
+}
+
+
+REPAIR_MATRIX = tuple(
+    replace(repair, validators=_VALIDATORS_BY_FIXTURE[repair.fixture])
+    for repair in REPAIR_MATRIX
 )
 
 
