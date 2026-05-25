@@ -1,142 +1,212 @@
 # Chunklate Architecture
 
-This document maps the current refactor. The goal is not to hide the legacy
-script: `Chunklate.py` is still the entry point and orchestration layer. The new
-modules isolate behavior that can be tested without running the whole CLI.
+This document gives a practical map of the project. `Chunklate.py` remains the
+command entry point, while the `chunklate/` package contains the parsing,
+validation, repair, output, and UI helpers used by that command.
 
-## Main Flow
+## Main Workflow
 
-`Chunklate.py` still owns the legacy runtime:
+Chunklate follows this high-level flow:
 
-1. parse CLI options;
-2. read the input PNG;
-3. walk chunks;
-4. update legacy globals;
-5. call repair decisions;
-6. write repair clones;
-7. print the old interactive output.
+1. Parse CLI options and initialize the run.
+2. Read the target file and locate or rebuild the PNG signature when possible.
+3. Walk through PNG chunks and collect structure, CRC, length, and payload data.
+4. Report chunk information and validate chunk-specific expectations.
+5. Record findings through the checkpoint system.
+6. Pick a repair route when one is available.
+7. Write repaired clones to `Folder_*` output directories.
+8. Print a summary of the actions taken.
 
-The modules under `chunklate/` are helpers extracted from that flow. Most of
-them are pure or close to pure; when a module still needs legacy behavior,
-`Chunklate.py` keeps a wrapper around it.
+## Entry Point
 
-## Module Map
+`Chunklate.py`
+: CLI entry point and orchestration layer. It keeps the public function names
+  used by the tool, wires runtime callbacks together, and coordinates the full
+  scan/repair flow.
+
+`chunklate/main_runtime.py`
+: Helpers for CLI option handling, per-file setup, state reset, and chunk
+  walking.
+
+`chunklate/cli.py`
+: CLI parser defaults and option helpers.
+
+## PNG Model And Parsing
 
 `chunklate/png.py`
-: PNG parser and byte helpers. This is the low-level chunk reader: signature,
-chunk lengths, chunk names, CRC, structure checks, and helpers to rebuild PNG
-chunks.
-
-`chunklate/specs.py`
-: Chunk specification helpers used by bruteforce and validation. This now owns
-the old `GetSpec` data expansion: chunk fields, allowed values, ranges, color
-type rules, and candidate generation inputs.
-
-`chunklate/bruteforce.py`
-: Pure helpers extracted from `SmashBruteBrawl`: mode resolution, candidate
-bytes, edit windows, `TwoBytes` dispatch, candidate validation, CRASH resume,
-and ETA math. `Chunklate.py` still owns the heavy loop, display, clone writing,
-and checkpoint side effects.
+: Low-level PNG helpers: signature handling, chunk reading, CRC checks, byte
+  ranges, and chunk rebuild helpers.
 
 `chunklate/chunk_info.py`
-: Parsers for chunk payloads. It turns raw chunk data into structured values for
-chunks such as `IHDR`, `gAMA`, `pHYs`, text chunks, `PLTE`, and others.
+: Payload parsers for chunks such as `IHDR`, `gAMA`, `pHYs`, `tIME`, `PLTE`,
+  text chunks, and related metadata.
 
 `chunklate/chunk_state.py`
-: Bridge between parsed chunk info and the old globals. `ChunkInfoState` stores
-the current IHDR/IDAT/PLTE/text state so `Chunklate.py` can keep legacy names
-while the parsing logic becomes testable.
+: Runtime state for information discovered while walking chunks, including
+  image dimensions, color mode, IDAT counters, palette data, and text chunks.
+
+`chunklate/chunk_state_runtime.py`
+: Synchronization helpers between the run state and the public variables used
+  by the command layer.
 
 `chunklate/chunk_report.py`
-: Output formatting for chunk information. It replaces direct report printing
-inside `GetInfo` with functions that receive an `emit` callback.
+: Formatting for chunk reports. It receives an output callback, so tests can
+  verify reports without printing to the terminal.
+
+`chunklate/specs.py`
+: Chunk specification data used by validation and bruteforce generation:
+  allowed values, ranges, color type combinations, and candidate inputs.
+
+`chunklate/spec_length_runtime.py`
+: Runtime wrapper for expected chunk length checks.
+
+## Validation And Decisions
+
+`chunklate/youshallpass_runtime.py`
+: Dispatch for chunk payload validation.
+
+`chunklate/chunk_validation_runtime.py`
+: Runtime helpers for length and checksum validation.
 
 `chunklate/chunk_order.py`
-: PNG chunk ordering checks extracted from the legacy `CheckChunkOrder` logic.
+: Pure helpers for PNG chunk ordering constraints.
 
-`Chunklate.YouShallPass(...)`
-: Validation dispatch for chunk payload rules. This function still lives in
-`Chunklate.py`, but it now relies heavily on parser helpers from
-`chunklate/chunk_info.py` and state synchronized through
-`chunklate/chunk_state.py`.
+`chunklate/chunk_order_runtime.py`
+: Runtime orchestration for chunk order checks and chunk repositioning.
 
 `chunklate/checkpoint.py`
-: Checkpoint state and decisions around what action should happen after a
-detected problem. `Chunklate.py` still applies the resulting legacy side
-effects.
+: Finding registration and checkpoint action decisions.
+
+`chunklate/checkpoint_runtime.py`
+: Checkpoint entry flow, debug output, and action routing.
+
+`chunklate/checkpoint_actions_runtime.py`
+: Action handlers triggered by checkpoint decisions.
 
 `chunklate/decisions.py`
-: Small decision helpers used where legacy code previously mixed boolean flags
-and action names inline.
+: Small decision objects and helpers shared by repair runtimes.
+
+`chunklate/chunk_story.py`
+: Human-readable explanations attached to chunk findings.
+
+## Repair Paths
 
 `chunklate/fixit_felix.py`
-: Automatic repair planning and dispatch helpers. The module decides what
-repair path should be attempted; `Chunklate.py` still performs legacy writes,
-pauses, summaries, and UI side effects.
+: Automatic repair planning helpers.
+
+`chunklate/fixit_felix_runtime.py`
+: Runtime wiring for automatic repair attempts and their side effects.
 
 `chunklate/dummy_chunk.py`
-: Decisions around missing or dummy chunks such as `IHDR`, `IEND`, and `IDAT`.
-IDAT-specific salvage delegates to `chunklate/idat.py`.
+: Decisions around creating replacement chunks such as `IHDR`, `IEND`, or
+  fallback `IDAT` data.
+
+`chunklate/dummy_chunk_runtime.py`
+: Runtime wrapper for dummy chunk decisions.
 
 `chunklate/idat.py`
-: IDAT analysis and the explicit `partial-idat-blackfill` fallback. It can keep
-complete recovered scanlines, fill the rest with black or transparent bytes,
-recompress a new IDAT stream, and produce a valid salvage PNG for non-interlaced
-cases.
+: IDAT stream analysis and the `partial-idat-blackfill` salvage path for
+  non-interlaced PNGs.
 
-`chunklate/relics.py`
-: Extracted policy around `Relics`, `Pandemonium`, `PandoraBox`, and related
-repair history. This is still a sensitive area because it controls how old
-errors and previous fixes influence later decisions.
+`chunklate/bruteforce.py`
+: Candidate generation, byte edit modes, scan windows, ETA helpers, and
+  `TwoBytes` dispatch for data bruteforce.
 
-`chunklate/writer.py`
-: Clone output writer. It handles output directories, `Folder_*` paths,
-`--output-dir`, save counting, and `--max-saves`.
+`chunklate/bruteforce_runtime.py`
+: Scan execution helpers used by the bruteforce command path.
 
-`chunklate/output.py`, `chunklate/stdio.py`, `chunklate/ui.py`
-: Console output, standard IO wrappers, and terminal/UI formatting helpers.
-They keep presentation concerns away from repair logic.
+`chunklate/bruteforce_viewer.py`
+: Optional preview flow while scanning candidates.
 
-`chunklate/prompts.py`
-: Testable interactive choices, including the legacy `WHO'S THAT POKEMON !?`
-fallback path.
+`chunklate/bruteforce_result.py`
+: Result handling after bruteforce attempts.
 
-`chunklate/palette.py`, `chunklate/palette_ui.py`
-: Palette logic and Tkinter-facing palette UI split apart. The UI path is kept
-for interactive use; tests can exercise the non-UI pieces directly.
+`chunklate/smash_bruteforce.py`
+: Runtime bridge for the `SmashBruteBrawl` command path.
 
-`chunklate/error_log.py`, `chunklate/history.py`, `chunklate/sorting.py`,
-`chunklate/chunk_story.py`
-: Small helpers for logging, history, sorting, and human-readable chunk stories.
+`chunklate/full_chunk_forcer.py`
+: Runtime support for full chunk brute force without relying on CRC first.
 
+`chunklate/nearby.py` and `chunklate/nearby_runtime.py`
+: Nearby chunk search, extra-byte removal, and related repair routing.
 
-## Testing Contract
+`chunklate/name_shift.py` and `chunklate/name_shift_runtime.py`
+: Detection and repair of shifted chunk names caused by missing or extra bytes.
 
-The current safety net is:
+`chunklate/chunk_name_runtime.py`
+: Runtime dispatch for chunk name validation, name guessing, prompt fallback,
+  and automatic name replacement.
+
+`chunklate/chunk_scanner.py` and `chunklate/magic_runtime.py`
+: PNG signature search and hard magic byte recovery flow.
+
+`chunklate/relics.py`, `chunklate/relics_runtime.py`, `chunklate/relics_ui.py`
+: Repair-history analysis, route selection, and related user-facing choices.
+
+## Palette Tools
+
+`chunklate/palette.py`
+: Palette byte helpers for building `PLTE` chunks and palette PNG candidates.
+
+`chunklate/palette_ui.py`
+: Tkinter-facing palette editor widgets and non-UI palette editor state.
+
+`chunklate/palette_runtime.py`
+: Palette count guessing, manual palette session setup, save handling, preview
+  updates, randomization, and editor wiring.
+
+## Output, Prompts, And Utilities
+
+`chunklate/writer.py` and `chunklate/writer_runtime.py`
+: Clone writing, output directory handling, save counting, `--output-dir`, and
+  `--max-saves`.
+
+`chunklate/output.py`
+: Summary formatting and clone target naming helpers.
+
+`chunklate/error_log.py`
+: Error log formatting and append helpers.
+
+`chunklate/ui.py`, `chunklate/ui_runtime.py`, `chunklate/stdio.py`
+: Terminal output helpers, loading bars, and standard IO wrappers.
+
+`chunklate/prompts.py` and `chunklate/question_runtime.py`
+: Interactive prompts, automatic answers, and deterministic prompt handling for
+  tests.
+
+`chunklate/history.py`, `chunklate/sorting.py`, `chunklate/ancillary.py`,
+`chunklate/ancillary_runtime.py`, `chunklate/libpng_check.py`,
+`chunklate/libpng_runtime.py`
+: Focused helpers for history snapshots, natural sorting, ancillary chunk
+  metadata, and libpng output handling.
+
+## IDAT Salvage
+
+`partial-idat-blackfill` is an explicit salvage repair. When a non-interlaced
+PNG has a partially readable IDAT zlib stream, Chunklate can keep complete
+scanlines recovered before the zlib failure, fill the remaining scanlines with
+black or transparent bytes, recompress a new IDAT stream, and rebuild a valid
+PNG. It is a salvage image, not a reconstruction of unknown image content.
+
+Current limits:
+
+- Adam7/interlaced PNGs are not handled by this path.
+- Partial scanlines are discarded.
+- Missing image content is filled, not guessed.
+
+## Tests
+
+Run the full local validation:
 
 ```sh
 ./scripts/check.sh
 ```
 
-The repair regression suite is especially important:
+Run the repair regression suite:
 
 ```sh
 .venv/bin/python -m pytest tests/test_repairs.py
 ```
 
-Tests must write only to temporary directories. Repair fixtures stay under
-`Png_Errors_handled_by_Chunklate_So_Far/`, and generated clone outputs must not
-land in the repository root.
-
-## Refactor Rule
-
-Prefer this shape for each legacy extraction:
-
-1. add a pure helper in `chunklate/`;
-2. add focused tests for the helper;
-3. replace the matching block in `Chunklate.py` with a wrapper call;
-4. run `./scripts/check.sh`;
-5. commit the small behavior-preserving step.
-
-Feature changes should be explicit and named in tests. Everything else should
-preserve legacy behavior until a fixture proves the new behavior is intended.
+The tests use temporary output directories for generated files. Fixtures for
+repair behavior live in `Png_Errors_handled_by_Chunklate_So_Far/`.
