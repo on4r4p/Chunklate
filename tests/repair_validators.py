@@ -25,6 +25,7 @@ def validate_repaired_case(case, fixed_path: Path, summary_path: Path | None = N
 
     errors.extend(validate_png_structure_and_crc(context))
     errors.extend(validate_pillow_verify(context))
+    errors.extend(validate_summary_contains(context))
 
     if not case.validators:
         errors.append("%s: missing repair-specific validators" % case.fixture)
@@ -54,6 +55,26 @@ def validate_pillow_verify(context: RepairValidationContext) -> list[str]:
             img.verify()
     except Exception as exc:
         return ["Pillow rejected repaired PNG %s: %s" % (context.fixed_path.name, exc)]
+    return []
+
+
+def validate_summary_contains(context: RepairValidationContext) -> list[str]:
+    markers = getattr(context.case, "summary_contains", ())
+    if not markers:
+        return ["%s: missing summary contract markers" % context.case.fixture]
+    if context.summary_path is None:
+        return ["%s: missing summary path for repair contract" % context.case.fixture]
+    if not context.summary_path.exists():
+        return ["%s: missing repair summary %s" % (context.case.fixture, context.summary_path.name)]
+
+    summary = context.summary_path.read_text(errors="replace")
+    missing = [marker for marker in markers if marker not in summary]
+    if missing:
+        return [
+            "%s: summary %s missing marker %r"
+            % (context.case.fixture, context.summary_path.name, marker)
+            for marker in missing
+        ]
     return []
 
 

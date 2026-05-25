@@ -93,12 +93,13 @@ def test_repair_cases_produce_expected_valid_pngs(tmp_path):
             failures.append(f"{repair_case.fixture}: no output directory; rc={result.returncode}")
             continue
 
+        summary_path = output_dir / f"Summary_Of_{Path(repair_case.fixture).stem}"
         for fixed_name in repair_case.expected_outputs:
             fixed_path = output_dir / fixed_name
             if not fixed_path.exists():
                 failures.append(f"{repair_case.fixture}: missing {fixed_name}; rc={result.returncode}")
             else:
-                validation_errors = validate_repaired_case(repair_case, fixed_path)
+                validation_errors = validate_repaired_case(repair_case, fixed_path, summary_path)
                 if validation_errors:
                     failures.append(f"{repair_case.fixture}: {'; '.join(validation_errors)}")
 
@@ -177,6 +178,7 @@ def test_all_current_repair_fixtures_are_classified():
     assert fixture_names - classified_names == set()
     assert classified_names - fixture_names == set()
     assert {repair.fixture for repair in REPAIR_MATRIX if not repair.validators} == set()
+    assert {repair.fixture for repair in REPAIR_MATRIX if not repair.summary_contains} == set()
 
 
 def test_missing_ihdr_repair_summary_includes_selected_candidate(tmp_path):
@@ -243,12 +245,13 @@ def run_repair_cases_verbose(tmp_path):
             continue
 
         missing_or_invalid = []
+        summary_path = output_dir / f"Summary_Of_{Path(repair_case.fixture).stem}"
         for fixed_name in repair_case.expected_outputs:
             fixed_path = output_dir / fixed_name
             if not fixed_path.exists():
                 missing_or_invalid.append(f"missing {fixed_name}")
             else:
-                validation_errors = validate_repaired_case(repair_case, fixed_path)
+                validation_errors = validate_repaired_case(repair_case, fixed_path, summary_path)
                 if validation_errors:
                     missing_or_invalid.append(f"{fixed_name}: {'; '.join(validation_errors)}")
 

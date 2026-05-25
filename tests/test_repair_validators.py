@@ -53,15 +53,22 @@ def repair_case(**updates):
         "expected_strategy": "test strategy",
         "max_saves": 1,
         "expected_outputs": ("sample.0_Fixed.png",),
-        "summary_contains": (),
+        "summary_contains": ("repair marker",),
         "validators": (),
     }
     values.update(updates)
     return RepairCase(**values)
 
 
+def write_summary(tmp_path, text="repair marker"):
+    summary = tmp_path / "Summary_Of_sample"
+    summary.write_text(text)
+    return summary
+
+
 def test_validate_repaired_case_accepts_dimensions_chunks_and_idat(tmp_path):
     repaired = tmp_path / "fixed.png"
+    summary = write_summary(tmp_path)
     repaired.write_bytes(
         simple_png(
             1,
@@ -84,35 +91,51 @@ def test_validate_repaired_case_accepts_dimensions_chunks_and_idat(tmp_path):
         )
     )
 
-    assert validate_repaired_case(case, repaired) == []
+    assert validate_repaired_case(case, repaired, summary) == []
 
 
 def test_validate_repaired_case_reports_missing_contract_validator(tmp_path):
     repaired = tmp_path / "fixed.png"
+    summary = write_summary(tmp_path)
     repaired.write_bytes(simple_png())
     case = repair_case(validators=())
 
-    assert validate_repaired_case(case, repaired) == ["sample.png: missing repair-specific validators"]
+    assert validate_repaired_case(case, repaired, summary) == [
+        "sample.png: missing repair-specific validators"
+    ]
 
 
 def test_validate_repaired_case_reports_forbidden_chunk_still_present(tmp_path):
     repaired = tmp_path / "fixed.png"
+    summary = write_summary(tmp_path)
     repaired.write_bytes(simple_png(extra_chunks=(chunk(b"gAMA", b"\x00\x00\x00\x00"),)))
     case = repair_case(validators=("missing_chunk:gAMA",))
 
-    errors = validate_repaired_case(case, repaired)
+    errors = validate_repaired_case(case, repaired, summary)
 
     assert "chunk gAMA is still present" in errors
 
 
 def test_validate_repaired_case_reports_idat_length_mismatch(tmp_path):
     repaired = tmp_path / "fixed.png"
+    summary = write_summary(tmp_path)
     repaired.write_bytes(simple_png(1, 2))
     case = repair_case(validators=("idat_decompressed_len:4",))
 
-    errors = validate_repaired_case(case, repaired)
+    errors = validate_repaired_case(case, repaired, summary)
 
     assert "expected decompressed IDAT length 4, got 8" in errors
+
+
+def test_validate_repaired_case_reports_missing_summary_marker(tmp_path):
+    repaired = tmp_path / "fixed.png"
+    summary = write_summary(tmp_path, "different marker")
+    repaired.write_bytes(simple_png())
+    case = repair_case(validators=("idat_decompress",))
+
+    errors = validate_repaired_case(case, repaired, summary)
+
+    assert "sample.png: summary Summary_Of_sample missing marker 'repair marker'" in errors
 
 
 def main():
@@ -121,6 +144,7 @@ def main():
         ("missing validator", test_validate_repaired_case_reports_missing_contract_validator),
         ("forbidden chunk", test_validate_repaired_case_reports_forbidden_chunk_still_present),
         ("idat length", test_validate_repaired_case_reports_idat_length_mismatch),
+        ("summary marker", test_validate_repaired_case_reports_missing_summary_marker),
     ]
 
     print("Running repair validator tests")

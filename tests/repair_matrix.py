@@ -381,9 +381,145 @@ _VALIDATORS_BY_FIXTURE = {
     "Unhandled-Critical-Chunk.png": VALID_32_PALETTE_NO_GAMA + ("missing_chunk:QpZZ",),
 }
 
+_SUMMARY_MARKERS_BY_FIXTURE = {
+    "Bad-Chunk-Lenght-Missing-Bit.png": (
+        "Chunk length has been corrupted due to some missing bytes",
+    ),
+    "Bad-Chunk-Length-Missing-Bit.png": (
+        "Chunk length has been corrupted due to some missing bytes",
+    ),
+    "Bad-Chunk-Length-Exceeding-Bit.png": (
+        "Found 1 extra byte(s) before Chunk[gAMA]",
+    ),
+    "Classic-Bad-Chunk-Crc.png": (
+        "rebuilt IHDR from IDAT scanline size",
+        "Selected IHDR 32x32",
+    ),
+    "Classic-Bad-Chunk-Length.png": (
+        "Found Chunk[b'gAMA'] has Wrong length",
+        "Replaced with: 00000004",
+    ),
+    "Good-Chunk-lenght-Missing-Bit.png": (
+        "recovered missing data byte in PLTE chunk",
+    ),
+    "IHDR-Messed-Up-Bad-Crc.png": (
+        "restored IHDR values matching stored CRC",
+    ),
+    "IHDR-Wrong-Height-Above-Estimated-Max-Resolution.png": (
+        "rebuilt IHDR from IDAT scanline size",
+        "Selected IHDR 477x599",
+    ),
+    "IHDR-Wrong-Quick.png": (
+        "rebuilt IHDR from IDAT scanline size",
+        "Selected IHDR 477x599",
+    ),
+    "IHDR-Wrong-Width-Bad-Crc.png": (
+        "restored IHDR values matching stored CRC",
+    ),
+    "IHDR-Wrong-Width.png": (
+        "restored IHDR values matching stored CRC",
+    ),
+    "IHDR_Messed_Up_Crc_Valid.png": (
+        "rebuilt IHDR from IDAT scanline size",
+        "Selected IHDR 32x32",
+    ),
+    "IHDR_Missplaced.png": (
+        "Found Missing Data:[b'IHDR']",
+    ),
+    "IEND_Missing.png": (
+        "Critical Chunk b'IEND' is Missing",
+        "Filling with a dummy chunk",
+    ),
+    "IEND_Missing_And_Extra_Bytes.png": (
+        "Critical Chunk b'IEND' is Missing",
+        "Filling with a dummy chunk",
+    ),
+    "IDAT_Partial_Blackfill.png": (
+        "partial-idat-blackfill recovered 1/10 scanlines",
+        "Selected IHDR 1x10",
+    ),
+    "IncorrectSrgbProfile.png": (
+        "removed known bad sRGB iCCP profile",
+    ),
+    "Incorrect_Srgb_Profile.png": (
+        "removed known bad sRGB iCCP profile",
+    ),
+    "Missplaced_Ihdr.png": (
+        "Found Missing Data:[b'IHDR']",
+    ),
+    "No_Png_Header.png": (
+        "File does not start with a png signature",
+        "Did prepending a png signature at offset: 0x4",
+    ),
+    "No_Png_Header_Corrupted_Length.png": (
+        "File does not start with a png signature",
+        "Did prepending a png signature at offset: 0x2",
+    ),
+    "No_Png_Header_Missing_Chunk_Corrupted.png": (
+        "Did prepending a png signature at offset: 0x3",
+        "rebuilt missing IHDR from IDAT scanline size",
+        "Selected IHDR 32x32",
+    ),
+    "PLTE_Empty_Bad_Crc.png": (
+        "removed empty non-indexed PLTE chunk",
+    ),
+    "PLTE_Empty_Good_Crc.png": (
+        "rebuilt empty indexed PLTE as grayscale palette",
+    ),
+    "Private_Critical_Chunk_Bad_Crc.png": (
+        "turning it into a valid Chunk name: gAMA",
+        "Replaced with: 31e8965f",
+    ),
+    "Private_Critical_Chunk_Crc_Valid.png": (
+        "turning it into a valid Chunk name: gAMA",
+        "Replaced with: 31e8965f",
+    ),
+    "Wrong-Chunk-Name-Bad-Crc.png": (
+        "turning it into a valid Chunk name: IDAT",
+        "stored CRC matched candidate chunk name",
+    ),
+    "Wrong-Chunk-Name-Crc-Valid.png": (
+        "turning it into a valid Chunk name: gAMA",
+        "Replaced with: 31e8965f",
+    ),
+    "chunk_crc.png": (
+        "rebuilt IHDR from IDAT scanline size",
+        "Selected IHDR 32x32",
+    ),
+    "chunk_private_critical.png": (
+        "renamed known chunk GaMA to gAMA and rebuilt CRC",
+    ),
+    "chunk_private_critical_badcrc.png": (
+        "turning it into a valid Chunk name: gAMA",
+        "Replaced with: 31e8965f",
+    ),
+    "chunk_private_critical_goodcrc.png": (
+        "turning it into a valid Chunk name: gAMA",
+        "Replaced with: 31e8965f",
+    ),
+    "chunk_type.png": (
+        "turning it into a valid Chunk name: gAMA",
+        "Replaced with: 31e8965f",
+    ),
+    "gama_zero.png": (
+        "removed zero gAMA chunk",
+    ),
+    "ihdr_image_size.png": (
+        "rebuilt IHDR from IDAT scanline size",
+        "Selected IHDR 32x32",
+    ),
+    "Unhandled-Critical-Chunk.png": (
+        "removed unknown private critical unsafe-to-copy chunk(s): QpZZ",
+    ),
+}
+
 
 REPAIR_MATRIX = tuple(
-    replace(repair, validators=_VALIDATORS_BY_FIXTURE[repair.fixture])
+    replace(
+        repair,
+        summary_contains=_SUMMARY_MARKERS_BY_FIXTURE[repair.fixture],
+        validators=_VALIDATORS_BY_FIXTURE[repair.fixture],
+    )
     for repair in REPAIR_MATRIX
 )
 
