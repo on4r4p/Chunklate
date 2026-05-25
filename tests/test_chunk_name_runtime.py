@@ -202,6 +202,116 @@ def test_brute_chunk_pokemon_length_choice_routes_nearby_chunk():
     assert ("nearby_chunk", (b"zzzz", "00000004", b"IHDR", False)) in calls
 
 
+def build_namespace(calls):
+    return {
+        "Candy": lambda *args: calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "CheckPoint": lambda *args: calls.append(("checkpoint", args)),
+        "Pause": lambda message: calls.append(("pause", message)),
+        "TheEnd": lambda: calls.append(("end",)),
+        "Betterror": lambda *args: calls.append(("betterror", args)),
+        "NameShift": lambda: calls.append(("name_shift",)),
+        "CheckChunkOrder": lambda *args: calls.append(("check_order", args)),
+        "NearbyChunk": lambda *args: calls.append(("nearby", args)),
+        "SaveClone": lambda *args: calls.append(("save", args)),
+        "BruteChunk_Crc_Matches": lambda candidates: calls.append(("crc", tuple(candidates))),
+        "BruteChunk_Save_Auto_Name": lambda *args: calls.append(("auto_name", args)),
+        "FixItFelix_Try_Automatic_Repair": lambda key: calls.append(("auto_repair", key)),
+        "CHUNKS": [b"IHDR", b"IDAT"],
+        "ALLCHUNKS": [b"IHDR", b"IDAT", b"IEND"],
+        "Chunks_History": [b"PNG", b"IHDR"],
+        "Orig_CT": b"bad!",
+        "Orig_CL": "00000004",
+        "CToffI": 16,
+        "CToffX": "0x8",
+        "IDAT_Avg_Len": 4,
+        "Orig_NC": b"IEND",
+        "NCoffI": 32,
+        "DEBUG": True,
+        "PAUSEDEBUG": False,
+    }
+
+
+def test_chunk_name_namespace_builders_preserve_runtime_callbacks_and_context():
+    calls = []
+    namespace = build_namespace(calls)
+
+    runtime = chunk_name_runtime.build_chunk_name_runtime_from_namespace(namespace)
+    context = chunk_name_runtime.build_chunk_name_context_from_namespace(namespace)
+
+    assert runtime.candy is namespace["Candy"]
+    assert runtime.emit is namespace["PRINT"]
+    assert runtime.checkpoint is namespace["CheckPoint"]
+    assert runtime.pause is namespace["Pause"]
+    assert runtime.end is namespace["TheEnd"]
+    assert runtime.betterror is namespace["Betterror"]
+    assert runtime.name_shift is namespace["NameShift"]
+    assert runtime.check_chunk_order is namespace["CheckChunkOrder"]
+    assert runtime.nearby_chunk is namespace["NearbyChunk"]
+    assert runtime.save_clone is namespace["SaveClone"]
+    assert runtime.crc_matches is namespace["BruteChunk_Crc_Matches"]
+    assert runtime.save_auto_name is namespace["BruteChunk_Save_Auto_Name"]
+    runtime.unknown_private_critical_removal()
+    assert ("auto_repair", "unknown_private_critical_removal") in calls
+
+    assert context.chunks == (b"IHDR", b"IDAT")
+    assert context.all_chunks == (b"IHDR", b"IDAT", b"IEND")
+    assert context.chunks_history == (b"PNG", b"IHDR")
+    assert context.original_chunk_type == b"bad!"
+    assert context.original_chunk_length == "00000004"
+    assert context.current_type_offset == 16
+    assert context.current_type_offset_hex == "0x8"
+    assert context.idat_average_length == 4
+    assert context.original_next_chunk == b"IEND"
+    assert context.next_chunk_offset == 32
+    assert context.debug is True
+    assert context.pause_debug is False
+
+
+def test_chunk_name_namespace_run_helpers_pass_legacy_arguments():
+    calls = []
+    namespace = build_namespace(calls)
+
+    def brute_runner(runtime, context, chunk_type, last_chunk_type, chunk_length, from_error):
+        assert runtime.candy is namespace["Candy"]
+        assert context.original_chunk_type == b"bad!"
+        assert (chunk_type, last_chunk_type, chunk_length, from_error) == (
+            b"bad!",
+            b"IHDR",
+            "00000004",
+            "Relics",
+        )
+        return "brute"
+
+    def check_runner(runtime, context, chunk_type, chunk_length, last_chunk_type, next_chunk):
+        assert runtime.candy is namespace["Candy"]
+        assert context.original_chunk_type == b"bad!"
+        assert (chunk_type, chunk_length, last_chunk_type, next_chunk) == (
+            b"IHDR",
+            "0000000d",
+            b"PNG",
+            b"IDAT",
+        )
+        return "check"
+
+    assert chunk_name_runtime.run_brute_chunk_from_namespace(
+        namespace,
+        b"bad!",
+        b"IHDR",
+        "00000004",
+        "Relics",
+        runner=brute_runner,
+    ) == "brute"
+    assert chunk_name_runtime.run_check_chunk_name_from_namespace(
+        namespace,
+        b"IHDR",
+        "0000000d",
+        b"PNG",
+        b"IDAT",
+        runner=check_runner,
+    ) == "check"
+
+
 def main():
     checks = [
         ("Valid current chunk", test_check_chunk_name_accepts_exact_current_chunk),
@@ -210,6 +320,8 @@ def main():
         ("NameShift repair", test_brute_chunk_routes_nameshift_repair_to_checkpoint),
         ("CRC auto name", test_brute_chunk_prefers_single_crc_match_auto_name),
         ("Pokemon length", test_brute_chunk_pokemon_length_choice_routes_nearby_chunk),
+        ("Namespace builders", test_chunk_name_namespace_builders_preserve_runtime_callbacks_and_context),
+        ("Namespace runners", test_chunk_name_namespace_run_helpers_pass_legacy_arguments),
     ]
 
     print("Running chunk name runtime tests")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -400,3 +401,83 @@ def run_check_chunk_name(
 
 def ask_pokemon_choice_with_input(asker, candidate_count: int, on_invalid):
     return prompts.ask_pokemon_choice(asker, candidate_count, on_invalid=on_invalid)
+
+
+def build_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> ChunkNameRuntime:
+    return ChunkNameRuntime(
+        candy=namespace["Candy"],
+        emit=namespace["PRINT"],
+        checkpoint=namespace["CheckPoint"],
+        pause=namespace["Pause"],
+        end=namespace["TheEnd"],
+        betterror=namespace["Betterror"],
+        name_shift=namespace["NameShift"],
+        check_chunk_order=namespace["CheckChunkOrder"],
+        nearby_chunk=namespace["NearbyChunk"],
+        save_clone=namespace["SaveClone"],
+        crc_matches=namespace["BruteChunk_Crc_Matches"],
+        save_auto_name=namespace["BruteChunk_Save_Auto_Name"],
+        unknown_private_critical_removal=lambda: namespace["FixItFelix_Try_Automatic_Repair"](
+            "unknown_private_critical_removal"
+        ),
+        ask_pokemon_choice=lambda count, on_invalid: prompts.ask_pokemon_choice(
+            builtins.input,
+            count,
+            on_invalid=on_invalid,
+        ),
+    )
+
+
+def build_chunk_name_context_from_namespace(namespace: dict[str, Any]) -> ChunkNameContext:
+    return ChunkNameContext(
+        chunks=tuple(namespace["CHUNKS"]),
+        all_chunks=tuple(namespace["ALLCHUNKS"]),
+        chunks_history=tuple(namespace["Chunks_History"]),
+        original_chunk_type=namespace["Orig_CT"],
+        original_chunk_length=namespace["Orig_CL"],
+        current_type_offset=namespace["CToffI"],
+        current_type_offset_hex=namespace["CToffX"],
+        idat_average_length=namespace["IDAT_Avg_Len"],
+        original_next_chunk=namespace["Orig_NC"],
+        next_chunk_offset=namespace["NCoffI"],
+        debug=namespace["DEBUG"],
+        pause_debug=namespace["PAUSEDEBUG"],
+    )
+
+
+def run_brute_chunk_from_namespace(
+    namespace: dict[str, Any],
+    chunk_type: Any,
+    last_chunk_type: bytes,
+    chunk_length: Any,
+    from_error: Any,
+    *,
+    runner: LegacyCall = run_brute_chunk,
+) -> Any:
+    return runner(
+        build_chunk_name_runtime_from_namespace(namespace),
+        build_chunk_name_context_from_namespace(namespace),
+        chunk_type,
+        last_chunk_type,
+        chunk_length,
+        from_error,
+    )
+
+
+def run_check_chunk_name_from_namespace(
+    namespace: dict[str, Any],
+    chunk_type: Any,
+    chunk_length: Any,
+    last_chunk_type: bytes,
+    next_chunk: Any = None,
+    *,
+    runner: LegacyCall = run_check_chunk_name,
+) -> Any:
+    return runner(
+        build_chunk_name_runtime_from_namespace(namespace),
+        build_chunk_name_context_from_namespace(namespace),
+        chunk_type,
+        chunk_length,
+        last_chunk_type,
+        next_chunk,
+    )

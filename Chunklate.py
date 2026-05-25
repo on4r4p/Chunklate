@@ -1040,51 +1040,16 @@ def BruteChunk_Save_Auto_Name(CType, FromError, ChunkName, reason):
 
 
 def ChunkName_Runtime():
-    return chunk_name_runtime.ChunkNameRuntime(
-        candy=Candy,
-        emit=PRINT,
-        checkpoint=CheckPoint,
-        pause=Pause,
-        end=TheEnd,
-        betterror=Betterror,
-        name_shift=NameShift,
-        check_chunk_order=CheckChunkOrder,
-        nearby_chunk=NearbyChunk,
-        save_clone=SaveClone,
-        crc_matches=BruteChunk_Crc_Matches,
-        save_auto_name=BruteChunk_Save_Auto_Name,
-        unknown_private_critical_removal=lambda: FixItFelix_Try_Automatic_Repair(
-            "unknown_private_critical_removal"
-        ),
-        ask_pokemon_choice=lambda count, on_invalid: prompts.ask_pokemon_choice(
-            input,
-            count,
-            on_invalid=on_invalid,
-        ),
-    )
+    return chunk_name_runtime.build_chunk_name_runtime_from_namespace(globals())
 
 
 def ChunkName_Context():
-    return chunk_name_runtime.ChunkNameContext(
-        chunks=tuple(CHUNKS),
-        all_chunks=tuple(ALLCHUNKS),
-        chunks_history=tuple(Chunks_History),
-        original_chunk_type=Orig_CT,
-        original_chunk_length=Orig_CL,
-        current_type_offset=CToffI,
-        current_type_offset_hex=CToffX,
-        idat_average_length=IDAT_Avg_Len,
-        original_next_chunk=Orig_NC,
-        next_chunk_offset=NCoffI,
-        debug=DEBUG,
-        pause_debug=PAUSEDEBUG,
-    )
+    return chunk_name_runtime.build_chunk_name_context_from_namespace(globals())
 
 
 def BruteChunk(CType, LastCType, ChunkLen, FromError):
-    return chunk_name_runtime.run_brute_chunk(
-        ChunkName_Runtime(),
-        ChunkName_Context(),
+    return chunk_name_runtime.run_brute_chunk_from_namespace(
+        globals(),
         CType,
         LastCType,
         ChunkLen,
@@ -1093,9 +1058,8 @@ def BruteChunk(CType, LastCType, ChunkLen, FromError):
 
 
 def CheckChunkName(ChunkType, ChunkLen, LastCType, Next=None):
-    return chunk_name_runtime.run_check_chunk_name(
-        ChunkName_Runtime(),
-        ChunkName_Context(),
+    return chunk_name_runtime.run_check_chunk_name_from_namespace(
+        globals(),
         ChunkType,
         ChunkLen,
         LastCType,
