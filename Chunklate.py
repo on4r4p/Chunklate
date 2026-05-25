@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, libpng_check, libpng_runtime, magic_runtime, main_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, writer_runtime, youshallpass_runtime
+from chunklate import ancillary, ancillary_runtime, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, libpng_check, libpng_runtime, magic_runtime, main_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, writer_runtime, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -943,45 +943,14 @@ def FindFuckingMagic():
 
 def Ancillary(Chunk):
     global Bad_Ancillary
-    Candy("Title", "Ancillary Check:", Candy("Color", "white", Chunk))
-    try:
-        Chunk = Chunk.decode(errors="ignore")
-    except Exception as e:
-        Betterror(e, inspect.stack()[0][3])
-
-    SemanticsResult = ancillary.chunk_name_semantics(Chunk)
-    Chunk = SemanticsResult.name
-    Semantics = list(SemanticsResult.letters)
-
-    if not SemanticsResult.follows_naming:
-        PRINT(
-            "-[%s] is %s Chunks's naming conventions"
-            % (Chunk, Candy("Color", "red", "Not Following"))
-        )
-        Candy(
-            "Cowsay",
-            "Meaning that could be an unknown private chunk that got corrupt .....Or a Known chunk that got corrupt ...",
-            "com",
-        )
-        Candy("Cowsay", "..Or Not even a chunk's name at all ...", "bad")
-        Bad_Ancillary = False
-
-    elif len(Semantics) == 4:
-        PRINT(
-            "-[%s] %s Chunks's naming conventions"
-            % (Chunk, Candy("Color", "green", "Seems to be Following"))
-        )
-        Candy(
-            "Cowsay", "If this is a real Chunk this means that %s is :" % Chunk, "good"
-        )
-        for Letter, Label in ancillary.semantic_labels(SemanticsResult):
-            PRINT(
-                "-"
-                + Candy("Color", "green", Letter)
-                + ":"
-                + Candy("Color", "yellow", Label)
-            )
-        Bad_Ancillary = True
+    Bad_Ancillary = ancillary_runtime.run_ancillary_check(
+        ancillary_runtime.AncillaryRuntime(
+            candy=Candy,
+            emit=PRINT,
+            betterror=Betterror,
+        ),
+        Chunk,
+    )
 
 
 def NullFind(data, search4=None):
