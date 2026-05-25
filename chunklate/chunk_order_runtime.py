@@ -432,3 +432,56 @@ def run_check_chunk_order(
     if mode == "Fix":
         return run_fix_mode(runtime, context, lastchunk)
     return None
+
+
+def build_check_chunk_order_context_from_namespace(namespace: dict[str, Any]) -> CheckChunkOrderContext:
+    return CheckChunkOrderContext(
+        chunk_order_context=runtime_state.chunk_order_runtime_context(
+            namespace["Sample_Name"],
+            namespace["Chunks_History"],
+            namespace["UNIQUE_CHUNK"],
+        ),
+        minimal_chunks=tuple(namespace["MINIMAL_CHUNKS"]),
+        pandora_box=namespace["PandoraBox"],
+        before_plte=tuple(namespace["BEFORE_PLTE"]),
+        before_idat2=tuple(namespace["BEFORE_IDAT2"]),
+        chunks=tuple(namespace["CHUNKS"]),
+        after_plte=tuple(namespace["AFTER_PLTE"]),
+        before_idat=tuple(namespace["BEFORE_IDAT"]),
+        ihdr_color=namespace["IHDR_Color"],
+        no_order_chunks=tuple(namespace["NO_ORDER_CHUNKS"]),
+        debug=namespace["DEBUG"],
+        pause_debug=namespace["PAUSEDEBUG"],
+    )
+
+
+def build_check_chunk_order_runtime_from_namespace(namespace: dict[str, Any]) -> CheckChunkOrderRuntime:
+    def set_warning(value):
+        namespace["Warning"] = value
+
+    return CheckChunkOrderRuntime(
+        candy=namespace["Candy"],
+        emit=namespace["PRINT"],
+        checkpoint=namespace["CheckPoint"],
+        pause=namespace["Pause"],
+        end=namespace["TheEnd"],
+        betterror=namespace["Betterror"],
+        get_warning=lambda: namespace["Warning"],
+        set_warning=set_warning,
+        raw_print=print,
+    )
+
+
+def run_check_chunk_order_from_namespace(
+    namespace: dict[str, Any],
+    lastchunk: bytes | str,
+    mode: str,
+    *,
+    runner: LegacyCall = run_check_chunk_order,
+) -> Any:
+    return runner(
+        build_check_chunk_order_runtime_from_namespace(namespace),
+        build_check_chunk_order_context_from_namespace(namespace),
+        lastchunk,
+        mode,
+    )

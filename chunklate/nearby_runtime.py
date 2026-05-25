@@ -390,3 +390,126 @@ def run_nearby_chunk(
         runtime.double_check(chunk_type, chunk_length, last_chunk_type)
 
     return ()
+
+
+def build_remove_extra_bytes_runtime_from_namespace(namespace: dict[str, Any]) -> RemoveExtraBytesRuntime:
+    return RemoveExtraBytesRuntime(
+        save_clone=namespace["SaveClone"],
+        side_notes=namespace["SideNotes"],
+    )
+
+
+def build_remove_extra_bytes_context_from_namespace(namespace: dict[str, Any]) -> RemoveExtraBytesContext:
+    return RemoveExtraBytesContext(
+        data_hex=namespace["DATAX"],
+        current_length_offset=namespace["CLoffI"],
+        known_chunks=tuple(namespace["CHUNKS"]),
+        all_chunks=tuple(namespace["ALLCHUNKS"]),
+    )
+
+
+def run_remove_extra_bytes_before_chunk_from_namespace(
+    namespace: dict[str, Any],
+    chunk_type: bytes,
+    last_chunk_type: bytes,
+    excluded: list[bytes],
+    *,
+    runner: LegacyCall = run_remove_extra_bytes_before_chunk,
+) -> Any:
+    return runner(
+        build_remove_extra_bytes_runtime_from_namespace(namespace),
+        build_remove_extra_bytes_context_from_namespace(namespace),
+        chunk_type,
+        last_chunk_type,
+        excluded,
+    )
+
+
+def build_double_check_runtime_from_namespace(namespace: dict[str, Any]) -> DoubleCheckRuntime:
+    return DoubleCheckRuntime(
+        candy=namespace["Candy"],
+        emit=namespace["PRINT"],
+        end=namespace["TheEnd"],
+        nearby_chunk=namespace["NearbyChunk"],
+    )
+
+
+def build_double_check_context_from_namespace(namespace: dict[str, Any]) -> DoubleCheckContext:
+    return DoubleCheckContext(
+        data_hex=namespace["DATAX"],
+        sample_name=namespace["Sample_Name"],
+    )
+
+
+def run_double_check_from_namespace(
+    namespace: dict[str, Any],
+    chunk_type: bytes,
+    chunk_length: Any,
+    last_chunk_type: bytes,
+    *,
+    runner: LegacyCall = run_double_check,
+) -> Any:
+    return runner(
+        build_double_check_runtime_from_namespace(namespace),
+        build_double_check_context_from_namespace(namespace),
+        chunk_type,
+        chunk_length,
+        last_chunk_type,
+    )
+
+
+def build_nearby_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NearbyChunkRuntime:
+    return NearbyChunkRuntime(
+        candy=namespace["Candy"],
+        emit=namespace["PRINT"],
+        checkpoint=namespace["CheckPoint"],
+        check_chunk_order=namespace["CheckChunkOrder"],
+        clean_extra_bytes=namespace["Remove_Extra_Bytes_Before_Chunk"],
+        double_check=namespace["Double_Check"],
+        fix_it_felix=namespace["FixItFelix"],
+        betterror=namespace["Betterror"],
+        pause=namespace["Pause"],
+        end=namespace["TheEnd"],
+        get_bad_critical=lambda: namespace["Bad_Critical"],
+        side_notes=namespace["SideNotes"],
+    )
+
+
+def build_nearby_chunk_context_from_namespace(namespace: dict[str, Any]) -> NearbyChunkContext:
+    return NearbyChunkContext(
+        data_hex=namespace["DATAX"],
+        chunks=tuple(namespace["CHUNKS"]),
+        all_chunks=tuple(namespace["ALLCHUNKS"]),
+        current_length_offset=namespace["CLoffI"],
+        current_length_offset_hex=namespace["CLoffX"],
+        current_data_offset_byte=namespace["CDoffB"],
+        chunks_history=tuple(namespace["Chunks_History"]),
+        chunks_history_index=tuple(namespace["Chunks_History_Index"]),
+        original_chunk_type=namespace["Orig_CT"],
+        original_chunk_length=namespace["Orig_CL"],
+        sample_name=namespace["Sample_Name"],
+        debug=namespace["DEBUG"],
+        pause_debug=namespace["PAUSEDEBUG"],
+        pause_error=namespace["PAUSEERROR"],
+    )
+
+
+def run_nearby_chunk_from_namespace(
+    namespace: dict[str, Any],
+    chunk_type: bytes,
+    chunk_length: Any,
+    last_chunk_type: bytes,
+    double_check: bool,
+    from_error: Any = None,
+    *,
+    runner: LegacyCall = run_nearby_chunk,
+) -> Any:
+    return runner(
+        build_nearby_chunk_runtime_from_namespace(namespace),
+        build_nearby_chunk_context_from_namespace(namespace),
+        chunk_type,
+        chunk_length,
+        last_chunk_type,
+        double_check,
+        from_error,
+    )

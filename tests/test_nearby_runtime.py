@@ -274,6 +274,136 @@ def test_double_check_runtime_preserves_short_file_end_before_fallback_when_end_
     ) in calls
 
 
+def test_namespace_helpers_build_nearby_runtime_and_context():
+    calls = []
+    side_notes = []
+
+    def runner(runtime, context, chunk_type, chunk_length, last_chunk_type, double_check, from_error):
+        calls.append(("runner", chunk_type, chunk_length, last_chunk_type, double_check, from_error))
+        assert runtime.candy is namespace["Candy"]
+        assert runtime.emit is namespace["PRINT"]
+        assert runtime.checkpoint is namespace["CheckPoint"]
+        assert runtime.check_chunk_order is namespace["CheckChunkOrder"]
+        assert runtime.clean_extra_bytes is namespace["Remove_Extra_Bytes_Before_Chunk"]
+        assert runtime.double_check is namespace["Double_Check"]
+        assert runtime.fix_it_felix is namespace["FixItFelix"]
+        assert runtime.betterror is namespace["Betterror"]
+        assert runtime.pause is namespace["Pause"]
+        assert runtime.end is namespace["TheEnd"]
+        assert runtime.get_bad_critical() == b"IEND"
+        assert runtime.side_notes is side_notes
+        assert context.data_hex == "00"
+        assert context.chunks == (b"IHDR", b"IDAT")
+        assert context.all_chunks == (b"IHDR", b"IDAT", b"IEND")
+        assert context.current_length_offset == 8
+        assert context.current_length_offset_hex == "0x8"
+        assert context.current_data_offset_byte == 16
+        assert context.chunks_history == (b"PNG", b"IHDR")
+        assert context.chunks_history_index == ("0:0:8", "1:8:16")
+        assert context.original_chunk_type == b"IHDR"
+        assert context.original_chunk_length == "0000000d"
+        assert context.sample_name == "sample.png"
+        assert context.debug is True
+        assert context.pause_debug is False
+        assert context.pause_error is True
+        return "nearby"
+
+    namespace = {
+        "Candy": lambda *args: calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "CheckPoint": lambda *args: calls.append(("checkpoint", args)),
+        "CheckChunkOrder": lambda *args: calls.append(("order", args)),
+        "Remove_Extra_Bytes_Before_Chunk": lambda *args: calls.append(("remove", args)),
+        "Double_Check": lambda *args: calls.append(("double", args)),
+        "FixItFelix": lambda *args: calls.append(("fix", args)),
+        "Betterror": lambda *args: calls.append(("error", args)),
+        "Pause": lambda *args: calls.append(("pause", args)),
+        "TheEnd": lambda: calls.append(("end",)),
+        "Bad_Critical": b"IEND",
+        "SideNotes": side_notes,
+        "DATAX": "00",
+        "CHUNKS": [b"IHDR", b"IDAT"],
+        "ALLCHUNKS": [b"IHDR", b"IDAT", b"IEND"],
+        "CLoffI": 8,
+        "CLoffX": "0x8",
+        "CDoffB": 16,
+        "Chunks_History": [b"PNG", b"IHDR"],
+        "Chunks_History_Index": ["0:0:8", "1:8:16"],
+        "Orig_CT": b"IHDR",
+        "Orig_CL": "0000000d",
+        "Sample_Name": "sample.png",
+        "DEBUG": True,
+        "PAUSEDEBUG": False,
+        "PAUSEERROR": True,
+    }
+
+    result = nearby_runtime.run_nearby_chunk_from_namespace(
+        namespace,
+        b"IHDR",
+        "0000000d",
+        b"PNG",
+        False,
+        "Relics",
+        runner=runner,
+    )
+
+    assert result == "nearby"
+    assert calls == [("runner", b"IHDR", "0000000d", b"PNG", False, "Relics")]
+
+
+def test_namespace_helpers_build_double_check_and_remove_extra_runtimes():
+    calls = []
+    side_notes = []
+    namespace = {
+        "Candy": lambda *args: calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "TheEnd": lambda: calls.append(("end",)),
+        "NearbyChunk": lambda *args, **kwargs: calls.append(("nearby", args, kwargs)),
+        "SaveClone": lambda *args: calls.append(("save", args)),
+        "SideNotes": side_notes,
+        "DATAX": "001122",
+        "Sample_Name": "sample.png",
+        "CLoffI": 4,
+        "CHUNKS": [b"IHDR"],
+        "ALLCHUNKS": [b"IHDR", b"IDAT"],
+    }
+
+    def double_runner(runtime, context, chunk_type, chunk_length, last_chunk_type):
+        assert runtime.candy is namespace["Candy"]
+        assert runtime.emit is namespace["PRINT"]
+        assert runtime.end is namespace["TheEnd"]
+        assert runtime.nearby_chunk is namespace["NearbyChunk"]
+        assert context.data_hex == "001122"
+        assert context.sample_name == "sample.png"
+        assert (chunk_type, chunk_length, last_chunk_type) == (b"IHDR", "13", b"PNG")
+        return "double"
+
+    def remove_runner(runtime, context, chunk_type, last_chunk_type, excluded):
+        assert runtime.save_clone is namespace["SaveClone"]
+        assert runtime.side_notes is side_notes
+        assert context.data_hex == "001122"
+        assert context.current_length_offset == 4
+        assert context.known_chunks == (b"IHDR",)
+        assert context.all_chunks == (b"IHDR", b"IDAT")
+        assert (chunk_type, last_chunk_type, excluded) == (b"IHDR", b"PNG", [b"IDAT"])
+        return "remove"
+
+    assert nearby_runtime.run_double_check_from_namespace(
+        namespace,
+        b"IHDR",
+        "13",
+        b"PNG",
+        runner=double_runner,
+    ) == "double"
+    assert nearby_runtime.run_remove_extra_bytes_before_chunk_from_namespace(
+        namespace,
+        b"IHDR",
+        b"PNG",
+        [b"IDAT"],
+        runner=remove_runner,
+    ) == "remove"
+
+
 def main():
     checks = [
         ("Clean extra bytes", test_nearby_runtime_returns_clean_extra_bytes_before_scan),
@@ -284,6 +414,8 @@ def main():
         ("Remove extra bytes none", test_remove_extra_bytes_runtime_returns_none_without_candidate),
         ("Double check", test_double_check_runtime_routes_safety_off_nearby_search),
         ("Double check short file", test_double_check_runtime_preserves_short_file_end_before_fallback_when_end_returns),
+        ("Namespace nearby", test_namespace_helpers_build_nearby_runtime_and_context),
+        ("Namespace double/remove", test_namespace_helpers_build_double_check_and_remove_extra_runtimes),
     ]
 
     print("Running nearby runtime tests")

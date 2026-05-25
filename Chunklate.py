@@ -981,21 +981,7 @@ def KnownBadSrgbProfileWarning(file):
 
 
 def Double_Check(CType, ChunkLen, LastCType):
-    return nearby_runtime.run_double_check(
-        nearby_runtime.DoubleCheckRuntime(
-            candy=Candy,
-            emit=PRINT,
-            end=TheEnd,
-            nearby_chunk=NearbyChunk,
-        ),
-        nearby_runtime.DoubleCheckContext(
-            data_hex=DATAX,
-            sample_name=Sample_Name,
-        ),
-        CType,
-        ChunkLen,
-        LastCType,
-    )
+    return nearby_runtime.run_double_check_from_namespace(globals(), CType, ChunkLen, LastCType)
 
 
 def RandomSample(data,colortype,chunk_format):
@@ -1032,17 +1018,8 @@ def DummyChunk(Chunkname, bad_pos, bad_start, bad_end, FromError): ##TODO bad_po
 
 
 def Remove_Extra_Bytes_Before_Chunk(CType, LastCType, Excluded):
-    return nearby_runtime.run_remove_extra_bytes_before_chunk(
-        nearby_runtime.RemoveExtraBytesRuntime(
-            save_clone=SaveClone,
-            side_notes=SideNotes,
-        ),
-        nearby_runtime.RemoveExtraBytesContext(
-            data_hex=DATAX,
-            current_length_offset=CLoffI,
-            known_chunks=tuple(CHUNKS),
-            all_chunks=tuple(ALLCHUNKS),
-        ),
+    return nearby_runtime.run_remove_extra_bytes_before_chunk_from_namespace(
+        globals(),
         CType,
         LastCType,
         Excluded,
@@ -1050,37 +1027,8 @@ def Remove_Extra_Bytes_Before_Chunk(CType, LastCType, Excluded):
 
 
 def NearbyChunk(CType, ChunkLen, LastCType, DoubleCheck, FromError=None):
-    return nearby_runtime.run_nearby_chunk(
-        nearby_runtime.NearbyChunkRuntime(
-            candy=Candy,
-            emit=PRINT,
-            checkpoint=CheckPoint,
-            check_chunk_order=CheckChunkOrder,
-            clean_extra_bytes=Remove_Extra_Bytes_Before_Chunk,
-            double_check=Double_Check,
-            fix_it_felix=FixItFelix,
-            betterror=Betterror,
-            pause=Pause,
-            end=TheEnd,
-            get_bad_critical=lambda: Bad_Critical,
-            side_notes=SideNotes,
-        ),
-        nearby_runtime.NearbyChunkContext(
-            data_hex=DATAX,
-            chunks=tuple(CHUNKS),
-            all_chunks=tuple(ALLCHUNKS),
-            current_length_offset=CLoffI,
-            current_length_offset_hex=CLoffX,
-            current_data_offset_byte=CDoffB,
-            chunks_history=tuple(Chunks_History),
-            chunks_history_index=tuple(Chunks_History_Index),
-            original_chunk_type=Orig_CT,
-            original_chunk_length=Orig_CL,
-            sample_name=Sample_Name,
-            debug=DEBUG,
-            pause_debug=PAUSEDEBUG,
-            pause_error=PAUSEERROR,
-        ),
+    return nearby_runtime.run_nearby_chunk_from_namespace(
+        globals(),
         CType,
         ChunkLen,
         LastCType,
@@ -1113,41 +1061,7 @@ def TheGoodPlace(Missplaced_Chunkname, Missplaced_Chunkpos, ToFix_Chunkname):
 
 
 def CheckChunkOrder(lastchunk, mode):
-    global Warning
-    def set_warning(value):
-        global Warning
-        Warning = value
-
-    context = chunk_order_runtime.CheckChunkOrderContext(
-        chunk_order_context=runtime_state.chunk_order_runtime_context(
-            Sample_Name,
-            Chunks_History,
-            UNIQUE_CHUNK,
-        ),
-        minimal_chunks=tuple(MINIMAL_CHUNKS),
-        pandora_box=PandoraBox,
-        before_plte=tuple(BEFORE_PLTE),
-        before_idat2=tuple(BEFORE_IDAT2),
-        chunks=tuple(CHUNKS),
-        after_plte=tuple(AFTER_PLTE),
-        before_idat=tuple(BEFORE_IDAT),
-        ihdr_color=IHDR_Color,
-        no_order_chunks=tuple(NO_ORDER_CHUNKS),
-        debug=DEBUG,
-        pause_debug=PAUSEDEBUG,
-    )
-    runtime = chunk_order_runtime.CheckChunkOrderRuntime(
-        candy=Candy,
-        emit=PRINT,
-        checkpoint=CheckPoint,
-        pause=Pause,
-        end=TheEnd,
-        betterror=Betterror,
-        get_warning=lambda: Warning,
-        set_warning=set_warning,
-        raw_print=print,
-    )
-    return chunk_order_runtime.run_check_chunk_order(runtime, context, lastchunk, mode)
+    return chunk_order_runtime.run_check_chunk_order_from_namespace(globals(), lastchunk, mode)
 
 
 

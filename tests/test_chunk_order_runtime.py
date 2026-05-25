@@ -234,6 +234,69 @@ def test_the_good_place_found_data_relocates_chunk_and_routes_checkpoint():
     )
 
 
+def test_namespace_helper_builds_check_chunk_order_runtime_and_context():
+    calls = []
+    namespace = {
+        "Sample_Name": "sample.png",
+        "Chunks_History": [b"PNG", b"IHDR"],
+        "UNIQUE_CHUNK": [b"PNG", b"IHDR"],
+        "MINIMAL_CHUNKS": [b"PNG", b"IHDR", b"IDAT", b"IEND"],
+        "PandoraBox": {"key": "value"},
+        "BEFORE_PLTE": [b"gAMA"],
+        "BEFORE_IDAT2": [b"cHRM"],
+        "CHUNKS": [b"IHDR", b"IDAT"],
+        "AFTER_PLTE": [b"tRNS"],
+        "BEFORE_IDAT": [b"PLTE"],
+        "IHDR_Color": "3",
+        "NO_ORDER_CHUNKS": [b"tEXt"],
+        "DEBUG": True,
+        "PAUSEDEBUG": False,
+        "Candy": lambda *args: calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "CheckPoint": lambda *args: calls.append(("checkpoint", args)),
+        "Pause": lambda message: calls.append(("pause", message)),
+        "TheEnd": lambda: calls.append(("end",)),
+        "Betterror": lambda *args: calls.append(("betterror", args)),
+        "Warning": False,
+    }
+
+    def runner(runtime, context, lastchunk, mode):
+        assert runtime.candy is namespace["Candy"]
+        assert runtime.emit is namespace["PRINT"]
+        assert runtime.checkpoint is namespace["CheckPoint"]
+        assert runtime.pause is namespace["Pause"]
+        assert runtime.end is namespace["TheEnd"]
+        assert runtime.betterror is namespace["Betterror"]
+        assert runtime.get_warning() is False
+        runtime.set_warning(True)
+        assert namespace["Warning"] is True
+        assert context.chunk_order_context.sample_name == "sample.png"
+        assert context.chunk_order_context.chunks_history == (b"PNG", b"IHDR")
+        assert context.chunk_order_context.unique_chunks == (b"PNG", b"IHDR")
+        assert context.minimal_chunks == (b"PNG", b"IHDR", b"IDAT", b"IEND")
+        assert context.pandora_box == {"key": "value"}
+        assert context.before_plte == (b"gAMA",)
+        assert context.before_idat2 == (b"cHRM",)
+        assert context.chunks == (b"IHDR", b"IDAT")
+        assert context.after_plte == (b"tRNS",)
+        assert context.before_idat == (b"PLTE",)
+        assert context.ihdr_color == "3"
+        assert context.no_order_chunks == (b"tEXt",)
+        assert context.debug is True
+        assert context.pause_debug is False
+        assert (lastchunk, mode) == (b"IHDR", "Fix")
+        return "checked"
+
+    result = chunk_order_runtime.run_check_chunk_order_from_namespace(
+        namespace,
+        b"IHDR",
+        "Fix",
+        runner=runner,
+    )
+
+    assert result == "checked"
+
+
 def main():
     checks = [
         ("Critical checkpoint", test_critical_mode_routes_missing_chunks_to_checkpoint),
@@ -243,6 +306,7 @@ def main():
         ("Fix missing palette warning", test_fix_mode_missing_palette_warning_sets_warning_once),
         ("TheGoodPlace missing data", test_the_good_place_missing_data_routes_missing_checkpoint),
         ("TheGoodPlace found data", test_the_good_place_found_data_relocates_chunk_and_routes_checkpoint),
+        ("Namespace check order", test_namespace_helper_builds_check_chunk_order_runtime_and_context),
     ]
 
     print("Running chunk order runtime tests")
