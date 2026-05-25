@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import builtins
 from collections.abc import Callable
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
+
+from . import decisions
+from . import runtime_state
 
 
 AskChoice = Callable[[str, Sequence[str], str], Any]
@@ -36,6 +40,50 @@ def build_relics_runtime(
         tk_manual_plte=tk_manual_plte,
         remove_chunk=remove_chunk,
         ask_choice=ask_choice,
+    )
+
+
+def build_relics_runtime_from_namespace(namespace: dict[str, Any]) -> RelicsRuntime:
+    return build_relics_runtime(
+        save_clone=namespace["SaveClone"],
+        smash_brute_brawl=namespace["SmashBruteBrawl"],
+        full_chunk_forcer_no_crc=namespace["FullChunkForcerNoCrc"],
+        tk_manual_plte=namespace["Tk_Manual_Plte"],
+        remove_chunk=namespace["RemoveChunk"],
+        ask_choice=lambda prompt, choices, retry_prompt: decisions.ask_choice(
+            builtins.input,
+            prompt,
+            choices,
+            retry_prompt,
+        ),
+    )
+
+
+def build_relics_context_from_namespace(namespace: dict[str, Any], from_error: Any) -> runtime_state.RelicsRuntimeContext:
+    return runtime_state.relics_runtime_context(
+        from_error=from_error,
+        pandemonium=namespace["Pandemonium"],
+        pandora_box=namespace["PandoraBox"],
+        cornucopia=namespace["Cornucopia"],
+        side_notes=namespace["SideNotes"],
+        all_chunks=namespace["ALLCHUNKS"],
+        critical_chunks=namespace["CRITICAL_CHUNKS"],
+        chunks_history=namespace["Chunks_History"],
+        chunks_history_index=namespace["Chunks_History_Index"],
+        file_origin=namespace["FILE_Origin"],
+        sample=namespace["Sample"],
+        sample_name=namespace["Sample_Name"],
+        data_hex=namespace["DATAX"],
+        crc_offset=namespace["CrcoffI"],
+        bad_crc=namespace["Bad_Crc"],
+        skip_bad_current_name=namespace["Skip_Bad_Current_Name"],
+        skip_bad_infos=namespace["Skip_Bad_Infos"],
+        skip_bad_critical=namespace["Skip_Bad_Critical"],
+        skip_bad_crc=namespace["Skip_Bad_Crc"],
+        chunks_len_not_fixed=namespace["CHUNKS_LEN_NOT_FIXED"],
+        debug=namespace["DEBUG"],
+        pause_debug=namespace["PAUSEDEBUG"],
+        pause_error=namespace["PAUSEERROR"],
     )
 
 
@@ -645,6 +693,30 @@ def handle_relics_context_flow(
         emit=emit,
         candy=candy,
         the_end=the_end,
+    )
+
+
+def handle_relics_from_namespace(
+    namespace: dict[str, Any],
+    from_error: Any,
+    *,
+    runner: LegacyCall = handle_relics_context_flow,
+) -> Any:
+    namespace["Candy"]("Title", "Opening the Ark Of The Covenant :")
+    return runner(
+        build_relics_runtime_from_namespace(namespace),
+        namespace["relics"],
+        namespace["relics_ui"],
+        build_relics_context_from_namespace(namespace, from_error),
+        ask=namespace["Question"],
+        emit=namespace["PRINT"],
+        pause=namespace["Pause"],
+        show_todo=lambda: namespace["relics_ui"].emit_todo(
+            emit=namespace["PRINT"],
+            candy=namespace["Candy"],
+        ),
+        candy=namespace["Candy"],
+        the_end=namespace["TheEnd"],
     )
 
 

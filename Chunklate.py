@@ -1172,64 +1172,15 @@ def WriteClone(data,infos):
 
 
 def Relics_Runtime():
-    return relics_runtime.build_relics_runtime(
-        save_clone=SaveClone,
-        smash_brute_brawl=SmashBruteBrawl,
-        full_chunk_forcer_no_crc=FullChunkForcerNoCrc,
-        tk_manual_plte=Tk_Manual_Plte,
-        remove_chunk=RemoveChunk,
-        ask_choice=lambda prompt, choices, retry_prompt: decisions.ask_choice(
-            input,
-            prompt,
-            choices,
-            retry_prompt,
-        ),
-    )
+    return relics_runtime.build_relics_runtime_from_namespace(globals())
 
 
 def Relics_Context(FromError):
-    return runtime_state.relics_runtime_context(
-        from_error=FromError,
-        pandemonium=Pandemonium,
-        pandora_box=PandoraBox,
-        cornucopia=Cornucopia,
-        side_notes=SideNotes,
-        all_chunks=ALLCHUNKS,
-        critical_chunks=CRITICAL_CHUNKS,
-        chunks_history=Chunks_History,
-        chunks_history_index=Chunks_History_Index,
-        file_origin=FILE_Origin,
-        sample=Sample,
-        sample_name=Sample_Name,
-        data_hex=DATAX,
-        crc_offset=CrcoffI,
-        bad_crc=Bad_Crc,
-        skip_bad_current_name=Skip_Bad_Current_Name,
-        skip_bad_infos=Skip_Bad_Infos,
-        skip_bad_critical=Skip_Bad_Critical,
-        skip_bad_crc=Skip_Bad_Crc,
-        chunks_len_not_fixed=CHUNKS_LEN_NOT_FIXED,
-        debug=DEBUG,
-        pause_debug=PAUSEDEBUG,
-        pause_error=PAUSEERROR,
-    )
+    return relics_runtime.build_relics_context_from_namespace(globals(), FromError)
 
 
 def Relics(FromError):
-    Candy("Title", "Opening the Ark Of The Covenant :")
-
-    return relics_runtime.handle_relics_context_flow(
-        Relics_Runtime(),
-        relics,
-        relics_ui,
-        Relics_Context(FromError),
-        ask=Question,
-        emit=PRINT,
-        pause=Pause,
-        show_todo=lambda: relics_ui.emit_todo(emit=PRINT, candy=Candy),
-        candy=Candy,
-        the_end=TheEnd,
-    )
+    return relics_runtime.handle_relics_from_namespace(globals(), FromError)
 
 
 def Naming(filename):

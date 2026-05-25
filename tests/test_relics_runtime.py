@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import builtins
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -199,6 +200,134 @@ def test_chunklate_relics_context_captures_current_legacy_globals():
         pause_debug=False,
         pause_error=True,
     )
+
+
+def test_relics_namespace_bridge_builds_runtime_context_and_flow():
+    calls = []
+    pandemonium = {"sample.png": {}}
+    pandora_box = {"Error": {}}
+    cornucopia = {"Fixed": {}}
+    side_notes = []
+    all_chunks = [b"IHDR", b"IDAT"]
+    critical_chunks = [b"IHDR"]
+    chunks_history = [b"PNG", b"IHDR"]
+    chunks_history_index = ["0:0:16:8"]
+    chunks_len_not_fixed = {b"IDAT"}
+
+    def callback(name):
+        def inner(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return name
+
+        return inner
+
+    def fake_ask_choice(asker, prompt, choices, retry_prompt):
+        calls.append(("ask_choice", (prompt, choices, retry_prompt), {"asker": asker}))
+        return "choice"
+
+    fake_ui = SimpleNamespace(
+        emit_todo=lambda **kwargs: calls.append(("todo", (), kwargs))
+    )
+    namespace = {
+        "SaveClone": callback("SaveClone"),
+        "SmashBruteBrawl": callback("SmashBruteBrawl"),
+        "FullChunkForcerNoCrc": callback("FullChunkForcerNoCrc"),
+        "Tk_Manual_Plte": callback("Tk_Manual_Plte"),
+        "RemoveChunk": callback("RemoveChunk"),
+        "Candy": callback("Candy"),
+        "Question": callback("Question"),
+        "PRINT": callback("PRINT"),
+        "Pause": callback("Pause"),
+        "TheEnd": callback("TheEnd"),
+        "relics": relics,
+        "relics_ui": fake_ui,
+        "Pandemonium": pandemonium,
+        "PandoraBox": pandora_box,
+        "Cornucopia": cornucopia,
+        "SideNotes": side_notes,
+        "ALLCHUNKS": all_chunks,
+        "CRITICAL_CHUNKS": critical_chunks,
+        "Chunks_History": chunks_history,
+        "Chunks_History_Index": chunks_history_index,
+        "FILE_Origin": "origin.png",
+        "Sample": "sample.png",
+        "Sample_Name": "sample.png",
+        "DATAX": "00112233445566778899",
+        "CrcoffI": 4,
+        "Bad_Crc": True,
+        "Skip_Bad_Current_Name": False,
+        "Skip_Bad_Infos": True,
+        "Skip_Bad_Critical": False,
+        "Skip_Bad_Crc": True,
+        "CHUNKS_LEN_NOT_FIXED": chunks_len_not_fixed,
+        "DEBUG": True,
+        "PAUSEDEBUG": False,
+        "PAUSEERROR": True,
+    }
+
+    with patched_attrs(relics_runtime.decisions, ask_choice=fake_ask_choice):
+        runtime = relics_runtime.build_relics_runtime_from_namespace(namespace)
+        assert runtime.save_clone is namespace["SaveClone"]
+        assert runtime.smash_brute_brawl is namespace["SmashBruteBrawl"]
+        assert runtime.full_chunk_forcer_no_crc is namespace["FullChunkForcerNoCrc"]
+        assert runtime.tk_manual_plte is namespace["Tk_Manual_Plte"]
+        assert runtime.remove_chunk is namespace["RemoveChunk"]
+        assert runtime.ask_choice("prompt", ("yes", "no"), "retry") == "choice"
+
+        context = relics_runtime.build_relics_context_from_namespace(namespace, "Relics")
+        assert context == runtime_state.RelicsRuntimeContext(
+            from_error="Relics",
+            pandemonium=pandemonium,
+            pandora_box=pandora_box,
+            cornucopia=cornucopia,
+            side_notes=side_notes,
+            all_chunks=(b"IHDR", b"IDAT"),
+            critical_chunks=(b"IHDR",),
+            chunks_history=(b"PNG", b"IHDR"),
+            chunks_history_index=("0:0:16:8",),
+            file_origin="origin.png",
+            sample="sample.png",
+            sample_name="sample.png",
+            bad_crc=True,
+            old_crc="22334455",
+            skip_bad_current_name=False,
+            skip_bad_infos=True,
+            skip_bad_critical=False,
+            skip_bad_crc=True,
+            chunks_len_not_fixed=chunks_len_not_fixed,
+            debug=True,
+            pause_debug=False,
+            pause_error=True,
+        )
+
+        def runner(runtime, relics_module, ui_module, context, **kwargs):
+            calls.append(("runner", (runtime, relics_module, ui_module, context), kwargs))
+            assert runtime.save_clone is namespace["SaveClone"]
+            assert relics_module is relics
+            assert ui_module is fake_ui
+            assert context.from_error == "Relics"
+            assert kwargs["ask"] is namespace["Question"]
+            assert kwargs["emit"] is namespace["PRINT"]
+            assert kwargs["pause"] is namespace["Pause"]
+            assert kwargs["candy"] is namespace["Candy"]
+            assert kwargs["the_end"] is namespace["TheEnd"]
+            kwargs["show_todo"]()
+            return "flow-result"
+
+        assert relics_runtime.handle_relics_from_namespace(
+            namespace,
+            "Relics",
+            runner=runner,
+        ) == "flow-result"
+
+    assert calls[0] == (
+        "ask_choice",
+        ("prompt", ("yes", "no"), "retry"),
+        {"asker": builtins.input},
+    )
+    assert ("Candy", ("Title", "Opening the Ark Of The Covenant :"), {}) in calls
+    assert any(call[0] == "runner" for call in calls)
+    assert any(call[0] == "todo" for call in calls)
 
 
 def test_relics_runtime_runs_save_clone_plan():
@@ -1519,6 +1648,7 @@ def main():
         ("RelicsRuntime keeps callbacks", test_relics_runtime_keeps_legacy_callbacks),
         ("Chunklate builds RelicsRuntime from legacy functions", test_chunklate_relics_runtime_uses_current_legacy_functions),
         ("Chunklate builds RelicsContext from legacy globals", test_chunklate_relics_context_captures_current_legacy_globals),
+        ("Relics namespace bridge", test_relics_namespace_bridge_builds_runtime_context_and_flow),
         ("RelicsRuntime runs SaveClone plans", test_relics_runtime_runs_save_clone_plan),
         ("RelicsRuntime runs brawl plans", test_relics_runtime_runs_brawl_plans),
         ("RelicsRuntime runs PLTE and forcer plans", test_relics_runtime_runs_plte_and_forcer_plans),
