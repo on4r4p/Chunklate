@@ -75,6 +75,30 @@ class MainSampleState:
     data_hex: str
 
 
+@dataclass(frozen=True)
+class MainChunkWalkRuntime:
+    namespace: dict[str, Any]
+    chunk_by_chunk: Callable[[int], Any]
+    check_length: Callable[..., Any]
+    check_chunk_name: Callable[..., Any]
+    get_info: Callable[..., Any]
+    checksum: Callable[..., Any]
+    fix_it_felix: Callable[[Any], Any]
+    next_chunk_offset: Callable = runtime_state.next_chunk_offset
+    kitkat_break_decision: Callable = runtime_state.kitkat_break_decision
+
+
+@dataclass(frozen=True)
+class MainChunkWalkContext:
+    offset: Any
+    data_hex: str
+
+
+@dataclass(frozen=True)
+class MainChunkWalkState:
+    offset: Any
+
+
 def apply_main_cli_options(
     runtime: MainCliOptionsRuntime,
     args: Any,
@@ -208,3 +232,55 @@ def load_main_sample(
         data_bytes=loaded_sample.data_bytes,
         data_hex=loaded_sample.data_hex,
     )
+
+
+def run_main_chunk_walk(
+    runtime: MainChunkWalkRuntime,
+    context: MainChunkWalkContext,
+) -> MainChunkWalkState:
+    offset = context.offset
+    if offset is None:
+        return MainChunkWalkState(offset=offset)
+
+    while offset < len(context.data_hex):
+        runtime.chunk_by_chunk(offset)
+        namespace = runtime.namespace
+
+        runtime.check_length(
+            namespace["Orig_CD"],
+            namespace["Orig_CL"],
+            namespace["Orig_CT"],
+        )
+        runtime.check_chunk_name(
+            namespace["Orig_CT"],
+            namespace["Orig_CL"],
+            namespace["Chunks_History"][-1],
+        )
+        runtime.get_info(namespace["Orig_CT"], namespace["Raw_Data"])
+        runtime.checksum(
+            namespace["Raw_Type"],
+            namespace["Raw_Data"],
+            namespace["Raw_Crc"],
+        )
+
+        while True:
+            runtime.fix_it_felix(namespace["Orig_CT"])
+            if namespace["Show_Must_Go_On"] is True:
+                break
+
+        offset = runtime.next_chunk_offset(
+            offset,
+            namespace["Raw_Length"],
+            namespace["Raw_Type"],
+            namespace["Raw_Data"],
+            namespace["Raw_Crc"],
+        )
+
+        break_loop, have_a_kitkat = runtime.kitkat_break_decision(
+            namespace["Have_A_KitKat"]
+        )
+        namespace["Have_A_KitKat"] = have_a_kitkat
+        if break_loop is True:
+            break
+
+    return MainChunkWalkState(offset=offset)

@@ -332,6 +332,91 @@ def test_load_main_sample_routes_load_error_to_legacy_error_path():
     assert ("exit", 1) in calls
 
 
+def chunk_namespace(**updates):
+    values = {
+        "Orig_CD": "orig-data",
+        "Orig_CL": "orig-len",
+        "Orig_CT": b"IHDR",
+        "Chunks_History": [b"IHDR"],
+        "Raw_Data": b"data",
+        "Raw_Type": b"IHDR",
+        "Raw_Crc": b"crc!",
+        "Raw_Length": b"len!",
+        "Show_Must_Go_On": False,
+        "Have_A_KitKat": False,
+    }
+    values.update(updates)
+    return values
+
+
+def build_chunk_walk_runtime(calls, namespace):
+    def callback(name):
+        def inner(*args):
+            calls.append((name, args))
+            if name == "fix_it_felix":
+                namespace["Show_Must_Go_On"] = True
+
+        return inner
+
+    return main_runtime.MainChunkWalkRuntime(
+        namespace=namespace,
+        chunk_by_chunk=callback("chunk_by_chunk"),
+        check_length=callback("check_length"),
+        check_chunk_name=callback("check_chunk_name"),
+        get_info=callback("get_info"),
+        checksum=callback("checksum"),
+        fix_it_felix=callback("fix_it_felix"),
+    )
+
+
+def test_run_main_chunk_walk_returns_without_offset():
+    calls = []
+    namespace = chunk_namespace()
+
+    state = main_runtime.run_main_chunk_walk(
+        build_chunk_walk_runtime(calls, namespace),
+        main_runtime.MainChunkWalkContext(offset=None, data_hex="001122"),
+    )
+
+    assert state == main_runtime.MainChunkWalkState(offset=None)
+    assert calls == []
+
+
+def test_run_main_chunk_walk_runs_legacy_callback_order_and_updates_offset():
+    calls = []
+    namespace = chunk_namespace()
+
+    state = main_runtime.run_main_chunk_walk(
+        build_chunk_walk_runtime(calls, namespace),
+        main_runtime.MainChunkWalkContext(offset=0, data_hex="0" * 10),
+    )
+
+    assert state == main_runtime.MainChunkWalkState(offset=16)
+    assert calls == [
+        ("chunk_by_chunk", (0,)),
+        ("check_length", ("orig-data", "orig-len", b"IHDR")),
+        ("check_chunk_name", (b"IHDR", "orig-len", b"IHDR")),
+        ("get_info", (b"IHDR", b"data")),
+        ("checksum", (b"IHDR", b"data", b"crc!")),
+        ("fix_it_felix", (b"IHDR",)),
+    ]
+    assert namespace["Have_A_KitKat"] is False
+
+
+def test_run_main_chunk_walk_stops_when_kitkat_breaks():
+    calls = []
+    namespace = chunk_namespace(Have_A_KitKat=True)
+
+    state = main_runtime.run_main_chunk_walk(
+        build_chunk_walk_runtime(calls, namespace),
+        main_runtime.MainChunkWalkContext(offset=0, data_hex="0" * 40),
+    )
+
+    assert state == main_runtime.MainChunkWalkState(offset=16)
+    assert [call[0] for call in calls].count("chunk_by_chunk") == 1
+    assert namespace["Have_A_KitKat"] is False
+
+
 def main():
     checks = [
         ("main options state", test_apply_main_cli_options_builds_initial_state),
@@ -346,6 +431,9 @@ def main():
         ("load sample", test_load_main_sample_selects_current_sample_and_loads_data),
         ("load clone sample", test_load_main_sample_uses_cloneswar_then_resets_it),
         ("load sample error", test_load_main_sample_routes_load_error_to_legacy_error_path),
+        ("chunk walk no offset", test_run_main_chunk_walk_returns_without_offset),
+        ("chunk walk order", test_run_main_chunk_walk_runs_legacy_callback_order_and_updates_offset),
+        ("chunk walk kitkat", test_run_main_chunk_walk_stops_when_kitkat_breaks),
     ]
 
     print("Running main runtime tests")

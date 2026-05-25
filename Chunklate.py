@@ -2066,36 +2066,21 @@ def main():
         DATA_BYTES = LoadedMainSample.data_bytes
         DATAX = LoadedMainSample.data_hex
         Offset = FindMagic()
-        if Offset != None:
-
-            while Offset < len(DATAX):
-
-                ChunkbyChunk(Offset)
-
-                CheckLength(Orig_CD, Orig_CL, Orig_CT)
-
-                CheckChunkName(Orig_CT, Orig_CL, Chunks_History[-1])
-
-                GetInfo(Orig_CT, Raw_Data)
-
-                Checksum(Raw_Type, Raw_Data, Raw_Crc)
-
-                while True:
-                    FixItFelix(Orig_CT)
-                    if Show_Must_Go_On is True:
-                        break
-
-                Offset = runtime_state.next_chunk_offset(
-                    Offset,
-                    Raw_Length,
-                    Raw_Type,
-                    Raw_Data,
-                    Raw_Crc,
-                )
-
-                BreakLoop, Have_A_KitKat = runtime_state.kitkat_break_decision(Have_A_KitKat)
-                if BreakLoop is True:
-                    break
+        main_runtime.run_main_chunk_walk(
+            main_runtime.MainChunkWalkRuntime(
+                namespace=globals(),
+                chunk_by_chunk=ChunkbyChunk,
+                check_length=CheckLength,
+                check_chunk_name=CheckChunkName,
+                get_info=GetInfo,
+                checksum=Checksum,
+                fix_it_felix=FixItFelix,
+            ),
+            main_runtime.MainChunkWalkContext(
+                offset=Offset,
+                data_hex=DATAX,
+            ),
+        )
 
         # print("Reached End of %s\n"%Sample_Name)
         # CheckChunkOrder(b'IEND',"Critical")
