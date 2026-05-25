@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, libpng_check, magic_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, youshallpass_runtime
+from chunklate import ancillary, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, libpng_check, magic_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, writer_runtime, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -1773,52 +1773,47 @@ def SaveClone(DataFix, start, end, infos):
 def WriteClone(data,infos):
     global Sample
     global Have_A_KitKat
-    global SideNotes
     global SAVE_COUNT
 
-    Pandemonium_Remember_Current_Sample()
+    def set_sample(value):
+        global Sample
+        Sample = value
 
-    try:
-        clone_plan = writer.prepare_clone_write(
-            FILE_Origin,
-            FILE_DIR,
-            data,
-            SAVE_COUNT,
-            MAX_SAVES,
-        )
-    except Exception as e:
-        Betterror(e, inspect.stack()[0][3])
-        TheEnd()
+    def set_save_count(value):
+        global SAVE_COUNT
+        SAVE_COUNT = value
 
-    target = clone_plan.target
+    def set_have_a_kitkat(value):
+        global Have_A_KitKat
+        Have_A_KitKat = value
 
-    PRINT(Candy("Color", "green", "-Saving to : %s")% target.path)
-
-    SideNotes.append("-Saving to : %s"% target.path)
-
-    try:
-       writer.write_prepared_clone(clone_plan)
-       Sample = target.path
-       SAVE_COUNT = clone_plan.save_count
-    except Exception as e:
-        Betterror(e, inspect.stack()[0][3])
-        PRINT(
-                    Candy("Color", "red", "Error WriteClone:%s")%
-                    Candy("Color", "yellow", e),
-                )
-        TheEnd()
-    Have_A_KitKat = True
-
-    if PAUSE is True:
-        Pause("-Saved Press Return to continue:")
-
-    Summarise(infos)
-
-    if clone_plan.max_saves_reached:
-        PRINT("-Max saves reached: %s" % MAX_SAVES)
-        sys.exit(0)
-
-    return None
+    return writer_runtime.run_write_clone(
+        writer_runtime.WriteCloneRuntime(
+            remember_current_sample=Pandemonium_Remember_Current_Sample,
+            prepare_clone_write=writer.prepare_clone_write,
+            write_prepared_clone=writer.write_prepared_clone,
+            betterror=Betterror,
+            end=TheEnd,
+            candy=Candy,
+            emit=PRINT,
+            pause=Pause,
+            summarise=Summarise,
+            exit_process=sys.exit,
+            set_sample=set_sample,
+            set_save_count=set_save_count,
+            set_have_a_kitkat=set_have_a_kitkat,
+            side_notes=SideNotes,
+        ),
+        writer_runtime.WriteCloneContext(
+            file_origin=FILE_Origin,
+            file_dir=FILE_DIR,
+            save_count=SAVE_COUNT,
+            max_saves=MAX_SAVES,
+            pause_enabled=PAUSE,
+        ),
+        data,
+        infos,
+    )
 
 
 def Relics_Runtime():
