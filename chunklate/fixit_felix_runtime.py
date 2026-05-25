@@ -118,6 +118,113 @@ class LibpngErrorRuntime:
     sample: Any
 
 
+def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCrcRuntime:
+    return WrongCrcRuntime(
+        emit=namespace["PRINT"],
+        candy=namespace["Candy"],
+        question=namespace["Question"],
+        save_clone=namespace["SaveClone"],
+        chunk_story=namespace["ChunkStory"],
+        set_skip_bad_crc=namespace["FixItFelix_Set_Skip_Bad_Crc"],
+        set_old_bad_crc=namespace["FixItFelix_Set_Old_Bad_Crc"],
+        pandora_box=namespace["PandoraBox"],
+        cl_offset=namespace["CLoffI"],
+        crc_offset=namespace["CrcoffI"],
+        original_chunk_length_hex=namespace["Orig_CL"],
+        debug=namespace["DEBUG"],
+        pause_debug=namespace["PAUSEDEBUG"],
+    )
+
+
+def build_libpng_error_runtime_from_namespace(namespace: dict[str, Any]) -> LibpngErrorRuntime:
+    return LibpngErrorRuntime(
+        emit=namespace["PRINT"],
+        candy=namespace["Candy"],
+        question=namespace["Question"],
+        the_end=namespace["TheEnd"],
+        run_relics=namespace["Relics"],
+        save_clone=namespace["SaveClone"],
+        groundhog_day=namespace["GroundhogDay"],
+        set_skip_bad_libpng=namespace["FixItFelix_Set_Skip_Bad_Libpng"],
+        pandora_box=namespace["PandoraBox"],
+        cornucopia=namespace["Cornucopia"],
+        sample=namespace["Sample"],
+    )
+
+
+def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> WrongChunkNameRuntime:
+    return WrongChunkNameRuntime(
+        emit=namespace["PRINT"],
+        candy=namespace["Candy"],
+        question=namespace["Question"],
+        ancillary=namespace["Ancillary"],
+        nearby_chunk=namespace["NearbyChunk"],
+        brute_chunk=namespace["BruteChunk"],
+        save_clone=namespace["SaveClone"],
+        set_skip_bad_next_name=namespace["FixItFelix_Set_Skip_Bad_Next_Name"],
+        set_skip_bad_current_name=namespace["FixItFelix_Set_Skip_Bad_Current_Name"],
+        bad_ancillary=lambda: namespace["Bad_Ancillary"],
+        pandora_box=namespace["PandoraBox"],
+        cornucopia=namespace["Cornucopia"],
+    )
+
+
+def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoNextChunkRuntime:
+    return NoNextChunkRuntime(
+        emit=namespace["PRINT"],
+        candy=namespace["Candy"],
+        question=namespace["Question"],
+        side_notes=namespace["SideNotes"],
+        pandora_box=namespace["PandoraBox"],
+        sample=namespace["Sample"],
+        data_hex=namespace["DATAX"],
+        cl_offset=namespace["CLoffI"],
+        crc_offset=namespace["CrcoffI"],
+        original_chunk_length_hex=namespace["Orig_CL"],
+        raw_crc=namespace["Raw_Crc"],
+        debug=namespace["DEBUG"],
+        pause_debug=namespace["PAUSEDEBUG"],
+        pause_error=namespace["PAUSEERROR"],
+        bad_missplaced=namespace["Bad_Missplaced"],
+        set_skip_bad_no_next_chunk=namespace["FixItFelix_Set_Skip_Bad_No_Next_Chunk"],
+        set_eof=namespace["FixItFelix_Set_EOF"],
+        eof=lambda: namespace["EOF"],
+        chunk_story=namespace["ChunkStory"],
+        check_chunk_order=namespace["CheckChunkOrder"],
+        libpng_check=namespace["LibpngCheck"],
+        the_good_place=namespace["TheGoodPlace"],
+        write_clone=namespace["WriteClone"],
+        the_end=namespace["TheEnd"],
+        pause=namespace["Pause"],
+        debug_print=print,
+        dummy_chunk=namespace["DummyChunk"],
+        nearby_chunk=namespace["NearbyChunk"],
+    )
+
+
+def build_gama_zero_runtime_from_namespace(namespace: dict[str, Any]) -> GamaZeroRuntime:
+    return GamaZeroRuntime(
+        candy=namespace["Candy"],
+        pandora_box=namespace["PandoraBox"],
+        side_notes=namespace["SideNotes"],
+        return_value=namespace["FixItFelix"],
+    )
+
+
+def build_critical_miss_runtime_from_namespace(namespace: dict[str, Any]) -> CriticalMissRuntime:
+    return CriticalMissRuntime(
+        emit=namespace["PRINT"],
+        pause=namespace["Pause"],
+    )
+
+
+def build_automatic_repair_runtime_from_namespace(namespace: dict[str, Any]) -> AutomaticRepairRuntime:
+    return AutomaticRepairRuntime(
+        side_notes=namespace["SideNotes"],
+        write_clone=namespace["WriteClone"],
+    )
+
+
 def emit_libpng_critical(runtime: LibpngErrorRuntime, finding: Any) -> None:
     runtime.emit("\n-\033[1;31;49mCriticalHit\033[m: %s" % finding)
 

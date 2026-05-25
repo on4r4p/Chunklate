@@ -958,6 +958,153 @@ def test_runtime_uses_automatic_repair_and_legacy_callbacks():
     ]
 
 
+def test_namespace_runtime_builders_preserve_legacy_wiring():
+    calls = []
+    side_notes = []
+    pandora_box = {}
+    cornucopia = {}
+
+    def callback(name):
+        def inner(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return name
+
+        return inner
+
+    namespace = {
+        "PRINT": callback("PRINT"),
+        "Candy": callback("Candy"),
+        "Question": callback("Question"),
+        "SaveClone": callback("SaveClone"),
+        "ChunkStory": callback("ChunkStory"),
+        "FixItFelix_Set_Skip_Bad_Crc": callback("set_skip_bad_crc"),
+        "FixItFelix_Set_Old_Bad_Crc": callback("set_old_bad_crc"),
+        "FixItFelix_Set_Skip_Bad_Libpng": callback("set_skip_bad_libpng"),
+        "FixItFelix_Set_Skip_Bad_Next_Name": callback("set_skip_bad_next_name"),
+        "FixItFelix_Set_Skip_Bad_Current_Name": callback("set_skip_bad_current_name"),
+        "FixItFelix_Set_Skip_Bad_No_Next_Chunk": callback("set_skip_bad_no_next_chunk"),
+        "FixItFelix_Set_EOF": callback("set_eof"),
+        "Relics": callback("Relics"),
+        "GroundhogDay": callback("GroundhogDay"),
+        "Ancillary": callback("Ancillary"),
+        "NearbyChunk": callback("NearbyChunk"),
+        "BruteChunk": callback("BruteChunk"),
+        "CheckChunkOrder": callback("CheckChunkOrder"),
+        "LibpngCheck": callback("LibpngCheck"),
+        "TheGoodPlace": callback("TheGoodPlace"),
+        "WriteClone": callback("WriteClone"),
+        "TheEnd": callback("TheEnd"),
+        "Pause": callback("Pause"),
+        "DummyChunk": callback("DummyChunk"),
+        "FixItFelix": callback("FixItFelix"),
+        "PandoraBox": pandora_box,
+        "Cornucopia": cornucopia,
+        "SideNotes": side_notes,
+        "CLoffI": 12,
+        "CrcoffI": 40,
+        "Orig_CL": "0000000d",
+        "DEBUG": True,
+        "PAUSEDEBUG": False,
+        "PAUSEERROR": True,
+        "Sample": "sample.png",
+        "DATAX": "001122",
+        "Raw_Crc": "deadbeef",
+        "Bad_Missplaced": True,
+        "Bad_Ancillary": False,
+        "EOF": True,
+    }
+
+    wrong_crc = fixit_felix_runtime.build_wrong_crc_runtime_from_namespace(namespace)
+    assert wrong_crc.emit is namespace["PRINT"]
+    assert wrong_crc.candy is namespace["Candy"]
+    assert wrong_crc.question is namespace["Question"]
+    assert wrong_crc.save_clone is namespace["SaveClone"]
+    assert wrong_crc.chunk_story is namespace["ChunkStory"]
+    assert wrong_crc.set_skip_bad_crc is namespace["FixItFelix_Set_Skip_Bad_Crc"]
+    assert wrong_crc.set_old_bad_crc is namespace["FixItFelix_Set_Old_Bad_Crc"]
+    assert wrong_crc.pandora_box is pandora_box
+    assert wrong_crc.cl_offset == 12
+    assert wrong_crc.crc_offset == 40
+    assert wrong_crc.original_chunk_length_hex == "0000000d"
+    assert wrong_crc.debug is True
+    assert wrong_crc.pause_debug is False
+
+    libpng = fixit_felix_runtime.build_libpng_error_runtime_from_namespace(namespace)
+    assert libpng.emit is namespace["PRINT"]
+    assert libpng.candy is namespace["Candy"]
+    assert libpng.question is namespace["Question"]
+    assert libpng.the_end is namespace["TheEnd"]
+    assert libpng.run_relics is namespace["Relics"]
+    assert libpng.save_clone is namespace["SaveClone"]
+    assert libpng.groundhog_day is namespace["GroundhogDay"]
+    assert libpng.set_skip_bad_libpng is namespace["FixItFelix_Set_Skip_Bad_Libpng"]
+    assert libpng.pandora_box is pandora_box
+    assert libpng.cornucopia is cornucopia
+    assert libpng.sample == "sample.png"
+
+    wrong_name = fixit_felix_runtime.build_wrong_chunk_name_runtime_from_namespace(namespace)
+    assert wrong_name.emit is namespace["PRINT"]
+    assert wrong_name.candy is namespace["Candy"]
+    assert wrong_name.question is namespace["Question"]
+    assert wrong_name.ancillary is namespace["Ancillary"]
+    assert wrong_name.nearby_chunk is namespace["NearbyChunk"]
+    assert wrong_name.brute_chunk is namespace["BruteChunk"]
+    assert wrong_name.save_clone is namespace["SaveClone"]
+    assert wrong_name.set_skip_bad_next_name is namespace["FixItFelix_Set_Skip_Bad_Next_Name"]
+    assert wrong_name.set_skip_bad_current_name is namespace["FixItFelix_Set_Skip_Bad_Current_Name"]
+    assert wrong_name.bad_ancillary() is False
+    namespace["Bad_Ancillary"] = True
+    assert wrong_name.bad_ancillary() is True
+    assert wrong_name.pandora_box is pandora_box
+    assert wrong_name.cornucopia is cornucopia
+
+    no_next = fixit_felix_runtime.build_no_next_chunk_runtime_from_namespace(namespace)
+    assert no_next.emit is namespace["PRINT"]
+    assert no_next.candy is namespace["Candy"]
+    assert no_next.question is namespace["Question"]
+    assert no_next.side_notes is side_notes
+    assert no_next.pandora_box is pandora_box
+    assert no_next.sample == "sample.png"
+    assert no_next.data_hex == "001122"
+    assert no_next.cl_offset == 12
+    assert no_next.crc_offset == 40
+    assert no_next.original_chunk_length_hex == "0000000d"
+    assert no_next.raw_crc == "deadbeef"
+    assert no_next.debug is True
+    assert no_next.pause_debug is False
+    assert no_next.pause_error is True
+    assert no_next.bad_missplaced is True
+    assert no_next.set_skip_bad_no_next_chunk is namespace["FixItFelix_Set_Skip_Bad_No_Next_Chunk"]
+    assert no_next.set_eof is namespace["FixItFelix_Set_EOF"]
+    assert no_next.eof() is True
+    namespace["EOF"] = False
+    assert no_next.eof() is False
+    assert no_next.chunk_story is namespace["ChunkStory"]
+    assert no_next.check_chunk_order is namespace["CheckChunkOrder"]
+    assert no_next.libpng_check is namespace["LibpngCheck"]
+    assert no_next.the_good_place is namespace["TheGoodPlace"]
+    assert no_next.write_clone is namespace["WriteClone"]
+    assert no_next.the_end is namespace["TheEnd"]
+    assert no_next.pause is namespace["Pause"]
+    assert no_next.debug_print is print
+    assert no_next.dummy_chunk is namespace["DummyChunk"]
+    assert no_next.nearby_chunk is namespace["NearbyChunk"]
+
+    gama = fixit_felix_runtime.build_gama_zero_runtime_from_namespace(namespace)
+    assert gama.candy is namespace["Candy"]
+    assert gama.pandora_box is pandora_box
+    assert gama.side_notes is side_notes
+    assert gama.return_value is namespace["FixItFelix"]
+
+    critical = fixit_felix_runtime.build_critical_miss_runtime_from_namespace(namespace)
+    assert critical.emit is namespace["PRINT"]
+    assert critical.pause is namespace["Pause"]
+
+    automatic = fixit_felix_runtime.build_automatic_repair_runtime_from_namespace(namespace)
+    assert automatic.side_notes is side_notes
+    assert automatic.write_clone is namespace["WriteClone"]
+
+
 def main():
     checks = [
         ("Apply repair records note and writes clone", test_apply_repair_records_note_and_writes_clone),
@@ -1011,6 +1158,7 @@ def main():
         ("Finding handlers route callback arguments", test_finding_handlers_route_legacy_callback_arguments),
         ("Apply finding work item dispatches", test_apply_finding_work_item_dispatches_through_fixit_felix_dispatch),
         ("Runtime uses automatic repair and callbacks", test_runtime_uses_automatic_repair_and_legacy_callbacks),
+        ("Namespace runtime builders", test_namespace_runtime_builders_preserve_legacy_wiring),
     ]
 
     print("Running FixItFelix runtime tests")

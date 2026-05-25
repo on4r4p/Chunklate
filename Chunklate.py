@@ -1287,21 +1287,7 @@ def FixItFelix_Set_Old_Bad_Crc(value):
 
 
 def FixItFelix_Wrong_Crc_Runtime():
-    return fixit_felix_runtime.WrongCrcRuntime(
-        emit=PRINT,
-        candy=Candy,
-        question=Question,
-        save_clone=SaveClone,
-        chunk_story=ChunkStory,
-        set_skip_bad_crc=FixItFelix_Set_Skip_Bad_Crc,
-        set_old_bad_crc=FixItFelix_Set_Old_Bad_Crc,
-        pandora_box=PandoraBox,
-        cl_offset=CLoffI,
-        crc_offset=CrcoffI,
-        original_chunk_length_hex=Orig_CL,
-        debug=DEBUG,
-        pause_debug=PAUSEDEBUG,
-    )
+    return fixit_felix_runtime.build_wrong_crc_runtime_from_namespace(globals())
 
 
 def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
@@ -1330,19 +1316,7 @@ def FixItFelix_Set_Skip_Bad_Libpng(value):
 
 
 def FixItFelix_Libpng_Error_Runtime():
-    return fixit_felix_runtime.LibpngErrorRuntime(
-        emit=PRINT,
-        candy=Candy,
-        question=Question,
-        the_end=TheEnd,
-        run_relics=Relics,
-        save_clone=SaveClone,
-        groundhog_day=GroundhogDay,
-        set_skip_bad_libpng=FixItFelix_Set_Skip_Bad_Libpng,
-        pandora_box=PandoraBox,
-        cornucopia=Cornucopia,
-        sample=Sample,
-    )
+    return fixit_felix_runtime.build_libpng_error_runtime_from_namespace(globals())
 
 
 def FixItFelix_Libpng_Error(key, chkd):
@@ -1370,20 +1344,7 @@ def FixItFelix_Set_Skip_Bad_Current_Name(value):
 
 
 def FixItFelix_Wrong_Chunk_Name_Runtime():
-    return fixit_felix_runtime.WrongChunkNameRuntime(
-        emit=PRINT,
-        candy=Candy,
-        question=Question,
-        ancillary=Ancillary,
-        nearby_chunk=NearbyChunk,
-        brute_chunk=BruteChunk,
-        save_clone=SaveClone,
-        set_skip_bad_next_name=FixItFelix_Set_Skip_Bad_Next_Name,
-        set_skip_bad_current_name=FixItFelix_Set_Skip_Bad_Current_Name,
-        bad_ancillary=lambda: Bad_Ancillary,
-        pandora_box=PandoraBox,
-        cornucopia=Cornucopia,
-    )
+    return fixit_felix_runtime.build_wrong_chunk_name_runtime_from_namespace(globals())
 
 
 def FixItFelix_Wrong_Chunk_Name(key, chkd):
@@ -1421,36 +1382,7 @@ def FixItFelix_Set_EOF(value):
 
 
 def FixItFelix_No_NextChunk_Runtime():
-    return fixit_felix_runtime.NoNextChunkRuntime(
-        emit=PRINT,
-        candy=Candy,
-        question=Question,
-        side_notes=SideNotes,
-        pandora_box=PandoraBox,
-        sample=Sample,
-        data_hex=DATAX,
-        cl_offset=CLoffI,
-        crc_offset=CrcoffI,
-        original_chunk_length_hex=Orig_CL,
-        raw_crc=Raw_Crc,
-        debug=DEBUG,
-        pause_debug=PAUSEDEBUG,
-        pause_error=PAUSEERROR,
-        bad_missplaced=Bad_Missplaced,
-        set_skip_bad_no_next_chunk=FixItFelix_Set_Skip_Bad_No_Next_Chunk,
-        set_eof=FixItFelix_Set_EOF,
-        eof=lambda: EOF,
-        chunk_story=ChunkStory,
-        check_chunk_order=CheckChunkOrder,
-        libpng_check=LibpngCheck,
-        the_good_place=TheGoodPlace,
-        write_clone=WriteClone,
-        the_end=TheEnd,
-        pause=Pause,
-        debug_print=print,
-        dummy_chunk=DummyChunk,
-        nearby_chunk=NearbyChunk,
-    )
+    return fixit_felix_runtime.build_no_next_chunk_runtime_from_namespace(globals())
 
 
 def FixItFelix_No_NextChunk(key, chkd, Chunk):
@@ -1476,12 +1408,7 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
 
 
 def FixItFelix_Gama_Zero_Runtime():
-    return fixit_felix_runtime.GamaZeroRuntime(
-        candy=Candy,
-        pandora_box=PandoraBox,
-        side_notes=SideNotes,
-        return_value=FixItFelix,
-    )
+    return fixit_felix_runtime.build_gama_zero_runtime_from_namespace(globals())
 
 
 def FixItFelix_Gama_Zero(key):
@@ -1492,10 +1419,7 @@ def FixItFelix_Gama_Zero(key):
 
 
 def FixItFelix_Critical_Miss_Runtime():
-    return fixit_felix_runtime.CriticalMissRuntime(
-        emit=PRINT,
-        pause=Pause,
-    )
+    return fixit_felix_runtime.build_critical_miss_runtime_from_namespace(globals())
 
 
 def FixItFelix_Critical_Miss(key):
@@ -1510,10 +1434,7 @@ def FixItFelix_Critical_Miss(key):
 
 
 def FixItFelix_Automatic_Repair_Runtime():
-    return fixit_felix_runtime.AutomaticRepairRuntime(
-        side_notes=SideNotes,
-        write_clone=WriteClone,
-    )
+    return fixit_felix_runtime.build_automatic_repair_runtime_from_namespace(globals())
 
 
 def FixItFelix_Apply_Repair(repair):
