@@ -54,6 +54,19 @@ class FakeSlider:
         self.cleaned = True
 
 
+class FakeVar:
+    def __init__(self):
+        self.values = []
+
+    def set(self, value):
+        self.values.append(value)
+
+
+class FakeScaleSlider:
+    def __init__(self):
+        self.var = FakeVar()
+
+
 class FakeWindow:
     def __init__(self):
         self.calls = []
@@ -279,6 +292,201 @@ def test_sync_palette_legacy_state_ignores_none_state():
     palette_runtime.sync_palette_legacy_state(namespace, None)
 
     assert namespace == {"Plte_Blst": ["old"], "slider_list": ["old"], "wanabyte": b"old"}
+
+
+def test_render_palette_preview_from_namespace_updates_image_globals():
+    calls = []
+    namespace = {
+        "frame_img": "frame",
+        "cv2": "cv2",
+        "np": "np",
+        "Image": "Image",
+        "ImageTk": "ImageTk",
+        "tkinter": "tkinter",
+    }
+
+    def renderer(*args, **kwargs):
+        calls.append((args, kwargs))
+        return "im", "pil", "tk"
+
+    palette_runtime.render_palette_preview_from_namespace(
+        namespace,
+        b"png",
+        100,
+        50,
+        renderer=renderer,
+    )
+
+    assert namespace["im"] == "im"
+    assert namespace["pil_image"] == "pil"
+    assert namespace["tk_image"] == "tk"
+    assert calls == [
+        (
+            (b"png", "frame", 100, 50),
+            {
+                "cv2_module": "cv2",
+                "numpy_module": "np",
+                "image_module": "Image",
+                "image_tk_module": "ImageTk",
+                "tkinter_module": "tkinter",
+            },
+        )
+    ]
+
+
+def test_update_palette_value_from_namespace_updates_state_sync_and_preview():
+    calls = []
+    state = palette_ui.PaletteEditorState(values=["empty"], sliders=[], wanabyte=b"old")
+    namespace = {
+        "palette_state": state,
+        "Sync_Palette_Legacy_State": lambda: calls.append(("sync",)),
+        "Tk_Render_Plte_Preview": lambda data, width, height: calls.append(
+            ("preview", data, width, height)
+        ),
+    }
+
+    result = palette_runtime.update_palette_value_from_namespace(
+        namespace,
+        "7",
+        "0",
+        b"before",
+        b"after",
+        100,
+        50,
+    )
+
+    assert state.values == ["7"]
+    assert result == state.wanabyte
+    assert calls == [("sync",), ("preview", state.wanabyte, 100, 50)]
+
+
+def test_apply_palette_colors_from_namespace_updates_fallback_palette_and_preview():
+    calls = []
+    sliders = [FakeScaleSlider(), FakeScaleSlider()]
+    namespace = {
+        "palette_state": None,
+        "Plte_Blst": ["empty", "empty"],
+        "slider_list": sliders,
+        "Tk_Render_Plte_Preview": lambda data, width, height: calls.append(
+            ("preview", data, width, height)
+        ),
+    }
+
+    result = palette_runtime.apply_palette_colors_from_namespace(
+        namespace,
+        ("000001", "000002"),
+        b"before",
+        b"after",
+        100,
+        50,
+    )
+
+    assert namespace["Plte_Blst"] == [1, 2]
+    assert sliders[0].var.values == [1]
+    assert sliders[1].var.values == [2]
+    assert result == palette.build_palette_png(b"before", [1, 2], b"after")
+    assert namespace["wanabyte"] == result
+    assert calls == [("preview", result, 100, 50)]
+
+
+def test_random_palette_helpers_use_namespace_random_sources():
+    calls = []
+    sliders = [FakeScaleSlider(), FakeScaleSlider()]
+
+    class FakeRandom:
+        def __init__(self):
+            self.randint_values = iter((5, 6))
+
+        def sample(self, colors, count):
+            calls.append(("sample", tuple(colors), count))
+            return ("000002", "000001")
+
+        def randint(self, start, stop):
+            calls.append(("randint", start, stop))
+            return next(self.randint_values)
+
+    namespace = {
+        "palette_state": None,
+        "Plte_Blst": ["empty", "empty"],
+        "slider_list": sliders,
+        "random": FakeRandom(),
+        "Tk_Render_Plte_Preview": lambda data, width, height: calls.append(
+            ("preview", data, width, height)
+        ),
+    }
+
+    sampled = palette_runtime.apply_random_palette_colors_from_namespace(
+        namespace,
+        ("000001", "000002"),
+        b"before",
+        b"after",
+        100,
+        50,
+    )
+    randomized = palette_runtime.randomize_palette_from_namespace(
+        namespace,
+        b"before",
+        b"after",
+        100,
+        50,
+    )
+
+    assert namespace["Plte_Blst"] == [5, 6]
+    assert sliders[0].var.values == [2, 5]
+    assert sliders[1].var.values == [1, 6]
+    assert sampled == palette.build_palette_png(b"before", [2, 1], b"after")
+    assert randomized == palette.build_palette_png(b"before", [5, 6], b"after")
+    assert calls == [
+        ("sample", ("000001", "000002"), 2),
+        ("preview", sampled, 100, 50),
+        ("randint", 0, 16777215),
+        ("randint", 0, 16777215),
+        ("preview", randomized, 100, 50),
+    ]
+
+
+def test_save_manual_palette_from_namespace_calls_checkpoint():
+    calls = []
+    slider = FakeSlider("fallback")
+    window = FakeWindow()
+    namespace = {
+        "palette_state": None,
+        "Plte_Blst": [1],
+        "slider_list": [slider],
+        "CheckPoint": lambda *args: calls.append(("checkpoint", args)) or "result",
+    }
+
+    result = palette_runtime.save_manual_palette_from_namespace(
+        namespace,
+        window,
+        False,
+        12,
+        4,
+        "source",
+        b"png",
+    )
+
+    assert result == "result"
+    assert slider.cleaned is True
+    assert window.calls == ["destroy", "quit"]
+    assert calls == [
+        (
+            "checkpoint",
+            (
+                True,
+                True,
+                "Tk_Save_Plte",
+                b"PLTE",
+                ["-PLTE Data has been replaced manually."],
+                "706e67",
+                4,
+                16,
+                "-PLTE Data has been modified with 256 new palettes.",
+                b"PLTE",
+                "source",
+            ),
+        )
+    ]
 
 
 def test_save_manual_palette_uses_palette_state_cleans_sliders_and_closes_window():
@@ -758,6 +966,34 @@ def test_guess_palette_count_routes_image_error_to_betterror_and_end():
     assert ("end",) in calls
 
 
+def test_guess_palette_count_from_namespace_uses_globals_and_builtin_print_fallback():
+    calls = []
+    side_notes = []
+    namespace = {
+        "cv2": FakeCv2(),
+        "np": FakeNumpy(),
+        "Image": FakeImage(),
+        "imagehash": FakeImageHash((10, 10, 15)),
+        "stderr_redirector": clean_stderr,
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Candy": lambda kind, *args: "<%s:%s>" % (args[0], args[1])
+        if kind == "Color"
+        else "candy:%s" % kind,
+        "TheEnd": lambda: calls.append(("end",)),
+        "SideNotes": side_notes,
+        "X11_Colors": ("000000", "111111", "222222"),
+        "LIBPNG_ERR": ("libpng error:",),
+        "IHDR_Depht": "2",
+    }
+
+    result = palette_runtime.guess_palette_count_from_namespace(namespace, b"before", b"after")
+
+    assert result == 2
+    assert ("emit", "-PLTE palettes number estimation: <green:2>") in calls
+    assert side_notes == ["-PLTE palettes number estimation: 2"]
+
+
 def main():
     checks = [
         ("After index", test_manual_palette_after_index_preserves_legacy_expression),
@@ -768,6 +1004,17 @@ def main():
         ("Full new data", test_manual_palette_full_new_data_returns_chunk_bytes_between_slices),
         ("Sync palette legacy state", test_sync_palette_legacy_state_updates_namespace_when_state_exists),
         ("Sync palette none state", test_sync_palette_legacy_state_ignores_none_state),
+        ("Render palette namespace preview", test_render_palette_preview_from_namespace_updates_image_globals),
+        (
+            "Update palette namespace state",
+            test_update_palette_value_from_namespace_updates_state_sync_and_preview,
+        ),
+        (
+            "Apply palette namespace fallback",
+            test_apply_palette_colors_from_namespace_updates_fallback_palette_and_preview,
+        ),
+        ("Random palette namespace helpers", test_random_palette_helpers_use_namespace_random_sources),
+        ("Manual palette namespace save", test_save_manual_palette_from_namespace_calls_checkpoint),
         ("Manual palette save state", test_save_manual_palette_uses_palette_state_cleans_sliders_and_closes_window),
         ("Manual palette save fallback", test_save_manual_palette_falls_back_to_legacy_values_without_palette_state),
         ("Manual palette action specs", test_build_manual_palette_action_specs_preserves_legacy_callbacks),
@@ -780,6 +1027,10 @@ def main():
         ("Guess palette fallback", test_guess_palette_count_preserves_ihdr_depth_fallback),
         ("Guess palette libpng error", test_guess_palette_count_routes_libpng_error_to_end),
         ("Guess palette image error", test_guess_palette_count_routes_image_error_to_betterror_and_end),
+        (
+            "Guess palette namespace bridge",
+            test_guess_palette_count_from_namespace_uses_globals_and_builtin_print_fallback,
+        ),
     ]
 
     print("Running palette runtime tests")

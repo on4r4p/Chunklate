@@ -421,20 +421,7 @@ class Tk_Gen_Scale_Plte:
 
 
 def Tk_Render_Plte_Preview(wanabyte, w, h):
-    global frame_img
-    global im, pil_image, tk_image
-
-    im, pil_image, tk_image = palette_ui.render_preview_label(
-        wanabyte,
-        frame_img,
-        w,
-        h,
-        cv2_module=cv2,
-        numpy_module=np,
-        image_module=Image,
-        image_tk_module=ImageTk,
-        tkinter_module=tkinter,
-    )
+    return palette_runtime.render_palette_preview_from_namespace(globals(), wanabyte, w, h)
 
 
 def Sync_Palette_Legacy_State():
@@ -442,185 +429,46 @@ def Sync_Palette_Legacy_State():
 
 
 def Tk_ImgUpdate_Plte(event,nbr=None,bfn=None,afn=None,w=None,h=None):
-    global Plte_Blst
-    global palette_state
-    global window,tk_image,frame_img,pil_image,im,wanabyte
-
-    if palette_state is not None:
-        wanabyte = palette_ui.update_palette_state_value(
-            palette_state,
-            index=int(nbr),
-            raw_value=event,
-            before=bfn,
-            after=afn,
-        )
-        Sync_Palette_Legacy_State()
-    else:
-        palette.set_palette_value(Plte_Blst, int(nbr), event)
-        wanabyte = palette.build_palette_png(bfn, Plte_Blst, afn)
-
-    Tk_Render_Plte_Preview(wanabyte, w, h)
+    return palette_runtime.update_palette_value_from_namespace(globals(), event, nbr, bfn, afn, w, h)
 
 #    if DEBUG:
 #        PRINT("PlteId : %s Value : %s Plte_Blst[PlteId]:%s bvalue: %s Lnx_New : %s"%(str(nbr),str(event),str(Plte_Blst[nbr]),str(bvalue),str(Lnx_New)))
 
 def Tk_X11_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
-    global Plte_Blst
-    global palette_state
-    global window,tk_image,frame_img,pil_image,im,wanabyte
-
-    rnd_x11 = random.sample(X11_Colors,len(X11_Colors))
-
-
-    if palette_state is not None:
-        wanabyte = palette_ui.apply_palette_state_colors(
-            palette_state,
-            colors=rnd_x11,
-            before=bfn,
-            after=afn,
-        )
-        Sync_Palette_Legacy_State()
-    else:
-        palette_ui.apply_color_table(Plte_Blst, slider_list, rnd_x11)
-        wanabyte = palette.build_palette_png(bfn, Plte_Blst, afn)
-
-    Tk_Render_Plte_Preview(wanabyte, w, h)
+    return palette_runtime.apply_random_palette_colors_from_namespace(globals(), X11_Colors, bfn, afn, w, h)
 
 def Tk_X11_Plte(bfn=None,afn=None,w=None,h=None):
-    global Plte_Blst
-    global palette_state
-    global window,tk_image,frame_img,pil_image,im,wanabyte
-
-
-    if palette_state is not None:
-        wanabyte = palette_ui.apply_palette_state_colors(
-            palette_state,
-            colors=X11_Colors,
-            before=bfn,
-            after=afn,
-        )
-        Sync_Palette_Legacy_State()
-    else:
-        palette_ui.apply_color_table(Plte_Blst, slider_list, X11_Colors)
-        wanabyte = palette.build_palette_png(bfn, Plte_Blst, afn)
-
-    Tk_Render_Plte_Preview(wanabyte, w, h)
+    return palette_runtime.apply_palette_colors_from_namespace(globals(), X11_Colors, bfn, afn, w, h)
 
 
 def Tk_Web_Safe_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
-    global Plte_Blst
-    global palette_state
-    global window,tk_image,frame_img,pil_image,im,wanabyte
-
-    rnd_216 = random.sample(Web_Safe_Colors,len(Web_Safe_Colors))
-
-
-    if palette_state is not None:
-        wanabyte = palette_ui.apply_palette_state_colors(
-            palette_state,
-            colors=rnd_216,
-            before=bfn,
-            after=afn,
-        )
-        Sync_Palette_Legacy_State()
-    else:
-        palette_ui.apply_color_table(Plte_Blst, slider_list, rnd_216)
-        wanabyte = palette.build_palette_png(bfn, Plte_Blst, afn)
-
-    Tk_Render_Plte_Preview(wanabyte, w, h)
+    return palette_runtime.apply_random_palette_colors_from_namespace(globals(), Web_Safe_Colors, bfn, afn, w, h)
 
 def Tk_Web_Safe_Plte(bfn=None,afn=None,w=None,h=None):
-    global Plte_Blst
-    global palette_state
-    global window,tk_image,frame_img,pil_image,im,wanabyte
-
-
-    if palette_state is not None:
-        wanabyte = palette_ui.apply_palette_state_colors(
-            palette_state,
-            colors=Web_Safe_Colors,
-            before=bfn,
-            after=afn,
-        )
-        Sync_Palette_Legacy_State()
-    else:
-        palette_ui.apply_color_table(Plte_Blst, slider_list, Web_Safe_Colors)
-        wanabyte = palette.build_palette_png(bfn, Plte_Blst, afn)
-
-    Tk_Render_Plte_Preview(wanabyte, w, h)
+    return palette_runtime.apply_palette_colors_from_namespace(globals(), Web_Safe_Colors, bfn, afn, w, h)
 
 
 def Tk_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
-    global Plte_Blst
-    global palette_state
-    global window,tk_image,frame_img,pil_image,im,wanabyte
-
-    if palette_state is not None:
-        wanabyte = palette_ui.randomize_palette_state(
-            palette_state,
-            random_int=random.randint,
-            before=bfn,
-            after=afn,
-        )
-        Sync_Palette_Legacy_State()
-    else:
-        palette_ui.random_palette_values(Plte_Blst, slider_list, random.randint)
-        wanabyte = palette.build_palette_png(bfn, Plte_Blst, afn)
-
-    Tk_Render_Plte_Preview(wanabyte, w, h)
+    return palette_runtime.randomize_palette_from_namespace(globals(), bfn, afn, w, h)
 
 def Tk_update_scrollregion_Plte(event):
     global canvas_slider
     canvas_slider.configure(scrollregion=canvas_slider.bbox("all"))
 
 def Tk_Save_Plte(Tkwin,Cancel,ChunkLength,DataOffset,FromError,wanabyte):
-    CheckpointCall = palette_runtime.save_manual_palette(
-        palette_runtime.ManualPaletteSaveRuntime(),
-        palette_runtime.ManualPaletteSaveContext(
-            window=Tkwin,
-            cancel=Cancel,
-            chunk_length=ChunkLength,
-            data_offset=DataOffset,
-            from_error=FromError,
-            wanabyte=wanabyte,
-            palette_state=palette_state,
-            fallback_values=Plte_Blst,
-            fallback_sliders=slider_list,
-        ),
-    )
-    return CheckPoint(
-        CheckpointCall.error,
-        CheckpointCall.fixed,
-        CheckpointCall.function,
-        CheckpointCall.chunk,
-        list(CheckpointCall.infos),
-        *CheckpointCall.toolkit,
+    return palette_runtime.save_manual_palette_from_namespace(
+        globals(),
+        Tkwin,
+        Cancel,
+        ChunkLength,
+        DataOffset,
+        FromError,
+        wanabyte,
     )
 
 
 def Guess_Palettes_Nbr(bfn,afn):
-    return palette_runtime.guess_palette_count(
-        palette_runtime.PaletteCountGuessRuntime(
-            cv2=cv2,
-            numpy=np,
-            image=Image,
-            imagehash=imagehash,
-            stderr_redirector=stderr_redirector,
-            betterror=Betterror,
-            emit=PRINT,
-            candy=Candy,
-            end=TheEnd,
-            raw_print=print,
-            side_notes=SideNotes,
-        ),
-        palette_runtime.PaletteCountGuessContext(
-            x11_colors=tuple(X11_Colors),
-            libpng_errors=tuple(LIBPNG_ERR),
-            ihdr_depth=IHDR_Depht,
-        ),
-        bfn,
-        afn,
-    )
+    return palette_runtime.guess_palette_count_from_namespace(globals(), bfn, afn)
 
 
 

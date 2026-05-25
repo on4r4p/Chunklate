@@ -293,6 +293,128 @@ def sync_palette_legacy_state(namespace: dict, palette_state) -> None:
         namespace["wanabyte"] = palette_state.wanabyte
 
 
+def render_palette_preview_from_namespace(
+    namespace: dict,
+    wanabyte: bytes,
+    width: int,
+    height: int,
+    *,
+    renderer: Callable = palette_ui.render_preview_label,
+) -> None:
+    im, pil_image, tk_image = renderer(
+        wanabyte,
+        namespace["frame_img"],
+        width,
+        height,
+        cv2_module=namespace["cv2"],
+        numpy_module=namespace["np"],
+        image_module=namespace["Image"],
+        image_tk_module=namespace["ImageTk"],
+        tkinter_module=namespace["tkinter"],
+    )
+    namespace["im"] = im
+    namespace["pil_image"] = pil_image
+    namespace["tk_image"] = tk_image
+
+
+def update_palette_value_from_namespace(
+    namespace: dict,
+    event: object,
+    nbr: object,
+    before: bytes,
+    after: bytes,
+    width: int,
+    height: int,
+) -> bytes:
+    if namespace["palette_state"] is not None:
+        wanabyte = palette_ui.update_palette_state_value(
+            namespace["palette_state"],
+            index=int(nbr),
+            raw_value=event,
+            before=before,
+            after=after,
+        )
+        namespace["Sync_Palette_Legacy_State"]()
+    else:
+        palette.set_palette_value(namespace["Plte_Blst"], int(nbr), event)
+        wanabyte = palette.build_palette_png(before, namespace["Plte_Blst"], after)
+        namespace["wanabyte"] = wanabyte
+
+    namespace["Tk_Render_Plte_Preview"](wanabyte, width, height)
+    return wanabyte
+
+
+def apply_palette_colors_from_namespace(
+    namespace: dict,
+    colors,
+    before: bytes,
+    after: bytes,
+    width: int,
+    height: int,
+) -> bytes:
+    if namespace["palette_state"] is not None:
+        wanabyte = palette_ui.apply_palette_state_colors(
+            namespace["palette_state"],
+            colors=colors,
+            before=before,
+            after=after,
+        )
+        namespace["Sync_Palette_Legacy_State"]()
+    else:
+        palette_ui.apply_color_table(namespace["Plte_Blst"], namespace["slider_list"], colors)
+        wanabyte = palette.build_palette_png(before, namespace["Plte_Blst"], after)
+        namespace["wanabyte"] = wanabyte
+
+    namespace["Tk_Render_Plte_Preview"](wanabyte, width, height)
+    return wanabyte
+
+
+def apply_random_palette_colors_from_namespace(
+    namespace: dict,
+    colors,
+    before: bytes,
+    after: bytes,
+    width: int,
+    height: int,
+) -> bytes:
+    return apply_palette_colors_from_namespace(
+        namespace,
+        namespace["random"].sample(colors, len(colors)),
+        before,
+        after,
+        width,
+        height,
+    )
+
+
+def randomize_palette_from_namespace(
+    namespace: dict,
+    before: bytes,
+    after: bytes,
+    width: int,
+    height: int,
+) -> bytes:
+    if namespace["palette_state"] is not None:
+        wanabyte = palette_ui.randomize_palette_state(
+            namespace["palette_state"],
+            random_int=namespace["random"].randint,
+            before=before,
+            after=after,
+        )
+        namespace["Sync_Palette_Legacy_State"]()
+    else:
+        palette_ui.random_palette_values(
+            namespace["Plte_Blst"],
+            namespace["slider_list"],
+            namespace["random"].randint,
+        )
+        wanabyte = palette.build_palette_png(before, namespace["Plte_Blst"], after)
+        namespace["wanabyte"] = wanabyte
+
+    namespace["Tk_Render_Plte_Preview"](wanabyte, width, height)
+    return wanabyte
+
+
 def manual_palette_save_active_state(context: ManualPaletteSaveContext) -> tuple[list, list, bytes]:
     if context.palette_state is not None:
         return (
@@ -322,6 +444,39 @@ def save_manual_palette(
         chunk_length=context.chunk_length,
         data_offset=context.data_offset,
         from_error=context.from_error,
+    )
+
+
+def save_manual_palette_from_namespace(
+    namespace: dict,
+    window: object,
+    cancel: bool,
+    chunk_length: int,
+    data_offset: int,
+    from_error: object,
+    wanabyte: bytes,
+) -> object:
+    checkpoint_call = save_manual_palette(
+        ManualPaletteSaveRuntime(),
+        ManualPaletteSaveContext(
+            window=window,
+            cancel=cancel,
+            chunk_length=chunk_length,
+            data_offset=data_offset,
+            from_error=from_error,
+            wanabyte=wanabyte,
+            palette_state=namespace["palette_state"],
+            fallback_values=namespace["Plte_Blst"],
+            fallback_sliders=namespace["slider_list"],
+        ),
+    )
+    return namespace["CheckPoint"](
+        checkpoint_call.error,
+        checkpoint_call.fixed,
+        checkpoint_call.function,
+        checkpoint_call.chunk,
+        list(checkpoint_call.infos),
+        *checkpoint_call.toolkit,
     )
 
 
@@ -601,3 +756,40 @@ def guess_palette_count(
         "Warning:Could not estimate palette number.Returning Max Palettes number according to IHDR Depht"
     )
     return 2 ** int(context.ihdr_depth) - 1
+
+
+def build_palette_count_guess_runtime_from_namespace(namespace: dict) -> PaletteCountGuessRuntime:
+    return PaletteCountGuessRuntime(
+        cv2=namespace["cv2"],
+        numpy=namespace["np"],
+        image=namespace["Image"],
+        imagehash=namespace["imagehash"],
+        stderr_redirector=namespace["stderr_redirector"],
+        betterror=namespace["Betterror"],
+        emit=namespace["PRINT"],
+        candy=namespace["Candy"],
+        end=namespace["TheEnd"],
+        raw_print=namespace.get("print", print),
+        side_notes=namespace["SideNotes"],
+    )
+
+
+def build_palette_count_guess_context_from_namespace(namespace: dict) -> PaletteCountGuessContext:
+    return PaletteCountGuessContext(
+        x11_colors=tuple(namespace["X11_Colors"]),
+        libpng_errors=tuple(namespace["LIBPNG_ERR"]),
+        ihdr_depth=namespace["IHDR_Depht"],
+    )
+
+
+def guess_palette_count_from_namespace(
+    namespace: dict,
+    before: bytes,
+    after: bytes,
+) -> int:
+    return guess_palette_count(
+        build_palette_count_guess_runtime_from_namespace(namespace),
+        build_palette_count_guess_context_from_namespace(namespace),
+        before,
+        after,
+    )
