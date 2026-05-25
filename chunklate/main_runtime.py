@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -118,6 +119,11 @@ class MainChunkWalkState:
     offset: Any
 
 
+@dataclass(frozen=True)
+class MainLoopIterationState:
+    should_return: bool = False
+
+
 def build_cli_options_runtime(
     *,
     print_error: Callable[[str], Any],
@@ -137,6 +143,17 @@ def build_cli_options_runtime(
     )
 
 
+def build_cli_options_runtime_from_namespace(namespace: dict[str, Any]) -> MainCliOptionsRuntime:
+    return build_cli_options_runtime(
+        print_error=builtins.print,
+        exit_process=namespace["sys"].exit,
+        make_dirs=namespace["os"].makedirs,
+        abspath=namespace["os"].path.abspath,
+        join=namespace["os"].path.join,
+        stderr=namespace["sys"].stderr,
+    )
+
+
 def build_loop_reset_runtime(
     *,
     namespace: dict[str, Any],
@@ -152,6 +169,15 @@ def build_loop_reset_runtime(
     )
 
 
+def build_loop_reset_runtime_from_namespace(namespace: dict[str, Any]) -> MainLoopResetRuntime:
+    return build_loop_reset_runtime(
+        namespace=namespace,
+        reset_chunk_info_idat=namespace["CHUNK_INFO_STATE"].reset_idat,
+        sync_chunk_info_legacy_state=namespace["Sync_Chunk_Info_Legacy_State"],
+        banner=namespace["Chunklate"],
+    )
+
+
 def build_clear_screen_runtime(
     *,
     stderr_write: Callable[[str], Any],
@@ -162,6 +188,14 @@ def build_clear_screen_runtime(
         stderr_write=stderr_write,
         system=system,
         os_name=os_name,
+    )
+
+
+def build_clear_screen_runtime_from_namespace(namespace: dict[str, Any]) -> MainClearScreenRuntime:
+    return build_clear_screen_runtime(
+        stderr_write=namespace["sys"].stderr.write,
+        system=namespace["os"].system,
+        os_name=namespace["os"].name,
     )
 
 
@@ -186,6 +220,18 @@ def build_sample_runtime(
     )
 
 
+def build_sample_runtime_from_namespace(namespace: dict[str, Any]) -> MainSampleRuntime:
+    return build_sample_runtime(
+        basename=namespace["os"].path.basename,
+        load_sample_data=lambda sample: runtime_state.load_sample_data(sample, opener=builtins.open),
+        raw_print=builtins.print,
+        candy=namespace["Candy"],
+        emit=namespace["PRINT"],
+        betterror=namespace["Betterror"],
+        exit_process=namespace["sys"].exit,
+    )
+
+
 def build_chunk_walk_runtime(
     *,
     namespace: dict[str, Any],
@@ -204,6 +250,18 @@ def build_chunk_walk_runtime(
         get_info=get_info,
         checksum=checksum,
         fix_it_felix=fix_it_felix,
+    )
+
+
+def build_chunk_walk_runtime_from_namespace(namespace: dict[str, Any]) -> MainChunkWalkRuntime:
+    return build_chunk_walk_runtime(
+        namespace=namespace,
+        chunk_by_chunk=namespace["ChunkbyChunk"],
+        check_length=namespace["CheckLength"],
+        check_chunk_name=namespace["CheckChunkName"],
+        get_info=namespace["GetInfo"],
+        checksum=namespace["Checksum"],
+        fix_it_felix=namespace["FixItFelix"],
     )
 
 
@@ -287,6 +345,29 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
     }
 
 
+def apply_main_cli_options_from_namespace(
+    namespace: dict[str, Any],
+    args: Any,
+    unknown: list[str] | tuple[str, ...],
+    *,
+    argv_len: int,
+    parser: Any,
+) -> MainCliOptionsState | None:
+    options = apply_main_cli_options(
+        build_cli_options_runtime_from_namespace(namespace),
+        args,
+        unknown,
+        argv_len=argv_len,
+        parser=parser,
+        current_cloneswar=namespace["CLONESWAR"],
+        current_crash=namespace["CRASH"],
+    )
+    if options is None:
+        return None
+    namespace.update(legacy_globals_from_main_cli_options(options))
+    return options
+
+
 def reset_main_loop_state(runtime: MainLoopResetRuntime) -> MainLoopResetState:
     runtime.namespace.update(runtime.scan_reset_values())
     runtime.reset_chunk_info_idat()
@@ -356,6 +437,52 @@ def load_main_sample(
         data_bytes=loaded_sample.data_bytes,
         data_hex=loaded_sample.data_hex,
     )
+
+
+def sync_loaded_sample_to_namespace(namespace: dict[str, Any], state: MainSampleState) -> None:
+    namespace.update(
+        {
+            "Sample": state.sample,
+            "Sample_Name": state.sample_name,
+            "CLONESWAR": state.cloneswar,
+            "DATA_BYTES": state.data_bytes,
+            "DATAX": state.data_hex,
+        }
+    )
+
+
+def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIterationState:
+    clear_screen_state = run_main_clear_screen(
+        build_clear_screen_runtime_from_namespace(namespace),
+        MainClearScreenContext(
+            clear=namespace["CLEAR"],
+            fir_start=namespace["FirStart"],
+        ),
+    )
+    namespace["FirStart"] = clear_screen_state.fir_start
+
+    reset_main_loop_state(build_loop_reset_runtime_from_namespace(namespace))
+
+    loaded_sample = load_main_sample(
+        build_sample_runtime_from_namespace(namespace),
+        MainSampleContext(
+            sample=namespace["Sample"],
+            cloneswar=namespace["CLONESWAR"],
+        ),
+    )
+    if loaded_sample is None:
+        return MainLoopIterationState(should_return=True)
+
+    sync_loaded_sample_to_namespace(namespace, loaded_sample)
+    offset = namespace["FindMagic"]()
+    run_main_chunk_walk(
+        build_chunk_walk_runtime_from_namespace(namespace),
+        MainChunkWalkContext(
+            offset=offset,
+            data_hex=namespace["DATAX"],
+        ),
+    )
+    return MainLoopIterationState()
 
 
 def run_main_chunk_walk(

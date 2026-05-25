@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import ast
+import os
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -81,22 +83,18 @@ def chunklate_main_node():
     raise AssertionError("Chunklate.main not found")
 
 
-def test_chunklate_main_keeps_only_direct_assignment_globals_and_no_dead_reached_end_comment():
+def test_chunklate_main_has_no_direct_global_wiring_and_no_dead_reached_end_comment():
     source = (ROOT / "Chunklate.py").read_text()
     main_node = chunklate_main_node()
     global_names = []
     for node in ast.walk(main_node):
         if isinstance(node, ast.Global):
             global_names.extend(node.names)
+    attrs = {item.attr for item in ast.walk(main_node) if isinstance(item, ast.Attribute)}
 
-    assert global_names == [
-        "FirStart",
-        "CLONESWAR",
-        "DATAX",
-        "DATA_BYTES",
-        "Sample",
-        "Sample_Name",
-    ]
+    assert global_names == []
+    assert "apply_main_cli_options_from_namespace" in attrs
+    assert "run_main_loop_once_from_namespace" in attrs
     assert "Reached End" not in source
     assert "CheckChunkOrder(b'IEND',\"Critical\")" not in source
 
@@ -284,6 +282,43 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         "CLONESWAR": "clone.png",
         "CRASH": 9,
     }
+
+
+def test_apply_main_cli_options_from_namespace_updates_legacy_globals():
+    calls = []
+    fake_os = SimpleNamespace(
+        makedirs=lambda path, **kwargs: calls.append(("makedirs", path, kwargs)),
+        path=SimpleNamespace(
+            abspath=lambda path: "/abs/" + path,
+            join=lambda *parts: "/".join(parts),
+        ),
+    )
+    namespace = {
+        "sys": SimpleNamespace(exit=lambda code: calls.append(("exit", code)), stderr="stderr"),
+        "os": fake_os,
+        "CLONESWAR": False,
+        "CRASH": False,
+    }
+
+    state = main_runtime.apply_main_cli_options_from_namespace(
+        namespace,
+        args(OUTPUT_DIR="out", MAX_SAVES=3, PAUSEERROR=True),
+        (),
+        argv_len=2,
+        parser=FakeParser(calls),
+    )
+
+    assert state.file_origin == "sample.png"
+    assert namespace["FILE_Origin"] == "sample.png"
+    assert namespace["FILE_DIR"] == "/abs/out/"
+    assert namespace["PAUSEERROR"] is True
+    assert namespace["DEBUG"] is False
+    assert namespace["MAX_SAVES"] == 3
+    assert namespace["SAVE_COUNT"] == 0
+    assert namespace["Sample"] == "sample.png"
+    assert namespace["CLONESWAR"] is False
+    assert namespace["CRASH"] is False
+    assert calls == [("makedirs", "/abs/out/", {"exist_ok": True})]
 
 
 def test_reset_main_loop_state_updates_legacy_globals_and_preserves_local_tmp_fixihdr():
@@ -544,9 +579,92 @@ def test_run_main_chunk_walk_stops_when_kitkat_breaks():
     assert namespace["Have_A_KitKat"] is False
 
 
+def test_run_main_loop_once_from_namespace_resets_loads_and_walks_sample():
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    namespace = {}
+
+    def chunk_by_chunk(offset):
+        calls.append(("chunk_by_chunk", offset))
+        namespace.update(
+            {
+                "Orig_CD": "orig-data",
+                "Orig_CL": "orig-len",
+                "Orig_CT": b"IHDR",
+                "Chunks_History": [b"PNG"],
+                "Raw_Data": "raw-data",
+                "Raw_Type": "raw-type",
+                "Raw_Crc": "raw-crc",
+                "Raw_Length": "raw-len",
+                "Show_Must_Go_On": False,
+                "Have_A_KitKat": True,
+            }
+        )
+
+    def fix_it_felix(chunk):
+        calls.append(("fix_it_felix", chunk))
+        namespace["Show_Must_Go_On"] = True
+
+    namespace.update(
+        {
+            "sys": SimpleNamespace(
+                stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+                exit=lambda code: calls.append(("exit", code)),
+            ),
+            "os": os,
+            "CLEAR": False,
+            "FirStart": True,
+            "CHUNK_INFO_STATE": SimpleNamespace(
+                reset_idat=lambda: calls.append(("reset_idat",))
+            ),
+            "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+            "Chunklate": lambda mode: calls.append(("banner", mode)),
+            "Sample": sample_path,
+            "CLONESWAR": False,
+            "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+            "PRINT": lambda message: calls.append(("emit", message)),
+            "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+            "FindMagic": lambda: calls.append(("find_magic",)) or 0,
+            "ChunkbyChunk": chunk_by_chunk,
+            "CheckLength": lambda *args: calls.append(("check_length", args)),
+            "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+            "GetInfo": lambda *args: calls.append(("get_info", args)),
+            "Checksum": lambda *args: calls.append(("checksum", args)),
+            "FixItFelix": fix_it_felix,
+        }
+    )
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState()
+    assert namespace["FirStart"] is True
+    assert namespace["Sample"] == sample_path
+    assert namespace["Sample_Name"] == os.path.basename(sample_path)
+    assert namespace["CLONESWAR"] is False
+    assert namespace["DATA_BYTES"] == b"\x89PNG"
+    assert namespace["DATAX"] == "89504e47"
+    assert ("reset_idat",) in calls
+    assert ("sync", "idat") in calls
+    assert ("banner", 1) in calls
+    assert ("find_magic",) in calls
+    assert ("chunk_by_chunk", 0) in calls
+    assert ("check_length", ("orig-data", "orig-len", b"IHDR")) in calls
+    assert ("check_chunk_name", (b"IHDR", "orig-len", b"PNG")) in calls
+    assert ("get_info", (b"IHDR", "raw-data")) in calls
+    assert ("checksum", ("raw-type", "raw-data", "raw-crc")) in calls
+    assert ("fix_it_felix", b"IHDR") in calls
+    assert namespace["Have_A_KitKat"] is False
+
+
 def main():
     checks = [
-        ("main cleanup boundary", test_chunklate_main_keeps_only_direct_assignment_globals_and_no_dead_reached_end_comment),
+        ("main cleanup boundary", test_chunklate_main_has_no_direct_global_wiring_and_no_dead_reached_end_comment),
         ("runtime builders", test_build_main_runtime_helpers_wire_callbacks),
         ("main options state", test_apply_main_cli_options_builds_initial_state),
         ("legacy clone/crash", test_apply_main_cli_options_preserves_legacy_unknown_clone_and_crash),
@@ -555,6 +673,7 @@ def main():
         ("missing filename", test_apply_main_cli_options_exits_without_filename),
         ("bad max saves", test_apply_main_cli_options_exits_on_bad_max_saves),
         ("legacy globals", test_legacy_globals_from_main_cli_options_maps_runtime_flags),
+        ("namespace CLI options", test_apply_main_cli_options_from_namespace_updates_legacy_globals),
         ("loop reset state", test_reset_main_loop_state_updates_legacy_globals_and_preserves_local_tmp_fixihdr),
         ("loop reset fresh containers", test_reset_main_loop_state_uses_fresh_history_containers_each_time),
         ("clear screen startup", test_run_main_clear_screen_preserves_startup_skip),
@@ -566,6 +685,7 @@ def main():
         ("chunk walk no offset", test_run_main_chunk_walk_returns_without_offset),
         ("chunk walk order", test_run_main_chunk_walk_runs_legacy_callback_order_and_updates_offset),
         ("chunk walk kitkat", test_run_main_chunk_walk_stops_when_kitkat_breaks),
+        ("main loop namespace", test_run_main_loop_once_from_namespace_resets_loads_and_walks_sample),
     ]
 
     print("Running main runtime tests")

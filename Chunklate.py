@@ -1373,99 +1373,22 @@ def PRINT(msg):
 #        print(msg)
 
 def main():
-    global FirStart
-    global CLONESWAR
-    global DATAX
-    global DATA_BYTES
-    global Sample
-    global Sample_Name
-
     parser = cli.configure_parser(ArgumentParser())
-
     Args, unknown = parser.parse_known_args()
-    MainOptions = main_runtime.apply_main_cli_options(
-        main_runtime.build_cli_options_runtime(
-            print_error=print,
-            exit_process=sys.exit,
-            make_dirs=os.makedirs,
-            abspath=os.path.abspath,
-            join=os.path.join,
-            stderr=sys.stderr,
-        ),
+    MainOptions = main_runtime.apply_main_cli_options_from_namespace(
+        globals(),
         Args,
         unknown,
         argv_len=len(sys.argv),
         parser=parser,
-        current_cloneswar=CLONESWAR,
-        current_crash=CRASH,
     )
     if MainOptions is None:
         return
-    globals().update(main_runtime.legacy_globals_from_main_cli_options(MainOptions))
 
     while True:
-
-        ClearScreenState = main_runtime.run_main_clear_screen(
-            main_runtime.build_clear_screen_runtime(
-                stderr_write=sys.stderr.write,
-                system=os.system,
-                os_name=os.name,
-            ),
-            main_runtime.MainClearScreenContext(
-                clear=CLEAR,
-                fir_start=FirStart,
-            ),
-        )
-        FirStart = ClearScreenState.fir_start
-        MainLoopReset = main_runtime.reset_main_loop_state(
-            main_runtime.build_loop_reset_runtime(
-                namespace=globals(),
-                reset_chunk_info_idat=CHUNK_INFO_STATE.reset_idat,
-                sync_chunk_info_legacy_state=Sync_Chunk_Info_Legacy_State,
-                banner=Chunklate,
-            )
-        )
-        TmpFixIHDR = MainLoopReset.tmp_fix_ihdr
-        # IFOP = []
-
-        LoadedMainSample = main_runtime.load_main_sample(
-            main_runtime.build_sample_runtime(
-                basename=os.path.basename,
-                load_sample_data=lambda sample: runtime_state.load_sample_data(sample, opener=open),
-                raw_print=print,
-                candy=Candy,
-                emit=PRINT,
-                betterror=Betterror,
-                exit_process=sys.exit,
-            ),
-            main_runtime.MainSampleContext(
-                sample=Sample,
-                cloneswar=CLONESWAR,
-            ),
-        )
-        if LoadedMainSample is None:
+        MainLoopState = main_runtime.run_main_loop_once_from_namespace(globals())
+        if MainLoopState.should_return:
             return
-        Sample = LoadedMainSample.sample
-        Sample_Name = LoadedMainSample.sample_name
-        CLONESWAR = LoadedMainSample.cloneswar
-        DATA_BYTES = LoadedMainSample.data_bytes
-        DATAX = LoadedMainSample.data_hex
-        Offset = FindMagic()
-        main_runtime.run_main_chunk_walk(
-            main_runtime.build_chunk_walk_runtime(
-                namespace=globals(),
-                chunk_by_chunk=ChunkbyChunk,
-                check_length=CheckLength,
-                check_chunk_name=CheckChunkName,
-                get_info=GetInfo,
-                checksum=Checksum,
-                fix_it_felix=FixItFelix,
-            ),
-            main_runtime.MainChunkWalkContext(
-                offset=Offset,
-                data_hex=DATAX,
-            ),
-        )
 
 
 ###
