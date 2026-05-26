@@ -212,6 +212,7 @@ CHECKPOINT_COFFEE = r"""
 
 def render_fog_of_war_from_context(namespace: dict[str, Any], context: CheckPointEntryContext) -> str:
     colorizer = lambda color, value: namespace["Candy"]("Color", color, value)
+    idat_wrong_crc_count = _idat_wrong_crc_count(context)
     fog_map = fog_of_war.build_map(
         context.chunks_history,
         context.chunk,
@@ -219,6 +220,7 @@ def render_fog_of_war_from_context(namespace: dict[str, Any], context: CheckPoin
         current_offset=context.current_offset,
         error=context.error,
         sample_name=context.sample_name,
+        idat_wrong_crc_count=idat_wrong_crc_count,
     )
     previous_map = namespace.get("FOG_OF_WAR_LAST_MAP")
     previous_width = namespace.get("FOG_OF_WAR_LAST_WIDTH")
@@ -230,6 +232,23 @@ def render_fog_of_war_from_context(namespace: dict[str, Any], context: CheckPoin
         return ""
 
     return fog_of_war.render(fog_map, color=colorizer)
+
+
+def _is_idat_wrong_crc_text(value: Any) -> bool:
+    text = str(value)
+    return "Wrong Crc" in text and "IDAT" in text
+
+
+def _idat_wrong_crc_count(context: CheckPointEntryContext) -> int:
+    count = sum(1 for key in context.pandora_keys if _is_idat_wrong_crc_text(key))
+    current_is_idat_wrong_crc = (
+        context.error is True
+        and str(context.chunk).upper() in ("IDAT", "B'IDAT'")
+        and any(_is_idat_wrong_crc_text(info) for info in context.infos)
+    )
+    if current_is_idat_wrong_crc:
+        count += 1
+    return count
 
 
 def checkpoint_debug_toolkit_value(value: Any, limit: int = 100) -> Any:

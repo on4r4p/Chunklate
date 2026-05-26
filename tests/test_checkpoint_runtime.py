@@ -344,6 +344,40 @@ def test_checkpoint_namespace_entry_bridge_builds_runtime_and_context():
     assert result == "checkpoint"
 
 
+def test_checkpoint_fog_of_war_counts_current_and_previous_idat_crc_errors():
+    context = checkpoint_runtime.CheckPointEntryContext(
+        error=True,
+        fixed=False,
+        function="Checksum",
+        chunk=b"IDAT",
+        infos=("-Wrong Crc b'IDAT'",),
+        toolkit=("tool",),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=(
+            "Checksum_Error_0:-Wrong Crc b'IDAT'",
+            "Checksum_Error_1:-Wrong Crc b'IDAT'",
+            "Checksum_Error_0:-Wrong Crc b'PLTE'",
+        ),
+        chunks_history=(b"PNG", b"IHDR", b"IDAT", b"IDAT"),
+        data_hex="00" * 128,
+        current_offset=32,
+        sample_name="sample.png",
+    )
+
+    rendered = checkpoint_runtime.render_fog_of_war_from_context(
+        {
+            "Candy": lambda mode, color, value: f"<{color}:{value}>",
+            "FOG_OF_WAR_LAST_MAP": None,
+            "FOG_OF_WAR_LAST_WIDTH": None,
+        },
+        context,
+    )
+
+    assert "<green:[IDATx><red:3><green:/><yellow:3><green:]>" in rendered
+
+
 def test_checkpoint_debug_lines_preserve_legacy_print_shape():
     long_bytes = b"x" * 120
     long_text = "y" * 120
@@ -667,6 +701,7 @@ def main():
         ("CheckPoint entry debug", test_checkpoint_entry_runtime_preserves_debug_and_pause),
         ("CheckPoint entry builders", test_checkpoint_entry_builders_preserve_legacy_namespace_mapping),
         ("CheckPoint namespace entry bridge", test_checkpoint_namespace_entry_bridge_builds_runtime_and_context),
+        ("CheckPoint FogOfWar IDAT count", test_checkpoint_fog_of_war_counts_current_and_previous_idat_crc_errors),
         ("CheckPoint debug lines", test_checkpoint_debug_lines_preserve_legacy_print_shape),
         ("CheckPoint debug emit callback", test_emit_checkpoint_debug_uses_injected_emit_callback),
         ("CheckPointRuntime keeps callbacks", test_checkpoint_runtime_keeps_legacy_callbacks),

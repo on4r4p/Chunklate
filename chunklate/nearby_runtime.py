@@ -77,6 +77,26 @@ class NearbyHandled:
     action: str
 
 
+@dataclass
+class NearbyScanFinds:
+    counts: dict[bytes, int]
+
+    @property
+    def has_candidates(self) -> bool:
+        return bool(self.counts)
+
+    @property
+    def idat_count(self) -> int:
+        return self.counts.get(b"IDAT", 0)
+
+    @property
+    def found_iend(self) -> bool:
+        return self.counts.get(b"IEND", 0) > 0
+
+    def record(self, chunk: bytes) -> None:
+        self.counts[chunk] = self.counts.get(chunk, 0) + 1
+
+
 def _color(runtime: NearbyChunkRuntime, color: str, value: Any) -> Any:
     return runtime.candy("Color", color, value)
 
@@ -192,6 +212,59 @@ def _route_length_repair(
     return result
 
 
+def _display_chunk_name(chunk_type: bytes) -> str:
+    return chunk_type.decode("ascii", errors="replace")
+
+
+def _emit_found_chunk(
+    runtime: NearbyChunkRuntime,
+    found_chunk: bytes,
+    needle_hex: str,
+    needle_byte: int,
+) -> None:
+    runtime.candy("Cowsay", " Bingo!!!", "good")
+    runtime.emit(
+        "-Found the closest Chunk to our position:%s at offset %s %s"
+        % (
+            _color(runtime, "green", found_chunk),
+            _color(runtime, "blue", needle_hex),
+            _color(runtime, "yellow", needle_byte),
+        )
+    )
+
+
+def _idat_find_summary(finds: NearbyScanFinds) -> str:
+    idat_count = finds.idat_count
+    idat_label = "chunk" if idat_count == 1 else "chunks"
+    if idat_count > 0 and finds.found_iend:
+        return "I found %s possible IDAT %s and an IEND later." % (idat_count, idat_label)
+    if idat_count > 0:
+        return "I found %s possible IDAT %s, but no IEND later." % (idat_count, idat_label)
+    return "I found an IEND later."
+
+
+def _emit_scan_misalignment_summary(
+    runtime: NearbyChunkRuntime,
+    context: NearbyChunkContext,
+    chunk_type: bytes,
+    finds: NearbyScanFinds,
+) -> bool:
+    if context.debug or not finds.has_candidates:
+        return False
+    if finds.idat_count < 1 and not finds.found_iend:
+        return False
+
+    runtime.candy("Cowsay", _idat_find_summary(finds), "good")
+    runtime.candy("Cowsay", "But the current position still does not line up.", "bad")
+    runtime.candy(
+        "Cowsay",
+        "This smells more like a bad length before %s than a chunk-name-only problem."
+        % _display_chunk_name(chunk_type),
+        "bad",
+    )
+    return True
+
+
 def _scan_for_nearby_chunk(
     runtime: NearbyChunkRuntime,
     context: NearbyChunkContext,
@@ -221,6 +294,8 @@ def _scan_for_nearby_chunk(
         ):
             runtime.emit(line)
 
+    finds = NearbyScanFinds(counts={})
+
     while needle < len(context.data_hex):
         if needle + 8 > len(context.data_hex):
             runtime.emit(_color(runtime, "yellow", "-End of File"))
@@ -240,15 +315,10 @@ def _scan_for_nearby_chunk(
             if not nearby.scope_matches_chunk(scope, found_chunk):
                 continue
 
-            runtime.candy("Cowsay", " Bingo!!!", "good")
-            runtime.emit(
-                "-Found the closest Chunk to our position:%s at offset %s %s"
-                % (
-                    _color(runtime, "green", found_chunk),
-                    _color(runtime, "blue", needle_hex),
-                    _color(runtime, "yellow", needle_byte),
-                )
-            )
+            finds.record(found_chunk)
+            if context.debug:
+                _emit_found_chunk(runtime, found_chunk, needle_hex, needle_byte)
+
             if found_chunk in excluded:
                 _emit_excluded_trap(runtime, context, found_chunk)
                 return None
@@ -265,6 +335,9 @@ def _scan_for_nearby_chunk(
             return _route_length_repair(runtime, context, repair, from_error)
 
         needle += 1
+
+    if _emit_scan_misalignment_summary(runtime, context, chunk_type, finds):
+        return NearbyHandled("scan_summary")
 
     return None
 
@@ -372,11 +445,13 @@ def run_nearby_chunk(
         list(excluded),
         from_error,
     )
-    if result is not None:
+    scan_summary = isinstance(result, NearbyHandled) and result.action == "scan_summary"
+    if result is not None and not scan_summary:
         return result
 
     if double_check is True:
-        runtime.candy("Cowsay", " ...??NOTHING AGAIN!?!?!?!?", "bad")
+        if not scan_summary:
+            runtime.candy("Cowsay", " ...??NOTHING AGAIN!?!?!?!?", "bad")
         runtime.check_chunk_order(last_chunk_type, "Critical")
         bad_critical = runtime.get_bad_critical()
         if not bad_critical:
@@ -391,11 +466,12 @@ def run_nearby_chunk(
             runtime.side_notes.append("-NearbyChunk:Critical Chunk Missing: %s" % bad_critical)
             return runtime.fix_it_felix(chunk_type)
     else:
-        runtime.candy(
-            "Cowsay",
-            " ...??Just Reach the EOF and found nothing!!Can't do much about that sorry ...",
-            "com",
-        )
+        if not scan_summary:
+            runtime.candy(
+                "Cowsay",
+                " ...??Just Reach the EOF and found nothing!!Can't do much about that sorry ...",
+                "com",
+            )
 
     if chunk_length is not None and chunk_type is not None:
         runtime.double_check(chunk_type, chunk_length, last_chunk_type)

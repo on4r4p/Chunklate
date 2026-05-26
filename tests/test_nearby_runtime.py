@@ -175,6 +175,101 @@ def test_nearby_runtime_excluded_found_chunk_routes_legacy_trap():
     assert ("end",) in calls
 
 
+def test_nearby_runtime_summarizes_candidates_without_alignment_in_normal_mode():
+    calls = []
+    runtime = build_runtime(calls)
+    data_hex = (
+        ("00" * 8)
+        + b"IDAT".hex()
+        + ("00" * 4)
+        + b"IDAT".hex()
+        + ("00" * 4)
+        + b"IEND".hex()
+    )
+
+    result = nearby_runtime.run_nearby_chunk(
+        runtime,
+        base_context(data_hex=data_hex),
+        b"@DAT",
+        "04002000",
+        b"IDAT",
+        False,
+        "Relics",
+    )
+
+    assert result == ()
+    assert (
+        "candy",
+        ("Cowsay", "I found 2 possible IDAT chunks and an IEND later.", "good"),
+    ) in calls
+    assert (
+        "candy",
+        ("Cowsay", "But the current position still does not line up.", "bad"),
+    ) in calls
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "This smells more like a bad length before @DAT than a chunk-name-only problem.",
+            "bad",
+        ),
+    ) in calls
+    assert not [call for call in calls if call == ("candy", ("Cowsay", " Bingo!!!", "good"))]
+    assert not any(
+        call[0] == "candy" and "found nothing" in str(call[1])
+        for call in calls
+    )
+    assert [call for call in calls if call[0] == "double_check"]
+
+
+def test_nearby_runtime_keeps_bingo_details_in_debug_mode():
+    calls = []
+    runtime = build_runtime(calls)
+    data_hex = ("00" * 8) + b"IDAT".hex() + ("00" * 4) + b"IEND".hex()
+
+    nearby_runtime.run_nearby_chunk(
+        runtime,
+        base_context(data_hex=data_hex, debug=True),
+        b"@DAT",
+        "04002000",
+        b"IDAT",
+        False,
+        "Relics",
+    )
+
+    assert ("candy", ("Cowsay", " Bingo!!!", "good")) in calls
+    assert any(
+        call[0] == "emit" and "-Found the closest Chunk to our position:" in call[1]
+        for call in calls
+    )
+    assert not any(
+        call[0] == "candy" and "does not line up" in str(call[1])
+        for call in calls
+    )
+
+
+def test_nearby_runtime_alignment_still_routes_repair_without_summary():
+    calls = []
+    runtime = build_runtime(calls)
+
+    result = nearby_runtime.run_nearby_chunk(
+        runtime,
+        base_context(),
+        b"IHDR",
+        "ffffffff",
+        b"IHDR",
+        False,
+        "Relics",
+    )
+
+    assert result == "checkpoint-result"
+    assert [call for call in calls if call[0] == "checkpoint"]
+    assert not any(
+        call[0] == "candy" and "does not line up" in str(call[1])
+        for call in calls
+    )
+
+
 def test_nearby_runtime_doublecheck_missing_critical_routes_fixit():
     calls = []
     side_notes = []
@@ -409,6 +504,9 @@ def main():
         ("Clean extra bytes", test_nearby_runtime_returns_clean_extra_bytes_before_scan),
         ("Known chunk checkpoint", test_nearby_runtime_known_chunk_routes_length_repair_checkpoint),
         ("Excluded trap", test_nearby_runtime_excluded_found_chunk_routes_legacy_trap),
+        ("Scan summary", test_nearby_runtime_summarizes_candidates_without_alignment_in_normal_mode),
+        ("Debug bingo details", test_nearby_runtime_keeps_bingo_details_in_debug_mode),
+        ("Aligned repair", test_nearby_runtime_alignment_still_routes_repair_without_summary),
         ("Doublecheck critical", test_nearby_runtime_doublecheck_missing_critical_routes_fixit),
         ("Remove extra bytes", test_remove_extra_bytes_runtime_routes_save_clone),
         ("Remove extra bytes none", test_remove_extra_bytes_runtime_returns_none_without_candidate),

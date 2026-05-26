@@ -22,6 +22,8 @@ COFFEE_ART = (
 class FogSegment:
     label: str
     state: str = "seen"
+    chunk_label: str = ""
+    count: int = 1
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,7 @@ class FogOfWarMap:
     data_left_bytes: int | None
     reached_iend: bool
     sample_name: str = ""
+    idat_wrong_crc_count: int = 0
 
 
 def _chunk_label(chunk: Any) -> str:
@@ -54,7 +57,7 @@ def _compact_seen_chunks(chunks: Iterable[Any]) -> tuple[FogSegment, ...]:
         while index + count < len(labels) and labels[index + count] == label:
             count += 1
         display = "%sx%s" % (label, count) if count > 1 else label
-        segments.append(FogSegment(display, "seen"))
+        segments.append(FogSegment(display, "seen", label, count))
         index += count
     return tuple(segments)
 
@@ -75,6 +78,7 @@ def build_map(
     current_offset: Any,
     error: bool,
     sample_name: str = "",
+    idat_wrong_crc_count: int = 0,
 ) -> FogOfWarMap:
     history = tuple(chunks_history)
     current_label = _chunk_label(current_chunk)
@@ -86,10 +90,43 @@ def build_map(
         data_left_bytes=None if reached_iend else _data_left_bytes(data_hex, current_offset),
         reached_iend=reached_iend,
         sample_name=sample_name,
+        idat_wrong_crc_count=idat_wrong_crc_count,
     )
 
 
-def _segment_text(segment: FogSegment, color: Colorizer) -> str:
+def _is_idat_label(label: Any) -> bool:
+    return str(label).upper() == "IDAT"
+
+
+def _idat_status_text(
+    *,
+    wrong_crc_count: int,
+    total_count: int,
+    current: bool,
+    color: Colorizer,
+) -> str:
+    if wrong_crc_count <= 0:
+        label = "IDATx%s" % total_count if total_count > 1 else "IDAT"
+        return str(color("green", "[%s]" % label))
+    return "".join(
+        (
+            str(color("green", "[IDATx")),
+            str(color("red", wrong_crc_count)),
+            str(color("green", "/")),
+            str(color("yellow" if current else "green", total_count)),
+            str(color("green", "]")),
+        )
+    )
+
+
+def _segment_text(segment: FogSegment, color: Colorizer, fog_map: FogOfWarMap) -> str:
+    if _is_idat_label(segment.chunk_label):
+        return _idat_status_text(
+            wrong_crc_count=fog_map.idat_wrong_crc_count,
+            total_count=segment.count,
+            current=False,
+            color=color,
+        )
     return str(color("green", "[%s]" % segment.label))
 
 
@@ -109,8 +146,29 @@ def _tail_text(fog_map: FogOfWarMap, color: Colorizer) -> str:
 
 def _render_line(fog_map: FogOfWarMap, *, color: Colorizer) -> str:
     pieces = [str(color("purple", "[PNG]"))]
-    pieces.extend(_segment_text(segment, color) for segment in fog_map.segments)
-    if not fog_map.reached_iend:
+    segments = list(fog_map.segments)
+    current_is_idat = (
+        not fog_map.reached_iend
+        and _is_idat_label(fog_map.current_label)
+        and fog_map.idat_wrong_crc_count > 0
+    )
+    if current_is_idat and bool(segments) and _is_idat_label(segments[-1].chunk_label):
+        trailing_idat = segments.pop()
+    else:
+        trailing_idat = None
+
+    pieces.extend(_segment_text(segment, color, fog_map) for segment in segments)
+    if current_is_idat:
+        total_count = 1 if trailing_idat is None else trailing_idat.count + 1
+        pieces.append(
+            _idat_status_text(
+                wrong_crc_count=fog_map.idat_wrong_crc_count,
+                total_count=total_count,
+                current=True,
+                color=color,
+            )
+        )
+    elif not fog_map.reached_iend:
         pieces.append(_current_text(fog_map, color))
     pieces.append(_tail_text(fog_map, color))
     return "".join(pieces)

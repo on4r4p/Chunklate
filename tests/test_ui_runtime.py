@@ -53,6 +53,30 @@ def test_legacy_ui_runtime_emits_cowsay_and_optional_pause():
     assert pauses == ["pause"]
 
 
+def test_legacy_ui_runtime_pauses_once_per_dialogue_group_with_shared_state():
+    state = ui_runtime.LegacyDialoguePauseState()
+    ui, emitted, pauses = runtime(
+        pause_dialogue_enabled=True,
+        pause_state=state,
+    )
+
+    assert ui.candy("Cowsay", "Fine, let me see what i can do.", "good") is None
+    assert pauses == []
+
+    assert ui.candy("Title", "Chunk N Destroy:") is None
+    assert pauses == ["pause"]
+
+    assert ui.candy("Cowsay", "Now where shall i start..?", "com") is None
+    assert ui.candy("Title", "Checking Already Used Chunks :") is None
+    assert pauses == ["pause"]
+
+    assert ui.candy("Title", "QUESTION!") is None
+    assert ui.candy("Cowsay", "Fresh question, fresh paperwork.", "com") is None
+    assert ui.candy("Title", "Chunk N Destroy:") is None
+    assert pauses == ["pause", "pause"]
+    assert len(emitted) == 7
+
+
 def test_legacy_ui_runtime_emits_title_unless_dialogue_disabled():
     ui, emitted, _ = runtime()
 
@@ -70,6 +94,7 @@ def main():
         ("color and emoji modes", test_legacy_ui_runtime_color_and_emoji_modes),
         ("plain color mode", test_legacy_ui_runtime_plain_color_mode),
         ("cowsay and pause", test_legacy_ui_runtime_emits_cowsay_and_optional_pause),
+        ("shared pause state", test_legacy_ui_runtime_pauses_once_per_dialogue_group_with_shared_state),
         ("title output", test_legacy_ui_runtime_emits_title_unless_dialogue_disabled),
     ]
 

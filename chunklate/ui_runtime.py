@@ -9,6 +9,7 @@ from . import ui
 @dataclass
 class LegacyDialoguePauseState:
     pending: bool = False
+    paused_in_group: bool = False
 
 
 @dataclass(frozen=True)
@@ -29,23 +30,33 @@ class LegacyUiRuntime:
         if self.pause_state is not None:
             self.pause_state.pending = False
 
+    def _reset_dialogue_pause_group(self) -> None:
+        if self.pause_state is not None:
+            self.pause_state.pending = False
+            self.pause_state.paused_in_group = False
+
     def _queue_dialogue_pause(self) -> None:
         if not self.pause_dialogue_enabled or self.pause_dialogue is None:
             return
         if self.pause_state is None:
             self.pause_dialogue()
             return
+        if self.pause_state.paused_in_group:
+            return
         self.pause_state.pending = True
 
     def _flush_dialogue_pause_before_title(self, arg: Any) -> None:
         if self.pause_state is None or not self.pause_state.pending:
+            if self._question_title(arg):
+                self._reset_dialogue_pause_group()
             return
         if self._question_title(arg):
-            self._clear_pending_pause()
+            self._reset_dialogue_pause_group()
             return
         if self.pause_dialogue_enabled and self.pause_dialogue is not None:
             self.pause_dialogue()
-        self._clear_pending_pause()
+        self.pause_state.pending = False
+        self.pause_state.paused_in_group = True
 
     def candy(self, mode: str, arg: Any, data: Any = None) -> Any:
         if mode == "Emoj":
