@@ -456,6 +456,34 @@ def save_or_defer_wrong_crc(
     return defer_wrong_crc(runtime, tools)
 
 
+def preflight_idat_crc_only_patch(
+    runtime: WrongCrcRuntime,
+    tools: relics.WrongCrcTools,
+    finding: Any,
+) -> tuple[bool, Any] | None:
+    if tools.chunk != b"IDAT":
+        return None
+
+    validation = validate_idat_crc_only_patch(runtime, tools)
+    if validation.can_save:
+        return None
+
+    runtime.set_idat_crc_patch_failed(True)
+    runtime.set_idat_crc_patch_failed_finding(finding)
+    runtime.remember_deferred_idat_crc_route(finding, tools)
+    runtime.candy(
+        "Cowsay",
+        "I tested the cheap CRC patch in my head. It still breaks: %s" % validation.reason,
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "So i'm not asking you to bless a fake fix. I will keep that CRC for later.",
+        "com",
+    )
+    return defer_wrong_crc(runtime, tools)
+
+
 def wrong_crc_visible_other_errors(runtime: WrongCrcRuntime, finding: Any) -> tuple[Any, ...]:
     return tuple(
         pandora_finding
@@ -521,6 +549,10 @@ def apply_wrong_crc(
                 "com",
             )
             return defer_wrong_crc(runtime, tools)
+
+        preflight = preflight_idat_crc_only_patch(runtime, tools, decision.finding)
+        if preflight is not None:
+            return preflight
 
         runtime.candy("Cowsay", "Crc checksum is not valid !!!", "bad")
         visible_other_errors = wrong_crc_visible_other_errors(runtime, decision.finding)

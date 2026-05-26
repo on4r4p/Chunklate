@@ -106,6 +106,29 @@ def test_critical_mode_prints_ok_without_checkpoint():
     assert not [call for call in calls if call[0] == "checkpoint"]
 
 
+def test_critical_mode_does_not_coerce_unused_lastchunk():
+    calls = []
+    runtime, _warning = build_runtime(calls)
+    context = base_context(minimal_chunks=(b"PNG", b"IHDR"))
+
+    result = chunk_order_runtime.run_check_chunk_order(runtime, context, True, "Critical")
+
+    assert result is None
+    assert not [call for call in calls if call[0] == "betterror"]
+    assert ("emit", "\n-Errors Check :<green: OK >:good:") in calls
+
+
+def test_fix_mode_rejects_non_chunk_lastchunk_without_running():
+    calls = []
+    runtime, _warning = build_runtime(calls)
+
+    result = chunk_order_runtime.run_check_chunk_order(runtime, base_context(), True, "Fix")
+
+    assert result == []
+    assert any(call[0] == "betterror" for call in calls)
+    assert not [call for call in calls if call[0] == "checkpoint"]
+
+
 def test_the_good_place_mode_preserves_ihdr_misplacement_checkpoint():
     calls = []
     runtime, _warning = build_runtime(calls)
@@ -347,6 +370,8 @@ def main():
     checks = [
         ("Critical checkpoint", test_critical_mode_routes_missing_chunks_to_checkpoint),
         ("Critical OK", test_critical_mode_prints_ok_without_checkpoint),
+        ("Critical ignores lastchunk coercion", test_critical_mode_does_not_coerce_unused_lastchunk),
+        ("Fix rejects bad lastchunk", test_fix_mode_rejects_non_chunk_lastchunk_without_running),
         ("TheGoodPlace IHDR", test_the_good_place_mode_preserves_ihdr_misplacement_checkpoint),
         ("Fix header exclusion", test_fix_mode_header_exclusion_returns_everything_except_ihdr),
         ("Fix missing palette warning", test_fix_mode_missing_palette_warning_sets_warning_once),

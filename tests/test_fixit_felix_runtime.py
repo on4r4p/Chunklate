@@ -362,10 +362,19 @@ def test_apply_wrong_crc_records_failed_idat_crc_route_when_patch_still_breaks()
     )
 
     assert result == (False, None)
-    assert any(call[0] == "question" for call in calls)
+    assert not any(call[0] == "question" for call in calls)
     assert ("set_idat_crc_patch_failed", (True,), {}) in calls
     assert ("set_idat_crc_patch_failed_finding", (finding,), {}) in calls
     assert any(call[0] == "remember_deferred_idat_crc_route" for call in calls)
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "So i'm not asking you to bless a fake fix. I will keep that CRC for later.",
+            "com",
+        ),
+        {},
+    ) in calls
 
 
 def test_apply_wrong_crc_other_errors_defers_to_chunk_story():

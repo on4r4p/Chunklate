@@ -458,13 +458,17 @@ def run_check_chunk_order(
     lastchunk: bytes | str,
     mode: str,
 ) -> Any:
+    if mode == "Critical":
+        return run_critical_mode(runtime, context)
+
     try:
         lastchunk = chunk_order.as_chunk_bytes(lastchunk)
     except AttributeError as exc:
         runtime.betterror(exc, "CheckChunkOrder")
+        if mode == "Fix":
+            return []
+        return None
 
-    if mode == "Critical":
-        return run_critical_mode(runtime, context)
     if mode == "TheGoodPlace":
         return run_the_good_place_mode(runtime, context, lastchunk)
     if mode == "Fix":

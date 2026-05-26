@@ -248,6 +248,7 @@ def _emit_scan_misalignment_summary(
     context: NearbyChunkContext,
     chunk_type: bytes,
     finds: NearbyScanFinds,
+    double_check: bool,
 ) -> bool:
     if context.debug or not finds.has_candidates:
         return False
@@ -255,6 +256,20 @@ def _emit_scan_misalignment_summary(
         return False
 
     runtime.candy("Cowsay", _idat_find_summary(finds), "good")
+    if double_check:
+        runtime.candy(
+            "Cowsay",
+            "Even with safety off, the current position still does not line up.",
+            "bad",
+        )
+        runtime.candy(
+            "Cowsay",
+            "So %s is probably a symptom, not the crime scene. The bad length before it is still my prime suspect."
+            % _display_chunk_name(chunk_type),
+            "bad",
+        )
+        return True
+
     runtime.candy("Cowsay", "But the current position still does not line up.", "bad")
     runtime.candy(
         "Cowsay",
@@ -273,6 +288,7 @@ def _scan_for_nearby_chunk(
     last_chunk_type: bytes,
     excluded: list[bytes],
     from_error: Any,
+    double_check: bool,
 ) -> Any:
     needle = nearby.initial_search_needle(
         chunk_type=chunk_type,
@@ -336,7 +352,7 @@ def _scan_for_nearby_chunk(
 
         needle += 1
 
-    if _emit_scan_misalignment_summary(runtime, context, chunk_type, finds):
+    if _emit_scan_misalignment_summary(runtime, context, chunk_type, finds, double_check):
         return NearbyHandled("scan_summary")
 
     return None
@@ -444,6 +460,7 @@ def run_nearby_chunk(
         last_chunk_type,
         list(excluded),
         from_error,
+        double_check,
     )
     scan_summary = isinstance(result, NearbyHandled) and result.action == "scan_summary"
     if result is not None and not scan_summary:
