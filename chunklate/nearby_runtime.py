@@ -72,6 +72,11 @@ class RemoveExtraBytesRuntime:
     side_notes: MutableSequence[Any]
 
 
+@dataclass(frozen=True)
+class NearbyHandled:
+    action: str
+
+
 def _color(runtime: NearbyChunkRuntime, color: str, value: Any) -> Any:
     return runtime.candy("Color", color, value)
 
@@ -170,7 +175,7 @@ def _route_length_repair(
         % (_color(runtime, "green", "Valid "), _emoj(runtime, "good"))
     )
     runtime.emit(repair.print_message)
-    return runtime.checkpoint(
+    result = runtime.checkpoint(
         True,
         True,
         "NearbyChunk",
@@ -182,6 +187,9 @@ def _route_length_repair(
         context.original_chunk_type,
         from_error,
     )
+    if result is None:
+        return NearbyHandled("length_repair")
+    return result
 
 
 def _scan_for_nearby_chunk(
@@ -281,12 +289,15 @@ def run_remove_extra_bytes_before_chunk(
 
     solved_message = nearby.extra_bytes_solved_message(candidate, last_chunk_type)
     runtime.side_notes.append("-Remove_Extra_Bytes_Before_Chunk:%s" % solved_message)
-    return runtime.save_clone(
+    result = runtime.save_clone(
         "",
         context.current_length_offset,
         context.current_length_offset + (candidate.extra_bytes * 2),
         solved_message,
     )
+    if result is None:
+        return NearbyHandled("remove_extra_bytes")
+    return result
 
 
 def run_double_check(

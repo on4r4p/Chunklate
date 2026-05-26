@@ -55,9 +55,16 @@ def build_runtime(calls, *, exit_raises=True):
         print_error=lambda message: calls.append(("print", message)),
         exit_process=exit_process,
         make_dirs=lambda path, **kwargs: calls.append(("makedirs", path, kwargs)),
+        path_exists=lambda path: False,
+        path_is_dir=lambda path: False,
+        list_dir=lambda path: [],
+        remove_tree=lambda path: calls.append(("remove_tree", path)),
         abspath=lambda path: "/abs/" + path,
         join=lambda *parts: "/".join(parts),
         stderr="stderr",
+        asker=lambda prompt: "no",
+        candy=lambda *args: calls.append(("candy", args)),
+        emit=lambda message: calls.append(("emit", message)),
     )
 
 
@@ -107,9 +114,16 @@ def test_build_main_runtime_helpers_wire_callbacks():
         print_error=lambda message: calls.append(("print", message)),
         exit_process=lambda code: calls.append(("exit", code)),
         make_dirs=lambda path, **kwargs: calls.append(("makedirs", path, kwargs)),
+        path_exists=lambda path: False,
+        path_is_dir=lambda path: False,
+        list_dir=lambda path: [],
+        remove_tree=lambda path: calls.append(("remove_tree", path)),
         abspath=lambda path: "/abs/" + path,
         join=lambda *parts: "/".join(parts),
         stderr="stderr",
+        asker=lambda prompt: "no",
+        candy=lambda *args: calls.append(("candy", args)),
+        emit=lambda message: calls.append(("emit", message)),
     )
     clear_runtime = main_runtime.build_clear_screen_runtime(
         stderr_write=lambda value: calls.append(("stderr", value)),
@@ -288,14 +302,20 @@ def test_apply_main_cli_options_from_namespace_updates_legacy_globals():
     calls = []
     fake_os = SimpleNamespace(
         makedirs=lambda path, **kwargs: calls.append(("makedirs", path, kwargs)),
+        listdir=lambda path: [],
         path=SimpleNamespace(
             abspath=lambda path: "/abs/" + path,
             join=lambda *parts: "/".join(parts),
+            exists=lambda path: False,
+            isdir=lambda path: False,
         ),
     )
     namespace = {
         "sys": SimpleNamespace(exit=lambda code: calls.append(("exit", code)), stderr="stderr"),
         "os": fake_os,
+        "shutil": SimpleNamespace(rmtree=lambda path: calls.append(("remove_tree", path))),
+        "Candy": lambda *args: calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
         "CLONESWAR": False,
         "CRASH": False,
     }
@@ -386,7 +406,7 @@ def test_run_main_clear_screen_preserves_startup_skip():
         main_runtime.MainClearScreenContext(clear=True, fir_start=True),
     )
 
-    assert state == main_runtime.MainClearScreenState(fir_start=False)
+    assert state == main_runtime.MainClearScreenState(fir_start=False, cleared=False)
     assert calls == []
 
 
@@ -402,7 +422,7 @@ def test_run_main_clear_screen_writes_ansi_reset_on_posix_after_startup():
         main_runtime.MainClearScreenContext(clear=True, fir_start=False),
     )
 
-    assert state == main_runtime.MainClearScreenState(fir_start=False)
+    assert state == main_runtime.MainClearScreenState(fir_start=False, cleared=True)
     assert calls == [("stderr", "\033c")]
 
 
@@ -418,7 +438,7 @@ def test_run_main_clear_screen_calls_cls_on_windows_after_startup():
         main_runtime.MainClearScreenContext(clear=True, fir_start=False),
     )
 
-    assert state == main_runtime.MainClearScreenState(fir_start=False)
+    assert state == main_runtime.MainClearScreenState(fir_start=False, cleared=True)
     assert calls == [("system", "cls")]
 
 
@@ -574,7 +594,7 @@ def test_run_main_chunk_walk_stops_when_kitkat_breaks():
         main_runtime.MainChunkWalkContext(offset=0, data_hex="0" * 40),
     )
 
-    assert state == main_runtime.MainChunkWalkState(offset=16)
+    assert state == main_runtime.MainChunkWalkState(offset=0)
     assert [call[0] for call in calls].count("chunk_by_chunk") == 1
     assert namespace["Have_A_KitKat"] is False
 
@@ -600,13 +620,14 @@ def test_run_main_loop_once_from_namespace_resets_loads_and_walks_sample():
                 "Raw_Crc": "raw-crc",
                 "Raw_Length": "raw-len",
                 "Show_Must_Go_On": False,
-                "Have_A_KitKat": True,
+                "Have_A_KitKat": False,
             }
         )
 
     def fix_it_felix(chunk):
         calls.append(("fix_it_felix", chunk))
         namespace["Show_Must_Go_On"] = True
+        namespace["SAVE_COUNT"] += 1
 
     namespace.update(
         {
@@ -624,6 +645,7 @@ def test_run_main_loop_once_from_namespace_resets_loads_and_walks_sample():
             "Chunklate": lambda mode: calls.append(("banner", mode)),
             "Sample": sample_path,
             "CLONESWAR": False,
+            "SAVE_COUNT": 0,
             "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
             "PRINT": lambda message: calls.append(("emit", message)),
             "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
@@ -662,6 +684,54 @@ def test_run_main_loop_once_from_namespace_resets_loads_and_walks_sample():
     assert namespace["Have_A_KitKat"] is False
 
 
+def test_run_main_loop_once_counts_clone_written_by_find_magic():
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    def find_magic():
+        calls.append(("find_magic",))
+        namespace["SAVE_COUNT"] += 1
+        return None
+
+    namespace = {
+        "sys": SimpleNamespace(
+            stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+            exit=lambda code: calls.append(("exit", code)),
+        ),
+        "os": os,
+        "CLEAR": False,
+        "FirStart": True,
+        "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+        "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+        "Chunklate": lambda mode: calls.append(("banner", mode)),
+        "Sample": sample_path,
+        "CLONESWAR": False,
+        "SAVE_COUNT": 0,
+        "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "FindMagic": find_magic,
+        "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+        "CheckLength": lambda *args: calls.append(("check_length", args)),
+        "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+        "GetInfo": lambda *args: calls.append(("get_info", args)),
+        "Checksum": lambda *args: calls.append(("checksum", args)),
+        "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+    }
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState()
+    assert ("find_magic",) in calls
+    assert not any(call[0] == "chunk_by_chunk" for call in calls)
+    assert namespace["SAVE_COUNT"] == 1
+
+
 def main():
     checks = [
         ("main cleanup boundary", test_chunklate_main_has_no_direct_global_wiring_and_no_dead_reached_end_comment),
@@ -686,6 +756,7 @@ def main():
         ("chunk walk order", test_run_main_chunk_walk_runs_legacy_callback_order_and_updates_offset),
         ("chunk walk kitkat", test_run_main_chunk_walk_stops_when_kitkat_breaks),
         ("main loop namespace", test_run_main_loop_once_from_namespace_resets_loads_and_walks_sample),
+        ("main loop counts FindMagic clone", test_run_main_loop_once_counts_clone_written_by_find_magic),
     ]
 
     print("Running main runtime tests")

@@ -16,6 +16,7 @@ class WriteCloneContext:
     file_dir: str
     save_count: int
     max_saves: int | None
+    have_a_kitkat: bool = False
     pause_enabled: bool = False
 
 
@@ -103,6 +104,7 @@ def build_write_clone_context(namespace: dict[str, Any]) -> WriteCloneContext:
         file_dir=namespace["FILE_DIR"],
         save_count=namespace["SAVE_COUNT"],
         max_saves=namespace["MAX_SAVES"],
+        have_a_kitkat=namespace["Have_A_KitKat"],
         pause_enabled=namespace["PAUSE"],
     )
 
@@ -113,6 +115,12 @@ def run_write_clone(
     data: Any,
     infos: Any,
 ) -> None:
+    if context.have_a_kitkat is True:
+        runtime.emit("-Clone already queued")
+        runtime.candy("Color", "yellow", "Skipping alternate repair branch before this becomes a mille-feuille.")  #
+        runtime.side_notes.append("-Clone already queued; skipping alternate repair branch before this becomes a mille-feuille.")
+        return None
+
     runtime.remember_current_sample()
 
     try:

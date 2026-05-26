@@ -102,9 +102,20 @@ def test_question_runtime_flips_duplicate_question_answer():
         "Infos:same Answer:True Offset:12 Hash:99",
         "Infos:same Answer:False Offset:12 Hash:99",
     ]
-    assert ("emit", ("-Error Already fixed\n",), {}) in calls
-    assert ("emit", ("-Answer Changed\n",), {}) in calls
-    assert ("candy", ("Cowsay", "Huh ..? Déja-vu ?", "com"), {}) in calls
+    assert (
+        "candy",
+        ("Cowsay", "Huh ..? Déja-vu. I already tried that repair route .", "com"),
+        {},
+    ) in calls
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "So i'm changing the answer before we headbutt the same door twice.",
+            "com",
+        ),
+        {},
+    ) in calls
 
 
 def test_question_runtime_loop_detection_keeps_pause_debug_exit_behavior():

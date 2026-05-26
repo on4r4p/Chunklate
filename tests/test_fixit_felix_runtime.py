@@ -78,13 +78,34 @@ def test_apply_gama_zero_rejects_unknown_action():
         raise AssertionError("Expected ValueError for unknown gAMA action")
 
 
+def critical_miss_runtime(emitted, pauses, *, candy_calls=None):
+    if candy_calls is None:
+        candy_calls = []
+    state = {"explained": False, "seen": set()}
+
+    def remember_finding(finding):
+        text = str(finding)
+        if text in state["seen"]:
+            return False
+        state["seen"].add(text)
+        return True
+
+    return fixit_felix_runtime.CriticalMissRuntime(
+        emit=emitted.append,
+        candy=lambda *args: candy_calls.append(args),
+        pause=pauses.append,
+        idat_crc_patch_failed=lambda: False,
+        idat_crc_patch_failed_finding=lambda: None,
+        idat_crc_defer_explained=lambda: state["explained"],
+        set_idat_crc_defer_explained=lambda value: state.__setitem__("explained", value),
+        remember_deferred_idat_crc_finding=remember_finding,
+    )
+
+
 def test_apply_critical_miss_emits_and_pauses_on_debug_action():
     emitted = []
     pauses = []
-    runtime = fixit_felix_runtime.CriticalMissRuntime(
-        emit=emitted.append,
-        pause=pauses.append,
-    )
+    runtime = critical_miss_runtime(emitted, pauses)
     finding = "CheckChunkOrder_Error_0:Critical"
 
     result = fixit_felix_runtime.apply_critical_miss(
@@ -104,10 +125,7 @@ def test_apply_critical_miss_emits_and_pauses_on_debug_action():
 def test_apply_critical_miss_continue_does_not_pause():
     emitted = []
     pauses = []
-    runtime = fixit_felix_runtime.CriticalMissRuntime(
-        emit=emitted.append,
-        pause=pauses.append,
-    )
+    runtime = critical_miss_runtime(emitted, pauses)
     finding = "CheckChunkOrder_Error_0:Critical"
 
     result = fixit_felix_runtime.apply_critical_miss(
@@ -125,10 +143,7 @@ def test_apply_critical_miss_continue_does_not_pause():
 
 
 def test_apply_critical_miss_rejects_unknown_action():
-    runtime = fixit_felix_runtime.CriticalMissRuntime(
-        emit=lambda message: None,
-        pause=lambda message: None,
-    )
+    runtime = critical_miss_runtime([], [])
 
     try:
         fixit_felix_runtime.apply_critical_miss(
@@ -141,13 +156,13 @@ def test_apply_critical_miss_rejects_unknown_action():
         raise AssertionError("Expected ValueError for unknown critical-miss action")
 
 
-def wrong_crc_tools():
+def wrong_crc_tools(*, chunk=b"IDAT", offset="0x2a", start=12, end=20):
     return SimpleNamespace(
         replacement_crc="fixed-crc-data",
-        start=12,
-        end=20,
-        chunk=b"IDAT",
-        offset="0x2a",
+        start=start,
+        end=end,
+        chunk=chunk,
+        offset=offset,
         old_crc="old-crc",
     )
 
@@ -162,8 +177,13 @@ def wrong_crc_runtime(
     original_chunk_length_hex="0d",
     debug=False,
     pause_debug=False,
+    data_hex="00112233445566778899",
+    last_question_status=None,
+    deferred_routes=None,
 ):
     answer_iter = iter(answers)
+    if deferred_routes is None:
+        deferred_routes = set()
 
     def record(name, result=None):
         def callback(*args, **kwargs):
@@ -176,6 +196,14 @@ def wrong_crc_runtime(
         calls.append(("question", args, kwargs))
         return next(answer_iter)
 
+    def remember_deferred_route(finding, tools):
+        calls.append(("remember_deferred_idat_crc_route", (finding, tools), {}))
+        deferred_routes.add(fixit_felix_runtime.deferred_idat_crc_route_key(finding, tools))
+
+    def is_deferred_route(finding, tools):
+        calls.append(("is_deferred_idat_crc_route", (finding, tools), {}))
+        return fixit_felix_runtime.deferred_idat_crc_route_key(finding, tools) in deferred_routes
+
     return fixit_felix_runtime.WrongCrcRuntime(
         emit=record("emit"),
         candy=record("candy"),
@@ -185,9 +213,15 @@ def wrong_crc_runtime(
         set_skip_bad_crc=record("set_skip_bad_crc"),
         set_old_bad_crc=record("set_old_bad_crc"),
         pandora_box=pandora_box if pandora_box is not None else {},
+        data_hex=data_hex,
         cl_offset=cl_offset,
         crc_offset=crc_offset,
         original_chunk_length_hex=original_chunk_length_hex,
+        last_question_status=lambda: last_question_status,
+        set_idat_crc_patch_failed=record("set_idat_crc_patch_failed"),
+        set_idat_crc_patch_failed_finding=record("set_idat_crc_patch_failed_finding"),
+        remember_deferred_idat_crc_route=remember_deferred_route,
+        is_deferred_idat_crc_route=is_deferred_route,
         debug=debug,
         pause_debug=pause_debug,
     )
@@ -195,8 +229,8 @@ def wrong_crc_runtime(
 
 def test_apply_wrong_crc_easy_answer_saves_clone():
     calls = []
-    finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
-    chkd = "IDAT_Tool_"
+    finding = "Checksum_Error_0:Wrong Crc b'gAMA'"
+    chkd = "gAMA_Tool_"
     runtime = wrong_crc_runtime(
         calls,
         answers=(True,),
@@ -207,7 +241,7 @@ def test_apply_wrong_crc_easy_answer_saves_clone():
         runtime,
         fixit_felix.WrongCrcDecision("ask_easy_crc_fix", finding, 0),
         chkd,
-        wrong_crc_tools(),
+        wrong_crc_tools(chunk=b"gAMA"),
     )
 
     assert result == (True, "saved")
@@ -217,7 +251,7 @@ def test_apply_wrong_crc_easy_answer_saves_clone():
             "fixed-crc-data",
             12,
             20,
-            "-Found Chunk[b'IDAT'] has Wrong Crc at offset: 0x2a\n"
+            "-Found Chunk[b'gAMA'] has Wrong Crc at offset: 0x2a\n"
             "-Replaced with: fixed-crc-data old value was: old-crc",
         ),
         {},
@@ -226,8 +260,8 @@ def test_apply_wrong_crc_easy_answer_saves_clone():
 
 def test_apply_wrong_crc_easy_decline_then_final_decline_keeps_skip_none_and_saves():
     calls = []
-    finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
-    chkd = "IDAT_Tool_"
+    finding = "Checksum_Error_0:Wrong Crc b'gAMA'"
+    chkd = "gAMA_Tool_"
     runtime = wrong_crc_runtime(
         calls,
         answers=(False, False),
@@ -238,12 +272,100 @@ def test_apply_wrong_crc_easy_decline_then_final_decline_keeps_skip_none_and_sav
         runtime,
         fixit_felix.WrongCrcDecision("ask_easy_crc_fix", finding, 0),
         chkd,
-        wrong_crc_tools(),
+        wrong_crc_tools(chunk=b"gAMA"),
     )
 
     assert result == (True, "saved")
     assert ("set_skip_bad_crc", (None,), {}) in calls
     assert calls[-1][0] == "save_clone"
+
+
+def test_deferred_idat_crc_route_key_ignores_error_counter():
+    tools = wrong_crc_tools(chunk=b"IDAT", offset=182, start=12, end=20)
+
+    first = fixit_felix_runtime.deferred_idat_crc_route_key(
+        "Checksum_Error_0:Wrong Crc b'IDAT'",
+        tools,
+    )
+    second = fixit_felix_runtime.deferred_idat_crc_route_key(
+        "Checksum_Error_1:Wrong Crc b'IDAT'",
+        tools,
+    )
+    other_offset = fixit_felix_runtime.deferred_idat_crc_route_key(
+        "Checksum_Error_1:Wrong Crc b'IDAT'",
+        wrong_crc_tools(chunk=b"IDAT", offset=184, start=12, end=20),
+    )
+
+    assert first == second
+    assert first != other_offset
+
+
+def test_apply_wrong_crc_skips_question_for_deferred_idat_route():
+    calls = []
+    chkd = "IDAT_Tool_"
+    tools = wrong_crc_tools(chunk=b"IDAT", offset=182, start=12, end=20)
+    routes = {
+        fixit_felix_runtime.deferred_idat_crc_route_key(
+            "Checksum_Error_0:Wrong Crc b'IDAT'",
+            tools,
+        )
+    }
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(True,),
+        pandora_box={"Checksum_Error_1:Wrong Crc b'IDAT'": {chkd + "0": "fixed-crc-data"}},
+        deferred_routes=routes,
+    )
+
+    result = fixit_felix_runtime.apply_wrong_crc(
+        runtime,
+        fixit_felix.WrongCrcDecision("ask_easy_crc_fix", "Checksum_Error_1:Wrong Crc b'IDAT'", 0),
+        chkd,
+        tools,
+    )
+
+    assert result == (False, None)
+    assert not any(call[0] == "question" for call in calls)
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "Oh, I know that one already... I hoped it would have gone away by itself. Anyway, let's keep going.",
+            "com",
+        ),
+        {},
+    ) in calls
+    assert calls[-3:] == [
+        ("chunk_story", ("add", b"IDAT", 33, 109, 13), {}),
+        ("set_old_bad_crc", ("old-crc",), {}),
+        ("set_skip_bad_crc", (True,), {}),
+    ]
+
+
+def test_apply_wrong_crc_records_failed_idat_crc_route_when_patch_still_breaks():
+    calls = []
+    finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    tools = wrong_crc_tools(chunk=b"IDAT", offset=182, start=12, end=20)
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(True,),
+        pandora_box={finding: {chkd + "0": "fixed-crc-data"}},
+        data_hex="00112233445566778899",
+    )
+
+    result = fixit_felix_runtime.apply_wrong_crc(
+        runtime,
+        fixit_felix.WrongCrcDecision("ask_easy_crc_fix", finding, 0),
+        chkd,
+        tools,
+    )
+
+    assert result == (False, None)
+    assert any(call[0] == "question" for call in calls)
+    assert ("set_idat_crc_patch_failed", (True,), {}) in calls
+    assert ("set_idat_crc_patch_failed_finding", (finding,), {}) in calls
+    assert any(call[0] == "remember_deferred_idat_crc_route" for call in calls)
 
 
 def test_apply_wrong_crc_other_errors_defers_to_chunk_story():
@@ -1220,6 +1342,12 @@ def main():
         (
             "Apply wrong CRC easy decline keeps skip none",
             test_apply_wrong_crc_easy_decline_then_final_decline_keeps_skip_none_and_saves,
+        ),
+        ("Deferred IDAT CRC route ignores error counter", test_deferred_idat_crc_route_key_ignores_error_counter),
+        ("Apply wrong CRC skips deferred IDAT route", test_apply_wrong_crc_skips_question_for_deferred_idat_route),
+        (
+            "Apply wrong CRC records failed IDAT route",
+            test_apply_wrong_crc_records_failed_idat_crc_route_when_patch_still_breaks,
         ),
         ("Apply wrong CRC other errors defers", test_apply_wrong_crc_other_errors_defers_to_chunk_story),
         (

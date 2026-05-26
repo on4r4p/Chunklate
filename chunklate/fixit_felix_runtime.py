@@ -5,7 +5,9 @@ from typing import Any
 from typing import Callable
 
 from . import fixit_felix
+from . import idat
 from . import relics
+from . import writer
 
 
 @dataclass(frozen=True)
@@ -35,7 +37,13 @@ class GamaZeroRuntime:
 @dataclass(frozen=True)
 class CriticalMissRuntime:
     emit: Callable[[str], Any]
+    candy: Callable[..., Any]
     pause: Callable[[str], Any]
+    idat_crc_patch_failed: Callable[[], bool]
+    idat_crc_patch_failed_finding: Callable[[], Any]
+    idat_crc_defer_explained: Callable[[], bool]
+    set_idat_crc_defer_explained: Callable[[bool], Any]
+    remember_deferred_idat_crc_finding: Callable[[Any], bool]
 
 
 @dataclass(frozen=True)
@@ -48,9 +56,15 @@ class WrongCrcRuntime:
     set_skip_bad_crc: Callable[[Any], Any]
     set_old_bad_crc: Callable[[Any], Any]
     pandora_box: Any
+    data_hex: str
     cl_offset: Any
     crc_offset: Any
     original_chunk_length_hex: str
+    last_question_status: Callable[[], Any]
+    set_idat_crc_patch_failed: Callable[[bool], Any]
+    set_idat_crc_patch_failed_finding: Callable[[Any], Any]
+    remember_deferred_idat_crc_route: Callable[[Any, relics.WrongCrcTools], Any]
+    is_deferred_idat_crc_route: Callable[[Any, relics.WrongCrcTools], bool]
     debug: bool
     pause_debug: bool
 
@@ -128,9 +142,15 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         set_skip_bad_crc=namespace["FixItFelix_Set_Skip_Bad_Crc"],
         set_old_bad_crc=namespace["FixItFelix_Set_Old_Bad_Crc"],
         pandora_box=namespace["PandoraBox"],
+        data_hex=namespace["DATAX"],
         cl_offset=namespace["CLoffI"],
         crc_offset=namespace["CrcoffI"],
         original_chunk_length_hex=namespace["Orig_CL"],
+        last_question_status=lambda: namespace.get("LAST_QUESTION_STATUS"),
+        set_idat_crc_patch_failed=lambda value: namespace.__setitem__("IDAT_CRC_PATCH_FAILED", value),
+        set_idat_crc_patch_failed_finding=lambda value: namespace.__setitem__("IDAT_CRC_PATCH_FAILED_FINDING", value),
+        remember_deferred_idat_crc_route=lambda finding, tools: remember_deferred_idat_crc_route(namespace, finding, tools),
+        is_deferred_idat_crc_route=lambda finding, tools: is_deferred_idat_crc_route(namespace, finding, tools),
         debug=namespace["DEBUG"],
         pause_debug=namespace["PAUSEDEBUG"],
     )
@@ -214,7 +234,13 @@ def build_gama_zero_runtime_from_namespace(namespace: dict[str, Any]) -> GamaZer
 def build_critical_miss_runtime_from_namespace(namespace: dict[str, Any]) -> CriticalMissRuntime:
     return CriticalMissRuntime(
         emit=namespace["PRINT"],
+        candy=namespace["Candy"],
         pause=namespace["Pause"],
+        idat_crc_patch_failed=lambda: bool(namespace.get("IDAT_CRC_PATCH_FAILED")),
+        idat_crc_patch_failed_finding=lambda: namespace.get("IDAT_CRC_PATCH_FAILED_FINDING"),
+        idat_crc_defer_explained=lambda: bool(namespace.get("IDAT_CRC_DEFER_EXPLAINED")),
+        set_idat_crc_defer_explained=lambda value: namespace.__setitem__("IDAT_CRC_DEFER_EXPLAINED", value),
+        remember_deferred_idat_crc_finding=lambda finding: remember_deferred_idat_crc_finding(namespace, finding),
     )
 
 
@@ -254,6 +280,7 @@ def apply_critical_miss(
     decision: fixit_felix.CriticalMissDecision,
 ) -> tuple[bool, Any]:
     runtime.emit("\n-\033[1;31;49mCriticalMiss\033[m: %s" % decision.finding)
+    explain_deferred_idat_crc(runtime, decision.finding)
     if decision.action == "pause_debug":
         runtime.pause("Pause:Debug")
         return False, None
@@ -261,6 +288,86 @@ def apply_critical_miss(
         return False, None
 
     raise ValueError("Unknown FixItFelix critical-miss action: %s" % decision.action)
+
+
+def is_idat_wrong_crc_finding(finding: Any) -> bool:
+    text = str(finding)
+    return "Wrong Crc" in text and "IDAT" in text
+
+
+def deferred_idat_crc_route_key(
+    _finding: Any,
+    tools: relics.WrongCrcTools,
+) -> tuple[str, str, str, str]:
+    return (
+        str(tools.chunk),
+        str(tools.offset),
+        str(tools.start),
+        str(tools.end),
+    )
+
+
+def remember_deferred_idat_crc_route(
+    namespace: dict[str, Any],
+    finding: Any,
+    tools: relics.WrongCrcTools,
+) -> None:
+    routes = namespace.setdefault("IDAT_CRC_DEFERRED_ROUTES", set())
+    routes.add(deferred_idat_crc_route_key(finding, tools))
+
+
+def is_deferred_idat_crc_route(
+    namespace: dict[str, Any],
+    finding: Any,
+    tools: relics.WrongCrcTools,
+) -> bool:
+    routes = namespace.setdefault("IDAT_CRC_DEFERRED_ROUTES", set())
+    return deferred_idat_crc_route_key(finding, tools) in routes
+
+
+def remember_deferred_idat_crc_finding(namespace: dict[str, Any], finding: Any) -> bool:
+    seen = namespace.setdefault("IDAT_CRC_DEFERRED_FINDINGS", set())
+    text = str(finding)
+    if text in seen:
+        return False
+    seen.add(text)
+    return True
+
+
+def explain_deferred_idat_crc(runtime: CriticalMissRuntime, finding: Any) -> None:
+    if not is_idat_wrong_crc_finding(finding):
+        return
+    if not runtime.idat_crc_patch_failed():
+        return
+    if str(finding) == str(runtime.idat_crc_patch_failed_finding()):
+        return
+    if not runtime.remember_deferred_idat_crc_finding(finding):
+        return
+
+    if not runtime.idat_crc_defer_explained():
+        runtime.candy(
+            "Cowsay",
+            "The CRCs are wrong, yes. But if I fix them now, i'm just putting clean labels on suspicious boxes.",
+            "bad",
+        )
+        runtime.candy(
+            "Cowsay",
+            "Those IDAT boxes are glued together into one zlib stream. Right now the stream is still coughing blood, so a nice CRC would only lie better.",
+            "com",
+        )
+        runtime.candy(
+            "Cowsay",
+            "I'm leaving these CRCs alone until the chunk structure makes sense. Then we fix the labels.",
+            "good",
+        )
+        runtime.set_idat_crc_defer_explained(True)
+        return
+
+    runtime.candy(
+        "Cowsay",
+        "Ah shit ...here we go again ...another wrong CRC in an IDAT chunk. I will keep it for later.",
+        "com",
+    )
 
 
 def emit_wrong_crc_critical(runtime: WrongCrcRuntime, finding: Any) -> None:
@@ -290,6 +397,89 @@ def defer_wrong_crc(runtime: WrongCrcRuntime, tools: relics.WrongCrcTools) -> tu
     return False, None
 
 
+@dataclass(frozen=True)
+class WrongCrcPatchValidation:
+    can_save: bool
+    reason: str = ""
+
+
+def validate_idat_crc_only_patch(
+    runtime: WrongCrcRuntime,
+    tools: relics.WrongCrcTools,
+) -> WrongCrcPatchValidation:
+    if tools.chunk != b"IDAT":
+        return WrongCrcPatchValidation(True)
+
+    try:
+        patched_hex = writer.replace_hex_range(
+            runtime.data_hex,
+            str(tools.replacement_crc),
+            int(tools.start),
+            int(tools.end),
+        )
+        patched_data = bytes.fromhex(patched_hex)
+    except Exception as exc:
+        return WrongCrcPatchValidation(False, "I could not even build the CRC-only candidate: %s" % exc)
+
+    analysis = idat.analyze_partial_idat(patched_data)
+    if analysis.complete:
+        return WrongCrcPatchValidation(True)
+
+    reason = analysis.reason or analysis.decompression_error or "IDAT stream is still not a complete image"
+    return WrongCrcPatchValidation(False, reason)
+
+
+def save_or_defer_wrong_crc(
+    runtime: WrongCrcRuntime,
+    tools: relics.WrongCrcTools,
+    finding: Any = None,
+) -> tuple[bool, Any]:
+    validation = validate_idat_crc_only_patch(runtime, tools)
+    if validation.can_save:
+        return save_wrong_crc(runtime, tools)
+
+    if tools.chunk == b"IDAT":
+        runtime.set_idat_crc_patch_failed(True)
+        runtime.set_idat_crc_patch_failed_finding(finding)
+        runtime.remember_deferred_idat_crc_route(finding, tools)
+
+    runtime.candy(
+        "Cowsay",
+        "I tested the cheap CRC patch in my head. It still breaks: %s" % validation.reason,
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "So i'm not writing a pretend fixed clone for that one. Let's keep digging.",
+        "com",
+    )
+    return defer_wrong_crc(runtime, tools)
+
+
+def wrong_crc_visible_other_errors(runtime: WrongCrcRuntime, finding: Any) -> tuple[Any, ...]:
+    return tuple(
+        pandora_finding
+        for pandora_finding in runtime.pandora_box
+        if pandora_finding != finding
+    )
+
+
+def ask_easy_wrong_crc_message(other_error_count: int) -> str:
+    if other_error_count <= 0:
+        return (
+            "This looks like an easy fix since there are no real errors beside "
+            "the Crc issue.Do you wish to try to fix it ?"
+        )
+
+    plural = "s" if other_error_count > 1 else ""
+    return (
+        "The Crc itself is fixable, but i can also see %s other suspicious "
+        "thing%s nearby. I can patch that Crc now, but don't call it clean yet. "
+        "Do you wish to try it ?"
+        % (other_error_count, plural)
+    )
+
+
 def final_wrong_crc_question(
     runtime: WrongCrcRuntime,
     finding: Any,
@@ -298,8 +488,10 @@ def final_wrong_crc_question(
 ) -> tuple[bool, Any]:
     uniqh = relics.question_hash(runtime.pandora_box, finding, chkd)
     answer = runtime.question(id=finding, idhash=uniqh)
+    if runtime.last_question_status() == "duplicate_flipped":
+        return defer_wrong_crc(runtime, tools)
     if answer is False:
-        return save_wrong_crc(runtime, tools)
+        return save_or_defer_wrong_crc(runtime, tools, finding)
     return defer_wrong_crc(runtime, tools)
 
 
@@ -320,25 +512,42 @@ def apply_wrong_crc(
         raise ValueError("FixItFelix wrong-CRC action needs CRC tools: %s" % decision.action)
 
     if decision.action == "ask_easy_crc_fix":
+        if tools.chunk == b"IDAT" and runtime.is_deferred_idat_crc_route(decision.finding, tools):
+            runtime.set_idat_crc_patch_failed(True)
+            runtime.set_idat_crc_patch_failed_finding(decision.finding)
+            runtime.candy(
+                "Cowsay",
+                "Oh, I know that one already... I hoped it would have gone away by itself. Anyway, let's keep going.",
+                "com",
+            )
+            return defer_wrong_crc(runtime, tools)
+
         runtime.candy("Cowsay", "Crc checksum is not valid !!!", "bad")
+        visible_other_errors = wrong_crc_visible_other_errors(runtime, decision.finding)
         runtime.candy(
             "Cowsay",
-            "This looks like an easy fix since there is no real errors beside the Crc issue.Do you wish to try to fix it ?",
+            ask_easy_wrong_crc_message(len(visible_other_errors)),
             "com",
         )
         uniqh = relics.question_hash(runtime.pandora_box, decision.finding, chkd)
         answer = runtime.question(id=decision.finding, idhash=uniqh)
         if answer is True:
-            return save_wrong_crc(runtime, tools)
+            return save_or_defer_wrong_crc(runtime, tools, decision.finding)
+
+        if runtime.last_question_status() == "duplicate_flipped":
+            return defer_wrong_crc(runtime, tools)
 
         runtime.set_skip_bad_crc(None)
         return final_wrong_crc_question(runtime, decision.finding, chkd, tools)
 
     if decision.action == "ask_other_errors_first":
+        visible_other_error_count = len(wrong_crc_visible_other_errors(runtime, decision.finding))
+        other_error_count = visible_other_error_count or decision.other_error_count
+        plural = "s" if other_error_count > 1 else ""
         runtime.candy(
             "Cowsay",
-            "Crc checksum is not valid and there are %s other errors !"
-            % decision.other_error_count,
+            "Crc checksum is not valid and there are %s other error%s !"
+            % (other_error_count, plural),
             "bad",
         )
         runtime.candy(

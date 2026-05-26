@@ -314,11 +314,22 @@ def Legacy_UI_Runtime():
         use_color=os.name != "nt",
         pause_dialogue_enabled=PAUSEDIALOGUE,
         pause_dialogue=lambda: prompts.pause_dialogue(input, PAUSEDIALOGUE),
+        pause_state=DIALOGUE_PAUSE_STATE,
     )
 
 
 def Candy(mode, arg, data=None):
     return Legacy_UI_Runtime().candy(mode, arg, data)
+
+
+def Prompt_Candy(mode, arg, data=None):
+    return ui_runtime.LegacyUiRuntime(
+        emit=lambda msg: print(msg, flush=True),
+        random_int=random.randint,
+        max_columns=MAXCHAR,
+        no_dialogue=False,
+        use_color=os.name != "nt",
+    ).candy(mode, arg, data)
 
 
 def SplitDigits(lst):
@@ -705,10 +716,12 @@ def CheckLength(Cdata, Clen, Ctype):
 
 
 def Question(id=None,idhash=None, skipauto=False):
+    globals()["LAST_QUESTION_STATUS"] = None
     runtime = question_runtime.QuestionRuntime(
         history=IFOP,
         nodialogue=NODIALOGUE,
         auto=AUTO,
+        clear=CLEAR_SCREEN_ACTIVE_THIS_PASS,
         debug=DEBUG,
         pause_debug=PAUSEDEBUG,
         offset=CLoffI,
@@ -717,6 +730,8 @@ def Question(id=None,idhash=None, skipauto=False):
         emit=PRINT,
         pause=Pause,
         end=TheEnd,
+        prompt_candy=Prompt_Candy,
+        status_sink=lambda status: globals().__setitem__("LAST_QUESTION_STATUS", status),
     )
     return question_runtime.ask_question(runtime, id, idhash, skipauto=skipauto)
 
@@ -1112,6 +1127,11 @@ ERRORSFLAG = []
 
 PandoraBox = {}
 Cornucopia = {}
+IDAT_CRC_PATCH_FAILED = False
+IDAT_CRC_PATCH_FAILED_FINDING = None
+IDAT_CRC_DEFER_EXPLAINED = False
+IDAT_CRC_DEFERRED_FINDINGS = set()
+IDAT_CRC_DEFERRED_ROUTES = set()
 ArkOfCovenant = {}
 Pandemonium = {}
 CHUNK_INFO_STATE = chunk_state.ChunkInfoState()
@@ -1153,12 +1173,15 @@ Skip_Bad_Libpng = False
 EOF = False
 Show_Must_Go_On = False
 CLEAR = False
+CLEAR_SCREEN_ACTIVE_THIS_PASS = False
+LAST_QUESTION_STATUS = None
 CRASH = False
 PAUSE = False
 DEBUG = False
 PAUSEDEBUG = False
 PAUSEERROR = False
 PAUSEDIALOGUE = False
+DIALOGUE_PAUSE_STATE = ui_runtime.LegacyDialoguePauseState()
 NODIALOGUE = False
 AUTO = False
 CLONESWAR = False

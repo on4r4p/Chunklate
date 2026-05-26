@@ -6,6 +6,11 @@ from typing import Any, Callable
 from . import ui
 
 
+@dataclass
+class LegacyDialoguePauseState:
+    pending: bool = False
+
+
 @dataclass(frozen=True)
 class LegacyUiRuntime:
     emit: Callable[[Any], Any]
@@ -15,6 +20,32 @@ class LegacyUiRuntime:
     use_color: bool
     pause_dialogue_enabled: bool = False
     pause_dialogue: Callable[[], Any] | None = None
+    pause_state: LegacyDialoguePauseState | None = None
+
+    def _question_title(self, arg: Any) -> bool:
+        return str(arg).strip().upper() == "QUESTION!"
+
+    def _clear_pending_pause(self) -> None:
+        if self.pause_state is not None:
+            self.pause_state.pending = False
+
+    def _queue_dialogue_pause(self) -> None:
+        if not self.pause_dialogue_enabled or self.pause_dialogue is None:
+            return
+        if self.pause_state is None:
+            self.pause_dialogue()
+            return
+        self.pause_state.pending = True
+
+    def _flush_dialogue_pause_before_title(self, arg: Any) -> None:
+        if self.pause_state is None or not self.pause_state.pending:
+            return
+        if self._question_title(arg):
+            self._clear_pending_pause()
+            return
+        if self.pause_dialogue_enabled and self.pause_dialogue is not None:
+            self.pause_dialogue()
+        self._clear_pending_pause()
 
     def candy(self, mode: str, arg: Any, data: Any = None) -> Any:
         if mode == "Emoj":
@@ -33,11 +64,11 @@ class LegacyUiRuntime:
                     use_color=self.use_color,
                 )
             )
-            if self.pause_dialogue_enabled and self.pause_dialogue is not None:
-                self.pause_dialogue()
+            self._queue_dialogue_pause()
             return None
 
         if mode == "Title":
+            self._flush_dialogue_pause_before_title(arg)
             if self.no_dialogue:
                 return ()
             self.emit(ui.render_title(arg, data, use_color=self.use_color))

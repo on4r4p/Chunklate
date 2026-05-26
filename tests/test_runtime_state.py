@@ -25,6 +25,7 @@ def test_main_loop_error_reset_values_preserve_legacy_defaults():
     assert values["Bad_Missplaced"] is False
     assert values["Skip_Bad_Libpng"] is False
     assert values["EOF"] is False
+    assert values["Have_A_KitKat"] is False
     assert values["Show_Must_Go_On"] is False
     assert "Bad_Libpng" not in values
 
@@ -44,9 +45,14 @@ def test_main_loop_history_reset_values_preserve_fresh_containers():
         "PandoraBox": {},
         "Cornucopia": {},
         "SideNotes": [],
+        "IDAT_CRC_PATCH_FAILED": False,
+        "IDAT_CRC_PATCH_FAILED_FINDING": None,
+        "IDAT_CRC_DEFER_EXPLAINED": False,
+        "IDAT_CRC_DEFERRED_FINDINGS": set(),
     }
     assert first["PandoraBox"] is not second["PandoraBox"]
     assert first["Chunks_History"] is not second["Chunks_History"]
+    assert first["IDAT_CRC_DEFERRED_FINDINGS"] is not second["IDAT_CRC_DEFERRED_FINDINGS"]
 
 
 def test_select_sample_preserves_current_sample_when_cloneswar_is_false():

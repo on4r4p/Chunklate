@@ -53,13 +53,13 @@ def reset_fixit_globals():
     Chunklate.Raw_Crc = ""
 
 
-def wrong_crc_pandora_box(key, chkd):
+def wrong_crc_pandora_box(key, chkd, *, chunk=b"IDAT"):
     return {
         key: {
             chkd + "0": "fixed-crc-data",
             chkd + "1": 12,
             chkd + "2": 20,
-            chkd + "3": b"IDAT",
+            chkd + "3": chunk,
             chkd + "4": "0x2a",
             chkd + "5": "old-crc",
         }
@@ -118,9 +118,9 @@ def test_fixit_felix_tool_prefix_preserves_legacy_string_betterror():
 
 def test_wrong_crc_easy_answer_saves_clone():
     reset_fixit_globals()
-    key = "Checksum_Error_0:Wrong Crc b'IDAT'"
-    chkd = "IDAT_Tool_"
-    Chunklate.PandoraBox = wrong_crc_pandora_box(key, chkd)
+    key = "Checksum_Error_0:Wrong Crc b'gAMA'"
+    chkd = "gAMA_Tool_"
+    Chunklate.PandoraBox = wrong_crc_pandora_box(key, chkd, chunk=b"gAMA")
     save_calls = []
 
     def fake_save_clone(data, start, end, note):
@@ -143,7 +143,7 @@ def test_wrong_crc_easy_answer_saves_clone():
             "fixed-crc-data",
             12,
             20,
-            "-Found Chunk[b'IDAT'] has Wrong Crc at offset: 0x2a\n"
+            "-Found Chunk[b'gAMA'] has Wrong Crc at offset: 0x2a\n"
             "-Replaced with: fixed-crc-data old value was: old-crc",
         )
     ]
@@ -153,10 +153,10 @@ def test_wrong_crc_easy_answer_saves_clone():
 
 def test_wrong_crc_easy_decline_then_final_decline_keeps_legacy_skip_none_and_saves():
     reset_fixit_globals()
-    key = "Checksum_Error_0:Wrong Crc b'IDAT'"
-    chkd = "IDAT_Tool_"
+    key = "Checksum_Error_0:Wrong Crc b'gAMA'"
+    chkd = "gAMA_Tool_"
     answers = iter((False, False))
-    Chunklate.PandoraBox = wrong_crc_pandora_box(key, chkd)
+    Chunklate.PandoraBox = wrong_crc_pandora_box(key, chkd, chunk=b"gAMA")
     save_calls = []
 
     with patched_attrs(

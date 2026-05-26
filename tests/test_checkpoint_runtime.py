@@ -234,6 +234,9 @@ def test_checkpoint_entry_builders_preserve_legacy_namespace_mapping():
         "Chunks_History": [b"IHDR", b"IEND"],
         "EOF": True,
         "PandoraBox": {"key": "value"},
+        "DATAX": "001122",
+        "CLoffI": 42,
+        "Sample_Name": "sample.png",
         "DEBUG": True,
         "PAUSEDEBUG": False,
         "PAUSEERROR": True,
@@ -269,6 +272,10 @@ def test_checkpoint_entry_builders_preserve_legacy_namespace_mapping():
         libpng_errors=("libpng error:", "libpng warning:"),
         libpng_finished_at_iend=True,
         pandora_keys=("key",),
+        chunks_history=(b"IHDR", b"IEND"),
+        data_hex="001122",
+        current_offset=42,
+        sample_name="sample.png",
         debug=True,
         pause_debug_enabled=False,
         pause_error_enabled=True,
@@ -290,6 +297,9 @@ def test_checkpoint_namespace_entry_bridge_builds_runtime_and_context():
         "Chunks_History": [b"IHDR"],
         "EOF": False,
         "PandoraBox": {"key": "value"},
+        "DATAX": "001122",
+        "CLoffI": 42,
+        "Sample_Name": "sample.png",
         "DEBUG": True,
         "PAUSEDEBUG": False,
         "PAUSEERROR": True,
@@ -312,6 +322,10 @@ def test_checkpoint_namespace_entry_bridge_builds_runtime_and_context():
         assert context.libpng_errors == ("libpng error:",)
         assert context.libpng_finished_at_iend is False
         assert context.pandora_keys == ("key",)
+        assert context.chunks_history == (b"IHDR",)
+        assert context.data_hex == "001122"
+        assert context.current_offset == 42
+        assert context.sample_name == "sample.png"
         assert context.debug is True
         assert context.pause_error_enabled is True
         return "checkpoint"

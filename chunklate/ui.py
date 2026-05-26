@@ -350,7 +350,8 @@ def render_dialogue(
     use_color: bool = True,
 ) -> str:
     text = str(arg)
-    line_length = legacy_visible_length(text)
+    text_lines = text.splitlines() or [""]
+    line_length = max(legacy_visible_length(line) for line in text_lines)
     separator = "━" * line_length
 
     if data == "com":
@@ -365,18 +366,18 @@ def render_dialogue(
     marker_block += marker
 
     bottom = "╰─" + separator + "─╯"
-    printed = " " + text
-    if len(printed) >= max_columns:
+    printed = "\n".join(" " + line for line in text_lines)
+    if any(legacy_visible_length(line) + 1 >= max_columns for line in text_lines):
         full_printed = printed
         printed = " "
         line_length = int(line_length / 2) + 5
         separator = "━" * line_length
         bottom = "╰─" + separator + "─╯"
-        for index in range(0, len(full_printed), line_length):
-            if len(text[index:]) > line_length:
-                printed += "  " + str(text[index : index + line_length]) + "\n"
-            else:
-                printed += "  " + str(text[index:])
+        wrapped_lines: list[str] = []
+        for source_line in full_printed.splitlines():
+            for index in range(0, len(source_line), line_length):
+                wrapped_lines.append("  " + source_line[index : index + line_length])
+        printed += "\n".join(wrapped_lines)
 
     if not use_color:
         return """
@@ -425,7 +426,12 @@ def render_dialogue(
 def printable_message(msg: object, *, max_columns: int, no_dialogue: bool = False) -> object | None:
     if no_dialogue:
         return None
-    if len(str(msg)) > max_columns * 2:
+    text = str(msg)
+    if "\n" in text:
+        lines = text.splitlines()
+        if all(legacy_visible_length(line) <= max_columns * 2 for line in lines):
+            return msg
+    if legacy_visible_length(text) > max_columns * 2:
         return "%s ...Too Big To be displayed..." % str(msg[: int(max_columns) - 30])  # type: ignore[index]
     return msg
 

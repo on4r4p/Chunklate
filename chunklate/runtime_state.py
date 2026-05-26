@@ -97,6 +97,7 @@ def main_loop_error_reset_values() -> dict[str, object]:
         "Skip_Bad_Missplaced": False,
         "Skip_Bad_Libpng": False,
         "EOF": False,
+        "Have_A_KitKat": False,
         "Show_Must_Go_On": False,
     }
 
@@ -113,6 +114,10 @@ def main_loop_history_reset_values() -> dict[str, object]:
         "PandoraBox": {},
         "Cornucopia": {},
         "SideNotes": [],
+        "IDAT_CRC_PATCH_FAILED": False,
+        "IDAT_CRC_PATCH_FAILED_FINDING": None,
+        "IDAT_CRC_DEFER_EXPLAINED": False,
+        "IDAT_CRC_DEFERRED_FINDINGS": set(),
     }
 
 

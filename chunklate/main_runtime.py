@@ -4,7 +4,7 @@ import builtins
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import cli, runtime_state
+from . import cli, output, runtime_state
 
 
 @dataclass(frozen=True)
@@ -12,13 +12,21 @@ class MainCliOptionsRuntime:
     print_error: Callable[[str], Any]
     exit_process: Callable[[int], Any]
     make_dirs: Callable[..., Any]
+    path_exists: Callable[[str], bool]
+    path_is_dir: Callable[[str], bool]
+    list_dir: Callable[[str], list[str]]
+    remove_tree: Callable[[str], Any]
     abspath: Callable[[str], str]
     join: Callable[..., str]
     stderr: Any
+    asker: Callable[[str], str] = builtins.input
+    candy: Callable[..., Any] = lambda *args, **kwargs: None
+    emit: Callable[[str], Any] = print
     parse_legacy_unknown_options: Callable = cli.parse_legacy_unknown_options
     max_saves_error: Callable = cli.max_saves_error
     output_file_dir: Callable = cli.output_file_dir
     runtime_flags_from_args: Callable = cli.runtime_flags_from_args
+    clone_folder: Callable[[str, str], str] = output.clone_folder
 
 
 @dataclass(frozen=True)
@@ -66,6 +74,7 @@ class MainClearScreenContext:
 @dataclass(frozen=True)
 class MainClearScreenState:
     fir_start: bool
+    cleared: bool = False
 
 
 @dataclass(frozen=True)
@@ -129,17 +138,31 @@ def build_cli_options_runtime(
     print_error: Callable[[str], Any],
     exit_process: Callable[[int], Any],
     make_dirs: Callable[..., Any],
+    path_exists: Callable[[str], bool],
+    path_is_dir: Callable[[str], bool],
+    list_dir: Callable[[str], list[str]],
+    remove_tree: Callable[[str], Any],
     abspath: Callable[[str], str],
     join: Callable[..., str],
     stderr: Any,
+    asker: Callable[[str], str] = builtins.input,
+    candy: Callable[..., Any] = lambda *args, **kwargs: None,
+    emit: Callable[[str], Any] = print,
 ) -> MainCliOptionsRuntime:
     return MainCliOptionsRuntime(
         print_error=print_error,
         exit_process=exit_process,
         make_dirs=make_dirs,
+        path_exists=path_exists,
+        path_is_dir=path_is_dir,
+        list_dir=list_dir,
+        remove_tree=remove_tree,
         abspath=abspath,
         join=join,
         stderr=stderr,
+        asker=asker,
+        candy=candy,
+        emit=emit,
     )
 
 
@@ -148,9 +171,16 @@ def build_cli_options_runtime_from_namespace(namespace: dict[str, Any]) -> MainC
         print_error=builtins.print,
         exit_process=namespace["sys"].exit,
         make_dirs=namespace["os"].makedirs,
+        path_exists=namespace["os"].path.exists,
+        path_is_dir=namespace["os"].path.isdir,
+        list_dir=namespace["os"].listdir,
+        remove_tree=namespace["shutil"].rmtree,
         abspath=namespace["os"].path.abspath,
         join=namespace["os"].path.join,
         stderr=namespace["sys"].stderr,
+        asker=builtins.input,
+        candy=namespace["Candy"],
+        emit=namespace["PRINT"],
     )
 
 
@@ -193,7 +223,7 @@ def build_clear_screen_runtime(
 
 def build_clear_screen_runtime_from_namespace(namespace: dict[str, Any]) -> MainClearScreenRuntime:
     return build_clear_screen_runtime(
-        stderr_write=namespace["sys"].stderr.write,
+        stderr_write=lambda value: builtins.print(value, end="", flush=True),
         system=namespace["os"].system,
         os_name=namespace["os"].name,
     )
@@ -265,6 +295,69 @@ def build_chunk_walk_runtime_from_namespace(namespace: dict[str, Any]) -> MainCh
     )
 
 
+def _existing_output_folder_has_content(runtime: MainCliOptionsRuntime, folder: str) -> bool:
+    if not runtime.path_exists(folder):
+        return False
+    if not runtime.path_is_dir(folder):
+        return False
+    return len(runtime.list_dir(folder)) > 0
+
+
+def _cleanup_answer(value: Any) -> bool | None:
+    normalized = str(value).strip().lower()
+    if normalized in ("yes", "y"):
+        return True
+    if normalized in ("no", "n"):
+        return False
+    return None
+
+
+def ask_existing_output_folder_cleanup(runtime: MainCliOptionsRuntime, folder: str) -> bool:
+    prompt = "-Delete existing output folder '%s'? (yes/no): " % folder
+    while True:
+        try:
+            answer = runtime.asker(prompt)
+        except EOFError:
+            return False
+
+        decision = _cleanup_answer(answer)
+        if decision is not None:
+            return decision
+
+        runtime.emit("-Answer yes/no. I know, paperwork, awful.")
+
+
+def offer_existing_output_folder_cleanup(
+    runtime: MainCliOptionsRuntime,
+    *,
+    file_origin: str,
+    file_dir: str,
+) -> None:
+    folder = runtime.clone_folder(file_origin, file_dir)
+    if not _existing_output_folder_has_content(runtime, folder):
+        return
+
+    runtime.candy(
+        "Cowsay",
+        "Ok, the output folder already exists and there is stuff in it. I can wipe it, but I am asking first because this smells like evidence.",
+        "com",
+    )
+    if ask_existing_output_folder_cleanup(runtime, folder):
+        runtime.remove_tree(folder)
+        runtime.candy(
+            "Cowsay",
+            "Ok, I am clearing the mess. Nobody touch the PNG, I am coming back with a shovel and an excuse.",
+            "good",
+        )
+        return
+
+    runtime.candy(
+        "Cowsay",
+        "Fine, I am not touching it. We keep the old folder, but I am keeping one eyebrow up.",
+        "com",
+    )
+
+
 def apply_main_cli_options(
     runtime: MainCliOptionsRuntime,
     args: Any,
@@ -311,6 +404,11 @@ def apply_main_cli_options(
     )
     if file_dir:
         runtime.make_dirs(file_dir, exist_ok=True)
+    offer_existing_output_folder_cleanup(
+        runtime,
+        file_origin=file_origin,
+        file_dir=file_dir,
+    )
 
     return MainCliOptionsState(
         file_origin=file_origin,
@@ -388,6 +486,7 @@ def run_main_clear_screen(
     runtime: MainClearScreenRuntime,
     context: MainClearScreenContext,
 ) -> MainClearScreenState:
+    cleared = False
     decision = runtime.clear_screen_decision(
         clear=context.clear,
         fir_start=context.fir_start,
@@ -395,9 +494,11 @@ def run_main_clear_screen(
     )
     if decision.action == "ansi_reset":
         runtime.stderr_write("\033c")
+        cleared = True
     elif decision.action == "cls":
         runtime.system("cls")
-    return MainClearScreenState(fir_start=decision.fir_start)
+        cleared = True
+    return MainClearScreenState(fir_start=decision.fir_start, cleared=cleared)
 
 
 def load_main_sample(
@@ -451,6 +552,15 @@ def sync_loaded_sample_to_namespace(namespace: dict[str, Any], state: MainSample
     )
 
 
+def stop_chunk_walk_after_clone(runtime: MainChunkWalkRuntime) -> bool:
+    namespace = runtime.namespace
+    break_loop, have_a_kitkat = runtime.kitkat_break_decision(
+        namespace["Have_A_KitKat"]
+    )
+    namespace["Have_A_KitKat"] = have_a_kitkat
+    return break_loop is True
+
+
 def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIterationState:
     clear_screen_state = run_main_clear_screen(
         build_clear_screen_runtime_from_namespace(namespace),
@@ -460,6 +570,7 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
         ),
     )
     namespace["FirStart"] = clear_screen_state.fir_start
+    namespace["CLEAR_SCREEN_ACTIVE_THIS_PASS"] = clear_screen_state.cleared
 
     reset_main_loop_state(build_loop_reset_runtime_from_namespace(namespace))
 
@@ -474,6 +585,7 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
         return MainLoopIterationState(should_return=True)
 
     sync_loaded_sample_to_namespace(namespace, loaded_sample)
+    save_count_before = namespace["SAVE_COUNT"]
     offset = namespace["FindMagic"]()
     run_main_chunk_walk(
         build_chunk_walk_runtime_from_namespace(namespace),
@@ -482,6 +594,15 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
             data_hex=namespace["DATAX"],
         ),
     )
+    if namespace["SAVE_COUNT"] == save_count_before:
+        namespace["Candy"](
+            "Cowsay",
+            "Alright. I did not save anything this round. If I chew the same file again, that is not bravery, that is a loop.",
+            "good",
+        )
+        namespace["PRINT"]("-No new clone produced, stopping main loop.")
+        return MainLoopIterationState(should_return=True)
+
     return MainLoopIterationState()
 
 
@@ -502,21 +623,32 @@ def run_main_chunk_walk(
             namespace["Orig_CL"],
             namespace["Orig_CT"],
         )
+        if stop_chunk_walk_after_clone(runtime):
+            break
+
         runtime.check_chunk_name(
             namespace["Orig_CT"],
             namespace["Orig_CL"],
             namespace["Chunks_History"][-1],
         )
+        if stop_chunk_walk_after_clone(runtime):
+            break
+
         runtime.get_info(namespace["Orig_CT"], namespace["Raw_Data"])
+        if stop_chunk_walk_after_clone(runtime):
+            break
+
         runtime.checksum(
             namespace["Raw_Type"],
             namespace["Raw_Data"],
             namespace["Raw_Crc"],
         )
+        if stop_chunk_walk_after_clone(runtime):
+            break
 
         while True:
             runtime.fix_it_felix(namespace["Orig_CT"])
-            if namespace["Show_Must_Go_On"] is True:
+            if namespace["Show_Must_Go_On"] is True or namespace["Have_A_KitKat"] is True:
                 break
 
         offset = runtime.next_chunk_offset(
@@ -527,11 +659,7 @@ def run_main_chunk_walk(
             namespace["Raw_Crc"],
         )
 
-        break_loop, have_a_kitkat = runtime.kitkat_break_decision(
-            namespace["Have_A_KitKat"]
-        )
-        namespace["Have_A_KitKat"] = have_a_kitkat
-        if break_loop is True:
+        if stop_chunk_walk_after_clone(runtime):
             break
 
     return MainChunkWalkState(offset=offset)

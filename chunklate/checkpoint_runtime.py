@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import checkpoint
+from . import fog_of_war
 
 
 LegacyCall = Callable[..., Any]
@@ -45,6 +46,7 @@ class CheckPointEntryRuntime:
     record_finding: LegacyCall
     apply_action: LegacyCall
     pause_error: LegacyCall
+    render_fog_of_war: LegacyCall | None = None
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,10 @@ class CheckPointEntryContext:
     libpng_errors: tuple[str, ...]
     libpng_finished_at_iend: bool
     pandora_keys: tuple[Any, ...]
+    chunks_history: tuple[Any, ...] = ()
+    data_hex: str = ""
+    current_offset: Any = None
+    sample_name: str = ""
     debug: bool = False
     pause_debug_enabled: bool = False
     pause_error_enabled: bool = False
@@ -107,6 +113,7 @@ def build_checkpoint_entry_runtime(
     record_finding: LegacyCall,
     apply_action: LegacyCall,
     pause_error: LegacyCall,
+    render_fog_of_war: LegacyCall | None = None,
 ) -> CheckPointEntryRuntime:
     return CheckPointEntryRuntime(
         candy=candy,
@@ -115,6 +122,7 @@ def build_checkpoint_entry_runtime(
         record_finding=record_finding,
         apply_action=apply_action,
         pause_error=pause_error,
+        render_fog_of_war=render_fog_of_war,
     )
 
 
@@ -126,6 +134,7 @@ def build_checkpoint_entry_runtime_from_namespace(namespace: dict[str, Any]) -> 
         record_finding=namespace["CheckPoint_Record_Finding"],
         apply_action=namespace["CheckPoint_Apply_Action_Decision"],
         pause_error=namespace["Pause"],
+        render_fog_of_war=lambda context: render_fog_of_war_from_context(namespace, context),
     )
 
 
@@ -155,6 +164,10 @@ def build_checkpoint_entry_context(
             and namespace["EOF"] is True
         ),
         pandora_keys=tuple(namespace["PandoraBox"]),
+        chunks_history=tuple(chunks_history),
+        data_hex=namespace["DATAX"],
+        current_offset=namespace["CLoffI"],
+        sample_name=namespace["Sample_Name"],
         debug=namespace["DEBUG"],
         pause_debug_enabled=namespace["PAUSEDEBUG"],
         pause_error_enabled=namespace["PAUSEERROR"],
@@ -195,6 +208,28 @@ CHECKPOINT_COFFEE = r"""
   |      |]
   \      /
    `----'"""
+
+
+def render_fog_of_war_from_context(namespace: dict[str, Any], context: CheckPointEntryContext) -> str:
+    colorizer = lambda color, value: namespace["Candy"]("Color", color, value)
+    fog_map = fog_of_war.build_map(
+        context.chunks_history,
+        context.chunk,
+        data_hex=context.data_hex,
+        current_offset=context.current_offset,
+        error=context.error,
+        sample_name=context.sample_name,
+    )
+    previous_map = namespace.get("FOG_OF_WAR_LAST_MAP")
+    previous_width = namespace.get("FOG_OF_WAR_LAST_WIDTH")
+    current_width = fog_of_war.visible_body_width(fog_map, color=colorizer)
+    namespace["FOG_OF_WAR_LAST_MAP"] = fog_map
+    namespace["FOG_OF_WAR_LAST_WIDTH"] = current_width
+
+    if previous_map == fog_map:
+        return ""
+
+    return fog_of_war.render(fog_map, color=colorizer)
 
 
 def checkpoint_debug_toolkit_value(value: Any, limit: int = 100) -> Any:
@@ -304,7 +339,10 @@ def run_checkpoint(
     context: CheckPointEntryContext,
 ) -> Any:
     runtime.candy("Title", "CheckPoint")
-    runtime.emit(CHECKPOINT_COFFEE)
+    if runtime.render_fog_of_war is not None:
+        runtime.emit(runtime.render_fog_of_war(context))
+    else:
+        runtime.emit(CHECKPOINT_COFFEE)
 
     if context.debug is True:
         emit_checkpoint_debug(
