@@ -10,6 +10,7 @@ from . import ui
 class LegacyDialoguePauseState:
     pending: bool = False
     paused_in_group: bool = False
+    rendering_dialogue: bool = False
 
 
 @dataclass(frozen=True)
@@ -41,11 +42,11 @@ class LegacyUiRuntime:
         if self.pause_state is None:
             self.pause_dialogue()
             return
-        if self.pause_state.paused_in_group:
-            return
         self.pause_state.pending = True
 
-    def _flush_dialogue_pause_before_title(self, arg: Any) -> None:
+    def _flush_dialogue_pause_before_non_dialogue(self, arg: Any | None = None) -> None:
+        if self.pause_state is not None and self.pause_state.rendering_dialogue:
+            return
         if self.pause_state is None or not self.pause_state.pending:
             if self._question_title(arg):
                 self._reset_dialogue_pause_group()
@@ -56,30 +57,38 @@ class LegacyUiRuntime:
         if self.pause_dialogue_enabled and self.pause_dialogue is not None:
             self.pause_dialogue()
         self.pause_state.pending = False
-        self.pause_state.paused_in_group = True
+        self.pause_state.paused_in_group = False
 
     def candy(self, mode: str, arg: Any, data: Any = None) -> Any:
         if mode == "Emoj":
+            self._flush_dialogue_pause_before_non_dialogue()
             return ui.pick_emoji(arg, self.random_int)
 
         if mode == "Color":
+            self._flush_dialogue_pause_before_non_dialogue()
             return ui.colorize(arg, data, use_color=self.use_color)
 
         if mode == "Cowsay":
-            self.emit(
-                ui.render_dialogue(
-                    arg,
-                    data,
-                    max_columns=self.max_columns,
-                    emoji_provider=lambda name: self.candy("Emoj", name),
-                    use_color=self.use_color,
+            if self.pause_state is not None:
+                self.pause_state.rendering_dialogue = True
+            try:
+                self.emit(
+                    ui.render_dialogue(
+                        arg,
+                        data,
+                        max_columns=self.max_columns,
+                        emoji_provider=lambda name: self.candy("Emoj", name),
+                        use_color=self.use_color,
+                    )
                 )
-            )
+            finally:
+                if self.pause_state is not None:
+                    self.pause_state.rendering_dialogue = False
             self._queue_dialogue_pause()
             return None
 
         if mode == "Title":
-            self._flush_dialogue_pause_before_title(arg)
+            self._flush_dialogue_pause_before_non_dialogue(arg)
             if self.no_dialogue:
                 return ()
             self.emit(ui.render_title(arg, data, use_color=self.use_color))
