@@ -42,7 +42,7 @@ def test_fog_of_war_merges_current_idat_error_with_seen_idats():
 
     rendered = fog_of_war.render(fog_map, color=color)
 
-    assert "<green:[IDATx><red:2><green:/><yellow:3><green:]>" in rendered
+    assert "<green:[IDAT><white::><red:2><green:/><yellow:3><green:]>" in rendered
     assert "<green:[IDATx2]>" not in rendered
     assert "<red:[!IDAT!]>" not in rendered
 
@@ -59,7 +59,7 @@ def test_fog_of_war_uses_green_total_when_idat_is_not_current():
 
     rendered = fog_of_war.render(fog_map, color=color)
 
-    assert "<green:[IDATx><red:2><green:/><green:3><green:]>" in rendered
+    assert "<green:[IDAT><white::><red:2><green:/><green:3><green:]>" in rendered
     assert "<yellow:3>" not in rendered
 
 
@@ -75,7 +75,7 @@ def test_fog_of_war_marks_first_current_idat_error():
 
     rendered = fog_of_war.render(fog_map, color=color)
 
-    assert "<green:[IDATx><red:1><green:/><yellow:1><green:]>" in rendered
+    assert "<green:[IDAT><white::><red:1><green:/><yellow:1><green:]>" in rendered
     assert "<red:[!IDAT!]>" not in rendered
 
 

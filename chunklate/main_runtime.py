@@ -404,11 +404,6 @@ def apply_main_cli_options(
     )
     if file_dir:
         runtime.make_dirs(file_dir, exist_ok=True)
-    offer_existing_output_folder_cleanup(
-        runtime,
-        file_origin=file_origin,
-        file_dir=file_dir,
-    )
 
     return MainCliOptionsState(
         file_origin=file_origin,
@@ -440,6 +435,7 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "Sample": options.sample,
         "CLONESWAR": options.cloneswar,
         "CRASH": options.crash,
+        "OUTPUT_FOLDER_CLEANUP_PENDING": True,
     }
 
 
@@ -480,6 +476,17 @@ def reset_main_loop_state(runtime: MainLoopResetRuntime) -> MainLoopResetState:
     runtime.banner(1)
 
     return MainLoopResetState(tmp_fix_ihdr=tmp_fix_ihdr)
+
+
+def run_pending_output_folder_cleanup_from_namespace(namespace: dict[str, Any]) -> None:
+    if namespace.get("OUTPUT_FOLDER_CLEANUP_PENDING") is not True:
+        return
+    namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] = False
+    offer_existing_output_folder_cleanup(
+        build_cli_options_runtime_from_namespace(namespace),
+        file_origin=namespace["FILE_Origin"],
+        file_dir=namespace["FILE_DIR"],
+    )
 
 
 def run_main_clear_screen(
@@ -573,6 +580,7 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
     namespace["CLEAR_SCREEN_ACTIVE_THIS_PASS"] = clear_screen_state.cleared
 
     reset_main_loop_state(build_loop_reset_runtime_from_namespace(namespace))
+    run_pending_output_folder_cleanup_from_namespace(namespace)
 
     loaded_sample = load_main_sample(
         build_sample_runtime_from_namespace(namespace),

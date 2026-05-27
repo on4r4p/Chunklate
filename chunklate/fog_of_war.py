@@ -110,7 +110,8 @@ def _idat_status_text(
         return str(color("green", "[%s]" % label))
     return "".join(
         (
-            str(color("green", "[IDATx")),
+            str(color("green", "[IDAT")),
+            str(color("white", ":")),
             str(color("red", wrong_crc_count)),
             str(color("green", "/")),
             str(color("yellow" if current else "green", total_count)),

@@ -375,7 +375,7 @@ def test_checkpoint_fog_of_war_counts_current_and_previous_idat_crc_errors():
         context,
     )
 
-    assert "<green:[IDATx><red:3><green:/><yellow:3><green:]>" in rendered
+    assert "<green:[IDAT><white::><red:3><green:/><yellow:3><green:]>" in rendered
 
 
 def test_checkpoint_debug_lines_preserve_legacy_print_shape():
