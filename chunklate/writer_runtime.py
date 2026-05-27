@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import os
 from collections.abc import MutableSequence
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import writer
+from . import output, writer
 
 
 LegacyCall = Callable[..., Any]
@@ -48,6 +50,7 @@ class ClonePatchRuntime:
     set_show_must_go_on: Callable[[bool], Any]
     remove_hex_range: LegacyCall = writer.remove_hex_range
     replace_hex_range: LegacyCall = writer.replace_hex_range
+    save_debug_payloads: LegacyCall | None = None
 
 
 def build_write_clone_runtime(
@@ -109,16 +112,22 @@ def build_write_clone_context(namespace: dict[str, Any]) -> WriteCloneContext:
     )
 
 
+def _bytes_preview(raw: bytes, *, limit: int = 16) -> str:
+    if len(raw) <= limit:
+        return repr(raw)
+    return "%r... (%s bytes total)" % (raw[:limit], len(raw))
+
+
 def _patch_bytes_preview(data_fix: str) -> str | None:
     try:
-        return repr(bytes.fromhex(data_fix))
+        return _bytes_preview(bytes.fromhex(data_fix))
     except Exception:
         return None
 
 
 def _source_bytes_preview(infos: Any) -> str | None:
     if isinstance(infos, bytes):
-        return repr(infos)
+        return _bytes_preview(infos)
     return None
 
 
@@ -133,6 +142,57 @@ def _clone_patch_preview(data_fix: str, infos: Any) -> str:
         return "Patch: I am replacing %s with %s in the clone." % (source_bytes, patch_bytes)
 
     return "Patch bytes ready: %s" % patch_bytes
+
+
+def _clone_debug_payloads(data_fix: str, infos: Any, *, limit: int = 16) -> dict[str, bytes]:
+    payloads: dict[str, bytes] = {}
+    try:
+        patch_bytes = bytes.fromhex(data_fix)
+    except Exception:
+        patch_bytes = None
+
+    if isinstance(infos, bytes) and len(infos) > limit:
+        payloads["source"] = infos
+    if patch_bytes is not None and len(patch_bytes) > limit:
+        payloads["replacement"] = patch_bytes
+    return payloads
+
+
+def save_clone_debug_payloads(
+    file_origin: str,
+    file_dir: str,
+    label: str,
+    start: int,
+    end: int,
+    payloads: dict[str, bytes],
+) -> list[str]:
+    clone_folder = output.ensure_clone_folder(file_origin, file_dir)
+    payload_folder = os.path.join(clone_folder, "Debug_Payloads")
+    os.makedirs(payload_folder, exist_ok=True)
+
+    saved_paths: list[str] = []
+    for name, raw in sorted(payloads.items()):
+        digest = hashlib.sha1(raw).hexdigest()[:8]
+        filename = "%s_%06d_%06d_%s_%s.bin" % (label, start, end, name, digest)
+        path = os.path.join(payload_folder, filename)
+        with open(path, "wb") as file:
+            file.write(raw)
+        saved_paths.append(os.path.relpath(path, clone_folder))
+    return saved_paths
+
+
+def _summary_with_clone_patch_note(
+    infos: Any,
+    patch_preview: str,
+    debug_payload_paths: list[str] | None = None,
+) -> str:
+    notes = ["-Clone patch note: %s" % patch_preview]
+    for path in debug_payload_paths or []:
+        notes.append("-Clone debug payload: %s" % path)
+    note = "\n".join(notes)
+    if infos is None or infos == "":
+        return note
+    return "%s\n%s" % (str(infos).rstrip(), note)
 
 
 def announce_clone_write(
@@ -246,6 +306,22 @@ def run_save_clone(
     except Exception as exc:
         runtime.betterror(exc, "SaveClone")
 
-    runtime.candy("Cowsay", _clone_patch_preview(data_fix, infos), "com")
+    patch_preview = _clone_patch_preview(data_fix, infos)
+    runtime.candy("Cowsay", patch_preview, "com")
+    debug_payload_paths: list[str] = []
+    debug_payloads = _clone_debug_payloads(data_fix, infos)
+    if debug_payloads and runtime.save_debug_payloads is not None:
+        try:
+            debug_payload_paths = runtime.save_debug_payloads(
+                "clone_patch",
+                start,
+                end,
+                debug_payloads,
+            )
+        except Exception as exc:
+            runtime.betterror(exc, "SaveCloneDebugPayload")
     fix = runtime.replace_hex_range(runtime.data_hex, data_fix, start, end)
-    return runtime.write_clone(fix, infos)
+    return runtime.write_clone(
+        fix,
+        _summary_with_clone_patch_note(infos, patch_preview, debug_payload_paths),
+    )

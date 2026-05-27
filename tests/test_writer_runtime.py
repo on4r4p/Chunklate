@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -265,7 +266,7 @@ def test_write_clone_runtime_write_error_routes_betterror_emit_and_end():
     assert state["have_a_kitkat"] is False
 
 
-def clone_patch_runtime(calls, *, data_hex="0011223344556677"):
+def clone_patch_runtime(calls, *, data_hex="0011223344556677", save_debug_payloads=None):
     state = {"show_must_go_on": False}
 
     def candy(kind, *args):
@@ -279,6 +280,7 @@ def clone_patch_runtime(calls, *, data_hex="0011223344556677"):
         betterror=lambda error, name: calls.append(("betterror", str(error), name)),
         write_clone=lambda data, infos: calls.append(("write_clone", data, infos)) or "written",
         set_show_must_go_on=lambda value: state.__setitem__("show_must_go_on", value),
+        save_debug_payloads=save_debug_payloads,
     )
     return runtime, state
 
@@ -306,7 +308,11 @@ def test_run_save_clone_builds_fixed_data_sets_flag_and_writes_clone():
     assert ("candy", ("Title", "Saving Clone")) in calls
     assert ("emit", "-Data : b'\\xaa\\xbb'\n") in calls
     assert ("candy", ("Cowsay", "Patch bytes ready: b'\\xaa\\xbb'", "com")) in calls
-    assert ("write_clone", "0011aabb556677", "infos") in calls
+    assert (
+        "write_clone",
+        "0011aabb556677",
+        "infos\n-Clone patch note: Patch bytes ready: b'\\xaa\\xbb'",
+    ) in calls
 
 
 def test_run_save_clone_explains_named_patch_when_source_is_bytes():
@@ -322,7 +328,80 @@ def test_run_save_clone_explains_named_patch_when_source_is_bytes():
         "candy",
         ("Cowsay", "Patch: I am replacing b'IDA^' with b'IDAT' in the clone.", "com"),
     ) in calls
-    assert ("write_clone", "0011494441546677", b"IDA^") in calls
+    assert (
+        "write_clone",
+        "0011494441546677",
+        "b'IDA^'\n-Clone patch note: Patch: I am replacing b'IDA^' with b'IDAT' in the clone.",
+    ) in calls
+
+
+def test_run_save_clone_shortens_large_patch_preview():
+    calls = []
+
+    def save_debug_payloads(label, start, end, payloads):
+        calls.append(("save_debug_payloads", label, start, end, payloads))
+        return [
+            "Debug_Payloads/clone_patch_source.bin",
+            "Debug_Payloads/clone_patch_replacement.bin",
+        ]
+
+    runtime, state = clone_patch_runtime(calls, save_debug_payloads=save_debug_payloads)
+    data_fix = bytes(range(24)).hex()
+
+    result = writer_runtime.run_save_clone(runtime, data_fix, 4, 10, b"old" * 8)
+
+    assert result == "written"
+    assert state == {"show_must_go_on": True}
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "Patch: I am replacing b'oldoldoldoldoldo'... (24 bytes total) with "
+            "b'\\x00\\x01\\x02\\x03\\x04\\x05\\x06\\x07\\x08\\t\\n\\x0b\\x0c\\r\\x0e\\x0f'... (24 bytes total) in the clone.",
+            "com",
+        ),
+    ) in calls
+    assert any(
+        call[0] == "write_clone"
+        and "b'oldoldoldoldoldo'... (24 bytes total)" in call[2]
+        and "b'\\x00\\x01\\x02\\x03" in call[2]
+        and "-Clone debug payload: Debug_Payloads/clone_patch_source.bin" in call[2]
+        and "-Clone debug payload: Debug_Payloads/clone_patch_replacement.bin" in call[2]
+        for call in calls
+    )
+    assert (
+        "save_debug_payloads",
+        "clone_patch",
+        4,
+        10,
+        {
+            "source": b"old" * 8,
+            "replacement": bytes(range(24)),
+        },
+    ) in calls
+
+
+def test_save_clone_debug_payloads_writes_large_payload_files():
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = writer_runtime.save_clone_debug_payloads(
+            "sample.png",
+            tmp,
+            "clone_patch",
+            4,
+            10,
+            {
+                "replacement": b"replacement-bytes",
+                "source": b"source-bytes",
+            },
+        )
+
+        assert len(paths) == 2
+        folder = Path(tmp) / "Folder_sample"
+        for path in paths:
+            assert path.startswith("Debug_Payloads/clone_patch_000004_000010_")
+            assert (folder / path).exists()
+        assert any((folder / path).read_bytes() == b"source-bytes" for path in paths)
+        assert any((folder / path).read_bytes() == b"replacement-bytes" for path in paths)
 
 
 def test_run_save_clone_preserves_bad_hex_error_path_before_write():
@@ -334,7 +413,11 @@ def test_run_save_clone_preserves_bad_hex_error_path_before_write():
     assert result == "written"
     assert state == {"show_must_go_on": True}
     assert any(call[0] == "betterror" and call[2] == "SaveClone" for call in calls)
-    assert ("write_clone", "0011not-hex556677", "infos") in calls
+    assert (
+        "write_clone",
+        "0011not-hex556677",
+        "infos\n-Clone patch note: I am about to write a clone with bytes I cannot print cleanly. That is already a mood.",
+    ) in calls
 
 
 def main():
@@ -348,6 +431,8 @@ def main():
         ("Remove chunk", test_run_remove_chunk_builds_fixed_data_and_writes_clone),
         ("Save clone", test_run_save_clone_builds_fixed_data_sets_flag_and_writes_clone),
         ("Save clone named patch", test_run_save_clone_explains_named_patch_when_source_is_bytes),
+        ("Save clone large patch preview", test_run_save_clone_shortens_large_patch_preview),
+        ("Save clone debug payload files", test_save_clone_debug_payloads_writes_large_payload_files),
         ("Save clone bad hex", test_run_save_clone_preserves_bad_hex_error_path_before_write),
     ]
 
