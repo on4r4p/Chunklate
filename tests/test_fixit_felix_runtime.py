@@ -781,6 +781,7 @@ def no_next_runtime(
             debug_print=record("debug_print"),
             dummy_chunk=record("dummy_chunk", "dummy-result"),
             nearby_chunk=record("nearby_chunk", "nearby-result"),
+            nearby_found_later_iend=lambda: state.get("nearby_found_later_iend"),
         ),
         side_notes,
         state,
@@ -899,6 +900,32 @@ def test_apply_no_next_append_missing_iend_uses_dummy_at_crc_tail():
     assert result == (True, "dummy-result")
     assert side_notes == ["-Extra bits detected:ff"]
     assert calls[-1] == ("dummy_chunk", (b"IEND", 8, 8, 8, finding), {})
+
+
+def test_apply_no_next_does_not_append_iend_when_nearby_already_found_one():
+    calls = []
+    finding = "CheckLength_Error_0:-No NextChunk"
+    runtime, side_notes, state = no_next_runtime(calls, data_hex="aabbccddff")
+    state["nearby_found_later_iend"] = {
+        "sample_name": "sample.png",
+        "idat_count": 2,
+        "double_check": True,
+    }
+
+    result = fixit_felix_runtime.apply_no_next_chunk(
+        runtime,
+        fixit_felix.NoNextChunkDecision("append_missing_iend", b"IDAT", b"IDAT", "12"),
+        finding,
+        "IDAT_Tool_",
+        no_next_tools(),
+    )
+
+    assert result == (False, None)
+    assert side_notes == [
+        "-Skipped adding IEND chunk: NearbyChunk already found an IEND later."
+    ]
+    assert ("set_skip_bad_no_next_chunk", (True,), {}) in calls
+    assert not [call for call in calls if call[0] == "dummy_chunk"]
 
 
 def test_apply_no_next_ask_length_probe_routes_to_nearby_chunk():
@@ -1476,6 +1503,10 @@ def main():
         ("Apply no-next false positive clean cut", test_apply_no_next_false_positive_iend_writes_clean_cut),
         ("Apply no-next wrong IEND length ends", test_apply_no_next_wrong_iend_length_records_note_and_ends),
         ("Apply no-next appends dummy at CRC tail", test_apply_no_next_append_missing_iend_uses_dummy_at_crc_tail),
+        (
+            "Apply no-next skips append after nearby IEND",
+            test_apply_no_next_does_not_append_iend_when_nearby_already_found_one,
+        ),
         ("Apply no-next length probe routes nearby", test_apply_no_next_ask_length_probe_routes_to_nearby_chunk),
         ("Apply no-next rejects unknown action", test_apply_no_next_chunk_rejects_unknown_action),
         ("Apply libpng saves existing solution", test_apply_libpng_error_saves_existing_solution),

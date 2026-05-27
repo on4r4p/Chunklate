@@ -35,6 +35,7 @@ def build_runtime(calls, side_notes=None, *, excluded=(), clean_result=None, bad
         pause=lambda message: calls.append(("pause", message)),
         end=lambda: calls.append(("end",)),
         get_bad_critical=lambda: bad_critical,
+        remember_later_iend=lambda *args: calls.append(("remember_later_iend", args)),
         side_notes=side_notes,
     )
 
@@ -202,6 +203,7 @@ def test_nearby_runtime_summarizes_candidates_without_alignment_in_normal_mode()
         "candy",
         ("Cowsay", "I found 2 possible IDAT chunks and an IEND later.", "good"),
     ) in calls
+    assert ("remember_later_iend", ("sample.png", 2, False)) in calls
     assert (
         "candy",
         ("Cowsay", "But the current position still does not line up.", "bad"),
@@ -249,6 +251,7 @@ def test_nearby_runtime_rephrases_summary_when_double_check_still_misses():
         "candy",
         ("Cowsay", "I found 2 possible IDAT chunks and an IEND later.", "good"),
     ) in calls
+    assert ("remember_later_iend", ("sample.png", 2, True)) in calls
     assert (
         "candy",
         ("Cowsay", "Even with safety off, the current position still does not line up.", "bad"),

@@ -118,6 +118,7 @@ class NoNextChunkRuntime:
     debug_print: Callable[..., Any]
     dummy_chunk: Callable[..., Any]
     nearby_chunk: Callable[..., Any]
+    nearby_found_later_iend: Callable[[], Any]
 
 
 @dataclass(frozen=True)
@@ -237,6 +238,7 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         debug_print=print,
         dummy_chunk=namespace["DummyChunk"],
         nearby_chunk=namespace["NearbyChunk"],
+        nearby_found_later_iend=lambda: namespace.get("NEARBY_FOUND_LATER_IEND"),
     )
 
 
@@ -1042,6 +1044,20 @@ def handle_no_next_append_missing_iend(
     runtime: NoNextChunkRuntime,
     finding: Any,
 ) -> tuple[bool, Any]:
+    later_iend = runtime.nearby_found_later_iend()
+    if later_iend:
+        runtime.candy("Cowsay", "I already saw an IEND later in this file.", "good")
+        runtime.candy(
+            "Cowsay",
+            "So I am not adding another one. That would be a new crime scene, not a fix.",
+            "bad",
+        )
+        runtime.side_notes.append(
+            "-Skipped adding IEND chunk: NearbyChunk already found an IEND later."
+        )
+        runtime.set_skip_bad_no_next_chunk(True)
+        return False, None
+
     runtime.candy("Cowsay", "Well it seems that i need to add that IEND chunk myself after all ..", "bad")
     print_no_next_append_debug(runtime)
 

@@ -41,6 +41,7 @@ class NearbyChunkRuntime:
     pause: LegacyCall
     end: LegacyCall
     get_bad_critical: Callable[[], Any]
+    remember_later_iend: LegacyCall
     side_notes: MutableSequence[Any]
 
 
@@ -352,6 +353,9 @@ def _scan_for_nearby_chunk(
 
         needle += 1
 
+    if finds.found_iend:
+        runtime.remember_later_iend(context.sample_name, finds.idat_count, double_check)
+
     if _emit_scan_misalignment_summary(runtime, context, chunk_type, finds, double_check):
         return NearbyHandled("scan_summary")
 
@@ -575,6 +579,14 @@ def build_nearby_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> Near
         pause=namespace["Pause"],
         end=namespace["TheEnd"],
         get_bad_critical=lambda: namespace["Bad_Critical"],
+        remember_later_iend=lambda sample_name, idat_count, double_check: namespace.__setitem__(
+            "NEARBY_FOUND_LATER_IEND",
+            {
+                "sample_name": sample_name,
+                "idat_count": idat_count,
+                "double_check": double_check,
+            },
+        ),
         side_notes=namespace["SideNotes"],
     )
 

@@ -49,6 +49,7 @@ def test_main_loop_history_reset_values_preserve_fresh_containers():
         "IDAT_CRC_PATCH_FAILED_FINDING": None,
         "IDAT_CRC_DEFER_EXPLAINED": False,
         "IDAT_CRC_DEFERRED_FINDINGS": set(),
+        "NEARBY_FOUND_LATER_IEND": None,
     }
     assert first["PandoraBox"] is not second["PandoraBox"]
     assert first["Chunks_History"] is not second["Chunks_History"]
