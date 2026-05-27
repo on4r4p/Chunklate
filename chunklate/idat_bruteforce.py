@@ -52,17 +52,6 @@ def analysis_score(analysis: idat.IdatStreamAnalysis) -> tuple[int, int, int, in
     )
 
 
-def _status_rank(status: str) -> int:
-    return {
-        "bad_zlib_header": 0,
-        "corrupt_deflate": 1,
-        "incomplete_stream": 2,
-        "bad_adler": 3,
-        "partial": 4,
-        "complete": 5,
-    }.get(status, -1)
-
-
 def is_material_improvement(before: idat.IdatStreamAnalysis, after: idat.IdatStreamAnalysis) -> bool:
     if not after.supported:
         return False
@@ -70,14 +59,7 @@ def is_material_improvement(before: idat.IdatStreamAnalysis, after: idat.IdatStr
         return True
     if after.usable_scanlines > before.usable_scanlines:
         return True
-    if after.complete_scanlines > before.complete_scanlines:
-        return True
-    if after.decompressed_size > before.decompressed_size:
-        return True
-
-    before_rank = _status_rank(before.status)
-    after_rank = _status_rank(after.status)
-    return after_rank > before_rank and after.decompressed_size >= before.decompressed_size
+    return False
 
 
 def _idat_chunks_and_stream(data: bytes) -> tuple[tuple[png.PngChunk, ...], bytes]:

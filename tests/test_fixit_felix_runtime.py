@@ -534,6 +534,7 @@ def test_apply_wrong_crc_writes_improved_deflate_probe_instead_of_crc_clone():
     assert result == (True, "written")
     assert not [call for call in calls if call[0] == "save_clone"]
     assert not [call for call in calls if call[0] == "question"]
+    assert ("candy", ("Title", "probe_idat_deflate_strategy_queue"), {}) in calls
     assert any(call[0] == "minibar" and "IDAT strict-byte" in call[1][0] for call in calls)
     assert [call for call in calls if call[0] == "write_clone"]
     assert "-Repair hypothesis tried: targeted IDAT deflate strategy queue." in calls[-1][1][1]
@@ -596,6 +597,8 @@ def test_apply_wrong_crc_uses_heavy_probe_loadingbar_after_quick_probe_fails():
 
     assert result == (True, "written")
     assert any(call[0] == "question" for call in calls)
+    assert ("candy", ("Title", "probe_idat_deflate_strategy_queue"), {}) in calls
+    assert ("candy", ("Title", "probe_idat_deflate_heavy_candidates"), {}) in calls
     assert any(call == ("loadingbar", (5000, 4, 0, True), {}) for call in calls)
     assert any(call[0] == "write_clone" for call in calls)
     assert any(note.startswith("-IDAT deflate probe: strategy=heavy-byte") for note in side_notes)
@@ -648,6 +651,8 @@ def test_apply_wrong_crc_declines_heavy_probe_without_loadingbar_or_clone():
 
     assert result == (False, None)
     assert any(call[0] == "question" for call in calls)
+    assert ("candy", ("Title", "probe_idat_deflate_strategy_queue"), {}) in calls
+    assert ("candy", ("Title", "probe_idat_deflate_heavy_candidates"), {}) not in calls
     assert not any(call[0] == "loadingbar" for call in calls)
     assert not any(call[0] == "write_clone" for call in calls)
     assert "-IDAT heavy probe declined by user." in side_notes
@@ -1074,12 +1079,13 @@ def test_apply_wrong_chunk_name_uses_deflate_probe_when_aligned_stream_is_bad():
         wrong_chunk_name_tools(),
     )
 
-    assert result == (True, "written")
-    assert not [call for call in calls if call[0] == "question"]
+    assert result == (False, None)
+    assert [call for call in calls if call[0] == "question"]
     assert not [call for call in calls if call[0] == "ancillary"]
     assert not [call for call in calls if call[0] == "brute_chunk"]
-    assert [call for call in calls if call[0] == "write_clone"]
+    assert not [call for call in calls if call[0] == "write_clone"]
     assert any(note.startswith("-IDAT stream diagnosis: status=corrupt_deflate") for note in side_notes)
+    assert "-IDAT deflate heavy probe found no improved candidate." in side_notes
 
 
 def test_apply_wrong_chunk_name_saves_existing_solution():
@@ -1365,11 +1371,11 @@ def test_apply_no_next_uses_deflate_probe_when_idat_chain_is_aligned_but_stream_
         no_next_tools(),
     )
 
-    assert result == (True, "write-result")
+    assert result == (False, None)
     assert not [call for call in calls if call[0] == "dummy_chunk"]
-    assert [call for call in calls if call[0] == "write_clone"]
+    assert not [call for call in calls if call[0] == "write_clone"]
     assert any(note.startswith("-IDAT stream diagnosis: status=corrupt_deflate") for note in side_notes)
-    assert any(note.startswith("-IDAT deflate candidate:") for note in side_notes)
+    assert "-IDAT deflate heavy probe found no improved candidate." in side_notes
 
 
 def test_apply_no_next_does_not_append_iend_when_nearby_already_found_one():

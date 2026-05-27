@@ -752,6 +752,7 @@ def try_idat_deflate_bruteforce(
         "I will run the bounded IDAT strategy queue: strict byte, pre-error bit flips, then a wider byte probe.",
         "com",
     )
+    runtime.candy("Title", "probe_idat_deflate_strategy_queue")
     runtime.side_notes.append(idat_stream_diagnosis_note(analysis))
     probe = idat_bruteforce.probe_idat_deflate_strategy_queue(
         data,
@@ -769,6 +770,7 @@ def try_idat_deflate_bruteforce(
             runtime.side_notes.append("-IDAT deflate heavy probe skipped: user declined.")
             return None
 
+        runtime.candy("Title", "probe_idat_deflate_heavy_candidates")
         heavy_probe = idat_bruteforce.probe_idat_deflate_heavy_candidates(
             data,
             progress=_runtime_idat_heavy_progress(runtime),
@@ -1080,11 +1082,18 @@ def _explain_idat_stream_after_header_repair(
         "But the compressed stream is still broken: %s" % reason,
         "bad",
     )
-    runtime.candy(
-        "Cowsay",
-        "So this clone is a map correction, not the final picture yet.",
-        "com",
-    )
+    if already_aligned:
+        runtime.candy(
+            "Cowsay",
+            "So this is a diagnostic stop, not a clone-worthy repair yet.",
+            "com",
+        )
+    else:
+        runtime.candy(
+            "Cowsay",
+            "So this clone is a map correction, not the final picture yet.",
+            "com",
+        )
 
 
 def _block_isolated_idat_repairs_after_chain_diagnostic(

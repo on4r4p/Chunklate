@@ -287,6 +287,7 @@ def test_full_chunk_forcer_namespace_bridge_preserves_legacy_wiring_and_title():
     )
 
     assert result == "forced"
+    assert ("candy", ("Title", "FullChunkForcerNoCrc")) in calls
     assert ("candy", ("Title", "Attempting To Repair Corrupted Chunk Data:")) in calls
     betterror_call = next(call for call in calls if call[0] == "betterror")
     assert isinstance(betterror_call[1][0], ValueError)

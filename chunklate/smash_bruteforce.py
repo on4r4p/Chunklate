@@ -83,6 +83,7 @@ def run_legacy_smash_brute_brawl_from_namespace(
     if bridge is None:
         bridge = run_legacy_smash_brute_brawl
 
+    namespace["Candy"]("Title", "SmashBruteBrawl")
     namespace["Candy"]("Title", "Attempting Bruteforce To Repair Corrupted Chunk Data:")
     try:
         chunk_name = chunk_name.encode(errors="ignore")

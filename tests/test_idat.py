@@ -477,6 +477,49 @@ def test_idat_deflate_probe_does_not_treat_error_offset_drift_as_progress():
     assert idat_bruteforce.is_material_improvement(before, after) is False
 
 
+def test_idat_deflate_probe_does_not_treat_decompressed_bytes_without_scanlines_as_progress():
+    before = idat.IdatStreamAnalysis(
+        True,
+        False,
+        "corrupt_deflate",
+        height=10,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=28,
+    )
+    after = idat.IdatStreamAnalysis(
+        True,
+        False,
+        "corrupt_deflate",
+        height=10,
+        decompressed_size=2048,
+        complete_scanlines=3,
+        usable_scanlines=0,
+        error_offset=740,
+    )
+
+    assert idat_bruteforce.is_material_improvement(before, after) is False
+
+
+def test_idat_deflate_probe_treats_new_usable_scanline_as_progress():
+    before = idat.IdatStreamAnalysis(
+        True,
+        False,
+        "corrupt_deflate",
+        height=10,
+        usable_scanlines=0,
+    )
+    after = idat.IdatStreamAnalysis(
+        True,
+        False,
+        "corrupt_deflate",
+        height=10,
+        usable_scanlines=1,
+    )
+
+    assert idat_bruteforce.is_material_improvement(before, after) is True
+
+
 def test_analyze_idat_stream_reports_bad_zlib_header():
     filtered = b"\x00abc"
     compressed = bytearray(zlib.compress(filtered))
@@ -607,6 +650,14 @@ def main():
         (
             "IDAT deflate byte probe ignores offset-only drift",
             test_idat_deflate_probe_does_not_treat_error_offset_drift_as_progress,
+        ),
+        (
+            "IDAT deflate byte probe ignores bytes without scanlines",
+            test_idat_deflate_probe_does_not_treat_decompressed_bytes_without_scanlines_as_progress,
+        ),
+        (
+            "IDAT deflate byte probe accepts usable scanline",
+            test_idat_deflate_probe_treats_new_usable_scanline_as_progress,
         ),
         ("IDAT stream bad zlib header", test_analyze_idat_stream_reports_bad_zlib_header),
         ("IDAT stream bad Adler", test_analyze_idat_stream_reports_bad_adler),

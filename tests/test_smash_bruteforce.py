@@ -207,6 +207,7 @@ def test_legacy_namespace_entry_builds_bridge_and_syncs_legacy_state():
     assert namespace["CRASH"] == "crash"
     assert namespace["ETA"] == 123
     assert namespace["DIFF"] == "new-diff"
+    assert ("candy", ("Title", "SmashBruteBrawl")) in calls
     assert ("candy", ("Title", "Attempting Bruteforce To Repair Corrupted Chunk Data:")) in calls
     assert (
         "get_spec",

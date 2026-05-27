@@ -284,6 +284,7 @@ def run_full_chunk_forcer_no_crc_from_namespace(
     *,
     runner: LegacyCall = run_legacy_full_chunk_forcer_no_crc,
 ) -> Any:
+    namespace["Candy"]("Title", "FullChunkForcerNoCrc")
     namespace["Candy"]("Title", "Attempting To Repair Corrupted Chunk Data:")
     chunk = chunk.encode(errors="ignore")
     return runner(
