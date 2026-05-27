@@ -896,13 +896,15 @@ def FixItFelix_Wrong_Chunk_Name(key, chkd):
         )
 
         NameTools = None
+        name_chkd = chkd
         if NameDecision.action != "save_existing_solution":
-            NameTools = relics.wrong_chunk_name_tools(PandoraBox[key], chkd)
+            name_chkd = relics.resolve_tool_prefix(PandoraBox[key], chkd)
+            NameTools = relics.wrong_chunk_name_tools(PandoraBox[key], name_chkd)
 
         return fixit_felix_runtime.apply_wrong_chunk_name(
             FixItFelix_Wrong_Chunk_Name_Runtime(),
             NameDecision,
-            chkd,
+            name_chkd,
             NameTools,
         )
 
@@ -1009,6 +1011,8 @@ def FixItFelix_Runtime():
 
 
 def FixItFelix_Tool_Prefix(Chunk):
+    if isinstance(Chunk, str):
+        return Chunk + "_Tool_"
     try:
         return Chunk.decode(errors="ignore") + "_Tool_"
     except AttributeError as e:

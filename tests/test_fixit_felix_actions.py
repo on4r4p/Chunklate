@@ -101,7 +101,7 @@ def test_fixit_felix_tool_prefix_accepts_bytes_without_betterror():
     assert calls == []
 
 
-def test_fixit_felix_tool_prefix_preserves_legacy_string_betterror():
+def test_fixit_felix_tool_prefix_accepts_string_without_betterror():
     calls = []
 
     with patched_attrs(
@@ -111,10 +111,7 @@ def test_fixit_felix_tool_prefix_preserves_legacy_string_betterror():
         result = Chunklate.FixItFelix_Tool_Prefix("IDAT")
 
     assert result == "IDAT_Tool_"
-    assert len(calls) == 1
-    error, function_name = calls[0]
-    assert isinstance(error, AttributeError)
-    assert function_name == "FixItFelix"
+    assert calls == []
 
 
 def test_wrong_crc_easy_answer_saves_clone():
@@ -780,7 +777,7 @@ def test_no_next_skip_short_circuits():
 def main():
     checks = [
         ("Tool prefix accepts bytes", test_fixit_felix_tool_prefix_accepts_bytes_without_betterror),
-        ("Tool prefix preserves string Betterror", test_fixit_felix_tool_prefix_preserves_legacy_string_betterror),
+        ("Tool prefix accepts string", test_fixit_felix_tool_prefix_accepts_string_without_betterror),
         ("Wrong CRC easy answer saves clone", test_wrong_crc_easy_answer_saves_clone),
         (
             "Wrong CRC easy decline keeps legacy skip state",

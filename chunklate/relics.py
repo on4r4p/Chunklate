@@ -256,6 +256,20 @@ def tool_key(prefix: str, index: int | str) -> str:
     return prefix + str(index)
 
 
+def first_tool_prefix(tools: Mapping[str, Any]) -> str | None:
+    for key in tools:
+        key_str = str(key)
+        if key_str.endswith("_Tool_0"):
+            return key_str[:-1]
+    return None
+
+
+def resolve_tool_prefix(tools: Mapping[str, Any], preferred_prefix: str) -> str:
+    if tool_key(preferred_prefix, 0) in tools:
+        return preferred_prefix
+    return first_tool_prefix(tools) or preferred_prefix
+
+
 def tool_value(tools: Mapping[str, Any], prefix: str, index: int | str) -> Any:
     return tools[tool_key(prefix, index)]
 

@@ -56,6 +56,32 @@ class PartialIdatAnalysis:
 
 
 @dataclass(frozen=True)
+class IdatStreamAnalysis:
+    supported: bool
+    complete: bool
+    status: str
+    width: int = 0
+    height: int = 0
+    bit_depth: int = 0
+    color_type: int = 0
+    scanline_size: int = 0
+    expected_size: int = 0
+    compressed_size: int = 0
+    decompressed_size: int = 0
+    complete_scanlines: int = 0
+    usable_scanlines: int = 0
+    idat_chunk_count: int = 0
+    recovered_scanlines: bytes = b""
+    zlib_error: str = ""
+    error_offset: int | None = None
+    reason: str = ""
+
+    @property
+    def partial(self) -> bool:
+        return self.supported and not self.complete and self.usable_scanlines > 0
+
+
+@dataclass(frozen=True)
 class PartialIdatBlackfillRepair:
     data: bytes
     strategy: str
@@ -155,31 +181,142 @@ def build_dummy_idat_probe(
     )
 
 
-def _decompress_until_error(stream: bytes) -> tuple[bytes, bool, str]:
+def _decompress_until_error_details(stream: bytes) -> tuple[bytes, bool, str, int | None]:
     decompressor = zlib.decompressobj()
     decompressed = bytearray()
 
     try:
-        for value in stream:
+        for offset, value in enumerate(stream):
             decompressed.extend(decompressor.decompress(bytes((value,))))
     except zlib.error as exc:
-        return bytes(decompressed), False, str(exc)
+        return bytes(decompressed), False, str(exc), offset
 
     if not decompressor.eof:
-        return bytes(decompressed), False, "incomplete zlib stream"
+        return bytes(decompressed), False, "incomplete zlib stream", len(stream)
 
     try:
         decompressed.extend(decompressor.flush())
     except zlib.error as exc:
-        return bytes(decompressed), False, str(exc)
+        return bytes(decompressed), False, str(exc), None
 
-    return bytes(decompressed), True, ""
+    return bytes(decompressed), True, "", None
+
+
+def _decompress_until_error(stream: bytes) -> tuple[bytes, bool, str]:
+    decompressed, complete, error, _offset = _decompress_until_error_details(stream)
+    return decompressed, complete, error
 
 
 def _parse_ihdr(ihdr: png.PngChunk | None) -> tuple[int, int, int, int, int, int, int] | None:
     if ihdr is None or ihdr.chunk_type != b"IHDR" or ihdr.length != 13:
         return None
     return struct.unpack("!IIBBBBB", ihdr.data)
+
+
+def _count_usable_scanlines(decompressed: bytes, scanline_size: int, height: int) -> tuple[int, int]:
+    complete_scanlines = min(height, len(decompressed) // scanline_size)
+
+    usable_scanlines = 0
+    for row in range(complete_scanlines):
+        if decompressed[row * scanline_size] not in range(5):
+            break
+        usable_scanlines += 1
+
+    return complete_scanlines, usable_scanlines
+
+
+def _idat_stream_status(error: str, *, complete: bool, decompressed_size: int, expected_size: int) -> str:
+    if complete and error == "" and decompressed_size == expected_size:
+        return "complete"
+    if error == "incomplete zlib stream":
+        return "incomplete_stream"
+    if "incorrect data check" in error:
+        return "bad_adler"
+    if error:
+        return "corrupt_deflate"
+    return "partial"
+
+
+def analyze_idat_stream(data: bytes) -> IdatStreamAnalysis:
+    try:
+        chunks = list(png.iter_chunks(data))
+    except png.PngFormatError as exc:
+        return IdatStreamAnalysis(False, False, "unsupported", reason=str(exc))
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    ihdr_values = _parse_ihdr(ihdr)
+    if ihdr_values is None:
+        return IdatStreamAnalysis(False, False, "unsupported", reason="IHDR is missing or malformed")
+
+    width, height, bit_depth, color_type, compression, filter_method, interlace = ihdr_values
+    if width < 1 or height < 1:
+        return IdatStreamAnalysis(False, False, "unsupported", reason="IHDR width/height must be positive")
+    if compression != 0 or filter_method != 0:
+        return IdatStreamAnalysis(False, False, "unsupported", reason="unsupported IHDR compression/filter method")
+    if interlace != 0:
+        return IdatStreamAnalysis(False, False, "unsupported_interlace", reason="interlaced PNG is not supported")
+    if not png.valid_png_color_depth(bit_depth, color_type):
+        return IdatStreamAnalysis(False, False, "unsupported", reason="unsupported bit depth/color type")
+
+    scanline_size = png.png_scanline_size(width, bit_depth, color_type)
+    if scanline_size is None:
+        return IdatStreamAnalysis(False, False, "unsupported", reason="could not compute scanline size")
+
+    idat_chunks = tuple(chunk for chunk in chunks if chunk.chunk_type == b"IDAT")
+    idat_stream = b"".join(chunk.data for chunk in idat_chunks)
+    expected_size = scanline_size * height
+    base = {
+        "width": width,
+        "height": height,
+        "bit_depth": bit_depth,
+        "color_type": color_type,
+        "scanline_size": scanline_size,
+        "expected_size": expected_size,
+        "compressed_size": len(idat_stream),
+        "idat_chunk_count": len(idat_chunks),
+    }
+
+    if len(idat_stream) == 0:
+        return IdatStreamAnalysis(False, False, "unsupported", reason="IDAT stream is missing", **base)
+
+    if len(idat_stream) < 2 or not zlib_header_info(idat_stream[:2].hex()).valid:
+        return IdatStreamAnalysis(
+            True,
+            False,
+            "bad_zlib_header",
+            reason="bad zlib header",
+            **base,
+        )
+
+    decompressed, zlib_complete, error, error_offset = _decompress_until_error_details(idat_stream)
+    complete_scanlines, usable_scanlines = _count_usable_scanlines(decompressed, scanline_size, height)
+    recovered_size = usable_scanlines * scanline_size
+    status = _idat_stream_status(
+        error,
+        complete=zlib_complete,
+        decompressed_size=len(decompressed),
+        expected_size=expected_size,
+    )
+    complete = status == "complete" and usable_scanlines == height
+    reason = error
+    if status == "partial" and len(decompressed) != expected_size:
+        reason = "zlib stream completed with unexpected decompressed size"
+    elif status == "partial" and usable_scanlines != height:
+        reason = "zlib stream completed with unusable scanlines"
+
+    return IdatStreamAnalysis(
+        True,
+        complete,
+        "complete" if complete else status,
+        decompressed_size=len(decompressed),
+        complete_scanlines=complete_scanlines,
+        usable_scanlines=usable_scanlines,
+        recovered_scanlines=decompressed[:recovered_size],
+        zlib_error=error,
+        error_offset=error_offset,
+        reason=reason,
+        **base,
+    )
 
 
 def analyze_partial_idat(data: bytes) -> PartialIdatAnalysis:
@@ -213,13 +350,7 @@ def analyze_partial_idat(data: bytes) -> PartialIdatAnalysis:
 
     decompressed, zlib_complete, error = _decompress_until_error(idat_stream)
     expected_size = scanline_size * height
-    complete_scanlines = min(height, len(decompressed) // scanline_size)
-
-    usable_scanlines = 0
-    for row in range(complete_scanlines):
-        if decompressed[row * scanline_size] not in range(5):
-            break
-        usable_scanlines += 1
+    complete_scanlines, usable_scanlines = _count_usable_scanlines(decompressed, scanline_size, height)
 
     recovered_size = usable_scanlines * scanline_size
     complete = (

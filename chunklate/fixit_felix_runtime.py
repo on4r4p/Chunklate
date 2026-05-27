@@ -1,13 +1,39 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import random
 from typing import Any
 from typing import Callable
 
 from . import fixit_felix
 from . import idat
+from . import idat_chain
 from . import relics
 from . import writer
+
+
+REPEATED_DEFER_MESSAGE_TEMPLATES = (
+    "Ah shit ...here we go again ...another {target} in Grove Street. I will keep it for later.",
+    "Well, that same smell again: another {target}. I am parking it for later.",
+    "I know this tune already: another {target}. I will keep it on the side for now.",
+    "Nope, not poking that twice: another {target}. I am saving the headache for later.",
+    "Same kind of bruise, new spot: another {target}. I will deal with it after the structure behaves.",
+    "That one is waving at us again: another {target}. I am leaving it in the notebook for now.",
+    "I have seen this trick before: another {target}. I will keep moving and come back later.",
+    "Great. {target}. Exactly what the floor needed: one more rake.",
+    "Tiny paperwork, huge consequences: {target}. Later.",
+    "I am adding {target} to the suspicious pile, with a little ribbon of shame.",
+    "This {target} is wearing a fake moustache. I will question it later.",
+    "Not today, {target}. The bigger mess still has the steering wheel.",
+    "I am not fixing {target} while the map is still upside down.",
+    "Parking {target} next to the other bad ideas.",
+    "Logged: {target}. Touching it now would be improv theatre with bytes.",
+    "This {target} is probably a symptom, not the patient.",
+    "{target} noted. No heroic patching while the floor is moving.",
+    "I am leaving {target} alone until I know what it is connected to.",
+    "{target} gets a sticky note, not a scalpel.",
+    "Fine. {target} goes into the later pile.",
+)
 
 
 @dataclass(frozen=True)
@@ -55,6 +81,7 @@ class WrongCrcRuntime:
     chunk_story: Callable[..., Any]
     set_skip_bad_crc: Callable[[Any], Any]
     set_old_bad_crc: Callable[[Any], Any]
+    side_notes: Any
     pandora_box: Any
     data_hex: str
     cl_offset: Any
@@ -78,11 +105,13 @@ class WrongChunkNameRuntime:
     nearby_chunk: Callable[[Any, Any, Any, Any, Any], Any]
     brute_chunk: Callable[[Any, Any, Any, Any], Any]
     save_clone: Callable[[Any, Any, Any, Any], Any]
+    write_clone: Callable[[Any, str], Any]
     set_skip_bad_next_name: Callable[[bool], Any]
     set_skip_bad_current_name: Callable[[bool], Any]
     bad_ancillary: Callable[[], bool]
     pandora_box: Any
     cornucopia: Any
+    data_hex: str
     side_notes: Any
     remember_wrong_chunk_name_route: Callable[[Any, str, relics.WrongChunkNameTools, str], Any]
     is_wrong_chunk_name_route_tried: Callable[[Any, str, relics.WrongChunkNameTools, str], bool]
@@ -145,6 +174,7 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         chunk_story=namespace["ChunkStory"],
         set_skip_bad_crc=namespace["FixItFelix_Set_Skip_Bad_Crc"],
         set_old_bad_crc=namespace["FixItFelix_Set_Old_Bad_Crc"],
+        side_notes=namespace["SideNotes"],
         pandora_box=namespace["PandoraBox"],
         data_hex=namespace["DATAX"],
         cl_offset=namespace["CLoffI"],
@@ -185,11 +215,13 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         nearby_chunk=namespace["NearbyChunk"],
         brute_chunk=namespace["BruteChunk"],
         save_clone=namespace["SaveClone"],
+        write_clone=namespace["WriteClone"],
         set_skip_bad_next_name=namespace["FixItFelix_Set_Skip_Bad_Next_Name"],
         set_skip_bad_current_name=namespace["FixItFelix_Set_Skip_Bad_Current_Name"],
         bad_ancillary=lambda: namespace["Bad_Ancillary"],
         pandora_box=namespace["PandoraBox"],
         cornucopia=namespace["Cornucopia"],
+        data_hex=namespace["DATAX"],
         side_notes=namespace["SideNotes"],
         remember_wrong_chunk_name_route=lambda finding, chkd, tools, action: remember_wrong_chunk_name_route(
             namespace,
@@ -437,6 +469,37 @@ def _emit_wrong_chunk_name_deja_vu(runtime: WrongChunkNameRuntime, tools: relics
     _remember_wrong_chunk_name_note(runtime, tools, "skipped", "route was already tried")
 
 
+def _chunk_label(chunk: Any) -> str:
+    if isinstance(chunk, bytes):
+        try:
+            return chunk.decode("latin1")
+        except Exception:
+            return repr(chunk)
+    return str(chunk)
+
+
+def _chunk_article(label: str) -> str:
+    if not label:
+        return "a"
+    return "an" if label[0].upper() in {"A", "E", "I", "O", "U"} else "a"
+
+
+def repeated_deferred_repair_message(
+    *,
+    error_label: str,
+    chunk: Any = None,
+    chooser: Callable[[tuple[str, ...]], str] | None = None,
+) -> str:
+    if chunk is None:
+        target = error_label
+    else:
+        label = _chunk_label(chunk)
+        target = "%s in %s %s chunk" % (error_label, _chunk_article(label), label)
+
+    pick = chooser or random.choice
+    return pick(REPEATED_DEFER_MESSAGE_TEMPLATES).format(target=target)
+
+
 def explain_deferred_idat_crc(runtime: CriticalMissRuntime, finding: Any) -> None:
     if not is_idat_wrong_crc_finding(finding):
         return
@@ -468,7 +531,7 @@ def explain_deferred_idat_crc(runtime: CriticalMissRuntime, finding: Any) -> Non
 
     runtime.candy(
         "Cowsay",
-        "Ah shit ...here we go again ...another wrong CRC in an IDAT chunk. I will keep it for later.",
+        repeated_deferred_repair_message(error_label="wrong CRC", chunk=b"IDAT"),
         "com",
     )
 
@@ -504,6 +567,35 @@ def defer_wrong_crc(runtime: WrongCrcRuntime, tools: relics.WrongCrcTools) -> tu
 class WrongCrcPatchValidation:
     can_save: bool
     reason: str = ""
+    stream_analysis: idat.IdatStreamAnalysis | None = None
+
+
+def idat_stream_diagnosis_note(analysis: idat.IdatStreamAnalysis) -> str:
+    details = [
+        "-IDAT stream diagnosis: status=%s" % analysis.status,
+        "chunks=%s" % analysis.idat_chunk_count,
+        "compressed=%s" % analysis.compressed_size,
+        "decompressed=%s" % analysis.decompressed_size,
+        "expected=%s" % analysis.expected_size,
+        "scanlines=%s/%s" % (analysis.usable_scanlines, analysis.height),
+    ]
+    if analysis.error_offset is not None:
+        details.append("error_offset=%s" % analysis.error_offset)
+    reason = analysis.reason or analysis.zlib_error
+    if reason:
+        details.append("reason=%s" % reason)
+    return "; ".join(details) + "."
+
+
+def defer_idat_crc_only_note(reason: str) -> str:
+    return "-Deferred IDAT CRC-only patch: zlib stream still invalid: %s." % reason
+
+
+def remember_deferred_idat_crc_note(runtime: WrongCrcRuntime, validation: WrongCrcPatchValidation) -> None:
+    if validation.stream_analysis is not None:
+        runtime.side_notes.append(idat_stream_diagnosis_note(validation.stream_analysis))
+    if validation.reason:
+        runtime.side_notes.append(defer_idat_crc_only_note(validation.reason))
 
 
 def validate_idat_crc_only_patch(
@@ -524,12 +616,12 @@ def validate_idat_crc_only_patch(
     except Exception as exc:
         return WrongCrcPatchValidation(False, "I could not even build the CRC-only candidate: %s" % exc)
 
-    analysis = idat.analyze_partial_idat(patched_data)
+    analysis = idat.analyze_idat_stream(patched_data)
     if analysis.complete:
         return WrongCrcPatchValidation(True)
 
-    reason = analysis.reason or analysis.decompression_error or "IDAT stream is still not a complete image"
-    return WrongCrcPatchValidation(False, reason)
+    reason = analysis.reason or analysis.zlib_error or analysis.status or "IDAT stream is still not a complete image"
+    return WrongCrcPatchValidation(False, reason, analysis)
 
 
 def save_or_defer_wrong_crc(
@@ -545,6 +637,7 @@ def save_or_defer_wrong_crc(
         runtime.set_idat_crc_patch_failed(True)
         runtime.set_idat_crc_patch_failed_finding(finding)
         runtime.remember_deferred_idat_crc_route(finding, tools)
+        remember_deferred_idat_crc_note(runtime, validation)
 
     runtime.candy(
         "Cowsay",
@@ -574,6 +667,7 @@ def preflight_idat_crc_only_patch(
     runtime.set_idat_crc_patch_failed(True)
     runtime.set_idat_crc_patch_failed_finding(finding)
     runtime.remember_deferred_idat_crc_route(finding, tools)
+    remember_deferred_idat_crc_note(runtime, validation)
     runtime.candy(
         "Cowsay",
         "I tested the cheap CRC patch in my head. It still breaks: %s" % validation.reason,
@@ -693,6 +787,94 @@ def apply_wrong_crc(
         return final_wrong_crc_question(runtime, decision.finding, chkd, tools)
 
     raise ValueError("Unknown FixItFelix wrong-CRC action: %s" % decision.action)
+
+
+def _idat_chain_summary(analysis: idat_chain.IdatChainAnalysis) -> str:
+    lines = ["-Repair hypothesis tried: IDAT chain header repair."]
+    lines.extend(idat_chain.patch_summary_lines(analysis.patches))
+    return "\n".join(lines)
+
+
+def _explain_idat_stream_after_header_repair(
+    runtime: Any,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    already_aligned: bool = False,
+) -> None:
+    runtime.side_notes.append(idat_stream_diagnosis_note(analysis))
+    if analysis.complete:
+        if already_aligned:
+            runtime.candy("Cowsay", "The IDAT road signs already line up and the compressed stream answers cleanly.", "good")
+        else:
+            runtime.candy("Cowsay", "The IDAT road signs line up and the compressed stream answers cleanly.", "good")
+        return
+
+    reason = analysis.reason or analysis.zlib_error or analysis.status
+    if already_aligned:
+        runtime.candy("Cowsay", "The IDAT road signs already line up to IEND.", "good")
+    else:
+        runtime.candy("Cowsay", "The IDAT road signs line up now.", "good")
+    runtime.candy(
+        "Cowsay",
+        "But the compressed stream is still broken: %s" % reason,
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "So this clone is a map correction, not the final picture yet.",
+        "com",
+    )
+
+
+def _block_isolated_idat_repairs_after_chain_diagnostic(
+    runtime: Any,
+    analysis: idat.IdatStreamAnalysis,
+) -> tuple[bool, None]:
+    _explain_idat_stream_after_header_repair(runtime, analysis, already_aligned=True)
+    runtime.candy(
+        "Cowsay",
+        "So I am not adding IEND, renaming chunks, or polishing CRC labels on this pass.",
+        "com",
+    )
+    return False, None
+
+
+def try_idat_chain_header_repair(
+    runtime: Any,
+    *,
+    block_if_aligned_bad_stream: bool = False,
+) -> tuple[bool, Any] | None:
+    try:
+        data = bytes.fromhex(runtime.data_hex)
+    except Exception:
+        return None
+
+    analysis = idat_chain.analyze_idat_chain_headers(data)
+    if block_if_aligned_bad_stream and analysis.status == "ok":
+        stream_analysis = idat.analyze_idat_stream(data)
+        if not stream_analysis.complete:
+            return _block_isolated_idat_repairs_after_chain_diagnostic(runtime, stream_analysis)
+        return None
+
+    if not analysis.repairable:
+        return None
+
+    runtime.candy(
+        "Cowsay",
+        "I found a regular IDAT convoy, but some road signs are bent.",
+        "good",
+    )
+    runtime.candy(
+        "Cowsay",
+        "I am fixing the IDAT headers as a batch. CRCs can complain after that.",
+        "com",
+    )
+    summary = _idat_chain_summary(analysis)
+    runtime.side_notes.extend(summary.splitlines())
+    stream_analysis = idat.analyze_idat_stream(analysis.fixed_data)
+    _explain_idat_stream_after_header_repair(runtime, stream_analysis)
+    summary = "\n".join([summary, idat_stream_diagnosis_note(stream_analysis)])
+    return True, runtime.write_clone(analysis.fixed_data, summary)
 
 
 def emit_wrong_chunk_name_critical(runtime: WrongChunkNameRuntime, finding: Any) -> None:
@@ -820,6 +1002,10 @@ def apply_wrong_chunk_name(
         raise ValueError("FixItFelix wrong-chunk-name action needs chunk tools: %s" % decision.action)
 
     emit_wrong_chunk_name_critical(runtime, decision.finding)
+    idat_chain_repair = try_idat_chain_header_repair(runtime)
+    if idat_chain_repair is not None:
+        return idat_chain_repair
+
     runtime.ancillary(tools.chunk_type)
     describe_wrong_chunk_name(runtime, decision)
 
@@ -1044,6 +1230,10 @@ def handle_no_next_append_missing_iend(
     runtime: NoNextChunkRuntime,
     finding: Any,
 ) -> tuple[bool, Any]:
+    idat_chain_repair = try_idat_chain_header_repair(runtime, block_if_aligned_bad_stream=True)
+    if idat_chain_repair is not None:
+        return idat_chain_repair
+
     later_iend = runtime.nearby_found_later_iend()
     if later_iend:
         runtime.candy("Cowsay", "I already saw an IEND later in this file.", "good")

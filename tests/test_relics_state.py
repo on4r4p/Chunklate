@@ -83,6 +83,16 @@ def test_relics_module_question_hash_preserves_tool_triplet_and_key_fallback():
     assert relics.question_hash(store, "missing", "IDAT_Tool_") == hash("missing")
 
 
+def test_relics_module_resolves_tool_prefix_from_available_tools():
+    tools = {
+        "bad!_Tool_0": b"bad!",
+        "bad!_Tool_1": "13",
+    }
+
+    assert relics.resolve_tool_prefix(tools, "IDAT_Tool_") == "bad!_Tool_"
+    assert relics.resolve_tool_prefix(tools, "bad!_Tool_") == "bad!_Tool_"
+
+
 def test_relics_module_exposes_wrong_crc_tools_by_name():
     tools = relics.build_tools(
         b"IDAT",
@@ -1357,6 +1367,10 @@ def main():
         (
             "Relics module question hash preserves triplet and fallback",
             test_relics_module_question_hash_preserves_tool_triplet_and_key_fallback,
+        ),
+        (
+            "Relics module resolves tool prefix from available tools",
+            test_relics_module_resolves_tool_prefix_from_available_tools,
         ),
         ("Relics module exposes wrong CRC tools by name", test_relics_module_exposes_wrong_crc_tools_by_name),
         (

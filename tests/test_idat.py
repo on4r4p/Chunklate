@@ -296,6 +296,92 @@ def test_rebuild_partial_idat_blackfill_ignores_complete_or_unusable_streams():
     assert idat.rebuild_partial_idat_blackfill(invalid) is None
 
 
+def test_analyze_idat_stream_reports_complete_stream():
+    filtered = b"\x00abc" + b"\x00def"
+    analysis = idat.analyze_idat_stream(build_rgb_png(1, 2, filtered))
+
+    assert analysis.supported is True
+    assert analysis.complete is True
+    assert analysis.status == "complete"
+    assert analysis.idat_chunk_count == 1
+    assert analysis.compressed_size > 0
+    assert analysis.decompressed_size == 8
+    assert analysis.expected_size == 8
+    assert analysis.complete_scanlines == 2
+    assert analysis.usable_scanlines == 2
+    assert analysis.zlib_error == ""
+    assert analysis.error_offset is None
+
+
+def test_analyze_idat_stream_reports_corrupt_deflate():
+    filtered = b"\x00abc"
+    analysis = idat.analyze_idat_stream(build_rgb_png(1, 1, filtered, idat_data=b"\x78\x9c\xff\xff"))
+
+    assert analysis.supported is True
+    assert analysis.complete is False
+    assert analysis.status == "corrupt_deflate"
+    assert analysis.zlib_error
+    assert analysis.error_offset is not None
+
+
+def test_analyze_idat_stream_reports_bad_zlib_header():
+    filtered = b"\x00abc"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[0] = 0
+    compressed[1] = 0
+
+    analysis = idat.analyze_idat_stream(build_rgb_png(1, 1, filtered, idat_data=bytes(compressed)))
+
+    assert analysis.supported is True
+    assert analysis.complete is False
+    assert analysis.status == "bad_zlib_header"
+    assert analysis.reason == "bad zlib header"
+    assert analysis.error_offset is None
+
+
+def test_analyze_idat_stream_reports_bad_adler():
+    filtered = b"".join(b"\x00" + bytes((row, row, row)) for row in range(3))
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+
+    analysis = idat.analyze_idat_stream(build_rgb_png(1, 3, filtered, idat_data=bytes(compressed)))
+
+    assert analysis.supported is True
+    assert analysis.complete is False
+    assert analysis.status == "bad_adler"
+    assert analysis.partial is True
+    assert analysis.usable_scanlines == 3
+    assert analysis.recovered_scanlines == filtered
+    assert analysis.error_offset is not None
+
+
+def test_analyze_idat_stream_reports_incomplete_stream():
+    filtered = b"".join(b"\x00" + bytes((row, row, row)) for row in range(10))
+    _candidate, partial = find_truncated_candidate(
+        filtered,
+        lambda analysis: analysis.usable_scanlines > 0 and analysis.decompression_error,
+    )
+
+    analysis = idat.analyze_idat_stream(_candidate)
+
+    assert analysis.supported is True
+    assert analysis.complete is False
+    assert analysis.status == "incomplete_stream"
+    assert analysis.partial is True
+    assert analysis.usable_scanlines == partial.usable_scanlines
+    assert analysis.error_offset == analysis.compressed_size
+
+
+def test_analyze_idat_stream_reports_unsupported_interlace():
+    filtered = b"\x00abc"
+    analysis = idat.analyze_idat_stream(build_rgb_png(1, 1, filtered, interlace=1))
+
+    assert analysis.supported is False
+    assert analysis.complete is False
+    assert analysis.status == "unsupported_interlace"
+    assert analysis.reason == "interlaced PNG is not supported"
+
+
 def main():
     checks = [
         ("Dummy scanline", test_dummy_scanline_preserves_legacy_sample_width),
@@ -347,6 +433,12 @@ def main():
             "Partial IDAT blackfill ignored cases",
             test_rebuild_partial_idat_blackfill_ignores_complete_or_unusable_streams,
         ),
+        ("IDAT stream complete", test_analyze_idat_stream_reports_complete_stream),
+        ("IDAT stream corrupt deflate", test_analyze_idat_stream_reports_corrupt_deflate),
+        ("IDAT stream bad zlib header", test_analyze_idat_stream_reports_bad_zlib_header),
+        ("IDAT stream bad Adler", test_analyze_idat_stream_reports_bad_adler),
+        ("IDAT stream incomplete", test_analyze_idat_stream_reports_incomplete_stream),
+        ("IDAT stream unsupported interlace", test_analyze_idat_stream_reports_unsupported_interlace),
     ]
 
     print("Running IDAT tests")

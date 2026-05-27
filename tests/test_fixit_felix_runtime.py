@@ -10,6 +10,7 @@ if str(ROOT) not in sys.path:
 
 from chunklate import fixit_felix
 from chunklate import fixit_felix_runtime
+from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk
 
 
 def test_apply_repair_records_note_and_writes_clone():
@@ -156,15 +157,62 @@ def test_apply_critical_miss_rejects_unknown_action():
         raise AssertionError("Expected ValueError for unknown critical-miss action")
 
 
-def wrong_crc_tools(*, chunk=b"IDAT", offset="0x2a", start=12, end=20):
+def test_repeated_deferred_repair_message_templates_are_adaptable():
+    assert len(fixit_felix_runtime.REPEATED_DEFER_MESSAGE_TEMPLATES) == 20
+
+    first = fixit_felix_runtime.repeated_deferred_repair_message(
+        error_label="wrong CRC",
+        chunk=b"IDAT",
+        chooser=lambda choices: choices[0],
+    )
+    other_chunk = fixit_felix_runtime.repeated_deferred_repair_message(
+        error_label="wrong CRC",
+        chunk=b"PLTE",
+        chooser=lambda choices: choices[1],
+    )
+    other_error = fixit_felix_runtime.repeated_deferred_repair_message(
+        error_label="bad length",
+        chunk=b"IEND",
+        chooser=lambda choices: choices[-1],
+    )
+    generic = fixit_felix_runtime.repeated_deferred_repair_message(
+        error_label="repeated route",
+        chooser=lambda choices: choices[-1],
+    )
+
+    assert first == (
+        "Ah shit ...here we go again ...another wrong CRC in an IDAT chunk in Grove Street. "
+        "I will keep it for later."
+    )
+    assert "wrong CRC in a PLTE chunk" in other_chunk
+    assert "bad length in an IEND chunk" in other_error
+    assert generic == "Fine. repeated route goes into the later pile."
+
+
+def wrong_crc_tools(*, chunk=b"IDAT", offset="0x2a", start=12, end=20, replacement_crc="fixed-crc-data"):
     return SimpleNamespace(
-        replacement_crc="fixed-crc-data",
+        replacement_crc=replacement_crc,
         start=start,
         end=end,
         chunk=chunk,
         offset=offset,
         old_crc="old-crc",
     )
+
+
+def bad_deflate_png_crc_patch():
+    ihdr = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00",
+    )
+    idat_payload = b"\x78\x9c\xff\xff"
+    idat_chunk = build_png_chunk(b"IDAT", idat_payload)
+    data = PNG_SIGNATURE + ihdr + idat_chunk + IEND_CHUNK
+    idat_offset = len(PNG_SIGNATURE) + len(ihdr)
+    crc_start = (idat_offset + 8 + len(idat_payload)) * 2
+    crc_end = crc_start + 8
+    replacement_crc = data[idat_offset + 8 + len(idat_payload) : idat_offset + 12 + len(idat_payload)].hex()
+    return data.hex(), replacement_crc, crc_start, crc_end
 
 
 def wrong_crc_runtime(
@@ -178,12 +226,15 @@ def wrong_crc_runtime(
     debug=False,
     pause_debug=False,
     data_hex="00112233445566778899",
+    side_notes=None,
     last_question_status=None,
     deferred_routes=None,
 ):
     answer_iter = iter(answers)
     if deferred_routes is None:
         deferred_routes = set()
+    if side_notes is None:
+        side_notes = []
 
     def record(name, result=None):
         def callback(*args, **kwargs):
@@ -212,6 +263,7 @@ def wrong_crc_runtime(
         chunk_story=record("chunk_story"),
         set_skip_bad_crc=record("set_skip_bad_crc"),
         set_old_bad_crc=record("set_old_bad_crc"),
+        side_notes=side_notes,
         pandora_box=pandora_box if pandora_box is not None else {},
         data_hex=data_hex,
         cl_offset=cl_offset,
@@ -377,6 +429,34 @@ def test_apply_wrong_crc_records_failed_idat_crc_route_when_patch_still_breaks()
     ) in calls
 
 
+def test_apply_wrong_crc_defers_crc_only_when_idat_stream_stays_invalid():
+    calls = []
+    side_notes = []
+    finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    data_hex, replacement_crc, start, end = bad_deflate_png_crc_patch()
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(True,),
+        pandora_box={finding: {chkd + "0": replacement_crc}},
+        data_hex=data_hex,
+        side_notes=side_notes,
+    )
+
+    result = fixit_felix_runtime.apply_wrong_crc(
+        runtime,
+        fixit_felix.WrongCrcDecision("ask_easy_crc_fix", finding, 0),
+        chkd,
+        wrong_crc_tools(chunk=b"IDAT", replacement_crc=replacement_crc, start=start, end=end),
+    )
+
+    assert result == (False, None)
+    assert not [call for call in calls if call[0] == "save_clone"]
+    assert not [call for call in calls if call[0] == "question"]
+    assert any(note.startswith("-IDAT stream diagnosis: status=corrupt_deflate") for note in side_notes)
+    assert any(note.startswith("-Deferred IDAT CRC-only patch: zlib stream still invalid:") for note in side_notes)
+
+
 def test_apply_wrong_crc_other_errors_defers_to_chunk_story():
     calls = []
     finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
@@ -462,6 +542,38 @@ def wrong_chunk_name_tools():
     )
 
 
+def raw_png_chunk(declared_length, chunk_type, payload):
+    return declared_length.to_bytes(4, "big") + chunk_type + payload + b"\x00\x00\x00\x00"
+
+
+def idat_chain_candidate_hex():
+    data = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", b"\x00" * 13)
+        + raw_png_chunk(4, b"IDAT", b"aaaa")
+        + raw_png_chunk(4, b"IDAT", b"0000")
+        + raw_png_chunk(5, b"@DAT", b"bbbb")
+        + raw_png_chunk(4, b"IDAT", b"cccc")
+        + IEND_CHUNK
+    )
+    return data.hex()
+
+
+def idat_chain_aligned_bad_deflate_hex():
+    ihdr = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00",
+    )
+    data = (
+        PNG_SIGNATURE
+        + ihdr
+        + raw_png_chunk(2, b"IDAT", b"\x78\x9c")
+        + raw_png_chunk(2, b"IDAT", b"\xff\xff")
+        + IEND_CHUNK
+    )
+    return data.hex()
+
+
 def test_wrong_chunk_name_route_key_ignores_error_counter():
     first = fixit_felix_runtime.wrong_chunk_name_route_key(
         "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42",
@@ -500,6 +612,7 @@ def wrong_chunk_name_runtime(
     cornucopia=None,
     side_notes=None,
     tried_routes=None,
+    data_hex="00112233445566778899",
 ):
     answer_iter = iter(answers)
     if side_notes is None:
@@ -526,11 +639,13 @@ def wrong_chunk_name_runtime(
         nearby_chunk=record("nearby_chunk", "nearby-result"),
         brute_chunk=record("brute_chunk", "brute-result"),
         save_clone=record("save_clone", "saved"),
+        write_clone=record("write_clone", "written"),
         set_skip_bad_next_name=record("set_skip_bad_next_name"),
         set_skip_bad_current_name=record("set_skip_bad_current_name"),
         bad_ancillary=lambda: bad_ancillary,
         pandora_box=pandora_box if pandora_box is not None else {},
         cornucopia=cornucopia if cornucopia is not None else {},
+        data_hex=data_hex,
         side_notes=side_notes,
         remember_wrong_chunk_name_route=lambda finding, chkd, tools, action: tried_routes.add(
             fixit_felix_runtime.wrong_chunk_name_route_key(finding, chkd, tools, action)
@@ -655,6 +770,62 @@ def test_apply_wrong_chunk_name_bruteforce_skips_known_route_without_question():
         "-Repair hypothesis skipped: chunk-name recovery for zzzz at 0x80; "
         "reason: route was already tried."
     ) in side_notes
+
+
+def test_apply_wrong_chunk_name_uses_idat_chain_batch_before_bruteforce():
+    calls = []
+    side_notes = []
+    finding = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"
+    chkd = "zzzz_Tool_"
+    runtime = wrong_chunk_name_runtime(
+        calls,
+        answers=(),
+        pandora_box={finding: {chkd + "0": b"zzzz"}},
+        side_notes=side_notes,
+        data_hex=idat_chain_candidate_hex(),
+    )
+
+    result = fixit_felix_runtime.apply_wrong_chunk_name(
+        runtime,
+        fixit_felix.WrongChunkNameDecision("ask_bruteforce", finding, True),
+        chkd,
+        wrong_chunk_name_tools(),
+    )
+
+    assert result == (True, "written")
+    assert not [call for call in calls if call[0] == "question"]
+    assert not [call for call in calls if call[0] == "ancillary"]
+    assert not [call for call in calls if call[0] == "brute_chunk"]
+    assert any(call[0] == "write_clone" for call in calls)
+    assert "-Repair hypothesis tried: IDAT chain header repair." in side_notes
+    assert any("type @DAT -> IDAT" in note for note in side_notes)
+
+
+def test_apply_wrong_chunk_name_keeps_known_name_repair_available_when_stream_is_bad():
+    calls = []
+    side_notes = []
+    finding = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"
+    chkd = "zzzz_Tool_"
+    runtime = wrong_chunk_name_runtime(
+        calls,
+        answers=(True,),
+        pandora_box={finding: {chkd + "0": b"zzzz"}},
+        side_notes=side_notes,
+        data_hex=idat_chain_aligned_bad_deflate_hex(),
+    )
+
+    result = fixit_felix_runtime.apply_wrong_chunk_name(
+        runtime,
+        fixit_felix.WrongChunkNameDecision("ask_bruteforce", finding, True),
+        chkd,
+        wrong_chunk_name_tools(),
+    )
+
+    assert result == (True, "brute-result")
+    assert [call for call in calls if call[0] == "question"]
+    assert [call for call in calls if call[0] == "ancillary"]
+    assert [call for call in calls if call[0] == "brute_chunk"]
+    assert not [call for call in calls if call[0] == "write_clone"]
 
 
 def test_apply_wrong_chunk_name_saves_existing_solution():
@@ -900,6 +1071,55 @@ def test_apply_no_next_append_missing_iend_uses_dummy_at_crc_tail():
     assert result == (True, "dummy-result")
     assert side_notes == ["-Extra bits detected:ff"]
     assert calls[-1] == ("dummy_chunk", (b"IEND", 8, 8, 8, finding), {})
+
+
+def test_apply_no_next_uses_idat_chain_batch_before_iend_append():
+    calls = []
+    finding = "CheckLength_Error_0:-No NextChunk"
+    runtime, side_notes, _state = no_next_runtime(
+        calls,
+        data_hex=idat_chain_candidate_hex(),
+    )
+
+    result = fixit_felix_runtime.apply_no_next_chunk(
+        runtime,
+        fixit_felix.NoNextChunkDecision("append_missing_iend", b"IDAT", b"IDAT", "12"),
+        finding,
+        "IDAT_Tool_",
+        no_next_tools(),
+    )
+
+    assert result == (True, "write-result")
+    assert not [call for call in calls if call[0] == "dummy_chunk"]
+    assert any(call[0] == "write_clone" for call in calls)
+    assert "-Repair hypothesis tried: IDAT chain header repair." in side_notes
+
+
+def test_apply_no_next_stops_iend_append_when_idat_chain_is_aligned_but_stream_is_bad():
+    calls = []
+    finding = "CheckLength_Error_0:-No NextChunk"
+    runtime, side_notes, _state = no_next_runtime(
+        calls,
+        data_hex=idat_chain_aligned_bad_deflate_hex(),
+    )
+
+    result = fixit_felix_runtime.apply_no_next_chunk(
+        runtime,
+        fixit_felix.NoNextChunkDecision("append_missing_iend", b"IDAT", b"IDAT", "12"),
+        finding,
+        "IDAT_Tool_",
+        no_next_tools(),
+    )
+
+    assert result == (False, None)
+    assert not [call for call in calls if call[0] == "dummy_chunk"]
+    assert not [call for call in calls if call[0] == "write_clone"]
+    assert any(note.startswith("-IDAT stream diagnosis: status=corrupt_deflate") for note in side_notes)
+    assert (
+        "candy",
+        ("Cowsay", "So I am not adding IEND, renaming chunks, or polishing CRC labels on this pass.", "com"),
+        {},
+    ) in calls
 
 
 def test_apply_no_next_does_not_append_iend_when_nearby_already_found_one():
@@ -1284,6 +1504,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert wrong_crc.chunk_story is namespace["ChunkStory"]
     assert wrong_crc.set_skip_bad_crc is namespace["FixItFelix_Set_Skip_Bad_Crc"]
     assert wrong_crc.set_old_bad_crc is namespace["FixItFelix_Set_Old_Bad_Crc"]
+    assert wrong_crc.side_notes is side_notes
     assert wrong_crc.pandora_box is pandora_box
     assert wrong_crc.cl_offset == 12
     assert wrong_crc.crc_offset == 40
@@ -1312,6 +1533,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert wrong_name.nearby_chunk is namespace["NearbyChunk"]
     assert wrong_name.brute_chunk is namespace["BruteChunk"]
     assert wrong_name.save_clone is namespace["SaveClone"]
+    assert wrong_name.write_clone is namespace["WriteClone"]
     assert wrong_name.set_skip_bad_next_name is namespace["FixItFelix_Set_Skip_Bad_Next_Name"]
     assert wrong_name.set_skip_bad_current_name is namespace["FixItFelix_Set_Skip_Bad_Current_Name"]
     assert wrong_name.bad_ancillary() is False
@@ -1319,6 +1541,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert wrong_name.bad_ancillary() is True
     assert wrong_name.pandora_box is pandora_box
     assert wrong_name.cornucopia is cornucopia
+    assert wrong_name.data_hex == "001122"
 
     no_next = fixit_felix_runtime.build_no_next_chunk_runtime_from_namespace(namespace)
     assert no_next.emit is namespace["PRINT"]
@@ -1458,6 +1681,10 @@ def main():
         ("Apply critical miss emits and pauses", test_apply_critical_miss_emits_and_pauses_on_debug_action),
         ("Apply critical miss continue skips pause", test_apply_critical_miss_continue_does_not_pause),
         ("Apply critical miss rejects unknown action", test_apply_critical_miss_rejects_unknown_action),
+        (
+            "Repeated deferred repair message templates",
+            test_repeated_deferred_repair_message_templates_are_adaptable,
+        ),
         ("Apply wrong CRC easy answer saves clone", test_apply_wrong_crc_easy_answer_saves_clone),
         (
             "Apply wrong CRC easy decline keeps skip none",
@@ -1468,6 +1695,10 @@ def main():
         (
             "Apply wrong CRC records failed IDAT route",
             test_apply_wrong_crc_records_failed_idat_crc_route_when_patch_still_breaks,
+        ),
+        (
+            "Apply wrong CRC defers invalid IDAT stream",
+            test_apply_wrong_crc_defers_crc_only_when_idat_stream_stays_invalid,
         ),
         ("Apply wrong CRC other errors defers", test_apply_wrong_crc_other_errors_defers_to_chunk_story),
         (
@@ -1490,6 +1721,14 @@ def main():
             "Apply wrong chunk name skips known route",
             test_apply_wrong_chunk_name_bruteforce_skips_known_route_without_question,
         ),
+        (
+            "Apply wrong chunk name IDAT chain batch",
+            test_apply_wrong_chunk_name_uses_idat_chain_batch_before_bruteforce,
+        ),
+        (
+            "Apply wrong chunk name remains available after aligned bad stream",
+            test_apply_wrong_chunk_name_keeps_known_name_repair_available_when_stream_is_bad,
+        ),
         ("Apply wrong chunk name saves existing", test_apply_wrong_chunk_name_saves_existing_solution),
         (
             "Apply wrong chunk name rejects missing tools",
@@ -1503,6 +1742,14 @@ def main():
         ("Apply no-next false positive clean cut", test_apply_no_next_false_positive_iend_writes_clean_cut),
         ("Apply no-next wrong IEND length ends", test_apply_no_next_wrong_iend_length_records_note_and_ends),
         ("Apply no-next appends dummy at CRC tail", test_apply_no_next_append_missing_iend_uses_dummy_at_crc_tail),
+        (
+            "Apply no-next IDAT chain batch",
+            test_apply_no_next_uses_idat_chain_batch_before_iend_append,
+        ),
+        (
+            "Apply no-next blocks IEND append after aligned bad stream",
+            test_apply_no_next_stops_iend_append_when_idat_chain_is_aligned_but_stream_is_bad,
+        ),
         (
             "Apply no-next skips append after nearby IEND",
             test_apply_no_next_does_not_append_iend_when_nearby_already_found_one,
