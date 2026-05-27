@@ -21,7 +21,7 @@ class GetInfoRuntime:
     emit: LegacyCall
     candy: LegacyCall
     color: LegacyCall
-    emoji: LegacyCall
+    chunky: LegacyCall
     raw_length: str
     orig_cl: str
     ihdr_color: str
@@ -35,7 +35,7 @@ def print_ok(runtime: GetInfoRuntime) -> None:
     runtime.emit(
         "\n-Errors Check :"
         + runtime.candy("Color", "green", " OK ")
-        + runtime.candy("Emoj", "good")
+        + runtime.candy("Chunky", "good")
     )
 
 
@@ -99,7 +99,7 @@ def handle_phys(runtime: GetInfoRuntime, chunk: Any, data: str, to_fix: list[Any
     info = chunk_info.parse_phys(data)
     runtime.set_legacy(pHYs_Y=info.y, pHYs_X=info.x, pHYs_Unit=info.unit)
 
-    chunk_report.render_phys(info, runtime.emit, runtime.color, runtime.emoji)
+    chunk_report.render_phys(info, runtime.emit, runtime.color, runtime.chunky)
 
     to_fix.extend(info.fixes)
     checkpoint_or_ok(runtime, chunk, to_fix)
@@ -193,7 +193,7 @@ def handle_time(runtime: GetInfoRuntime, chunk: Any, data: str, to_fix: list[Any
         current_year,
         runtime.emit,
         runtime.color,
-        runtime.emoji,
+        runtime.chunky,
     )
     to_fix.extend(info.fixes)
     checkpoint_or_ok(runtime, chunk, to_fix)
@@ -232,7 +232,7 @@ def handle_srgb(runtime: GetInfoRuntime, chunk: Any, data: str, to_fix: list[Any
         has_chrm,
         runtime.emit,
         runtime.color,
-        runtime.emoji,
+        runtime.chunky,
     )
     to_fix.extend(info.fixes)
 
@@ -249,7 +249,7 @@ def handle_chrm(runtime: GetInfoRuntime, chunk: Any, data: str, to_fix: list[Any
         has_srgb_or_iccp,
         runtime.emit,
         runtime.color,
-        runtime.emoji,
+        runtime.chunky,
     )
     to_fix.extend(info.fixes)
 
@@ -278,7 +278,7 @@ def handle_iccp(runtime: GetInfoRuntime, chunk: Any, data: str, to_fix: list[Any
         b"cHRM" in runtime.chunks_history,
         runtime.emit,
         runtime.color,
-        runtime.emoji,
+        runtime.chunky,
     )
     to_fix.extend(info.fixes)
 
@@ -300,7 +300,7 @@ def handle_offs(runtime: GetInfoRuntime, chunk: Any, data: str, to_fix: list[Any
     info = chunk_info.parse_offs(data)
     runtime.chunk_state.apply_offs(info)
 
-    chunk_report.render_offs(info, runtime.emit, runtime.color, runtime.emoji)
+    chunk_report.render_offs(info, runtime.emit, runtime.color, runtime.chunky)
     to_fix.extend(info.fixes)
     checkpoint_or_ok(runtime, chunk, to_fix)
 

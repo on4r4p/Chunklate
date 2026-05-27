@@ -37,7 +37,7 @@ class LoadingbarProgress:
     fish_pos: int
 
 
-EMOJIS = {
+Chunky_State = {
     "good": (
         "¯\\(◉‿◉)/¯",
         "ᕦ(ò_óˇ)ᕤ",
@@ -279,8 +279,8 @@ def colorize(color: str, data: object, *, use_color: bool = True) -> object:
     return "%s%s%s" % (COLOR_CODES[color], data, RESET)
 
 
-def pick_emoji(kind: str, randint: Callable[[int, int], int] | None = None) -> str | None:
-    candidates = EMOJIS.get(kind)
+def pick_chunky(kind: str, randint: Callable[[int, int], int] | None = None) -> str | None:
+    candidates = Chunky_State.get(kind)
     if candidates is None:
         return None
     if randint is None:
@@ -346,7 +346,7 @@ def render_dialogue(
     data: object,
     *,
     max_columns: int,
-    emoji_provider: Callable[[str], str],
+    chunky_provider: Callable[[str], str],
     use_color: bool = True,
 ) -> str:
     text = str(arg)
@@ -355,11 +355,11 @@ def render_dialogue(
     separator = "━" * line_length
 
     if data == "com":
-        marker = str(emoji_provider("com"))
+        marker = str(chunky_provider("com"))
     elif data == "good":
-        marker = str(emoji_provider("good"))
+        marker = str(chunky_provider("good"))
     else:
-        marker = str(emoji_provider("bad"))
+        marker = str(chunky_provider("bad"))
 
     marker_block = " " * len(marker)
     marker_block += "/\n"

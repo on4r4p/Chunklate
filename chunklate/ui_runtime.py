@@ -60,9 +60,9 @@ class LegacyUiRuntime:
         self.pause_state.paused_in_group = False
 
     def candy(self, mode: str, arg: Any, data: Any = None) -> Any:
-        if mode == "Emoj":
+        if mode == "Chunky":
             self._flush_dialogue_pause_before_non_dialogue()
-            return ui.pick_emoji(arg, self.random_int)
+            return ui.pick_chunky(arg, self.random_int)
 
         if mode == "Color":
             self._flush_dialogue_pause_before_non_dialogue()
@@ -77,7 +77,7 @@ class LegacyUiRuntime:
                         arg,
                         data,
                         max_columns=self.max_columns,
-                        emoji_provider=lambda name: self.candy("Emoj", name),
+                        chunky_provider=lambda name: self.candy("Chunky", name),
                         use_color=self.use_color,
                     )
                 )

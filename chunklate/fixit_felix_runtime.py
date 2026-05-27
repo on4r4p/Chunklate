@@ -823,7 +823,7 @@ def handle_no_next_false_positive_iend(
 def handle_no_next_wrong_iend_length(runtime: NoNextChunkRuntime) -> tuple[bool, None]:
     runtime.emit(
         "-%s length for IEND %s "
-        % (runtime.candy("Color", "red", "Wrong"), runtime.candy("Emoj", "bad"))
+        % (runtime.candy("Color", "red", "Wrong"), runtime.candy("Chunky", "bad"))
     )
     runtime.emit(runtime.candy("Color", "yellow", "\n-ToDo"))
     runtime.side_notes.append("-Wrong length for IEND")
@@ -925,7 +925,7 @@ def handle_no_next_ask_length_probe(
 ) -> tuple[bool, Any]:
     runtime.emit(
         "\n-End of File Reached but IEND Chunk is %s ! %s"
-        % (runtime.candy("Color", "red", " MISSING! "), runtime.candy("Emoj", "bad"))
+        % (runtime.candy("Color", "red", " MISSING! "), runtime.candy("Chunky", "bad"))
     )
     runtime.side_notes.append("-End of File Reached but IEND Chunk is missing")
     runtime.candy(

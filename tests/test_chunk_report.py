@@ -24,7 +24,7 @@ def collect(render, *args):
     return lines
 
 
-def collect_with_emoji(render, *args):
+def collect_with_chunky(render, *args):
     lines = []
 
     def emit(line):
@@ -33,10 +33,10 @@ def collect_with_emoji(render, *args):
     def color(name, value):
         return f"<{name}>{value}</{name}>"
 
-    def emoji(name):
+    def chunky(name):
         return f":{name}:"
 
-    render(*args, emit, color, emoji)
+    render(*args, emit, color, chunky)
     return lines
 
 
@@ -140,12 +140,12 @@ def test_render_phys_reports_fields_and_legacy_validation_messages():
     valid = chunk_info.parse_phys("000000010000000201")
     invalid = chunk_info.parse_phys("800000008000000002")
 
-    assert collect_with_emoji(chunk_report.render_phys, valid) == [
+    assert collect_with_chunky(chunk_report.render_phys, valid) == [
         "-Pixels per unit, Y axis: <yellow>1</yellow>",
         "-Pixels per unit, X axis: <yellow>2</yellow>",
         "-Unit specifier         :<yellow>1</yellow>",
     ]
-    assert collect_with_emoji(chunk_report.render_phys, invalid) == [
+    assert collect_with_chunky(chunk_report.render_phys, invalid) == [
         "-Pixels per unit, Y axis: <yellow>2147483648</yellow>",
         "-Pixels per unit, Y axis:<red> Wrong size (Too high)</red> "
         "Must be between 1 to 2147483647.:bad:",
@@ -162,11 +162,11 @@ def test_render_time_reports_timestamp_and_invalid_values():
     invalid = chunk_info.parse_time("07ff0d20243d3d", current_year=2026)
     short = chunk_info.parse_time("00", current_year=2026)
 
-    assert collect_with_emoji(chunk_report.render_time, valid, 2026) == [
+    assert collect_with_chunky(chunk_report.render_time, valid, 2026) == [
         "-Last Modified: <white>21</white>/<white>5</white>/<white>2024</white> "
         "<white>17</white>:<white>34</white>:<white>51</white>",
     ]
-    assert collect_with_emoji(chunk_report.render_time, invalid, 2026) == [
+    assert collect_with_chunky(chunk_report.render_time, invalid, 2026) == [
         "-Last Modified: <white>32</white>/<white>13</white>/<white>2047</white> "
         "<white>36</white>:<white>61</white>:<white>61</white>",
         "-Year is > than current year    : <red>2047</red> :bad:",
@@ -176,7 +176,7 @@ def test_render_time_reports_timestamp_and_invalid_values():
         "-Minute value is not valid  : <red>61</red> :bad:",
         "-Second  value is not valid : <red>61</red> :bad:",
     ]
-    assert collect_with_emoji(chunk_report.render_time, short, 2026) == [
+    assert collect_with_chunky(chunk_report.render_time, short, 2026) == [
         "-tIME <red>Not enough bytes</red> inside tIME data.:bad:",
     ]
 
@@ -185,10 +185,10 @@ def test_render_srgb_reports_intent_and_chrm_override():
     valid = chunk_info.parse_srgb("02")
     invalid = chunk_info.parse_srgb("04")
 
-    assert collect_with_emoji(chunk_report.render_srgb, valid, False) == [
+    assert collect_with_chunky(chunk_report.render_srgb, valid, False) == [
         "-Rendering Saturation :<yellow>2</yellow>",
     ]
-    assert collect_with_emoji(chunk_report.render_srgb, invalid, True) == [
+    assert collect_with_chunky(chunk_report.render_srgb, invalid, True) == [
         "-<red>Wrong</red> sRGB value must be between 0 to 3. :bad:",
         "-<red>cHRM</red> already present cHRM will be <red>overide</red> "
         "if reconized by decoders :bad:",
@@ -230,7 +230,7 @@ def test_render_chrm_reports_fields_and_override_warning():
         has_srgb_or_iccp=True,
     )
 
-    assert collect_with_emoji(chunk_report.render_chrm, info, True) == [
+    assert collect_with_chunky(chunk_report.render_chrm, info, True) == [
         "-WhiteX   :<white>1</white>",
         "-WhiteY   :<white>2</white>",
         "-RedX     :<red>3</red>",
@@ -247,7 +247,7 @@ def test_render_chrm_reports_fields_and_override_warning():
 def test_render_iccp_reports_name_method_profile_and_override_warnings():
     info = chunk_info.parse_iccp("0143430001abcd", raw_length_hex="00000008", has_chrm=True)
 
-    assert collect_with_emoji(chunk_report.render_iccp, info, True) == [
+    assert collect_with_chunky(chunk_report.render_iccp, info, True) == [
         "-Character <red>not allowed [\x01]</red> at index <red>0</red> in iCCP_Name\n"
         "-Replaced by [€]",
         "-Compression method is supposed to be <green>0</green> but is <red>1</red> instead .",
@@ -289,12 +289,12 @@ def test_render_offs_reports_fields_and_legacy_validation_messages():
     valid = chunk_info.parse_offs("00000001ffffffff01")
     invalid = chunk_info.parse_offs("800000007fffffff02")
 
-    assert collect_with_emoji(chunk_report.render_offs, valid) == [
+    assert collect_with_chunky(chunk_report.render_offs, valid) == [
         "-Offset position X    :<blue>1</blue>",
         "-Offset position Y  :<purple>-1</purple>",
         "-Offset Unit   :<white>1</white>",
     ]
-    assert collect_with_emoji(chunk_report.render_offs, invalid) == [
+    assert collect_with_chunky(chunk_report.render_offs, invalid) == [
         "-Offset position X    :<blue>-2147483648</blue>",
         "-Offset position Y  :<purple>2147483647</purple>",
         "-Offset Unit   :<white>2</white>",

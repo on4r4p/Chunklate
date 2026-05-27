@@ -8,13 +8,13 @@ from .png import LegacyChunkWindow
 
 Emit = Callable[[str], None]
 Color = Callable[[str, object], str]
-Emoji = Callable[[str], str]
+Chunky = Callable[[str], str]
 
 
-def _emoji(emoji: Emoji | None, name: str) -> str:
-    if emoji is None:
+def _chunky(chunky: Chunky | None, name: str) -> str:
+    if chunky is None:
         return ""
-    return emoji(name)
+    return chunky(name)
 
 
 def render_ihdr(info: chunk_info.IhdrInfo, emit: Emit, color: Color) -> None:
@@ -187,7 +187,7 @@ def render_phys(
     info: chunk_info.PhysInfo,
     emit: Emit,
     color: Color,
-    emoji: Emoji | None = None,
+    chunky: Chunky | None = None,
 ) -> None:
     if len(info.y) > 0:
         emit("-Pixels per unit, Y axis: %s" % color("yellow", info.y))
@@ -196,14 +196,14 @@ def render_phys(
                 "-Pixels per unit, Y axis:"
                 + color("red", " Wrong size (Too high)")
                 + " Must be between 1 to 2147483647."
-                + _emoji(emoji, "bad")
+                + _chunky(chunky, "bad")
             )
     else:
         emit(
             "-Pixels per unit, Y axis :"
             + color("red", " Wrong size (Too low)")
             + " Must be between 1 to 2147483647."
-            + _emoji(emoji, "bad")
+            + _chunky(chunky, "bad")
         )
 
     if len(info.x) > 0:
@@ -213,14 +213,14 @@ def render_phys(
                 "Pixels per unit, X axis"
                 + color("red", " Wrong size (Too high)")
                 + " Must be between 1 to 2147483647."
-                + _emoji(emoji, "bad")
+                + _chunky(chunky, "bad")
             )
     else:
         emit(
             "-Pixels per unit, X axis"
             + color("red", " Wrong size (Too low)")
             + " Must be between 1 to 2147483647."
-            + _emoji(emoji, "bad")
+            + _chunky(chunky, "bad")
         )
 
     if len(info.unit) > 0:
@@ -230,7 +230,7 @@ def render_phys(
                 "-Unit specifier :"
                 + color("red", " Wrong value")
                 + " Must be between 0 (unknown) or 1(meter)."
-                + _emoji(emoji, "bad")
+                + _chunky(chunky, "bad")
             )
 
 
@@ -239,12 +239,12 @@ def render_time(
     current_year: int,
     emit: Emit,
     color: Color,
-    emoji: Emoji | None = None,
+    chunky: Chunky | None = None,
 ) -> None:
     if not info.can_print_timestamp:
         emit(
             "-tIME %s inside tIME data.%s"
-            % (color("red", "Not enough bytes"), _emoji(emoji, "bad"))
+            % (color("red", "Not enough bytes"), _chunky(chunky, "bad"))
         )
         return
 
@@ -263,32 +263,32 @@ def render_time(
     if len(str(info.year)) > 0 and int(info.year) > current_year:
         emit(
             "-Year is > than current year    : %s %s"
-            % (color("red", info.year), _emoji(emoji, "bad"))
+            % (color("red", info.year), _chunky(chunky, "bad"))
         )
     if len(str(info.month)) > 0 and int(info.month) not in range(1, 13):
         emit(
             "-Month value is not valid   : %s %s"
-            % (color("red", info.month), _emoji(emoji, "bad"))
+            % (color("red", info.month), _chunky(chunky, "bad"))
         )
     if len(str(info.day)) > 0 and int(info.day) not in range(1, 32):
         emit(
             "-Day value is not valid      : %s %s"
-            % (color("red", info.day), _emoji(emoji, "bad"))
+            % (color("red", info.day), _chunky(chunky, "bad"))
         )
     if len(str(info.hour)) > 0 and int(info.hour) not in range(0, 24):
         emit(
             "-Hour value is not valid     : %s %s"
-            % (color("red", info.hour), _emoji(emoji, "bad"))
+            % (color("red", info.hour), _chunky(chunky, "bad"))
         )
     if len(str(info.minute)) > 0 and int(info.minute) not in range(0, 60):
         emit(
             "-Minute value is not valid  : %s %s"
-            % (color("red", info.minute), _emoji(emoji, "bad"))
+            % (color("red", info.minute), _chunky(chunky, "bad"))
         )
     if len(str(info.second)) > 0 and int(info.second) not in range(0, 61):
         emit(
             "-Second  value is not valid : %s %s"
-            % (color("red", info.second), _emoji(emoji, "bad"))
+            % (color("red", info.second), _chunky(chunky, "bad"))
         )
 
 
@@ -297,7 +297,7 @@ def render_srgb(
     has_chrm: bool,
     emit: Emit,
     color: Color,
-    emoji: Emoji | None = None,
+    chunky: Chunky | None = None,
 ) -> None:
     if info.value == "0":
         emit("-Rendering Perceptual :%s" % color("yellow", info.value))
@@ -310,7 +310,7 @@ def render_srgb(
     else:
         emit(
             "-%s sRGB value must be between 0 to 3. %s"
-            % (color("red", "Wrong"), _emoji(emoji, "bad"))
+            % (color("red", "Wrong"), _chunky(chunky, "bad"))
         )
 
     if has_chrm:
@@ -319,7 +319,7 @@ def render_srgb(
             % (
                 color("red", "cHRM"),
                 color("red", "overide"),
-                _emoji(emoji, "bad"),
+                _chunky(chunky, "bad"),
             )
         )
 
@@ -336,7 +336,7 @@ def render_chrm(
     has_srgb_or_iccp: bool,
     emit: Emit,
     color: Color,
-    emoji: Emoji | None = None,
+    chunky: Chunky | None = None,
 ) -> None:
     if len(info.white_x) > 0:
         emit("-WhiteX   :%s" % color("white", info.white_x))
@@ -358,7 +358,7 @@ def render_chrm(
     if has_srgb_or_iccp:
         emit(
             "-%s or %s already present cHRM will be overide if reconized by decoders %s"
-            % (color("red", "sRGB"), color("red", "iCCP"), _emoji(emoji, "bad"))
+            % (color("red", "sRGB"), color("red", "iCCP"), _chunky(chunky, "bad"))
         )
 
 
@@ -367,7 +367,7 @@ def render_iccp(
     has_chrm: bool,
     emit: Emit,
     color: Color,
-    emoji: Emoji | None = None,
+    chunky: Chunky | None = None,
 ) -> None:
     if "-Length of iCCP Profile name is not valid" in info.fixes:
         emit(
@@ -396,7 +396,7 @@ def render_iccp(
     if has_chrm:
         emit(
             "-%s already present cHRM will be %s if reconized by decoders %s"
-            % (color("red", "cHRM"), color("red", "overide"), _emoji(emoji, "bad"))
+            % (color("red", "cHRM"), color("red", "overide"), _chunky(chunky, "bad"))
         )
 
     if len(info.name) > 0:
@@ -432,7 +432,7 @@ def render_offs(
     info: chunk_info.OffsInfo,
     emit: Emit,
     color: Color,
-    emoji: Emoji | None = None,
+    chunky: Chunky | None = None,
 ) -> None:
     emit("-Offset position X    :%s" % color("blue", info.x))
     emit("-Offset position Y  :%s" % color("purple", info.y))
@@ -440,17 +440,17 @@ def render_offs(
     if int(info.x) not in range(chunk_info.OFFS_MIN_POSITION, chunk_info.OFFS_MAX_POSITION + 1):
         emit(
             "-%s Offset position X must be between -2,147,483,647 to +2,147,483,647 %s"
-            % (color("red", "Wrong"), _emoji(emoji, "bad"))
+            % (color("red", "Wrong"), _chunky(chunky, "bad"))
         )
     if int(info.y) not in range(chunk_info.OFFS_MIN_POSITION, chunk_info.OFFS_MAX_POSITION + 1):
         emit(
             "-%s Offset position Y must be between -2,147,483,647 to +2,147,483,647 %s"
-            % (color("red", "Wrong"), _emoji(emoji, "bad"))
+            % (color("red", "Wrong"), _chunky(chunky, "bad"))
         )
     if info.unit not in ("0", "1"):
         emit(
             "-%s Offset unit must be between 0 or 1 %s"
-            % (color("red", "Wrong"), _emoji(emoji, "bad"))
+            % (color("red", "Wrong"), _chunky(chunky, "bad"))
         )
 
 

@@ -86,8 +86,8 @@ def _color(runtime: ChunkValidationRuntime, color: str, value: Any) -> Any:
     return runtime.candy("Color", color, value)
 
 
-def _emoj(runtime: ChunkValidationRuntime, value: str) -> Any:
-    return runtime.candy("Emoj", value)
+def _chunky(runtime: ChunkValidationRuntime, value: str) -> Any:
+    return runtime.candy("Chunky", value)
 
 
 def run_check_length(
@@ -195,7 +195,7 @@ def run_checksum(
             runtime.emit(line)
 
     if decision.ok:
-        runtime.emit("-Crc Check :" + _color(runtime, "green", " OK ") + _emoj(runtime, "good") + "\n")
+        runtime.emit("-Crc Check :" + _color(runtime, "green", " OK ") + _chunky(runtime, "good") + "\n")
         _record_crc_chunk_story(runtime, context, next_chunk, chunk_type)
         return runtime.checkpoint(
             *legacy_crc_checkpoint_args(
@@ -209,7 +209,7 @@ def run_checksum(
             )
         )
 
-    runtime.emit("-Crc Check :" + _color(runtime, "red", " FAILED! ") + _emoj(runtime, "bad"))
+    runtime.emit("-Crc Check :" + _color(runtime, "red", " FAILED! ") + _chunky(runtime, "bad"))
     if len(stored_crc) == 0 or len(checksum) == 0:
         wanted, got = legacy_crc_monkey_lines(
             _color(runtime, "green", checksum),

@@ -42,8 +42,8 @@ def critical_missing_print_line(chunk: bytes, missing_label: str) -> str:
     return "-Critical Chunk %s is %s !" % (chunk, missing_label)
 
 
-def errors_ok_print_line(ok_label: str, good_emoj: str) -> str:
-    return "\n-Errors Check :" + ok_label + good_emoj
+def errors_ok_print_line(ok_label: str, good_chunky: str) -> str:
+    return "\n-Errors Check :" + ok_label + good_chunky
 
 
 def unique_seen_chunks(chunks_history: Sequence[bytes]) -> tuple[bytes, ...]:
@@ -112,22 +112,22 @@ def missplaced_checkpoint_args(to_fix: Sequence[str]) -> tuple[object, ...]:
     return (True, False, "CheckChunkOrder", "Missplaced", to_fix)
 
 
-def missplaced_failed_print_line(failed_label: str, bad_emoj: str) -> str:
-    return "\n-Missplaced Chunk Check :" + failed_label + bad_emoj
+def missplaced_failed_print_line(failed_label: str, bad_chunky: str) -> str:
+    return "\n-Missplaced Chunk Check :" + failed_label + bad_chunky
 
 
-def missplaced_ok_print_line(ok_label: str, good_emoj: str) -> str:
-    return "\n-Missplaced Chunk Check :" + ok_label + good_emoj
+def missplaced_ok_print_line(ok_label: str, good_chunky: str) -> str:
+    return "\n-Missplaced Chunk Check :" + ok_label + good_chunky
 
 
 def png_signature_is_misplaced(chunks_history: Sequence[bytes]) -> bool:
     return len(chunks_history) > 0 and chunks_history[0] != b"PNG"
 
 
-def png_signature_misplaced_print_line(colored_before: str, bad_emoj: str) -> str:
+def png_signature_misplaced_print_line(colored_before: str, bad_chunky: str) -> str:
     return "-PNG signature have to be placed %s all the other chunks. %s" % (
         colored_before,
-        bad_emoj,
+        bad_chunky,
     )
 
 
@@ -135,10 +135,10 @@ def ihdr_is_misplaced(chunks_history: Sequence[bytes]) -> bool:
     return len(chunks_history) > 1 and chunks_history[1] != b"IHDR"
 
 
-def ihdr_misplaced_print_line(colored_before_all: str, bad_emoj: str) -> str:
+def ihdr_misplaced_print_line(colored_before_all: str, bad_chunky: str) -> str:
     return "-IHDR Chunk have to be placed %s and after Png Signature. %s" % (
         colored_before_all,
-        bad_emoj,
+        bad_chunky,
     )
 
 
@@ -174,11 +174,11 @@ def missplaced_before_plte_info(lastchunk: bytes) -> str:
     return "-%s is missplaced must appears before PLTE Chunk" % decode_chunk_name(lastchunk)
 
 
-def before_plte_print_line(colored_missplaced: str, chunk_name: str, bad_emoj: str) -> str:
+def before_plte_print_line(colored_missplaced: str, chunk_name: str, bad_chunky: str) -> str:
     return "-%s  %s must appears before PLTE Chunk. %s" % (
         colored_missplaced,
         chunk_name,
-        bad_emoj,
+        bad_chunky,
     )
 
 
@@ -193,11 +193,11 @@ def must_appear_before_idat(
     )
 
 
-def before_idat_print_line(colored_missplaced: str, chunk_name: str, bad_emoj: str) -> str:
+def before_idat_print_line(colored_missplaced: str, chunk_name: str, bad_chunky: str) -> str:
     return "-%s  %s must be before IDAT Chunk. %s" % (
         colored_missplaced,
         chunk_name,
-        bad_emoj,
+        bad_chunky,
     )
 
 

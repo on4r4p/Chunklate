@@ -44,8 +44,8 @@ def _color(runtime: FindMagicRuntime, color: str, value: Any) -> Any:
     return runtime.candy("Color", color, value)
 
 
-def _emoj(runtime: FindMagicRuntime, value: str) -> Any:
-    return runtime.candy("Emoj", value)
+def _chunky(runtime: FindMagicRuntime, value: str) -> Any:
+    return runtime.candy("Chunky", value)
 
 
 def _cowsay(runtime: FindMagicRuntime, message: str, mood: str | None = None) -> Any:
@@ -97,7 +97,7 @@ def run_find_magic(runtime: FindMagicRuntime, context: FindMagicContext) -> Any:
 
     runtime.emit(
         "-File %s start with valid png signature .%s\n"
-        % (_color(runtime, "red", "does not"), _emoj(runtime, "bad"))
+        % (_color(runtime, "red", "does not"), _chunky(runtime, "bad"))
     )
     _cowsay(runtime, " This better be a real png or else ....", "bad")
 
@@ -155,7 +155,7 @@ def _run_single_candidate(
         scan.best_signature,
     )
     runtime.emit("\n...\n")
-    runtime.emit("-Done! %s\n" % _emoj(runtime, "good"))
+    runtime.emit("-Done! %s\n" % _chunky(runtime, "good"))
     runtime.emit(
         "-Found at offset %s with a score of %s/32 :\n %s\n"
         % (

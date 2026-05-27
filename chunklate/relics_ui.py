@@ -199,7 +199,7 @@ def say_dummy_chunk_ancillary_prompt(chunk_name: Any, *, candy: LegacyCall) -> N
 def say_no_pandemonium_intro(*, emit: Emit, candy: LegacyCall) -> None:
     emit(
         "-%s has been Fixed yet. %s"
-        % (candy("Color", "red", "No Error"), candy("Emoj", "bad"))
+        % (candy("Color", "red", "No Error"), candy("Chunky", "bad"))
     )
     candy(
         "Cowsay",

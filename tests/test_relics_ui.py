@@ -15,8 +15,8 @@ def fake_candy_factory(calls):
         calls.append(args)
         if args[0] == "Color":
             return "<%s:%s>" % (args[1], args[2])
-        if args[0] == "Emoj":
-            return "<emoj:%s>" % args[1]
+        if args[0] == "Chunky":
+            return "<chunky:%s>" % args[1]
         return None
 
     return fake_candy
@@ -129,7 +129,7 @@ def test_relics_ui_emits_no_pandemonium_messages():
     relics_ui.emit_todo(emit=emitted.append, candy=candy)
 
     assert emitted == [
-        "-<red:No Error> has been Fixed yet. <emoj:bad>",
+        "-<red:No Error> has been Fixed yet. <chunky:bad>",
         "\n-\033[1;31;49mCriticalHit\033[m: hit-0",
         "\n-\033[1;31;49mCriticalHit\033[m: hit-1",
         "<yellow:\n-ToDo>",

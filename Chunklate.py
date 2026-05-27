@@ -178,8 +178,8 @@ def Chunk_Report_Color(color, value):
     return Candy("Color", color, value)
 
 
-def Chunk_Report_Emoji(name):
-    return Candy("Emoj", name)
+def Chunky_Report(name):
+    return Candy("Chunky", name)
 
 
 ####
@@ -197,7 +197,7 @@ def GetInfo_Runtime():
         emit=PRINT,
         candy=Candy,
         color=Chunk_Report_Color,
-        emoji=Chunk_Report_Emoji,
+        chunky=Chunky_Report,
         raw_length=Raw_Length,
         orig_cl=Orig_CL,
         ihdr_color=IHDR_Color,
@@ -277,7 +277,7 @@ def Chunklate(sec):
     for line in ui.render_chunklate_banner(os.name, random.randint):
         print(line)
 
-    if PAUSE is True:
+    if sec:
         time.sleep(sec)
 
 

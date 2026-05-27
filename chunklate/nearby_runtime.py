@@ -101,8 +101,8 @@ def _color(runtime: NearbyChunkRuntime, color: str, value: Any) -> Any:
     return runtime.candy("Color", color, value)
 
 
-def _emoj(runtime: NearbyChunkRuntime, value: str) -> Any:
-    return runtime.candy("Emoj", value)
+def _chunky(runtime: NearbyChunkRuntime, value: str) -> Any:
+    return runtime.candy("Chunky", value)
 
 
 def _emit_decode_error(
@@ -127,7 +127,7 @@ def _emit_excluded_trap(
 ) -> None:
     runtime.emit(
         "\n-Chunk position is %s %s\n"
-        % (_color(runtime, "red", "Not Valid "), _emoj(runtime, "bad"))
+        % (_color(runtime, "red", "Not Valid "), _chunky(runtime, "bad"))
     )
     runtime.candy(
         "Cowsay",
@@ -192,7 +192,7 @@ def _route_length_repair(
 ) -> Any:
     runtime.emit(
         "-Chunk position is %s %s\n"
-        % (_color(runtime, "green", "Valid "), _emoj(runtime, "good"))
+        % (_color(runtime, "green", "Valid "), _chunky(runtime, "good"))
     )
     runtime.emit(repair.print_message)
     result = runtime.checkpoint(

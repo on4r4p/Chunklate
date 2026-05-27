@@ -41,7 +41,7 @@ class BruteForceResultContext:
 def run_success(runtime: BruteForceResultRuntime, context: BruteForceResultContext) -> Any:
     runtime.emit(
         "-Bruteforce was %s %s"
-        % (runtime.candy("Color", "green", "Successfull!"), runtime.candy("Emoj", "good"))
+        % (runtime.candy("Color", "green", "Successfull!"), runtime.candy("Chunky", "good"))
     )
 
     if context.state.bonus:
@@ -78,7 +78,7 @@ def run_success(runtime: BruteForceResultRuntime, context: BruteForceResultConte
 def run_failure(runtime: BruteForceResultRuntime, context: BruteForceResultContext) -> Any:
     runtime.emit(
         "\n-Bruteforce has %s %s"
-        % (runtime.candy("Color", "red", "Failed!"), runtime.candy("Emoj", "bad"))
+        % (runtime.candy("Color", "red", "Failed!"), runtime.candy("Chunky", "bad"))
     )
 
     runtime.candy("Cowsay", "I was afraid of this ...", "bad")

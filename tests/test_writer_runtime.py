@@ -195,6 +195,10 @@ def test_write_clone_runtime_writes_updates_state_and_summarises():
     assert ("remember",) in calls
     assert ("prepare", ("sample.png", "/tmp", "89504e47", 0, None)) in calls
     assert ("write", clone_plan()) in calls
+    assert (
+        "candy",
+        ("Cowsay", "I am about to write a clone: sample.0_Fixed.png", "good"),
+    ) in calls
     assert ("emit", "<green:-Saving to : /tmp/Folder_sample/sample.0_Fixed.png>") in calls
     assert ("summarise", "summary") in calls
     assert side_notes == ["-Saving to : /tmp/Folder_sample/sample.0_Fixed.png"]
@@ -221,7 +225,10 @@ def test_write_clone_runtime_preserves_pause_and_max_saves_exit():
         "summary",
     )
 
-    assert ("pause", "-Saved Press Return to continue:") in calls
+    assert ("pause", "-Clone ready. Press Return to write it:") in calls
+    assert calls.index(("pause", "-Clone ready. Press Return to write it:")) < calls.index(
+        ("write", clone_plan(save_count=2, max_saves_reached=True))
+    )
     assert ("emit", "-Max saves reached: 2") in calls
     assert ("exit", 0) in calls
     assert state["save_count"] == 2
@@ -298,7 +305,24 @@ def test_run_save_clone_builds_fixed_data_sets_flag_and_writes_clone():
     assert state == {"show_must_go_on": True}
     assert ("candy", ("Title", "Saving Clone")) in calls
     assert ("emit", "-Data : b'\\xaa\\xbb'\n") in calls
+    assert ("candy", ("Cowsay", "Patch bytes ready: b'\\xaa\\xbb'", "com")) in calls
     assert ("write_clone", "0011aabb556677", "infos") in calls
+
+
+def test_run_save_clone_explains_named_patch_when_source_is_bytes():
+    calls = []
+    runtime, state = clone_patch_runtime(calls)
+
+    result = writer_runtime.run_save_clone(runtime, "49444154", 4, 12, b"IDA^")
+
+    assert result == "written"
+    assert state == {"show_must_go_on": True}
+    assert ("emit", "-Data : b'IDAT'\n") in calls
+    assert (
+        "candy",
+        ("Cowsay", "Patch: I am replacing b'IDA^' with b'IDAT' in the clone.", "com"),
+    ) in calls
+    assert ("write_clone", "0011494441546677", b"IDA^") in calls
 
 
 def test_run_save_clone_preserves_bad_hex_error_path_before_write():
@@ -323,6 +347,7 @@ def main():
         ("Write error", test_write_clone_runtime_write_error_routes_betterror_emit_and_end),
         ("Remove chunk", test_run_remove_chunk_builds_fixed_data_and_writes_clone),
         ("Save clone", test_run_save_clone_builds_fixed_data_sets_flag_and_writes_clone),
+        ("Save clone named patch", test_run_save_clone_explains_named_patch_when_source_is_bytes),
         ("Save clone bad hex", test_run_save_clone_preserves_bad_hex_error_path_before_write),
     ]
 

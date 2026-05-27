@@ -89,12 +89,12 @@ def valid_chunk_after_line(chunk_name: bytes, good_offset: int) -> str:
     )
 
 
-def crc_ok_line(ok_label: str, good_emoj: str) -> str:
-    return "-Crc Check :" + ok_label + good_emoj + "\n"
+def crc_ok_line(ok_label: str, good_chunky: str) -> str:
+    return "-Crc Check :" + ok_label + good_chunky + "\n"
 
 
-def crc_failed_line(failed_label: str, bad_emoj: str) -> str:
-    return "-Crc Check :" + failed_label + bad_emoj
+def crc_failed_line(failed_label: str, bad_chunky: str) -> str:
+    return "-Crc Check :" + failed_label + bad_chunky
 
 
 def monkey_wanted_line(green_checksum: str) -> str:

@@ -62,8 +62,8 @@ def _color(runtime: Any, color: str, value: Any) -> Any:
     return runtime.candy("Color", color, value)
 
 
-def _emoj(runtime: Any, value: str) -> Any:
-    return runtime.candy("Emoj", value)
+def _chunky(runtime: Any, value: str) -> Any:
+    return runtime.candy("Chunky", value)
 
 
 def _title(runtime: Any, value: str) -> Any:
@@ -104,7 +104,7 @@ def run_the_good_place(
     if fix_position is None:
         runtime.emit(
             "-Missing Data %s %s"
-            % (_color(runtime, "red", "Has Not Been Found"), _emoj(runtime, "bad"))
+            % (_color(runtime, "red", "Has Not Been Found"), _chunky(runtime, "bad"))
         )
         _cowsay(runtime, "This is not good..", "bad")
         return runtime.checkpoint(
@@ -124,7 +124,7 @@ def run_the_good_place(
             fix_position.position,
             fix_position.start,
             fix_position.end,
-            _emoj(runtime, "good"),
+            _chunky(runtime, "good"),
         )
     )
     _cowsay(runtime, "Sounds good to me , where's my rubber tape already ?", "good")
@@ -198,14 +198,14 @@ def _emit_failed_or_ok(
         runtime.emit(
             chunk_order.missplaced_failed_print_line(
                 _color(runtime, "red", " FAILED "),
-                _emoj(runtime, "bad"),
+                _chunky(runtime, "bad"),
             )
         )
     else:
         runtime.emit(
             chunk_order.missplaced_ok_print_line(
                 _color(runtime, "green", " OK "),
-                _emoj(runtime, "good"),
+                _chunky(runtime, "good"),
             )
         )
 
@@ -235,7 +235,7 @@ def run_critical_mode(
     runtime.emit(
         chunk_order.errors_ok_print_line(
             _color(runtime, "green", " OK "),
-            _emoj(runtime, "good"),
+            _chunky(runtime, "good"),
         )
     )
 
@@ -276,7 +276,7 @@ def run_the_good_place_mode(
         runtime.emit(
             chunk_order.png_signature_misplaced_print_line(
                 _color(runtime, "red", "Before"),
-                _emoj(runtime, "bad"),
+                _chunky(runtime, "bad"),
             )
         )
         to_fix.append(chunk_order.missplaced_info())
@@ -287,7 +287,7 @@ def run_the_good_place_mode(
             runtime.emit(
                 chunk_order.ihdr_misplaced_print_line(
                     _color(runtime, "red", "Before all the other chunks"),
-                    _emoj(runtime, "bad"),
+                    _chunky(runtime, "bad"),
                 )
             )
             return runtime.checkpoint(
@@ -316,7 +316,7 @@ def run_the_good_place_mode(
                     chunk_order.decode_chunk_name(lastchunk) + " is missplaced",
                 ),
                 chunk_order.decode_chunk_name(lastchunk),
-                _emoj(runtime, "bad"),
+                _chunky(runtime, "bad"),
             )
         )
         to_fix.append(chunk_order.missplaced_before_plte_info(lastchunk))
@@ -330,7 +330,7 @@ def run_the_good_place_mode(
                     chunk_order.decode_chunk_name(lastchunk) + " is missplaced",
                 ),
                 chunk_order.decode_chunk_name(lastchunk),
-                _emoj(runtime, "bad"),
+                _chunky(runtime, "bad"),
             )
         )
         to_fix.append(chunk_order.missplaced_info())

@@ -27,11 +27,11 @@ def runtime(**kwargs):
     return obj, emitted, pauses
 
 
-def test_legacy_ui_runtime_color_and_emoji_modes():
+def test_legacy_ui_runtime_color_and_chunky_modes():
     ui, emitted, pauses = runtime()
 
     assert ui.candy("Color", "red", "ERR") == "\033[1;31;49mERR\033[m"
-    assert ui.candy("Emoj", "good") == "¯\\(◉‿◉)/¯"
+    assert ui.candy("Chunky", "good") == "¯\\(◉‿◉)/¯"
     assert emitted == []
     assert pauses == []
 
@@ -119,7 +119,7 @@ def test_legacy_ui_runtime_emits_title_unless_dialogue_disabled():
 
 def main():
     checks = [
-        ("color and emoji modes", test_legacy_ui_runtime_color_and_emoji_modes),
+        ("color and chunky modes", test_legacy_ui_runtime_color_and_chunky_modes),
         ("plain color mode", test_legacy_ui_runtime_plain_color_mode),
         ("cowsay and pause", test_legacy_ui_runtime_emits_cowsay_and_optional_pause),
         ("shared pause state", test_legacy_ui_runtime_pauses_once_per_dialogue_group_with_shared_state),

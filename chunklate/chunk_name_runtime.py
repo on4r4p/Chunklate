@@ -49,8 +49,8 @@ def _color(runtime: ChunkNameRuntime, color: str, value: Any) -> Any:
     return runtime.candy("Color", color, value)
 
 
-def _emoj(runtime: ChunkNameRuntime, value: str) -> Any:
-    return runtime.candy("Emoj", value)
+def _chunky(runtime: ChunkNameRuntime, value: str) -> Any:
+    return runtime.candy("Chunky", value)
 
 
 def _ctype_bytes(runtime: ChunkNameRuntime, chunk_type: Any) -> bytes:
@@ -204,7 +204,7 @@ def run_brute_chunk(
     crc_matches = runtime.crc_matches(candidates)
     if len(crc_matches) == 1:
         chunk_name = crc_matches[0]
-        runtime.emit("-" + str(_color(runtime, "green", "CRC Solved.")) + str(_emoj(runtime, "good")))
+        runtime.emit("-" + str(_color(runtime, "green", "CRC Solved.")) + str(_chunky(runtime, "good")))
         runtime.candy(
             "Cowsay",
             " Stored CRC matches chunk name: %s"
@@ -224,7 +224,7 @@ def run_brute_chunk(
     best_bingo_count = _best_bingo_count(bingo_list, best_bingo_score)
 
     if best_bingo_count <= 2 and int(best_bingo_score) >= 2:
-        runtime.emit("-" + str(_color(runtime, "green", "Scrabble Solved.")) + str(_emoj(runtime, "good")))
+        runtime.emit("-" + str(_color(runtime, "green", "Scrabble Solved.")) + str(_chunky(runtime, "good")))
         runtime.candy(
             "Cowsay",
             " Ah looks like we've got a winner! :%s"
@@ -284,7 +284,7 @@ def run_check_chunk_name(
     for name in context.all_chunks:
         if name.lower() == ctype.lower():
             if name == ctype:
-                runtime.emit("\n-Chunk name:" + _color(runtime, "green", " OK! ") + _emoj(runtime, "good"))
+                runtime.emit("\n-Chunk name:" + _color(runtime, "green", " OK! ") + _chunky(runtime, "good"))
                 if next_chunk is None:
                     return runtime.checkpoint(
                         False,
@@ -303,7 +303,7 @@ def run_check_chunk_name(
                     next_chunk,
                 )
 
-            runtime.emit("\n-Chunk name:" + _color(runtime, "red", " FAILED! ") + _emoj(runtime, "bad"))
+            runtime.emit("\n-Chunk name:" + _color(runtime, "red", " FAILED! ") + _chunky(runtime, "bad"))
             runtime.emit("\nMonkey wanted Banana :%s" % _color(runtime, "green", name))
             runtime.emit("Monkey got Pullover :%s" % _color(runtime, "red", ctype))
             runtime.emit("")
@@ -341,7 +341,7 @@ def run_check_chunk_name(
                 next_chunk,
             )
 
-    runtime.emit("\n-Chunk name:" + _color(runtime, "red", " FAILED! ") + _emoj(runtime, "bad"))
+    runtime.emit("\n-Chunk name:" + _color(runtime, "red", " FAILED! ") + _chunky(runtime, "bad"))
     if next_chunk is None:
         runtime.candy("Cowsay", "Mokay That could explain all this mess...", "com")
         if (

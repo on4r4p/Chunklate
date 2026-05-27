@@ -109,6 +109,47 @@ def build_write_clone_context(namespace: dict[str, Any]) -> WriteCloneContext:
     )
 
 
+def _patch_bytes_preview(data_fix: str) -> str | None:
+    try:
+        return repr(bytes.fromhex(data_fix))
+    except Exception:
+        return None
+
+
+def _source_bytes_preview(infos: Any) -> str | None:
+    if isinstance(infos, bytes):
+        return repr(infos)
+    return None
+
+
+def _clone_patch_preview(data_fix: str, infos: Any) -> str:
+    patch_bytes = _patch_bytes_preview(data_fix)
+    source_bytes = _source_bytes_preview(infos)
+
+    if patch_bytes is None:
+        return "I am about to write a clone with bytes I cannot print cleanly. That is already a mood."
+
+    if source_bytes is not None:
+        return "Patch: I am replacing %s with %s in the clone." % (source_bytes, patch_bytes)
+
+    return "Patch bytes ready: %s" % patch_bytes
+
+
+def announce_clone_write(
+    runtime: WriteCloneRuntime,
+    context: WriteCloneContext,
+    clone_plan: writer.CloneWritePlan,
+    infos: Any,
+) -> None:
+    runtime.candy(
+        "Cowsay",
+        "I am about to write a clone: %s" % clone_plan.target.name,
+        "good",
+    )
+    if context.pause_enabled is True:
+        runtime.pause("-Clone ready. Press Return to write it:")
+
+
 def run_write_clone(
     runtime: WriteCloneRuntime,
     context: WriteCloneContext,
@@ -137,6 +178,7 @@ def run_write_clone(
         return None
 
     target = clone_plan.target
+    announce_clone_write(runtime, context, clone_plan, infos)
     runtime.emit(runtime.candy("Color", "green", "-Saving to : %s") % target.path)
     runtime.side_notes.append("-Saving to : %s" % target.path)
 
@@ -154,9 +196,6 @@ def run_write_clone(
         return None
 
     runtime.set_have_a_kitkat(True)
-
-    if context.pause_enabled is True:
-        runtime.pause("-Saved Press Return to continue:")
 
     runtime.summarise(infos)
 
@@ -207,5 +246,6 @@ def run_save_clone(
     except Exception as exc:
         runtime.betterror(exc, "SaveClone")
 
+    runtime.candy("Cowsay", _clone_patch_preview(data_fix, infos), "com")
     fix = runtime.replace_hex_range(runtime.data_hex, data_fix, start, end)
     return runtime.write_clone(fix, infos)

@@ -33,8 +33,8 @@ def _color(runtime: NameShiftRuntime, color: str, value: Any) -> Any:
     return runtime.candy("Color", color, value)
 
 
-def _emoj(runtime: NameShiftRuntime, value: str) -> Any:
-    return runtime.candy("Emoj", value)
+def _chunky(runtime: NameShiftRuntime, value: str) -> Any:
+    return runtime.candy("Chunky", value)
 
 
 def _todo(runtime: NameShiftRuntime) -> Any:
@@ -108,7 +108,7 @@ def _handle_crc_failure(
     runtime.emit(
         name_shift.crc_failed_line(
             _color(runtime, "red", " FAILED! "),
-            _emoj(runtime, "bad"),
+            _chunky(runtime, "bad"),
         )
     )
     if name_shift.crc_value_is_empty(crc, checksum):
@@ -132,7 +132,7 @@ def _handle_matching_crc(
     candidate: name_shift.NameShiftCandidate,
     crc_view: name_shift.ShiftedChunkCrcView,
 ) -> list[object] | None:
-    runtime.emit(name_shift.crc_ok_line(_color(runtime, "green", " OK "), _emoj(runtime, "good")))
+    runtime.emit(name_shift.crc_ok_line(_color(runtime, "green", " OK "), _chunky(runtime, "good")))
     runtime.candy("Cowsay", "Found the culprit!", "good")
     runtime.side_notes.append(name_shift.crc_valid_note())
 

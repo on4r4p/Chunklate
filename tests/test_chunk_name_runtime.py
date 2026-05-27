@@ -15,7 +15,7 @@ def build_runtime(calls, **overrides):
         calls.append(("candy", (kind,) + args))
         if kind == "Color":
             return "<%s:%s>" % (args[0], args[1])
-        if kind == "Emoj":
+        if kind == "Chunky":
             return ":%s:" % args[0]
         return "candy:%s" % kind
 

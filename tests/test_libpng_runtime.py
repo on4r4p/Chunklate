@@ -15,8 +15,8 @@ def build_runtime(calls, *, result):
         calls.append(("candy", (kind,) + args))
         if kind == "Color":
             return "<%s:%s>" % (args[0], args[1])
-        if kind == "Emoj":
-            return "<emoj:%s>" % args[0]
+        if kind == "Chunky":
+            return "<chunky:%s>" % args[0]
         return "candy:%s" % kind
 
     return libpng_runtime.LibpngCheckRuntime(
@@ -51,7 +51,7 @@ def test_run_libpng_check_reports_success_and_checkpoints():
 
     assert result == "checkpoint-result"
     assert ("emit", "Result:") in calls
-    assert ("emit", "-Libpng Check: <green:Ok!> <emoj:good>") in calls
+    assert ("emit", "-Libpng Check: <green:Ok!> <chunky:good>") in calls
     assert ("candy", ("Cowsay", "Good ! The AllMighty Libpng is happy !", "good")) in calls
     assert (
         "checkpoint",
@@ -70,7 +70,7 @@ def test_run_libpng_check_reports_failure_and_checkpoints():
 
     assert result == "checkpoint-result"
     assert ("emit", "Result:libpng error: bad") in calls
-    assert ("emit", "-Libpng Check: <red:FAILED!> <emoj:bad>") in calls
+    assert ("emit", "-Libpng Check: <red:FAILED!> <chunky:bad>") in calls
     assert (
         "checkpoint",
         (True, False, "LibpngCheck", "sample.png", ["-libpng error: bad"]),

@@ -158,7 +158,7 @@ def run_success(
     chunk_label = context.chunk.decode(errors="ignore")
     runtime.emit(
         "-Bruteforce was %s %s"
-        % (runtime.candy("Color", "green", "Successfull!"), runtime.candy("Emoj", "good"))
+        % (runtime.candy("Color", "green", "Successfull!"), runtime.candy("Chunky", "good"))
     )
     runtime.emit(
         "-Chunk %s has been repaired by changing those bytes:\n"
@@ -192,7 +192,7 @@ def run_success(
 def run_failure(runtime: FullChunkForcerRuntime, context: FullChunkForcerContext) -> Any:
     runtime.emit(
         "-Bruteforce has %s %s"
-        % (runtime.candy("Color", "red", "Failed!"), runtime.candy("Emoj", "bad"))
+        % (runtime.candy("Color", "red", "Failed!"), runtime.candy("Chunky", "bad"))
     )
     runtime.candy("Cowsay", "I was afraid of this ..Looks like we r stuck..", "bad")
     runtime.side_notes.append("\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!")

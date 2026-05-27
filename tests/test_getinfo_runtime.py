@@ -40,7 +40,7 @@ def build_runtime(
         calls.append(("candy", (kind,) + args))
         if kind == "Color":
             return "<%s:%s>" % (args[0], args[1])
-        if kind == "Emoj":
+        if kind == "Chunky":
             return ":%s:" % args[0]
         return "candy:%s" % kind
 
@@ -53,7 +53,7 @@ def build_runtime(
         emit=emit,
         candy=candy,
         color=lambda color, value: "<%s:%s>" % (color, value),
-        emoji=lambda name: ":%s:" % name,
+        chunky=lambda name: ":%s:" % name,
         raw_length=raw_length,
         orig_cl=orig_cl,
         ihdr_color=ihdr_color,

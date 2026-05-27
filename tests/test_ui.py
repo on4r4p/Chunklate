@@ -26,11 +26,11 @@ def test_colorize_returns_data_on_windows_mode():
     assert ui.colorize("green", marker, use_color=False) is marker
 
 
-def test_pick_emoji_uses_legacy_groups_deterministically():
-    assert ui.pick_emoji("good", lambda start, end: start) == ui.EMOJIS["good"][0]
-    assert ui.pick_emoji("bad", lambda start, end: end) == ui.EMOJIS["bad"][-1]
-    assert ui.pick_emoji("com", lambda start, end: 1) == ui.EMOJIS["com"][1]
-    assert ui.pick_emoji("unknown", lambda start, end: 0) is None
+def test_pick_chunky_uses_legacy_groups_deterministically():
+    assert ui.pick_chunky("good", lambda start, end: start) == ui.Chunky_State["good"][0]
+    assert ui.pick_chunky("bad", lambda start, end: end) == ui.Chunky_State["bad"][-1]
+    assert ui.pick_chunky("com", lambda start, end: 1) == ui.Chunky_State["com"][1]
+    assert ui.pick_chunky("unknown", lambda start, end: 0) is None
 
 
 def test_title_separator_length_matches_legacy_color_adjustment():
@@ -70,7 +70,7 @@ def test_render_dialogue_preserves_legacy_colored_layout():
         "Hello",
         "good",
         max_columns=80,
-        emoji_provider=lambda name: ":" + name + ":",
+        chunky_provider=lambda name: ":" + name + ":",
         use_color=True,
     )
 
@@ -87,7 +87,7 @@ def test_render_dialogue_preserves_legacy_plain_layout():
         "Hello",
         "good",
         max_columns=80,
-        emoji_provider=lambda name: ":" + name + ":",
+        chunky_provider=lambda name: ":" + name + ":",
         use_color=False,
     )
 
@@ -260,7 +260,7 @@ def main():
     checks = [
         ("Colorize ANSI colors", test_colorize_preserves_legacy_ansi_colors),
         ("Colorize Windows mode", test_colorize_returns_data_on_windows_mode),
-        ("Emoji selection", test_pick_emoji_uses_legacy_groups_deterministically),
+        ("Chunky selection", test_pick_chunky_uses_legacy_groups_deterministically),
         ("Title separator length", test_title_separator_length_matches_legacy_color_adjustment),
         ("Title non-Windows layout", test_render_title_preserves_legacy_non_windows_layout),
         ("Title Windows layout", test_render_title_preserves_legacy_windows_layout),

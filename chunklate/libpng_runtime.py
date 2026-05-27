@@ -56,7 +56,7 @@ def run_libpng_check(
     if not runtime.result_has_error(result, context.libpng_errors):
         runtime.emit(
             "-Libpng Check: %s %s"
-            % (runtime.candy("Color", "green", "Ok!"), runtime.candy("Emoj", "good"))
+            % (runtime.candy("Color", "green", "Ok!"), runtime.candy("Chunky", "good"))
         )
         runtime.candy(
             "Cowsay",
@@ -66,7 +66,7 @@ def run_libpng_check(
     else:
         runtime.emit(
             "-Libpng Check: %s %s"
-            % (runtime.candy("Color", "red", "FAILED!"), runtime.candy("Emoj", "bad"))
+            % (runtime.candy("Color", "red", "FAILED!"), runtime.candy("Chunky", "bad"))
         )
 
     return runtime.checkpoint(
