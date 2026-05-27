@@ -53,6 +53,9 @@ def runtime_from(*, history=None, answers=None, **overrides):
             emit=overrides.get("emit", runtime.emit),
             pause=overrides.get("pause", runtime.pause),
             end=overrides.get("end", runtime.end),
+            clear=overrides.get("clear", runtime.clear),
+            prompt_candy=overrides.get("prompt_candy", runtime.prompt_candy),
+            status_sink=overrides.get("status_sink", runtime.status_sink),
         )
     return runtime, calls
 
@@ -89,6 +92,22 @@ def test_question_runtime_manual_answer_uses_legacy_feedback():
         ("candy", ("Title", "QUESTION!"), {}),
         ("candy", ("Cowsay", "Ok ,just do not make eye contact !", "com"), {}),
     ]
+
+
+def test_question_runtime_names_idat_heavy_probe_prompt():
+    runtime, calls = runtime_from(answers=["yes"])
+
+    assert question_runtime.ask_question(
+        runtime,
+        "IDAT Heavy Probe:-Deflate stream still broken",
+        ("probe", 1),
+    ) is True
+
+    assert (
+        "candy",
+        ("Cowsay", "Question: Should i launch the heavier IDAT probe?", "com"),
+        {},
+    ) in calls
 
 
 def test_question_runtime_flips_duplicate_question_answer():
@@ -141,6 +160,7 @@ def test_question_runtime_known_yes_no_route_does_not_loop():
     assert history == [
         "Infos:same Answer:True Offset:12 Hash:99",
         "Infos:same Answer:False Offset:12 Hash:99",
+        "Exhausted:same Offset:12 Hash:99",
     ]
     assert ("pause", ("Question",), {}) in calls
     assert not [call for call in calls if call[0] == "end"]
@@ -151,13 +171,39 @@ def test_question_runtime_known_yes_no_route_does_not_loop():
     ]
 
 
+def test_question_runtime_known_no_route_is_exhausted_without_input():
+    history = ["Infos:same Answer:False Offset:12 Hash:99"]
+    statuses = []
+
+    def fail_asker(_prompt):
+        raise AssertionError("known declined route should not ask again")
+
+    runtime, calls = runtime_from(
+        history=history,
+        asker=fail_asker,
+        status_sink=statuses.append,
+    )
+
+    answer = question_runtime.ask_question(runtime, "same", 99)
+
+    assert answer is False
+    assert statuses == ["route_exhausted"]
+    assert history == [
+        "Infos:same Answer:False Offset:12 Hash:99",
+        "Exhausted:same Offset:12 Hash:99",
+    ]
+    assert not [call for call in calls if call[0] == "end"]
+
+
 def main():
     checks = [
         ("Record auto answer", test_question_runtime_records_auto_answer_without_input),
         ("Report auto mode", test_question_runtime_reports_auto_mode_when_legacy_auto_is_enabled),
         ("Manual feedback", test_question_runtime_manual_answer_uses_legacy_feedback),
+        ("IDAT heavy probe prompt", test_question_runtime_names_idat_heavy_probe_prompt),
         ("Flip duplicate answer", test_question_runtime_flips_duplicate_question_answer),
         ("Known yes/no route does not loop", test_question_runtime_known_yes_no_route_does_not_loop),
+        ("Known no route is exhausted", test_question_runtime_known_no_route_is_exhausted_without_input),
     ]
 
     print("Running question runtime tests")

@@ -49,11 +49,16 @@ def test_main_loop_history_reset_values_preserve_fresh_containers():
         "IDAT_CRC_PATCH_FAILED_FINDING": None,
         "IDAT_CRC_DEFER_EXPLAINED": False,
         "IDAT_CRC_DEFERRED_FINDINGS": set(),
+        "IDAT_CRC_DEFERRED_ROUTES": set(),
+        "IDAT_DEFLATE_PROBE_KEYS": set(),
+        "WRONG_CHUNK_NAME_TRIED_ROUTES": set(),
+        "REPAIR_ROUTE_STATES": {},
         "NEARBY_FOUND_LATER_IEND": None,
     }
     assert first["PandoraBox"] is not second["PandoraBox"]
     assert first["Chunks_History"] is not second["Chunks_History"]
     assert first["IDAT_CRC_DEFERRED_FINDINGS"] is not second["IDAT_CRC_DEFERRED_FINDINGS"]
+    assert first["REPAIR_ROUTE_STATES"] is not second["REPAIR_ROUTE_STATES"]
 
 
 def test_select_sample_preserves_current_sample_when_cloneswar_is_false():

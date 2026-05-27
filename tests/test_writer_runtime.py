@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import sys
+import struct
 import tempfile
+import zlib
 from pathlib import Path
 
 
@@ -9,6 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import output, writer, writer_runtime
+from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks
 
 
 def clone_plan(*, save_count=1, max_saves_reached=False):
@@ -381,6 +384,52 @@ def test_run_save_clone_shortens_large_patch_preview():
     ) in calls
 
 
+def test_run_save_clone_blocks_idat_crc_only_when_deflate_still_breaks():
+    calls = []
+    side_notes = []
+    ihdr = struct.pack("!IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    compressed = bytearray(zlib.compress(b"\x00abc"))
+    compressed[2] ^= 0xFF
+    data = PNG_SIGNATURE + build_png_chunk(b"IHDR", ihdr) + build_png_chunk(b"IDAT", bytes(compressed)) + IEND_CHUNK
+    idat_chunk = next(chunk for chunk in iter_chunks(data) if chunk.chunk_type == b"IDAT")
+    crc_offset = idat_chunk.offset + 8 + idat_chunk.length
+    replacement_crc = data[crc_offset:crc_offset + 4].hex()
+    broken_crc_data = bytearray(data)
+    broken_crc_data[crc_offset:crc_offset + 4] = b"\x00\x00\x00\x00"
+    runtime, state = clone_patch_runtime(calls, data_hex=bytes(broken_crc_data).hex())
+    runtime = writer_runtime.ClonePatchRuntime(
+        data_hex=runtime.data_hex,
+        candy=runtime.candy,
+        emit=runtime.emit,
+        betterror=runtime.betterror,
+        write_clone=runtime.write_clone,
+        set_show_must_go_on=runtime.set_show_must_go_on,
+        save_debug_payloads=runtime.save_debug_payloads,
+        side_notes=side_notes,
+    )
+
+    result = writer_runtime.run_save_clone(
+        runtime,
+        replacement_crc,
+        crc_offset * 2,
+        crc_offset * 2 + 8,
+        "-Found Chunk[b'IDAT'] has Wrong Crc",
+    )
+
+    assert result is None
+    assert state == {"show_must_go_on": False}
+    assert not [call for call in calls if call[0] == "write_clone"]
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "That would only repaint an IDAT CRC label while the compressed stream still falls apart.",
+            "bad",
+        ),
+    ) in calls
+    assert any(note.startswith("-Deferred IDAT CRC-only patch: zlib stream still invalid:") for note in side_notes)
+
+
 def test_save_clone_debug_payloads_writes_large_payload_files():
     with tempfile.TemporaryDirectory() as tmp:
         paths = writer_runtime.save_clone_debug_payloads(
@@ -432,6 +481,10 @@ def main():
         ("Save clone", test_run_save_clone_builds_fixed_data_sets_flag_and_writes_clone),
         ("Save clone named patch", test_run_save_clone_explains_named_patch_when_source_is_bytes),
         ("Save clone large patch preview", test_run_save_clone_shortens_large_patch_preview),
+        (
+            "Save clone blocks broken IDAT CRC-only patch",
+            test_run_save_clone_blocks_idat_crc_only_when_deflate_still_breaks,
+        ),
         ("Save clone debug payload files", test_save_clone_debug_payloads_writes_large_payload_files),
         ("Save clone bad hex", test_run_save_clone_preserves_bad_hex_error_path_before_write),
     ]

@@ -1,0 +1,4 @@
+[+] Read file of size 21732
+[*] IDAT @ 0x21 is missing 1 bytes
+[*] Trying all 26 possible ways to make CRC 0xb21ecb93 match...
+[!] Cannot fix broken IDAT chunk @ 0x21: No valid solutions!

@@ -45,7 +45,7 @@ def test_question_memory_records_then_flips_duplicate_answer():
     assert second.answer is False
     assert second.status == "duplicate_flipped"
     assert third.answer is False
-    assert third.status == "loop_detected"
+    assert third.status == "route_exhausted"
     assert len(history) == 2
 
 

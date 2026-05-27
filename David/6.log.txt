@@ -1,0 +1,4 @@
+[+] Read file of size 34494
+[*] IDAT @ 0x202d is missing 4 bytes
+[*] Trying all 194580 possible ways to make CRC 0x45089145 match...
+[!] Cannot fix broken IDAT chunk @ 0x202d: No valid solutions!

@@ -73,6 +73,8 @@ def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
     label = _question_display_name(question_id)
     if skipauto:
         return "Question: Should i stop this brute force branch and save the current candidate?"
+    if "IDAT Heavy Probe" in str(question_id):
+        return "Question: Should i launch the heavier IDAT probe?"
     if "Wrong Crc" in label:
         return "Question: Should i try the cheap CRC-only patch here?"
     if "Wrong Chunk name" in label or "Wrong Chunk name" in str(question_id):
@@ -170,6 +172,18 @@ def _emit_deja_vu(runtime: QuestionRuntime, question_id: Any, answer: Any) -> No
         runtime.pause("Question")
 
 
+def _question_exhausted_entry(question_id: Any, offset: Any, question_hash: Any) -> str:
+    return "Exhausted:%s Offset:%s Hash:%s" % (question_id, offset, question_hash)
+
+
+def _emit_route_exhausted_once(runtime: QuestionRuntime, question_id: Any, question_hash: Any) -> None:
+    entry = _question_exhausted_entry(question_id, runtime.offset, question_hash)
+    if entry in runtime.history:
+        return
+    runtime.history.append(entry)
+    _emit_deja_vu(runtime, question_id, False)
+
+
 def _known_attempted_route(runtime: QuestionRuntime, question_id: Any, question_hash: Any) -> bool | None:
     if question_id is None:
         return None
@@ -180,19 +194,27 @@ def _known_attempted_route(runtime: QuestionRuntime, question_id: Any, question_
         runtime.offset,
         question_hash,
     )
-    if tried_yes not in runtime.history:
-        return None
-
     tried_no = decisions.question_entry(
         question_id,
         False,
         runtime.offset,
         question_hash,
     )
+    if tried_yes not in runtime.history:
+        if tried_no in runtime.history:
+            _record_status(runtime, "route_exhausted")
+            _emit_route_exhausted_once(runtime, question_id, question_hash)
+            return False
+        return None
+
     if tried_no not in runtime.history:
         runtime.history.append(tried_no)
-    _record_status(runtime, "duplicate_flipped")
-    _emit_deja_vu(runtime, question_id, False)
+        _record_status(runtime, "duplicate_flipped")
+        _emit_deja_vu(runtime, question_id, False)
+        return False
+
+    _record_status(runtime, "route_exhausted")
+    _emit_route_exhausted_once(runtime, question_id, question_hash)
     return False
 
 
@@ -274,19 +296,10 @@ def ask_question(
         _emit_deja_vu(runtime, question_id, answer)
         return memory.answer
 
-    if memory.status == "loop_detected":
-        runtime.emit(
-            "-%s\n"
-            % runtime.candy(
-                "Color",
-                "red",
-                "Loop Detected please contact github.com/on4r4p/Chunklate",
-            )
-        )
-        _emit_history_debug(runtime, question_id, memory.answer)
+    if memory.status == "route_exhausted":
+        _emit_route_exhausted_once(runtime, question_id, question_hash)
         if runtime.pause_debug:
-            runtime.pause("Pause Question")
-        runtime.end()
+            runtime.pause("Question")
         return memory.answer
 
     return answer

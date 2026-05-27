@@ -7,7 +7,10 @@ from typing import Callable
 
 from . import fixit_felix
 from . import idat
+from . import idat_bruteforce
 from . import idat_chain
+from . import png
+from . import repair_routes
 from . import relics
 from . import writer
 
@@ -78,6 +81,7 @@ class WrongCrcRuntime:
     candy: Callable[..., Any]
     question: Callable[..., Any]
     save_clone: Callable[[Any, Any, Any, Any], Any]
+    write_clone: Callable[[Any, str], Any]
     chunk_story: Callable[..., Any]
     set_skip_bad_crc: Callable[[Any], Any]
     set_old_bad_crc: Callable[[Any], Any]
@@ -92,8 +96,11 @@ class WrongCrcRuntime:
     set_idat_crc_patch_failed_finding: Callable[[Any], Any]
     remember_deferred_idat_crc_route: Callable[[Any, relics.WrongCrcTools], Any]
     is_deferred_idat_crc_route: Callable[[Any, relics.WrongCrcTools], bool]
+    remember_idat_deflate_probe: Callable[[idat.IdatStreamAnalysis], bool]
     debug: bool
     pause_debug: bool
+    loadingbar: Callable[..., Any] | None = None
+    minibar: Callable[..., Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +122,8 @@ class WrongChunkNameRuntime:
     side_notes: Any
     remember_wrong_chunk_name_route: Callable[[Any, str, relics.WrongChunkNameTools, str], Any]
     is_wrong_chunk_name_route_tried: Callable[[Any, str, relics.WrongChunkNameTools, str], bool]
+    loadingbar: Callable[..., Any] | None = None
+    minibar: Callable[..., Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -148,6 +157,8 @@ class NoNextChunkRuntime:
     dummy_chunk: Callable[..., Any]
     nearby_chunk: Callable[..., Any]
     nearby_found_later_iend: Callable[[], Any]
+    loadingbar: Callable[..., Any] | None = None
+    minibar: Callable[..., Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +182,7 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         candy=namespace["Candy"],
         question=namespace["Question"],
         save_clone=namespace["SaveClone"],
+        write_clone=namespace["WriteClone"],
         chunk_story=namespace["ChunkStory"],
         set_skip_bad_crc=namespace["FixItFelix_Set_Skip_Bad_Crc"],
         set_old_bad_crc=namespace["FixItFelix_Set_Old_Bad_Crc"],
@@ -185,8 +197,11 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         set_idat_crc_patch_failed_finding=lambda value: namespace.__setitem__("IDAT_CRC_PATCH_FAILED_FINDING", value),
         remember_deferred_idat_crc_route=lambda finding, tools: remember_deferred_idat_crc_route(namespace, finding, tools),
         is_deferred_idat_crc_route=lambda finding, tools: is_deferred_idat_crc_route(namespace, finding, tools),
+        remember_idat_deflate_probe=lambda analysis: remember_idat_deflate_probe(namespace, analysis),
         debug=namespace["DEBUG"],
         pause_debug=namespace["PAUSEDEBUG"],
+        loadingbar=namespace.get("Loadingbar"),
+        minibar=namespace.get("Minibar"),
     )
 
 
@@ -237,6 +252,8 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
             tools,
             action,
         ),
+        loadingbar=namespace.get("Loadingbar"),
+        minibar=namespace.get("Minibar"),
     )
 
 
@@ -271,6 +288,8 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         dummy_chunk=namespace["DummyChunk"],
         nearby_chunk=namespace["NearbyChunk"],
         nearby_found_later_iend=lambda: namespace.get("NEARBY_FOUND_LATER_IEND"),
+        loadingbar=namespace.get("Loadingbar"),
+        minibar=namespace.get("Minibar"),
     )
 
 
@@ -350,12 +369,15 @@ def is_idat_wrong_crc_finding(finding: Any) -> bool:
 def deferred_idat_crc_route_key(
     _finding: Any,
     tools: relics.WrongCrcTools,
-) -> tuple[str, str, str, str]:
-    return (
-        str(tools.chunk),
-        str(tools.offset),
-        str(tools.start),
-        str(tools.end),
+) -> repair_routes.RepairRouteKey:
+    return repair_routes.route_key(
+        "idat_crc_only",
+        chunk=tools.chunk,
+        file_offset=tools.offset,
+        source=tools.old_crc,
+        target=tools.replacement_crc,
+        start=tools.start,
+        end=tools.end,
     )
 
 
@@ -364,8 +386,10 @@ def remember_deferred_idat_crc_route(
     finding: Any,
     tools: relics.WrongCrcTools,
 ) -> None:
+    key = deferred_idat_crc_route_key(finding, tools)
     routes = namespace.setdefault("IDAT_CRC_DEFERRED_ROUTES", set())
-    routes.add(deferred_idat_crc_route_key(finding, tools))
+    routes.add(key)
+    repair_routes.remember_route(namespace, key, "deferred")
 
 
 def is_deferred_idat_crc_route(
@@ -373,8 +397,32 @@ def is_deferred_idat_crc_route(
     finding: Any,
     tools: relics.WrongCrcTools,
 ) -> bool:
+    key = deferred_idat_crc_route_key(finding, tools)
     routes = namespace.setdefault("IDAT_CRC_DEFERRED_ROUTES", set())
-    return deferred_idat_crc_route_key(finding, tools) in routes
+    if key in routes or repair_routes.is_exhausted(namespace, key):
+        repair_routes.remember_route(namespace, key, "skipped_duplicate")
+        return True
+    return False
+
+
+def idat_deflate_probe_key(analysis: idat.IdatStreamAnalysis) -> tuple[Any, ...]:
+    return (
+        analysis.status,
+        analysis.idat_chunk_count,
+        analysis.compressed_size,
+        analysis.error_offset,
+        analysis.error_file_offset,
+        analysis.error_context_hex,
+    )
+
+
+def remember_idat_deflate_probe(namespace: dict[str, Any], analysis: idat.IdatStreamAnalysis) -> bool:
+    seen = namespace.setdefault("IDAT_DEFLATE_PROBE_KEYS", set())
+    key = idat_deflate_probe_key(analysis)
+    if key in seen:
+        return False
+    seen.add(key)
+    return True
 
 
 def remember_deferred_idat_crc_finding(namespace: dict[str, Any], finding: Any) -> bool:
@@ -429,8 +477,10 @@ def remember_wrong_chunk_name_route(
     tools: relics.WrongChunkNameTools,
     action: str,
 ) -> None:
+    key = wrong_chunk_name_route_key(finding, chkd, tools, action)
     routes = namespace.setdefault("WRONG_CHUNK_NAME_TRIED_ROUTES", set())
-    routes.add(wrong_chunk_name_route_key(finding, chkd, tools, action))
+    routes.add(key)
+    repair_routes.remember_route(namespace, key, "tried")
 
 
 def is_wrong_chunk_name_route_tried(
@@ -440,8 +490,12 @@ def is_wrong_chunk_name_route_tried(
     tools: relics.WrongChunkNameTools,
     action: str,
 ) -> bool:
+    key = wrong_chunk_name_route_key(finding, chkd, tools, action)
     routes = namespace.setdefault("WRONG_CHUNK_NAME_TRIED_ROUTES", set())
-    return wrong_chunk_name_route_key(finding, chkd, tools, action) in routes
+    if key in routes or repair_routes.is_exhausted(namespace, key):
+        repair_routes.remember_route(namespace, key, "skipped_duplicate")
+        return True
+    return False
 
 
 def _remember_wrong_chunk_name_note(
@@ -581,6 +635,14 @@ def idat_stream_diagnosis_note(analysis: idat.IdatStreamAnalysis) -> str:
     ]
     if analysis.error_offset is not None:
         details.append("error_offset=%s" % analysis.error_offset)
+    if analysis.error_idat_index is not None:
+        details.append("error_idat=%s/%s" % (analysis.error_idat_index, analysis.idat_chunk_count))
+    if analysis.error_idat_offset is not None:
+        details.append("error_idat_offset=0x%x" % analysis.error_idat_offset)
+    if analysis.error_file_offset is not None:
+        details.append("error_file_offset=0x%x" % analysis.error_file_offset)
+    if analysis.error_context_hex:
+        details.append("error_context=%s" % analysis.error_context_hex)
     reason = analysis.reason or analysis.zlib_error
     if reason:
         details.append("reason=%s" % reason)
@@ -596,6 +658,196 @@ def remember_deferred_idat_crc_note(runtime: WrongCrcRuntime, validation: WrongC
         runtime.side_notes.append(idat_stream_diagnosis_note(validation.stream_analysis))
     if validation.reason:
         runtime.side_notes.append(defer_idat_crc_only_note(validation.reason))
+
+
+def _runtime_can_write_clone(runtime: Any) -> bool:
+    return callable(getattr(runtime, "write_clone", None))
+
+
+def _remember_runtime_idat_probe(runtime: Any, analysis: idat.IdatStreamAnalysis) -> bool:
+    remember = getattr(runtime, "remember_idat_deflate_probe", None)
+    if remember is None:
+        return True
+    return bool(remember(analysis))
+
+
+def _runtime_idat_heavy_progress(runtime: Any):
+    loadingbar = getattr(runtime, "loadingbar", None)
+    if loadingbar is None:
+        return None
+
+    def progress(loop_index: int, budget: int, build: bool) -> None:
+        loadingbar(budget, len(str(budget)), loop_index, build)
+
+    return progress
+
+
+def _runtime_idat_queue_progress(runtime: Any):
+    minibar = getattr(runtime, "minibar", None)
+    if minibar is None:
+        return None
+
+    def progress(stage: str, tested: int, budget: int) -> None:
+        minibar("IDAT %s %s/%s" % (stage, tested, budget))
+
+    return progress
+
+
+def _ask_idat_heavy_probe(runtime: Any, analysis: idat.IdatStreamAnalysis) -> bool:
+    runtime.candy(
+        "Cowsay",
+        "The next probe is heavier. It may take a bit, but it still only writes if the stream actually moves forward.",
+        "com",
+    )
+    answer = runtime.question(
+        id="IDAT Heavy Probe:-Deflate stream still broken",
+        idhash=idat_deflate_probe_key(analysis),
+    )
+    if answer is True:
+        return True
+
+    runtime.candy(
+        "Cowsay",
+        "Fair. I am not sending the fish into the engine room without permission.",
+        "com",
+    )
+    runtime.side_notes.append("-IDAT heavy probe declined by user.")
+    return False
+
+
+def try_idat_deflate_bruteforce(
+    runtime: Any,
+    analysis: idat.IdatStreamAnalysis | None = None,
+) -> tuple[bool, Any] | None:
+    if not _runtime_can_write_clone(runtime):
+        return None
+
+    try:
+        data = bytes.fromhex(runtime.data_hex)
+    except Exception:
+        return None
+
+    analysis = analysis or idat.analyze_idat_stream(data)
+    if analysis.complete or not analysis.supported:
+        return None
+    if analysis.status not in ("corrupt_deflate", "incomplete_stream", "bad_adler"):
+        return None
+    if analysis.error_offset is None:
+        return None
+    if not _remember_runtime_idat_probe(runtime, analysis):
+        runtime.candy(
+            "Cowsay",
+            "I already poked that exact IDAT wound. Same smell, same bandage budget.",
+            "com",
+        )
+        return None
+
+    runtime.candy(
+        "Cowsay",
+        "The boxes line up now, but the compressed stuff inside is still screaming.",
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "I will run the bounded IDAT strategy queue: strict byte, pre-error bit flips, then a wider byte probe.",
+        "com",
+    )
+    runtime.side_notes.append(idat_stream_diagnosis_note(analysis))
+    probe = idat_bruteforce.probe_idat_deflate_strategy_queue(
+        data,
+        progress=_runtime_idat_queue_progress(runtime),
+    )
+    runtime.side_notes.append(idat_bruteforce.probe_summary_line(probe))
+
+    if probe.best is None:
+        runtime.candy(
+            "Cowsay",
+            "I tried the small deflate probe. Nothing got better, so I could send the fish into a wider net.",
+            "bad",
+        )
+        if not _ask_idat_heavy_probe(runtime, analysis):
+            runtime.side_notes.append("-IDAT deflate heavy probe skipped: user declined.")
+            return None
+
+        heavy_probe = idat_bruteforce.probe_idat_deflate_heavy_candidates(
+            data,
+            progress=_runtime_idat_heavy_progress(runtime),
+        )
+        runtime.side_notes.append(idat_bruteforce.probe_summary_line(heavy_probe))
+
+        if getattr(runtime, "emit", None) is not None:
+            runtime.emit("")
+
+        if heavy_probe.best is not None:
+            probe = heavy_probe
+        else:
+            runtime.candy(
+                "Cowsay",
+                "The fish came back wet and empty. No measurable progress, no clone.",
+                "bad",
+            )
+            runtime.candy(
+                "Cowsay",
+                "I am not launching the heavier legacy brawl automatically. That one needs a clear budget.",
+                "com",
+            )
+            runtime.side_notes.append("-IDAT deflate heavy probe found no improved candidate.")
+            runtime.side_notes.append("-IDAT legacy bruteforce skipped: automatic heavy probing is disabled.")
+            return None
+
+    if probe.best is None:
+        runtime.candy(
+            "Cowsay",
+            "I am not launching the heavy probe automatically. That one needs a clear budget.",
+            "com",
+        )
+        runtime.side_notes.append("-IDAT deflate probe found no improved candidate.")
+        runtime.side_notes.append("-IDAT heavy probe skipped: automatic heavy probing is disabled.")
+        return None
+
+    candidate = probe.best
+    candidates = tuple(probe.chain) or (candidate,)
+    runtime.side_notes.extend(idat_bruteforce.candidate_summary_lines(probe))
+    if len(candidates) == 1:
+        runtime.candy(
+            "Cowsay",
+            "I found one byte that makes the IDAT stream behave better. Still an hypothesis, not a victory parade.",
+            "good",
+        )
+        runtime.candy(
+            "Cowsay",
+            "Patch: IDAT stream offset 0x%x, byte %02x -> %02x."
+            % (candidate.stream_offset, candidate.old_byte, candidate.new_byte),
+            "com",
+        )
+    else:
+        runtime.candy(
+            "Cowsay",
+            "I found %s byte changes that keep moving the IDAT stream forward. This is a trail, not a solved case."
+            % len(candidates),
+            "good",
+        )
+        for index, candidate_patch in enumerate(candidates, start=1):
+            runtime.candy(
+                "Cowsay",
+                "Patch %s: IDAT stream offset 0x%x, byte %02x -> %02x."
+                % (
+                    index,
+                    candidate_patch.stream_offset,
+                    candidate_patch.old_byte,
+                    candidate_patch.new_byte,
+                ),
+                "com",
+            )
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: targeted IDAT deflate strategy queue.",
+            idat_bruteforce.probe_summary_line(probe),
+            *idat_bruteforce.candidate_summary_lines(probe),
+            idat_stream_diagnosis_note(candidate.after),
+        )
+    )
+    return True, runtime.write_clone(candidate.data, summary)
 
 
 def validate_idat_crc_only_patch(
@@ -660,6 +912,15 @@ def preflight_idat_crc_only_patch(
     if tools.chunk != b"IDAT":
         return None
 
+    try:
+        current_analysis = idat.analyze_idat_stream(bytes.fromhex(runtime.data_hex))
+    except Exception:
+        current_analysis = None
+    if current_analysis is not None:
+        probe_result = try_idat_deflate_bruteforce(runtime, current_analysis)
+        if probe_result is not None:
+            return probe_result
+
     validation = validate_idat_crc_only_patch(runtime, tools)
     if validation.can_save:
         return None
@@ -713,7 +974,7 @@ def final_wrong_crc_question(
 ) -> tuple[bool, Any]:
     uniqh = relics.question_hash(runtime.pandora_box, finding, chkd)
     answer = runtime.question(id=finding, idhash=uniqh)
-    if runtime.last_question_status() == "duplicate_flipped":
+    if runtime.last_question_status() in ("duplicate_flipped", "route_exhausted"):
         return defer_wrong_crc(runtime, tools)
     if answer is False:
         return save_or_defer_wrong_crc(runtime, tools, finding)
@@ -763,7 +1024,7 @@ def apply_wrong_crc(
         if answer is True:
             return save_or_defer_wrong_crc(runtime, tools, decision.finding)
 
-        if runtime.last_question_status() == "duplicate_flipped":
+        if runtime.last_question_status() in ("duplicate_flipped", "route_exhausted"):
             return defer_wrong_crc(runtime, tools)
 
         runtime.set_skip_bad_crc(None)
@@ -829,7 +1090,11 @@ def _explain_idat_stream_after_header_repair(
 def _block_isolated_idat_repairs_after_chain_diagnostic(
     runtime: Any,
     analysis: idat.IdatStreamAnalysis,
-) -> tuple[bool, None]:
+) -> tuple[bool, Any]:
+    probe_result = try_idat_deflate_bruteforce(runtime, analysis)
+    if probe_result is not None:
+        return probe_result
+
     _explain_idat_stream_after_header_repair(runtime, analysis, already_aligned=True)
     runtime.candy(
         "Cowsay",
@@ -875,6 +1140,25 @@ def try_idat_chain_header_repair(
     _explain_idat_stream_after_header_repair(runtime, stream_analysis)
     summary = "\n".join([summary, idat_stream_diagnosis_note(stream_analysis)])
     return True, runtime.write_clone(analysis.fixed_data, summary)
+
+
+def wrong_chunk_name_precedes_first_parsed_idat(data_hex: str, tools: relics.WrongChunkNameTools) -> bool:
+    try:
+        data = bytes.fromhex(data_hex)
+        chunks = tuple(png.iter_chunks(data))
+    except Exception:
+        return False
+
+    first_idat = next((chunk for chunk in chunks if chunk.chunk_type == b"IDAT"), None)
+    if first_idat is None:
+        return False
+
+    try:
+        chunk_type_offset = int(tools.chunk_type_offset)
+    except (TypeError, ValueError):
+        return False
+
+    return chunk_type_offset < first_idat.offset + 4
 
 
 def emit_wrong_chunk_name_critical(runtime: WrongChunkNameRuntime, finding: Any) -> None:
@@ -1002,7 +1286,11 @@ def apply_wrong_chunk_name(
         raise ValueError("FixItFelix wrong-chunk-name action needs chunk tools: %s" % decision.action)
 
     emit_wrong_chunk_name_critical(runtime, decision.finding)
-    idat_chain_repair = try_idat_chain_header_repair(runtime)
+    block_after_alignment = not wrong_chunk_name_precedes_first_parsed_idat(runtime.data_hex, tools)
+    idat_chain_repair = try_idat_chain_header_repair(
+        runtime,
+        block_if_aligned_bad_stream=block_after_alignment,
+    )
     if idat_chain_repair is not None:
         return idat_chain_repair
 

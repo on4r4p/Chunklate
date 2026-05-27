@@ -118,6 +118,10 @@ def main_loop_history_reset_values() -> dict[str, object]:
         "IDAT_CRC_PATCH_FAILED_FINDING": None,
         "IDAT_CRC_DEFER_EXPLAINED": False,
         "IDAT_CRC_DEFERRED_FINDINGS": set(),
+        "IDAT_CRC_DEFERRED_ROUTES": set(),
+        "IDAT_DEFLATE_PROBE_KEYS": set(),
+        "WRONG_CHUNK_NAME_TRIED_ROUTES": set(),
+        "REPAIR_ROUTE_STATES": {},
         "NEARBY_FOUND_LATER_IEND": None,
     }
 

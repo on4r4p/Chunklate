@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import contextlib
+import io
 import sys
 from pathlib import Path
 
@@ -256,6 +258,20 @@ def test_run_loadingbar_from_namespace_builds_and_prints_progress():
     assert calls == [("print", ("100/500" + namespace["ThksForTheFish"][1],), {"end": "\r"})]
 
 
+def test_run_loadingbar_from_namespace_uses_print_fallback():
+    namespace = {
+        "os": type("FakeOs", (), {"get_terminal_size": staticmethod(lambda fd: (24, 80))})(),
+    }
+    output = io.StringIO()
+
+    with contextlib.redirect_stdout(output):
+        ui.run_loadingbar_from_namespace(namespace, 500, 3, 0, True)
+        ui.run_loadingbar_from_namespace(namespace, 500, 3, 100, False)
+
+    assert namespace["FishPos"] == 1
+    assert output.getvalue() == "100/500" + namespace["ThksForTheFish"][1] + "\r"
+
+
 def main():
     checks = [
         ("Colorize ANSI colors", test_colorize_preserves_legacy_ansi_colors),
@@ -279,6 +295,7 @@ def main():
         ("Loadingbar progress advance", test_loadingbar_progress_advances_every_100_steps),
         ("Loadingbar progress wrap", test_loadingbar_progress_wraps_at_last_frame),
         ("Loadingbar namespace bridge", test_run_loadingbar_from_namespace_builds_and_prints_progress),
+        ("Loadingbar print fallback", test_run_loadingbar_from_namespace_uses_print_fallback),
     ]
 
     print("Running UI tests")

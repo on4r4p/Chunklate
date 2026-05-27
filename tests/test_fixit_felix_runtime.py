@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -205,7 +206,7 @@ def bad_deflate_png_crc_patch():
         b"IHDR",
         b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00",
     )
-    idat_payload = b"\x78\x9c\xff\xff"
+    idat_payload = b"\x00\x00\xff\xff"
     idat_chunk = build_png_chunk(b"IDAT", idat_payload)
     data = PNG_SIGNATURE + ihdr + idat_chunk + IEND_CHUNK
     idat_offset = len(PNG_SIGNATURE) + len(ihdr)
@@ -213,6 +214,18 @@ def bad_deflate_png_crc_patch():
     crc_end = crc_start + 8
     replacement_crc = data[idat_offset + 8 + len(idat_payload) : idat_offset + 12 + len(idat_payload)].hex()
     return data.hex(), replacement_crc, crc_start, crc_end
+
+
+def one_byte_corrupt_deflate_png_hex():
+    ihdr = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x02\x08\x02\x00\x00\x00",
+    )
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[2] ^= 0xFF
+    data = PNG_SIGNATURE + ihdr + build_png_chunk(b"IDAT", bytes(compressed)) + IEND_CHUNK
+    return data.hex()
 
 
 def wrong_crc_runtime(
@@ -229,10 +242,15 @@ def wrong_crc_runtime(
     side_notes=None,
     last_question_status=None,
     deferred_routes=None,
+    deflate_probe_keys=None,
+    loadingbar=None,
+    minibar=None,
 ):
     answer_iter = iter(answers)
     if deferred_routes is None:
         deferred_routes = set()
+    if deflate_probe_keys is None:
+        deflate_probe_keys = set()
     if side_notes is None:
         side_notes = []
 
@@ -255,11 +273,20 @@ def wrong_crc_runtime(
         calls.append(("is_deferred_idat_crc_route", (finding, tools), {}))
         return fixit_felix_runtime.deferred_idat_crc_route_key(finding, tools) in deferred_routes
 
+    def remember_deflate_probe(analysis):
+        calls.append(("remember_idat_deflate_probe", (analysis,), {}))
+        key = fixit_felix_runtime.idat_deflate_probe_key(analysis)
+        if key in deflate_probe_keys:
+            return False
+        deflate_probe_keys.add(key)
+        return True
+
     return fixit_felix_runtime.WrongCrcRuntime(
         emit=record("emit"),
         candy=record("candy"),
         question=question,
         save_clone=record("save_clone", "saved"),
+        write_clone=record("write_clone", "written"),
         chunk_story=record("chunk_story"),
         set_skip_bad_crc=record("set_skip_bad_crc"),
         set_old_bad_crc=record("set_old_bad_crc"),
@@ -274,8 +301,11 @@ def wrong_crc_runtime(
         set_idat_crc_patch_failed_finding=record("set_idat_crc_patch_failed_finding"),
         remember_deferred_idat_crc_route=remember_deferred_route,
         is_deferred_idat_crc_route=is_deferred_route,
+        remember_idat_deflate_probe=remember_deflate_probe,
         debug=debug,
         pause_debug=pause_debug,
+        loadingbar=loadingbar,
+        minibar=minibar,
     )
 
 
@@ -350,6 +380,29 @@ def test_deferred_idat_crc_route_key_ignores_error_counter():
 
     assert first == second
     assert first != other_offset
+
+
+def test_deferred_idat_crc_route_records_structural_state():
+    namespace = {}
+    tools = wrong_crc_tools(chunk=b"IDAT", offset=182, start=12, end=20)
+    key = fixit_felix_runtime.deferred_idat_crc_route_key(
+        "Checksum_Error_0:Wrong Crc b'IDAT'",
+        tools,
+    )
+
+    fixit_felix_runtime.remember_deferred_idat_crc_route(
+        namespace,
+        "Checksum_Error_0:Wrong Crc b'IDAT'",
+        tools,
+    )
+
+    assert namespace["REPAIR_ROUTE_STATES"][key] == "deferred"
+    assert fixit_felix_runtime.is_deferred_idat_crc_route(
+        namespace,
+        "Checksum_Error_1:Wrong Crc b'IDAT'",
+        tools,
+    ) is True
+    assert namespace["REPAIR_ROUTE_STATES"][key] == "skipped_duplicate"
 
 
 def test_apply_wrong_crc_skips_question_for_deferred_idat_route():
@@ -453,8 +506,152 @@ def test_apply_wrong_crc_defers_crc_only_when_idat_stream_stays_invalid():
     assert result == (False, None)
     assert not [call for call in calls if call[0] == "save_clone"]
     assert not [call for call in calls if call[0] == "question"]
-    assert any(note.startswith("-IDAT stream diagnosis: status=corrupt_deflate") for note in side_notes)
+    assert any(note.startswith("-IDAT stream diagnosis: status=bad_zlib_header") for note in side_notes)
     assert any(note.startswith("-Deferred IDAT CRC-only patch: zlib stream still invalid:") for note in side_notes)
+
+
+def test_apply_wrong_crc_writes_improved_deflate_probe_instead_of_crc_clone():
+    calls = []
+    side_notes = []
+    finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(True,),
+        pandora_box={finding: {chkd + "0": "fixed-crc-data"}},
+        data_hex=one_byte_corrupt_deflate_png_hex(),
+        side_notes=side_notes,
+        minibar=lambda *args: calls.append(("minibar", args, {})),
+    )
+
+    result = fixit_felix_runtime.apply_wrong_crc(
+        runtime,
+        fixit_felix.WrongCrcDecision("ask_easy_crc_fix", finding, 0),
+        chkd,
+        wrong_crc_tools(chunk=b"IDAT", replacement_crc="00000000", start=12, end=20),
+    )
+
+    assert result == (True, "written")
+    assert not [call for call in calls if call[0] == "save_clone"]
+    assert not [call for call in calls if call[0] == "question"]
+    assert any(call[0] == "minibar" and "IDAT strict-byte" in call[1][0] for call in calls)
+    assert [call for call in calls if call[0] == "write_clone"]
+    assert "-Repair hypothesis tried: targeted IDAT deflate strategy queue." in calls[-1][1][1]
+    assert any(note.startswith("-IDAT deflate candidate:") for note in side_notes)
+
+
+def test_apply_wrong_crc_uses_heavy_probe_loadingbar_after_quick_probe_fails():
+    calls = []
+    side_notes = []
+    finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    original_quick = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_strategy_queue
+    original_heavy = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_heavy_candidates
+
+    def loadingbar(*args):
+        calls.append(("loadingbar", args, {}))
+
+    def quick_no_candidate(data, **_kwargs):
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            0,
+            0,
+            False,
+            "strategy-queue",
+        )
+
+    def heavy_candidate(data, *, progress=None):
+        return original_heavy(
+            data,
+            backtrack=8,
+            forward=8,
+            budget=5000,
+            progress=progress,
+        )
+
+    try:
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_strategy_queue = quick_no_candidate
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_heavy_candidates = heavy_candidate
+        runtime = wrong_crc_runtime(
+            calls,
+            answers=(True,),
+            pandora_box={finding: {chkd + "0": "fixed-crc-data"}},
+            data_hex=one_byte_corrupt_deflate_png_hex(),
+            side_notes=side_notes,
+            loadingbar=loadingbar,
+        )
+
+        result = fixit_felix_runtime.apply_wrong_crc(
+            runtime,
+            fixit_felix.WrongCrcDecision("ask_easy_crc_fix", finding, 0),
+            chkd,
+            wrong_crc_tools(chunk=b"IDAT", replacement_crc="00000000", start=12, end=20),
+        )
+    finally:
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_strategy_queue = original_quick
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_heavy_candidates = original_heavy
+
+    assert result == (True, "written")
+    assert any(call[0] == "question" for call in calls)
+    assert any(call == ("loadingbar", (5000, 4, 0, True), {}) for call in calls)
+    assert any(call[0] == "write_clone" for call in calls)
+    assert any(note.startswith("-IDAT deflate probe: strategy=heavy-byte") for note in side_notes)
+
+
+def test_apply_wrong_crc_declines_heavy_probe_without_loadingbar_or_clone():
+    calls = []
+    side_notes = []
+    finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    original_quick = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_strategy_queue
+    original_heavy = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_heavy_candidates
+
+    def quick_no_candidate(data, **_kwargs):
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            0,
+            0,
+            False,
+            "strategy-queue",
+        )
+
+    def fail_heavy(*args, **kwargs):
+        raise AssertionError("heavy probe should not run when user declines")
+
+    try:
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_strategy_queue = quick_no_candidate
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_heavy_candidates = fail_heavy
+        runtime = wrong_crc_runtime(
+            calls,
+            answers=(False,),
+            pandora_box={finding: {chkd + "0": "fixed-crc-data"}},
+            data_hex=one_byte_corrupt_deflate_png_hex(),
+            side_notes=side_notes,
+            loadingbar=lambda *args: calls.append(("loadingbar", args, {})),
+        )
+
+        result = fixit_felix_runtime.apply_wrong_crc(
+            runtime,
+            fixit_felix.WrongCrcDecision("ask_easy_crc_fix", finding, 0),
+            chkd,
+            wrong_crc_tools(chunk=b"IDAT", replacement_crc="00000000", start=12, end=20),
+        )
+    finally:
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_strategy_queue = original_quick
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_heavy_candidates = original_heavy
+
+    assert result == (False, None)
+    assert any(call[0] == "question" for call in calls)
+    assert not any(call[0] == "loadingbar" for call in calls)
+    assert not any(call[0] == "write_clone" for call in calls)
+    assert "-IDAT heavy probe declined by user." in side_notes
+    assert "-IDAT deflate heavy probe skipped: user declined." in side_notes
 
 
 def test_apply_wrong_crc_other_errors_defers_to_chunk_story():
@@ -574,6 +771,21 @@ def idat_chain_aligned_bad_deflate_hex():
     return data.hex()
 
 
+def wrong_chunk_name_before_first_idat_hex():
+    ihdr = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00",
+    )
+    data = (
+        PNG_SIGNATURE
+        + ihdr
+        + raw_png_chunk(4, b"zzzz", b"aaaa")
+        + raw_png_chunk(4, b"IDAT", b"bbbb")
+        + IEND_CHUNK
+    )
+    return data.hex(), len(PNG_SIGNATURE) + len(ihdr) + 4
+
+
 def test_wrong_chunk_name_route_key_ignores_error_counter():
     first = fixit_felix_runtime.wrong_chunk_name_route_key(
         "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42",
@@ -601,6 +813,47 @@ def test_wrong_chunk_name_route_key_ignores_error_counter():
 
     assert first == second
     assert first != other
+
+
+def test_wrong_chunk_name_route_records_structural_state():
+    namespace = {}
+    tools = wrong_chunk_name_tools()
+    key = fixit_felix_runtime.wrong_chunk_name_route_key(
+        "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42",
+        "zzzz_Tool_",
+        tools,
+        "bruteforce",
+    )
+
+    fixit_felix_runtime.remember_wrong_chunk_name_route(
+        namespace,
+        "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42",
+        "zzzz_Tool_",
+        tools,
+        "bruteforce",
+    )
+
+    assert namespace["REPAIR_ROUTE_STATES"][key] == "tried"
+    assert fixit_felix_runtime.is_wrong_chunk_name_route_tried(
+        namespace,
+        "CheckChunkName_Error_1:has Wrong Chunk name at offset: 42",
+        "zzzz_Tool_",
+        tools,
+        "bruteforce",
+    ) is True
+    assert namespace["REPAIR_ROUTE_STATES"][key] == "skipped_duplicate"
+
+
+def test_wrong_chunk_name_before_first_idat_does_not_block_name_repair():
+    data_hex, chunk_type_offset = wrong_chunk_name_before_first_idat_hex()
+    tools = SimpleNamespace(
+        chunk_type=b"zzzz",
+        chunk_length="4",
+        chunk_type_offset=chunk_type_offset,
+        previous_chunk=b"pHYs",
+    )
+
+    assert fixit_felix_runtime.wrong_chunk_name_precedes_first_parsed_idat(data_hex, tools) is True
 
 
 def wrong_chunk_name_runtime(
@@ -801,7 +1054,7 @@ def test_apply_wrong_chunk_name_uses_idat_chain_batch_before_bruteforce():
     assert any("type @DAT -> IDAT" in note for note in side_notes)
 
 
-def test_apply_wrong_chunk_name_keeps_known_name_repair_available_when_stream_is_bad():
+def test_apply_wrong_chunk_name_uses_deflate_probe_when_aligned_stream_is_bad():
     calls = []
     side_notes = []
     finding = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"
@@ -821,11 +1074,12 @@ def test_apply_wrong_chunk_name_keeps_known_name_repair_available_when_stream_is
         wrong_chunk_name_tools(),
     )
 
-    assert result == (True, "brute-result")
-    assert [call for call in calls if call[0] == "question"]
-    assert [call for call in calls if call[0] == "ancillary"]
-    assert [call for call in calls if call[0] == "brute_chunk"]
-    assert not [call for call in calls if call[0] == "write_clone"]
+    assert result == (True, "written")
+    assert not [call for call in calls if call[0] == "question"]
+    assert not [call for call in calls if call[0] == "ancillary"]
+    assert not [call for call in calls if call[0] == "brute_chunk"]
+    assert [call for call in calls if call[0] == "write_clone"]
+    assert any(note.startswith("-IDAT stream diagnosis: status=corrupt_deflate") for note in side_notes)
 
 
 def test_apply_wrong_chunk_name_saves_existing_solution():
@@ -1095,7 +1349,7 @@ def test_apply_no_next_uses_idat_chain_batch_before_iend_append():
     assert "-Repair hypothesis tried: IDAT chain header repair." in side_notes
 
 
-def test_apply_no_next_stops_iend_append_when_idat_chain_is_aligned_but_stream_is_bad():
+def test_apply_no_next_uses_deflate_probe_when_idat_chain_is_aligned_but_stream_is_bad():
     calls = []
     finding = "CheckLength_Error_0:-No NextChunk"
     runtime, side_notes, _state = no_next_runtime(
@@ -1111,15 +1365,11 @@ def test_apply_no_next_stops_iend_append_when_idat_chain_is_aligned_but_stream_i
         no_next_tools(),
     )
 
-    assert result == (False, None)
+    assert result == (True, "write-result")
     assert not [call for call in calls if call[0] == "dummy_chunk"]
-    assert not [call for call in calls if call[0] == "write_clone"]
+    assert [call for call in calls if call[0] == "write_clone"]
     assert any(note.startswith("-IDAT stream diagnosis: status=corrupt_deflate") for note in side_notes)
-    assert (
-        "candy",
-        ("Cowsay", "So I am not adding IEND, renaming chunks, or polishing CRC labels on this pass.", "com"),
-        {},
-    ) in calls
+    assert any(note.startswith("-IDAT deflate candidate:") for note in side_notes)
 
 
 def test_apply_no_next_does_not_append_iend_when_nearby_already_found_one():
@@ -1691,6 +1941,10 @@ def main():
             test_apply_wrong_crc_easy_decline_then_final_decline_keeps_skip_none_and_saves,
         ),
         ("Deferred IDAT CRC route ignores error counter", test_deferred_idat_crc_route_key_ignores_error_counter),
+        (
+            "Deferred IDAT CRC route records structural state",
+            test_deferred_idat_crc_route_records_structural_state,
+        ),
         ("Apply wrong CRC skips deferred IDAT route", test_apply_wrong_crc_skips_question_for_deferred_idat_route),
         (
             "Apply wrong CRC records failed IDAT route",
@@ -1700,6 +1954,18 @@ def main():
             "Apply wrong CRC defers invalid IDAT stream",
             test_apply_wrong_crc_defers_crc_only_when_idat_stream_stays_invalid,
         ),
+        (
+            "Apply wrong CRC writes improved IDAT deflate probe",
+            test_apply_wrong_crc_writes_improved_deflate_probe_instead_of_crc_clone,
+        ),
+        (
+            "Apply wrong CRC heavy IDAT deflate probe loadingbar",
+            test_apply_wrong_crc_uses_heavy_probe_loadingbar_after_quick_probe_fails,
+        ),
+        (
+            "Apply wrong CRC heavy IDAT deflate probe decline",
+            test_apply_wrong_crc_declines_heavy_probe_without_loadingbar_or_clone,
+        ),
         ("Apply wrong CRC other errors defers", test_apply_wrong_crc_other_errors_defers_to_chunk_story),
         (
             "Apply wrong CRC Cornucopia debug path",
@@ -1708,6 +1974,14 @@ def main():
         ("Apply wrong CRC rejects missing tools", test_apply_wrong_crc_rejects_missing_tools_for_action),
         ("Apply wrong CRC rejects unknown action", test_apply_wrong_crc_rejects_unknown_action),
         ("Wrong chunk name route ignores error counter", test_wrong_chunk_name_route_key_ignores_error_counter),
+        (
+            "Wrong chunk name route records structural state",
+            test_wrong_chunk_name_route_records_structural_state,
+        ),
+        (
+            "Wrong chunk name before first IDAT stays available",
+            test_wrong_chunk_name_before_first_idat_does_not_block_name_repair,
+        ),
         (
             "Apply wrong chunk name length probe accepts",
             test_apply_wrong_chunk_name_length_probe_accepts_nearby_chunk,
@@ -1726,8 +2000,8 @@ def main():
             test_apply_wrong_chunk_name_uses_idat_chain_batch_before_bruteforce,
         ),
         (
-            "Apply wrong chunk name remains available after aligned bad stream",
-            test_apply_wrong_chunk_name_keeps_known_name_repair_available_when_stream_is_bad,
+            "Apply wrong chunk name probes after aligned bad stream",
+            test_apply_wrong_chunk_name_uses_deflate_probe_when_aligned_stream_is_bad,
         ),
         ("Apply wrong chunk name saves existing", test_apply_wrong_chunk_name_saves_existing_solution),
         (
@@ -1747,8 +2021,8 @@ def main():
             test_apply_no_next_uses_idat_chain_batch_before_iend_append,
         ),
         (
-            "Apply no-next blocks IEND append after aligned bad stream",
-            test_apply_no_next_stops_iend_append_when_idat_chain_is_aligned_but_stream_is_bad,
+            "Apply no-next probes after aligned bad stream",
+            test_apply_no_next_uses_deflate_probe_when_idat_chain_is_aligned_but_stream_is_bad,
         ),
         (
             "Apply no-next skips append after nearby IEND",

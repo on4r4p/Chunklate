@@ -6,7 +6,7 @@ from typing import Literal
 
 
 InputFunc = Callable[[str], str]
-QuestionStatus = Literal["untracked", "recorded", "duplicate_flipped", "loop_detected"]
+QuestionStatus = Literal["untracked", "recorded", "duplicate_flipped", "route_exhausted"]
 PokemonAction = Literal["select", "length", "quit", "invalid"]
 
 
@@ -96,7 +96,7 @@ def remember_question_answer(
         history.append(flipped_entry)
         return RememberedQuestion(flipped_answer, "duplicate_flipped", flipped_entry)
 
-    return RememberedQuestion(flipped_answer, "loop_detected", flipped_entry)
+    return RememberedQuestion(flipped_answer, "route_exhausted", flipped_entry)
 
 
 def parse_pokemon_choice(choice: object, candidate_count: int) -> PokemonChoice:

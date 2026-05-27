@@ -6,7 +6,7 @@ from collections.abc import MutableSequence
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import output, writer
+from . import idat, output, png, writer
 
 
 LegacyCall = Callable[..., Any]
@@ -51,6 +51,7 @@ class ClonePatchRuntime:
     remove_hex_range: LegacyCall = writer.remove_hex_range
     replace_hex_range: LegacyCall = writer.replace_hex_range
     save_debug_payloads: LegacyCall | None = None
+    side_notes: MutableSequence[str] | None = None
 
 
 def build_write_clone_runtime(
@@ -195,6 +196,62 @@ def _summary_with_clone_patch_note(
     return "%s\n%s" % (str(infos).rstrip(), note)
 
 
+def _append_side_note(runtime: ClonePatchRuntime, note: str) -> None:
+    if runtime.side_notes is not None:
+        runtime.side_notes.append(note)
+
+
+def _crc_range_targets_idat(data_hex: str, start: int, end: int) -> bool:
+    if end - start != 8 or start % 2 != 0 or end % 2 != 0:
+        return False
+
+    try:
+        data = bytes.fromhex(data_hex)
+    except ValueError:
+        return False
+
+    crc_byte_offset = start // 2
+    try:
+        for chunk in png.iter_chunks(data):
+            if chunk.chunk_type != b"IDAT":
+                continue
+            if chunk.offset + 8 + chunk.length == crc_byte_offset:
+                return True
+    except png.PngFormatError:
+        return False
+    return False
+
+
+def _idat_crc_only_guard_note(analysis: idat.IdatStreamAnalysis) -> str:
+    reason = analysis.reason or analysis.zlib_error or analysis.status or "IDAT stream is still invalid"
+    return "-Deferred IDAT CRC-only patch: zlib stream still invalid: %s." % reason
+
+
+def _should_block_idat_crc_only_clone(
+    runtime: ClonePatchRuntime,
+    data_fix: str,
+    start: int,
+    end: int,
+) -> tuple[bool, idat.IdatStreamAnalysis | None, str]:
+    if len(data_fix) != 8:
+        return False, None, ""
+    if not _crc_range_targets_idat(runtime.data_hex, start, end):
+        return False, None, ""
+
+    try:
+        fixed_hex = runtime.replace_hex_range(runtime.data_hex, data_fix, start, end)
+        fixed_data = bytes.fromhex(fixed_hex)
+    except Exception as exc:
+        return True, None, "I could not even build the IDAT CRC-only candidate: %s" % exc
+
+    analysis = idat.analyze_idat_stream(fixed_data)
+    if analysis.complete:
+        return False, analysis, ""
+
+    reason = analysis.reason or analysis.zlib_error or analysis.status or "IDAT stream is still invalid"
+    return True, analysis, reason
+
+
 def announce_clone_write(
     runtime: WriteCloneRuntime,
     context: WriteCloneContext,
@@ -299,7 +356,6 @@ def run_save_clone(
     end: int,
     infos: Any,
 ) -> Any:
-    runtime.set_show_must_go_on(True)
     runtime.candy("Title", "Saving Clone")
     try:
         runtime.emit("-Data : %s\n" % bytes.fromhex(data_fix))
@@ -308,6 +364,22 @@ def run_save_clone(
 
     patch_preview = _clone_patch_preview(data_fix, infos)
     runtime.candy("Cowsay", patch_preview, "com")
+    block_idat_crc, analysis, reason = _should_block_idat_crc_only_clone(runtime, data_fix, start, end)
+    if block_idat_crc:
+        runtime.candy(
+            "Cowsay",
+            "That would only repaint an IDAT CRC label while the compressed stream still falls apart.",
+            "bad",
+        )
+        runtime.candy(
+            "Cowsay",
+            "No clone for this one. I am keeping the note, not making another fake checkpoint.",
+            "com",
+        )
+        note = _idat_crc_only_guard_note(analysis) if analysis is not None else "-Deferred IDAT CRC-only patch: %s." % reason
+        _append_side_note(runtime, note)
+        return None
+
     debug_payload_paths: list[str] = []
     debug_payloads = _clone_debug_payloads(data_fix, infos)
     if debug_payloads and runtime.save_debug_payloads is not None:
@@ -321,6 +393,7 @@ def run_save_clone(
         except Exception as exc:
             runtime.betterror(exc, "SaveCloneDebugPayload")
     fix = runtime.replace_hex_range(runtime.data_hex, data_fix, start, end)
+    runtime.set_show_must_go_on(True)
     return runtime.write_clone(
         fix,
         _summary_with_clone_patch_note(infos, patch_preview, debug_payload_paths),

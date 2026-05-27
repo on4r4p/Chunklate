@@ -32,7 +32,10 @@ def reset_fixit_globals():
     Chunklate.SideNotes = []
     Chunklate.PandoraBox = {}
     Chunklate.Cornucopia = {}
+    Chunklate.IDAT_CRC_DEFERRED_ROUTES = set()
+    Chunklate.IDAT_DEFLATE_PROBE_KEYS = set()
     Chunklate.WRONG_CHUNK_NAME_TRIED_ROUTES = set()
+    Chunklate.REPAIR_ROUTE_STATES = {}
     Chunklate.Skip_Bad_Crc = False
     Chunklate.Skip_Bad_Libpng = False
     Chunklate.Skip_Bad_No_Next_Chunk = False

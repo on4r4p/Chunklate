@@ -74,6 +74,10 @@ class IdatStreamAnalysis:
     recovered_scanlines: bytes = b""
     zlib_error: str = ""
     error_offset: int | None = None
+    error_idat_index: int | None = None
+    error_idat_offset: int | None = None
+    error_file_offset: int | None = None
+    error_context_hex: str = ""
     reason: str = ""
 
     @property
@@ -237,6 +241,40 @@ def _idat_stream_status(error: str, *, complete: bool, decompressed_size: int, e
     return "partial"
 
 
+def _idat_error_location(
+    idat_chunks: tuple[png.PngChunk, ...],
+    error_offset: int | None,
+) -> tuple[int | None, int | None, int | None]:
+    if error_offset is None or not idat_chunks:
+        return None, None, None
+
+    remaining = max(0, error_offset)
+    for index, chunk in enumerate(idat_chunks, start=1):
+        if remaining < chunk.length:
+            return index, remaining, chunk.offset + 8 + remaining
+        remaining -= chunk.length
+
+    if remaining == 0:
+        last_chunk = idat_chunks[-1]
+        return (
+            len(idat_chunks),
+            last_chunk.length,
+            last_chunk.offset + 8 + last_chunk.length,
+        )
+
+    return None, None, None
+
+
+def _idat_error_context(idat_stream: bytes, error_offset: int | None, radius: int = 8) -> str:
+    if error_offset is None or not idat_stream:
+        return ""
+
+    center = min(max(0, error_offset), max(0, len(idat_stream) - 1))
+    start = max(0, center - radius)
+    end = min(len(idat_stream), center + radius + 1)
+    return idat_stream[start:end].hex()
+
+
 def analyze_idat_stream(data: bytes) -> IdatStreamAnalysis:
     try:
         chunks = list(png.iter_chunks(data))
@@ -289,6 +327,10 @@ def analyze_idat_stream(data: bytes) -> IdatStreamAnalysis:
         )
 
     decompressed, zlib_complete, error, error_offset = _decompress_until_error_details(idat_stream)
+    error_idat_index, error_idat_offset, error_file_offset = _idat_error_location(
+        idat_chunks,
+        error_offset,
+    )
     complete_scanlines, usable_scanlines = _count_usable_scanlines(decompressed, scanline_size, height)
     recovered_size = usable_scanlines * scanline_size
     status = _idat_stream_status(
@@ -314,6 +356,10 @@ def analyze_idat_stream(data: bytes) -> IdatStreamAnalysis:
         recovered_scanlines=decompressed[:recovered_size],
         zlib_error=error,
         error_offset=error_offset,
+        error_idat_index=error_idat_index,
+        error_idat_offset=error_idat_offset,
+        error_file_offset=error_file_offset,
+        error_context_hex=_idat_error_context(idat_stream, error_offset),
         reason=reason,
         **base,
     )

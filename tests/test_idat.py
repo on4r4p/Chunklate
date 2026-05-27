@@ -10,6 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import idat
+from chunklate import idat_bruteforce
 from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks, validate_png_structure
 
 
@@ -322,6 +323,158 @@ def test_analyze_idat_stream_reports_corrupt_deflate():
     assert analysis.status == "corrupt_deflate"
     assert analysis.zlib_error
     assert analysis.error_offset is not None
+    assert analysis.error_context_hex
+
+
+def test_analyze_idat_stream_maps_error_to_multi_idat_file_offset():
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[2] ^= 0xFF
+    candidate = build_rgb_png(
+        1,
+        2,
+        filtered,
+        idat_data=bytes(compressed),
+        idat_parts=split_bytes(bytes(compressed), 5),
+    )
+
+    analysis = idat.analyze_idat_stream(candidate)
+    chunks = list(iter_chunks(candidate))
+    idat_chunks = [chunk for chunk in chunks if chunk.chunk_type == b"IDAT"]
+
+    assert analysis.status == "corrupt_deflate"
+    assert analysis.error_offset is not None
+    assert analysis.error_idat_index == 2
+    assert analysis.error_idat_offset == analysis.error_offset - len(idat_chunks[0].data)
+    assert analysis.error_file_offset == idat_chunks[1].offset + 8 + analysis.error_idat_offset
+
+
+def test_idat_deflate_probe_repairs_single_byte_corruption():
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    original = compressed[2]
+    compressed[2] ^= 0xFF
+    candidate = build_rgb_png(
+        1,
+        2,
+        filtered,
+        idat_data=bytes(compressed),
+        idat_parts=split_bytes(bytes(compressed), 5),
+    )
+
+    result = idat_bruteforce.probe_idat_deflate_byte_candidates(candidate, window_radius=8)
+
+    assert result.best is not None
+    assert result.best.stream_offset == 2
+    assert result.best.new_byte == original
+    assert result.best.after.complete is True
+    assert idat.analyze_idat_stream(result.best.data).complete is True
+
+
+def test_idat_deflate_strategy_queue_uses_material_progress_only():
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[2] ^= 0xFF
+    candidate = build_rgb_png(
+        1,
+        2,
+        filtered,
+        idat_data=bytes(compressed),
+        idat_parts=split_bytes(bytes(compressed), 5),
+    )
+
+    result = idat_bruteforce.probe_idat_deflate_strategy_queue(candidate)
+
+    assert result.best is not None
+    assert result.strategy in {"strict-byte", "pre-error-bit", "wide-byte"}
+    assert result.best.after.complete is True
+
+
+def test_idat_deflate_strategy_queue_chases_multiple_material_steps():
+    filtered = b"\x00\x00\x00\x00" + b"\x00\x01\x01\x01"
+    compressed = bytearray(zlib.compress(filtered))
+    original_deflate_byte = compressed[2]
+    original_adler_byte = compressed[-4]
+    compressed[2] ^= 0xFF
+    compressed[-4] ^= 0xFF
+    candidate = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+
+    result = idat_bruteforce.probe_idat_deflate_strategy_queue(candidate, max_steps=4)
+
+    assert result.best is not None
+    assert result.strategy == "chase"
+    assert len(result.chain) == 2
+    assert [(step.stream_offset, step.new_byte) for step in result.chain] == [
+        (2, original_deflate_byte),
+        (len(compressed) - 4, original_adler_byte),
+    ]
+    assert result.best.after.complete is True
+    assert idat.analyze_idat_stream(result.best.data).complete is True
+
+
+def test_idat_deflate_heavy_probe_reports_progress_and_repairs_candidate():
+    calls = []
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    original = compressed[2]
+    compressed[2] ^= 0xFF
+    candidate = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+
+    result = idat_bruteforce.probe_idat_deflate_heavy_candidates(
+        candidate,
+        backtrack=8,
+        forward=8,
+        budget=5000,
+        progress=lambda loop, budget, build: calls.append((loop, budget, build)),
+    )
+
+    assert result.best is not None
+    assert result.best.stream_offset == 2
+    assert result.best.new_byte == original
+    assert result.best.after.complete is True
+    assert calls[0] == (0, 5000, True)
+    assert calls[-1][2] is False
+
+
+def test_idat_deflate_probe_ignores_candidates_without_progress():
+    candidate = build_rgb_png(1, 1, b"\x00abc", idat_data=b"\x78\x9c\xff\xff")
+
+    result = idat_bruteforce.probe_idat_deflate_byte_candidates(candidate, window_radius=1, budget=4)
+
+    assert result.best is None
+    assert result.budget_exhausted is True
+
+
+def test_idat_deflate_strategy_queue_reports_no_candidate_without_progress():
+    compressed = bytearray(zlib.compress(b"\x00abc"))
+    compressed[0] = 0
+    compressed[1] = 0
+    candidate = build_rgb_png(1, 1, b"\x00abc", idat_data=bytes(compressed))
+
+    result = idat_bruteforce.probe_idat_deflate_strategy_queue(candidate)
+
+    assert result.best is None
+    assert result.strategy == "strategy-queue"
+    assert result.reason == "IDAT error offset is unknown"
+
+
+def test_idat_deflate_probe_does_not_treat_error_offset_drift_as_progress():
+    before = idat.IdatStreamAnalysis(
+        True,
+        False,
+        "corrupt_deflate",
+        height=10,
+        error_offset=114,
+    )
+    after = idat.IdatStreamAnalysis(
+        True,
+        False,
+        "corrupt_deflate",
+        height=10,
+        error_offset=115,
+    )
+
+    assert idat_bruteforce.is_material_improvement(before, after) is False
 
 
 def test_analyze_idat_stream_reports_bad_zlib_header():
@@ -435,6 +588,26 @@ def main():
         ),
         ("IDAT stream complete", test_analyze_idat_stream_reports_complete_stream),
         ("IDAT stream corrupt deflate", test_analyze_idat_stream_reports_corrupt_deflate),
+        ("IDAT stream error mapping", test_analyze_idat_stream_maps_error_to_multi_idat_file_offset),
+        ("IDAT deflate byte probe repair", test_idat_deflate_probe_repairs_single_byte_corruption),
+        ("IDAT deflate strategy queue repair", test_idat_deflate_strategy_queue_uses_material_progress_only),
+        (
+            "IDAT deflate strategy queue chase",
+            test_idat_deflate_strategy_queue_chases_multiple_material_steps,
+        ),
+        (
+            "IDAT deflate heavy probe repair",
+            test_idat_deflate_heavy_probe_reports_progress_and_repairs_candidate,
+        ),
+        ("IDAT deflate byte probe no progress", test_idat_deflate_probe_ignores_candidates_without_progress),
+        (
+            "IDAT deflate strategy queue no progress",
+            test_idat_deflate_strategy_queue_reports_no_candidate_without_progress,
+        ),
+        (
+            "IDAT deflate byte probe ignores offset-only drift",
+            test_idat_deflate_probe_does_not_treat_error_offset_drift_as_progress,
+        ),
         ("IDAT stream bad zlib header", test_analyze_idat_stream_reports_bad_zlib_header),
         ("IDAT stream bad Adler", test_analyze_idat_stream_reports_bad_adler),
         ("IDAT stream incomplete", test_analyze_idat_stream_reports_incomplete_stream),
