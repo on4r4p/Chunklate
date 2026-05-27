@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import zlib
 from typing import Callable
 
+from . import deflate_header
 from . import idat
 from . import png
 
@@ -286,6 +287,177 @@ def probe_idat_deflate_bit_candidates(
     if progress is not None:
         progress(strategy, tested, budget)
     return IdatDeflateProbeResult(before, best, window_start, window_end, tested, budget_exhausted, strategy)
+
+
+def _deflate_header_window(
+    stream: bytes,
+    before: idat.IdatStreamAnalysis,
+    header: deflate_header.DeflateHeaderAnalysis,
+) -> tuple[int, int]:
+    if not stream:
+        return 0, 0
+    if before.error_offset is not None:
+        hard_end = min(len(stream), before.error_offset + 1)
+    else:
+        hard_end = min(len(stream), max(2, header.byte_offset + 1))
+    if header.header_end_byte is not None:
+        hard_end = min(hard_end, max(2, header.header_end_byte + 1))
+    else:
+        hard_end = min(hard_end, max(2, header.byte_offset + 8))
+    return 0, max(0, hard_end)
+
+
+def _candidate_header_is_fixed(
+    before: idat.IdatStreamAnalysis,
+    candidate: IdatDeflateCandidate,
+) -> bool:
+    before_header = before.deflate_header
+    after_header = candidate.after.deflate_header
+    if before_header is None:
+        return False
+    if before_header.ok:
+        return False
+    if after_header is None:
+        return candidate.after.complete
+    return after_header.ok
+
+
+def probe_deflate_header_candidates(
+    data: bytes,
+    *,
+    budget: int = 4096,
+    progress: QueueProgressCallback | None = None,
+) -> IdatDeflateProbeResult:
+    before = idat.analyze_idat_stream(data)
+    strategy = "deflate-header"
+    if not before.supported:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, before.reason)
+    if before.complete:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "IDAT stream is already complete")
+    if before.decompressed_size != 0:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "deflate already produced bytes")
+
+    try:
+        _idat_chunks, idat_stream = _idat_chunks_and_stream(data)
+    except png.PngFormatError as exc:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, str(exc))
+
+    before_header = before.deflate_header or deflate_header.analyze_deflate_header(idat_stream)
+    if before_header.ok:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "deflate header already parses")
+
+    window_start, window_end = _deflate_header_window(idat_stream, before, before_header)
+    best: IdatDeflateCandidate | None = None
+    best_score = analysis_score(before)
+    tested = 0
+    budget_exhausted = False
+
+    if progress is not None:
+        progress("deflate-header-bit", 0, budget)
+
+    for stream_offset in range(window_start, window_end):
+        old_byte = idat_stream[stream_offset]
+        for bit in range(8):
+            if tested >= budget:
+                budget_exhausted = True
+                return IdatDeflateProbeResult(
+                    before,
+                    best,
+                    window_start,
+                    window_end,
+                    tested,
+                    budget_exhausted,
+                    strategy,
+                    before_header.summary,
+                )
+            tested += 1
+            if progress is not None and tested % 100 == 0:
+                progress("deflate-header-bit", tested, budget)
+            candidate = mutate_idat_stream_byte(data, stream_offset, old_byte ^ (1 << bit))
+            if candidate is None:
+                continue
+            if not _candidate_header_is_fixed(before, candidate):
+                continue
+            if not is_material_improvement(before, candidate.after):
+                continue
+            candidate_score = analysis_score(candidate.after)
+            if candidate_score > best_score:
+                best = candidate
+                best_score = candidate_score
+                if candidate.after.complete:
+                    if progress is not None:
+                        progress("deflate-header-bit", tested, budget)
+                    return IdatDeflateProbeResult(
+                        before,
+                        best,
+                        window_start,
+                        window_end,
+                        tested,
+                        budget_exhausted,
+                        strategy,
+                        before_header.summary,
+                    )
+
+    if progress is not None:
+        progress("deflate-header-byte", tested, budget)
+
+    for stream_offset in range(window_start, window_end):
+        old_byte = idat_stream[stream_offset]
+        for new_byte in range(256):
+            if new_byte == old_byte:
+                continue
+            if tested >= budget:
+                budget_exhausted = True
+                return IdatDeflateProbeResult(
+                    before,
+                    best,
+                    window_start,
+                    window_end,
+                    tested,
+                    budget_exhausted,
+                    strategy,
+                    before_header.summary,
+                )
+            tested += 1
+            if progress is not None and tested % 100 == 0:
+                progress("deflate-header-byte", tested, budget)
+            candidate = mutate_idat_stream_byte(data, stream_offset, new_byte)
+            if candidate is None:
+                continue
+            if not _candidate_header_is_fixed(before, candidate):
+                continue
+            if not is_material_improvement(before, candidate.after):
+                continue
+            candidate_score = analysis_score(candidate.after)
+            if candidate_score > best_score:
+                best = candidate
+                best_score = candidate_score
+                if candidate.after.complete:
+                    if progress is not None:
+                        progress("deflate-header-byte", tested, budget)
+                    return IdatDeflateProbeResult(
+                        before,
+                        best,
+                        window_start,
+                        window_end,
+                        tested,
+                        budget_exhausted,
+                        strategy,
+                        before_header.summary,
+                    )
+
+    if progress is not None:
+        progress("deflate-header-byte", tested, budget)
+    return IdatDeflateProbeResult(
+        before,
+        best,
+        window_start,
+        window_end,
+        tested,
+        budget_exhausted,
+        strategy,
+        before_header.summary,
+    )
 
 
 def probe_idat_deflate_heavy_candidates(

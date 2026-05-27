@@ -228,6 +228,18 @@ def one_byte_corrupt_deflate_png_hex():
     return data.hex()
 
 
+def bad_adler_png_hex():
+    ihdr = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x02\x08\x02\x00\x00\x00",
+    )
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    data = PNG_SIGNATURE + ihdr + build_png_chunk(b"IDAT", bytes(compressed)) + IEND_CHUNK
+    return data.hex()
+
+
 def wrong_crc_runtime(
     calls,
     *,
@@ -534,10 +546,10 @@ def test_apply_wrong_crc_writes_improved_deflate_probe_instead_of_crc_clone():
     assert result == (True, "written")
     assert not [call for call in calls if call[0] == "save_clone"]
     assert not [call for call in calls if call[0] == "question"]
-    assert ("candy", ("Title", "probe_idat_deflate_strategy_queue"), {}) in calls
-    assert any(call[0] == "minibar" and "IDAT strict-byte" in call[1][0] for call in calls)
+    assert ("candy", ("Title", "probe_deflate_header_candidates"), {}) in calls
+    assert any(call[0] == "minibar" and "IDAT deflate-header" in call[1][0] for call in calls)
     assert [call for call in calls if call[0] == "write_clone"]
-    assert "-Repair hypothesis tried: targeted IDAT deflate strategy queue." in calls[-1][1][1]
+    assert "-Repair hypothesis tried: targeted IDAT deflate header probe." in calls[-1][1][1]
     assert any(note.startswith("-IDAT deflate candidate:") for note in side_notes)
 
 
@@ -580,7 +592,7 @@ def test_apply_wrong_crc_uses_heavy_probe_loadingbar_after_quick_probe_fails():
             calls,
             answers=(True,),
             pandora_box={finding: {chkd + "0": "fixed-crc-data"}},
-            data_hex=one_byte_corrupt_deflate_png_hex(),
+            data_hex=bad_adler_png_hex(),
             side_notes=side_notes,
             loadingbar=loadingbar,
         )
@@ -634,7 +646,7 @@ def test_apply_wrong_crc_declines_heavy_probe_without_loadingbar_or_clone():
             calls,
             answers=(False,),
             pandora_box={finding: {chkd + "0": "fixed-crc-data"}},
-            data_hex=one_byte_corrupt_deflate_png_hex(),
+            data_hex=bad_adler_png_hex(),
             side_notes=side_notes,
             loadingbar=lambda *args: calls.append(("loadingbar", args, {})),
         )
@@ -1080,12 +1092,13 @@ def test_apply_wrong_chunk_name_uses_deflate_probe_when_aligned_stream_is_bad():
     )
 
     assert result == (False, None)
-    assert [call for call in calls if call[0] == "question"]
+    assert not [call for call in calls if call[0] == "question"]
     assert not [call for call in calls if call[0] == "ancillary"]
     assert not [call for call in calls if call[0] == "brute_chunk"]
     assert not [call for call in calls if call[0] == "write_clone"]
     assert any(note.startswith("-IDAT stream diagnosis: status=corrupt_deflate") for note in side_notes)
-    assert "-IDAT deflate heavy probe found no improved candidate." in side_notes
+    assert "-IDAT deflate header probe found no clone-worthy scanline progress." in side_notes
+    assert "-IDAT wide deflate probes skipped: header probe produced no usable scanline." in side_notes
 
 
 def test_apply_wrong_chunk_name_saves_existing_solution():
@@ -1375,7 +1388,8 @@ def test_apply_no_next_uses_deflate_probe_when_idat_chain_is_aligned_but_stream_
     assert not [call for call in calls if call[0] == "dummy_chunk"]
     assert not [call for call in calls if call[0] == "write_clone"]
     assert any(note.startswith("-IDAT stream diagnosis: status=corrupt_deflate") for note in side_notes)
-    assert "-IDAT deflate heavy probe found no improved candidate." in side_notes
+    assert "-IDAT deflate header probe found no clone-worthy scanline progress." in side_notes
+    assert "-IDAT wide deflate probes skipped: header probe produced no usable scanline." in side_notes
 
 
 def test_apply_no_next_does_not_append_iend_when_nearby_already_found_one():

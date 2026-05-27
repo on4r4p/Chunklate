@@ -4,6 +4,7 @@ import zlib
 from dataclasses import dataclass
 import struct
 
+from . import deflate_header
 from . import png
 
 
@@ -79,6 +80,7 @@ class IdatStreamAnalysis:
     error_file_offset: int | None = None
     error_context_hex: str = ""
     reason: str = ""
+    deflate_header: deflate_header.DeflateHeaderAnalysis | None = None
 
     @property
     def partial(self) -> bool:
@@ -345,6 +347,9 @@ def analyze_idat_stream(data: bytes) -> IdatStreamAnalysis:
         reason = "zlib stream completed with unexpected decompressed size"
     elif status == "partial" and usable_scanlines != height:
         reason = "zlib stream completed with unusable scanlines"
+    header_analysis = None
+    if status == "corrupt_deflate" and len(decompressed) == 0:
+        header_analysis = deflate_header.analyze_deflate_header(idat_stream)
 
     return IdatStreamAnalysis(
         True,
@@ -361,6 +366,7 @@ def analyze_idat_stream(data: bytes) -> IdatStreamAnalysis:
         error_file_offset=error_file_offset,
         error_context_hex=_idat_error_context(idat_stream, error_offset),
         reason=reason,
+        deflate_header=header_analysis,
         **base,
     )
 

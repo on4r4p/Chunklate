@@ -28,6 +28,21 @@ def build_rgb_png(width, height, filtered_scanlines, *, idat_data=None, idat_par
     )
 
 
+def dynamic_filtered_rows(height=100):
+    return b"".join(
+        b"\x00" + bytes(((row * 3) % 256, (row * 7) % 256, (row * 11) % 256))
+        for row in range(height)
+    )
+
+
+def dynamic_header_corrupt_png():
+    filtered = dynamic_filtered_rows()
+    compressed = bytearray(zlib.compress(filtered, 1))
+    original = compressed[3]
+    compressed[3] ^= 1 << 5
+    return build_rgb_png(1, 100, filtered, idat_data=bytes(compressed)), 3, original
+
+
 def split_bytes(data, *sizes):
     parts = []
     offset = 0
@@ -326,6 +341,18 @@ def test_analyze_idat_stream_reports_corrupt_deflate():
     assert analysis.error_context_hex
 
 
+def test_analyze_idat_stream_attaches_deflate_header_diagnosis():
+    candidate, _offset, _original = dynamic_header_corrupt_png()
+
+    analysis = idat.analyze_idat_stream(candidate)
+
+    assert analysis.status == "corrupt_deflate"
+    assert analysis.decompressed_size == 0
+    assert analysis.usable_scanlines == 0
+    assert analysis.deflate_header is not None
+    assert analysis.deflate_header.status == "bad_code_length_tree"
+
+
 def test_analyze_idat_stream_maps_error_to_multi_idat_file_offset():
     filtered = b"\x00abc" + b"\x00def"
     compressed = bytearray(zlib.compress(filtered))
@@ -369,6 +396,28 @@ def test_idat_deflate_probe_repairs_single_byte_corruption():
     assert result.best.new_byte == original
     assert result.best.after.complete is True
     assert idat.analyze_idat_stream(result.best.data).complete is True
+
+
+def test_deflate_header_probe_repairs_header_corruption():
+    candidate, stream_offset, original = dynamic_header_corrupt_png()
+
+    result = idat_bruteforce.probe_deflate_header_candidates(candidate, budget=1000)
+
+    assert result.best is not None
+    assert result.strategy == "deflate-header"
+    assert result.best.stream_offset == stream_offset
+    assert result.best.new_byte == original
+    assert result.best.after.usable_scanlines == 100
+    assert result.best.after.complete is True
+
+
+def test_deflate_header_probe_does_not_accept_header_only_progress_without_scanlines():
+    candidate = build_rgb_png(1, 1, b"\x00abc", idat_data=b"\x78\x9c\xff\xff")
+
+    result = idat_bruteforce.probe_deflate_header_candidates(candidate, budget=128)
+
+    assert result.best is None
+    assert result.strategy == "deflate-header"
 
 
 def test_idat_deflate_strategy_queue_uses_material_progress_only():
@@ -631,8 +680,17 @@ def main():
         ),
         ("IDAT stream complete", test_analyze_idat_stream_reports_complete_stream),
         ("IDAT stream corrupt deflate", test_analyze_idat_stream_reports_corrupt_deflate),
+        (
+            "IDAT stream deflate header diagnosis",
+            test_analyze_idat_stream_attaches_deflate_header_diagnosis,
+        ),
         ("IDAT stream error mapping", test_analyze_idat_stream_maps_error_to_multi_idat_file_offset),
         ("IDAT deflate byte probe repair", test_idat_deflate_probe_repairs_single_byte_corruption),
+        ("IDAT deflate header probe repair", test_deflate_header_probe_repairs_header_corruption),
+        (
+            "IDAT deflate header probe no scanlines",
+            test_deflate_header_probe_does_not_accept_header_only_progress_without_scanlines,
+        ),
         ("IDAT deflate strategy queue repair", test_idat_deflate_strategy_queue_uses_material_progress_only),
         (
             "IDAT deflate strategy queue chase",

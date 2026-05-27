@@ -643,10 +643,18 @@ def idat_stream_diagnosis_note(analysis: idat.IdatStreamAnalysis) -> str:
         details.append("error_file_offset=0x%x" % analysis.error_file_offset)
     if analysis.error_context_hex:
         details.append("error_context=%s" % analysis.error_context_hex)
+    if analysis.deflate_header is not None:
+        details.append("deflate_header=%s" % analysis.deflate_header.summary)
     reason = analysis.reason or analysis.zlib_error
     if reason:
         details.append("reason=%s" % reason)
     return "; ".join(details) + "."
+
+
+def idat_deflate_header_note(analysis: idat.IdatStreamAnalysis) -> str:
+    if analysis.deflate_header is None:
+        return "-IDAT deflate header diagnosis: unavailable."
+    return "-IDAT deflate header diagnosis: %s." % analysis.deflate_header.summary
 
 
 def defer_idat_crc_only_note(reason: str) -> str:
@@ -747,13 +755,66 @@ def try_idat_deflate_bruteforce(
         "The boxes line up now, but the compressed stuff inside is still screaming.",
         "bad",
     )
+    runtime.side_notes.append(idat_stream_diagnosis_note(analysis))
+    if analysis.decompressed_size == 0:
+        runtime.candy(
+            "Cowsay",
+            "The first deflate table breaks before I can even pull one scanline out.",
+            "bad",
+        )
+        runtime.candy(
+            "Cowsay",
+            "I will probe the deflate header first. No wide fishing net until this table makes sense.",
+            "com",
+        )
+        runtime.candy("Title", "probe_deflate_header_candidates")
+        runtime.side_notes.append(idat_deflate_header_note(analysis))
+        header_probe = idat_bruteforce.probe_deflate_header_candidates(
+            data,
+            progress=_runtime_idat_queue_progress(runtime),
+        )
+        runtime.side_notes.append(idat_bruteforce.probe_summary_line(header_probe))
+
+        if header_probe.best is None:
+            runtime.candy(
+                "Cowsay",
+                "I did not get a usable scanline from the deflate-header probe. No clone, no wider brute force yet.",
+                "bad",
+            )
+            runtime.side_notes.append("-IDAT deflate header probe found no clone-worthy scanline progress.")
+            runtime.side_notes.append("-IDAT wide deflate probes skipped: header probe produced no usable scanline.")
+            return None
+
+        candidate = header_probe.best
+        runtime.side_notes.extend(idat_bruteforce.candidate_summary_lines(header_probe))
+        runtime.candy(
+            "Cowsay",
+            "I found a header byte that gets real scanline progress. Still an hypothesis, but now it has a pulse.",
+            "good",
+        )
+        runtime.candy(
+            "Cowsay",
+            "Patch: IDAT stream offset 0x%x, byte %02x -> %02x."
+            % (candidate.stream_offset, candidate.old_byte, candidate.new_byte),
+            "com",
+        )
+        summary = "\n".join(
+            (
+                "-Repair hypothesis tried: targeted IDAT deflate header probe.",
+                idat_deflate_header_note(analysis),
+                idat_bruteforce.probe_summary_line(header_probe),
+                *idat_bruteforce.candidate_summary_lines(header_probe),
+                idat_stream_diagnosis_note(candidate.after),
+            )
+        )
+        return True, runtime.write_clone(candidate.data, summary)
+
     runtime.candy(
         "Cowsay",
         "I will run the bounded IDAT strategy queue: strict byte, pre-error bit flips, then a wider byte probe.",
         "com",
     )
     runtime.candy("Title", "probe_idat_deflate_strategy_queue")
-    runtime.side_notes.append(idat_stream_diagnosis_note(analysis))
     probe = idat_bruteforce.probe_idat_deflate_strategy_queue(
         data,
         progress=_runtime_idat_queue_progress(runtime),
