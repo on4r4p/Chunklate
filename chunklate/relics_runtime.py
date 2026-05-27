@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import decisions
+from . import idat
 from . import runtime_state
+from . import writer
 
 
 AskChoice = Callable[[str, Sequence[str], str], Any]
@@ -94,6 +96,46 @@ def run_save_clone_plan(runtime: RelicsRuntime, save_plan: Any) -> Any:
         save_plan.end,
         save_plan.info,
     )
+
+
+def idat_crc_only_patch_keeps_stream_invalid(data_hex: str, tools: Any) -> tuple[bool, str]:
+    if not data_hex:
+        return False, ""
+
+    try:
+        patched_hex = writer.replace_hex_range(
+            data_hex,
+            str(tools.replacement_crc),
+            int(tools.start),
+            int(tools.end),
+        )
+        analysis = idat.analyze_idat_stream(bytes.fromhex(patched_hex))
+    except Exception as exc:
+        return True, "I could not even build the CRC-only candidate: %s" % exc
+
+    if analysis.complete:
+        return False, ""
+
+    reason = analysis.reason or analysis.zlib_error or analysis.status or "IDAT stream is still not a complete image"
+    details = (
+        "%s; chunks=%s; compressed=%s; decompressed=%s; expected=%s; scanlines=%s/%s"
+        % (
+            reason,
+            analysis.idat_chunk_count,
+            analysis.compressed_size,
+            analysis.decompressed_size,
+            analysis.expected_size,
+            analysis.usable_scanlines,
+            analysis.height,
+        )
+    )
+    return True, details
+
+
+def remember_deferred_relics_idat_crc(side_notes: Any, reason: str) -> None:
+    if side_notes is None:
+        return
+    side_notes.append("-Deferred IDAT CRC-only patch from Relics: zlib stream still invalid: %s." % reason)
 
 
 def run_wrong_crc_brawl_plan(runtime: RelicsRuntime, brawl_plan: Any) -> Any:
@@ -183,6 +225,8 @@ def handle_current_wrong_crc_flow(
     ui_module: Any,
     contexts: Any,
     *,
+    data_hex: str = "",
+    side_notes: Any = None,
     ask: LegacyCall,
     emit: Callable[[str], Any],
     candy: LegacyCall,
@@ -191,6 +235,21 @@ def handle_current_wrong_crc_flow(
         route = context.route
         ui_module.emit_critical_hit(route.error, emit=emit)
         if route.chunk_name == "IDAT":
+            stream_invalid, reason = idat_crc_only_patch_keeps_stream_invalid(data_hex, context.tools)
+            if stream_invalid:
+                candy(
+                    "Cowsay",
+                    "I checked that old CRC-only idea again. It still only makes the label prettier.",
+                    "bad",
+                )
+                candy(
+                    "Cowsay",
+                    "The IDAT stream is still broken, so I am not writing another clone for the same lie.",
+                    "com",
+                )
+                remember_deferred_relics_idat_crc(side_notes, reason)
+                continue
+
             ui_module.say_current_wrong_crc_idat(candy=candy)
             answer = ask(id=route.error, idhash=context.question_hash)
             if answer is True:
@@ -434,6 +493,8 @@ def handle_pandemonium_flow(
                     context.cornucopia,
                     context.all_chunks,
                 ),
+                data_hex=getattr(context, "data_hex", ""),
+                side_notes=getattr(context, "side_notes", None),
                 ask=ask,
                 emit=emit,
                 candy=candy,

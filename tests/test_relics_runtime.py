@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
 
 import Chunklate
 from chunklate import relics, relics_runtime, runtime_state
+from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk
 
 
 @contextmanager
@@ -1127,6 +1128,83 @@ def test_relics_runtime_handles_pandemonium_current_wrong_crc_first():
     )
 
 
+def bad_idat_crc_relics_data_and_tools():
+    ihdr = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00",
+    )
+    idat_payload = b"\x78\x9c\xff\xff"
+    idat_chunk = build_png_chunk(b"IDAT", idat_payload)
+    data = PNG_SIGNATURE + ihdr + idat_chunk + IEND_CHUNK
+    idat_offset = len(PNG_SIGNATURE) + len(ihdr)
+    crc_start = (idat_offset + 8 + len(idat_payload)) * 2
+    crc_end = crc_start + 8
+    replacement_crc = data[idat_offset + 8 + len(idat_payload) : idat_offset + 12 + len(idat_payload)].hex()
+    return data.hex(), {
+        "IDAT_Tool_0": replacement_crc,
+        "IDAT_Tool_1": crc_start,
+        "IDAT_Tool_2": crc_end,
+        "IDAT_Tool_3": b"IDAT",
+        "IDAT_Tool_4": "0x2a",
+        "IDAT_Tool_5": "old-crc",
+    }
+
+
+def test_relics_runtime_defers_current_idat_crc_when_stream_stays_invalid():
+    calls = []
+    emitted = []
+    side_notes = []
+    data_hex, tools = bad_idat_crc_relics_data_and_tools()
+    pandora_box = {"Checksum_Error_0:Wrong Crc b'IDAT'": tools}
+
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: calls.append(("save", args, kwargs)) or "saved",
+        smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)),
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: None,
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    class FakeUi:
+        @staticmethod
+        def emit_pandemonium_summary(summary, *, emit, candy):
+            calls.append(("summary", tuple(summary)))
+
+        @staticmethod
+        def emit_critical_hit(value, *, emit):
+            emit("hit:%s" % value)
+
+        @staticmethod
+        def say_current_wrong_crc_idat(*, candy):
+            calls.append(("ui", "current-idat"))
+
+    contexts = relics.current_wrong_crc_prompt_contexts(
+        pandora_box=pandora_box,
+        cornucopia={},
+        known_chunks=(b"IDAT",),
+    )
+
+    assert relics_runtime.handle_current_wrong_crc_flow(
+        runtime,
+        relics,
+        FakeUi,
+        contexts,
+        data_hex=data_hex,
+        side_notes=side_notes,
+        ask=lambda **kwargs: calls.append(("ask", (), kwargs)) or True,
+        emit=emitted.append,
+        candy=lambda *args: calls.append(("candy", args, {})),
+    ) == (False, None)
+
+    assert emitted == ["hit:Checksum_Error_0:Wrong Crc b'IDAT'"]
+    assert [call[0] for call in calls if call[0] in {"ask", "save", "ui"}] == []
+    assert any(
+        note.startswith("-Deferred IDAT CRC-only patch from Relics: zlib stream still invalid:")
+        for note in side_notes
+    )
+
+
 def test_relics_runtime_applies_no_pandemonium_repair_decisions():
     calls = []
     runtime = relics_runtime.RelicsRuntime(
@@ -1691,6 +1769,10 @@ def main():
         (
             "RelicsRuntime handles Pandemonium current wrong CRC first",
             test_relics_runtime_handles_pandemonium_current_wrong_crc_first,
+        ),
+        (
+            "RelicsRuntime defers invalid current IDAT CRC",
+            test_relics_runtime_defers_current_idat_crc_when_stream_stays_invalid,
         ),
         (
             "RelicsRuntime applies no-Pandemonium repair decisions",
