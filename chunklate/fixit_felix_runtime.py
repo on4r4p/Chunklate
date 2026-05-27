@@ -83,6 +83,9 @@ class WrongChunkNameRuntime:
     bad_ancillary: Callable[[], bool]
     pandora_box: Any
     cornucopia: Any
+    side_notes: Any
+    remember_wrong_chunk_name_route: Callable[[Any, str, relics.WrongChunkNameTools, str], Any]
+    is_wrong_chunk_name_route_tried: Callable[[Any, str, relics.WrongChunkNameTools, str], bool]
 
 
 @dataclass(frozen=True)
@@ -186,6 +189,21 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         bad_ancillary=lambda: namespace["Bad_Ancillary"],
         pandora_box=namespace["PandoraBox"],
         cornucopia=namespace["Cornucopia"],
+        side_notes=namespace["SideNotes"],
+        remember_wrong_chunk_name_route=lambda finding, chkd, tools, action: remember_wrong_chunk_name_route(
+            namespace,
+            finding,
+            chkd,
+            tools,
+            action,
+        ),
+        is_wrong_chunk_name_route_tried=lambda finding, chkd, tools, action: is_wrong_chunk_name_route_tried(
+            namespace,
+            finding,
+            chkd,
+            tools,
+            action,
+        ),
     )
 
 
@@ -332,6 +350,89 @@ def remember_deferred_idat_crc_finding(namespace: dict[str, Any], finding: Any) 
         return False
     seen.add(text)
     return True
+
+
+def _route_value(value: Any) -> str:
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return str(value)
+
+
+def _route_offset(value: Any) -> str:
+    try:
+        return "0x%x" % int(value)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def wrong_chunk_name_route_key(
+    _finding: Any,
+    _chkd: str,
+    tools: relics.WrongChunkNameTools,
+    action: str,
+) -> tuple[str, str, str, str, str, str]:
+    return (
+        "wrong_chunk_name",
+        action,
+        _route_value(tools.chunk_type),
+        _route_offset(tools.chunk_type_offset),
+        str(tools.chunk_length),
+        _route_value(tools.previous_chunk),
+    )
+
+
+def wrong_chunk_name_route_label(tools: relics.WrongChunkNameTools) -> str:
+    return "%s at %s" % (
+        _route_value(tools.chunk_type),
+        _route_offset(tools.chunk_type_offset),
+    )
+
+
+def remember_wrong_chunk_name_route(
+    namespace: dict[str, Any],
+    finding: Any,
+    chkd: str,
+    tools: relics.WrongChunkNameTools,
+    action: str,
+) -> None:
+    routes = namespace.setdefault("WRONG_CHUNK_NAME_TRIED_ROUTES", set())
+    routes.add(wrong_chunk_name_route_key(finding, chkd, tools, action))
+
+
+def is_wrong_chunk_name_route_tried(
+    namespace: dict[str, Any],
+    finding: Any,
+    chkd: str,
+    tools: relics.WrongChunkNameTools,
+    action: str,
+) -> bool:
+    routes = namespace.setdefault("WRONG_CHUNK_NAME_TRIED_ROUTES", set())
+    return wrong_chunk_name_route_key(finding, chkd, tools, action) in routes
+
+
+def _remember_wrong_chunk_name_note(
+    runtime: WrongChunkNameRuntime,
+    tools: relics.WrongChunkNameTools,
+    status: str,
+    reason: str = "",
+) -> None:
+    note = "-Repair hypothesis %s: chunk-name recovery for %s." % (
+        status,
+        wrong_chunk_name_route_label(tools),
+    )
+    if reason:
+        note = note[:-1] + "; reason: %s." % reason
+    runtime.side_notes.append(note)
+
+
+def _emit_wrong_chunk_name_deja_vu(runtime: WrongChunkNameRuntime, tools: relics.WrongChunkNameTools) -> None:
+    runtime.candy("Cowsay", "Huh ..? Déja-vu. I already tried that repair route .", "com")
+    runtime.candy(
+        "Cowsay",
+        "So i'm changing the answer before we headbutt the same door twice.",
+        "com",
+    )
+    _remember_wrong_chunk_name_note(runtime, tools, "skipped", "route was already tried")
 
 
 def explain_deferred_idat_crc(runtime: CriticalMissRuntime, finding: Any) -> None:
@@ -649,6 +750,12 @@ def ask_wrong_chunk_name_bruteforce(
     chkd: str,
     tools: relics.WrongChunkNameTools,
 ) -> tuple[bool, Any]:
+    route_action = "bruteforce"
+    if runtime.is_wrong_chunk_name_route_tried(decision.finding, chkd, tools, route_action):
+        _emit_wrong_chunk_name_deja_vu(runtime, tools)
+        runtime.set_skip_bad_current_name(True)
+        return False, None
+
     if decision.bad_crc is False:
         runtime.candy(
             "Cowsay",
@@ -664,6 +771,13 @@ def ask_wrong_chunk_name_bruteforce(
     uniqh = relics.question_hash(runtime.pandora_box, decision.finding, chkd)
     answer = runtime.question(id=decision.finding, idhash=uniqh)
     if answer is True:
+        runtime.remember_wrong_chunk_name_route(decision.finding, chkd, tools, route_action)
+        _remember_wrong_chunk_name_note(runtime, tools, "tried")
+        runtime.candy(
+            "Cowsay",
+            "I am treating this chunk-name repair as a hypothesis, not a victory lap.",
+            "com",
+        )
         return True, runtime.brute_chunk(
             tools.chunk_type,
             tools.previous_chunk,
@@ -671,6 +785,13 @@ def ask_wrong_chunk_name_bruteforce(
             str(decision.finding),
         )
 
+    runtime.remember_wrong_chunk_name_route(decision.finding, chkd, tools, route_action)
+    _remember_wrong_chunk_name_note(
+        runtime,
+        tools,
+        "deferred",
+        "user declined this chunk-name recovery route",
+    )
     runtime.set_skip_bad_current_name(True)
     return False, None
 
@@ -701,6 +822,12 @@ def apply_wrong_chunk_name(
     describe_wrong_chunk_name(runtime, decision)
 
     if decision.action == "ask_length_probe":
+        route_action = "length_probe"
+        if runtime.is_wrong_chunk_name_route_tried(decision.finding, chkd, tools, route_action):
+            _emit_wrong_chunk_name_deja_vu(runtime, tools)
+            runtime.set_skip_bad_next_name(True)
+            return ask_wrong_chunk_name_bruteforce(runtime, decision, chkd, tools)
+
         runtime.candy(
             "Cowsay",
             "By the way IDAT chunk's length is different from the one usually used for some reason..",
@@ -714,6 +841,8 @@ def apply_wrong_chunk_name(
         uniqh = relics.question_hash(runtime.pandora_box, decision.finding, chkd)
         answer = runtime.question(id=decision.finding, idhash=uniqh)
         if answer is True:
+            runtime.remember_wrong_chunk_name_route(decision.finding, chkd, tools, route_action)
+            _remember_wrong_chunk_name_note(runtime, tools, "tried")
             return True, runtime.nearby_chunk(
                 tools.chunk_type,
                 tools.chunk_length,
@@ -722,6 +851,13 @@ def apply_wrong_chunk_name(
                 decision.finding,
             )
 
+        runtime.remember_wrong_chunk_name_route(decision.finding, chkd, tools, route_action)
+        _remember_wrong_chunk_name_note(
+            runtime,
+            tools,
+            "deferred",
+            "length probe was declined",
+        )
         runtime.set_skip_bad_next_name(True)
         return ask_wrong_chunk_name_bruteforce(runtime, decision, chkd, tools)
 

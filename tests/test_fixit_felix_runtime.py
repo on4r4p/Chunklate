@@ -462,6 +462,35 @@ def wrong_chunk_name_tools():
     )
 
 
+def test_wrong_chunk_name_route_key_ignores_error_counter():
+    first = fixit_felix_runtime.wrong_chunk_name_route_key(
+        "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42",
+        "zzzz_Tool_",
+        wrong_chunk_name_tools(),
+        "bruteforce",
+    )
+    second = fixit_felix_runtime.wrong_chunk_name_route_key(
+        "CheckChunkName_Error_1:has Wrong Chunk name at offset: 42",
+        "zzzz_Tool_",
+        wrong_chunk_name_tools(),
+        "bruteforce",
+    )
+    other = fixit_felix_runtime.wrong_chunk_name_route_key(
+        "CheckChunkName_Error_1:has Wrong Chunk name at offset: 42",
+        "zzzz_Tool_",
+        SimpleNamespace(
+            chunk_type=b"IDA^",
+            chunk_length="13",
+            chunk_type_offset=128,
+            previous_chunk=b"IHDR",
+        ),
+        "bruteforce",
+    )
+
+    assert first == second
+    assert first != other
+
+
 def wrong_chunk_name_runtime(
     calls,
     *,
@@ -469,8 +498,14 @@ def wrong_chunk_name_runtime(
     bad_ancillary=False,
     pandora_box=None,
     cornucopia=None,
+    side_notes=None,
+    tried_routes=None,
 ):
     answer_iter = iter(answers)
+    if side_notes is None:
+        side_notes = []
+    if tried_routes is None:
+        tried_routes = set()
 
     def record(name, result=None):
         def callback(*args, **kwargs):
@@ -496,6 +531,14 @@ def wrong_chunk_name_runtime(
         bad_ancillary=lambda: bad_ancillary,
         pandora_box=pandora_box if pandora_box is not None else {},
         cornucopia=cornucopia if cornucopia is not None else {},
+        side_notes=side_notes,
+        remember_wrong_chunk_name_route=lambda finding, chkd, tools, action: tried_routes.add(
+            fixit_felix_runtime.wrong_chunk_name_route_key(finding, chkd, tools, action)
+        ),
+        is_wrong_chunk_name_route_tried=lambda finding, chkd, tools, action: (
+            fixit_felix_runtime.wrong_chunk_name_route_key(finding, chkd, tools, action)
+            in tried_routes
+        ),
     )
 
 
@@ -552,10 +595,12 @@ def test_apply_wrong_chunk_name_bruteforce_accepts_brute_chunk():
     calls = []
     finding = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"
     chkd = "zzzz_Tool_"
+    side_notes = []
     runtime = wrong_chunk_name_runtime(
         calls,
         answers=(True,),
         pandora_box={finding: {chkd + "0": b"zzzz"}},
+        side_notes=side_notes,
     )
 
     result = fixit_felix_runtime.apply_wrong_chunk_name(
@@ -571,6 +616,45 @@ def test_apply_wrong_chunk_name_bruteforce_accepts_brute_chunk():
         (b"zzzz", b"IHDR", "13", finding),
         {},
     )
+    assert side_notes == ["-Repair hypothesis tried: chunk-name recovery for zzzz at 0x80."]
+
+
+def test_apply_wrong_chunk_name_bruteforce_skips_known_route_without_question():
+    calls = []
+    finding = "CheckChunkName_Error_1:has Wrong Chunk name at offset: 42"
+    chkd = "zzzz_Tool_"
+    tools = wrong_chunk_name_tools()
+    side_notes = []
+    tried_routes = {
+        fixit_felix_runtime.wrong_chunk_name_route_key(
+            "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42",
+            chkd,
+            tools,
+            "bruteforce",
+        )
+    }
+    runtime = wrong_chunk_name_runtime(
+        calls,
+        answers=(),
+        pandora_box={finding: {chkd + "0": b"zzzz"}},
+        side_notes=side_notes,
+        tried_routes=tried_routes,
+    )
+
+    result = fixit_felix_runtime.apply_wrong_chunk_name(
+        runtime,
+        fixit_felix.WrongChunkNameDecision("ask_bruteforce", finding, True),
+        chkd,
+        tools,
+    )
+
+    assert result == (False, None)
+    assert not [call for call in calls if call[0] == "question"]
+    assert ("set_skip_bad_current_name", (True,), {}) in calls
+    assert (
+        "-Repair hypothesis skipped: chunk-name recovery for zzzz at 0x80; "
+        "reason: route was already tried."
+    ) in side_notes
 
 
 def test_apply_wrong_chunk_name_saves_existing_solution():
@@ -1365,6 +1449,7 @@ def main():
         ),
         ("Apply wrong CRC rejects missing tools", test_apply_wrong_crc_rejects_missing_tools_for_action),
         ("Apply wrong CRC rejects unknown action", test_apply_wrong_crc_rejects_unknown_action),
+        ("Wrong chunk name route ignores error counter", test_wrong_chunk_name_route_key_ignores_error_counter),
         (
             "Apply wrong chunk name length probe accepts",
             test_apply_wrong_chunk_name_length_probe_accepts_nearby_chunk,
@@ -1374,6 +1459,10 @@ def main():
             test_apply_wrong_chunk_name_length_probe_decline_then_bruteforce_decline_sets_skips,
         ),
         ("Apply wrong chunk name bruteforce accepts", test_apply_wrong_chunk_name_bruteforce_accepts_brute_chunk),
+        (
+            "Apply wrong chunk name skips known route",
+            test_apply_wrong_chunk_name_bruteforce_skips_known_route_without_question,
+        ),
         ("Apply wrong chunk name saves existing", test_apply_wrong_chunk_name_saves_existing_solution),
         (
             "Apply wrong chunk name rejects missing tools",

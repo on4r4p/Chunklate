@@ -158,6 +158,44 @@ def _emit_repeated_question_context(runtime: QuestionRuntime, question_id: Any) 
     )
 
 
+def _emit_deja_vu(runtime: QuestionRuntime, question_id: Any, answer: Any) -> None:
+    runtime.candy("Cowsay", "Huh ..? Déja-vu. I already tried that repair route .", "com")
+    runtime.candy(
+        "Cowsay",
+        "So i'm changing the answer before we headbutt the same door twice.",
+        "com",
+    )
+    _emit_history_debug(runtime, question_id, answer)
+    if runtime.pause_debug:
+        runtime.pause("Question")
+
+
+def _known_attempted_route(runtime: QuestionRuntime, question_id: Any, question_hash: Any) -> bool | None:
+    if question_id is None:
+        return None
+
+    tried_yes = decisions.question_entry(
+        question_id,
+        True,
+        runtime.offset,
+        question_hash,
+    )
+    if tried_yes not in runtime.history:
+        return None
+
+    tried_no = decisions.question_entry(
+        question_id,
+        False,
+        runtime.offset,
+        question_hash,
+    )
+    if tried_no not in runtime.history:
+        runtime.history.append(tried_no)
+    _record_status(runtime, "duplicate_flipped")
+    _emit_deja_vu(runtime, question_id, False)
+    return False
+
+
 def _emit_prompt_question_context(runtime: QuestionRuntime, question_id: Any, skipauto: bool) -> None:
     if question_id is None:
         return
@@ -212,6 +250,10 @@ def ask_question(
     _debug_intro(runtime, question_id)
     _emit_repeated_question_context(runtime, question_id)
 
+    known_answer = _known_attempted_route(runtime, question_id, question_hash)
+    if known_answer is not None:
+        return known_answer
+
     answer = _ask_or_auto_answer(runtime, question_id, skipauto)
     if question_id is None:
         _record_status(runtime, "untracked")
@@ -229,15 +271,7 @@ def ask_question(
         return memory.answer
 
     if memory.status == "duplicate_flipped":
-        runtime.candy("Cowsay", "Huh ..? Déja-vu. I already tried that repair route .", "com")
-        runtime.candy(
-            "Cowsay",
-            "So i'm changing the answer before we headbutt the same door twice.",
-            "com",
-        )
-        _emit_history_debug(runtime, question_id, answer)
-        if runtime.pause_debug:
-            runtime.pause("Question")
+        _emit_deja_vu(runtime, question_id, answer)
         return memory.answer
 
     if memory.status == "loop_detected":

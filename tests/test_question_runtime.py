@@ -93,7 +93,10 @@ def test_question_runtime_manual_answer_uses_legacy_feedback():
 
 def test_question_runtime_flips_duplicate_question_answer():
     history = ["Infos:same Answer:True Offset:12 Hash:99"]
-    runtime, calls = runtime_from(history=history, answers=["yes"])
+    def fail_asker(_prompt):
+        raise AssertionError("known route should not ask again")
+
+    runtime, calls = runtime_from(history=history, asker=fail_asker)
 
     answer = question_runtime.ask_question(runtime, "same", 99)
 
@@ -118,23 +121,34 @@ def test_question_runtime_flips_duplicate_question_answer():
     ) in calls
 
 
-def test_question_runtime_loop_detection_keeps_pause_debug_exit_behavior():
+def test_question_runtime_known_yes_no_route_does_not_loop():
     history = [
         "Infos:same Answer:True Offset:12 Hash:99",
         "Infos:same Answer:False Offset:12 Hash:99",
     ]
+    def fail_asker(_prompt):
+        raise AssertionError("known route should not ask again")
+
     runtime, calls = runtime_from(
         history=history,
-        answers=["yes"],
+        asker=fail_asker,
         pause_debug=True,
     )
 
     answer = question_runtime.ask_question(runtime, "same", 99)
 
     assert answer is False
-    assert ("emit", ("-Loop Detected please contact github.com/on4r4p/Chunklate\n",), {}) in calls
-    assert ("pause", ("Pause Question",), {}) in calls
-    assert ("end", (), {}) in calls
+    assert history == [
+        "Infos:same Answer:True Offset:12 Hash:99",
+        "Infos:same Answer:False Offset:12 Hash:99",
+    ]
+    assert ("pause", ("Question",), {}) in calls
+    assert not [call for call in calls if call[0] == "end"]
+    assert not [
+        call
+        for call in calls
+        if call[0] == "emit" and "Loop Detected" in str(call[1])
+    ]
 
 
 def main():
@@ -143,7 +157,7 @@ def main():
         ("Report auto mode", test_question_runtime_reports_auto_mode_when_legacy_auto_is_enabled),
         ("Manual feedback", test_question_runtime_manual_answer_uses_legacy_feedback),
         ("Flip duplicate answer", test_question_runtime_flips_duplicate_question_answer),
-        ("Loop pause-debug exit", test_question_runtime_loop_detection_keeps_pause_debug_exit_behavior),
+        ("Known yes/no route does not loop", test_question_runtime_known_yes_no_route_does_not_loop),
     ]
 
     print("Running question runtime tests")
