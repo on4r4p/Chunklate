@@ -42,6 +42,7 @@ from chunklate.png import (
     repair_linefeed_conversion,
     repair_missing_ihdr_from_idat,
     repair_missing_chunk_data_byte,
+    repair_overlong_chunk_length_to_next_header,
     repair_unknown_private_critical_chunks,
     validate_png_structure,
 )
@@ -160,6 +161,37 @@ def test_repair_linefeed_conversion_restores_missing_idat_cr_from_crc():
     assert repaired.payload_patches[0].inserted_value == 0x0D
     assert repaired.data == original
     assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_linefeed_conversion_can_return_partial_signature_repair():
+    corrupted = (ROOT / "David" / "6.bad.png").read_bytes()
+    expected = (ROOT / "David" / "6.output.png").read_bytes()
+
+    assert repair_linefeed_conversion(corrupted) is None
+
+    repaired = repair_linefeed_conversion(corrupted, allow_partial=True)
+
+    assert repaired is not None
+    assert repaired.inserted_signature_cr is True
+    assert repaired.payload_patches == ()
+    assert repaired.validation_errors
+    assert repaired.data == expected
+
+
+def test_repair_overlong_chunk_length_to_next_header_realigns_idat():
+    corrupted = (ROOT / "David" / "6.bad.png").read_bytes()
+    linefeed = repair_linefeed_conversion(corrupted, allow_partial=True)
+    assert linefeed is not None
+
+    realigned = repair_overlong_chunk_length_to_next_header(linefeed.data)
+
+    assert realigned is not None
+    assert realigned.chunk_name == "IDAT"
+    assert realigned.old_length == 8192
+    assert realigned.new_length == 8188
+    assert realigned.chunk_offset == 8237
+    assert all(chunk.crc_ok for chunk in iter_chunks(realigned.data))
+    assert validate_png_structure(realigned.data).errors == ("IDAT zlib stream is invalid",)
 
 
 def test_detect_png_signature_recovery_falls_back_to_deep_search():
@@ -829,6 +861,14 @@ def main():
         (
             "Repair linefeed IDAT CR",
             test_repair_linefeed_conversion_restores_missing_idat_cr_from_crc,
+        ),
+        (
+            "Repair linefeed partial signature CR",
+            test_repair_linefeed_conversion_can_return_partial_signature_repair,
+        ),
+        (
+            "Repair overlong chunk length to next header",
+            test_repair_overlong_chunk_length_to_next_header_realigns_idat,
         ),
         (
             "Detect PNG signature recovery falls back to deep search",

@@ -180,6 +180,18 @@ class MissingChunkByteRepair:
 
 
 @dataclass(frozen=True)
+class ChunkLengthRealignmentRepair:
+    data: bytes
+    strategy: str
+    chunk_name: str
+    chunk_offset: int
+    old_length: int
+    new_length: int
+    next_chunk_offset: int
+    rebuilt_crc: int
+
+
+@dataclass(frozen=True)
 class LinefeedPayloadPatch:
     chunk_type: bytes
     chunk_offset: int
@@ -197,6 +209,7 @@ class LinefeedConversionRepair:
     removed_prefix_bytes: int
     inserted_signature_cr: bool
     payload_patches: tuple[LinefeedPayloadPatch, ...]
+    validation_errors: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -869,7 +882,12 @@ def _restore_missing_linefeed_cr(
     return None
 
 
-def repair_linefeed_conversion(data: bytes, *, max_missing_per_chunk: int = 4) -> LinefeedConversionRepair | None:
+def repair_linefeed_conversion(
+    data: bytes,
+    *,
+    max_missing_per_chunk: int = 4,
+    allow_partial: bool = False,
+) -> LinefeedConversionRepair | None:
     recovery = detect_png_signature_recovery(data)
     if recovery.action != "linefeed_signature_candidate" or recovery.signature_offset is None:
         return None
@@ -882,15 +900,38 @@ def repair_linefeed_conversion(data: bytes, *, max_missing_per_chunk: int = 4) -
     repaired, inserted_signature_cr = signature_result
     patches: list[LinefeedPayloadPatch] = []
     offset = len(PNG_SIGNATURE)
+    valid_chunk_count = 0
+
+    def partial_repair() -> LinefeedConversionRepair | None:
+        if not allow_partial:
+            return None
+        if not inserted_signature_cr and not patches:
+            return None
+        if valid_chunk_count < 1:
+            return None
+
+        validation_errors = validate_png_structure(repaired).errors
+        if not validation_errors:
+            validation_errors = ("Line feed conversion repair is incomplete.",)
+
+        return LinefeedConversionRepair(
+            data=repaired,
+            strategy="partially restored carriage returns removed by line feed conversion",
+            linefeed_pattern=recovery.linefeed_pattern or "",
+            removed_prefix_bytes=recovery.signature_offset,
+            inserted_signature_cr=inserted_signature_cr,
+            payload_patches=tuple(patches),
+            validation_errors=validation_errors,
+        )
 
     while offset < len(repaired):
         if len(repaired) - offset < 12:
-            return None
+            return partial_repair()
 
         length = int.from_bytes(repaired[offset : offset + 4], "big")
         chunk_type = repaired[offset + 4 : offset + 8]
         if not _is_ascii_chunk_type(chunk_type):
-            return None
+            return partial_repair()
 
         data_start = offset + 8
         data_end = data_start + length
@@ -900,6 +941,7 @@ def repair_linefeed_conversion(data: bytes, *, max_missing_per_chunk: int = 4) -
             stored_crc = int.from_bytes(repaired[data_end:crc_end], "big")
             payload = repaired[data_start:data_end]
             if zlib.crc32(chunk_type + payload) & 0xFFFFFFFF == stored_crc:
+                valid_chunk_count += 1
                 offset = crc_end
                 if chunk_type == b"IEND":
                     repaired = repaired[:crc_end]
@@ -912,12 +954,12 @@ def repair_linefeed_conversion(data: bytes, *, max_missing_per_chunk: int = 4) -
             max_missing=max_missing_per_chunk,
         )
         if candidate is None:
-            return None
+            return partial_repair()
 
         next_chunk_start, missing_count = candidate
         crc_start = next_chunk_start - 4
         if crc_start < data_start:
-            return None
+            return partial_repair()
 
         shifted_payload = repaired[data_start:crc_start]
         stored_crc = int.from_bytes(repaired[crc_start:next_chunk_start], "big")
@@ -928,7 +970,7 @@ def repair_linefeed_conversion(data: bytes, *, max_missing_per_chunk: int = 4) -
             missing_count=missing_count,
         )
         if restored is None:
-            return None
+            return partial_repair()
 
         fixed_payload, insert_offset = restored
         repaired = repaired[:data_start] + fixed_payload + repaired[crc_start:]
@@ -942,12 +984,17 @@ def repair_linefeed_conversion(data: bytes, *, max_missing_per_chunk: int = 4) -
                 stored_crc=stored_crc,
             )
         )
+        valid_chunk_count += 1
         offset = data_start + length + 4
         if chunk_type == b"IEND":
             repaired = repaired[:offset]
             break
 
-    if not validate_png_structure(repaired).ok:
+    validation_errors = validate_png_structure(repaired).errors
+    if validation_errors:
+        partial = partial_repair()
+        if partial is not None:
+            return partial
         return None
 
     return LinefeedConversionRepair(
@@ -957,6 +1004,7 @@ def repair_linefeed_conversion(data: bytes, *, max_missing_per_chunk: int = 4) -
         removed_prefix_bytes=recovery.signature_offset,
         inserted_signature_cr=inserted_signature_cr,
         payload_patches=tuple(patches),
+        validation_errors=(),
     )
 
 
@@ -1023,6 +1071,98 @@ def repair_missing_chunk_data_byte(data: bytes, *, max_chunk_length: int = 65536
         offset = chunk.offset + 12 + chunk.length
         if chunk.chunk_type == b"IEND":
             return None
+
+    return None
+
+
+def repair_overlong_chunk_length_to_next_header(
+    data: bytes,
+    *,
+    max_overrun: int = 16,
+    chunk_types: tuple[bytes, ...] = (b"IDAT",),
+) -> ChunkLengthRealignmentRepair | None:
+    signature_offset = find_signature_offset(data)
+    if signature_offset < 0:
+        return None
+
+    repaired = bytearray(data)
+    offset = signature_offset + len(PNG_SIGNATURE)
+    while offset < len(repaired):
+        if len(repaired) - offset < 12:
+            return None
+
+        length = int.from_bytes(repaired[offset : offset + 4], "big")
+        chunk_type = bytes(repaired[offset + 4 : offset + 8])
+        if not _is_ascii_chunk_type(chunk_type):
+            return None
+
+        data_start = offset + 8
+        data_end = data_start + length
+        crc_end = data_end + 4
+        if crc_end <= len(repaired):
+            stored_crc = int.from_bytes(repaired[data_end:crc_end], "big")
+            payload = bytes(repaired[data_start:data_end])
+            if zlib.crc32(chunk_type + payload) & 0xFFFFFFFF == stored_crc:
+                offset = crc_end
+                if chunk_type == b"IEND":
+                    return None
+                continue
+
+        if chunk_types and chunk_type not in chunk_types:
+            return None
+
+        expected_next = offset + 12 + length
+        for overrun in range(1, max_overrun + 1):
+            next_chunk_offset = expected_next - overrun
+            if next_chunk_offset <= data_start + 4:
+                continue
+            if next_chunk_offset + 8 > len(repaired):
+                continue
+
+            next_chunk_type = bytes(repaired[next_chunk_offset + 4 : next_chunk_offset + 8])
+            if not _is_ascii_chunk_type(next_chunk_type):
+                continue
+
+            new_data_end = next_chunk_offset - 4
+            new_length = new_data_end - data_start
+            if new_length < 0 or new_length >= length:
+                continue
+
+            payload = bytes(repaired[data_start:new_data_end])
+            rebuilt_crc = zlib.crc32(chunk_type + payload) & 0xFFFFFFFF
+            candidate_data = bytearray(repaired)
+            candidate_data[offset : offset + 4] = new_length.to_bytes(4, "big")
+            candidate_data[new_data_end:next_chunk_offset] = rebuilt_crc.to_bytes(4, "big")
+
+            try:
+                candidate = bytes(candidate_data)
+                chunks = list(iter_chunks(candidate, signature_offset=signature_offset))
+            except PngFormatError:
+                continue
+
+            if any(not chunk.crc_ok for chunk in chunks):
+                continue
+            if not chunks or chunks[-1].chunk_type != b"IEND":
+                continue
+            iend_end = chunks[-1].offset + 12 + chunks[-1].length
+            if iend_end != len(candidate):
+                continue
+
+            return ChunkLengthRealignmentRepair(
+                data=candidate,
+                strategy=(
+                    "realigned overlong %s chunk length from %s to %s and rebuilt CRC"
+                    % (chunk_type.decode("ascii", errors="replace"), length, new_length)
+                ),
+                chunk_name=chunk_type.decode("ascii", errors="replace"),
+                chunk_offset=offset,
+                old_length=length,
+                new_length=new_length,
+                next_chunk_offset=next_chunk_offset,
+                rebuilt_crc=rebuilt_crc,
+            )
+
+        return None
 
     return None
 

@@ -4,11 +4,13 @@ from collections.abc import Callable, MutableSequence
 from dataclasses import dataclass
 from typing import Any
 
+from . import idat
 from . import chunk_scanner
 from .png import (
     detect_png_signature_recovery,
     legacy_find_magic_checkpoint_args,
     repair_linefeed_conversion,
+    repair_overlong_chunk_length_to_next_header,
 )
 
 
@@ -78,7 +80,25 @@ def _linefeed_repair_summary(repair) -> str:
                 patch.stored_crc,
             )
         )
+    for error in getattr(repair, "validation_errors", ()):
+        lines.append("-Line feed conversion repair: validation error after CR restoration: %s" % error)
     return "\n".join(lines)
+
+
+def _linefeed_salvage_summary(realignment, salvage) -> str:
+    return "\n".join(
+        [
+            "-Line feed conversion repair: %s at chunk offset 0x%x; next chunk at 0x%x; rebuilt CRC 0x%08x."
+            % (
+                realignment.strategy,
+                realignment.chunk_offset,
+                realignment.next_chunk_offset,
+                realignment.rebuilt_crc,
+            ),
+            "-Line feed conversion repair: %s."
+            % salvage.strategy,
+        ]
+    )
 
 
 def run_find_magic(runtime: FindMagicRuntime, context: FindMagicContext) -> Any:
@@ -139,19 +159,52 @@ def run_find_magic(runtime: FindMagicRuntime, context: FindMagicContext) -> Any:
                 " %s seems corrupted due to line feed conversion...It doesnt look that bad...But I ll keep that in mind while im on it.."
                 % _color(runtime, "white", context.sample_name),
             )
-            repair = repair_linefeed_conversion(context.data_bytes)
+            repair = repair_linefeed_conversion(context.data_bytes, allow_partial=True)
             if repair is not None:
                 _cowsay(
                     runtime,
                     "Yep. Line-feed conversion chewed some carriage returns out of this PNG.",
                     "com",
                 )
-                _cowsay(
-                    runtime,
-                    "I can put those CR bytes back where the CRCs agree and write a clean clone.",
-                    "good",
-                )
                 summary = _linefeed_repair_summary(repair)
+                if repair.validation_errors:
+                    realignment = repair_overlong_chunk_length_to_next_header(repair.data)
+                    salvage = (
+                        idat.rebuild_tolerant_idat_salvage(realignment.data)
+                        or idat.rebuild_partial_idat_blackfill(realignment.data)
+                        if realignment is not None
+                        else None
+                    )
+                    if salvage is not None:
+                        _cowsay(
+                            runtime,
+                            "The missing bytes cannot be recovered cleanly, but I can write a valid partial IDAT salvage.",
+                            "com",
+                        )
+                        summary = "\n".join(
+                            [
+                                summary,
+                                _linefeed_salvage_summary(realignment, salvage),
+                            ]
+                        )
+                        runtime.side_notes.append(summary)
+                        return runtime.write_clone(salvage.data.hex(), summary)
+
+                    _cowsay(
+                        runtime,
+                        "I can restore the signature CR, but the result is still not a valid PNG, so I am not writing it.",
+                        "com",
+                    )
+                    runtime.side_notes.append(summary)
+                    runtime.emit(_color(runtime, "yellow", "\n-ToDo"))
+                    runtime.end()
+                    return None
+                else:
+                    _cowsay(
+                        runtime,
+                        "I can put those CR bytes back where the CRCs agree and write a clean clone.",
+                        "good",
+                    )
                 runtime.side_notes.append(summary)
                 return runtime.write_clone(repair.data.hex(), summary)
 

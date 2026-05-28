@@ -99,6 +99,14 @@ class PartialIdatBlackfillRepair:
     color_type: int
 
 
+@dataclass(frozen=True)
+class TolerantScanlineSalvage:
+    filtered_scanlines: bytes
+    recovered_scanlines: int
+    total_scanlines: int
+    invalid_filter_rows: tuple[int, ...]
+
+
 def dummy_scanline(bit_depth: str | int, samples: int = 3) -> tuple[bytes, bytes, bytes]:
     depth = int(bit_depth)
     if depth > 8:
@@ -229,6 +237,76 @@ def _count_usable_scanlines(decompressed: bytes, scanline_size: int, height: int
         usable_scanlines += 1
 
     return complete_scanlines, usable_scanlines
+
+
+def _tolerant_filter0_scanlines(
+    decompressed: bytes,
+    *,
+    width: int,
+    height: int,
+    bit_depth: int,
+    color_type: int,
+) -> TolerantScanlineSalvage | None:
+    scanline_size = png.png_scanline_size(width, bit_depth, color_type)
+    if scanline_size is None:
+        return None
+
+    row_data_size = scanline_size - 1
+    bits_per_pixel = png.PNG_COLOR_SAMPLES[color_type] * bit_depth
+    bytes_per_pixel = max(1, (bits_per_pixel + 7) // 8)
+    complete_scanlines = min(height, len(decompressed) // scanline_size)
+
+    previous = bytearray(row_data_size)
+    rebuilt = bytearray()
+    invalid_filter_rows: list[int] = []
+    recovered_scanlines = 0
+
+    for row_index in range(height):
+        if row_index >= complete_scanlines:
+            rebuilt.extend(b"\x00" + (b"\x00" * row_data_size))
+            previous = bytearray(row_data_size)
+            invalid_filter_rows.append(row_index)
+            continue
+
+        row_start = row_index * scanline_size
+        filter_type = decompressed[row_start]
+        filtered_row = decompressed[row_start + 1 : row_start + scanline_size]
+        row = bytearray(row_data_size)
+
+        if filter_type not in range(5):
+            rebuilt.extend(b"\x00" + (b"\x00" * row_data_size))
+            previous = bytearray(row_data_size)
+            invalid_filter_rows.append(row_index)
+            continue
+
+        for index, value in enumerate(filtered_row):
+            left = row[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+            up = previous[index]
+            up_left = previous[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+
+            if filter_type == 0:
+                repaired = value
+            elif filter_type == 1:
+                repaired = value + left
+            elif filter_type == 2:
+                repaired = value + up
+            elif filter_type == 3:
+                repaired = value + ((left + up) // 2)
+            else:
+                repaired = value + png._paeth_predictor(left, up, up_left)
+
+            row[index] = repaired & 0xFF
+
+        rebuilt.extend(b"\x00" + bytes(row))
+        previous = row
+        recovered_scanlines += 1
+
+    return TolerantScanlineSalvage(
+        filtered_scanlines=bytes(rebuilt),
+        recovered_scanlines=recovered_scanlines,
+        total_scanlines=height,
+        invalid_filter_rows=tuple(invalid_filter_rows),
+    )
 
 
 def _idat_stream_status(error: str, *, complete: bool, decompressed_size: int, expected_size: int) -> str:
@@ -462,6 +540,61 @@ def rebuild_partial_idat_blackfill(data: bytes) -> PartialIdatBlackfillRepair | 
         % (analysis.usable_scanlines, analysis.height),
         recovered_scanlines=analysis.usable_scanlines,
         total_scanlines=analysis.height,
+        width=analysis.width,
+        height=analysis.height,
+        bit_depth=analysis.bit_depth,
+        color_type=analysis.color_type,
+    )
+
+
+def rebuild_tolerant_idat_salvage(data: bytes) -> PartialIdatBlackfillRepair | None:
+    analysis = analyze_partial_idat(data)
+    if not analysis.partial:
+        return None
+
+    try:
+        chunks = list(png.iter_chunks(data))
+    except png.PngFormatError:
+        return None
+
+    idat_stream = b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
+    decompressed, _zlib_complete, _error = _decompress_until_error(idat_stream)
+    salvage = _tolerant_filter0_scanlines(
+        decompressed,
+        width=analysis.width,
+        height=analysis.height,
+        bit_depth=analysis.bit_depth,
+        color_type=analysis.color_type,
+    )
+    if salvage is None:
+        return None
+    if salvage.recovered_scanlines <= analysis.usable_scanlines:
+        return None
+
+    rebuilt_idat = zlib.compress(salvage.filtered_scanlines)
+    fixed = bytearray(png.PNG_SIGNATURE)
+    idat_written = False
+    for chunk in chunks:
+        if chunk.chunk_type == b"IDAT":
+            if not idat_written:
+                fixed.extend(png.build_png_chunk(b"IDAT", rebuilt_idat))
+                idat_written = True
+            continue
+        fixed.extend(png.build_png_chunk(chunk.chunk_type, chunk.data))
+
+    return PartialIdatBlackfillRepair(
+        data=bytes(fixed),
+        strategy=(
+            "partial-idat-tolerant-row-salvage recovered %s/%s scanlines; "
+            "blackfilled %s bad filter rows"
+        )
+        % (
+            salvage.recovered_scanlines,
+            salvage.total_scanlines,
+            len(salvage.invalid_filter_rows),
+        ),
+        recovered_scanlines=salvage.recovered_scanlines,
+        total_scanlines=salvage.total_scanlines,
         width=analysis.width,
         height=analysis.height,
         bit_depth=analysis.bit_depth,

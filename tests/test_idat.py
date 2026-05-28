@@ -11,7 +11,15 @@ if str(ROOT) not in sys.path:
 
 from chunklate import idat
 from chunklate import idat_bruteforce
-from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks, validate_png_structure
+from chunklate.png import (
+    IEND_CHUNK,
+    PNG_SIGNATURE,
+    build_png_chunk,
+    iter_chunks,
+    repair_linefeed_conversion,
+    repair_overlong_chunk_length_to_next_header,
+    validate_png_structure,
+)
 
 
 def build_rgb_png(width, height, filtered_scanlines, *, idat_data=None, idat_parts=None, interlace=0):
@@ -304,12 +312,42 @@ def test_rebuild_partial_idat_blackfill_keeps_prefix_and_fills_remaining_rows():
     )
 
 
+def test_rebuild_tolerant_idat_salvage_keeps_rows_after_bad_filters():
+    linefeed = repair_linefeed_conversion(
+        (ROOT / "David" / "6.bad.png").read_bytes(),
+        allow_partial=True,
+    )
+    assert linefeed is not None
+    realigned = repair_overlong_chunk_length_to_next_header(linefeed.data)
+    assert realigned is not None
+
+    blackfill = idat.rebuild_partial_idat_blackfill(realigned.data)
+    repair = idat.rebuild_tolerant_idat_salvage(realigned.data)
+
+    assert blackfill is not None
+    assert blackfill.recovered_scanlines == 145
+    assert repair is not None
+    assert repair.recovered_scanlines == 495
+    assert repair.total_scanlines == 503
+    assert "blackfilled 8 bad filter rows" in repair.strategy
+    assert validate_png_structure(repair.data).ok
+
+    chunks = list(iter_chunks(repair.data))
+    rebuilt_stream = b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
+    rebuilt_filtered = zlib.decompress(rebuilt_stream)
+
+    assert len(rebuilt_filtered) == 503 * 2401
+    assert {rebuilt_filtered[row * 2401] for row in range(503)} == {0}
+
+
 def test_rebuild_partial_idat_blackfill_ignores_complete_or_unusable_streams():
     complete = build_rgb_png(1, 1, b"\x00abc")
     invalid = build_rgb_png(1, 1, b"\x00abc", idat_data=b"bad")
 
     assert idat.rebuild_partial_idat_blackfill(complete) is None
     assert idat.rebuild_partial_idat_blackfill(invalid) is None
+    assert idat.rebuild_tolerant_idat_salvage(complete) is None
+    assert idat.rebuild_tolerant_idat_salvage(invalid) is None
 
 
 def test_analyze_idat_stream_reports_complete_stream():
@@ -673,6 +711,10 @@ def main():
         (
             "Partial IDAT blackfill repair",
             test_rebuild_partial_idat_blackfill_keeps_prefix_and_fills_remaining_rows,
+        ),
+        (
+            "Partial IDAT tolerant salvage",
+            test_rebuild_tolerant_idat_salvage_keeps_rows_after_bad_filters,
         ),
         (
             "Partial IDAT blackfill ignored cases",

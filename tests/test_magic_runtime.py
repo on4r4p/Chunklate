@@ -164,6 +164,24 @@ def test_find_header_magic_runtime_repairs_linefeed_conversion_with_clone():
     assert ("end",) not in calls
 
 
+def test_find_header_magic_runtime_writes_linefeed_salvage_clone():
+    calls = []
+    side_notes = []
+    runtime = build_runtime(calls, side_notes)
+    corrupted = (ROOT / "David" / "6.bad.png").read_bytes()
+
+    result = magic_runtime.run_find_magic(runtime, base_context(corrupted.hex()))
+
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert result == "write-result"
+    assert len(write_calls) == 1
+    assert validate_png_structure(bytes.fromhex(write_calls[0][1])).ok
+    assert "validation error after CR restoration" in write_calls[0][2]
+    assert "partial-idat-tolerant-row-salvage recovered 495/503 scanlines" in write_calls[0][2]
+    assert side_notes == [write_calls[0][2]]
+    assert ("end",) not in calls
+
+
 def test_find_magic_runtime_too_low_without_known_chunks_ends_with_note():
     calls = []
     side_notes = []
@@ -274,6 +292,7 @@ def main():
         ("Header cut", test_find_header_magic_runtime_cut_at_signature_routes_checkpoint),
         ("Header deep search", test_find_header_magic_runtime_deep_search_checkpoint),
         ("Header linefeed repair", test_find_header_magic_runtime_repairs_linefeed_conversion_with_clone),
+        ("Header linefeed salvage", test_find_header_magic_runtime_writes_linefeed_salvage_clone),
         ("Single candidate", test_find_magic_runtime_single_candidate_cuts_at_best_magic),
         ("No known chunks", test_find_magic_runtime_too_low_without_known_chunks_ends_with_note),
         ("Prepend nearest", test_find_magic_runtime_too_low_prepends_magic_before_nearest_chunk),
