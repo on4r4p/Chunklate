@@ -97,9 +97,10 @@ def CheckPoint_Libpng_End_Success(message):
         message,
         "good",
     )
-    Candy("Cowsay", "Your file is here :", "good")
     name, sample_dir = Naming(FILE_Origin)
-    PRINT(Candy("Color", "green", "-Saved in : %s/%s") % (sample_dir, Sample_Name))
+    saved_path = "%s/%s" % (sample_dir, Sample_Name)
+    Candy("Cowsay", "Your file is here: %s" % saved_path, "good")
+    PRINT(Candy("Color", "green", "-Saved in : %s") % saved_path)
     Candy("Cowsay", "See you Space Cowboy...", "good")
     TheEnd()
 

@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import magic_runtime
-from chunklate.png import PNG_SIGNATURE
+from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, validate_png_structure
 
 
 def build_runtime(calls, side_notes=None, *, spec_length=None):
@@ -37,6 +37,7 @@ def build_runtime(calls, side_notes=None, *, spec_length=None):
         spec_length=spec,
         minibar=lambda: calls.append(("minibar",)),
         side_notes=side_notes,
+        write_clone=lambda data, summary: calls.append(("write_clone", data, summary)) or "write-result",
     )
 
 
@@ -50,6 +51,14 @@ def base_context(data_hex, **updates):
     }
     values.update(updates)
     return magic_runtime.FindMagicContext(**values)
+
+
+def tiny_rgb_png():
+    ihdr = b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00"
+    return PNG_SIGNATURE + build_png_chunk(b"IHDR", ihdr) + build_png_chunk(
+        b"IDAT",
+        b"\x78\x01\x01\x04\x00\xfb\xff\x00\x00\x00\x00\x00\x04\x00\x01",
+    ) + IEND_CHUNK
 
 
 def checkpoint_args(calls):
@@ -136,6 +145,25 @@ def test_find_header_magic_runtime_deep_search_checkpoint():
     )
 
 
+def test_find_header_magic_runtime_repairs_linefeed_conversion_with_clone():
+    calls = []
+    side_notes = []
+    runtime = build_runtime(calls, side_notes)
+    original = tiny_rgb_png()
+    corrupted = original[:4] + original[5:]
+
+    result = magic_runtime.run_find_magic(runtime, base_context(corrupted.hex()))
+
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert result == "write-result"
+    assert len(write_calls) == 1
+    assert bytes.fromhex(write_calls[0][1]) == original
+    assert validate_png_structure(bytes.fromhex(write_calls[0][1])).ok
+    assert "Line feed conversion repair" in write_calls[0][2]
+    assert side_notes == [write_calls[0][2]]
+    assert ("end",) not in calls
+
+
 def test_find_magic_runtime_too_low_without_known_chunks_ends_with_note():
     calls = []
     side_notes = []
@@ -182,6 +210,7 @@ def build_namespace(calls, side_notes):
         "Pause": lambda message: calls.append(("pause", message)),
         "SpecLength": lambda *args: calls.append(("spec", args)),
         "Minibar": lambda: calls.append(("minibar",)),
+        "WriteClone": lambda *args: calls.append(("write_clone", args)),
         "SideNotes": side_notes,
         "ChunkStory": lambda *args: calls.append(("story", args)),
         "DATA_BYTES": b"png",
@@ -209,6 +238,7 @@ def test_find_magic_namespace_bridge_injects_chunk_story_and_context():
         assert runtime.pause is namespace["Pause"]
         assert runtime.spec_length is namespace["SpecLength"]
         assert runtime.minibar is namespace["Minibar"]
+        assert runtime.write_clone is namespace["WriteClone"]
         assert runtime.side_notes is side_notes
         assert runtime.chunk_story is namespace["ChunkStory"]
         assert context.data_bytes == b"png"
@@ -243,6 +273,7 @@ def main():
         ("Header found", test_find_header_magic_runtime_found_at_start_records_story_and_checkpoint),
         ("Header cut", test_find_header_magic_runtime_cut_at_signature_routes_checkpoint),
         ("Header deep search", test_find_header_magic_runtime_deep_search_checkpoint),
+        ("Header linefeed repair", test_find_header_magic_runtime_repairs_linefeed_conversion_with_clone),
         ("Single candidate", test_find_magic_runtime_single_candidate_cuts_at_best_magic),
         ("No known chunks", test_find_magic_runtime_too_low_without_known_chunks_ends_with_note),
         ("Prepend nearest", test_find_magic_runtime_too_low_prepends_magic_before_nearest_chunk),

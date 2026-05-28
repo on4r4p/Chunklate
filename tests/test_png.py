@@ -39,6 +39,7 @@ from chunklate.png import (
     repair_ihdr_preserving_crc,
     repair_indexed_plte,
     repair_known_chunk_type_case,
+    repair_linefeed_conversion,
     repair_missing_ihdr_from_idat,
     repair_missing_chunk_data_byte,
     repair_unknown_private_critical_chunks,
@@ -49,6 +50,16 @@ from chunklate.png import (
 FIXTURE = ROOT / "schaik-javapng-samples" / "basn0g01.png"
 REPAIR_FIXTURES = ROOT / "Png_Errors_handled_by_Chunklate_So_Far"
 BROKEN_FIXTURES = ROOT / "schaik-javapng-samples" / "brokenjavapngsuite"
+
+
+def tiny_rgb_png(*, filtered_scanlines: bytes | None = None, width: int = 1, height: int = 1) -> bytes:
+    if filtered_scanlines is None:
+        filtered_scanlines = b"\x00\x00\x00\x00"
+    ihdr = width.to_bytes(4, "big") + height.to_bytes(4, "big") + b"\x08\x02\x00\x00\x00"
+    return PNG_SIGNATURE + build_png_chunk(b"IHDR", ihdr) + build_png_chunk(
+        b"IDAT",
+        zlib.compress(filtered_scanlines, level=0),
+    ) + IEND_CHUNK
 
 
 def test_read_valid_png_chunks_from_fixture():
@@ -117,6 +128,38 @@ def test_detect_png_signature_recovery_classifies_linefeed_candidates():
     assert major_recovery.action == "linefeed_signature_candidate"
     assert major_recovery.signature_offset == 2
     assert major_recovery.linefeed_pattern == "major_linefeed_corruption"
+
+
+def test_repair_linefeed_conversion_restores_signature_cr():
+    original = tiny_rgb_png()
+    corrupted = original[:4] + original[5:]
+
+    repaired = repair_linefeed_conversion(corrupted)
+
+    assert repaired is not None
+    assert repaired.inserted_signature_cr is True
+    assert repaired.payload_patches == ()
+    assert repaired.data == original
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_linefeed_conversion_restores_missing_idat_cr_from_crc():
+    filtered = b"".join(b"\x00" + bytes((13, row, 255 - row)) for row in range(5))
+    original = tiny_rgb_png(filtered_scanlines=filtered, height=5)
+    idat = next(chunk for chunk in iter_chunks(original) if chunk.chunk_type == b"IDAT")
+    cr_relative = idat.data.index(b"\r")
+    cr_absolute = idat.offset + 8 + cr_relative
+    corrupted = original[:4] + original[5:cr_absolute] + original[cr_absolute + 1 :]
+
+    repaired = repair_linefeed_conversion(corrupted)
+
+    assert repaired is not None
+    assert repaired.inserted_signature_cr is True
+    assert len(repaired.payload_patches) == 1
+    assert repaired.payload_patches[0].chunk_type == b"IDAT"
+    assert repaired.payload_patches[0].inserted_value == 0x0D
+    assert repaired.data == original
+    assert validate_png_structure(repaired.data).ok
 
 
 def test_detect_png_signature_recovery_falls_back_to_deep_search():
@@ -781,6 +824,11 @@ def main():
         (
             "Detect PNG signature recovery classifies linefeed candidates",
             test_detect_png_signature_recovery_classifies_linefeed_candidates,
+        ),
+        ("Repair linefeed signature CR", test_repair_linefeed_conversion_restores_signature_cr),
+        (
+            "Repair linefeed IDAT CR",
+            test_repair_linefeed_conversion_restores_missing_idat_cr_from_crc,
         ),
         (
             "Detect PNG signature recovery falls back to deep search",

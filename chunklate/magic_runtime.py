@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import chunk_scanner
-from .png import detect_png_signature_recovery, legacy_find_magic_checkpoint_args
+from .png import (
+    detect_png_signature_recovery,
+    legacy_find_magic_checkpoint_args,
+    repair_linefeed_conversion,
+)
 
 
 LegacyCall = Callable[..., Any]
@@ -38,6 +42,7 @@ class FindMagicRuntime:
     minibar: LegacyCall
     side_notes: MutableSequence[Any]
     chunk_story: LegacyCall = lambda *args, **kwargs: None
+    write_clone: LegacyCall = lambda *args, **kwargs: None
 
 
 def _color(runtime: FindMagicRuntime, color: str, value: Any) -> Any:
@@ -52,6 +57,28 @@ def _cowsay(runtime: FindMagicRuntime, message: str, mood: str | None = None) ->
     if mood is None:
         return runtime.candy("Cowsay", message)
     return runtime.candy("Cowsay", message, mood)
+
+
+def _linefeed_repair_summary(repair) -> str:
+    lines = ["-Line feed conversion repair: restored missing carriage returns."]
+    if repair.removed_prefix_bytes:
+        lines.append(
+            "-Line feed conversion repair: cut %s bytes before PNG signature."
+            % repair.removed_prefix_bytes
+        )
+    if repair.inserted_signature_cr:
+        lines.append("-Line feed conversion repair: inserted missing CR in PNG signature.")
+    for patch in repair.payload_patches:
+        lines.append(
+            "-Line feed conversion repair: inserted CR in %s data at chunk offset 0x%x, payload offset 0x%x; CRC 0x%08x matched."
+            % (
+                patch.chunk_type.decode("ascii", errors="replace"),
+                patch.chunk_offset,
+                patch.payload_offset,
+                patch.stored_crc,
+            )
+        )
+    return "\n".join(lines)
 
 
 def run_find_magic(runtime: FindMagicRuntime, context: FindMagicContext) -> Any:
@@ -112,6 +139,22 @@ def run_find_magic(runtime: FindMagicRuntime, context: FindMagicContext) -> Any:
                 " %s seems corrupted due to line feed conversion...It doesnt look that bad...But I ll keep that in mind while im on it.."
                 % _color(runtime, "white", context.sample_name),
             )
+            repair = repair_linefeed_conversion(context.data_bytes)
+            if repair is not None:
+                _cowsay(
+                    runtime,
+                    "Yep. Line-feed conversion chewed some carriage returns out of this PNG.",
+                    "com",
+                )
+                _cowsay(
+                    runtime,
+                    "I can put those CR bytes back where the CRCs agree and write a clean clone.",
+                    "good",
+                )
+                summary = _linefeed_repair_summary(repair)
+                runtime.side_notes.append(summary)
+                return runtime.write_clone(repair.data.hex(), summary)
+
             runtime.side_notes.append(
                 "-Corruption due to line feed conversion\n-File may still be recovered.\n-Not yet implemented."
             )
@@ -380,6 +423,7 @@ def build_find_magic_runtime_from_namespace(
         spec_length=namespace["SpecLength"],
         minibar=namespace["Minibar"],
         side_notes=namespace["SideNotes"],
+        write_clone=namespace["WriteClone"],
         **kwargs,
     )
 
