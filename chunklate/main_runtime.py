@@ -24,6 +24,7 @@ class MainCliOptionsRuntime:
     emit: Callable[[str], Any] = print
     parse_legacy_unknown_options: Callable = cli.parse_legacy_unknown_options
     max_saves_error: Callable = cli.max_saves_error
+    ultimate_linefeed_budget_error: Callable = cli.ultimate_linefeed_budget_error
     output_file_dir: Callable = cli.output_file_dir
     runtime_flags_from_args: Callable = cli.runtime_flags_from_args
     clone_folder: Callable[[str, str], str] = output.clone_folder
@@ -39,6 +40,8 @@ class MainCliOptionsState:
     sample: str
     cloneswar: Any
     crash: Any
+    ultimate_linefeed_budget: int | None = None
+    ultimate_linefeed_unbounded: bool = False
 
 
 @dataclass(frozen=True)
@@ -395,6 +398,16 @@ def apply_main_cli_options(
         runtime.print_error(max_saves_error)
         runtime.exit_process(1)
         return None
+    ultimate_linefeed_budget = getattr(args, "ULTIMATE_LINEFEED_BUDGET", None)
+    ultimate_linefeed_unbounded = bool(getattr(args, "ULTIMATE_LINEFEED_UNBOUNDED", False))
+    ultimate_linefeed_budget_error = runtime.ultimate_linefeed_budget_error(
+        ultimate_linefeed_budget,
+        ultimate_linefeed_unbounded,
+    )
+    if ultimate_linefeed_budget_error is not None:
+        runtime.print_error(ultimate_linefeed_budget_error)
+        runtime.exit_process(1)
+        return None
 
     file_origin = args.FILENAME
     file_dir = runtime.output_file_dir(
@@ -414,6 +427,8 @@ def apply_main_cli_options(
         sample=file_origin,
         cloneswar=cloneswar,
         crash=crash,
+        ultimate_linefeed_budget=ultimate_linefeed_budget,
+        ultimate_linefeed_unbounded=ultimate_linefeed_unbounded,
     )
 
 
@@ -435,6 +450,8 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "Sample": options.sample,
         "CLONESWAR": options.cloneswar,
         "CRASH": options.crash,
+        "ULTIMATE_LINEFEED_BUDGET": options.ultimate_linefeed_budget,
+        "ULTIMATE_LINEFEED_UNBOUNDED": options.ultimate_linefeed_unbounded,
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
     }
 

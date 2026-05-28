@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import itertools
+import json
+import math
+import os
 import zlib
-from typing import Callable
+from typing import Callable, Iterable
 
 from . import deflate_header
 from . import idat
@@ -11,6 +16,7 @@ from . import png
 
 ProgressCallback = Callable[[int, int, bool], None]
 QueueProgressCallback = Callable[[str, int, int], None]
+UNBOUNDED_PROGRESS_TOTAL = 10**12
 
 
 @dataclass(frozen=True)
@@ -43,6 +49,121 @@ class IdatDeflateProbeResult:
         return self.best is not None
 
 
+@dataclass(frozen=True)
+class IdatLinefeedInsertCandidate:
+    data: bytes
+    stream_offset: int
+    inserted_byte: int
+    before: idat.IdatStreamAnalysis
+    after: idat.IdatStreamAnalysis
+
+
+@dataclass(frozen=True)
+class IdatLinefeedInsertProbeResult:
+    before: idat.IdatStreamAnalysis
+    best: IdatLinefeedInsertCandidate | None
+    window_start: int
+    window_end: int
+    tested_candidates: int
+    budget_exhausted: bool
+    strategy: str = "linefeed-cr-insert"
+    reason: str = ""
+
+    @property
+    def improved(self) -> bool:
+        return self.best is not None
+
+
+@dataclass(frozen=True)
+class SuperMegaLinefeedOperation:
+    kind: str
+    stream_offset: int
+    old_bytes: bytes = b""
+    new_bytes: bytes = b""
+
+
+@dataclass(frozen=True)
+class SuperMegaLinefeedCandidate:
+    data: bytes
+    operations: tuple[SuperMegaLinefeedOperation, ...]
+    before: idat.IdatStreamAnalysis
+    after: idat.IdatStreamAnalysis
+    state_id: int = 0
+    parent_id: int | None = None
+    source_offsets: tuple[int, ...] = ()
+    score: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class SuperMegaLinefeedState:
+    state_id: int
+    parent_id: int | None
+    stream: bytes
+    operations: tuple[SuperMegaLinefeedOperation, ...]
+    analysis: idat.IdatStreamAnalysis
+    source_offsets: tuple[int, ...]
+    score: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class SuperMegaLinefeedPhaseSummary:
+    name: str
+    depth: int
+    window_start: int
+    window_end: int
+    tested_candidates: int
+    accepted_candidates: int
+    budget_exhausted: bool = False
+
+
+@dataclass(frozen=True)
+class SuperMegaLinefeedProbeResult:
+    before: idat.IdatStreamAnalysis
+    best: SuperMegaLinefeedCandidate | None
+    error_anchor_offset: int | None
+    search_start_offset: int
+    window_start: int
+    window_end: int
+    tested_candidates: int
+    budget_exhausted: bool
+    phases: tuple[SuperMegaLinefeedPhaseSummary, ...] = ()
+    strategy: str = "SuperMegaLineFeedForceOfDeath"
+    reason: str = ""
+    pre_error_backtrack: int = 0
+    target_adler: int | None = None
+    state_count: int = 0
+    visited_count: int = 0
+    states: tuple[SuperMegaLinefeedState, ...] = ()
+
+    @property
+    def improved(self) -> bool:
+        return self.best is not None
+
+
+@dataclass(frozen=True)
+class UltimateLinefeedProbeResult:
+    before: idat.IdatStreamAnalysis
+    best: SuperMegaLinefeedCandidate | None
+    target_adler: int | None
+    start_offset: int | None
+    reached_depth: int
+    max_depth: int
+    suspect_offsets: tuple[int, ...]
+    tested_candidates: int
+    state_count: int
+    visited_count: int
+    pruned_candidates: int
+    resumed_states: int
+    checkpoint_path: str
+    budget_exhausted: bool
+    strategy: str = "UltimateMegaSuperLineFeedBruteForce"
+    reason: str = ""
+
+    @property
+    def improved(self) -> bool:
+        return self.best is not None
+
+
 def analysis_score(analysis: idat.IdatStreamAnalysis) -> tuple[int, int, int, int, int]:
     return (
         1 if analysis.complete else 0,
@@ -50,6 +171,49 @@ def analysis_score(analysis: idat.IdatStreamAnalysis) -> tuple[int, int, int, in
         analysis.complete_scanlines,
         analysis.decompressed_size,
         analysis.error_offset if analysis.error_offset is not None else -1,
+    )
+
+
+def linefeed_insert_score(analysis: idat.IdatStreamAnalysis) -> tuple[int, int, int, int, int]:
+    expected_delta = abs(analysis.decompressed_size - analysis.expected_size)
+    return (
+        1 if analysis.complete else 0,
+        analysis.usable_scanlines,
+        analysis.complete_scanlines,
+        -expected_delta,
+        analysis.error_offset if analysis.error_offset is not None else -1,
+    )
+
+
+def super_mega_linefeed_score(
+    analysis: idat.IdatStreamAnalysis,
+    operation_count: int = 0,
+) -> tuple[int, ...]:
+    status_rank = {
+        "complete": 6,
+        "bad_adler": 5,
+        "partial": 4,
+        "incomplete_stream": 3,
+        "corrupt_deflate": 2,
+        "bad_zlib_header": 1,
+    }.get(analysis.status, 0)
+    adler_rank = {
+        "adler_match": 4,
+        "adler_rebuilt": 3,
+        "adler_unknown": 2,
+        "adler_mismatch": 1,
+    }.get(analysis.adler_status, 0)
+    expected_delta = abs(analysis.decompressed_size - analysis.expected_size)
+    error_offset = analysis.error_offset if analysis.error_offset is not None else -1
+    return (
+        1 if analysis.complete else 0,
+        status_rank,
+        analysis.usable_scanlines,
+        analysis.complete_scanlines,
+        adler_rank,
+        -expected_delta,
+        error_offset,
+        -operation_count,
     )
 
 
@@ -69,6 +233,12 @@ def _idat_chunks_and_stream(data: bytes) -> tuple[tuple[png.PngChunk, ...], byte
     return idat_chunks, b"".join(chunk.data for chunk in idat_chunks)
 
 
+def _all_chunks_and_idat_stream(data: bytes) -> tuple[tuple[png.PngChunk, ...], bytes]:
+    chunks = tuple(png.iter_chunks(data))
+    idat_stream = b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
+    return chunks, idat_stream
+
+
 def _locate_idat_stream_offset(
     idat_chunks: tuple[png.PngChunk, ...],
     stream_offset: int,
@@ -79,6 +249,182 @@ def _locate_idat_stream_offset(
             return chunk, index, remaining
         remaining -= chunk.length
     return None
+
+
+def _idat_stream_range_for_chunk_offset(
+    chunks: tuple[png.PngChunk, ...],
+    chunk_offset: int,
+) -> tuple[int, int] | None:
+    stream_offset = 0
+    for chunk in chunks:
+        if chunk.chunk_type != b"IDAT":
+            continue
+        start = stream_offset
+        end = start + chunk.length
+        if chunk.offset == chunk_offset:
+            return start, end
+        stream_offset = end
+    return None
+
+
+def _rebuild_with_single_idat_stream(chunks: tuple[png.PngChunk, ...], idat_stream: bytes) -> bytes:
+    rebuilt = bytearray(png.PNG_SIGNATURE)
+    idat_written = False
+    for chunk in chunks:
+        if chunk.chunk_type == b"IDAT":
+            if not idat_written:
+                rebuilt.extend(png.build_png_chunk(b"IDAT", idat_stream))
+                idat_written = True
+            continue
+        rebuilt.extend(png.build_png_chunk(chunk.chunk_type, chunk.data))
+    return bytes(rebuilt)
+
+
+def _candidate_from_stream(
+    parent: SuperMegaLinefeedCandidate,
+    chunks: tuple[png.PngChunk, ...],
+    new_stream: bytes,
+    operation: SuperMegaLinefeedOperation,
+    *,
+    target_adler: int | None,
+    state_id: int,
+) -> SuperMegaLinefeedCandidate:
+    candidate_data = _rebuild_with_single_idat_stream(chunks, new_stream)
+    operations = parent.operations + (operation,)
+    source_offsets = parent.source_offsets + (operation.stream_offset,)
+    analysis = idat.analyze_idat_stream(
+        candidate_data,
+        source_kind="candidate_from_original",
+        crc_provenance="rebuilt_by_chunklate",
+        target_adler=target_adler,
+    )
+    score = super_mega_linefeed_score(analysis, len(operations))
+    return SuperMegaLinefeedCandidate(
+        data=candidate_data,
+        operations=operations,
+        before=parent.before,
+        after=analysis,
+        state_id=state_id,
+        parent_id=parent.state_id,
+        source_offsets=source_offsets,
+        score=score,
+    )
+
+
+def _stream_offset_for_decompressed_size(idat_stream: bytes, target_size: int) -> int | None:
+    if not idat_stream:
+        return None
+    if target_size <= 0:
+        return 0
+
+    decompressor = zlib.decompressobj()
+    decompressed_size = 0
+    for offset, value in enumerate(idat_stream):
+        try:
+            decompressed_size += len(decompressor.decompress(bytes((value,))))
+        except zlib.error:
+            return offset
+        if decompressed_size >= target_size:
+            return offset
+
+    return len(idat_stream) - 1
+
+
+def _problem_stream_offset_for_analysis(
+    analysis: idat.IdatStreamAnalysis,
+    idat_stream: bytes,
+) -> int | None:
+    if analysis.scanline_size > 0 and analysis.usable_scanlines < analysis.height:
+        target_size = analysis.usable_scanlines * analysis.scanline_size + 1
+        offset = _stream_offset_for_decompressed_size(idat_stream, target_size)
+        if offset is not None:
+            return offset
+    if analysis.error_offset is not None:
+        return min(max(0, analysis.error_offset), max(0, len(idat_stream) - 1))
+    if idat_stream:
+        return len(idat_stream) - 1
+    return None
+
+
+def first_idat_problem_stream_offset(data: bytes) -> int | None:
+    analysis = idat.analyze_idat_stream(data)
+    if not analysis.supported:
+        return None
+    try:
+        chunks, idat_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError:
+        return None
+    return _problem_stream_offset_for_analysis(analysis, idat_stream)
+
+
+def _linefeed_probe_center(before: idat.IdatStreamAnalysis, idat_stream: bytes) -> int | None:
+    return _problem_stream_offset_for_analysis(before, idat_stream)
+
+
+def _probe_linefeed_cr_insertions_in_offsets(
+    data: bytes,
+    *,
+    strategy: str,
+    offsets: list[int],
+    window_start: int,
+    window_end: int,
+    budget: int,
+    progress: QueueProgressCallback | None = None,
+) -> IdatLinefeedInsertProbeResult:
+    before = idat.analyze_idat_stream(data)
+    try:
+        chunks, idat_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatLinefeedInsertProbeResult(before, None, 0, 0, 0, False, strategy, str(exc))
+
+    best: IdatLinefeedInsertCandidate | None = None
+    best_score = linefeed_insert_score(before)
+    tested = 0
+    budget_exhausted = False
+
+    if progress is not None:
+        progress(strategy, 0, min(budget, len(offsets)))
+
+    for stream_offset in offsets:
+        if tested >= budget:
+            budget_exhausted = True
+            break
+
+        candidate_stream = idat_stream[:stream_offset] + b"\r" + idat_stream[stream_offset:]
+        candidate_data = _rebuild_with_single_idat_stream(chunks, candidate_stream)
+        after = idat.analyze_idat_stream(candidate_data)
+        tested += 1
+
+        if progress is not None and tested % 100 == 0:
+            progress(strategy, tested, min(budget, len(offsets)))
+
+        candidate_score = linefeed_insert_score(after)
+        if candidate_score <= best_score:
+            continue
+
+        best = IdatLinefeedInsertCandidate(
+            data=candidate_data,
+            stream_offset=stream_offset,
+            inserted_byte=0x0D,
+            before=before,
+            after=after,
+        )
+        best_score = candidate_score
+        if after.complete:
+            break
+
+    if progress is not None:
+        progress(strategy, tested, min(budget, len(offsets)))
+
+    return IdatLinefeedInsertProbeResult(
+        before,
+        best,
+        window_start,
+        window_end,
+        tested,
+        budget_exhausted,
+        strategy,
+    )
 
 
 def mutate_idat_stream_byte(data: bytes, stream_offset: int, new_byte: int) -> IdatDeflateCandidate | None:
@@ -124,6 +470,1616 @@ def mutate_idat_stream_byte(data: bytes, stream_offset: int, new_byte: int) -> I
         new_byte=new_byte,
         before=before,
         after=idat.analyze_idat_stream(candidate_data),
+    )
+
+
+def probe_idat_linefeed_cr_insertions(
+    data: bytes,
+    *,
+    window_radius: int = 4096,
+    budget: int = 4096,
+    progress: QueueProgressCallback | None = None,
+) -> IdatLinefeedInsertProbeResult:
+    strategy = "linefeed-cr-insert"
+    before = idat.analyze_idat_stream(data)
+    if not before.supported:
+        return IdatLinefeedInsertProbeResult(before, None, 0, 0, 0, False, strategy, before.reason)
+    if before.complete:
+        return IdatLinefeedInsertProbeResult(
+            before,
+            None,
+            0,
+            0,
+            0,
+            False,
+            strategy,
+            "IDAT stream is already complete",
+        )
+
+    try:
+        _chunks, idat_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatLinefeedInsertProbeResult(before, None, 0, 0, 0, False, strategy, str(exc))
+
+    center = _linefeed_probe_center(before, idat_stream)
+    if center is None:
+        return IdatLinefeedInsertProbeResult(
+            before,
+            None,
+            0,
+            0,
+            0,
+            False,
+            strategy,
+            "IDAT stream is missing",
+        )
+
+    window_start = max(0, center - window_radius)
+    window_end = min(len(idat_stream), center + window_radius + 1)
+    offsets = [
+        offset
+        for offset in range(window_start, window_end)
+        if idat_stream[offset] == 0x0A
+    ]
+    offsets.sort(key=lambda offset: (abs(offset - center), offset))
+
+    return _probe_linefeed_cr_insertions_in_offsets(
+        data,
+        strategy=strategy,
+        offsets=offsets,
+        window_start=window_start,
+        window_end=window_end,
+        budget=budget,
+        progress=progress,
+    )
+
+
+def probe_idat_linefeed_cr_insertions_full(
+    data: bytes,
+    *,
+    start_offset: int | None = None,
+    budget: int = 1000000,
+    progress: QueueProgressCallback | None = None,
+) -> IdatLinefeedInsertProbeResult:
+    strategy = "linefeed-cr-insert-full"
+
+    def legacy_progress(_stage: str, tested: int, total: int) -> None:
+        if progress is not None:
+            progress(strategy, tested, total)
+
+    result = probe_super_mega_linefeed_force_of_death(
+        data,
+        start_offset=start_offset,
+        pre_error_backtrack=0,
+        beam_width=1,
+        max_depth=1,
+        linefeed_budget=budget,
+        structural_budget=0,
+        local_bit_budget=0,
+        local_byte_budget=0,
+        heavy_byte_budget=0,
+        adler_budget=0,
+        progress=legacy_progress if progress is not None else None,
+    )
+
+    best = None
+    if result.best is not None and result.best.operations:
+        operation = result.best.operations[-1]
+        inserted_byte = operation.new_bytes[0] if operation.new_bytes else 0x0D
+        best = IdatLinefeedInsertCandidate(
+            data=result.best.data,
+            stream_offset=operation.stream_offset,
+            inserted_byte=inserted_byte,
+            before=result.before,
+            after=result.best.after,
+        )
+
+    return IdatLinefeedInsertProbeResult(
+        result.before,
+        best,
+        result.search_start_offset,
+        result.window_end,
+        result.tested_candidates,
+        result.budget_exhausted,
+        strategy,
+        result.reason,
+    )
+
+
+def _analysis_or_anchor_offset(
+    analysis: idat.IdatStreamAnalysis,
+    idat_stream: bytes,
+    anchor: int | None,
+) -> int:
+    center = _problem_stream_offset_for_analysis(analysis, idat_stream)
+    if center is None:
+        center = anchor
+    if center is None:
+        center = 0
+    if not idat_stream:
+        return 0
+    return min(max(0, center), max(0, len(idat_stream) - 1))
+
+
+def adaptive_pre_error_backtrack(idat_stream_size: int) -> int:
+    if idat_stream_size <= 0:
+        return 0
+    if idat_stream_size < 2048:
+        return max(32, idat_stream_size // 4)
+    return min(8192, max(512, idat_stream_size // 16))
+
+
+def _offsets_by_distance(window_start: int, window_end: int, center: int) -> list[int]:
+    return sorted(range(window_start, window_end), key=lambda offset: (abs(offset - center), offset))
+
+
+def _format_optional_offset(offset: int | None) -> str:
+    if offset is None:
+        return "unknown"
+    return "0x%x" % offset
+
+
+def _format_operation(operation: SuperMegaLinefeedOperation) -> str:
+    if operation.old_bytes or operation.new_bytes:
+        old_hex = operation.old_bytes.hex() if operation.old_bytes else "-"
+        new_hex = operation.new_bytes.hex() if operation.new_bytes else "-"
+        return "%s@0x%x:%s>%s" % (operation.kind, operation.stream_offset, old_hex, new_hex)
+    return "%s@0x%x" % (operation.kind, operation.stream_offset)
+
+
+def _stream_state_key(stream: bytes) -> str:
+    return hashlib.blake2b(stream, digest_size=16).hexdigest()
+
+
+def _weighted_offset(offsets: dict[int, int], stream: bytes, offset: int, weight: int) -> None:
+    if not stream:
+        return
+    clamped = min(max(0, int(offset)), max(0, len(stream) - 1))
+    offsets[clamped] = max(offsets.get(clamped, 0), weight)
+
+
+def ultimate_linefeed_suspect_offsets(
+    data: bytes,
+    *,
+    start_offset: int | None = None,
+    super_result: SuperMegaLinefeedProbeResult | None = None,
+    max_offsets: int = 128,
+    linefeed_window: int | None = None,
+) -> tuple[int, ...]:
+    before = idat.analyze_idat_stream(data)
+    try:
+        _chunks, stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError:
+        return ()
+    if not stream:
+        return ()
+
+    anchor = start_offset
+    if anchor is None:
+        anchor = _problem_stream_offset_for_analysis(before, stream)
+    if anchor is None:
+        anchor = 0
+    anchor = min(max(0, anchor), max(0, len(stream) - 1))
+    backtrack = linefeed_window
+    if backtrack is None:
+        backtrack = adaptive_pre_error_backtrack(len(stream))
+    search_start = max(0, anchor - max(0, int(backtrack)))
+    weighted: dict[int, int] = {}
+
+    _weighted_offset(weighted, stream, anchor, 1000)
+    if before.error_offset is not None:
+        _weighted_offset(weighted, stream, before.error_offset, 950)
+
+    for offset in range(search_start, len(stream)):
+        if stream[offset] == 0x0A and not (offset > 0 and stream[offset - 1] == 0x0D):
+            distance = abs(offset - anchor)
+            _weighted_offset(weighted, stream, offset, max(100, 900 - min(distance, 800)))
+
+    if len(stream) >= 4:
+        _weighted_offset(weighted, stream, len(stream) - 4, 850)
+
+    if super_result is not None:
+        if super_result.error_anchor_offset is not None:
+            _weighted_offset(weighted, stream, super_result.error_anchor_offset, 980)
+        if super_result.best is not None:
+            for operation in super_result.best.operations:
+                _weighted_offset(weighted, stream, operation.stream_offset, 970)
+        for state in super_result.states:
+            if state.analysis.error_offset is not None:
+                _weighted_offset(weighted, stream, state.analysis.error_offset, 780)
+            for source_offset in state.source_offsets:
+                _weighted_offset(weighted, stream, source_offset, 740)
+
+    return tuple(
+        offset
+        for offset, _weight in sorted(
+            weighted.items(),
+            key=lambda item: (-item[1], abs(item[0] - anchor), item[0]),
+        )[: max(1, max_offsets)]
+    )
+
+
+def _linefeed_global_mutations(
+    stream: bytes,
+    *,
+    search_start: int,
+) -> Iterable[tuple[bytes, SuperMegaLinefeedOperation]]:
+    for offset in range(search_start, len(stream)):
+        if stream[offset] != 0x0A:
+            continue
+        if offset > 0 and stream[offset - 1] == 0x0D:
+            continue
+        yield (
+            stream[:offset] + b"\r" + stream[offset:],
+            SuperMegaLinefeedOperation("insert-cr-before-lf", offset, b"", b"\r"),
+        )
+
+
+def _count_linefeed_global_mutations(stream: bytes, *, search_start: int) -> int:
+    return sum(
+        1
+        for offset in range(search_start, len(stream))
+        if stream[offset] == 0x0A and not (offset > 0 and stream[offset - 1] == 0x0D)
+    )
+
+
+def _known_gap_linefeed_positions(
+    stream: bytes,
+    *,
+    window_start: int,
+    window_end: int,
+    center: int,
+) -> tuple[int, ...]:
+    start = min(max(0, window_start), len(stream))
+    end = min(max(start, window_end), len(stream))
+    positions = [
+        offset
+        for offset in range(start, end)
+        if stream[offset] == 0x0A and not (offset > 0 and stream[offset - 1] == 0x0D)
+    ]
+    return tuple(sorted(positions, key=lambda offset: (abs(offset - center), offset)))
+
+
+def _linefeed_known_gap_mutations(
+    stream: bytes,
+    *,
+    gap_size: int,
+    window_start: int,
+    window_end: int,
+    center: int,
+) -> Iterable[tuple[bytes, SuperMegaLinefeedOperation]]:
+    if gap_size <= 0:
+        return
+    positions = _known_gap_linefeed_positions(
+        stream,
+        window_start=window_start,
+        window_end=window_end,
+        center=center,
+    )
+    if len(positions) < gap_size:
+        return
+
+    operation_kind = "known-gap-insert-%s-crs-before-lfs" % gap_size
+    for offsets in itertools.combinations(positions, gap_size):
+        candidate = bytearray(stream)
+        for offset in sorted(offsets, reverse=True):
+            candidate[offset:offset] = b"\r"
+        yield (
+            bytes(candidate),
+            SuperMegaLinefeedOperation(
+                operation_kind,
+                offsets[0],
+                b"",
+                b"\r" * gap_size,
+            ),
+        )
+
+
+def _count_linefeed_known_gap_mutations(
+    stream: bytes,
+    *,
+    gap_size: int,
+    window_start: int,
+    window_end: int,
+    center: int,
+) -> int:
+    if gap_size <= 0:
+        return 0
+    positions = _known_gap_linefeed_positions(
+        stream,
+        window_start=window_start,
+        window_end=window_end,
+        center=center,
+    )
+    if len(positions) < gap_size:
+        return 0
+    return math.comb(len(positions), gap_size)
+
+
+def _linefeed_structural_mutations(
+    stream: bytes,
+    *,
+    center: int,
+    search_start: int,
+    backtrack: int,
+    forward: int,
+    insert_radius: int,
+) -> Iterable[tuple[bytes, SuperMegaLinefeedOperation]]:
+    window_start = max(search_start, center - backtrack)
+    window_end = min(len(stream), center + forward + 1)
+    insert_start = max(search_start, center - insert_radius)
+    insert_end = min(len(stream) + 1, center + insert_radius + 1)
+
+    for offset in _offsets_by_distance(insert_start, insert_end, center):
+        if offset > 0 and stream[offset - 1] == 0x0D:
+            continue
+        yield (
+            stream[:offset] + b"\r" + stream[offset:],
+            SuperMegaLinefeedOperation("insert-cr-near-error", offset, b"", b"\r"),
+        )
+
+    for offset in _offsets_by_distance(window_start, window_end, center):
+        value = stream[offset]
+        if value == 0x0D:
+            yield (
+                stream[:offset] + stream[offset + 1 :],
+                SuperMegaLinefeedOperation("remove-cr", offset, b"\r", b""),
+            )
+            yield (
+                stream[:offset] + b"\n" + stream[offset + 1 :],
+                SuperMegaLinefeedOperation("replace-cr-with-lf", offset, b"\r", b"\n"),
+            )
+        elif value == 0x0A:
+            yield (
+                stream[:offset] + b"\r" + stream[offset + 1 :],
+                SuperMegaLinefeedOperation("replace-lf-with-cr", offset, b"\n", b"\r"),
+            )
+
+
+def _count_linefeed_structural_mutations(
+    stream: bytes,
+    *,
+    center: int,
+    search_start: int,
+    backtrack: int,
+    forward: int,
+    insert_radius: int,
+) -> int:
+    window_start = max(search_start, center - backtrack)
+    window_end = min(len(stream), center + forward + 1)
+    insert_start = max(search_start, center - insert_radius)
+    insert_end = min(len(stream) + 1, center + insert_radius + 1)
+    count = sum(1 for offset in range(insert_start, insert_end) if not (offset > 0 and stream[offset - 1] == 0x0D))
+    for offset in range(window_start, window_end):
+        if stream[offset] == 0x0D:
+            count += 2
+        elif stream[offset] == 0x0A:
+            count += 1
+    return count
+
+
+def _bit_flip_mutations(
+    stream: bytes,
+    *,
+    center: int,
+    backtrack: int,
+    forward: int,
+) -> Iterable[tuple[bytes, SuperMegaLinefeedOperation]]:
+    window_start = max(0, center - backtrack)
+    window_end = min(len(stream), center + forward + 1)
+    for offset in _offsets_by_distance(window_start, window_end, center):
+        old_byte = stream[offset]
+        for bit in range(8):
+            new_byte = old_byte ^ (1 << bit)
+            yield (
+                stream[:offset] + bytes((new_byte,)) + stream[offset + 1 :],
+                SuperMegaLinefeedOperation("bit-flip", offset, bytes((old_byte,)), bytes((new_byte,))),
+            )
+
+
+def _byte_replace_mutations(
+    stream: bytes,
+    *,
+    center: int,
+    backtrack: int,
+    forward: int,
+    kind: str,
+) -> Iterable[tuple[bytes, SuperMegaLinefeedOperation]]:
+    window_start = max(0, center - backtrack)
+    window_end = min(len(stream), center + forward + 1)
+    for offset in _offsets_by_distance(window_start, window_end, center):
+        old_byte = stream[offset]
+        for new_byte in range(256):
+            if new_byte == old_byte:
+                continue
+            yield (
+                stream[:offset] + bytes((new_byte,)) + stream[offset + 1 :],
+                SuperMegaLinefeedOperation(kind, offset, bytes((old_byte,)), bytes((new_byte,))),
+            )
+
+
+def _adler_target_mutations(
+    stream: bytes,
+    *,
+    target_adler: int | None,
+    computed_adler: int | None,
+) -> Iterable[tuple[bytes, SuperMegaLinefeedOperation]]:
+    if len(stream) < 4:
+        return
+
+    current = stream[-4:]
+    if target_adler is not None:
+        target = target_adler.to_bytes(4, "big")
+        if target != current:
+            yield (
+                stream[:-4] + target,
+                SuperMegaLinefeedOperation(
+                    "set-zlib-trailer-to-target-adler",
+                    len(stream) - 4,
+                    current,
+                    target,
+                ),
+            )
+
+    if computed_adler is not None:
+        computed = computed_adler.to_bytes(4, "big")
+        if computed != current and (target_adler is None or computed_adler != target_adler):
+            yield (
+                stream[:-4] + computed,
+                SuperMegaLinefeedOperation(
+                    "set-zlib-trailer-to-computed-adler",
+                    len(stream) - 4,
+                    current,
+                    computed,
+                ),
+            )
+
+
+def _count_adler_target_mutations(
+    stream: bytes,
+    *,
+    target_adler: int | None,
+    computed_adler: int | None,
+) -> int:
+    return sum(
+        1
+        for _stream, _operation in _adler_target_mutations(
+            stream,
+            target_adler=target_adler,
+            computed_adler=computed_adler,
+        )
+    )
+
+
+def _operation_to_json(operation: SuperMegaLinefeedOperation) -> dict[str, object]:
+    return {
+        "kind": operation.kind,
+        "stream_offset": operation.stream_offset,
+        "old": operation.old_bytes.hex(),
+        "new": operation.new_bytes.hex(),
+    }
+
+
+def _operation_from_json(record: object) -> SuperMegaLinefeedOperation | None:
+    if not isinstance(record, dict):
+        return None
+    try:
+        return SuperMegaLinefeedOperation(
+            str(record["kind"]),
+            int(record["stream_offset"]),
+            bytes.fromhex(str(record.get("old", ""))),
+            bytes.fromhex(str(record.get("new", ""))),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _apply_linefeed_operation(stream: bytes, operation: SuperMegaLinefeedOperation) -> bytes | None:
+    offset = operation.stream_offset
+    if offset < 0 or offset > len(stream):
+        return None
+    old = operation.old_bytes
+    new = operation.new_bytes
+    if old:
+        if offset + len(old) > len(stream) or stream[offset : offset + len(old)] != old:
+            return None
+        return stream[:offset] + new + stream[offset + len(old) :]
+    return stream[:offset] + new + stream[offset:]
+
+
+def _replay_operations(stream: bytes, operations: tuple[SuperMegaLinefeedOperation, ...]) -> bytes | None:
+    current = stream
+    for operation in operations:
+        current = _apply_linefeed_operation(current, operation)
+        if current is None:
+            return None
+    return current
+
+
+def _append_ultimate_checkpoint(
+    checkpoint_path: str,
+    *,
+    source_hash: str,
+    candidate: SuperMegaLinefeedCandidate,
+    depth: int,
+) -> None:
+    if not checkpoint_path:
+        return
+    try:
+        directory = os.path.dirname(checkpoint_path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(checkpoint_path, "a", encoding="utf-8") as file:
+            file.write(
+                json.dumps(
+                    {
+                        "source_hash": source_hash,
+                        "stream_hash": _stream_state_key(
+                            b"".join(
+                                chunk.data
+                                for chunk in png.iter_chunks(candidate.data)
+                                if chunk.chunk_type == b"IDAT"
+                            )
+                        ),
+                        "state_id": candidate.state_id,
+                        "parent_id": candidate.parent_id,
+                        "depth": depth,
+                        "operations": [
+                            _operation_to_json(operation)
+                            for operation in candidate.operations
+                        ],
+                        "score": list(candidate.score),
+                        "status": candidate.after.status,
+                        "adler_status": candidate.after.adler_status,
+                        "usable_scanlines": candidate.after.usable_scanlines,
+                        "error_offset": candidate.after.error_offset,
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+    except OSError:
+        return
+
+
+def _load_ultimate_checkpoint(
+    checkpoint_path: str,
+    *,
+    source_hash: str,
+    root_stream: bytes,
+    chunks: tuple[png.PngChunk, ...],
+    before: idat.IdatStreamAnalysis,
+    target_adler: int | None,
+) -> tuple[list[SuperMegaLinefeedCandidate], set[str], int, int]:
+    if not checkpoint_path or not os.path.exists(checkpoint_path):
+        return [], set(), 1, 0
+
+    loaded: list[SuperMegaLinefeedCandidate] = []
+    visited: set[str] = set()
+    next_state_id = 1
+    try:
+        with open(checkpoint_path, "r", encoding="utf-8") as file:
+            for line in file:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if record.get("source_hash") != source_hash:
+                    continue
+                operations = tuple(
+                    operation
+                    for operation in (
+                        _operation_from_json(item)
+                        for item in record.get("operations", [])
+                    )
+                    if operation is not None
+                )
+                stream = _replay_operations(root_stream, operations)
+                if stream is None:
+                    continue
+                stream_hash = _stream_state_key(stream)
+                if stream_hash in visited:
+                    continue
+                visited.add(stream_hash)
+                state_id = int(record.get("state_id", next_state_id))
+                next_state_id = max(next_state_id, state_id + 1)
+                candidate_data = _rebuild_with_single_idat_stream(chunks, stream)
+                analysis = idat.analyze_idat_stream(
+                    candidate_data,
+                    source_kind="candidate_from_original",
+                    crc_provenance="rebuilt_by_chunklate",
+                    target_adler=target_adler,
+                )
+                score = super_mega_linefeed_score(analysis, len(operations))
+                loaded.append(
+                    SuperMegaLinefeedCandidate(
+                        candidate_data,
+                        operations,
+                        before,
+                        analysis,
+                        state_id=state_id,
+                        parent_id=record.get("parent_id"),
+                        source_offsets=tuple(operation.stream_offset for operation in operations),
+                        score=score,
+                    )
+                )
+    except OSError:
+        return [], set(), 1, 0
+
+    return loaded, visited, next_state_id, len(loaded)
+
+
+def _ultimate_mutations_for_offset(
+    stream: bytes,
+    offset: int,
+    *,
+    target_adler: int | None = None,
+    computed_adler: int | None = None,
+) -> Iterable[tuple[bytes, SuperMegaLinefeedOperation]]:
+    if offset < 0 or offset >= len(stream):
+        return
+
+    if offset == max(0, len(stream) - 4):
+        yield from _adler_target_mutations(
+            stream,
+            target_adler=target_adler,
+            computed_adler=computed_adler,
+        )
+
+    value = stream[offset]
+    if value == 0x0A and not (offset > 0 and stream[offset - 1] == 0x0D):
+        yield (
+            stream[:offset] + b"\r" + stream[offset:],
+            SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", offset, b"", b"\r"),
+        )
+        yield (
+            stream[:offset] + b"\r" + stream[offset + 1 :],
+            SuperMegaLinefeedOperation("ultimate-replace-lf-with-cr", offset, b"\n", b"\r"),
+        )
+    elif value == 0x0D:
+        yield (
+            stream[:offset] + stream[offset + 1 :],
+            SuperMegaLinefeedOperation("ultimate-remove-cr", offset, b"\r", b""),
+        )
+        yield (
+            stream[:offset] + b"\n" + stream[offset + 1 :],
+            SuperMegaLinefeedOperation("ultimate-replace-cr-with-lf", offset, b"\r", b"\n"),
+        )
+
+
+def _ultimate_operation_pool(
+    stream: bytes,
+    suspect_offsets: tuple[int, ...],
+    *,
+    target_adler: int | None,
+    computed_adler: int | None,
+) -> tuple[SuperMegaLinefeedOperation, ...]:
+    operations: list[SuperMegaLinefeedOperation] = []
+    seen: set[tuple[str, int, bytes, bytes]] = set()
+    for offset in suspect_offsets:
+        for _candidate_stream, operation in _ultimate_mutations_for_offset(
+            stream,
+            offset,
+            target_adler=target_adler,
+            computed_adler=computed_adler,
+        ):
+            key = (
+                operation.kind,
+                operation.stream_offset,
+                operation.old_bytes,
+                operation.new_bytes,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            operations.append(operation)
+    return tuple(operations)
+
+
+def _ultimate_exhaustive_linefeed_offsets(
+    stream: bytes,
+    *,
+    suspect_offsets: tuple[int, ...],
+    anchor: int | None,
+    max_offsets: int,
+) -> tuple[int, ...]:
+    if not stream or max_offsets <= 0:
+        return ()
+    if anchor is None:
+        anchor = suspect_offsets[0] if suspect_offsets else 0
+    anchor = min(max(0, int(anchor)), max(0, len(stream) - 1))
+
+    weighted: dict[int, int] = {}
+    for index, offset in enumerate(suspect_offsets):
+        if 0 <= offset < len(stream):
+            weighted[offset] = max(weighted.get(offset, 0), 100000 - index)
+
+    for offset, value in enumerate(stream):
+        if value not in (0x0A, 0x0D):
+            continue
+        distance = abs(offset - anchor)
+        after_anchor_bonus = 4000 if offset >= anchor else 0
+        crlf_bonus = 2000 if value == 0x0A and not (offset > 0 and stream[offset - 1] == 0x0D) else 0
+        weighted[offset] = max(
+            weighted.get(offset, 0),
+            10000 + after_anchor_bonus + crlf_bonus - min(distance, 9000),
+        )
+
+    if len(stream) >= 4:
+        weighted[len(stream) - 4] = max(weighted.get(len(stream) - 4, 0), 95000)
+
+    return tuple(
+        offset
+        for offset, _weight in sorted(
+            weighted.items(),
+            key=lambda item: (-item[1], abs(item[0] - anchor), item[0]),
+        )[:max_offsets]
+    )
+
+
+def _merge_ultimate_operations(
+    *operation_groups: tuple[SuperMegaLinefeedOperation, ...],
+) -> tuple[SuperMegaLinefeedOperation, ...]:
+    merged: list[SuperMegaLinefeedOperation] = []
+    seen: set[tuple[str, int, bytes, bytes]] = set()
+    for operations in operation_groups:
+        for operation in operations:
+            key = (
+                operation.kind,
+                operation.stream_offset,
+                operation.old_bytes,
+                operation.new_bytes,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(operation)
+    return tuple(merged)
+
+
+def _normalize_ultimate_operation_sequence(
+    operations: tuple[SuperMegaLinefeedOperation, ...],
+) -> tuple[SuperMegaLinefeedOperation, ...]:
+    return tuple(
+        sorted(
+            operations,
+            key=lambda operation: (
+                operation.stream_offset,
+                len(operation.old_bytes),
+                operation.kind,
+            ),
+            reverse=True,
+        )
+    )
+
+
+def _ultimate_prune_reason(
+    parent: idat.IdatStreamAnalysis,
+    candidate: idat.IdatStreamAnalysis,
+) -> str | None:
+    if not candidate.supported:
+        return "unsupported"
+    if parent.status != "bad_zlib_header" and candidate.status == "bad_zlib_header":
+        return "bad_zlib_header"
+    if candidate.usable_scanlines + 1 < parent.usable_scanlines:
+        return "scanline_regression"
+    if (
+        parent.error_offset is not None
+        and candidate.error_offset is not None
+        and candidate.error_offset + 256 < parent.error_offset
+    ):
+        return "error_offset_regression"
+    if (
+        parent.expected_size
+        and candidate.decompressed_size
+        and parent.decompressed_size
+        and abs(candidate.decompressed_size - parent.expected_size)
+        > abs(parent.decompressed_size - parent.expected_size) + parent.scanline_size
+    ):
+        return "decompressed_size_regression"
+    return None
+
+
+def probe_ultimate_mega_super_linefeed_bruteforce(
+    data: bytes,
+    *,
+    start_offset: int | None = None,
+    target_adler: int | None = None,
+    super_result: SuperMegaLinefeedProbeResult | None = None,
+    checkpoint_path: str = "",
+    max_depth: int = 4,
+    beam_width: int = 32,
+    max_offsets: int = 128,
+    budget: int | None = 50000,
+    progress: QueueProgressCallback | None = None,
+) -> UltimateLinefeedProbeResult:
+    strategy = "UltimateMegaSuperLineFeedBruteForce"
+    budget_limit = None if budget is None else max(0, int(budget))
+    progress_total = UNBOUNDED_PROGRESS_TOTAL if budget_limit is None else max(1, budget_limit)
+    before = idat.analyze_idat_stream(data)
+    if not before.supported:
+        return UltimateLinefeedProbeResult(
+            before,
+            None,
+            target_adler,
+            start_offset,
+            0,
+            max_depth,
+            (),
+            0,
+            0,
+            0,
+            0,
+            0,
+            checkpoint_path,
+            False,
+            strategy,
+            before.reason,
+        )
+    if target_adler is None:
+        target_adler = before.stored_adler
+    if before.complete:
+        targeted_before = before
+        if target_adler is not None and before.computed_adler is not None:
+            targeted_before = idat.analyze_idat_stream(data, target_adler=target_adler)
+        if target_adler is None or targeted_before.adler_status == "adler_match":
+            return UltimateLinefeedProbeResult(
+                targeted_before,
+                None,
+                target_adler,
+                start_offset,
+                0,
+                max_depth,
+                (),
+                0,
+                1,
+                1,
+                0,
+                0,
+                checkpoint_path,
+                False,
+                strategy,
+                "IDAT stream is already complete with matching Adler",
+            )
+
+    try:
+        chunks, root_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return UltimateLinefeedProbeResult(
+            before,
+            None,
+            target_adler,
+            start_offset,
+            0,
+            max_depth,
+            (),
+            0,
+            0,
+            0,
+            0,
+            0,
+            checkpoint_path,
+            False,
+            strategy,
+            str(exc),
+        )
+
+    suspect_offsets = ultimate_linefeed_suspect_offsets(
+        data,
+        start_offset=start_offset,
+        super_result=super_result,
+        max_offsets=max_offsets,
+    )
+    source_hash = _stream_state_key(root_stream)
+    root_score = super_mega_linefeed_score(before, 0)
+    root = SuperMegaLinefeedCandidate(
+        data,
+        (),
+        before,
+        before,
+        state_id=0,
+        parent_id=None,
+        source_offsets=(),
+        score=root_score,
+    )
+    checkpoint_candidates, checkpoint_visited, next_state_id, resumed_states = _load_ultimate_checkpoint(
+        checkpoint_path,
+        source_hash=source_hash,
+        root_stream=root_stream,
+        chunks=chunks,
+        before=before,
+        target_adler=target_adler,
+    )
+    visited = {_stream_state_key(root_stream), *checkpoint_visited}
+    frontier = checkpoint_candidates[-beam_width:] if checkpoint_candidates else [root]
+    best: SuperMegaLinefeedCandidate | None = None
+    best_score = root_score
+    for candidate in checkpoint_candidates:
+        candidate_score = candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations))
+        if candidate_score > best_score:
+            best = candidate
+            best_score = candidate_score
+
+    tested = 0
+    pruned = 0
+    budget_exhausted = False
+    reached_depth = 0
+
+    def budget_reached() -> bool:
+        return budget_limit is not None and tested >= budget_limit
+
+    def terminal(candidate: SuperMegaLinefeedCandidate | None) -> bool:
+        if candidate is None or not candidate.after.complete:
+            return False
+        if target_adler is None:
+            return True
+        return candidate.after.adler_status == "adler_match"
+
+    if progress is not None:
+        progress(strategy, 0, progress_total)
+
+    for depth in range(1, max(1, max_depth) + 1):
+        reached_depth = depth
+        next_frontier: list[SuperMegaLinefeedCandidate] = []
+        for parent in frontier:
+            try:
+                _parent_chunks, parent_stream = _all_chunks_and_idat_stream(parent.data)
+            except png.PngFormatError:
+                continue
+
+            for offset in suspect_offsets:
+                for candidate_stream, operation in _ultimate_mutations_for_offset(
+                    parent_stream,
+                    offset,
+                    target_adler=target_adler,
+                    computed_adler=parent.after.computed_adler,
+                ):
+                    if budget_reached():
+                        budget_exhausted = True
+                        break
+                    stream_hash = _stream_state_key(candidate_stream)
+                    if stream_hash in visited:
+                        pruned += 1
+                        continue
+                    visited.add(stream_hash)
+                    tested += 1
+
+                    if progress is not None and (tested == 1 or tested % max(1, progress_total // 100) == 0):
+                        progress(strategy, tested, progress_total)
+
+                    candidate = _candidate_from_stream(
+                        parent,
+                        chunks,
+                        candidate_stream,
+                        operation,
+                        target_adler=target_adler,
+                        state_id=next_state_id,
+                    )
+                    next_state_id += 1
+                    prune_reason = _ultimate_prune_reason(parent.after, candidate.after)
+                    candidate_score = candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations))
+                    if prune_reason is not None and candidate.after.adler_status != "adler_match":
+                        pruned += 1
+                        continue
+                    if candidate_score <= (parent.score or super_mega_linefeed_score(parent.after, len(parent.operations))):
+                        pruned += 1
+                        continue
+
+                    _append_ultimate_checkpoint(
+                        checkpoint_path,
+                        source_hash=source_hash,
+                        candidate=candidate,
+                        depth=depth,
+                    )
+                    next_frontier.append(candidate)
+                    if candidate_score > best_score:
+                        best = candidate
+                        best_score = candidate_score
+                    if terminal(best):
+                        break
+                if budget_exhausted or terminal(best):
+                    break
+            if budget_exhausted or terminal(best):
+                break
+
+        if terminal(best):
+            break
+        if budget_exhausted or not next_frontier:
+            break
+        next_frontier.sort(
+            key=lambda candidate: candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations)),
+            reverse=True,
+        )
+        frontier = next_frontier[: max(1, beam_width)]
+
+    if not terminal(best) and not budget_exhausted and (budget_limit is None or tested < budget_limit):
+        focused_operation_pool = _ultimate_operation_pool(
+            root_stream,
+            suspect_offsets,
+            target_adler=target_adler,
+            computed_adler=before.computed_adler,
+        )
+        broad_offsets = _ultimate_exhaustive_linefeed_offsets(
+            root_stream,
+            suspect_offsets=suspect_offsets,
+            anchor=start_offset,
+            max_offsets=max(max_offsets, min(len(root_stream), max_offsets * 8, 2048)),
+        )
+        broad_operation_pool = _ultimate_operation_pool(
+            root_stream,
+            broad_offsets,
+            target_adler=target_adler,
+            computed_adler=before.computed_adler,
+        )
+        root_parent_score = root.score or super_mega_linefeed_score(root.after, 0)
+        operation_pools = (
+            focused_operation_pool,
+            _merge_ultimate_operations(focused_operation_pool, broad_operation_pool),
+        )
+        for operation_pool in operation_pools:
+            if not operation_pool:
+                continue
+            for depth in range(1, max(1, max_depth) + 1):
+                reached_depth = max(reached_depth, depth)
+                for combination in itertools.combinations(operation_pool, depth):
+                    if budget_reached():
+                        budget_exhausted = True
+                        break
+
+                    operations = _normalize_ultimate_operation_sequence(combination)
+                    candidate_stream = _replay_operations(root_stream, operations)
+                    if candidate_stream is None:
+                        pruned += 1
+                        continue
+                    stream_hash = _stream_state_key(candidate_stream)
+                    if stream_hash in visited:
+                        pruned += 1
+                        continue
+
+                    visited.add(stream_hash)
+                    tested += 1
+                    if progress is not None and (tested == 1 or tested % max(1, progress_total // 100) == 0):
+                        progress(strategy, tested, progress_total)
+
+                    candidate_data = _rebuild_with_single_idat_stream(chunks, candidate_stream)
+                    candidate_analysis = idat.analyze_idat_stream(
+                        candidate_data,
+                        source_kind="candidate_from_original",
+                        crc_provenance="rebuilt_by_chunklate",
+                        target_adler=target_adler,
+                    )
+                    candidate_score = super_mega_linefeed_score(candidate_analysis, len(operations))
+                    candidate = SuperMegaLinefeedCandidate(
+                        candidate_data,
+                        operations,
+                        before,
+                        candidate_analysis,
+                        state_id=next_state_id,
+                        parent_id=0,
+                        source_offsets=tuple(operation.stream_offset for operation in operations),
+                        score=candidate_score,
+                    )
+                    next_state_id += 1
+
+                    prune_reason = _ultimate_prune_reason(before, candidate.after)
+                    if prune_reason is not None and candidate.after.adler_status != "adler_match":
+                        pruned += 1
+                        continue
+
+                    if candidate_score > best_score:
+                        best = candidate
+                        best_score = candidate_score
+                        _append_ultimate_checkpoint(
+                            checkpoint_path,
+                            source_hash=source_hash,
+                            candidate=candidate,
+                            depth=depth,
+                        )
+                    elif candidate_score <= root_parent_score:
+                        pruned += 1
+
+                    if terminal(best):
+                        break
+
+                if budget_exhausted or terminal(best):
+                    break
+            if budget_exhausted or terminal(best):
+                break
+
+    if progress is not None:
+        progress(strategy, min(tested, progress_total), progress_total)
+
+    reason = ""
+    if best is None:
+        reason = "no candidate survived pruning"
+    elif target_adler is not None and best.after.adler_status != "adler_match":
+        reason = "original Adler target was not recovered"
+    elif budget_exhausted:
+        reason = "budget exhausted"
+
+    return UltimateLinefeedProbeResult(
+        before,
+        best,
+        target_adler,
+        start_offset,
+        reached_depth,
+        max_depth,
+        suspect_offsets,
+        tested,
+        next_state_id,
+        len(visited),
+        pruned,
+        resumed_states,
+        checkpoint_path,
+        budget_exhausted,
+        strategy,
+        reason,
+    )
+
+
+def _evaluate_super_mega_phase(
+    parent: SuperMegaLinefeedCandidate,
+    *,
+    phase_name: str,
+    depth: int,
+    mutations: Iterable[tuple[bytes, SuperMegaLinefeedOperation]],
+    window_start: int,
+    window_end: int,
+    budget: int,
+    progress_total: int,
+    seen_streams: set[str],
+    target_adler: int | None,
+    next_state_id: int,
+    progress: QueueProgressCallback | None,
+) -> tuple[list[SuperMegaLinefeedCandidate], SuperMegaLinefeedPhaseSummary, int]:
+    try:
+        chunks, _idat_stream = _all_chunks_and_idat_stream(parent.data)
+    except png.PngFormatError:
+        return [], SuperMegaLinefeedPhaseSummary(phase_name, depth, 0, 0, 0, 0, False), next_state_id
+
+    parent_score = super_mega_linefeed_score(parent.after, len(parent.operations))
+    candidates: list[SuperMegaLinefeedCandidate] = []
+    tested = 0
+    accepted = 0
+    budget_exhausted = False
+    display_total = max(1, min(max(1, budget), max(1, progress_total)))
+
+    if progress is not None:
+        progress(phase_name, 0, display_total)
+    progress_step = max(1, display_total // 100)
+
+    for candidate_stream, operation in mutations:
+        if tested >= budget:
+            budget_exhausted = True
+            break
+        candidate_key = _stream_state_key(candidate_stream)
+        if candidate_key in seen_streams:
+            continue
+
+        seen_streams.add(candidate_key)
+        candidate = _candidate_from_stream(
+            parent,
+            chunks,
+            candidate_stream,
+            operation,
+            target_adler=target_adler,
+            state_id=next_state_id,
+        )
+        next_state_id += 1
+        tested += 1
+
+        if progress is not None and tested % progress_step == 0:
+            progress(phase_name, min(tested, display_total), display_total)
+
+        candidate_score = candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations))
+        if not candidate.after.supported or candidate_score <= parent_score:
+            continue
+
+        candidates.append(candidate)
+        accepted += 1
+        if candidate.after.complete:
+            break
+
+    if progress is not None:
+        progress(phase_name, min(tested, display_total), display_total)
+
+    return (
+        candidates,
+        SuperMegaLinefeedPhaseSummary(
+            phase_name,
+            depth,
+            window_start,
+            window_end,
+            tested,
+            accepted,
+            budget_exhausted,
+        ),
+        next_state_id,
+    )
+
+
+def probe_super_mega_linefeed_force_of_death(
+    data: bytes,
+    *,
+    start_offset: int | None = None,
+    pre_error_backtrack: int | None = None,
+    beam_width: int = 8,
+    max_depth: int = 4,
+    known_gap_bytes: int = 0,
+    known_gap_chunk_offset: int | None = None,
+    known_gap_window_start: int | None = None,
+    known_gap_window_end: int | None = None,
+    known_gap_budget: int = 8192,
+    linefeed_budget: int = 1000000,
+    structural_budget: int = 1024,
+    local_bit_budget: int = 512,
+    local_byte_budget: int = 1024,
+    heavy_byte_budget: int = 1024,
+    adler_budget: int = 16,
+    structural_forward: int = 256,
+    structural_insert_radius: int = 96,
+    local_bit_backtrack: int = 128,
+    local_bit_forward: int = 8,
+    local_byte_backtrack: int = 32,
+    local_byte_forward: int = 16,
+    heavy_backtrack: int = 2048,
+    heavy_forward: int = 256,
+    progress: QueueProgressCallback | None = None,
+) -> SuperMegaLinefeedProbeResult:
+    strategy = "SuperMegaLineFeedForceOfDeath"
+    before = idat.analyze_idat_stream(data)
+    if not before.supported:
+        return SuperMegaLinefeedProbeResult(before, None, start_offset, 0, 0, 0, 0, False, (), strategy, before.reason)
+    if before.complete:
+        return SuperMegaLinefeedProbeResult(
+            before,
+            None,
+            start_offset,
+            0,
+            0,
+            0,
+            0,
+            False,
+            (),
+            strategy,
+            "IDAT stream is already complete",
+        )
+
+    try:
+        chunks, idat_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return SuperMegaLinefeedProbeResult(before, None, start_offset, 0, 0, 0, 0, False, (), strategy, str(exc))
+
+    if not idat_stream:
+        return SuperMegaLinefeedProbeResult(
+            before,
+            None,
+            start_offset,
+            0,
+            0,
+            0,
+            0,
+            False,
+            (),
+            strategy,
+            "IDAT stream is missing",
+        )
+
+    error_anchor = start_offset
+    if error_anchor is None:
+        error_anchor = _problem_stream_offset_for_analysis(before, idat_stream)
+    if error_anchor is None:
+        error_anchor = 0
+    error_anchor = min(max(0, error_anchor), max(0, len(idat_stream) - 1))
+    resolved_pre_error_backtrack = (
+        adaptive_pre_error_backtrack(len(idat_stream))
+        if pre_error_backtrack is None
+        else max(0, int(pre_error_backtrack))
+    )
+    search_start = max(0, error_anchor - resolved_pre_error_backtrack)
+    target_adler = before.stored_adler
+    gap_size = max(0, int(known_gap_bytes))
+    gap_window_start = known_gap_window_start
+    gap_window_end = known_gap_window_end
+    if known_gap_chunk_offset is not None:
+        gap_range = _idat_stream_range_for_chunk_offset(chunks, int(known_gap_chunk_offset))
+        if gap_range is not None:
+            gap_window_start, gap_window_end = gap_range
+    if gap_window_start is None:
+        gap_window_start = search_start
+    if gap_window_end is None:
+        gap_window_end = len(idat_stream)
+    gap_window_start = min(max(0, int(gap_window_start)), len(idat_stream))
+    gap_window_end = min(max(gap_window_start, int(gap_window_end)), len(idat_stream))
+
+    root_score = super_mega_linefeed_score(before, 0)
+    root = SuperMegaLinefeedCandidate(
+        data,
+        (),
+        before,
+        before,
+        state_id=0,
+        parent_id=None,
+        source_offsets=(),
+        score=root_score,
+    )
+    beam = [root]
+    best: SuperMegaLinefeedCandidate | None = None
+    best_score = root_score
+    phases: list[SuperMegaLinefeedPhaseSummary] = []
+    states: list[SuperMegaLinefeedState] = [
+        SuperMegaLinefeedState(
+            0,
+            None,
+            idat_stream,
+            (),
+            before,
+            (),
+            root_score,
+        )
+    ]
+    next_state_id = 1
+    total_tested = 0
+    budget_exhausted = False
+    seen_streams: set[str] = {_stream_state_key(idat_stream)}
+    remaining_budgets = {
+        "phase0-known-gap-linefeed": max(0, known_gap_budget),
+        "phase1-linefeed-global": max(0, linefeed_budget),
+        "phase2-crlf-structural": max(0, structural_budget),
+        "phase3-deflate-bit": max(0, local_bit_budget),
+        "phase3-deflate-byte": max(0, local_byte_budget),
+        "phase4-heavy-byte-window": max(0, heavy_byte_budget),
+        "phase5-adler-target": max(0, adler_budget),
+    }
+
+    def terminal(candidate: SuperMegaLinefeedCandidate | None) -> bool:
+        if candidate is None or not candidate.after.complete:
+            return False
+        if target_adler is None:
+            return True
+        return candidate.after.adler_status == "adler_match"
+
+    for depth in range(max(1, max_depth)):
+        next_candidates: list[SuperMegaLinefeedCandidate] = []
+
+        for parent in beam:
+            try:
+                _parent_chunks, parent_stream = _all_chunks_and_idat_stream(parent.data)
+            except png.PngFormatError:
+                continue
+
+            center = _analysis_or_anchor_offset(parent.after, parent_stream, error_anchor)
+            structural_window_start = max(search_start, center - resolved_pre_error_backtrack)
+            structural_window_end = min(len(parent_stream), center + structural_forward + 1)
+            bit_window_start = max(0, center - local_bit_backtrack)
+            bit_window_end = min(len(parent_stream), center + local_bit_forward + 1)
+            byte_window_start = max(0, center - local_byte_backtrack)
+            byte_window_end = min(len(parent_stream), center + local_byte_forward + 1)
+            heavy_window_start = max(0, center - heavy_backtrack)
+            heavy_window_end = min(len(parent_stream), center + heavy_forward + 1)
+            adler_window_start = max(0, len(parent_stream) - 4)
+            adler_window_end = len(parent_stream)
+            phase_specs = []
+            if depth == 0 and gap_size > 0:
+                phase_specs.append(
+                    (
+                        "phase0-known-gap-linefeed",
+                        _linefeed_known_gap_mutations(
+                            parent_stream,
+                            gap_size=gap_size,
+                            window_start=gap_window_start,
+                            window_end=gap_window_end,
+                            center=center,
+                        ),
+                        gap_window_start,
+                        gap_window_end,
+                        known_gap_budget,
+                        _count_linefeed_known_gap_mutations(
+                            parent_stream,
+                            gap_size=gap_size,
+                            window_start=gap_window_start,
+                            window_end=gap_window_end,
+                            center=center,
+                        ),
+                    )
+                )
+            phase_specs.extend(
+                (
+                (
+                    "phase1-linefeed-global",
+                    _linefeed_global_mutations(parent_stream, search_start=search_start),
+                    search_start,
+                    len(parent_stream),
+                    linefeed_budget,
+                    _count_linefeed_global_mutations(parent_stream, search_start=search_start),
+                ),
+                (
+                    "phase2-crlf-structural",
+                    _linefeed_structural_mutations(
+                        parent_stream,
+                        center=center,
+                        search_start=search_start,
+                        backtrack=resolved_pre_error_backtrack,
+                        forward=structural_forward,
+                        insert_radius=structural_insert_radius,
+                    ),
+                    structural_window_start,
+                    structural_window_end,
+                    structural_budget,
+                    _count_linefeed_structural_mutations(
+                        parent_stream,
+                        center=center,
+                        search_start=search_start,
+                        backtrack=resolved_pre_error_backtrack,
+                        forward=structural_forward,
+                        insert_radius=structural_insert_radius,
+                    ),
+                ),
+                (
+                    "phase3-deflate-bit",
+                    _bit_flip_mutations(
+                        parent_stream,
+                        center=center,
+                        backtrack=local_bit_backtrack,
+                        forward=local_bit_forward,
+                    ),
+                    bit_window_start,
+                    bit_window_end,
+                    local_bit_budget,
+                    max(0, bit_window_end - bit_window_start) * 8,
+                ),
+                (
+                    "phase3-deflate-byte",
+                    _byte_replace_mutations(
+                        parent_stream,
+                        center=center,
+                        backtrack=local_byte_backtrack,
+                        forward=local_byte_forward,
+                        kind="byte-replace-local",
+                    ),
+                    byte_window_start,
+                    byte_window_end,
+                    local_byte_budget,
+                    max(0, byte_window_end - byte_window_start) * 255,
+                ),
+                (
+                    "phase4-heavy-byte-window",
+                    _byte_replace_mutations(
+                        parent_stream,
+                        center=center,
+                        backtrack=heavy_backtrack,
+                        forward=heavy_forward,
+                        kind="byte-replace-heavy",
+                    ),
+                    heavy_window_start,
+                    heavy_window_end,
+                    heavy_byte_budget,
+                    max(0, heavy_window_end - heavy_window_start) * 255,
+                ),
+                (
+                    "phase5-adler-target",
+                    _adler_target_mutations(
+                        parent_stream,
+                        target_adler=target_adler,
+                        computed_adler=parent.after.computed_adler,
+                    ),
+                    adler_window_start,
+                    adler_window_end,
+                    adler_budget,
+                    _count_adler_target_mutations(
+                        parent_stream,
+                        target_adler=target_adler,
+                        computed_adler=parent.after.computed_adler,
+                    ),
+                ),
+                )
+            )
+
+            for phase_name, mutations, window_start, window_end, budget, progress_total in phase_specs:
+                if budget <= 0:
+                    continue
+                phase_budget = min(max(0, budget), remaining_budgets.get(phase_name, 0))
+                if phase_budget <= 0:
+                    phases.append(
+                        SuperMegaLinefeedPhaseSummary(
+                            phase_name,
+                            depth,
+                            window_start,
+                            window_end,
+                            0,
+                            0,
+                            True,
+                        )
+                    )
+                    budget_exhausted = True
+                    continue
+
+                candidates, phase, next_state_id = _evaluate_super_mega_phase(
+                    parent,
+                    phase_name=phase_name,
+                    depth=depth,
+                    mutations=mutations,
+                    window_start=window_start,
+                    window_end=window_end,
+                    budget=phase_budget,
+                    progress_total=progress_total,
+                    seen_streams=seen_streams,
+                    target_adler=target_adler,
+                    next_state_id=next_state_id,
+                    progress=progress,
+                )
+                phases.append(phase)
+                total_tested += phase.tested_candidates
+                remaining_budgets[phase_name] = max(
+                    0,
+                    remaining_budgets.get(phase_name, 0) - phase.tested_candidates,
+                )
+                budget_exhausted = budget_exhausted or phase.budget_exhausted
+
+                for candidate in candidates:
+                    next_candidates.append(candidate)
+                    states.append(
+                        SuperMegaLinefeedState(
+                            candidate.state_id,
+                            candidate.parent_id,
+                            b"".join(
+                                chunk.data
+                                for chunk in png.iter_chunks(candidate.data)
+                                if chunk.chunk_type == b"IDAT"
+                            ),
+                            candidate.operations,
+                            candidate.after,
+                            candidate.source_offsets,
+                            candidate.score,
+                        )
+                    )
+                    candidate_score = candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations))
+                    if candidate_score > best_score:
+                        best = candidate
+                        best_score = candidate_score
+
+                if terminal(best):
+                    break
+
+            if terminal(best):
+                break
+
+        if terminal(best):
+            break
+        if not next_candidates:
+            break
+
+        next_candidates.sort(
+            key=lambda candidate: candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations)),
+            reverse=True,
+        )
+        beam = next_candidates[: max(1, beam_width)]
+
+    reason = ""
+    if best is None:
+        reason = "no phase improved score"
+    elif target_adler is not None and best.after.adler_status != "adler_match":
+        reason = "original Adler target was not recovered"
+    elif budget_exhausted and not best.after.complete:
+        reason = "budget exhausted before complete IDAT"
+
+    return SuperMegaLinefeedProbeResult(
+        before,
+        best,
+        error_anchor,
+        search_start,
+        search_start,
+        len(idat_stream),
+        total_tested,
+        budget_exhausted,
+        tuple(phases),
+        strategy,
+        reason,
+        resolved_pre_error_backtrack,
+        target_adler,
+        next_state_id,
+        len(seen_streams),
+        tuple(states),
     )
 
 
@@ -664,6 +2620,164 @@ def probe_summary_line(result: IdatDeflateProbeResult) -> str:
     return line + "."
 
 
+def linefeed_insert_probe_summary_line(result: IdatLinefeedInsertProbeResult) -> str:
+    line = (
+        "-IDAT line-feed probe: strategy=%s; window=0x%x..0x%x; tested=%s"
+        % (result.strategy, result.window_start, result.window_end, result.tested_candidates)
+    )
+    if result.budget_exhausted:
+        line += "; budget exhausted"
+    if result.reason:
+        line += "; reason=%s" % result.reason
+    return line + "."
+
+
+def super_mega_linefeed_probe_summary_line(result: SuperMegaLinefeedProbeResult) -> str:
+    line = (
+        "-%s: anchor=%s; search=0x%x..0x%x; pre_error_backtrack=0x%x; tested=%s; phases=%s; states=%s; visited=%s; target_adler=%s; source_crc=%s"
+        % (
+            result.strategy,
+            _format_optional_offset(result.error_anchor_offset),
+            result.search_start_offset,
+            result.window_end,
+            result.pre_error_backtrack,
+            result.tested_candidates,
+            len(result.phases),
+            result.state_count,
+            result.visited_count,
+            idat.format_adler(result.target_adler),
+            result.before.crc_provenance,
+        )
+    )
+    if result.best is not None:
+        line += "; best_score=%s" % (
+            super_mega_linefeed_score(result.best.after, len(result.best.operations)),
+        )
+    if result.budget_exhausted:
+        line += "; budget exhausted"
+    if result.reason:
+        line += "; reason=%s" % result.reason
+    return line + "."
+
+
+def super_mega_linefeed_phase_summary_lines(result: SuperMegaLinefeedProbeResult) -> tuple[str, ...]:
+    aggregates: dict[str, dict[str, object]] = {}
+    order: list[str] = []
+    for phase in result.phases:
+        if phase.name not in aggregates:
+            order.append(phase.name)
+            aggregates[phase.name] = {
+                "runs": 0,
+                "min_depth": phase.depth,
+                "max_depth": phase.depth,
+                "window_start": phase.window_start,
+                "window_end": phase.window_end,
+                "tested": 0,
+                "accepted": 0,
+                "budget_exhausted": False,
+            }
+        aggregate = aggregates[phase.name]
+        aggregate["runs"] = int(aggregate["runs"]) + 1
+        aggregate["min_depth"] = min(int(aggregate["min_depth"]), phase.depth)
+        aggregate["max_depth"] = max(int(aggregate["max_depth"]), phase.depth)
+        aggregate["window_start"] = min(int(aggregate["window_start"]), phase.window_start)
+        aggregate["window_end"] = max(int(aggregate["window_end"]), phase.window_end)
+        aggregate["tested"] = int(aggregate["tested"]) + phase.tested_candidates
+        aggregate["accepted"] = int(aggregate["accepted"]) + phase.accepted_candidates
+        aggregate["budget_exhausted"] = bool(aggregate["budget_exhausted"]) or phase.budget_exhausted
+
+    lines = []
+    for name in order:
+        aggregate = aggregates[name]
+        min_depth = int(aggregate["min_depth"])
+        max_depth = int(aggregate["max_depth"])
+        depth_label = str(min_depth) if min_depth == max_depth else "%s..%s" % (min_depth, max_depth)
+        lines.append(
+            "-%s phase: runs=%s; depth=%s; window=0x%x..0x%x; tested=%s; accepted=%s%s."
+            % (
+                name,
+                aggregate["runs"],
+                depth_label,
+                int(aggregate["window_start"]),
+                int(aggregate["window_end"]),
+                aggregate["tested"],
+                aggregate["accepted"],
+                "; budget exhausted" if aggregate["budget_exhausted"] else "",
+            )
+        )
+    return tuple(lines)
+
+
+def ultimate_linefeed_probe_summary_line(result: UltimateLinefeedProbeResult) -> str:
+    line = (
+        "-%s: start=%s; depth=%s/%s; suspects=%s; tested=%s; states=%s; visited=%s; pruned=%s; resumed=%s; target_adler=%s"
+        % (
+            result.strategy,
+            _format_optional_offset(result.start_offset),
+            result.reached_depth,
+            result.max_depth,
+            len(result.suspect_offsets),
+            result.tested_candidates,
+            result.state_count,
+            result.visited_count,
+            result.pruned_candidates,
+            result.resumed_states,
+            idat.format_adler(result.target_adler),
+        )
+    )
+    if result.checkpoint_path:
+        line += "; checkpoint=%s" % result.checkpoint_path
+    if result.best is not None:
+        line += "; best_score=%s" % (
+            result.best.score or super_mega_linefeed_score(result.best.after, len(result.best.operations)),
+        )
+    if result.budget_exhausted:
+        line += "; budget exhausted"
+    if result.reason:
+        line += "; reason=%s" % result.reason
+    return line + "."
+
+
+def ultimate_linefeed_offsets_summary_line(result: UltimateLinefeedProbeResult, *, limit: int = 16) -> str:
+    offsets = ", ".join("0x%x" % offset for offset in result.suspect_offsets[:limit])
+    if len(result.suspect_offsets) > limit:
+        offsets += ", ..."
+    return "-%s offsets: %s." % (result.strategy, offsets or "none")
+
+
+def ultimate_linefeed_candidate_summary_line(candidate: SuperMegaLinefeedCandidate) -> str:
+    operations = ", ".join(_format_operation(operation) for operation in candidate.operations)
+    if len(operations) > 240:
+        operations = operations[:237] + "..."
+    return (
+        "-UltimateMegaSuperLineFeedBruteForce candidate: state=%s parent=%s; operations=%s; "
+        "status %s -> %s; adler %s -> %s (stored=%s computed=%s); crc=%s; "
+        "scanlines %s/%s -> %s/%s; decompressed %s/%s -> %s/%s; error_offset %s -> %s."
+        % (
+            candidate.state_id,
+            "root" if candidate.parent_id is None else candidate.parent_id,
+            operations or "none",
+            candidate.before.status,
+            candidate.after.status,
+            candidate.before.adler_status,
+            candidate.after.adler_status,
+            idat.format_adler(candidate.after.stored_adler),
+            idat.format_adler(candidate.after.computed_adler),
+            candidate.after.crc_provenance,
+            candidate.before.usable_scanlines,
+            candidate.before.height,
+            candidate.after.usable_scanlines,
+            candidate.after.height,
+            candidate.before.decompressed_size,
+            candidate.before.expected_size,
+            candidate.after.decompressed_size,
+            candidate.after.expected_size,
+            candidate.before.error_offset,
+            candidate.after.error_offset,
+        )
+    )
+
+
 def candidate_summary_line(candidate: IdatDeflateCandidate) -> str:
     return (
         "-IDAT deflate candidate: stream=0x%x; file=0x%x; IDAT=%s; byte %02x -> %02x; "
@@ -680,6 +2794,59 @@ def candidate_summary_line(candidate: IdatDeflateCandidate) -> str:
             candidate.before.height,
             candidate.after.usable_scanlines,
             candidate.after.height,
+            candidate.before.error_offset,
+            candidate.after.error_offset,
+        )
+    )
+
+
+def linefeed_insert_candidate_summary_line(candidate: IdatLinefeedInsertCandidate) -> str:
+    return (
+        "-IDAT line-feed candidate: stream=0x%x; inserted %02x; "
+        "status %s -> %s; scanlines %s/%s -> %s/%s; decompressed %s -> %s."
+        % (
+            candidate.stream_offset,
+            candidate.inserted_byte,
+            candidate.before.status,
+            candidate.after.status,
+            candidate.before.usable_scanlines,
+            candidate.before.height,
+            candidate.after.usable_scanlines,
+            candidate.after.height,
+            candidate.before.decompressed_size,
+            candidate.after.decompressed_size,
+        )
+    )
+
+
+def super_mega_linefeed_candidate_summary_line(candidate: SuperMegaLinefeedCandidate) -> str:
+    operations = ", ".join(_format_operation(operation) for operation in candidate.operations)
+    if len(operations) > 240:
+        operations = operations[:237] + "..."
+    return (
+        "-%s candidate: state=%s parent=%s; operations=%s; status %s -> %s; adler %s -> %s "
+        "(stored=%s computed=%s); crc=%s; scanlines %s/%s -> %s/%s; "
+        "decompressed %s/%s -> %s/%s; error_offset %s -> %s."
+        % (
+            "SuperMegaLineFeedForceOfDeath",
+            candidate.state_id,
+            "root" if candidate.parent_id is None else candidate.parent_id,
+            operations or "none",
+            candidate.before.status,
+            candidate.after.status,
+            candidate.before.adler_status,
+            candidate.after.adler_status,
+            idat.format_adler(candidate.after.stored_adler),
+            idat.format_adler(candidate.after.computed_adler),
+            candidate.after.crc_provenance,
+            candidate.before.usable_scanlines,
+            candidate.before.height,
+            candidate.after.usable_scanlines,
+            candidate.after.height,
+            candidate.before.decompressed_size,
+            candidate.before.expected_size,
+            candidate.after.decompressed_size,
+            candidate.after.expected_size,
             candidate.before.error_offset,
             candidate.after.error_offset,
         )

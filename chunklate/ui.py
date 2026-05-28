@@ -601,6 +601,17 @@ def build_loadingbar_frames(fishs: int, fishsize: int, terminal_width: int) -> L
     )
 
 
+def loadingbar_last_visible_fish_frame(frames: list[str], len_fish_list: int) -> int:
+    last_frame = min(len(frames), len_fish_list + 1) - 1
+    for index in range(last_frame, -1, -1):
+        if any(marker in frames[index] for marker in ("><(((º>", "⸌<(((º>", "⸝<(((º>")):
+            return index
+    for index in range(last_frame, -1, -1):
+        if any(marker in frames[index] for marker in (">", "º")):
+            return index
+    return len_fish_list
+
+
 def loadingbar_progress(
     fishs: int,
     fishsize: int,
@@ -609,7 +620,12 @@ def loadingbar_progress(
     fish_pos: int,
     len_fish_list: int,
 ) -> LoadingbarProgress:
-    if loop % 100 == 0:
+    visible_fish_end = loadingbar_last_visible_fish_frame(frames, len_fish_list)
+
+    if fishs > 0 and visible_fish_end > 0:
+        current_loop = min(max(0, int(loop)), fishs)
+        fish_pos = round((current_loop / fishs) * visible_fish_end)
+    elif loop % 100 == 0:
         if fish_pos != len_fish_list:
             fish_pos += 1
         else:
@@ -648,4 +664,4 @@ def run_loadingbar_from_namespace(
         namespace["LenFishList"],
     )
     namespace["FishPos"] = progress.fish_pos
-    namespace.get("print", print)(progress.text, end="\r")
+    namespace.get("print", print)(progress.text + "\033[K", end="\r")

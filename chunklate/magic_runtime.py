@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import idat
+from . import idat_bruteforce
 from . import chunk_scanner
 from .png import (
     detect_png_signature_recovery,
@@ -18,6 +19,8 @@ LegacyCall = Callable[..., Any]
 
 MAGIC = "89504e470d0a1a0a"
 FULL_MAGIC = "89504e470d0a1a0a0000000d49484452"
+SUPER_MEGA_LINEFEED_FORCE = "SuperMegaLineFeedForceOfDeath"
+ULTIMATE_LINEFEED_FORCE = "UltimateMegaSuperLineFeedBruteForce"
 
 
 @dataclass(frozen=True)
@@ -45,6 +48,23 @@ class FindMagicRuntime:
     side_notes: MutableSequence[Any]
     chunk_story: LegacyCall = lambda *args, **kwargs: None
     write_clone: LegacyCall = lambda *args, **kwargs: None
+    ask: LegacyCall | None = None
+    preview_image: LegacyCall = lambda *args, **kwargs: None
+    loadingbar: LegacyCall = lambda *args, **kwargs: None
+    ultimate_checkpoint_path: LegacyCall = lambda *args, **kwargs: ""
+    ultimate_linefeed_budget: LegacyCall = lambda *args, **kwargs: 50000
+
+
+@dataclass(frozen=True)
+class LinefeedAlternative:
+    repair: Any
+    summary: str
+
+
+@dataclass(frozen=True)
+class LinefeedChunkEvidence:
+    idat_bruteforce_allowed: bool
+    summary_lines: tuple[str, ...]
 
 
 def _color(runtime: FindMagicRuntime, color: str, value: Any) -> Any:
@@ -98,6 +118,552 @@ def _linefeed_salvage_summary(realignment, salvage) -> str:
             "-Line feed conversion repair: %s."
             % salvage.strategy,
         ]
+    )
+
+
+def _linefeed_chunk_evidence(repair, realignment=None) -> LinefeedChunkEvidence:
+    lines: list[str] = []
+    idat_bruteforce_allowed = False
+
+    for patch in getattr(repair, "payload_patches", ()):
+        chunk_name = patch.chunk_type.decode("ascii", errors="replace")
+        lines.append(
+            "-Line feed conversion evidence: restored CR inside %s payload at chunk offset 0x%x; original CRC 0x%08x matched."
+            % (chunk_name, patch.chunk_offset, patch.stored_crc)
+        )
+        if patch.chunk_type == b"IDAT":
+            idat_bruteforce_allowed = True
+
+    if realignment is not None:
+        missing = max(0, int(realignment.old_length) - int(realignment.new_length))
+        lines.append(
+            "-Line feed conversion evidence: %s chunk length overran the next chunk by %s bytes at offset 0x%x; Chunklate shortened it and rebuilt the PNG CRC."
+            % (realignment.chunk_name, missing, realignment.chunk_offset)
+        )
+        if realignment.chunk_name == "IDAT":
+            idat_bruteforce_allowed = True
+
+    if not lines:
+        lines.append(
+            "-Line feed conversion evidence: only the PNG signature was proven damaged; no chunk payload or chunk length evidence was found, so IDAT line-feed brute force is not offered."
+        )
+
+    return LinefeedChunkEvidence(
+        idat_bruteforce_allowed=idat_bruteforce_allowed,
+        summary_lines=tuple(lines),
+    )
+
+
+def _linefeed_heavy_probe_summary(probe, repair) -> tuple[str, ...]:
+    lines = [idat_bruteforce.linefeed_insert_probe_summary_line(probe)]
+    if probe.best is not None:
+        lines.append(idat_bruteforce.linefeed_insert_candidate_summary_line(probe.best))
+    lines.append("-Line feed conversion repair: %s." % repair.strategy)
+    return tuple(lines)
+
+
+def _super_mega_linefeed_probe_summary(probe, repair=None) -> tuple[str, ...]:
+    lines = [idat_bruteforce.super_mega_linefeed_probe_summary_line(probe)]
+    lines.extend(idat_bruteforce.super_mega_linefeed_phase_summary_lines(probe))
+    if probe.best is not None:
+        lines.append(idat_bruteforce.super_mega_linefeed_candidate_summary_line(probe.best))
+    if repair is not None:
+        lines.append("-Line feed conversion repair: %s." % repair.strategy)
+    return tuple(lines)
+
+
+def _ultimate_linefeed_probe_summary(probe, repair=None) -> tuple[str, ...]:
+    lines = [
+        idat_bruteforce.ultimate_linefeed_probe_summary_line(probe),
+        idat_bruteforce.ultimate_linefeed_offsets_summary_line(probe),
+    ]
+    if probe.best is not None:
+        lines.append(idat_bruteforce.ultimate_linefeed_candidate_summary_line(probe.best))
+    if repair is not None:
+        lines.append("-Line feed conversion repair: %s." % repair.strategy)
+    return tuple(lines)
+
+
+def _should_offer_linefeed_heavy_probe(salvage) -> bool:
+    if salvage.recovered_scanlines < salvage.total_scanlines:
+        return True
+    return "reused previous row" in salvage.strategy
+
+
+def _preview_linefeed_candidate(runtime: FindMagicRuntime, repair, round_index: int) -> None:
+    _cowsay(
+        runtime,
+        "Current IDAT repair preview: %s/%s scanlines. Look at it, then decide if I should push further."
+        % (repair.recovered_scanlines, repair.total_scanlines),
+        "com",
+    )
+    runtime.preview_image(
+        repair.data,
+        "LineFeed_IDAT_%02d_%s_of_%s"
+        % (round_index, repair.recovered_scanlines, repair.total_scanlines),
+    )
+
+
+def _preview_ultimate_linefeed_candidate(runtime: FindMagicRuntime, repair) -> None:
+    _cowsay(
+        runtime,
+        "Ultimate preview: this is the best visible reconstruction before I open the forbidden line-feed combinatorics vault.",
+        "com",
+    )
+    runtime.preview_image(
+        repair.data,
+        "UltimateMegaSuperLineFeedBruteForce_Before",
+    )
+
+
+def _linefeed_repair_is_stronger(current_repair, repair, candidate) -> bool:
+    if repair.recovered_scanlines > current_repair.recovered_scanlines:
+        return True
+    return candidate.after.complete and not candidate.before.complete
+
+
+def _linefeed_repair_is_ultimate_stronger(current_repair, repair, candidate) -> bool:
+    if _linefeed_repair_is_stronger(current_repair, repair, candidate):
+        return True
+    return candidate.after.adler_status == "adler_match"
+
+
+def _linefeed_bruteforce_repair(candidate):
+    if candidate.after.complete:
+        return idat.PartialIdatBlackfillRepair(
+            data=candidate.data,
+            strategy="line-feed-idat-complete recovered %s/%s scanlines"
+            % (candidate.after.usable_scanlines, candidate.after.height),
+            recovered_scanlines=candidate.after.usable_scanlines,
+            total_scanlines=candidate.after.height,
+            width=candidate.after.width,
+            height=candidate.after.height,
+            bit_depth=candidate.after.bit_depth,
+            color_type=candidate.after.color_type,
+        )
+    return (
+        idat.rebuild_tolerant_idat_salvage(candidate.data)
+        or idat.rebuild_partial_idat_blackfill(candidate.data)
+    )
+
+
+def _linefeed_realign_complete_repair(realignment):
+    analysis = idat.analyze_idat_stream(realignment.data)
+    if not analysis.complete:
+        return None
+    return idat.PartialIdatBlackfillRepair(
+        data=realignment.data,
+        strategy="length-realigned-idat-complete recovered %s/%s scanlines"
+        % (analysis.usable_scanlines, analysis.height),
+        recovered_scanlines=analysis.usable_scanlines,
+        total_scanlines=analysis.height,
+        width=analysis.width,
+        height=analysis.height,
+        bit_depth=analysis.bit_depth,
+        color_type=analysis.color_type,
+    )
+
+
+def _linefeed_length_realign_before_bruteforce(
+    runtime: FindMagicRuntime,
+    current_data: bytes,
+    current_repair,
+    summary_lines: list[str],
+) -> LinefeedAlternative | None:
+    realignment = repair_overlong_chunk_length_to_next_header(current_data)
+    if realignment is None:
+        summary_lines.append(
+            "-Line feed conversion pre-bruteforce length check: no overlong IDAT length landed on a valid following chunk."
+        )
+        return None
+
+    _cowsay(
+        runtime,
+        "Before brute force, I checked chunk length drift and found a valid following chunk. I will try that cleaner path first.",
+        "com",
+    )
+    evidence = _linefeed_chunk_evidence(None, realignment)
+    summary_lines.extend(evidence.summary_lines)
+    salvage = (
+        _linefeed_realign_complete_repair(realignment)
+        or idat.rebuild_tolerant_idat_salvage(realignment.data)
+        or idat.rebuild_partial_idat_blackfill(realignment.data)
+    )
+    if salvage is None:
+        summary_lines.append(
+            "-Line feed conversion pre-bruteforce length check: chunk chain realigned, but IDAT salvage still produced no usable image."
+        )
+        return None
+
+    summary_lines.append(_linefeed_salvage_summary(realignment, salvage))
+    if salvage.recovered_scanlines <= current_repair.recovered_scanlines:
+        summary_lines.append(
+            "-Line feed conversion pre-bruteforce length check: length realignment did not improve the current salvage."
+        )
+        return None
+
+    _cowsay(
+        runtime,
+        "Length realignment improved the IDAT salvage to %s/%s scanlines, so I am not opening the heavier brute force branch yet."
+        % (salvage.recovered_scanlines, salvage.total_scanlines),
+        "good",
+    )
+    return LinefeedAlternative(salvage, "\n".join(summary_lines))
+
+
+def _ask_linefeed_full_bruteforce(
+    runtime: FindMagicRuntime,
+    repair,
+    start_offset: int | None,
+) -> bool:
+    if runtime.ask is None:
+        return False
+
+    offset_label = "unknown" if start_offset is None else "0x%x" % start_offset
+    _cowsay(
+        runtime,
+        "Focused line-feed probing is at %s/%s scanlines. If you say yes now, I launch %s around the first error anchor %s, with a pre-error margin."
+        % (repair.recovered_scanlines, repair.total_scanlines, SUPER_MEGA_LINEFEED_FORCE, offset_label),
+        "com",
+    )
+    return bool(
+        runtime.ask(
+            SUPER_MEGA_LINEFEED_FORCE,
+            "super-mega-linefeed-force-of-death-%s-%s"
+            % (offset_label, repair.recovered_scanlines),
+        )
+    )
+
+
+def _ask_runtime_question(runtime: FindMagicRuntime, question_id: str, question_hash: str, *, skipauto: bool = False) -> bool:
+    if runtime.ask is None:
+        return False
+    if skipauto:
+        try:
+            return bool(runtime.ask(question_id, question_hash, skipauto=True))
+        except TypeError:
+            return bool(runtime.ask(question_id, question_hash))
+    return bool(runtime.ask(question_id, question_hash))
+
+
+def _ask_ultimate_linefeed_bruteforce(
+    runtime: FindMagicRuntime,
+    repair,
+    start_offset: int | None,
+) -> bool:
+    offset_label = "unknown" if start_offset is None else "0x%x" % start_offset
+    _cowsay(
+        runtime,
+        (
+            "%s is the last basement door. This can take several billion years, "
+            "several coffees, and possibly the emotional collapse of this terminal. "
+            "If I recover the original Adler, we get real evidence. If I do not, "
+            "I may only bring back a better-looking reconstruction. "
+            "By default I try 50000 candidates, because even chaos deserves a receipt. "
+            "If you want me to go much further, rerun with --ultimate-linefeed-budget 1000000000000. "
+            "If you really want the no-ceiling vault, rerun with --ultimate-linefeed-unbounded."
+        )
+        % ULTIMATE_LINEFEED_FORCE,
+        "com",
+    )
+    return _ask_runtime_question(
+        runtime,
+        ULTIMATE_LINEFEED_FORCE,
+        "ultimate-mega-super-linefeed-bruteforce-%s-%s"
+        % (offset_label, repair.recovered_scanlines),
+        skipauto=True,
+    )
+
+
+def _linefeed_queue_progress(runtime: FindMagicRuntime):
+    disabled = False
+
+    def progress(_stage: str, tested: int, budget: int) -> None:
+        nonlocal disabled
+        if disabled:
+            return
+        total = max(1, int(budget))
+        try:
+            runtime.loadingbar(total, len(str(total)), tested, tested == 0)
+        except (OSError, IndexError):
+            disabled = True
+            return
+
+    return progress
+
+
+def _ultimate_linefeed_checkpoint_path(runtime: FindMagicRuntime) -> str:
+    try:
+        return str(runtime.ultimate_checkpoint_path() or "")
+    except (OSError, TypeError, ValueError):
+        return ""
+
+
+def _ultimate_linefeed_budget(runtime: FindMagicRuntime) -> int | None:
+    try:
+        return runtime.ultimate_linefeed_budget()
+    except (OSError, TypeError, ValueError):
+        return 50000
+
+
+def _linefeed_ultimate_alternative(
+    runtime: FindMagicRuntime,
+    source_data: bytes,
+    current_repair,
+    summary_lines: list[str],
+    start_offset: int | None,
+    super_probe,
+) -> LinefeedAlternative:
+    best = getattr(super_probe, "best", None)
+    if best is not None and best.after.adler_status == "adler_match":
+        return LinefeedAlternative(current_repair, "\n".join(summary_lines))
+    if getattr(super_probe, "target_adler", None) is None:
+        return LinefeedAlternative(current_repair, "\n".join(summary_lines))
+
+    _preview_ultimate_linefeed_candidate(runtime, current_repair)
+    if not _ask_ultimate_linefeed_bruteforce(runtime, current_repair, start_offset):
+        summary_lines.append("-%s: user declined the final combinatorics vault." % ULTIMATE_LINEFEED_FORCE)
+        return LinefeedAlternative(current_repair, "\n".join(summary_lines))
+
+    runtime.candy("Title", ULTIMATE_LINEFEED_FORCE)
+    _cowsay(
+        runtime,
+        "Opening the forbidden line-feed combinatorics vault. I brought a checkpoint, because hope is not a persistence format.",
+        "com",
+    )
+    probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        source_data,
+        start_offset=start_offset,
+        target_adler=super_probe.target_adler,
+        super_result=super_probe,
+        checkpoint_path=_ultimate_linefeed_checkpoint_path(runtime),
+        budget=_ultimate_linefeed_budget(runtime),
+        progress=_linefeed_queue_progress(runtime),
+    )
+    summary_lines.extend(_ultimate_linefeed_probe_summary(probe))
+    if probe.best is None:
+        _cowsay(runtime, "%s found no candidate that survived pruning." % ULTIMATE_LINEFEED_FORCE, "com")
+        summary_lines.append("-%s: no candidate survived pruning." % ULTIMATE_LINEFEED_FORCE)
+        return LinefeedAlternative(current_repair, "\n".join(summary_lines))
+
+    repair = _linefeed_bruteforce_repair(probe.best)
+    if repair is None or not _linefeed_repair_is_ultimate_stronger(current_repair, repair, probe.best):
+        _cowsay(runtime, "%s did not beat the current reconstruction." % ULTIMATE_LINEFEED_FORCE, "com")
+        summary_lines.append("-%s: kept current reconstruction." % ULTIMATE_LINEFEED_FORCE)
+        return LinefeedAlternative(current_repair, "\n".join(summary_lines))
+
+    if probe.best.after.adler_status == "adler_match":
+        _cowsay(runtime, "%s recovered the original Adler target." % ULTIMATE_LINEFEED_FORCE, "good")
+    else:
+        _cowsay(runtime, "%s found a stronger visible reconstruction." % ULTIMATE_LINEFEED_FORCE, "good")
+    summary_lines.append("-Line feed conversion repair: %s." % repair.strategy)
+    return LinefeedAlternative(repair, "\n".join(summary_lines))
+
+
+def _linefeed_full_bruteforce_alternative(
+    runtime: FindMagicRuntime,
+    current_data: bytes,
+    current_repair,
+    summary_lines: list[str],
+    start_offset: int | None,
+    source_data: bytes | None = None,
+    known_gap_bytes: int = 0,
+    known_gap_chunk_offset: int | None = None,
+) -> LinefeedAlternative:
+    length_alternative = _linefeed_length_realign_before_bruteforce(
+        runtime,
+        current_data,
+        current_repair,
+        summary_lines,
+    )
+    if length_alternative is not None:
+        return length_alternative
+
+    if not _ask_linefeed_full_bruteforce(runtime, current_repair, start_offset):
+        return LinefeedAlternative(current_repair, "\n".join(summary_lines))
+
+    offset_label = "unknown" if start_offset is None else "0x%x" % start_offset
+    runtime.candy("Title", SUPER_MEGA_LINEFEED_FORCE)
+    _cowsay(
+        runtime,
+        "Launching %s around error anchor %s. I will start before it, because zlib reports where decoding fails, not necessarily where corruption began."
+        % (SUPER_MEGA_LINEFEED_FORCE, offset_label),
+        "com",
+    )
+    probe_data = source_data if source_data is not None else current_data
+    probe = idat_bruteforce.probe_super_mega_linefeed_force_of_death(
+        probe_data,
+        start_offset=start_offset,
+        known_gap_bytes=known_gap_bytes,
+        known_gap_chunk_offset=known_gap_chunk_offset,
+        progress=_linefeed_queue_progress(runtime),
+    )
+    summary_lines.extend(_super_mega_linefeed_probe_summary(probe))
+    if probe.best is None:
+        _cowsay(runtime, "%s did not find a stronger candidate." % SUPER_MEGA_LINEFEED_FORCE, "com")
+        summary_lines.append(
+            "-%s: hybrid IDAT line-feed brute force found no stronger candidate around the first error anchor."
+            % SUPER_MEGA_LINEFEED_FORCE
+        )
+        return _linefeed_ultimate_alternative(
+            runtime,
+            probe_data,
+            current_repair,
+            summary_lines,
+            start_offset,
+            probe,
+        )
+
+    repair = _linefeed_bruteforce_repair(probe.best)
+    if repair is None or not _linefeed_repair_is_stronger(current_repair, repair, probe.best):
+        _cowsay(
+            runtime,
+            "%s did not improve the visible scanline recovery."
+            % SUPER_MEGA_LINEFEED_FORCE,
+            "com",
+        )
+        summary_lines.append(
+            "-%s: hybrid IDAT line-feed brute force found no better visible salvage."
+            % SUPER_MEGA_LINEFEED_FORCE
+        )
+        return _linefeed_ultimate_alternative(
+            runtime,
+            probe_data,
+            current_repair,
+            summary_lines,
+            start_offset,
+            probe,
+        )
+
+    _cowsay(
+        runtime,
+        "%s found a stronger candidate: %s/%s scanlines."
+        % (SUPER_MEGA_LINEFEED_FORCE, repair.recovered_scanlines, repair.total_scanlines),
+        "good",
+    )
+    summary_lines.append("-Line feed conversion repair: %s." % repair.strategy)
+    if probe.best.after.adler_status != "adler_match":
+        return _linefeed_ultimate_alternative(
+            runtime,
+            probe_data,
+            repair,
+            summary_lines,
+            start_offset,
+            probe,
+        )
+    return LinefeedAlternative(repair, "\n".join(summary_lines))
+
+
+def _linefeed_heavy_probe_alternative(
+    runtime: FindMagicRuntime,
+    data: bytes,
+    salvage,
+    salvage_summary: str,
+    realignment=None,
+) -> LinefeedAlternative | None:
+    if runtime.ask is None:
+        return None
+    if not _should_offer_linefeed_heavy_probe(salvage):
+        return None
+
+    current_data = data
+    current_repair = salvage
+    summary_lines = [salvage_summary]
+    first_error_offset = idat_bruteforce.first_idat_problem_stream_offset(data)
+    known_gap_bytes = 0
+    known_gap_chunk_offset = None
+    if realignment is not None and realignment.chunk_name == "IDAT":
+        known_gap_bytes = max(0, int(realignment.old_length) - int(realignment.new_length))
+        known_gap_chunk_offset = int(realignment.chunk_offset)
+    max_rounds = 8
+
+    for round_index in range(max_rounds):
+        _preview_linefeed_candidate(runtime, current_repair, round_index)
+        if not runtime.ask(
+            "LineFeed Heavy Probe",
+            "linefeed-cr-insert-%s-%s"
+            % (round_index, current_repair.recovered_scanlines),
+        ):
+            if current_repair is salvage and len(summary_lines) == 1:
+                return None
+            return LinefeedAlternative(current_repair, "\n".join(summary_lines))
+
+        runtime.candy("Title", "LineFeed Heavy Probe")
+        _cowsay(runtime, "Trying focused line-feed brute force on the IDAT stream.", "com")
+        probe = idat_bruteforce.probe_idat_linefeed_cr_insertions(current_data)
+        if probe.best is None:
+            _cowsay(runtime, "No stronger line-feed candidate found in that window.", "com")
+            summary_lines.append(idat_bruteforce.linefeed_insert_probe_summary_line(probe))
+            summary_lines.append(
+                "-Line feed conversion repair: focused IDAT line-feed probe found no stronger candidate."
+            )
+            _preview_linefeed_candidate(runtime, current_repair, round_index + 1)
+            return _linefeed_full_bruteforce_alternative(
+                runtime,
+                current_data,
+                current_repair,
+                summary_lines,
+                first_error_offset,
+                source_data=data,
+                known_gap_bytes=known_gap_bytes,
+                known_gap_chunk_offset=known_gap_chunk_offset,
+            )
+
+        repair = _linefeed_bruteforce_repair(probe.best)
+        if repair is None or not _linefeed_repair_is_stronger(current_repair, repair, probe.best):
+            _cowsay(runtime, "Focused line-feed probing did not improve the visible scanline recovery.", "com")
+            summary_lines.extend(_linefeed_heavy_probe_summary(probe, current_repair))
+            summary_lines.append(
+                "-Line feed conversion repair: focused IDAT line-feed probe found no better visible salvage."
+            )
+            _preview_linefeed_candidate(runtime, current_repair, round_index + 1)
+            return _linefeed_full_bruteforce_alternative(
+                runtime,
+                current_data,
+                current_repair,
+                summary_lines,
+                first_error_offset,
+                source_data=data,
+                known_gap_bytes=known_gap_bytes,
+                known_gap_chunk_offset=known_gap_chunk_offset,
+            )
+        _cowsay(
+            runtime,
+            "Found a stronger line-feed candidate: %s/%s scanlines."
+            % (repair.recovered_scanlines, repair.total_scanlines),
+            "good",
+        )
+        summary_lines.extend(_linefeed_heavy_probe_summary(probe, repair))
+        current_data = probe.best.data
+        current_repair = repair
+        if probe.best.after.complete:
+            _cowsay(runtime, "The IDAT stream is complete now. No need to push this branch further.", "good")
+            return LinefeedAlternative(current_repair, "\n".join(summary_lines))
+        if repair.recovered_scanlines >= repair.total_scanlines:
+            _preview_linefeed_candidate(runtime, current_repair, round_index + 1)
+            return _linefeed_full_bruteforce_alternative(
+                runtime,
+                current_data,
+                current_repair,
+                summary_lines,
+                first_error_offset,
+                source_data=data,
+                known_gap_bytes=known_gap_bytes,
+                known_gap_chunk_offset=known_gap_chunk_offset,
+            )
+
+    _cowsay(runtime, "Reached the line-feed probe round limit for this IDAT branch.", "com")
+    summary_lines.append("-Line feed conversion repair: reached line-feed IDAT probe round limit.")
+    _preview_linefeed_candidate(runtime, current_repair, max_rounds)
+    return _linefeed_full_bruteforce_alternative(
+        runtime,
+        current_data,
+        current_repair,
+        summary_lines,
+        first_error_offset,
+        source_data=data,
+        known_gap_bytes=known_gap_bytes,
+        known_gap_chunk_offset=known_gap_chunk_offset,
     )
 
 
@@ -181,10 +747,39 @@ def run_find_magic(runtime: FindMagicRuntime, context: FindMagicContext) -> Any:
                             "The missing bytes cannot be recovered cleanly, but I can write a valid partial IDAT salvage.",
                             "com",
                         )
+                        evidence = _linefeed_chunk_evidence(repair, realignment)
+                        salvage_summary = "\n".join(
+                            (
+                                _linefeed_salvage_summary(realignment, salvage),
+                                *evidence.summary_lines,
+                            )
+                        )
+                        if evidence.idat_bruteforce_allowed:
+                            _cowsay(
+                                runtime,
+                                "I have chunk-level evidence that line-feed damage reached IDAT. Now the IDAT brute force branch is allowed.",
+                                "com",
+                            )
+                            alternative = _linefeed_heavy_probe_alternative(
+                                runtime,
+                                realignment.data,
+                                salvage,
+                                salvage_summary,
+                                realignment=realignment,
+                            )
+                            if alternative is not None:
+                                salvage = alternative.repair
+                                salvage_summary = alternative.summary
+                        else:
+                            _cowsay(
+                                runtime,
+                                "I only proved the PNG signature lost a carriage return. I am not opening the IDAT brute force basement without chunk-level evidence.",
+                                "com",
+                            )
                         summary = "\n".join(
                             [
                                 summary,
-                                _linefeed_salvage_summary(realignment, salvage),
+                                salvage_summary,
                             ]
                         )
                         runtime.side_notes.append(summary)
@@ -477,6 +1072,11 @@ def build_find_magic_runtime_from_namespace(
         minibar=namespace["Minibar"],
         side_notes=namespace["SideNotes"],
         write_clone=namespace["WriteClone"],
+        ask=namespace.get("Question"),
+        preview_image=namespace.get("Preview_Repair_Image", lambda *args, **kwargs: None),
+        loadingbar=namespace.get("Loadingbar", lambda *args, **kwargs: None),
+        ultimate_checkpoint_path=namespace.get("Ultimate_Linefeed_Checkpoint_Path", lambda *args, **kwargs: ""),
+        ultimate_linefeed_budget=namespace.get("Ultimate_Linefeed_Budget", lambda *args, **kwargs: 50000),
         **kwargs,
     )
 

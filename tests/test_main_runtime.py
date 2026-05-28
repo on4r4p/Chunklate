@@ -41,6 +41,8 @@ def args(**updates):
         "NODIALOGUE": False,
         "DEBUG": False,
         "AUTO": False,
+        "ULTIMATE_LINEFEED_BUDGET": None,
+        "ULTIMATE_LINEFEED_UNBOUNDED": False,
     }
     values.update(updates)
     return SimpleNamespace(**values)
@@ -190,6 +192,8 @@ def test_apply_main_cli_options_builds_initial_state():
         sample="sample.png",
         cloneswar=False,
         crash=False,
+        ultimate_linefeed_budget=None,
+        ultimate_linefeed_unbounded=False,
     )
     assert ("makedirs", "/abs/out/", {"exist_ok": True}) in calls
 
@@ -259,6 +263,20 @@ def test_apply_main_cli_options_exits_on_bad_max_saves():
     assert ("exit", 1) in calls
 
 
+def test_apply_main_cli_options_exits_on_bad_ultimate_linefeed_budget():
+    calls = []
+
+    try:
+        apply_options(calls, args(ULTIMATE_LINEFEED_BUDGET=0))
+    except ExitReached as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("bad ultimate linefeed budget should exit")
+
+    assert ("print", "--ultimate-linefeed-budget arguments must be greater than zero.") in calls
+    assert ("exit", 1) in calls
+
+
 def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
     state = main_runtime.MainCliOptionsState(
         file_origin="sample.png",
@@ -278,6 +296,8 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         sample="sample.png",
         cloneswar="clone.png",
         crash=9,
+        ultimate_linefeed_budget=1234,
+        ultimate_linefeed_unbounded=True,
     )
 
     assert main_runtime.legacy_globals_from_main_cli_options(state) == {
@@ -296,6 +316,8 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         "Sample": "sample.png",
         "CLONESWAR": "clone.png",
         "CRASH": 9,
+        "ULTIMATE_LINEFEED_BUDGET": 1234,
+        "ULTIMATE_LINEFEED_UNBOUNDED": True,
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
     }
 
@@ -340,6 +362,8 @@ def test_apply_main_cli_options_from_namespace_updates_legacy_globals():
     assert namespace["Sample"] == "sample.png"
     assert namespace["CLONESWAR"] is False
     assert namespace["CRASH"] is False
+    assert namespace["ULTIMATE_LINEFEED_BUDGET"] is None
+    assert namespace["ULTIMATE_LINEFEED_UNBOUNDED"] is False
     assert namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] is True
     assert calls == [("makedirs", "/abs/out/", {"exist_ok": True})]
 

@@ -49,6 +49,8 @@ def test_configure_parser_preserves_legacy_options():
     assert "--auto" in help_text
     assert "--output-dir DIR" in help_text
     assert "--max-saves N" in help_text
+    assert "--ultimate-linefeed-budget N" in help_text
+    assert "--ultimate-linefeed-unbounded" in help_text
 
 
 def test_configure_parser_parses_runtime_arguments():
@@ -70,6 +72,9 @@ def test_configure_parser_parses_runtime_arguments():
             "out",
             "--max-saves",
             "2",
+            "--ultimate-linefeed-budget",
+            "1234",
+            "--ultimate-linefeed-unbounded",
         ]
     )
 
@@ -84,6 +89,15 @@ def test_configure_parser_parses_runtime_arguments():
     assert parsed.AUTO is True
     assert parsed.OUTPUT_DIR == "out"
     assert parsed.MAX_SAVES == 2
+    assert parsed.ULTIMATE_LINEFEED_BUDGET == 1234
+    assert parsed.ULTIMATE_LINEFEED_UNBOUNDED is True
+
+
+def test_ultimate_linefeed_budget_error_preserves_guardrail():
+    assert cli.ultimate_linefeed_budget_error(None) is None
+    assert cli.ultimate_linefeed_budget_error(1) is None
+    assert cli.ultimate_linefeed_budget_error(0) == "--ultimate-linefeed-budget arguments must be greater than zero."
+    assert cli.ultimate_linefeed_budget_error(0, ultimate_linefeed_unbounded=True) is None
 
 
 def test_parse_legacy_unknown_options_preserves_clone_and_crash():

@@ -81,6 +81,11 @@ class IdatStreamAnalysis:
     error_context_hex: str = ""
     reason: str = ""
     deflate_header: deflate_header.DeflateHeaderAnalysis | None = None
+    stored_adler: int | None = None
+    computed_adler: int | None = None
+    adler_status: str = "adler_unknown"
+    crc_provenance: str = "original_crc_ok"
+    source_kind: str = "original"
 
     @property
     def partial(self) -> bool:
@@ -105,6 +110,7 @@ class TolerantScanlineSalvage:
     recovered_scanlines: int
     total_scanlines: int
     invalid_filter_rows: tuple[int, ...]
+    repeated_rows: int
 
 
 def dummy_scanline(bit_depth: str | int, samples: int = 3) -> tuple[bytes, bytes, bytes]:
@@ -260,12 +266,13 @@ def _tolerant_filter0_scanlines(
     rebuilt = bytearray()
     invalid_filter_rows: list[int] = []
     recovered_scanlines = 0
+    repeated_rows = 0
 
     for row_index in range(height):
         if row_index >= complete_scanlines:
-            rebuilt.extend(b"\x00" + (b"\x00" * row_data_size))
-            previous = bytearray(row_data_size)
+            rebuilt.extend(b"\x00" + bytes(previous))
             invalid_filter_rows.append(row_index)
+            repeated_rows += 1
             continue
 
         row_start = row_index * scanline_size
@@ -274,9 +281,9 @@ def _tolerant_filter0_scanlines(
         row = bytearray(row_data_size)
 
         if filter_type not in range(5):
-            rebuilt.extend(b"\x00" + (b"\x00" * row_data_size))
-            previous = bytearray(row_data_size)
+            rebuilt.extend(b"\x00" + bytes(previous))
             invalid_filter_rows.append(row_index)
+            repeated_rows += 1
             continue
 
         for index, value in enumerate(filtered_row):
@@ -306,6 +313,7 @@ def _tolerant_filter0_scanlines(
         recovered_scanlines=recovered_scanlines,
         total_scanlines=height,
         invalid_filter_rows=tuple(invalid_filter_rows),
+        repeated_rows=repeated_rows,
     )
 
 
@@ -355,33 +363,141 @@ def _idat_error_context(idat_stream: bytes, error_offset: int | None, radius: in
     return idat_stream[start:end].hex()
 
 
-def analyze_idat_stream(data: bytes) -> IdatStreamAnalysis:
+def zlib_trailer_adler(idat_stream: bytes) -> int | None:
+    if len(idat_stream) < 6:
+        return None
+    if not zlib_header_info(idat_stream[:2].hex()).valid:
+        return None
+    return int.from_bytes(idat_stream[-4:], "big")
+
+
+def format_adler(value: int | None) -> str:
+    if value is None:
+        return "unknown"
+    return "0x%08x" % value
+
+
+def _computed_adler_for_status(status: str, decompressed: bytes) -> int | None:
+    if status in ("complete", "bad_adler"):
+        return zlib.adler32(decompressed) & 0xFFFFFFFF
+    return None
+
+
+def _adler_status(
+    *,
+    stored_adler: int | None,
+    computed_adler: int | None,
+    target_adler: int | None,
+    source_kind: str,
+) -> str:
+    if computed_adler is None:
+        return "adler_unknown"
+    if target_adler is not None:
+        return "adler_match" if computed_adler == target_adler else "adler_mismatch"
+    if stored_adler is None:
+        return "adler_unknown"
+    if source_kind in ("clone", "rebuilt_candidate"):
+        return "adler_rebuilt" if computed_adler == stored_adler else "adler_mismatch"
+    return "adler_match" if computed_adler == stored_adler else "adler_mismatch"
+
+
+def _idat_crc_provenance(
+    idat_chunks: tuple[png.PngChunk, ...],
+    crc_provenance: str | None,
+) -> str:
+    if crc_provenance is not None:
+        return crc_provenance
+    if not idat_chunks:
+        return "original_crc_bad"
+    if all(chunk.crc_ok for chunk in idat_chunks):
+        return "original_crc_ok"
+    return "original_crc_bad"
+
+
+def analyze_idat_stream(
+    data: bytes,
+    *,
+    source_kind: str = "original",
+    crc_provenance: str | None = None,
+    target_adler: int | None = None,
+) -> IdatStreamAnalysis:
     try:
         chunks = list(png.iter_chunks(data))
     except png.PngFormatError as exc:
-        return IdatStreamAnalysis(False, False, "unsupported", reason=str(exc))
+        return IdatStreamAnalysis(
+            False,
+            False,
+            "unsupported",
+            reason=str(exc),
+            crc_provenance=crc_provenance or "original_crc_bad",
+            source_kind=source_kind,
+        )
 
     ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    idat_chunks = tuple(chunk for chunk in chunks if chunk.chunk_type == b"IDAT")
+    resolved_crc_provenance = _idat_crc_provenance(idat_chunks, crc_provenance)
     ihdr_values = _parse_ihdr(ihdr)
     if ihdr_values is None:
-        return IdatStreamAnalysis(False, False, "unsupported", reason="IHDR is missing or malformed")
+        return IdatStreamAnalysis(
+            False,
+            False,
+            "unsupported",
+            reason="IHDR is missing or malformed",
+            crc_provenance=resolved_crc_provenance,
+            source_kind=source_kind,
+        )
 
     width, height, bit_depth, color_type, compression, filter_method, interlace = ihdr_values
     if width < 1 or height < 1:
-        return IdatStreamAnalysis(False, False, "unsupported", reason="IHDR width/height must be positive")
+        return IdatStreamAnalysis(
+            False,
+            False,
+            "unsupported",
+            reason="IHDR width/height must be positive",
+            crc_provenance=resolved_crc_provenance,
+            source_kind=source_kind,
+        )
     if compression != 0 or filter_method != 0:
-        return IdatStreamAnalysis(False, False, "unsupported", reason="unsupported IHDR compression/filter method")
+        return IdatStreamAnalysis(
+            False,
+            False,
+            "unsupported",
+            reason="unsupported IHDR compression/filter method",
+            crc_provenance=resolved_crc_provenance,
+            source_kind=source_kind,
+        )
     if interlace != 0:
-        return IdatStreamAnalysis(False, False, "unsupported_interlace", reason="interlaced PNG is not supported")
+        return IdatStreamAnalysis(
+            False,
+            False,
+            "unsupported_interlace",
+            reason="interlaced PNG is not supported",
+            crc_provenance=resolved_crc_provenance,
+            source_kind=source_kind,
+        )
     if not png.valid_png_color_depth(bit_depth, color_type):
-        return IdatStreamAnalysis(False, False, "unsupported", reason="unsupported bit depth/color type")
+        return IdatStreamAnalysis(
+            False,
+            False,
+            "unsupported",
+            reason="unsupported bit depth/color type",
+            crc_provenance=resolved_crc_provenance,
+            source_kind=source_kind,
+        )
 
     scanline_size = png.png_scanline_size(width, bit_depth, color_type)
     if scanline_size is None:
-        return IdatStreamAnalysis(False, False, "unsupported", reason="could not compute scanline size")
+        return IdatStreamAnalysis(
+            False,
+            False,
+            "unsupported",
+            reason="could not compute scanline size",
+            crc_provenance=resolved_crc_provenance,
+            source_kind=source_kind,
+        )
 
-    idat_chunks = tuple(chunk for chunk in chunks if chunk.chunk_type == b"IDAT")
     idat_stream = b"".join(chunk.data for chunk in idat_chunks)
+    stored_adler = zlib_trailer_adler(idat_stream)
     expected_size = scanline_size * height
     base = {
         "width": width,
@@ -392,6 +508,9 @@ def analyze_idat_stream(data: bytes) -> IdatStreamAnalysis:
         "expected_size": expected_size,
         "compressed_size": len(idat_stream),
         "idat_chunk_count": len(idat_chunks),
+        "stored_adler": stored_adler,
+        "crc_provenance": resolved_crc_provenance,
+        "source_kind": source_kind,
     }
 
     if len(idat_stream) == 0:
@@ -428,6 +547,13 @@ def analyze_idat_stream(data: bytes) -> IdatStreamAnalysis:
     header_analysis = None
     if status == "corrupt_deflate" and len(decompressed) == 0:
         header_analysis = deflate_header.analyze_deflate_header(idat_stream)
+    computed_adler = _computed_adler_for_status(status, decompressed)
+    resolved_adler_status = _adler_status(
+        stored_adler=stored_adler,
+        computed_adler=computed_adler,
+        target_adler=target_adler,
+        source_kind=source_kind,
+    )
 
     return IdatStreamAnalysis(
         True,
@@ -445,6 +571,8 @@ def analyze_idat_stream(data: bytes) -> IdatStreamAnalysis:
         error_context_hex=_idat_error_context(idat_stream, error_offset),
         reason=reason,
         deflate_header=header_analysis,
+        computed_adler=computed_adler,
+        adler_status=resolved_adler_status,
         **base,
     )
 
@@ -559,6 +687,8 @@ def rebuild_tolerant_idat_salvage(data: bytes) -> PartialIdatBlackfillRepair | N
 
     idat_stream = b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
     decompressed, _zlib_complete, _error = _decompress_until_error(idat_stream)
+    if len(decompressed) < analysis.expected_size:
+        return None
     salvage = _tolerant_filter0_scanlines(
         decompressed,
         width=analysis.width,
@@ -567,6 +697,8 @@ def rebuild_tolerant_idat_salvage(data: bytes) -> PartialIdatBlackfillRepair | N
         color_type=analysis.color_type,
     )
     if salvage is None:
+        return None
+    if not salvage.invalid_filter_rows:
         return None
     if salvage.recovered_scanlines <= analysis.usable_scanlines:
         return None
@@ -585,13 +717,13 @@ def rebuild_tolerant_idat_salvage(data: bytes) -> PartialIdatBlackfillRepair | N
     return PartialIdatBlackfillRepair(
         data=bytes(fixed),
         strategy=(
-            "partial-idat-tolerant-row-salvage recovered %s/%s scanlines; "
-            "blackfilled %s bad filter rows"
+            "partial-idat-tolerant-row-salvage decoded %s/%s scanlines; "
+            "reused previous row for %s bad filter rows"
         )
         % (
             salvage.recovered_scanlines,
             salvage.total_scanlines,
-            len(salvage.invalid_filter_rows),
+            salvage.repeated_rows,
         ),
         recovered_scanlines=salvage.recovered_scanlines,
         total_scanlines=salvage.total_scanlines,

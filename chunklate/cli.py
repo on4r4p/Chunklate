@@ -106,6 +106,20 @@ def configure_parser(parser: Any) -> Any:
         default=None,
         metavar="N",
     )
+    parser.add_argument(
+        "--ultimate-linefeed-budget",
+        dest="ULTIMATE_LINEFEED_BUDGET",
+        help="Maximum candidates for UltimateMegaSuperLineFeedBruteForce.",
+        type=int,
+        default=None,
+        metavar="N",
+    )
+    parser.add_argument(
+        "--ultimate-linefeed-unbounded",
+        dest="ULTIMATE_LINEFEED_UNBOUNDED",
+        help="Run UltimateMegaSuperLineFeedBruteForce without a candidate budget.",
+        action="store_true",
+    )
     return parser
 
 
@@ -131,6 +145,17 @@ def parse_legacy_unknown_options(unknown: list[str] | tuple[str, ...] | str) -> 
 def max_saves_error(max_saves: int | None) -> str | None:
     if max_saves is not None and max_saves < 1:
         return "--max-saves arguments must be greater than zero."
+    return None
+
+
+def ultimate_linefeed_budget_error(
+    ultimate_linefeed_budget: int | None,
+    ultimate_linefeed_unbounded: bool = False,
+) -> str | None:
+    if ultimate_linefeed_unbounded:
+        return None
+    if ultimate_linefeed_budget is not None and ultimate_linefeed_budget < 1:
+        return "--ultimate-linefeed-budget arguments must be greater than zero."
     return None
 
 

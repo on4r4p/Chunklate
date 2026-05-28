@@ -71,6 +71,12 @@ def _question_context_label(question_id: Any, offset: Any) -> str:
 
 def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
     label = _question_display_name(question_id)
+    if "LineFeed Heavy Probe" in str(question_id):
+        return "Question: Should i try the heavier line-feed brute force?"
+    if "SuperMegaLineFeedForceOfDeath" in str(question_id):
+        return "Question: Should i launch SuperMegaLineFeedForceOfDeath, the full IDAT line-feed brute force?"
+    if "UltimateMegaSuperLineFeedBruteForce" in str(question_id):
+        return "Question: Should I open the forbidden line-feed combinatorics vault?"
     if skipauto:
         return "Question: Should i stop this brute force branch and save the current candidate?"
     if "IDAT Heavy Probe" in str(question_id):

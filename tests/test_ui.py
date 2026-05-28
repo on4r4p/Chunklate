@@ -214,30 +214,30 @@ def test_loadingbar_progress_keeps_frame_between_100_steps():
     assert progress == ui.LoadingbarProgress(text="042/500frame0", fish_pos=0)
 
 
-def test_loadingbar_progress_advances_every_100_steps():
+def test_loadingbar_progress_maps_position_to_budget_ratio():
     progress = ui.loadingbar_progress(
         500,
         3,
-        100,
-        ["frame0", "frame1"],
+        250,
+        ["frame0>", "frame1>", "frame2>", "frame3>", "frame4>"],
         fish_pos=0,
-        len_fish_list=1,
+        len_fish_list=4,
     )
 
-    assert progress == ui.LoadingbarProgress(text="100/500frame1", fish_pos=1)
+    assert progress == ui.LoadingbarProgress(text="250/500frame2>", fish_pos=2)
 
 
-def test_loadingbar_progress_wraps_at_last_frame():
+def test_loadingbar_progress_stops_at_last_visible_fish_frame():
     progress = ui.loadingbar_progress(
         500,
         3,
-        200,
-        ["frame0", "frame1"],
-        fish_pos=1,
-        len_fish_list=1,
+        500,
+        ["frame0>", "frame1>", "trail"],
+        fish_pos=0,
+        len_fish_list=2,
     )
 
-    assert progress == ui.LoadingbarProgress(text="200/500frame0", fish_pos=0)
+    assert progress == ui.LoadingbarProgress(text="500/500frame1>", fish_pos=1)
 
 
 def test_run_loadingbar_from_namespace_builds_and_prints_progress():
@@ -252,10 +252,15 @@ def test_run_loadingbar_from_namespace_builds_and_prints_progress():
     assert namespace["LenFishList"] == len(namespace["ThksForTheFish"]) - 1
     assert namespace["FishPos"] == 0
 
-    ui.run_loadingbar_from_namespace(namespace, 500, 3, 100, False)
+    ui.run_loadingbar_from_namespace(namespace, 500, 3, 250, False)
 
-    assert namespace["FishPos"] == 1
-    assert calls == [("print", ("100/500" + namespace["ThksForTheFish"][1],), {"end": "\r"})]
+    visible_fish_end = ui.loadingbar_last_visible_fish_frame(
+        namespace["ThksForTheFish"],
+        namespace["LenFishList"],
+    )
+    expected_position = round((250 / 500) * visible_fish_end)
+    assert namespace["FishPos"] == expected_position
+    assert calls == [("print", ("250/500" + namespace["ThksForTheFish"][expected_position] + "\033[K",), {"end": "\r"})]
 
 
 def test_run_loadingbar_from_namespace_uses_print_fallback():
@@ -268,8 +273,13 @@ def test_run_loadingbar_from_namespace_uses_print_fallback():
         ui.run_loadingbar_from_namespace(namespace, 500, 3, 0, True)
         ui.run_loadingbar_from_namespace(namespace, 500, 3, 100, False)
 
-    assert namespace["FishPos"] == 1
-    assert output.getvalue() == "100/500" + namespace["ThksForTheFish"][1] + "\r"
+    visible_fish_end = ui.loadingbar_last_visible_fish_frame(
+        namespace["ThksForTheFish"],
+        namespace["LenFishList"],
+    )
+    expected_position = round((100 / 500) * visible_fish_end)
+    assert namespace["FishPos"] == expected_position
+    assert output.getvalue() == "100/500" + namespace["ThksForTheFish"][expected_position] + "\033[K\r"
 
 
 def main():
@@ -292,8 +302,8 @@ def main():
         ("Minibar turnaround", test_minibar_step_preserves_turnaround_without_print),
         ("Loadingbar frames", test_build_loadingbar_frames_preserves_legacy_animation_shape),
         ("Loadingbar progress static", test_loadingbar_progress_keeps_frame_between_100_steps),
-        ("Loadingbar progress advance", test_loadingbar_progress_advances_every_100_steps),
-        ("Loadingbar progress wrap", test_loadingbar_progress_wraps_at_last_frame),
+        ("Loadingbar progress ratio", test_loadingbar_progress_maps_position_to_budget_ratio),
+        ("Loadingbar progress visible end", test_loadingbar_progress_stops_at_last_visible_fish_frame),
         ("Loadingbar namespace bridge", test_run_loadingbar_from_namespace_builds_and_prints_progress),
         ("Loadingbar print fallback", test_run_loadingbar_from_namespace_uses_print_fallback),
     ]

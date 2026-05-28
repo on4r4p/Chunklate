@@ -110,6 +110,48 @@ def test_question_runtime_names_idat_heavy_probe_prompt():
     ) in calls
 
 
+def test_question_runtime_names_super_mega_linefeed_force_prompt():
+    runtime, calls = runtime_from(answers=["yes"])
+
+    assert question_runtime.ask_question(
+        runtime,
+        "SuperMegaLineFeedForceOfDeath",
+        ("probe", 1),
+    ) is True
+
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "Question: Should i launch SuperMegaLineFeedForceOfDeath, the full IDAT line-feed brute force?",
+            "com",
+        ),
+        {},
+    ) in calls
+
+
+def test_question_runtime_names_ultimate_linefeed_force_prompt_and_skips_auto():
+    runtime, calls = runtime_from(answers=["yes"], auto=True)
+
+    assert question_runtime.ask_question(
+        runtime,
+        "UltimateMegaSuperLineFeedBruteForce",
+        ("probe", 1),
+        skipauto=True,
+    ) is True
+
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "Question: Should I open the forbidden line-feed combinatorics vault?",
+            "com",
+        ),
+        {},
+    ) in calls
+    assert not [call for call in calls if call[0] == "emit" and "Auto Answer Mode" in str(call[1])]
+
+
 def test_question_runtime_flips_duplicate_question_answer():
     history = ["Infos:same Answer:True Offset:12 Hash:99"]
     def fail_asker(_prompt):
@@ -201,6 +243,11 @@ def main():
         ("Report auto mode", test_question_runtime_reports_auto_mode_when_legacy_auto_is_enabled),
         ("Manual feedback", test_question_runtime_manual_answer_uses_legacy_feedback),
         ("IDAT heavy probe prompt", test_question_runtime_names_idat_heavy_probe_prompt),
+        ("SuperMegaLineFeedForceOfDeath prompt", test_question_runtime_names_super_mega_linefeed_force_prompt),
+        (
+            "UltimateMegaSuperLineFeedBruteForce prompt",
+            test_question_runtime_names_ultimate_linefeed_force_prompt_and_skips_auto,
+        ),
         ("Flip duplicate answer", test_question_runtime_flips_duplicate_question_answer),
         ("Known yes/no route does not loop", test_question_runtime_known_yes_no_route_does_not_loop),
         ("Known no route is exhausted", test_question_runtime_known_no_route_is_exhausted_without_input),

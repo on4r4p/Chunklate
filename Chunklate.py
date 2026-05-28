@@ -39,7 +39,7 @@ try:
 except ModuleNotFoundError:
     imagehash = None
 
-from chunklate import ancillary, ancillary_runtime, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, libpng_check, libpng_runtime, magic_runtime, main_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, writer_runtime, youshallpass_runtime
+from chunklate import ancillary, ancillary_runtime, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, image_viewer, libpng_check, libpng_runtime, magic_runtime, main_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, writer_runtime, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -50,6 +50,7 @@ from chunklate.png import (
     legacy_find_magic_checkpoint_args,
     legacy_length_checkpoint_args,
     legacy_length_decision,
+    validate_png_structure,
 )
 
 
@@ -101,8 +102,88 @@ def CheckPoint_Libpng_End_Success(message):
     saved_path = "%s/%s" % (sample_dir, Sample_Name)
     Candy("Cowsay", "Your file is here: %s" % saved_path, "good")
     PRINT(Candy("Color", "green", "-Saved in : %s") % saved_path)
+    Open_Final_Image(saved_path)
     Candy("Cowsay", "See you Space Cowboy...", "good")
     TheEnd()
+
+
+def Open_Final_Image(path):
+    if not sys.stdout.isatty():
+        return None
+    try:
+        with open(path, "rb") as file:
+            validation = validate_png_structure(output.clone_bytes(file.read()))
+    except (OSError, ValueError):
+        validation = None
+    if validation is None or not validation.ok:
+        PRINT(Candy("Color", "yellow", "-Not opening image automatically: PNG structure is not valid."))
+        return None
+
+    result = image_viewer.open_image(path)
+    if result.success:
+        PRINT(Candy("Color", "green", "-Opening image with : %s") % result.opener)
+    else:
+        PRINT(Candy("Color", "yellow", "-Could not open image automatically: %s") % result.error)
+    return result
+
+
+ACTIVE_PREVIEW_IMAGE = None
+
+
+def Close_Preview_Image():
+    global ACTIVE_PREVIEW_IMAGE
+
+    preview = ACTIVE_PREVIEW_IMAGE
+    ACTIVE_PREVIEW_IMAGE = None
+    if preview is None:
+        return False
+    close = getattr(preview, "close", None)
+    if close is None:
+        return False
+    try:
+        return bool(close())
+    except Exception:
+        return False
+
+
+def Preview_Repair_Image(data, label):
+    global ACTIVE_PREVIEW_IMAGE
+
+    Close_Preview_Image()
+    if not sys.stdout.isatty():
+        return None
+    preview_bytes = output.clone_bytes(data)
+    validation = validate_png_structure(preview_bytes)
+    if not validation.ok:
+        PRINT(Candy("Color", "yellow", "-Preview skipped: PNG structure is not valid."))
+        return None
+
+    folder = output.ensure_clone_folder(FILE_Origin, FILE_DIR)
+    safe_label = "".join(
+        char if char.isalnum() or char in ("-", "_", ".") else "_"
+        for char in str(label)
+    )
+    path = os.path.join(folder, "_Preview_%s.png" % safe_label)
+    with open(path, "wb") as file:
+        file.write(preview_bytes)
+
+    PRINT(Candy("Color", "green", "-Preview image : %s") % path)
+    ACTIVE_PREVIEW_IMAGE = Open_Final_Image(path)
+    return ACTIVE_PREVIEW_IMAGE
+
+
+def Ultimate_Linefeed_Checkpoint_Path():
+    folder = output.ensure_clone_folder(FILE_Origin, FILE_DIR)
+    return os.path.join(folder, "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl")
+
+
+def Ultimate_Linefeed_Budget():
+    if globals().get("ULTIMATE_LINEFEED_UNBOUNDED", False):
+        return None
+    budget = globals().get("ULTIMATE_LINEFEED_BUDGET", None)
+    if budget is None:
+        return 50000
+    return int(budget)
 
 
 def CheckPoint_Runtime():
@@ -734,7 +815,10 @@ def Question(id=None,idhash=None, skipauto=False):
         prompt_candy=Prompt_Candy,
         status_sink=lambda status: globals().__setitem__("LAST_QUESTION_STATUS", status),
     )
-    return question_runtime.ask_question(runtime, id, idhash, skipauto=skipauto)
+    try:
+        return question_runtime.ask_question(runtime, id, idhash, skipauto=skipauto)
+    finally:
+        Close_Preview_Image()
 
 
 def Checksum(Ctype, Cdata, Crc, next=None):

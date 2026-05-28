@@ -28,6 +28,8 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "--clear" in result.stdout
     assert "--output-dir" in result.stdout
     assert "--max-saves" in result.stdout
+    assert "--ultimate-linefeed-budget" in result.stdout
+    assert "--ultimate-linefeed-unbounded" in result.stdout
 
 
 def test_missing_file_argument_returns_usage_error():

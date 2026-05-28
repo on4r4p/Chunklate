@@ -329,7 +329,7 @@ def test_rebuild_tolerant_idat_salvage_keeps_rows_after_bad_filters():
     assert repair is not None
     assert repair.recovered_scanlines == 495
     assert repair.total_scanlines == 503
-    assert "blackfilled 8 bad filter rows" in repair.strategy
+    assert "reused previous row for 8 bad filter rows" in repair.strategy
     assert validate_png_structure(repair.data).ok
 
     chunks = list(iter_chunks(repair.data))
@@ -338,6 +338,472 @@ def test_rebuild_tolerant_idat_salvage_keeps_rows_after_bad_filters():
 
     assert len(rebuilt_filtered) == 503 * 2401
     assert {rebuilt_filtered[row * 2401] for row in range(503)} == {0}
+    assert rebuilt_filtered[145 * 2401 : 146 * 2401] == rebuilt_filtered[144 * 2401 : 145 * 2401]
+
+
+def test_idat_linefeed_cr_insert_probe_improves_salvage_candidate():
+    linefeed = repair_linefeed_conversion(
+        (ROOT / "David" / "6.bad.png").read_bytes(),
+        allow_partial=True,
+    )
+    assert linefeed is not None
+    realigned = repair_overlong_chunk_length_to_next_header(linefeed.data)
+    assert realigned is not None
+    first_error_offset = idat_bruteforce.first_idat_problem_stream_offset(realigned.data)
+    assert first_error_offset == 0x3EE9
+
+    result = idat_bruteforce.probe_idat_linefeed_cr_insertions(
+        realigned.data,
+        window_radius=4096,
+    )
+
+    assert result.best is not None
+    assert result.strategy == "linefeed-cr-insert"
+    assert result.before.usable_scanlines == 145
+    assert result.best.after.usable_scanlines == 503
+
+    repair = idat.rebuild_partial_idat_blackfill(result.best.data)
+    assert repair is not None
+    assert repair.recovered_scanlines == 503
+    assert repair.total_scanlines == 503
+    assert validate_png_structure(repair.data).ok
+
+    full = idat_bruteforce.probe_idat_linefeed_cr_insertions_full(
+        result.best.data,
+        start_offset=first_error_offset,
+    )
+    assert full.strategy == "linefeed-cr-insert-full"
+    assert full.window_start == first_error_offset
+    assert full.tested_candidates > 0
+
+    super_probe = idat_bruteforce.probe_super_mega_linefeed_force_of_death(
+        result.best.data,
+        start_offset=first_error_offset,
+        linefeed_budget=100,
+        structural_budget=100,
+        local_bit_budget=32,
+        local_byte_budget=64,
+        heavy_byte_budget=64,
+        beam_width=2,
+        max_depth=1,
+    )
+    assert super_probe.strategy == "SuperMegaLineFeedForceOfDeath"
+    assert super_probe.error_anchor_offset == first_error_offset
+    assert super_probe.pre_error_backtrack == idat_bruteforce.adaptive_pre_error_backtrack(super_probe.window_end)
+    assert super_probe.search_start_offset == max(0, first_error_offset - super_probe.pre_error_backtrack)
+    assert super_probe.tested_candidates > full.tested_candidates
+    assert super_probe.target_adler is not None
+    assert super_probe.state_count >= 1
+    assert super_probe.visited_count >= super_probe.state_count
+    assert {phase.name for phase in super_probe.phases} >= {
+        "phase1-linefeed-global",
+        "phase2-crlf-structural",
+        "phase3-deflate-bit",
+        "phase3-deflate-byte",
+        "phase4-heavy-byte-window",
+        "phase5-adler-target",
+    }
+    summary = idat_bruteforce.super_mega_linefeed_probe_summary_line(super_probe)
+    assert "SuperMegaLineFeedForceOfDeath" in summary
+    assert "target_adler=0x" in summary
+    assert "source_crc=" in summary
+
+
+def test_super_mega_linefeed_force_recovers_multiple_crlf_deletions():
+    filtered = b"".join(b"\x00" + bytes((13, 10, row)) for row in range(20))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    assert len(crlf_offsets) >= 2
+    for offset in reversed(crlf_offsets[:2]):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 20, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+    assert start_offset is not None
+
+    probe = idat_bruteforce.probe_super_mega_linefeed_force_of_death(
+        corrupt,
+        start_offset=start_offset,
+        pre_error_backtrack=64,
+        linefeed_budget=100,
+        structural_budget=0,
+        local_bit_budget=0,
+        local_byte_budget=0,
+        heavy_byte_budget=0,
+        beam_width=4,
+        max_depth=4,
+    )
+
+    assert probe.best is not None
+    assert probe.best.after.complete is True
+    assert probe.best.after.adler_status == "adler_match"
+    assert len(probe.best.operations) == 2
+    assert [operation.kind for operation in probe.best.operations] == [
+        "insert-cr-before-lf",
+        "insert-cr-before-lf",
+    ]
+    assert probe.states[0].state_id == 0
+    assert probe.best.parent_id is not None
+    assert probe.best.source_offsets == tuple(operation.stream_offset for operation in probe.best.operations)
+    assert probe.visited_count <= probe.tested_candidates + 1
+    assert zlib.decompress(b"".join(chunk.data for chunk in iter_chunks(probe.best.data) if chunk.chunk_type == b"IDAT")) == filtered
+
+
+def test_super_mega_linefeed_force_uses_known_gap_phase_before_broad_search():
+    filtered = b"".join(b"\x00" + bytes((13, 10, row)) for row in range(20))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    assert len(crlf_offsets) >= 2
+    for offset in reversed(crlf_offsets[:2]):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 20, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+
+    probe = idat_bruteforce.probe_super_mega_linefeed_force_of_death(
+        corrupt,
+        start_offset=start_offset,
+        known_gap_bytes=2,
+        known_gap_window_start=0,
+        known_gap_window_end=len(compressed),
+        known_gap_budget=256,
+        linefeed_budget=0,
+        structural_budget=0,
+        local_bit_budget=0,
+        local_byte_budget=0,
+        heavy_byte_budget=0,
+        adler_budget=0,
+        beam_width=1,
+        max_depth=1,
+    )
+
+    assert probe.best is not None
+    assert probe.best.after.complete is True
+    assert probe.best.after.adler_status == "adler_match"
+    assert probe.phases[0].name == "phase0-known-gap-linefeed"
+    assert probe.best.operations[0].kind == "known-gap-insert-2-crs-before-lfs"
+
+
+def test_super_mega_linefeed_force_reports_budget_exhausted_but_keeps_best_candidate():
+    filtered = b"".join(b"\x00" + bytes((13, 10, row)) for row in range(20))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets[:2]):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 20, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+
+    probe = idat_bruteforce.probe_super_mega_linefeed_force_of_death(
+        corrupt,
+        start_offset=start_offset,
+        pre_error_backtrack=64,
+        linefeed_budget=1,
+        structural_budget=0,
+        local_bit_budget=0,
+        local_byte_budget=0,
+        heavy_byte_budget=0,
+        beam_width=1,
+        max_depth=4,
+    )
+
+    assert probe.budget_exhausted is True
+    assert probe.best is not None
+    assert probe.best.after.usable_scanlines >= probe.before.usable_scanlines
+
+
+def test_super_mega_linefeed_force_keeps_best_when_original_adler_target_is_wrong():
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+
+    probe = idat_bruteforce.probe_super_mega_linefeed_force_of_death(
+        corrupt,
+        start_offset=len(compressed) - 4,
+        linefeed_budget=0,
+        structural_budget=0,
+        local_bit_budget=0,
+        local_byte_budget=0,
+        heavy_byte_budget=0,
+        adler_budget=4,
+        beam_width=1,
+        max_depth=1,
+    )
+
+    assert probe.target_adler is not None
+    assert probe.best is not None
+    assert probe.best.after.complete is True
+    assert probe.best.after.adler_status == "adler_mismatch"
+    assert probe.best.after.crc_provenance == "rebuilt_by_chunklate"
+    assert "set-zlib-trailer-to-computed-adler" in idat_bruteforce.super_mega_linefeed_candidate_summary_line(probe.best)
+    assert "original Adler target was not recovered" in idat_bruteforce.super_mega_linefeed_probe_summary_line(probe)
+
+
+def test_ultimate_linefeed_suspect_offsets_prioritize_error_and_linefeeds():
+    filtered = b"".join(b"\x00" + bytes((13, 10, row)) for row in range(20))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets[:2]):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 20, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+    offsets = idat_bruteforce.ultimate_linefeed_suspect_offsets(
+        corrupt,
+        start_offset=start_offset,
+        max_offsets=8,
+    )
+
+    assert start_offset in offsets
+    assert any(bytes(compressed)[offset] == 0x0A for offset in offsets if offset < len(compressed))
+
+
+def test_ultimate_linefeed_bruteforce_recovers_multi_step_original_adler(tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row)) for row in range(20))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets[:2]):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 20, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+    checkpoint = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"
+
+    probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        corrupt,
+        start_offset=start_offset,
+        checkpoint_path=str(checkpoint),
+        max_depth=3,
+        max_offsets=64,
+        budget=2000,
+        beam_width=8,
+    )
+
+    assert probe.strategy == "UltimateMegaSuperLineFeedBruteForce"
+    assert probe.best is not None
+    assert probe.best.after.complete is True
+    assert probe.best.after.adler_status == "adler_match"
+    assert probe.reached_depth == 2
+    assert probe.visited_count <= probe.tested_candidates + 1
+    assert checkpoint.exists()
+    assert "target_adler=0x" in idat_bruteforce.ultimate_linefeed_probe_summary_line(probe)
+    assert "UltimateMegaSuperLineFeedBruteForce candidate" in idat_bruteforce.ultimate_linefeed_candidate_summary_line(probe.best)
+    assert zlib.decompress(b"".join(chunk.data for chunk in iter_chunks(probe.best.data) if chunk.chunk_type == b"IDAT")) == filtered
+
+
+def test_ultimate_linefeed_bruteforce_recovers_four_step_original_adler(tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row)) for row in range(20))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets[:4]):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 20, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+
+    probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        corrupt,
+        start_offset=start_offset,
+        checkpoint_path=str(tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"),
+        max_depth=4,
+        max_offsets=16,
+        budget=10000,
+        beam_width=4,
+    )
+
+    assert probe.best is not None
+    assert probe.best.after.complete is True
+    assert probe.best.after.adler_status == "adler_match"
+    assert len(probe.best.operations) == 4
+    assert probe.reached_depth == 4
+
+
+def test_ultimate_linefeed_bruteforce_resumes_checkpoint(tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row)) for row in range(20))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets[:2]):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 20, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+    checkpoint = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"
+
+    first = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        corrupt,
+        start_offset=start_offset,
+        checkpoint_path=str(checkpoint),
+        max_depth=1,
+        max_offsets=64,
+        budget=32,
+        beam_width=8,
+    )
+    second = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        corrupt,
+        start_offset=start_offset,
+        checkpoint_path=str(checkpoint),
+        max_depth=2,
+        max_offsets=64,
+        budget=2000,
+        beam_width=8,
+    )
+
+    assert first.best is not None
+    assert second.resumed_states > 0
+    assert second.best is not None
+    assert second.best.after.adler_status == "adler_match"
+
+
+def test_ultimate_linefeed_bruteforce_keeps_plausible_result_without_original_adler(tmp_path):
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+
+    probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        corrupt,
+        start_offset=len(compressed) - 4,
+        checkpoint_path=str(tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"),
+        max_depth=1,
+        max_offsets=16,
+        budget=256,
+        beam_width=4,
+    )
+
+    assert probe.best is not None
+    assert probe.best.after.complete is True
+    assert probe.best.after.adler_status == "adler_mismatch"
+    assert "original Adler target was not recovered" in idat_bruteforce.ultimate_linefeed_probe_summary_line(probe)
+
+
+def test_ultimate_linefeed_bruteforce_spends_budget_when_no_terminal_match(tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row % 256)) for row in range(120))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 120, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+
+    probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        corrupt,
+        start_offset=start_offset,
+        checkpoint_path=str(tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"),
+        max_depth=2,
+        max_offsets=128,
+        budget=300,
+        beam_width=1,
+    )
+
+    assert probe.tested_candidates == 300
+    assert probe.budget_exhausted is True
+    assert probe.best is not None
+    assert probe.best.after.adler_status != "adler_match"
+
+
+def test_ultimate_linefeed_bruteforce_broadens_small_focused_space(tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row % 256)) for row in range(120))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets[:4]):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 120, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+
+    probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        corrupt,
+        start_offset=start_offset,
+        checkpoint_path=str(tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"),
+        max_depth=2,
+        max_offsets=8,
+        budget=250,
+        beam_width=1,
+    )
+
+    assert probe.tested_candidates == 250
+    assert probe.budget_exhausted is True
+    assert probe.best is not None
+    assert probe.best.after.adler_status != "adler_match"
+
+
+def test_ultimate_linefeed_bruteforce_skips_clean_complete_idat(tmp_path):
+    filtered = b"".join(b"\x00" + bytes((row, row, row)) for row in range(8))
+    clean = build_rgb_png(1, 8, filtered)
+
+    probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        clean,
+        checkpoint_path=str(tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"),
+        budget=500,
+    )
+
+    assert probe.best is None
+    assert probe.tested_candidates == 0
+    assert probe.budget_exhausted is False
+    assert probe.reason == "IDAT stream is already complete with matching Adler"
+
+
+def test_ultimate_linefeed_bruteforce_accepts_unbounded_budget(tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row % 256)) for row in range(8))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    del compressed[crlf_offsets[0]]
+
+    corrupt = build_rgb_png(1, 8, filtered, idat_data=bytes(compressed))
+
+    probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        corrupt,
+        checkpoint_path=str(tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"),
+        max_depth=1,
+        max_offsets=2,
+        budget=None,
+        beam_width=1,
+    )
+
+    assert probe.tested_candidates > 0
+    assert probe.budget_exhausted is False
 
 
 def test_rebuild_partial_idat_blackfill_ignores_complete_or_unusable_streams():
@@ -365,6 +831,34 @@ def test_analyze_idat_stream_reports_complete_stream():
     assert analysis.usable_scanlines == 2
     assert analysis.zlib_error == ""
     assert analysis.error_offset is None
+    assert analysis.stored_adler == zlib.adler32(filtered)
+    assert analysis.computed_adler == zlib.adler32(filtered)
+    assert analysis.adler_status == "adler_match"
+    assert analysis.crc_provenance == "original_crc_ok"
+    assert analysis.source_kind == "original"
+
+
+def test_zlib_trailer_adler_extracts_target_from_idat_stream():
+    filtered = b"\x00abc"
+    compressed = zlib.compress(filtered)
+
+    assert idat.zlib_trailer_adler(compressed) == zlib.adler32(filtered)
+    assert idat.format_adler(zlib.adler32(filtered)).startswith("0x")
+    assert idat.zlib_trailer_adler(b"bad") is None
+
+
+def test_analyze_idat_stream_marks_rebuilt_adler_provenance():
+    filtered = b"\x00abc"
+    analysis = idat.analyze_idat_stream(
+        build_rgb_png(1, 1, filtered),
+        source_kind="clone",
+        crc_provenance="rebuilt_by_chunklate",
+    )
+
+    assert analysis.complete is True
+    assert analysis.adler_status == "adler_rebuilt"
+    assert analysis.crc_provenance == "rebuilt_by_chunklate"
+    assert analysis.source_kind == "clone"
 
 
 def test_analyze_idat_stream_reports_corrupt_deflate():
@@ -636,6 +1130,9 @@ def test_analyze_idat_stream_reports_bad_adler():
     assert analysis.usable_scanlines == 3
     assert analysis.recovered_scanlines == filtered
     assert analysis.error_offset is not None
+    assert analysis.stored_adler != zlib.adler32(filtered)
+    assert analysis.computed_adler == zlib.adler32(filtered)
+    assert analysis.adler_status == "adler_mismatch"
 
 
 def test_analyze_idat_stream_reports_incomplete_stream():
@@ -717,10 +1214,36 @@ def main():
             test_rebuild_tolerant_idat_salvage_keeps_rows_after_bad_filters,
         ),
         (
+            "IDAT linefeed CR insert probe",
+            test_idat_linefeed_cr_insert_probe_improves_salvage_candidate,
+        ),
+        (
+            "SuperMega multi CRLF",
+            test_super_mega_linefeed_force_recovers_multiple_crlf_deletions,
+        ),
+        (
+            "SuperMega known gap",
+            test_super_mega_linefeed_force_uses_known_gap_phase_before_broad_search,
+        ),
+        (
+            "SuperMega budget exhausted",
+            test_super_mega_linefeed_force_reports_budget_exhausted_but_keeps_best_candidate,
+        ),
+        (
+            "SuperMega wrong Adler target",
+            test_super_mega_linefeed_force_keeps_best_when_original_adler_target_is_wrong,
+        ),
+        (
+            "Ultimate suspect offsets",
+            test_ultimate_linefeed_suspect_offsets_prioritize_error_and_linefeeds,
+        ),
+        (
             "Partial IDAT blackfill ignored cases",
             test_rebuild_partial_idat_blackfill_ignores_complete_or_unusable_streams,
         ),
         ("IDAT stream complete", test_analyze_idat_stream_reports_complete_stream),
+        ("IDAT stream target Adler", test_zlib_trailer_adler_extracts_target_from_idat_stream),
+        ("IDAT stream rebuilt Adler", test_analyze_idat_stream_marks_rebuilt_adler_provenance),
         ("IDAT stream corrupt deflate", test_analyze_idat_stream_reports_corrupt_deflate),
         (
             "IDAT stream deflate header diagnosis",
