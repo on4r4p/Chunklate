@@ -123,6 +123,9 @@ def main_loop_history_reset_values() -> dict[str, object]:
         "WRONG_CHUNK_NAME_TRIED_ROUTES": set(),
         "REPAIR_ROUTE_STATES": {},
         "NEARBY_FOUND_LATER_IEND": None,
+        "FOG_OF_WAR_BAD_CHUNKS": set(),
+        "FOG_OF_WAR_LAST_MAP": None,
+        "FOG_OF_WAR_LAST_WIDTH": None,
     }
 
 

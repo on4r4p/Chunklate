@@ -50,6 +50,8 @@ def reset_fixit_globals():
     Chunklate.DEBUG = False
     Chunklate.PAUSEDEBUG = False
     Chunklate.Sample = "sample.png"
+    Chunklate.Chunks_History = []
+    Chunklate.Chunks_History_Index = []
     Chunklate.DATAX = ""
     Chunklate.CLoffI = 0
     Chunklate.CrcoffI = 0
@@ -538,6 +540,7 @@ def test_no_next_false_positive_iend_with_missplaced_routes_the_good_place():
     misplaced_key = "CheckChunkOrder_Error_0:Missplaced IEND"
     chkd = "IEND_Tool_"
     Chunklate.Bad_Missplaced = True
+    Chunklate.Chunks_History = [b"PNG", b"IHDR", b"gAMA", b"IDAT", b"bKGD"]
     Chunklate.PandoraBox = no_next_pandora_box(
         key,
         chkd,
@@ -569,6 +572,59 @@ def test_no_next_false_positive_iend_with_missplaced_routes_the_good_place():
     assert calls["chunk_story"] == [("add", b"IEND", 0, 8, 0)]
     assert calls["check_order"] == [(b"IEND", "Critical")]
     assert calls["good_place"] == [(b"IEND", 12, 20)]
+    assert Chunklate.SideNotes == [
+        "-Found False-Positive :[Error:-No NextChunk].",
+        "-Reached the end of file.",
+    ]
+
+
+def test_no_next_false_positive_iend_with_generic_missplaced_infers_the_good_place():
+    reset_fixit_globals()
+    key = "CheckLength_Error_0:-No NextChunk"
+    misplaced_key = "CheckChunkOrder_Error_0:-Missplaced"
+    chkd = "IEND_Tool_"
+    Chunklate.Bad_Missplaced = True
+    Chunklate.Chunks_History = [b"PNG", b"IHDR", b"gAMA", b"IDAT", b"bKGD"]
+    Chunklate.PandoraBox = no_next_pandora_box(
+        key,
+        chkd,
+        chunk_type=b"IEND",
+        chunk_length="0",
+        previous_chunk=b"bKGD",
+    )
+    Chunklate.PandoraBox[misplaced_key] = {
+        "Missplaced_Tool_0": ["-Missplaced"],
+    }
+    Chunklate.DATAX = "aabbccdd" + fixit_felix.GOOD_IEND_HEX
+    calls = {
+        "chunk_story": [],
+        "check_order": [],
+        "libpng": [],
+        "end": [],
+        "candy": [],
+        "good_place": [],
+    }
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: calls["candy"].append(args) or "",
+        ChunkStory=lambda *args: calls["chunk_story"].append(args),
+        CheckChunkOrder=lambda *args: calls["check_order"].append(args),
+        LibpngCheck=lambda sample: calls["libpng"].append(sample) or "libpng-result",
+        TheGoodPlace=lambda *args: calls["good_place"].append(args) or "good-place-result",
+        TheEnd=lambda: calls["end"].append("end"),
+    ):
+        should_return, result = Chunklate.FixItFelix_No_NextChunk(key, chkd, b"IEND")
+
+    assert should_return is True
+    assert result == "good-place-result"
+    assert list(Chunklate.PandoraBox) == [misplaced_key]
+    assert calls["chunk_story"] == [("add", b"IEND", 0, 8, 0)]
+    assert calls["check_order"] == [(b"IEND", "Critical")]
+    assert calls["good_place"] == [(b"IDAT", 3, b"bKGD")]
+    assert calls["libpng"] == []
+    assert calls["end"] == []
     assert Chunklate.SideNotes == [
         "-Found False-Positive :[Error:-No NextChunk].",
         "-Reached the end of file.",
@@ -759,6 +815,46 @@ def test_no_next_ask_length_probe_routes_to_nearbychunk():
     assert Chunklate.SideNotes == ["-End of File Reached but IEND Chunk is missing"]
 
 
+def test_no_next_without_idat_evidence_ends_without_nearby_prompt():
+    reset_fixit_globals()
+    key = "CheckLength_Error_0:-No NextChunk"
+    chkd = "gAMA_Tool_"
+    Chunklate.Chunks_History = [b"IHDR", b"gAMA"]
+    Chunklate.PandoraBox = no_next_pandora_box(
+        key,
+        chkd,
+        chunk_type=b"gAMA",
+        chunk_length="4",
+        previous_chunk=b"IHDR",
+    )
+    end_calls = []
+    candy_calls = []
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: candy_calls.append(args) or "",
+        Question=lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not ask")),
+        NearbyChunk=lambda *args: (_ for _ in ()).throw(AssertionError("should not probe")),
+        TheEnd=lambda: end_calls.append("end"),
+    ):
+        should_return, result = Chunklate.FixItFelix_No_NextChunk(key, chkd, b"gAMA")
+
+    assert should_return is False
+    assert result is None
+    assert end_calls == ["end"]
+    assert Chunklate.EOF is True
+    assert Chunklate.Skip_Bad_No_Next_Chunk is True
+    assert Chunklate.SideNotes == [
+        "-Critical Chunk b'IDAT' is Missing",
+        "-Terminal PNG error: no IDAT chunk found; no image data to repair."
+    ]
+    assert any(
+        call[0] == "Cowsay" and "No IDAT chunk, no image stream" in call[1]
+        for call in candy_calls
+    )
+
+
 def test_no_next_skip_short_circuits():
     reset_fixit_globals()
     Chunklate.Skip_Bad_No_Next_Chunk = True
@@ -824,6 +920,10 @@ def main():
             test_no_next_false_positive_iend_with_missplaced_routes_the_good_place,
         ),
         (
+            "No-next false positive generic misplaced infers TheGoodPlace",
+            test_no_next_false_positive_iend_with_generic_missplaced_infers_the_good_place,
+        ),
+        (
             "No-next false positive writes clean cut",
             test_no_next_false_positive_iend_writes_clean_cut_when_extra_bytes_follow_iend,
         ),
@@ -838,6 +938,10 @@ def main():
             test_no_next_append_missing_iend_inside_exceeding_records_todo_and_ends,
         ),
         ("No-next ask length probe routes to NearbyChunk", test_no_next_ask_length_probe_routes_to_nearbychunk),
+        (
+            "No-next without IDAT evidence ends",
+            test_no_next_without_idat_evidence_ends_without_nearby_prompt,
+        ),
         ("No-next skip short circuits", test_no_next_skip_short_circuits),
     ]
 

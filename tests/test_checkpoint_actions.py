@@ -258,6 +258,56 @@ def test_apply_smash_brute_brawl_retry_ihdr_relaunches_with_higher_level():
     ]
 
 
+def test_apply_smash_brute_brawl_retry_ihdr_preserves_old_crc_route():
+    reset_checkpoint_globals()
+    calls = []
+    toolkit = (
+        "sample.png",
+        b"IHDR",
+        13,
+        8,
+        "edit",
+        "Bytes",
+        "crc",
+        "length",
+        "old-crc",
+        "from-error",
+    )
+    decision = checkpoint.CheckPointActionDecision("smash_brute_brawl_retry_ihdr_harder")
+
+    def fake_smash_brute_brawl(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    with patched_attrs(
+        Chunklate,
+        Candy=lambda *args, **kwargs: "",
+        SmashBruteBrawl=fake_smash_brute_brawl,
+    ):
+        should_return, result = Chunklate.CheckPoint_Apply_Action_Decision(
+            decision,
+            "IHDR",
+            "-Bruteforcer has Failed OldCrc",
+            toolkit,
+        )
+
+    assert should_return is False
+    assert result is None
+    assert Chunklate.Brute_LvL == 1
+    assert Chunklate.SideNotes == ["-CheckPoint: -Bruteforcer has Failed OldCrc"]
+    assert calls == [
+        (
+            ("sample.png", b"IHDR", 13, 8, "from-error"),
+            {
+                "EditMode": "edit",
+                "BfMode": "Bytes",
+                "BruteCrc": "crc",
+                "BruteLength": "length",
+                "OldCrc": "old-crc",
+            },
+        )
+    ]
+
+
 def test_apply_smash_brute_brawl_twobytes_retry_preserves_old_crc_route():
     reset_checkpoint_globals()
     calls = []
@@ -416,6 +466,10 @@ def main():
         ("Apply simple SmashBruteBrawl WriteClone", test_apply_action_routes_simple_smash_brute_brawl_write_clone),
         ("Apply simple SmashBruteBrawl SaveClone", test_apply_action_routes_simple_smash_brute_brawl_save_clone),
         ("Apply SmashBruteBrawl IHDR retry", test_apply_smash_brute_brawl_retry_ihdr_relaunches_with_higher_level),
+        (
+            "Apply SmashBruteBrawl IHDR retry OldCrc",
+            test_apply_smash_brute_brawl_retry_ihdr_preserves_old_crc_route,
+        ),
         ("Apply SmashBruteBrawl TwoBytes retry", test_apply_smash_brute_brawl_twobytes_retry_preserves_old_crc_route),
         ("Apply SmashBruteBrawl interlaced IDAT dummy fallback", test_apply_smash_brute_brawl_twobytes_decline_can_dummy_interlaced_idat),
         ("Apply SmashBruteBrawl Custom Brutus fallback", test_apply_smash_brute_brawl_custom_can_switch_to_brutus),

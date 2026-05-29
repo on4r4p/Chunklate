@@ -98,13 +98,65 @@ def CheckPoint_Libpng_End_Success(message):
         message,
         "good",
     )
-    name, sample_dir = Naming(FILE_Origin)
-    saved_path = "%s/%s" % (sample_dir, Sample_Name)
+    saved_path = Current_Display_Image_Path()
     Candy("Cowsay", "Your file is here: %s" % saved_path, "good")
     PRINT(Candy("Color", "green", "-Saved in : %s") % saved_path)
-    Open_Final_Image(saved_path)
+    Open_Final_Image_Once(saved_path)
     Candy("Cowsay", "See you Space Cowboy...", "good")
     TheEnd()
+
+
+def _Valid_Png_Path(path):
+    if not path or not os.path.exists(path):
+        return False
+    try:
+        with open(path, "rb") as file:
+            return validate_png_structure(output.clone_bytes(file.read())).ok
+    except (OSError, ValueError):
+        return False
+
+
+def Current_Display_Image_Path():
+    sample_dir = output.clone_folder(FILE_Origin, FILE_DIR)
+    clone_path = os.path.join(sample_dir, Sample_Name) if Sample_Name else ""
+    if SAVE_COUNT > 0:
+        candidates = (clone_path, Sample, FILE_Origin)
+    else:
+        candidates = (Sample, FILE_Origin)
+    for path in candidates:
+        if _Valid_Png_Path(path):
+            return path
+    for path in candidates:
+        if path:
+            return path
+    return ""
+
+
+def Open_Final_Image_Once(path):
+    global FINAL_IMAGE_OPEN_REQUESTED
+
+    if FINAL_IMAGE_OPEN_REQUESTED:
+        return None
+    if Has_Unresolved_Findings():
+        return None
+    if not _Valid_Png_Path(path):
+        return None
+    if SAVE_COUNT == 0 and path in (Sample, FILE_Origin):
+        Candy(
+            "Cowsay",
+            "Wtf... why did you give that to me? It's perfect!",
+            "good",
+        )
+    FINAL_IMAGE_OPEN_REQUESTED = True
+    return Open_Final_Image(path)
+
+
+def Open_Current_Final_Image_If_Valid():
+    return Open_Final_Image_Once(Current_Display_Image_Path())
+
+
+def Has_Unresolved_Findings():
+    return bool(PandoraBox)
 
 
 def Open_Final_Image(path):
@@ -182,7 +234,7 @@ def Ultimate_Linefeed_Budget():
         return None
     budget = globals().get("ULTIMATE_LINEFEED_BUDGET", None)
     if budget is None:
-        return 50000
+        return 100000
     return int(budget)
 
 
@@ -363,21 +415,44 @@ def Chunklate(sec):
         time.sleep(sec)
 
 
+def Minibar_Group(Indication=""):
+    return "".join("#" if char.isdigit() else char for char in str(Indication))
+
+
 def Minibar(Indication=""):
     global CharPos
     global GoBack
     global Loading_txt
     global Loading_sep
+    global PROGRESS_LINE_ACTIVE
+    minibar_group = Minibar_Group(Indication)
+    if minibar_group != Loading_sep:
+        Loading_txt = ""
+        CharPos = 1
+        GoBack = False
+        Loading_sep = minibar_group
     Step = ui.minibar_step(Indication, Loading_txt, CharPos, GoBack, MAXCHAR)
     Loading_txt = Step.loading_text
     CharPos = Step.char_pos
     GoBack = Step.go_back
     if Step.should_print:
-        print(Loading_txt, end="\r")
+        print(Loading_txt + "\033[K", end="\r")
+        PROGRESS_LINE_ACTIVE = True
 
 
 def Loadingbar(fishs, fishsize, loop, build):
-    return ui.run_loadingbar_from_namespace(globals(), fishs, fishsize, loop, build)
+    global PROGRESS_LINE_ACTIVE
+    result = ui.run_loadingbar_from_namespace(globals(), fishs, fishsize, loop, build)
+    if not build:
+        PROGRESS_LINE_ACTIVE = True
+    return result
+
+
+def Finish_Progress_Line():
+    global PROGRESS_LINE_ACTIVE
+    if PROGRESS_LINE_ACTIVE:
+        print("")
+        PROGRESS_LINE_ACTIVE = False
 
 
 def Sumform(waitforit, switch):
@@ -439,7 +514,14 @@ def ChunkStory(action, Chunk, start, end, chuck_length):
                     Pause("Pause:Chunkstory")
 
 
+def Clear_Terminal_Dialogue_Pause():
+    DIALOGUE_PAUSE_STATE.pending = False
+    DIALOGUE_PAUSE_STATE.paused_in_group = False
+    DIALOGUE_PAUSE_STATE.rendering_dialogue = False
+
+
 def TheEnd():
+    Clear_Terminal_Dialogue_Pause()
     if DEBUG is True:
         for line in output.the_end_debug_lines(
             Chunks_History_Index,
@@ -450,6 +532,7 @@ def TheEnd():
             PRINT(line)
     if PAUSEDEBUG is True:
         Pause("ThenEnd debug")
+    Open_Current_Final_Image_If_Valid()
     Summarise(None, True)
     Chunklate(0)
     sys.exit(0)
@@ -639,6 +722,7 @@ def LibpngCheck(file):
             image_module=Image,
             stderr_redirector=stderr_redirector,
             warning_reader=KnownBadSrgbProfileWarning,
+            pending_errors=tuple(PandoraBox),
         ),
         file,
     )
@@ -1085,6 +1169,14 @@ def FixItFelix_Try_Automatic_Repair(name):
     if repair is None:
         return None
 
+    if name == "ihdr_rebuild":
+        crc_bruteforce_result = fixit_felix_runtime.try_ihdr_stored_crc_bruteforce(
+            FixItFelix_Automatic_Repair_Runtime(),
+            repair,
+        )
+        if crc_bruteforce_result is not None:
+            return crc_bruteforce_result
+
     return FixItFelix_Apply_Repair(repair)
 
 
@@ -1146,6 +1238,7 @@ def Pause(msg):
     return ()
 
 def PRINT(msg):
+    Finish_Progress_Line()
     ui.emit_printable_message(print, msg, max_columns=MAXCHAR, no_dialogue=NODIALOGUE)
 
 #    else:
@@ -1234,6 +1327,9 @@ IDAT_DEFLATE_PROBE_KEYS = set()
 WRONG_CHUNK_NAME_TRIED_ROUTES = set()
 REPAIR_ROUTE_STATES = {}
 NEARBY_FOUND_LATER_IEND = None
+FOG_OF_WAR_BAD_CHUNKS = set()
+FOG_OF_WAR_LAST_MAP = None
+FOG_OF_WAR_LAST_WIDTH = None
 ArkOfCovenant = {}
 Pandemonium = {}
 CHUNK_INFO_STATE = chunk_state.ChunkInfoState()
@@ -1246,6 +1342,8 @@ FirStart = True
 Switch = False
 GoBack = False
 CharPos = 1
+Loading_sep = ""
+PROGRESS_LINE_ACTIVE = False
 Have_A_KitKat = False
 TmpFixIHDR = False
 Warning = False
@@ -1277,6 +1375,7 @@ Show_Must_Go_On = False
 CLEAR = False
 CLEAR_SCREEN_ACTIVE_THIS_PASS = False
 LAST_QUESTION_STATUS = None
+FINAL_IMAGE_OPEN_REQUESTED = False
 CRASH = False
 PAUSE = False
 DEBUG = False
@@ -1303,6 +1402,7 @@ IDAT_Avg_Len = ""
 FILE_Origin = ""
 FILE_DIR = ""
 Loading_txt = ""
+DIFF = ""
 DATAX = ""
 DATA_BYTES = b""
 Sample_Name = ""

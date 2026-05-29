@@ -241,6 +241,29 @@ def test_legacy_namespace_entry_builds_bridge_and_syncs_legacy_state():
     )
 
 
+def test_legacy_namespace_entry_defaults_missing_diff():
+    calls = []
+    namespace = build_namespace(calls)
+    namespace.pop("DIFF")
+
+    def bridge(runtime, context):
+        calls.append(("bridge", context.current_diff))
+        return "bridge-result"
+
+    result = smash_bruteforce.run_legacy_smash_brute_brawl_from_namespace(
+        namespace,
+        "broken.png",
+        "IDAT",
+        4,
+        16,
+        "Relics",
+        bridge=bridge,
+    )
+
+    assert result == "bridge-result"
+    assert ("bridge", "") in calls
+
+
 def test_legacy_namespace_entry_preserves_bytes_chunk_name_error_path():
     calls = []
     namespace = build_namespace(calls)
@@ -385,6 +408,7 @@ def test_legacy_bridge_wires_viewer_runtime_and_preserves_existing_diff_fallback
 def main():
     checks = [
         ("Namespace bridge", test_legacy_namespace_entry_builds_bridge_and_syncs_legacy_state),
+        ("Namespace missing diff", test_legacy_namespace_entry_defaults_missing_diff),
         ("Namespace bytes chunk", test_legacy_namespace_entry_preserves_bytes_chunk_name_error_path),
         ("Bridge scan/result", test_legacy_bridge_builds_scan_context_syncs_state_and_runs_result),
         ("Bridge viewer/fallback", test_legacy_bridge_wires_viewer_runtime_and_preserves_existing_diff_fallback),

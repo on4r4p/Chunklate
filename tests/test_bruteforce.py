@@ -637,6 +637,16 @@ class FakeProcess:
         self.killed = True
 
 
+class BrokenProcess:
+    killed = False
+
+    def cmdline(self):
+        raise RuntimeError("zombie")
+
+    def kill(self):
+        self.killed = True
+
+
 def test_wait_for_tmp_png_viewer_uses_process_iter_and_sleep_callbacks():
     calls = {"process_iter": 0, "sleep": []}
     tmp_proc = FakeProcess(("/usr/bin/display", "/tmp/tmpabcd.PNG"))
@@ -656,15 +666,33 @@ def test_wait_for_tmp_png_viewer_uses_process_iter_and_sleep_callbacks():
     assert calls == {"process_iter": 2, "sleep": [1, 1]}
 
 
+def test_wait_for_tmp_png_viewer_ignores_unreadable_processes():
+    calls = {"process_iter": 0, "sleep": []}
+
+    def process_iter():
+        calls["process_iter"] += 1
+        return [BrokenProcess()]
+
+    def sleep(seconds):
+        calls["sleep"].append(seconds)
+
+    state = bruteforce.wait_for_tmp_png_viewer(process_iter, sleep, limit=1)
+
+    assert state == bruteforce.BruteForceViewerWaitState(found=False, count=2, done=True)
+    assert calls == {"process_iter": 2, "sleep": [1, 1]}
+
+
 def test_kill_tmp_png_viewers_only_kills_legacy_tmp_png_processes():
     tmp_proc = FakeProcess(("/usr/bin/display", "/tmp/tmpabcd.PNG"))
     other_proc = FakeProcess(("/usr/bin/display", "/tmp/tmpabcd.png"))
+    broken_proc = BrokenProcess()
 
-    killed = bruteforce.kill_tmp_png_viewers([tmp_proc, other_proc])
+    killed = bruteforce.kill_tmp_png_viewers([tmp_proc, other_proc, broken_proc])
 
     assert killed == 1
     assert tmp_proc.killed is True
     assert other_proc.killed is False
+    assert broken_proc.killed is False
 
 
 def test_viewer_helpers_preserve_legacy_summaries_and_timeout_path():
@@ -1055,6 +1083,7 @@ def main():
         ("Failure checkpoint request", test_failure_checkpoint_request_preserves_oldcrc_and_regular_toolkits),
         ("Viewer helpers", test_viewer_helpers_preserve_libpng_process_and_diff_decisions),
         ("Viewer wait callback", test_wait_for_tmp_png_viewer_uses_process_iter_and_sleep_callbacks),
+        ("Viewer wait ignores unreadable processes", test_wait_for_tmp_png_viewer_ignores_unreadable_processes),
         ("Viewer kill callback", test_kill_tmp_png_viewers_only_kills_legacy_tmp_png_processes),
         ("Viewer summaries", test_viewer_helpers_preserve_legacy_summaries_and_timeout_path),
         ("Viewer timeout save", test_save_viewer_timeout_image_uses_callback_and_returns_summary),

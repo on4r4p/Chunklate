@@ -54,6 +54,9 @@ def test_parse_bkgd_uses_color_type_and_depth():
     gray = chunk_info.parse_bkgd("0007", ihdr_color="0", ihdr_depth="8")
     rgb = chunk_info.parse_bkgd("00ff01000001", ihdr_color="2", ihdr_depth="8")
     indexed = chunk_info.parse_bkgd("02", ihdr_color="3", ihdr_depth="8")
+    long_gray = chunk_info.parse_bkgd("000000000000", ihdr_color="4", ihdr_depth="8")
+    short_rgb = chunk_info.parse_bkgd("00ff", ihdr_color="6", ihdr_depth="8")
+    long_indexed = chunk_info.parse_bkgd("130000000000", ihdr_color="3", ihdr_depth="8")
 
     assert gray.gray == "7"
     assert gray.fixes == ()
@@ -63,6 +66,17 @@ def test_parse_bkgd_uses_color_type_and_depth():
     assert rgb.fixes == ("-Bkgd_Green Wrong value Must be less than 255",)
     assert indexed.index == "2"
     assert indexed.fixes == ()
+    assert long_gray.fixes == (
+        "-bKGD length is not Valid :6 must be 2 for IHDR color type 4",
+    )
+    assert short_rgb.fixes[:3] == (
+        "-bKGD length is not Valid :2 must be 6 for IHDR color type 6",
+        "-Error bKGD Green:invalid literal for int() with base 16: ''",
+        "-Error bKGD Blue:invalid literal for int() with base 16: ''",
+    )
+    assert long_indexed.fixes == (
+        "-bKGD length is not Valid :6 must be 1 for IHDR color type 3",
+    )
 
 
 def test_parse_hist_matches_palette_entry_count():
@@ -152,28 +166,36 @@ def test_parse_splt_keeps_legacy_entry_slicing_and_name_checks():
 
 def test_parse_text_reads_keyword_and_payload():
     info = chunk_info.parse_text("5469746c650048656c6c6f")
+    empty_key = chunk_info.parse_text("0048656c6c6f")
+    max_key = chunk_info.parse_text(("41" * 79) + "00")
     long_key = chunk_info.parse_text(("41" * 80) + "00")
 
     assert info.keyword == "5469746c65"
     assert info.decoded_keyword == "Title"
     assert info.decoded_text == "Hello"
     assert info.fixes == ()
+    assert empty_key.fixes == ("-tEXt Keyword length is not Valid :0",)
+    assert max_key.fixes == ()
     assert long_key.fixes == ("-tEXt Keyword length is not Valid :160",)
 
 
 def test_parse_ztxt_decompresses_payload():
     payload = "789cf348cdc9c90700058c01f5"
     info = chunk_info.parse_ztxt("4b65790000" + payload)
+    empty_key = chunk_info.parse_ztxt("0000" + payload)
     malformed = chunk_info.parse_ztxt("4b65790000ff")
 
     assert info.decoded_keyword == "Key"
     assert info.decoded_text == "Hello"
     assert info.fixes == ()
+    assert empty_key.fixes == ("-zTXt Keyword length is not Valid :0",)
     assert malformed.fixes[0].startswith("-zTXt Text Error:")
 
 
 def test_parse_itxt_reads_uncompressed_payload():
     info = chunk_info.parse_itxt("4b6579000000000048656c6c6f")
+    empty_key = chunk_info.parse_itxt("000000656e2d75730000437563756d626572")
+    long_key = chunk_info.parse_itxt(("41" * 80) + "000000000048656c6c6f")
     invalid_flag = chunk_info.parse_itxt("4b6579000200000048656c6c6f")
 
     assert info.decoded_keyword == "Key"
@@ -181,6 +203,8 @@ def test_parse_itxt_reads_uncompressed_payload():
     assert info.compression_method == "00"
     assert info.text == "Hello"
     assert info.fixes == ()
+    assert empty_key.fixes == ("-iTXt Keyword length is not Valid :0",)
+    assert long_key.fixes == ("-iTXt Keyword length is not Valid :160",)
     assert invalid_flag.fixes == ("-iTXt Compression Flag must be 0 or 1",)
 
 
@@ -350,6 +374,7 @@ def test_parse_chrm_reads_eight_unsigned_fields_and_override():
     info = chunk_info.parse_chrm(data)
     overridden = chunk_info.parse_chrm(data, has_srgb_or_iccp=True)
     malformed = chunk_info.parse_chrm("zz" + data[2:])
+    short = chunk_info.parse_chrm(data[:-2])
 
     assert info.white_x == "1"
     assert info.white_y == "2"
@@ -363,6 +388,7 @@ def test_parse_chrm_reads_eight_unsigned_fields_and_override():
     assert overridden.fixes == ("-cHRM is overided by sRGB chunk and iCCP",)
     assert malformed.white_x == ""
     assert malformed.fixes[0].startswith("-cHRM WhiteX Error:")
+    assert short.fixes == ("-cHRM length is not Valid :31 must be 32",)
 
 
 def test_parse_offs_validates_signed_offsets_and_unit():

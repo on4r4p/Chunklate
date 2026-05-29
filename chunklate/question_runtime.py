@@ -77,6 +77,10 @@ def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
         return "Question: Should i launch SuperMegaLineFeedForceOfDeath, the full IDAT line-feed brute force?"
     if "UltimateMegaSuperLineFeedBruteForce" in str(question_id):
         return "Question: Should I open the forbidden line-feed combinatorics vault?"
+    if "IHDR CRC Brute Force" in str(question_id):
+        return "Question: Should i brute force IHDR against the stored CRC before rebuilding it?"
+    if "cHRM Missing Bytes Inference" in str(question_id):
+        return "Question: Should i write the inferred cHRM bytes instead of removing the optional cHRM chunk?"
     if skipauto:
         return "Question: Should i stop this brute force branch and save the current candidate?"
     if "IDAT Heavy Probe" in str(question_id):
@@ -242,7 +246,14 @@ def _ask_yes_no_with_context(runtime: QuestionRuntime, question_id: Any, skipaut
     prompt = _question_prompt(runtime, skipauto)
     _emit_prompt_question_context(runtime, question_id, skipauto)
     while True:
-        response = decisions.normalize_choice(runtime.asker(prompt))
+        try:
+            answer = runtime.asker(prompt)
+        except EOFError:
+            candy = runtime.prompt_candy or runtime.candy
+            runtime.emit("")
+            candy("Cowsay", "No answer came back. I will take that as no and keep my hands visible.", "com")
+            return False
+        response = decisions.normalize_choice(answer)
         if response == "yes":
             return True
         if response == "no":

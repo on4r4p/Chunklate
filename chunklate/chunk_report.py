@@ -393,6 +393,9 @@ def render_iccp(
     if "-iCCP Profile length is not Valid" in info.fixes:
         emit("-iCCP Profile length is %s" % color("red", "not Valid"))
 
+    if "libpng warning: iCCP: known incorrect sRGB profile" in info.fixes:
+        emit("-iCCP profile is %s" % color("red", "known incorrect sRGB profile"))
+
     if has_chrm:
         emit(
             "-%s already present cHRM will be %s if reconized by decoders %s"

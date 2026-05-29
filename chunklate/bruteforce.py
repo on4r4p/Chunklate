@@ -596,6 +596,13 @@ def process_command_is_tmp_png(cmdline: tuple[str, ...] | list[str]) -> bool:
     return "/tmp/tmp" in command and ".PNG" in command
 
 
+def process_is_tmp_png_viewer(proc: Any) -> bool:
+    try:
+        return process_command_is_tmp_png(proc.cmdline())
+    except Exception:
+        return False
+
+
 def viewer_wait_step(found_tmp_png: bool, count: int, limit: int = 60) -> BruteForceViewerWaitState:
     next_count = count + 1
     return BruteForceViewerWaitState(
@@ -610,7 +617,7 @@ def wait_for_tmp_png_viewer(process_iter: Any, sleep: Any, limit: int = 60) -> B
     while True:
         sleep(1)
         found_tmp_png = any(
-            process_command_is_tmp_png(proc.cmdline())
+            process_is_tmp_png_viewer(proc)
             for proc in process_iter()
         )
         state = viewer_wait_step(found_tmp_png, count, limit)
@@ -622,7 +629,7 @@ def wait_for_tmp_png_viewer(process_iter: Any, sleep: Any, limit: int = 60) -> B
 def kill_tmp_png_viewers(processes: Any) -> int:
     killed = 0
     for proc in processes:
-        if process_command_is_tmp_png(proc.cmdline()):
+        if process_is_tmp_png_viewer(proc):
             proc.kill()
             killed += 1
     return killed

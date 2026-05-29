@@ -25,6 +25,7 @@ class LibpngCheckContext:
     image_module: Any = None
     stderr_redirector: Callable = stdio.stderr_redirector
     warning_reader: Callable = libpng_check.known_bad_srgb_profile_warning_for_file
+    pending_errors: Sequence[Any] = ()
 
 
 def run_known_bad_srgb_profile_warning(
@@ -52,6 +53,29 @@ def run_libpng_check(
         warning_reader=context.warning_reader,
     )
     runtime.emit("Result:%s" % result)
+
+    pending_errors = tuple(str(error) for error in context.pending_errors if str(error))
+
+    if pending_errors and not runtime.result_has_error(result, context.libpng_errors):
+        runtime.emit(
+            "-Libpng Check: %s but Chunklate still has unresolved findings %s"
+            % (runtime.candy("Color", "yellow", "Ok"), runtime.candy("Chunky", "bad"))
+        )
+        runtime.candy(
+            "Cowsay",
+            "Libpng is happy, but I am not. There is still structure work on the table.",
+            "bad",
+        )
+        return runtime.checkpoint(
+            True,
+            False,
+            "LibpngCheck",
+            file,
+            [
+                "-Libpng is happy, but Chunklate still has unresolved findings: %s"
+                % "; ".join(pending_errors)
+            ],
+        )
 
     if not runtime.result_has_error(result, context.libpng_errors):
         runtime.emit(

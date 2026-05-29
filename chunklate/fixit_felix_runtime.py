@@ -5,13 +5,17 @@ import random
 from typing import Any
 from typing import Callable
 
+from . import bruteforce
+from . import bruteforce_runtime
 from . import fixit_felix
 from . import idat
 from . import idat_bruteforce
 from . import idat_chain
+from . import messages
 from . import png
 from . import repair_routes
 from . import relics
+from . import specs
 from . import writer
 
 
@@ -52,7 +56,16 @@ class LegacyFixItFelixHandlers:
 @dataclass(frozen=True)
 class AutomaticRepairRuntime:
     side_notes: Any
+    candy: Callable[..., Any]
     write_clone: Callable[[Any, str], Any]
+    question: Callable[..., Any] | None = None
+    data_hex: str = ""
+    pandora_box: Any = None
+    get_spec: Callable[..., Any] | None = None
+    product: Callable[..., Any] | None = None
+    loadingbar: Callable[..., Any] | None = None
+    minibar: Callable[..., Any] | None = None
+    file_origin: Any = ""
 
 
 @dataclass(frozen=True)
@@ -157,6 +170,7 @@ class NoNextChunkRuntime:
     dummy_chunk: Callable[..., Any]
     nearby_chunk: Callable[..., Any]
     nearby_found_later_iend: Callable[[], Any]
+    chunks_history: tuple[Any, ...] = ()
     loadingbar: Callable[..., Any] | None = None
     minibar: Callable[..., Any] | None = None
 
@@ -288,6 +302,7 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         dummy_chunk=namespace["DummyChunk"],
         nearby_chunk=namespace["NearbyChunk"],
         nearby_found_later_iend=lambda: namespace.get("NEARBY_FOUND_LATER_IEND"),
+        chunks_history=tuple(namespace.get("Chunks_History", ())),
         loadingbar=namespace.get("Loadingbar"),
         minibar=namespace.get("Minibar"),
     )
@@ -318,7 +333,330 @@ def build_critical_miss_runtime_from_namespace(namespace: dict[str, Any]) -> Cri
 def build_automatic_repair_runtime_from_namespace(namespace: dict[str, Any]) -> AutomaticRepairRuntime:
     return AutomaticRepairRuntime(
         side_notes=namespace["SideNotes"],
+        candy=namespace["Candy"],
         write_clone=namespace["WriteClone"],
+        question=namespace["Question"],
+        data_hex=namespace["DATAX"],
+        pandora_box=namespace["PandoraBox"],
+        get_spec=namespace["GetSpec"],
+        product=namespace["Product"],
+        loadingbar=namespace.get("Loadingbar"),
+        minibar=namespace.get("Minibar"),
+        file_origin=namespace.get("FILE_Origin") or namespace.get("Sample") or "",
+    )
+
+
+def _ihdr_validation_errors(repair: Any) -> tuple[str, ...]:
+    strategy = str(getattr(repair, "strategy", ""))
+    if "IHDR" not in strategy:
+        return ()
+
+    data = getattr(repair, "data", None)
+    if not isinstance(data, bytes):
+        return ("IHDR repair did not produce bytes",)
+
+    return png.validate_png_structure(data).errors
+
+
+def _first_ihdr_chunk(data: bytes) -> png.PngChunk | None:
+    try:
+        for chunk in png.iter_chunks(data, signature_offset=0):
+            if chunk.chunk_type == b"IHDR":
+                return chunk
+    except png.PngFormatError:
+        pass
+
+    if not data.startswith(png.PNG_SIGNATURE):
+        return None
+    chunk = png.chunk_at(data, len(png.PNG_SIGNATURE))
+    if chunk is not None and chunk.chunk_type == b"IHDR":
+        return chunk
+    return None
+
+
+def _noop(*_args: Any, **_kwargs: Any) -> None:
+    return None
+
+
+def _ihdr_crc_progress_loader(runtime: AutomaticRepairRuntime) -> Callable[..., Any]:
+    if runtime.minibar is None:
+        return runtime.loadingbar or _noop
+
+    def progress(total: int, _width: int, loop: int | None, _build: bool) -> None:
+        current = 0 if loop is None else loop
+        runtime.minibar(Indication="IHDR CRC %s/%s" % (current, total))
+
+    return progress
+
+
+def _ihdr_crc_bruteforce_scan(
+    runtime: AutomaticRepairRuntime,
+    ihdr: png.PngChunk,
+) -> bruteforce_runtime.SmashBruteBrawlScanResult:
+    def load_spec(request: bruteforce.BruteForceSpecRequest) -> Any:
+        if runtime.get_spec is None:
+            raise ValueError("IHDR brute force needs GetSpec")
+        return runtime.get_spec(
+            b"IHDR",
+            request.mode,
+            **bruteforce.spec_request_kwargs(request),
+        )
+
+    return bruteforce_runtime.run_scan(
+        bruteforce_runtime.SmashBruteBrawlRuntime(
+            load_spec=load_spec,
+            product=runtime.product or _noop,
+            loadingbar=_ihdr_crc_progress_loader(runtime),
+            minibar=runtime.minibar or _noop,
+            show_candidate=lambda *_args, **_kwargs: bruteforce.ViewerCandidateDecision(True),
+            emit=_noop,
+            pause=_noop,
+            side_notes=runtime.side_notes,
+        ),
+        bruteforce_runtime.SmashBruteBrawlContext(
+            file=runtime.file_origin or "IHDR",
+            chunk_name=b"IHDR",
+            chunk_length=ihdr.length,
+            data_offset=ihdr.offset * 2,
+            from_error="FixItFelix IHDR stored CRC brute force",
+            data_hex=runtime.data_hex,
+            pandora_box=runtime.pandora_box or {},
+            edit_mode="Replace",
+            bf_mode="Brutus",
+            brute_crc=True,
+            brute_length=True,
+            old_crc=ihdr.crc.to_bytes(4, "big"),
+        ),
+    )
+
+
+def try_ihdr_stored_crc_bruteforce(
+    runtime: AutomaticRepairRuntime,
+    repair: Any,
+) -> bool | None:
+    if getattr(repair, "preserved_crc", False):
+        return None
+    if not fixit_felix.has_finding(runtime.pandora_box or (), "IHDR", "Wrong Crc"):
+        return None
+    if runtime.question is None:
+        return None
+    if runtime.data_hex == "":
+        return None
+
+    try:
+        source_data = bytes.fromhex(runtime.data_hex)
+    except ValueError:
+        return None
+
+    ihdr = _first_ihdr_chunk(source_data)
+    if ihdr is None or ihdr.length != 13:
+        return None
+
+    runtime.candy(
+        "Cowsay",
+        "IHDR is the chunk whose CRC is screaming, so I can try the old brute force first.",
+        "com",
+    )
+    runtime.candy(
+        "Cowsay",
+        "I will search for header bytes that land back on the stored CRC. If that fails, I fall back to the coherent rebuilt IHDR.",
+        "com",
+    )
+    question_id = "IHDR CRC Brute Force:-Wrong Crc b'IHDR'"
+    if not runtime.question(id=question_id, idhash=("IHDR", ihdr.offset, ihdr.crc)):
+        runtime.side_notes.append("-FixItFelix:IHDR stored-CRC brute force declined; using rebuilt IHDR candidate.")
+        return None
+
+    runtime.candy("Title", "SmashBruteBrawl IHDR stored CRC")
+    if runtime.minibar is not None:
+        runtime.minibar(Indication="IHDR CRC brute force: stored CRC target")
+    try:
+        scan = _ihdr_crc_bruteforce_scan(runtime, ihdr)
+    except Exception as exc:
+        runtime.candy(
+            "Cowsay",
+            "The IHDR stored-CRC brute force tripped before it could finish: %s" % exc,
+            "bad",
+        )
+        runtime.candy(
+            "Cowsay",
+            "I am falling back to the rebuilt IHDR instead of turning that crash into a clone.",
+            "com",
+        )
+        runtime.side_notes.append(
+            "-FixItFelix:IHDR stored-CRC brute force failed before completion: %s." % exc
+        )
+        return None
+
+    if not scan.state.bingo:
+        runtime.candy(
+            "Cowsay",
+            "The IHDR brute force did not hit the stored CRC with a usable header. I am falling back to the rebuilt one.",
+            "bad",
+        )
+        runtime.side_notes.append("-FixItFelix:IHDR stored-CRC brute force found no candidate.")
+        return None
+
+    validation = png.validate_png_structure(scan.png_bytes)
+    if not validation.ok:
+        runtime.candy(
+            "Cowsay",
+            "I did hit the stored CRC, but the resulting PNG is still structurally wrong: %s"
+            % "; ".join(validation.errors),
+            "bad",
+        )
+        runtime.candy(
+            "Cowsay",
+            "CRC proof without a valid PNG is not enough. I am falling back to the rebuilt IHDR.",
+            "com",
+        )
+        runtime.side_notes.append(
+            "-FixItFelix:IHDR stored-CRC brute force rejected: %s."
+            % "; ".join(validation.errors)
+        )
+        return None
+
+    summary = "\n".join(
+        (
+            "-FixItFelix:IHDR stored-CRC brute force recovered a structurally valid PNG.",
+            "-FixItFelix:Original IHDR CRC target: 0x%08x." % ihdr.crc,
+        )
+    )
+    runtime.side_notes.append("-FixItFelix:IHDR stored-CRC brute force succeeded.")
+    runtime.candy(
+        "Cowsay",
+        "Good. The brute force found an IHDR that matches the stored CRC and still parses as a PNG.",
+        "good",
+    )
+    runtime.write_clone(scan.png_bytes.hex(), summary)
+    return True
+
+
+def _has_ihdr_crc_finding(runtime: AutomaticRepairRuntime) -> bool:
+    return fixit_felix.has_finding(runtime.pandora_box or (), "IHDR", "Wrong Crc")
+
+
+def _ihdr_repair_description(repair: Any) -> str | None:
+    width = getattr(repair, "width", None)
+    height = getattr(repair, "height", None)
+    bit_depth = getattr(repair, "bit_depth", None)
+    color_type = getattr(repair, "color_type", None)
+    if None in (width, height, bit_depth, color_type):
+        return None
+    return "%sx%s, bit depth %s, color type %s" % (
+        width,
+        height,
+        bit_depth,
+        color_type,
+    )
+
+
+def _chrm_repair_needs_choice(repair: Any) -> bool:
+    return (
+        getattr(repair, "missing_bytes", 0) > 0
+        and getattr(repair, "inferred_payload", None) is not None
+        and getattr(repair, "removal_data", None) is not None
+        and not getattr(repair, "removed", False)
+        and not getattr(repair, "preserved_crc", False)
+    )
+
+
+def apply_chrm_inference_choice(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
+    missing = getattr(repair, "missing_bytes", 0)
+    tested = getattr(repair, "crc_candidates_tested", 0)
+    runtime.candy(
+        "Cowsay",
+        "cHRM is short by %s byte(s). I made a plausible chromaticity hypothesis first."
+        % missing,
+        "com",
+    )
+    if tested:
+        runtime.candy(
+            "Cowsay",
+            "Then I brute-forced %s completion(s) against the stored cHRM CRC. None matched."
+            % tested,
+            "bad",
+        )
+    else:
+        runtime.candy(
+            "Cowsay",
+            "The missing tail is too wide for the small CRC brute force, so this is only an inference.",
+            "bad",
+        )
+    runtime.candy(
+        "Cowsay",
+        "Yes means I write the inferred cHRM. No means I remove the optional cHRM chunk instead.",
+        "com",
+    )
+
+    if runtime.question is None:
+        runtime.side_notes.append(
+            "-FixItFelix:cHRM inference needed a prompt; removed short cHRM conservatively."
+        )
+        runtime.write_clone(
+            getattr(repair, "removal_data").hex(),
+            "-removed short cHRM chunk length %s below required 32." % getattr(repair, "old_length", "?"),
+        )
+        return True
+
+    question_id = "cHRM Missing Bytes Inference:-cHRM length is not Valid"
+    accept_inference = runtime.question(
+        id=question_id,
+        idhash=(
+            "cHRM",
+            getattr(repair, "chunk_offset", None),
+            getattr(repair, "old_length", None),
+            getattr(repair, "inferred_payload", b"").hex(),
+        ),
+        skipauto=True,
+    )
+    if accept_inference:
+        runtime.side_notes.append(fixit_felix.repair_note(repair))
+        runtime.write_clone(
+            getattr(repair, "data").hex(),
+            "-%s." % getattr(repair, "strategy", "inferred cHRM"),
+        )
+        return True
+
+    removal_strategy = "removed short cHRM chunk length %s below required 32" % getattr(
+        repair,
+        "old_length",
+        "?",
+    )
+    runtime.side_notes.append(
+        "-FixItFelix:%s after declining inferred cHRM completion." % removal_strategy
+    )
+    runtime.write_clone(getattr(repair, "removal_data").hex(), "-%s." % removal_strategy)
+    return True
+
+
+def emit_ihdr_repair_explanation(runtime: AutomaticRepairRuntime, repair: Any) -> None:
+    description = _ihdr_repair_description(repair)
+
+    if _has_ihdr_crc_finding(runtime):
+        runtime.candy(
+            "Cowsay",
+            "This is not just a cheap CRC sticker swap. I rebuilt IHDR from the image clues first.",
+            "com",
+        )
+    else:
+        runtime.candy(
+            "Cowsay",
+            "IHDR's CRC is not the complaint here. The header values themselves are impossible together.",
+            "bad",
+        )
+
+    if description is not None:
+        runtime.candy(
+            "Cowsay",
+            "I rebuilt IHDR from the IDAT scanline math: %s." % description,
+            "com",
+        )
+
+    runtime.candy(
+        "Cowsay",
+        "Now I can write a clone with a coherent header instead of pretending the old one was fine.",
+        "com",
     )
 
 
@@ -326,8 +664,46 @@ def emit_libpng_critical(runtime: LibpngErrorRuntime, finding: Any) -> None:
     runtime.emit("\n-\033[1;31;49mCriticalHit\033[m: %s" % finding)
 
 
-def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool:
+def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
     applied_repair = fixit_felix.applied_repair(repair)
+    strategy = str(getattr(repair, "strategy", "automatic repair"))
+    validation_errors = _ihdr_validation_errors(repair)
+    if validation_errors:
+        runtime.candy(
+            "Cowsay",
+            "The rebuilt IHDR still does not make a structurally valid PNG: %s"
+            % "; ".join(validation_errors),
+            "bad",
+        )
+        runtime.candy(
+            "Cowsay",
+            "So I am not writing that clone. Next stop is the IHDR brute force path.",
+            "com",
+        )
+        runtime.side_notes.append(
+            "-FixItFelix:IHDR automatic repair rejected before clone write: %s."
+            % "; ".join(validation_errors)
+        )
+        return None
+
+    if _chrm_repair_needs_choice(repair):
+        return apply_chrm_inference_choice(runtime, repair)
+
+    if "IHDR" in strategy:
+        emit_ihdr_repair_explanation(runtime, repair)
+    elif "cHRM" in strategy and getattr(repair, "preserved_crc", False):
+        runtime.candy(
+            "Cowsay",
+            "The cHRM was short, but the missing bytes brute force landed back on the stored CRC.",
+            "good",
+        )
+    else:
+        runtime.candy(
+            "Cowsay",
+            "I found an automatic repair path: %s."
+            % strategy,
+            "com",
+        )
     runtime.side_notes.append(applied_repair.note)
     runtime.write_clone(applied_repair.data_hex, applied_repair.save_suffix)
     return True
@@ -596,6 +972,16 @@ def emit_wrong_crc_critical(runtime: WrongCrcRuntime, finding: Any) -> None:
 
 def save_wrong_crc(runtime: WrongCrcRuntime, tools: relics.WrongCrcTools) -> tuple[bool, Any]:
     save_plan = relics.wrong_crc_save_clone_plan(tools)
+    runtime.candy(
+        "Cowsay",
+        "This is the cheap CRC-only patch: I am changing the checksum label, not the chunk data.",
+        "com",
+    )
+    runtime.candy(
+        "Cowsay",
+        "If the bytes are lying too, this will not save them. But the structure lets me try this tiny bandage.",
+        "com",
+    )
     return True, runtime.save_clone(
         save_plan.fixed_data,
         save_plan.start,
@@ -1420,9 +1806,10 @@ def emit_no_next_critical(runtime: NoNextChunkRuntime, finding: Any) -> None:
 def discard_no_next_false_positive(runtime: NoNextChunkRuntime) -> None:
     for pandora_key in list(runtime.pandora_box):
         if "No NextChunk" in str(pandora_key):
+            finding_label = str(pandora_key).rsplit(":", 1)[-1].lstrip("-") or str(pandora_key)
             runtime.candy(
                 "Cowsay",
-                "That one is a false positive im removing it ..",
+                "That %s is a false positive im removing it .." % finding_label,
                 "good",
             )
             relics.discard_pandora_error(runtime.pandora_box, pandora_key)
@@ -1433,8 +1820,69 @@ def discard_no_next_false_positive(runtime: NoNextChunkRuntime) -> None:
 
 def no_next_missplaced_tools(runtime: NoNextChunkRuntime) -> list[Any] | None:
     for pandora_key in runtime.pandora_box:
-        if "Missplaced" in str(pandora_key) and runtime.eof() is True:
-            return list(runtime.pandora_box[pandora_key].values())
+        if _is_chunk_order_finding(pandora_key) and runtime.eof() is True:
+            tools = list(runtime.pandora_box[pandora_key].values())
+            if len(tools) >= 3:
+                return tools
+            inferred = infer_no_next_missplaced_tools_from_history(runtime.chunks_history)
+            if inferred is not None:
+                return list(inferred)
+    return None
+
+
+def _is_chunk_order_finding(value: Any) -> bool:
+    text = str(value).lower()
+    return any(
+        clue in text
+        for clue in (
+            "missplaced",
+            "chunkorder",
+            "must be used after",
+            "must appears before",
+            "must appear before",
+        )
+    )
+
+
+def _chunk_bytes(value: Any) -> bytes | None:
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, str) and len(value) == 4:
+        return value.encode("ascii", errors="ignore")
+    return None
+
+
+def infer_no_next_missplaced_tools_from_history(
+    chunks_history: tuple[Any, ...],
+) -> tuple[bytes, int, bytes] | None:
+    history = tuple(_chunk_bytes(chunk) for chunk in chunks_history)
+    if any(chunk is None for chunk in history):
+        return None
+
+    typed_history = tuple(chunk for chunk in history if chunk is not None)
+
+    if len(typed_history) > 1 and typed_history[1] != b"IHDR" and b"IHDR" in typed_history:
+        return (typed_history[1], 1, b"IHDR")
+
+    if b"PLTE" in typed_history:
+        plte_index = typed_history.index(b"PLTE")
+        after_plte = set(specs.AFTER_PLTE)
+        for index in range(1, plte_index):
+            if typed_history[index] in after_plte:
+                return (typed_history[index], index, b"PLTE")
+
+        before_plte = set(specs.BEFORE_PLTE) - {b"PNG", b"IHDR"}
+        for index in range(plte_index + 1, len(typed_history)):
+            if typed_history[index] in before_plte:
+                return (b"PLTE", plte_index, typed_history[index])
+
+    if b"IDAT" in typed_history:
+        idat_index = typed_history.index(b"IDAT")
+        before_idat = set(specs.BEFORE_IDAT2) - {b"IHDR"}
+        for index in range(idat_index + 1, len(typed_history)):
+            if typed_history[index] in before_idat:
+                return (b"IDAT", idat_index, typed_history[index])
+
     return None
 
 
@@ -1445,6 +1893,42 @@ def mark_no_next_iend_reached(runtime: NoNextChunkRuntime) -> None:
     runtime.side_notes.append("-Reached the end of file.")
 
 
+def unresolved_non_no_next_findings(runtime: NoNextChunkRuntime) -> tuple[Any, ...]:
+    return tuple(
+        pandora_key
+        for pandora_key in runtime.pandora_box
+        if "no nextchunk" not in str(pandora_key).lower()
+    )
+
+
+def stop_before_libpng_for_unresolved_findings(
+    runtime: NoNextChunkRuntime,
+    findings: tuple[Any, ...],
+) -> tuple[bool, Any]:
+    runtime.candy(
+        "Cowsay",
+        "Libpng might smile at the pixels, but Pandora still has unpaid invoices. No Kraken snack yet.",
+        "bad",
+    )
+    runtime.side_notes.append(
+        "-Stopped before libpng: unresolved findings remain: %s."
+        % ", ".join(str(finding) for finding in findings)
+    )
+    if any(_is_chunk_order_finding(finding) for finding in findings):
+        rustine = no_next_missplaced_tools(runtime)
+        if rustine is not None and len(rustine) >= 3:
+            runtime.candy(
+                "Cowsay",
+                "I found a chunk-order repair path, so I am trying TheGoodPlace before calling this perfect.",
+                "com",
+            )
+            return True, runtime.the_good_place(rustine[0], rustine[1], rustine[2])
+
+    runtime.candy("Cowsay", messages.UNIMPLEMENTED_REPAIR_ROUTE_MESSAGE, "bad")
+    runtime.the_end()
+    return False, None
+
+
 def apply_no_next_false_positive_iend(
     runtime: NoNextChunkRuntime,
     decision: fixit_felix.NoNextFalsePositiveIendDecision,
@@ -1453,6 +1937,9 @@ def apply_no_next_false_positive_iend(
         mark_no_next_iend_reached(runtime)
 
         if decision.action == "libpng_check":
+            unresolved = unresolved_non_no_next_findings(runtime)
+            if unresolved:
+                return stop_before_libpng_for_unresolved_findings(runtime, unresolved)
             runtime.candy("Cowsay", "Ok let's feed the Kraken now..", "com")
             return True, runtime.libpng_check(runtime.sample)
 
@@ -1461,8 +1948,16 @@ def apply_no_next_false_positive_iend(
             if rustine is not None and len(rustine) >= 3:
                 runtime.candy("Cowsay", "But the fun isnt over yet..", "com")
                 return True, runtime.the_good_place(rustine[0], rustine[1], rustine[2])
-            runtime.candy("Cowsay", "Ok let's feed the Kraken now..", "com")
-            return True, runtime.libpng_check(runtime.sample)
+            runtime.candy(
+                "Cowsay",
+                "I still have an unrepaired misplaced chunk on the table. No Kraken snack until that mess is handled.",
+                "bad",
+            )
+            runtime.side_notes.append(
+                "-Stopped before libpng: unresolved misplaced chunk remains after IDAT."
+            )
+            runtime.the_end()
+            return False, None
 
         return False, None
 
@@ -1497,7 +1992,9 @@ def handle_no_next_false_positive_iend(
     false_positive_decision = fixit_felix.no_next_false_positive_iend_decision(
         runtime.data_hex,
         bad_missplaced=runtime.bad_missplaced,
-        has_missplaced_finding=any("Missplaced" in str(pandora_key) for pandora_key in runtime.pandora_box),
+        has_missplaced_finding=any(
+            "missplaced" in str(pandora_key).lower() for pandora_key in runtime.pandora_box
+        ),
     )
     return apply_no_next_false_positive_iend(runtime, false_positive_decision)
 
@@ -1648,6 +2145,51 @@ def handle_no_next_ask_length_probe(
     return False, None
 
 
+def _is_idat_label(value: Any) -> bool:
+    if isinstance(value, bytes):
+        return value == b"IDAT"
+    return str(value) == "IDAT"
+
+
+def _data_hex_mentions_idat(data_hex: Any) -> bool:
+    return "49444154" in str(data_hex).lower()
+
+
+def no_next_has_idat_evidence(
+    runtime: NoNextChunkRuntime,
+    current_chunk: Any,
+    tools: relics.NoNextChunkTools | None,
+) -> bool:
+    if _data_hex_mentions_idat(runtime.data_hex):
+        return True
+    labels = [current_chunk]
+    labels.extend(runtime.chunks_history)
+    if tools is not None:
+        labels.extend((tools.chunk_type, tools.previous_chunk))
+    return any(_is_idat_label(label) for label in labels)
+
+
+def handle_no_next_missing_idat_terminal(
+    runtime: NoNextChunkRuntime,
+) -> tuple[bool, None]:
+    runtime.candy(
+        "Cowsay",
+        "No IDAT chunk, no image stream. This is not a repair job, this is PNG paperwork with the picture missing.",
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "I can fix bent chunks, but I cannot invent the compressed pixels that never showed up.",
+        "com",
+    )
+    runtime.side_notes.append("-Critical Chunk b'IDAT' is Missing")
+    runtime.side_notes.append("-Terminal PNG error: no IDAT chunk found; no image data to repair.")
+    runtime.set_skip_bad_no_next_chunk(True)
+    runtime.set_eof(True)
+    runtime.the_end()
+    return False, None
+
+
 def apply_no_next_chunk(
     runtime: NoNextChunkRuntime,
     decision: fixit_felix.NoNextChunkDecision,
@@ -1659,6 +2201,9 @@ def apply_no_next_chunk(
 
     if tools is None:
         raise ValueError("FixItFelix no-next-chunk action needs chunk tools: %s" % decision.action)
+
+    if not no_next_has_idat_evidence(runtime, getattr(decision, "current_chunk", None), tools):
+        return handle_no_next_missing_idat_terminal(runtime)
 
     if decision.action == "false_positive_iend":
         return handle_no_next_false_positive_iend(runtime)

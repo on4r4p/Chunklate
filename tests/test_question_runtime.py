@@ -94,6 +94,26 @@ def test_question_runtime_manual_answer_uses_legacy_feedback():
     ]
 
 
+def test_question_runtime_eof_answer_is_decline():
+    def eof_asker(_prompt):
+        raise EOFError
+
+    runtime, calls = runtime_from(asker=eof_asker)
+
+    assert question_runtime.ask_question(runtime, "No NextChunk", 7) is False
+
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "No answer came back. I will take that as no and keep my hands visible.",
+            "com",
+        ),
+        {},
+    ) in calls
+    assert not [call for call in calls if call[0] == "end"]
+
+
 def test_question_runtime_names_idat_heavy_probe_prompt():
     runtime, calls = runtime_from(answers=["yes"])
 
@@ -108,6 +128,48 @@ def test_question_runtime_names_idat_heavy_probe_prompt():
         ("Cowsay", "Question: Should i launch the heavier IDAT probe?", "com"),
         {},
     ) in calls
+
+
+def test_question_runtime_names_ihdr_crc_bruteforce_prompt():
+    runtime, calls = runtime_from(answers=["yes"])
+
+    assert question_runtime.ask_question(
+        runtime,
+        "IHDR CRC Brute Force:-Wrong Crc b'IHDR'",
+        ("probe", 1),
+    ) is True
+
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "Question: Should i brute force IHDR against the stored CRC before rebuilding it?",
+            "com",
+        ),
+        {},
+    ) in calls
+
+
+def test_question_runtime_names_chrm_inference_prompt():
+    runtime, calls = runtime_from(answers=["yes"], auto=True)
+
+    assert question_runtime.ask_question(
+        runtime,
+        "cHRM Missing Bytes Inference:-cHRM length is not Valid",
+        ("cHRM", 49, 31),
+        skipauto=True,
+    ) is True
+
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "Question: Should i write the inferred cHRM bytes instead of removing the optional cHRM chunk?",
+            "com",
+        ),
+        {},
+    ) in calls
+    assert not [call for call in calls if call[0] == "emit" and "Auto Answer Mode" in str(call[1])]
 
 
 def test_question_runtime_names_super_mega_linefeed_force_prompt():
@@ -242,7 +304,10 @@ def main():
         ("Record auto answer", test_question_runtime_records_auto_answer_without_input),
         ("Report auto mode", test_question_runtime_reports_auto_mode_when_legacy_auto_is_enabled),
         ("Manual feedback", test_question_runtime_manual_answer_uses_legacy_feedback),
+        ("EOF answer declines", test_question_runtime_eof_answer_is_decline),
         ("IDAT heavy probe prompt", test_question_runtime_names_idat_heavy_probe_prompt),
+        ("IHDR CRC brute force prompt", test_question_runtime_names_ihdr_crc_bruteforce_prompt),
+        ("cHRM inference prompt", test_question_runtime_names_chrm_inference_prompt),
         ("SuperMegaLineFeedForceOfDeath prompt", test_question_runtime_names_super_mega_linefeed_force_prompt),
         (
             "UltimateMegaSuperLineFeedBruteForce prompt",

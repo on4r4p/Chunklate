@@ -11,14 +11,28 @@ if str(ROOT) not in sys.path:
 
 from chunklate import fixit_felix
 from chunklate import fixit_felix_runtime
+from chunklate import messages
 from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk
+
+
+def valid_png_bytes():
+    ihdr = b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00"
+    idat = zlib.compress(b"\x00\x00")
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"IDAT", idat)
+        + IEND_CHUNK
+    )
 
 
 def test_apply_repair_records_note_and_writes_clone():
     side_notes = []
     writes = []
+    candy_calls = []
     runtime = fixit_felix_runtime.AutomaticRepairRuntime(
         side_notes=side_notes,
+        candy=lambda *args: candy_calls.append(args),
         write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
     )
     repair = SimpleNamespace(
@@ -29,8 +43,297 @@ def test_apply_repair_records_note_and_writes_clone():
     result = fixit_felix_runtime.apply_repair(runtime, repair)
 
     assert result is True
+    assert candy_calls == [
+        (
+            "Cowsay",
+            "I found an automatic repair path: unit-test-repair.",
+            "com",
+        )
+    ]
     assert side_notes == ["-FixItFelix:unit-test-repair."]
     assert writes == [("6669786564", "-unit-test-repair.")]
+
+
+def test_apply_repair_prompts_before_unproven_chrm_inference():
+    side_notes = []
+    writes = []
+    question_calls = []
+    candy_calls = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: candy_calls.append(args),
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+        question=lambda **kwargs: question_calls.append(kwargs) or True,
+    )
+    repair = SimpleNamespace(
+        data=b"inferred",
+        strategy="inferred 1 missing cHRM byte(s) and rebuilt CRC",
+        chunk_offset=49,
+        old_length=31,
+        new_length=32,
+        missing_bytes=1,
+        inferred_payload=b"x" * 32,
+        removal_data=b"removed",
+        preserved_crc=False,
+        removed=False,
+        crc_candidates_tested=256,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert question_calls[0]["skipauto"] is True
+    assert question_calls[0]["id"] == "cHRM Missing Bytes Inference:-cHRM length is not Valid"
+    assert any("None matched" in call[1] for call in candy_calls if len(call) > 1)
+    assert side_notes == ["-FixItFelix:inferred 1 missing cHRM byte(s) and rebuilt CRC."]
+    assert writes == [("696e666572726564", "-inferred 1 missing cHRM byte(s) and rebuilt CRC.")]
+
+
+def test_apply_repair_removes_short_chrm_when_inference_declined():
+    side_notes = []
+    writes = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: None,
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+        question=lambda **_kwargs: False,
+    )
+    repair = SimpleNamespace(
+        data=b"inferred",
+        strategy="inferred 1 missing cHRM byte(s) and rebuilt CRC",
+        chunk_offset=49,
+        old_length=31,
+        new_length=32,
+        missing_bytes=1,
+        inferred_payload=b"x" * 32,
+        removal_data=b"removed",
+        preserved_crc=False,
+        removed=False,
+        crc_candidates_tested=256,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert side_notes == [
+        "-FixItFelix:removed short cHRM chunk length 31 below required 32 after declining inferred cHRM completion."
+    ]
+    assert writes == [("72656d6f766564", "-removed short cHRM chunk length 31 below required 32.")]
+
+
+def test_apply_repair_explains_ihdr_rebuild_before_writing_clone():
+    side_notes = []
+    writes = []
+    candy_calls = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: candy_calls.append(args),
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+        pandora_box={
+            "Checksum_Error_0:Wrong Crc b'IHDR'": {},
+        },
+    )
+    data = valid_png_bytes()
+    repair = SimpleNamespace(
+        data=data,
+        strategy="rebuilt IHDR from IDAT scanline size",
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert candy_calls == [
+        (
+            "Cowsay",
+            "This is not just a cheap CRC sticker swap. I rebuilt IHDR from the image clues first.",
+            "com",
+        ),
+        (
+            "Cowsay",
+            "Now I can write a clone with a coherent header instead of pretending the old one was fine.",
+            "com",
+        ),
+    ]
+    assert side_notes == ["-FixItFelix:rebuilt IHDR from IDAT scanline size."]
+    assert writes == [(data.hex(), "-rebuilt IHDR from IDAT scanline size.")]
+
+
+def test_apply_repair_explains_ihdr_value_rebuild_without_crc_noise():
+    side_notes = []
+    writes = []
+    candy_calls = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: candy_calls.append(args),
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+        pandora_box={
+            "GetInfo_Error_0:-IHDR Color 3: Wrong bit depht with IHDR Color type 3": {},
+        },
+    )
+    data = valid_png_bytes()
+    repair = SimpleNamespace(
+        data=data,
+        strategy="rebuilt IHDR from IDAT scanline size",
+        width=32,
+        height=32,
+        bit_depth=8,
+        color_type=3,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert candy_calls == [
+        (
+            "Cowsay",
+            "IHDR's CRC is not the complaint here. The header values themselves are impossible together.",
+            "bad",
+        ),
+        (
+            "Cowsay",
+            "I rebuilt IHDR from the IDAT scanline math: 32x32, bit depth 8, color type 3.",
+            "com",
+        ),
+        (
+            "Cowsay",
+            "Now I can write a clone with a coherent header instead of pretending the old one was fine.",
+            "com",
+        ),
+    ]
+    assert not any("cheap CRC" in call[1] for call in candy_calls)
+    assert side_notes == [
+        "-FixItFelix:rebuilt IHDR from IDAT scanline size.\n"
+        "-FixItFelix:Selected IHDR 32x32, bit depth 8, color type 3."
+    ]
+    assert writes == [(data.hex(), "-rebuilt IHDR from IDAT scanline size.")]
+
+
+def test_apply_repair_rejects_invalid_ihdr_rebuild_before_clone():
+    side_notes = []
+    writes = []
+    candy_calls = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: candy_calls.append(args),
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+    )
+    repair = SimpleNamespace(
+        data=b"fixed",
+        strategy="rebuilt IHDR from IDAT scanline size",
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is None
+    assert writes == []
+    assert candy_calls == [
+        (
+            "Cowsay",
+            "The rebuilt IHDR still does not make a structurally valid PNG: PNG signature is not at offset 0",
+            "bad",
+        ),
+        (
+            "Cowsay",
+            "So I am not writing that clone. Next stop is the IHDR brute force path.",
+            "com",
+        ),
+    ]
+    assert side_notes == [
+        "-FixItFelix:IHDR automatic repair rejected before clone write: PNG signature is not at offset 0."
+    ]
+
+
+def test_try_ihdr_stored_crc_bruteforce_uses_loader_and_writes_valid_candidate():
+    data = valid_png_bytes()
+    calls = []
+    side_notes = []
+    original_run_scan = fixit_felix_runtime.bruteforce_runtime.run_scan
+
+    def fake_run_scan(scan_runtime, scan_context):
+        calls.append(("scan_context", scan_context))
+        scan_runtime.loadingbar(50, 2, 0, True)
+        scan_runtime.loadingbar(50, 2, 25, False)
+        scan_runtime.minibar(Indication="scan-started")
+        return fixit_felix_runtime.bruteforce_runtime.SmashBruteBrawlScanResult(
+            state=fixit_felix_runtime.bruteforce.BruteForceMatchState(bingo=True),
+            old_crc=b"crc!",
+            bf_mode="Brutus",
+            full_new_data=b"",
+            png_bytes=data,
+            to_brute="",
+            diff="",
+            crash=False,
+            eta_seconds=0,
+        )
+
+    try:
+        fixit_felix_runtime.bruteforce_runtime.run_scan = fake_run_scan
+        runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+            side_notes=side_notes,
+            candy=lambda *args: calls.append(("candy", args)),
+            write_clone=lambda data_hex, summary: calls.append(("write_clone", data_hex, summary)),
+            question=lambda **kwargs: calls.append(("question", kwargs)) or True,
+            data_hex=data.hex(),
+            pandora_box={"Checksum_Error_0:Wrong Crc b'IHDR'": {}},
+            get_spec=lambda *args, **kwargs: calls.append(("get_spec", args, kwargs)),
+            product=lambda *args, **kwargs: calls.append(("product", args, kwargs)),
+            loadingbar=lambda *args, **kwargs: calls.append(("loadingbar", args, kwargs)),
+            minibar=lambda *args, **kwargs: calls.append(("minibar", args, kwargs)),
+            file_origin="sample.png",
+        )
+        repair = SimpleNamespace(
+            data=data,
+            strategy="rebuilt IHDR from IDAT scanline size",
+            preserved_crc=False,
+        )
+
+        result = fixit_felix_runtime.try_ihdr_stored_crc_bruteforce(runtime, repair)
+    finally:
+        fixit_felix_runtime.bruteforce_runtime.run_scan = original_run_scan
+
+    assert result is True
+    assert (
+        "question",
+        {"id": "IHDR CRC Brute Force:-Wrong Crc b'IHDR'", "idhash": ("IHDR", 8, 981375829)},
+    ) in calls
+    assert ("minibar", (), {"Indication": "IHDR CRC brute force: stored CRC target"}) in calls
+    assert ("minibar", (), {"Indication": "IHDR CRC 0/50"}) in calls
+    assert ("minibar", (), {"Indication": "IHDR CRC 25/50"}) in calls
+    assert ("minibar", (), {"Indication": "scan-started"}) in calls
+    scan_context = next(call[1] for call in calls if call[0] == "scan_context")
+    assert scan_context.chunk_name == b"IHDR"
+    assert scan_context.bf_mode == "Brutus"
+    assert scan_context.old_crc is not False
+    assert any(call[0] == "write_clone" and call[1] == data.hex() for call in calls)
+    assert "-FixItFelix:IHDR stored-CRC brute force succeeded." in side_notes
+
+
+def test_try_ihdr_stored_crc_bruteforce_decline_falls_back_to_rebuild():
+    data = valid_png_bytes()
+    calls = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=[],
+        candy=lambda *args: calls.append(("candy", args)),
+        write_clone=lambda *args: calls.append(("write_clone", args)),
+        question=lambda **kwargs: calls.append(("question", kwargs)) or False,
+        data_hex=data.hex(),
+        pandora_box={"Checksum_Error_0:Wrong Crc b'IHDR'": {}},
+        minibar=lambda *args, **kwargs: calls.append(("minibar", args, kwargs)),
+    )
+    repair = SimpleNamespace(
+        data=data,
+        strategy="rebuilt IHDR from IDAT scanline size",
+        preserved_crc=False,
+    )
+
+    result = fixit_felix_runtime.try_ihdr_stored_crc_bruteforce(runtime, repair)
+
+    assert result is None
+    assert (
+        "question",
+        {"id": "IHDR CRC Brute Force:-Wrong Crc b'IHDR'", "idhash": ("IHDR", 8, 981375829)},
+    ) in calls
+    assert not any(call[0] == "write_clone" for call in calls)
 
 
 def test_apply_gama_zero_discards_false_positive_and_returns_legacy_target():
@@ -339,6 +642,24 @@ def test_apply_wrong_crc_easy_answer_saves_clone():
     )
 
     assert result == (True, "saved")
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "This is the cheap CRC-only patch: I am changing the checksum label, not the chunk data.",
+            "com",
+        ),
+        {},
+    ) in calls
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "If the bytes are lying too, this will not save them. But the structure lets me try this tiny bandage.",
+            "com",
+        ),
+        {},
+    ) in calls
     assert calls[-1] == (
         "save_clone",
         (
@@ -1180,6 +1501,7 @@ def no_next_runtime(
     crc_offset=0,
     bad_missplaced=False,
     eof=False,
+    chunks_history=(),
 ):
     state = {"eof": eof}
     side_notes = []
@@ -1226,6 +1548,7 @@ def no_next_runtime(
             dummy_chunk=record("dummy_chunk", "dummy-result"),
             nearby_chunk=record("nearby_chunk", "nearby-result"),
             nearby_found_later_iend=lambda: state.get("nearby_found_later_iend"),
+            chunks_history=tuple(chunks_history),
         ),
         side_notes,
         state,
@@ -1257,6 +1580,11 @@ def test_apply_no_next_false_positive_iend_runs_libpng_after_marking_eof():
         "-Found False-Positive :[Error:-No NextChunk].",
         "-Reached the end of file.",
     ]
+    assert (
+        "candy",
+        ("Cowsay", "That No NextChunk is a false positive im removing it ..", "good"),
+        {},
+    ) in calls
     assert ("chunk_story", ("add", b"IEND", 33, 8, 13), {}) in calls
     assert calls[-1] == ("libpng_check", ("sample.png",), {})
 
@@ -1304,11 +1632,180 @@ def test_apply_no_next_false_positive_iend_falls_back_when_missplaced_tools_are_
         fixit_felix.NoNextFalsePositiveIendDecision("the_good_place"),
     )
 
-    assert result == (True, "libpng-result")
+    assert result == (False, None)
+    assert state["eof"] is True
+    assert side_notes == [
+        "-Reached the end of file.",
+        "-Stopped before libpng: unresolved misplaced chunk remains after IDAT.",
+    ]
+    assert all(call[0] != "the_good_place" for call in calls)
+    assert not [call for call in calls if call[0] == "libpng_check"]
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "I still have an unrepaired misplaced chunk on the table. No Kraken snack until that mess is handled.",
+            "bad",
+        ),
+        {},
+    ) in calls
+    assert calls[-1] == ("the_end", (), {})
+
+
+def test_apply_no_next_false_positive_iend_infers_before_idat_repair_from_history():
+    calls = []
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        bad_missplaced=True,
+        pandora_box={"ChunkOrder_Error_0:-Missplaced": {"Only_One_Tool": ["-Missplaced"]}},
+        chunks_history=(b"PNG", b"IHDR", b"gAMA", b"IDAT", b"bKGD"),
+    )
+
+    result = fixit_felix_runtime.apply_no_next_false_positive_iend(
+        runtime,
+        fixit_felix.NoNextFalsePositiveIendDecision("the_good_place"),
+    )
+
+    assert result == (True, "good-place-result")
     assert state["eof"] is True
     assert side_notes == ["-Reached the end of file."]
-    assert all(call[0] != "the_good_place" for call in calls)
-    assert calls[-1] == ("libpng_check", ("sample.png",), {})
+    assert ("the_good_place", (b"IDAT", 3, b"bKGD"), {}) in calls
+    assert not [call for call in calls if call[0] == "libpng_check"]
+    assert not [call for call in calls if call[0] == "the_end"]
+
+
+def test_apply_no_next_false_positive_iend_infers_before_plte_repair_from_lowercase_missplaced():
+    calls = []
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        bad_missplaced=True,
+        pandora_box={
+            "CheckChunkOrder_Error_0:-cHRM is missplaced must appears before PLTE Chunk": {
+                "Only_One_Tool": ["-cHRM is missplaced must appears before PLTE Chunk"]
+            }
+        },
+        chunks_history=(b"PNG", b"IHDR", b"gAMA", b"PLTE", b"cHRM", b"IDAT"),
+    )
+
+    result = fixit_felix_runtime.apply_no_next_false_positive_iend(
+        runtime,
+        fixit_felix.NoNextFalsePositiveIendDecision("the_good_place"),
+    )
+
+    assert result == (True, "good-place-result")
+    assert state["eof"] is True
+    assert side_notes == ["-Reached the end of file."]
+    assert ("the_good_place", (b"PLTE", 3, b"cHRM"), {}) in calls
+    assert not [call for call in calls if call[0] == "libpng_check"]
+    assert not [call for call in calls if call[0] == "the_end"]
+
+
+def test_apply_no_next_false_positive_iend_repairs_hist_before_plte_before_libpng():
+    calls = []
+    finding = "GetInfo_Error_0:-PLTE Chunk sPLT is missing.(hIST must be used after one of them)"
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        pandora_box={finding: {}},
+        chunks_history=(b"PNG", b"IHDR", b"gAMA", b"sBIT", b"hIST", b"PLTE", b"IDAT"),
+    )
+
+    result = fixit_felix_runtime.apply_no_next_false_positive_iend(
+        runtime,
+        fixit_felix.NoNextFalsePositiveIendDecision("libpng_check"),
+    )
+
+    assert result == (True, "good-place-result")
+    assert state["eof"] is True
+    assert side_notes == [
+        "-Reached the end of file.",
+        "-Stopped before libpng: unresolved findings remain: %s." % finding,
+    ]
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "Libpng might smile at the pixels, but Pandora still has unpaid invoices. No Kraken snack yet.",
+            "bad",
+        ),
+        {},
+    ) in calls
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "I found a chunk-order repair path, so I am trying TheGoodPlace before calling this perfect.",
+            "com",
+        ),
+        {},
+    ) in calls
+    assert ("the_good_place", (b"hIST", 4, b"PLTE"), {}) in calls
+    assert not [call for call in calls if call[0] == "libpng_check"]
+    assert not [call for call in calls if call[0] == "the_end"]
+
+
+def test_apply_no_next_false_positive_iend_refuses_libpng_when_other_errors_remain():
+    calls = []
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        pandora_box={"CheckChunkOrder_Error_0:-cHRM is missplaced must appears before PLTE Chunk": {}},
+    )
+
+    result = fixit_felix_runtime.apply_no_next_false_positive_iend(
+        runtime,
+        fixit_felix.NoNextFalsePositiveIendDecision("libpng_check"),
+    )
+
+    assert result == (False, None)
+    assert state["eof"] is True
+    assert side_notes == [
+        "-Reached the end of file.",
+        "-Stopped before libpng: unresolved findings remain: "
+        "CheckChunkOrder_Error_0:-cHRM is missplaced must appears before PLTE Chunk.",
+    ]
+    assert (
+        "candy",
+        ("Cowsay", messages.UNIMPLEMENTED_REPAIR_ROUTE_MESSAGE, "bad"),
+        {},
+    ) in calls
+    assert not [call for call in calls if call[0] == "libpng_check"]
+    assert calls[-1] == ("the_end", (), {})
+
+
+def test_apply_no_next_false_positive_iend_reports_unimplemented_non_order_error():
+    calls = []
+    finding = "GetInfo_Error_0:-iTXt Compression Flag must be 0 or 1"
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        pandora_box={finding: {}},
+    )
+
+    result = fixit_felix_runtime.apply_no_next_false_positive_iend(
+        runtime,
+        fixit_felix.NoNextFalsePositiveIendDecision("libpng_check"),
+    )
+
+    assert result == (False, None)
+    assert state["eof"] is True
+    assert side_notes == [
+        "-Reached the end of file.",
+        "-Stopped before libpng: unresolved findings remain: %s." % finding,
+    ]
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "Libpng might smile at the pixels, but Pandora still has unpaid invoices. No Kraken snack yet.",
+            "bad",
+        ),
+        {},
+    ) in calls
+    assert (
+        "candy",
+        ("Cowsay", messages.UNIMPLEMENTED_REPAIR_ROUTE_MESSAGE, "bad"),
+        {},
+    ) in calls
+    assert not [call for call in calls if call[0] in ("libpng_check", "the_good_place")]
+    assert calls[-1] == ("the_end", (), {})
 
 
 def test_apply_no_next_wrong_iend_length_records_note_and_ends():
@@ -1437,6 +1934,64 @@ def test_apply_no_next_ask_length_probe_routes_to_nearby_chunk():
     assert result == (True, "nearby-result")
     assert side_notes == ["-End of File Reached but IEND Chunk is missing"]
     assert calls[-1] == ("nearby_chunk", (b"IDAT", "12", b"IDAT", False, finding), {})
+
+
+def test_apply_no_next_without_idat_evidence_stops_terminally():
+    calls = []
+    finding = "CheckLength_Error_0:-No NextChunk"
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        pandora_box={finding: {"gAMA_Tool_0": b"gAMA"}},
+        chunks_history=(b"IHDR", b"gAMA"),
+    )
+
+    result = fixit_felix_runtime.apply_no_next_chunk(
+        runtime,
+        fixit_felix.NoNextChunkDecision("ask_length_probe", b"gAMA", b"gAMA", "4"),
+        finding,
+        "gAMA_Tool_",
+        no_next_tools(chunk_type=b"gAMA", chunk_length="4", previous_chunk=b"IHDR"),
+    )
+
+    assert result == (False, None)
+    assert side_notes == [
+        "-Critical Chunk b'IDAT' is Missing",
+        "-Terminal PNG error: no IDAT chunk found; no image data to repair.",
+    ]
+    assert state["eof"] is True
+    assert ("set_skip_bad_no_next_chunk", (True,), {}) in calls
+    assert ("set_eof", (True,), {}) in calls
+    assert calls[-1] == ("the_end", (), {})
+    assert not [call for call in calls if call[0] == "question"]
+    assert not [call for call in calls if call[0] == "nearby_chunk"]
+    assert any(
+        call[0] == "candy"
+        and call[1][0] == "Cowsay"
+        and "No IDAT chunk, no image stream" in call[1][1]
+        for call in calls
+    )
+
+
+def test_apply_no_next_raw_idat_bytes_keep_length_probe_available():
+    calls = []
+    finding = "CheckLength_Error_0:-No NextChunk"
+    runtime, side_notes, _state = no_next_runtime(
+        calls,
+        data_hex="89504e470d0a1a0a0000000467414d410000000049444154",
+        chunks_history=(b"IHDR", b"gAMA"),
+    )
+
+    result = fixit_felix_runtime.apply_no_next_chunk(
+        runtime,
+        fixit_felix.NoNextChunkDecision("ask_length_probe", b"gAMA", b"gAMA", "4"),
+        finding,
+        "gAMA_Tool_",
+        no_next_tools(chunk_type=b"gAMA", chunk_length="4", previous_chunk=b"IHDR"),
+    )
+
+    assert result == (True, "nearby-result")
+    assert side_notes == ["-End of File Reached but IEND Chunk is missing"]
+    assert calls[-1] == ("nearby_chunk", (b"gAMA", "4", b"IHDR", False, finding), {})
 
 
 def test_apply_no_next_chunk_rejects_unknown_action():
@@ -1745,6 +2300,10 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
         "LibpngCheck": callback("LibpngCheck"),
         "TheGoodPlace": callback("TheGoodPlace"),
         "WriteClone": callback("WriteClone"),
+        "GetSpec": callback("GetSpec"),
+        "Product": callback("Product"),
+        "Loadingbar": callback("Loadingbar"),
+        "Minibar": callback("Minibar"),
         "TheEnd": callback("TheEnd"),
         "Pause": callback("Pause"),
         "DummyChunk": callback("DummyChunk"),
@@ -1759,6 +2318,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
         "PAUSEDEBUG": False,
         "PAUSEERROR": True,
         "Sample": "sample.png",
+        "FILE_Origin": "source.png",
         "DATAX": "001122",
         "Raw_Crc": "deadbeef",
         "Bad_Missplaced": True,
@@ -1858,6 +2418,14 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     automatic = fixit_felix_runtime.build_automatic_repair_runtime_from_namespace(namespace)
     assert automatic.side_notes is side_notes
     assert automatic.write_clone is namespace["WriteClone"]
+    assert automatic.question is namespace["Question"]
+    assert automatic.data_hex == "001122"
+    assert automatic.pandora_box is pandora_box
+    assert automatic.get_spec is namespace["GetSpec"]
+    assert automatic.product is namespace["Product"]
+    assert automatic.loadingbar is namespace["Loadingbar"]
+    assert automatic.minibar is namespace["Minibar"]
+    assert automatic.file_origin == "source.png"
 
 
 def test_namespace_pipeline_builder_preserves_debug_and_repair_wiring():
@@ -1946,6 +2514,34 @@ def test_namespace_pipeline_builder_preserves_debug_and_repair_wiring():
 def main():
     checks = [
         ("Apply repair records note and writes clone", test_apply_repair_records_note_and_writes_clone),
+        (
+            "Apply repair prompts before unproven cHRM inference",
+            test_apply_repair_prompts_before_unproven_chrm_inference,
+        ),
+        (
+            "Apply repair removes short cHRM when inference declined",
+            test_apply_repair_removes_short_chrm_when_inference_declined,
+        ),
+        (
+            "Apply repair explains IHDR rebuild",
+            test_apply_repair_explains_ihdr_rebuild_before_writing_clone,
+        ),
+        (
+            "Apply repair explains IHDR value rebuild without CRC noise",
+            test_apply_repair_explains_ihdr_value_rebuild_without_crc_noise,
+        ),
+        (
+            "Apply repair rejects invalid IHDR rebuild",
+            test_apply_repair_rejects_invalid_ihdr_rebuild_before_clone,
+        ),
+        (
+            "IHDR stored CRC brute force uses loader",
+            test_try_ihdr_stored_crc_bruteforce_uses_loader_and_writes_valid_candidate,
+        ),
+        (
+            "IHDR stored CRC brute force decline",
+            test_try_ihdr_stored_crc_bruteforce_decline_falls_back_to_rebuild,
+        ),
         ("Apply gAMA zero discards false positive", test_apply_gama_zero_discards_false_positive_and_returns_legacy_target),
         ("Apply gAMA zero rejects unknown action", test_apply_gama_zero_rejects_unknown_action),
         ("Apply critical miss emits and pauses", test_apply_critical_miss_emits_and_pauses_on_debug_action),
@@ -2034,6 +2630,22 @@ def main():
             test_apply_no_next_false_positive_iend_runs_libpng_after_marking_eof,
         ),
         ("Apply no-next false positive clean cut", test_apply_no_next_false_positive_iend_writes_clean_cut),
+        (
+            "Apply no-next false positive infers before-IDAT repair",
+            test_apply_no_next_false_positive_iend_infers_before_idat_repair_from_history,
+        ),
+        (
+            "Apply no-next false positive infers before-PLTE repair",
+            test_apply_no_next_false_positive_iend_infers_before_plte_repair_from_lowercase_missplaced,
+        ),
+        (
+            "Apply no-next false positive repairs hIST before PLTE",
+            test_apply_no_next_false_positive_iend_repairs_hist_before_plte_before_libpng,
+        ),
+        (
+            "Apply no-next false positive blocks libpng with pending errors",
+            test_apply_no_next_false_positive_iend_refuses_libpng_when_other_errors_remain,
+        ),
         ("Apply no-next wrong IEND length ends", test_apply_no_next_wrong_iend_length_records_note_and_ends),
         ("Apply no-next appends dummy at CRC tail", test_apply_no_next_append_missing_iend_uses_dummy_at_crc_tail),
         (
@@ -2049,6 +2661,11 @@ def main():
             test_apply_no_next_does_not_append_iend_when_nearby_already_found_one,
         ),
         ("Apply no-next length probe routes nearby", test_apply_no_next_ask_length_probe_routes_to_nearby_chunk),
+        ("Apply no-next without IDAT evidence ends", test_apply_no_next_without_idat_evidence_stops_terminally),
+        (
+            "Apply no-next raw IDAT keeps probe",
+            test_apply_no_next_raw_idat_bytes_keep_length_probe_available,
+        ),
         ("Apply no-next rejects unknown action", test_apply_no_next_chunk_rejects_unknown_action),
         ("Apply libpng saves existing solution", test_apply_libpng_error_saves_existing_solution),
         ("Apply libpng accepts Relics prompt", test_apply_libpng_error_accepts_relics_prompt_and_sets_skip),

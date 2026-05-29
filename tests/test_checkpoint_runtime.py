@@ -226,6 +226,53 @@ def test_checkpoint_entry_runtime_preserves_debug_and_pause():
     assert ("pause_debug", "Checkpoint pause") in calls
 
 
+def test_checkpoint_entry_runtime_prints_error_finding_before_action():
+    calls = []
+
+    def apply_action(decision, chunk, info, toolkit):
+        calls.append(("apply_action", decision, chunk, info, toolkit))
+        return False, None
+
+    checkpoint_runtime.run_checkpoint(
+        checkpoint_runtime.CheckPointEntryRuntime(
+            candy=lambda *args: calls.append(("candy", args)),
+            emit=lambda message: calls.append(("emit", message)),
+            pause_debug=lambda prompt: calls.append(("pause_debug", prompt)),
+            record_finding=lambda registration: calls.append(("record_finding", registration)),
+            apply_action=apply_action,
+            pause_error=lambda prompt: calls.append(("pause_error", prompt)),
+        ),
+        checkpoint_runtime.CheckPointEntryContext(
+            error=True,
+            fixed=False,
+            function="GetInfo",
+            chunk=b"IHDR",
+            infos=("-IHDR Color :Wrong bit depht must be 8 or 16. StructIndex:3",),
+            toolkit=(),
+            brute_level=0,
+            libpng_errors=(),
+            libpng_finished_at_iend=False,
+            pandora_keys=(),
+            debug=False,
+            pause_debug_enabled=False,
+            pause_error_enabled=False,
+        ),
+    )
+
+    assert (
+        "emit",
+        "\n-\033[1;31;49mCriticalHit\033[m: -IHDR Color :Wrong bit depht must be 8 or 16. StructIndex:3",
+    ) in calls
+    critical_index = calls.index(
+        (
+            "emit",
+            "\n-\033[1;31;49mCriticalHit\033[m: -IHDR Color :Wrong bit depht must be 8 or 16. StructIndex:3",
+        )
+    )
+    action_index = next(index for index, call in enumerate(calls) if call[0] == "apply_action")
+    assert critical_index < action_index
+
+
 def test_checkpoint_entry_builders_preserve_legacy_namespace_mapping():
     calls = []
     namespace = {
@@ -360,7 +407,7 @@ def test_checkpoint_fog_of_war_counts_current_and_previous_idat_crc_errors():
             "Checksum_Error_1:-Wrong Crc b'IDAT'",
             "Checksum_Error_0:-Wrong Crc b'PLTE'",
         ),
-        chunks_history=(b"PNG", b"IHDR", b"IDAT", b"IDAT"),
+        chunks_history=(b"PNG", b"IHDR", b"IDAT", b"IDAT", b"IDAT"),
         data_hex="00" * 128,
         current_offset=32,
         sample_name="sample.png",
@@ -376,6 +423,232 @@ def test_checkpoint_fog_of_war_counts_current_and_previous_idat_crc_errors():
     )
 
     assert "<green:[IDAT><white::><red:3><green:/><yellow:3><green:]>" in rendered
+
+
+def test_checkpoint_fog_of_war_does_not_duplicate_checksum_current_chunk():
+    context = checkpoint_runtime.CheckPointEntryContext(
+        error=True,
+        fixed=False,
+        function="Checksum",
+        chunk=b"IHDR",
+        infos=("-Wrong Crc b'IHDR'",),
+        toolkit=("tool",),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=("Checksum_Error_0:-Wrong Crc b'IHDR'",),
+        chunks_history=(b"PNG", b"IHDR"),
+        data_hex="00" * 128,
+        current_offset=32,
+        sample_name="sample.png",
+    )
+
+    rendered = checkpoint_runtime.render_fog_of_war_from_context(
+        {
+            "Candy": lambda mode, color, value: f"<{color}:{value}>",
+            "FOG_OF_WAR_LAST_MAP": None,
+            "FOG_OF_WAR_LAST_WIDTH": None,
+        },
+        context,
+    )
+
+    assert rendered.count("<red:[!IHDR!]>") == 1
+    assert "<red:[!IHDR!]><red:[!IHDR!]>" not in rendered
+
+
+def test_checkpoint_fog_of_war_keeps_next_chunk_as_blue_preview():
+    context = checkpoint_runtime.CheckPointEntryContext(
+        error=False,
+        fixed=False,
+        function="CheckChunkName",
+        chunk=b"bKGD",
+        infos=("-Name is valid for next Chunk[b'bKGD'].",),
+        toolkit=(True,),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=(),
+        chunks_history=(b"PNG", b"IHDR", b"gAMA"),
+        data_hex="00" * 128,
+        current_offset=64,
+        current_chunk_hint=b"IDAT",
+        sample_name="sample.png",
+    )
+
+    rendered = checkpoint_runtime.render_fog_of_war_from_context(
+        {
+            "Candy": lambda mode, color, value: f"<{color}:{value}>",
+            "FOG_OF_WAR_LAST_MAP": None,
+            "FOG_OF_WAR_LAST_WIDTH": None,
+        },
+        context,
+    )
+
+    assert rendered.index("<yellow:[>IDAT<]>") < rendered.index("<blue:[bKGD?]>")
+    assert "<yellow:[>bKGD<]>" not in rendered
+    assert "<red:[!bKGD!]>" not in rendered
+
+
+def test_checkpoint_fog_of_war_marks_bad_next_chunk_preview_red():
+    context = checkpoint_runtime.CheckPointEntryContext(
+        error=True,
+        fixed=False,
+        function="CheckChunkName",
+        chunk=b"bKGG",
+        infos=("-Found Next Chunk[b'bKGG'] has Wrong Chunk name after Chunk[b'IDAT'] ",),
+        toolkit=(b"bKGG", "00000002", 64, b"IDAT", True),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=(),
+        chunks_history=(b"PNG", b"IHDR", b"gAMA"),
+        data_hex="00" * 128,
+        current_offset=64,
+        current_chunk_hint=b"IDAT",
+        sample_name="sample.png",
+    )
+    namespace = {
+        "Candy": lambda mode, color, value: f"<{color}:{value}>",
+        "FOG_OF_WAR_LAST_MAP": None,
+        "FOG_OF_WAR_LAST_WIDTH": None,
+    }
+
+    rendered = checkpoint_runtime.render_fog_of_war_from_context(namespace, context)
+
+    assert namespace["FOG_OF_WAR_BAD_CHUNKS"] == {"bKGG"}
+    assert rendered.index("<yellow:[>IDAT<]>") < rendered.index("<red:[!bKGG!]>")
+    assert "<yellow:[>bKGG<]>" not in rendered
+
+
+def test_checkpoint_fog_of_war_marks_lowercase_missplaced_info_red():
+    context = checkpoint_runtime.CheckPointEntryContext(
+        error=True,
+        fixed=False,
+        function="CheckChunkOrder",
+        chunk="Missplaced",
+        infos=("-cHRM is missplaced must appears before PLTE Chunk",),
+        toolkit=("tool",),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=(),
+        chunks_history=(b"PNG", b"IHDR", b"gAMA", b"PLTE", b"cHRM"),
+        data_hex="00" * 128,
+        current_offset=64,
+        current_chunk_hint=b"IDAT",
+        sample_name="sample.png",
+    )
+    namespace = {
+        "Candy": lambda mode, color, value: f"<{color}:{value}>",
+        "FOG_OF_WAR_LAST_MAP": None,
+        "FOG_OF_WAR_LAST_WIDTH": None,
+    }
+
+    rendered = checkpoint_runtime.render_fog_of_war_from_context(namespace, context)
+
+    assert namespace["FOG_OF_WAR_BAD_CHUNKS"] == {"cHRM"}
+    assert "<red:[!cHRM!]>" in rendered
+    assert "<green:[cHRM]>" not in rendered
+    assert "<red:[!IDAT!]>" not in rendered
+
+
+def test_checkpoint_fog_of_war_keeps_unrepaired_misplaced_chunk_red():
+    namespace = {
+        "Candy": lambda mode, color, value: f"<{color}:{value}>",
+        "FOG_OF_WAR_LAST_MAP": None,
+        "FOG_OF_WAR_LAST_WIDTH": None,
+    }
+    first_context = checkpoint_runtime.CheckPointEntryContext(
+        error=True,
+        fixed=False,
+        function="CheckChunkOrder",
+        chunk="Missplaced",
+        infos=("-Missplaced",),
+        toolkit=("tool",),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=(),
+        chunks_history=(b"PNG", b"IHDR", b"gAMA", b"IDAT"),
+        data_hex="00" * 128,
+        current_offset=64,
+        current_chunk_hint=b"bKGD",
+        sample_name="sample.png",
+    )
+    false_positive_iend_context = checkpoint_runtime.CheckPointEntryContext(
+        error=True,
+        fixed=False,
+        function="CheckLength",
+        chunk=b"IEND",
+        infos=("-No NextChunk",),
+        toolkit=("tool",),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=("CheckChunkOrder_Error_0:-Missplaced",),
+        chunks_history=(b"PNG", b"IHDR", b"gAMA", b"IDAT", b"bKGD"),
+        data_hex="00" * 128,
+        current_offset=80,
+        current_chunk_hint=b"IEND",
+        sample_name="sample.png",
+    )
+    second_context = checkpoint_runtime.CheckPointEntryContext(
+        error=False,
+        fixed=False,
+        function="GetInfo",
+        chunk=b"IEND",
+        infos=(),
+        toolkit=(),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=("CheckChunkOrder_Error_0:-Missplaced",),
+        chunks_history=(b"PNG", b"IHDR", b"gAMA", b"IDAT", b"bKGD"),
+        data_hex="00" * 128,
+        current_offset=80,
+        sample_name="sample.png",
+    )
+
+    checkpoint_runtime.render_fog_of_war_from_context(namespace, first_context)
+    checkpoint_runtime.render_fog_of_war_from_context(namespace, false_positive_iend_context)
+    rendered = checkpoint_runtime.render_fog_of_war_from_context(namespace, second_context)
+
+    assert namespace["FOG_OF_WAR_BAD_CHUNKS"] == {"bKGD"}
+    assert "<red:[!bKGD!]>" in rendered
+    assert "<green:[bKGD]>" not in rendered
+    assert "<red:[!IDAT!]>" not in rendered
+    assert "<red:[!IEND!]>" not in rendered
+    assert "<yellow:[>IEND<]>" in rendered
+
+
+def test_checkpoint_fog_of_war_removes_fixed_chunk_from_bad_memory():
+    namespace = {
+        "Candy": lambda mode, color, value: f"<{color}:{value}>",
+        "FOG_OF_WAR_BAD_CHUNKS": {"bKGD"},
+        "FOG_OF_WAR_LAST_MAP": None,
+        "FOG_OF_WAR_LAST_WIDTH": None,
+    }
+    fixed_context = checkpoint_runtime.CheckPointEntryContext(
+        error=True,
+        fixed=True,
+        function="CheckChunkOrder",
+        chunk=b"bKGD",
+        infos=("Fixed Data",),
+        toolkit=("tool",),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=(),
+        chunks_history=(b"PNG", b"IHDR", b"gAMA", b"IDAT", b"bKGD"),
+        data_hex="00" * 128,
+        current_offset=64,
+        sample_name="sample.png",
+    )
+
+    rendered = checkpoint_runtime.render_fog_of_war_from_context(namespace, fixed_context)
+
+    assert namespace["FOG_OF_WAR_BAD_CHUNKS"] == set()
+    assert "<red:[!bKGD!]>" not in rendered
 
 
 def test_checkpoint_debug_lines_preserve_legacy_print_shape():
@@ -699,9 +972,31 @@ def main():
         ("CheckPoint loop returns action result", test_checkpoint_loop_runtime_returns_first_action_result),
         ("CheckPoint entry routes loop", test_checkpoint_entry_runtime_emits_header_and_routes_loop),
         ("CheckPoint entry debug", test_checkpoint_entry_runtime_preserves_debug_and_pause),
+        ("CheckPoint entry prints findings", test_checkpoint_entry_runtime_prints_error_finding_before_action),
         ("CheckPoint entry builders", test_checkpoint_entry_builders_preserve_legacy_namespace_mapping),
         ("CheckPoint namespace entry bridge", test_checkpoint_namespace_entry_bridge_builds_runtime_and_context),
         ("CheckPoint FogOfWar IDAT count", test_checkpoint_fog_of_war_counts_current_and_previous_idat_crc_errors),
+        (
+            "CheckPoint FogOfWar no duplicate checksum current",
+            test_checkpoint_fog_of_war_does_not_duplicate_checksum_current_chunk,
+        ),
+        (
+            "CheckPoint FogOfWar next chunk preview",
+            test_checkpoint_fog_of_war_keeps_next_chunk_as_blue_preview,
+        ),
+        (
+            "CheckPoint FogOfWar bad next chunk preview",
+            test_checkpoint_fog_of_war_marks_bad_next_chunk_preview_red,
+        ),
+        (
+            "CheckPoint FogOfWar lower-case missplaced red",
+            test_checkpoint_fog_of_war_marks_lowercase_missplaced_info_red,
+        ),
+        (
+            "CheckPoint FogOfWar keeps bad chunk red",
+            test_checkpoint_fog_of_war_keeps_unrepaired_misplaced_chunk_red,
+        ),
+        ("CheckPoint FogOfWar clears fixed chunk", test_checkpoint_fog_of_war_removes_fixed_chunk_from_bad_memory),
         ("CheckPoint debug lines", test_checkpoint_debug_lines_preserve_legacy_print_shape),
         ("CheckPoint debug emit callback", test_emit_checkpoint_debug_uses_injected_emit_callback),
         ("CheckPointRuntime keeps callbacks", test_checkpoint_runtime_keeps_legacy_callbacks),

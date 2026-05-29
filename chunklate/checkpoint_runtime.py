@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import re
 from typing import Any
 
 from . import checkpoint
@@ -78,6 +79,7 @@ class CheckPointEntryContext:
     chunks_history: tuple[Any, ...] = ()
     data_hex: str = ""
     current_offset: Any = None
+    current_chunk_hint: Any = None
     sample_name: str = ""
     debug: bool = False
     pause_debug_enabled: bool = False
@@ -167,6 +169,7 @@ def build_checkpoint_entry_context(
         chunks_history=tuple(chunks_history),
         data_hex=namespace["DATAX"],
         current_offset=namespace["CLoffI"],
+        current_chunk_hint=namespace.get("Orig_CT"),
         sample_name=namespace["Sample_Name"],
         debug=namespace["DEBUG"],
         pause_debug_enabled=namespace["PAUSEDEBUG"],
@@ -213,14 +216,22 @@ CHECKPOINT_COFFEE = r"""
 def render_fog_of_war_from_context(namespace: dict[str, Any], context: CheckPointEntryContext) -> str:
     colorizer = lambda color, value: namespace["Candy"]("Color", color, value)
     idat_wrong_crc_count = _idat_wrong_crc_count(context)
+    update_fog_of_war_bad_chunks(namespace, context)
+    preview_next = _is_check_chunk_name_next_context(context)
+    current_chunk = _fog_current_chunk(context) if preview_next else context.chunk
+    current_error = context.error and not context.fixed and not preview_next
+    chunks_history = _fog_chunks_history(context, current_chunk, preview_next)
     fog_map = fog_of_war.build_map(
-        context.chunks_history,
-        context.chunk,
+        chunks_history,
+        current_chunk,
         data_hex=context.data_hex,
         current_offset=context.current_offset,
-        error=context.error,
+        error=current_error,
         sample_name=context.sample_name,
         idat_wrong_crc_count=idat_wrong_crc_count,
+        bad_chunk_labels=namespace.get("FOG_OF_WAR_BAD_CHUNKS", ()),
+        preview_chunk=context.chunk if preview_next else None,
+        preview_error=context.error and not context.fixed if preview_next else False,
     )
     previous_map = namespace.get("FOG_OF_WAR_LAST_MAP")
     previous_width = namespace.get("FOG_OF_WAR_LAST_WIDTH")
@@ -237,6 +248,93 @@ def render_fog_of_war_from_context(namespace: dict[str, Any], context: CheckPoin
 def _is_idat_wrong_crc_text(value: Any) -> bool:
     text = str(value)
     return "Wrong Crc" in text and "IDAT" in text
+
+
+def _is_check_chunk_name_next_context(context: CheckPointEntryContext) -> bool:
+    if context.function != "CheckChunkName":
+        return False
+    info_text = " ".join(str(info) for info in context.infos)
+    return "next chunk" in info_text.lower()
+
+
+def _fog_current_chunk(context: CheckPointEntryContext) -> Any:
+    hint_label = _chunk_label(context.current_chunk_hint)
+    if hint_label not in GENERIC_BAD_CHUNK_LABELS and hint_label != "None":
+        return context.current_chunk_hint
+    if context.chunks_history:
+        return context.chunks_history[-1]
+    return context.chunk
+
+
+def _fog_chunks_history(
+    context: CheckPointEntryContext,
+    current_chunk: Any,
+    preview_next: bool,
+) -> tuple[Any, ...]:
+    if preview_next:
+        return context.chunks_history
+    if context.function != "Checksum" or not context.chunks_history:
+        return context.chunks_history
+    if _chunk_label(context.chunks_history[-1]) != _chunk_label(current_chunk):
+        return context.chunks_history
+    return context.chunks_history[:-1]
+
+
+GENERIC_BAD_CHUNK_LABELS = {"", "Critical", "Missplaced", "LibpngCheck"}
+
+
+def _chunk_label(value: Any) -> str:
+    if isinstance(value, bytes):
+        return value.decode("ascii", errors="replace")
+    return str(value)
+
+
+def _misplaced_chunk_label_from_info(info_text: str) -> str:
+    match = re.search(r"-([A-Za-z][A-Za-z0-9]{3})\s+is\s+missplaced", info_text, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    match = re.search(r"-Missplaced\s+\[b'([^']+)'\]", info_text)
+    if match:
+        return match.group(1)
+    return ""
+
+
+def _context_bad_chunk_labels(context: CheckPointEntryContext) -> tuple[str, ...]:
+    labels: list[str] = []
+    info_text = " ".join(str(info) for info in context.infos)
+    info_text_lower = info_text.lower()
+    chunk_label = _chunk_label(context.chunk)
+
+    if context.function == "CheckLength" and "No NextChunk" in info_text and chunk_label == "IEND":
+        return ()
+
+    if chunk_label not in GENERIC_BAD_CHUNK_LABELS:
+        labels.append(chunk_label)
+
+    if context.function == "CheckChunkOrder" and "missplaced" in info_text_lower:
+        parsed_label = _misplaced_chunk_label_from_info(info_text)
+        hint_label = _chunk_label(context.current_chunk_hint)
+        if parsed_label:
+            labels.append(parsed_label)
+        elif hint_label not in GENERIC_BAD_CHUNK_LABELS and hint_label != "None":
+            labels.append(hint_label)
+        elif context.chunks_history:
+            labels.append(_chunk_label(context.chunks_history[-1]))
+
+    return tuple(dict.fromkeys(label for label in labels if label and label != "PNG"))
+
+
+def update_fog_of_war_bad_chunks(namespace: dict[str, Any], context: CheckPointEntryContext) -> None:
+    bad_chunks = namespace.setdefault("FOG_OF_WAR_BAD_CHUNKS", set())
+    labels = _context_bad_chunk_labels(context)
+    if not labels:
+        return
+    if context.error is True and context.fixed is True:
+        for label in labels:
+            bad_chunks.discard(label)
+        return
+    if context.error is True:
+        bad_chunks.update(labels)
 
 
 def _idat_wrong_crc_count(context: CheckPointEntryContext) -> int:
@@ -313,6 +411,16 @@ def emit_checkpoint_debug(
         emit(line)
 
 
+def emit_checkpoint_findings(
+    emit: LegacyCall,
+    context: CheckPointEntryContext,
+) -> None:
+    if context.error is not True or context.fixed is True:
+        return
+    for info in context.infos:
+        emit("\n-\033[1;31;49mCriticalHit\033[m: %s" % info)
+
+
 def run_checkpoint_loop(
     runtime: CheckPointLoopRuntime,
     context: CheckPointLoopContext,
@@ -362,6 +470,8 @@ def run_checkpoint(
         runtime.emit(runtime.render_fog_of_war(context))
     else:
         runtime.emit(CHECKPOINT_COFFEE)
+
+    emit_checkpoint_findings(runtime.emit, context)
 
     if context.debug is True:
         emit_checkpoint_debug(
@@ -523,6 +633,9 @@ def run_smash_brute_brawl_retry_ihdr(
     toolkit: tuple[Any, ...],
     from_error: Any,
     brute_level: int,
+    *,
+    has_old_crc: bool = False,
+    old_crc: Any = None,
 ) -> tuple[bool, Any]:
     runtime.candy(
         "Cowsay",
@@ -530,7 +643,13 @@ def run_smash_brute_brawl_retry_ihdr(
         % brute_level,
         "bad",
     )
-    run_smash_brute_brawl_relaunch(runtime, toolkit, from_error)
+    run_smash_brute_brawl_relaunch(
+        runtime,
+        toolkit,
+        from_error,
+        has_old_crc=has_old_crc,
+        old_crc=old_crc,
+    )
     return False, None
 
 

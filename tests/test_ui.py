@@ -2,6 +2,7 @@
 import contextlib
 import io
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -10,6 +11,23 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import ui
+import Chunklate
+
+
+@contextmanager
+def patched_attrs(module, **attrs):
+    old_values = {name: getattr(module, name, None) for name in attrs}
+    missing = {name for name in attrs if not hasattr(module, name)}
+    try:
+        for name, value in attrs.items():
+            setattr(module, name, value)
+        yield
+    finally:
+        for name, value in old_values.items():
+            if name in missing:
+                delattr(module, name)
+            else:
+                setattr(module, name, value)
 
 
 def test_colorize_preserves_legacy_ansi_colors():
@@ -282,6 +300,99 @@ def test_run_loadingbar_from_namespace_uses_print_fallback():
     assert output.getvalue() == "100/500" + namespace["ThksForTheFish"][expected_position] + "\033[K\r"
 
 
+def test_run_loadingbar_from_namespace_uses_terminal_fallback_on_non_tty():
+    class FakeOs:
+        @staticmethod
+        def get_terminal_size(fd):
+            raise OSError("not a tty")
+
+    namespace = {
+        "os": FakeOs(),
+        "print": lambda *args, **kwargs: None,
+    }
+
+    ui.run_loadingbar_from_namespace(namespace, 500, 3, 0, True)
+
+    assert namespace["LenFishList"] == len(namespace["ThksForTheFish"]) - 1
+    assert len(namespace["ThksForTheFish"]) > 0
+
+
+def test_chunklate_minibar_resets_by_indication_and_clears_line():
+    calls = []
+
+    def fake_print(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    with patched_attrs(
+        Chunklate,
+        print=fake_print,
+        MAXCHAR=20,
+        Loading_txt="old........ ",
+        Loading_sep="old",
+        CharPos=9,
+        GoBack=True,
+        PROGRESS_LINE_ACTIVE=False,
+    ):
+        Chunklate.Minibar("new")
+
+        assert Chunklate.Loading_txt == "new. "
+        assert Chunklate.Loading_sep == "new"
+        assert Chunklate.CharPos == 2
+        assert Chunklate.GoBack is False
+        assert Chunklate.PROGRESS_LINE_ACTIVE is True
+
+    assert calls == [(("new. \033[K",), {"end": "\r"})]
+
+
+def test_chunklate_minibar_keeps_animation_when_counter_changes():
+    calls = []
+
+    def fake_print(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    with patched_attrs(
+        Chunklate,
+        print=fake_print,
+        MAXCHAR=30,
+        Loading_txt="1/10.. ",
+        Loading_sep="#/##",
+        CharPos=3,
+        GoBack=False,
+        PROGRESS_LINE_ACTIVE=False,
+    ):
+        Chunklate.Minibar("2/10")
+
+        assert Chunklate.Loading_txt == "2/10... "
+        assert Chunklate.Loading_sep == "#/##"
+        assert Chunklate.CharPos == 4
+        assert Chunklate.PROGRESS_LINE_ACTIVE is True
+
+    assert calls == [(("2/10... \033[K",), {"end": "\r"})]
+
+
+def test_chunklate_print_finishes_active_progress_line_before_output():
+    calls = []
+
+    def fake_print(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    with patched_attrs(
+        Chunklate,
+        print=fake_print,
+        MAXCHAR=80,
+        NODIALOGUE=False,
+        PROGRESS_LINE_ACTIVE=True,
+    ):
+        Chunklate.PRINT("after")
+
+        assert Chunklate.PROGRESS_LINE_ACTIVE is False
+
+    assert calls == [
+        (("",), {}),
+        (("after",), {}),
+    ]
+
+
 def main():
     checks = [
         ("Colorize ANSI colors", test_colorize_preserves_legacy_ansi_colors),
@@ -306,6 +417,10 @@ def main():
         ("Loadingbar progress visible end", test_loadingbar_progress_stops_at_last_visible_fish_frame),
         ("Loadingbar namespace bridge", test_run_loadingbar_from_namespace_builds_and_prints_progress),
         ("Loadingbar print fallback", test_run_loadingbar_from_namespace_uses_print_fallback),
+        ("Loadingbar terminal fallback", test_run_loadingbar_from_namespace_uses_terminal_fallback_on_non_tty),
+        ("Chunklate Minibar clears line", test_chunklate_minibar_resets_by_indication_and_clears_line),
+        ("Chunklate Minibar keeps counter animation", test_chunklate_minibar_keeps_animation_when_counter_changes),
+        ("Chunklate PRINT finishes progress", test_chunklate_print_finishes_active_progress_line_before_output),
     ]
 
     print("Running UI tests")

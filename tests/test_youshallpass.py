@@ -99,6 +99,7 @@ def test_youshallpass_uses_chrm_parser():
 
     def check_without_override():
         assert Chunklate.YouShallPass(b"cHRM", valid_chrm) is True
+        assert Chunklate.YouShallPass(b"cHRM", valid_chrm[:-2]) is False
         assert Chunklate.YouShallPass(b"cHRM", "zz" + valid_chrm[2:]) is False
 
     def check_with_override():
@@ -146,6 +147,7 @@ def test_youshallpass_uses_iccp_parser():
 def test_youshallpass_uses_color_dependent_parsers():
     def check():
         assert Chunklate.YouShallPass(b"bKGD", "0007") is True
+        assert Chunklate.YouShallPass(b"bKGD", "00070000") is False
         assert Chunklate.YouShallPass(b"bKGD", "0100") is False
         assert Chunklate.YouShallPass(b"sBIT", "08") is True
         assert Chunklate.YouShallPass(b"sBIT", "00") is False
@@ -194,10 +196,13 @@ def test_youshallpass_uses_splt_parser():
 
 def test_youshallpass_uses_text_parsers():
     assert Chunklate.YouShallPass(b"tEXt", "5469746c650048656c6c6f") is True
+    assert Chunklate.YouShallPass(b"tEXt", "0048656c6c6f") is False
     assert Chunklate.YouShallPass(b"tEXt", ("41" * 80) + "00") is False
     assert Chunklate.YouShallPass(b"zTXt", "4b65790000789cf348cdc9c90700058c01f5") is True
+    assert Chunklate.YouShallPass(b"zTXt", "0000789cf348cdc9c90700058c01f5") is False
     assert Chunklate.YouShallPass(b"zTXt", "4b65790000ff") is False
     assert Chunklate.YouShallPass(b"iTXt", "4b6579000000000048656c6c6f") is True
+    assert Chunklate.YouShallPass(b"iTXt", "000000656e2d75730000437563756d626572") is False
     assert Chunklate.YouShallPass(b"iTXt", "4b6579000200000048656c6c6f") is False
 
 

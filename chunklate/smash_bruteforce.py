@@ -149,7 +149,7 @@ def run_legacy_smash_brute_brawl_from_namespace(
             libpng_errors=tuple(namespace["LIBPNG_ERR"]),
             tmp_image_paths=namespace["TmpImgLst"],
             file_origin=namespace["FILE_Origin"],
-            current_diff=namespace["DIFF"],
+            current_diff=namespace.get("DIFF", ""),
             edit_mode=edit_mode,
             bf_mode=bf_mode,
             brute_crc=brute_crc,

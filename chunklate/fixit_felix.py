@@ -8,10 +8,15 @@ from typing import Callable
 from typing import Literal
 
 from .png import (
+    repair_bkgd_length,
+    repair_chrm_length,
     repair_color_profile_chunks,
     repair_empty_plte,
     repair_ihdr,
     repair_indexed_plte,
+    repair_itxt_compression_flag,
+    repair_itxt_keyword_length,
+    repair_itxt_compression_method,
     repair_known_chunk_type_case,
     repair_missing_chunk_data_byte,
     repair_unknown_private_critical_chunks,
@@ -53,6 +58,11 @@ NoNextAppendIendAction = Literal[
 AutomaticRepairHandler = Literal[
     "color_profile_cleanup",
     "plte_cleanup",
+    "chrm_length",
+    "bkgd_length",
+    "itxt_keyword_length",
+    "itxt_compression_flag",
+    "itxt_compression_method",
     "known_chunk_type_case",
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
@@ -65,6 +75,11 @@ FixItFelixWorkKind = Literal["automatic_repair", "finding"]
 AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "color_profile_cleanup",
     "plte_cleanup",
+    "chrm_length",
+    "bkgd_length",
+    "itxt_keyword_length",
+    "itxt_compression_flag",
+    "itxt_compression_method",
     "known_chunk_type_case",
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
@@ -571,6 +586,41 @@ def plte_cleanup(
     return repair_empty_plte(data) or repair_indexed_plte(data)
 
 
+def bkgd_length(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not has_finding(findings, "bKGD length is not Valid"):
+        return None
+
+    return repair_bkgd_length(data)
+
+
+def chrm_length(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not has_finding(findings, "cHRM length is not Valid"):
+        return None
+
+    return repair_chrm_length(data)
+
+
+def itxt_compression_flag(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not has_finding(findings, "iTXt Compression Flag must be 0 or 1"):
+        return None
+
+    return repair_itxt_compression_flag(data)
+
+
+def itxt_keyword_length(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not has_finding(findings, "iTXt Keyword length is not Valid"):
+        return None
+
+    return repair_itxt_keyword_length(data)
+
+
+def itxt_compression_method(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not has_finding(findings, "iTXt Compression Method must be 0"):
+        return None
+
+    return repair_itxt_compression_method(data)
+
+
 def missing_chunk_data_byte(data: bytes, findings: Iterable[object]) -> Any | None:
     if not (has_finding(findings, "Wrong Crc") or has_finding(findings, "No NextChunk")):
         return None
@@ -631,6 +681,16 @@ def automatic_repair(
             nodialogue=nodialogue,
             max_saves=max_saves,
         )
+    if name == "bkgd_length":
+        return bkgd_length(data, findings)
+    if name == "chrm_length":
+        return chrm_length(data, findings)
+    if name == "itxt_keyword_length":
+        return itxt_keyword_length(data, findings)
+    if name == "itxt_compression_flag":
+        return itxt_compression_flag(data, findings)
+    if name == "itxt_compression_method":
+        return itxt_compression_method(data, findings)
     if name == "known_chunk_type_case":
         return known_chunk_type_case(data, findings, known_chunk_types)
     if name == "unknown_private_critical_removal":

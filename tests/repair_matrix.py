@@ -606,7 +606,36 @@ REPAIR_MATRIX = tuple(
 PILLOW_LENIENT_REPAIR_CASES: dict[str, str] = {}
 LEGACY_CRC_ONLY_REPAIR_CASES: dict[str, tuple[int, tuple[str, ...], str]] = {}
 PILLOW_ONLY_REPAIR_CASES: dict[str, tuple[int, tuple[str, ...], str]] = {}
-UNCOVERED_REPAIR_CASES: dict[str, str] = {}
+UNCOVERED_REPAIR_CASES: dict[str, str] = {
+    "badlinefeed1.png": "local line-feed corruption candidate; not yet promoted to a strict repair regression",
+    "bkgd_after_idat.png": "misplaced ancillary chunk fixture covered by targeted runtime tests; not yet in strict repair matrix",
+    "chrm_after_idat.png": "misplaced ancillary chunk fixture covered by targeted runtime tests; not yet in strict repair matrix",
+    "chrm_after_plte.png": "misplaced ancillary chunk fixture covered by targeted runtime tests; not yet in strict repair matrix",
+    "chunk_length.png": "generic chunk length fixture kept for manual exploration; not yet in strict repair matrix",
+    "gama_after_idat.png": "misplaced ancillary chunk fixture covered by targeted runtime tests; not yet in strict repair matrix",
+    "gama_after_plte.png": "misplaced ancillary chunk fixture covered by targeted runtime tests; not yet in strict repair matrix",
+    "hist_after_idat.png": "misplaced ancillary chunk fixture covered by targeted runtime tests; not yet in strict repair matrix",
+    "hist_before_plte.png": "misplaced ancillary chunk fixture covered by targeted runtime tests; not yet in strict repair matrix",
+    "iccp_after_idat.png": "misplaced ancillary chunk fixture covered by targeted runtime tests; not yet in strict repair matrix",
+    "iccp_after_plte.png": "misplaced ancillary chunk fixture covered by targeted runtime tests; not yet in strict repair matrix",
+    "ihdr_16bit_palette.png": "IHDR value repair fixture covered by targeted runtime tests; not yet in strict repair matrix",
+    "ihdr_1bit_alpha.png": "IHDR value repair fixture kept for manual exploration; not yet in strict repair matrix",
+    "ihdr_bit_depth.png": "IHDR value repair fixture kept for manual exploration; not yet in strict repair matrix",
+    "ihdr_color_type.png": "IHDR value repair fixture kept for manual exploration; not yet in strict repair matrix",
+    "ihdr_compression_method.png": "IHDR value repair fixture kept for manual exploration; not yet in strict repair matrix",
+    "ihdr_filter_method.png": "IHDR value repair fixture kept for manual exploration; not yet in strict repair matrix",
+    "ihdr_interlace_method.png": "IHDR value repair fixture kept for manual exploration; not yet in strict repair matrix",
+    "itxt_compression_flag.png": "iTXt metadata repair fixture covered by targeted runtime tests; not yet in strict repair matrix",
+    "itxt_compression_method.png": "iTXt metadata repair fixture covered by targeted runtime tests; not yet in strict repair matrix",
+    "itxt_keyword_length.png": "iTXt metadata fixture accepted by libpng; not yet in strict repair matrix",
+    "itxt_keyword_length_2.png": "iTXt metadata fixture accepted by libpng; not yet in strict repair matrix",
+    "length_bkgd_gray.png": "bKGD length repair fixture covered by targeted tests; not yet in strict repair matrix",
+    "length_bkgd_palette.png": "bKGD length repair fixture covered by targeted tests; not yet in strict repair matrix",
+    "length_bkgd_rgb.png": "bKGD length repair fixture covered by targeted tests; not yet in strict repair matrix",
+    "length_chrm.png": "cHRM length repair fixture covered by targeted tests; not yet in strict repair matrix",
+    "noidat.png": "terminal malformed PNG with no IDAT image stream to recover",
+    "xs7n0g01.png": "local schaik sample with invalid PNG dimensions; not yet a repair regression",
+}
 
 
 REPAIR_CASES = {

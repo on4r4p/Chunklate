@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import struct
 import sys
 import zlib
 from pathlib import Path
@@ -32,18 +33,24 @@ from chunklate.png import (
     legacy_length_decision,
     legacy_length_status,
     read_chunks,
+    repair_bkgd_length,
+    repair_chrm_length,
     repair_color_profile_chunks,
     repair_empty_plte,
     repair_ihdr,
     repair_ihdr_from_idat,
     repair_ihdr_preserving_crc,
     repair_indexed_plte,
+    repair_itxt_compression_flag,
+    repair_itxt_keyword_length,
+    repair_itxt_compression_method,
     repair_known_chunk_type_case,
     repair_linefeed_conversion,
     repair_missing_ihdr_from_idat,
     repair_missing_chunk_data_byte,
     repair_overlong_chunk_length_to_next_header,
     repair_unknown_private_critical_chunks,
+    SRGB_CHRM_PAYLOAD,
     validate_png_structure,
 )
 
@@ -664,6 +671,40 @@ def test_repair_ihdr_rebuilds_indexed_header_when_plte_and_idat_disagree():
     assert first.crc_ok
 
 
+def test_repair_ihdr_rebuilds_invalid_rgba_bit_depth_from_idat():
+    original = (BROKEN_FIXTURES / "ihdr_1bit_alpha.png").read_bytes()
+
+    repaired = repair_ihdr(original)
+
+    assert repaired is not None
+    assert repaired.preserved_crc is False
+    assert repaired.width == 32
+    assert repaired.height == 32
+    assert repaired.bit_depth == 8
+    assert repaired.color_type == 6
+    assert validate_png_structure(repaired.data).ok
+    first = next(iter_chunks(repaired.data))
+    assert first.data[8:10] == b"\x08\x06"
+    assert first.crc_ok
+
+
+def test_repair_ihdr_rebuilds_invalid_indexed_bit_depth_from_idat():
+    original = (BROKEN_FIXTURES / "ihdr_16bit_palette.png").read_bytes()
+
+    repaired = repair_ihdr(original)
+
+    assert repaired is not None
+    assert repaired.preserved_crc is False
+    assert repaired.width == 32
+    assert repaired.height == 32
+    assert repaired.bit_depth == 8
+    assert repaired.color_type == 3
+    assert validate_png_structure(repaired.data).ok
+    first = next(iter_chunks(repaired.data))
+    assert first.data[8:10] == b"\x08\x03"
+    assert first.crc_ok
+
+
 def test_repair_missing_ihdr_from_idat_inserts_strict_indexed_header():
     original = (REPAIR_FIXTURES / "No_Png_Header_Missing_Chunk_Corrupted.png").read_bytes()
     with_signature = PNG_SIGNATURE + b"\x00" + original
@@ -778,6 +819,112 @@ def minimal_gray_png_with_chunk(chunk_type, chunk_data):
     return PNG_SIGNATURE + ihdr + build_png_chunk(chunk_type, chunk_data) + idat + IEND_CHUNK
 
 
+def minimal_png_with_color_and_chunk(color_type, chunk_type, chunk_data):
+    ihdr = build_png_chunk(b"IHDR", struct.pack("!IIBBBBB", 1, 1, 8, color_type, 0, 0, 0))
+    prefix = b""
+    if color_type == 3:
+        prefix = build_png_chunk(b"PLTE", bytes(range(60)))
+        scanline = b"\x00\x00"
+    elif color_type == 4:
+        scanline = b"\x00\x00\xff"
+    elif color_type == 6:
+        scanline = b"\x00\x00\x00\x00\xff"
+    elif color_type == 2:
+        scanline = b"\x00\x00\x00\x00"
+    else:
+        scanline = b"\x00\x00"
+    idat = build_png_chunk(b"IDAT", zlib.compress(scanline))
+    return PNG_SIGNATURE + ihdr + prefix + build_png_chunk(chunk_type, chunk_data) + idat + IEND_CHUNK
+
+
+def test_repair_bkgd_length_truncates_gray_alpha_payload():
+    broken = minimal_png_with_color_and_chunk(4, b"bKGD", b"\x00\x00\x00\x00\x00\x00")
+
+    repaired = repair_bkgd_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 6
+    assert repaired.new_length == 2
+    assert repaired.removed is False
+    bkgd = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"bKGD")
+    assert bkgd.data == b"\x00\x00"
+    assert bkgd.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_bkgd_length_truncates_palette_payload():
+    broken = minimal_png_with_color_and_chunk(3, b"bKGD", b"\x13\x00\x00\x00\x00\x00")
+
+    repaired = repair_bkgd_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 6
+    assert repaired.new_length == 1
+    bkgd = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"bKGD")
+    assert bkgd.data == b"\x13"
+    assert bkgd.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_bkgd_length_removes_short_truecolor_alpha_payload():
+    broken = minimal_png_with_color_and_chunk(6, b"bKGD", b"\x00\xff")
+
+    repaired = repair_bkgd_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 2
+    assert repaired.new_length == 0
+    assert repaired.removed is True
+    assert b"bKGD" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_chrm_length_uses_crc_proven_missing_byte():
+    chrm_chunk = (
+        (len(SRGB_CHRM_PAYLOAD) - 1).to_bytes(4, "big")
+        + b"cHRM"
+        + SRGB_CHRM_PAYLOAD[:-1]
+        + (zlib.crc32(b"cHRM" + SRGB_CHRM_PAYLOAD) & 0xFFFFFFFF).to_bytes(4, "big")
+    )
+    broken = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
+        + chrm_chunk
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+    repaired = repair_chrm_length(broken)
+
+    assert repaired is not None
+    assert repaired.preserved_crc is True
+    assert repaired.crc_bruteforce_attempted is True
+    assert repaired.crc_candidates_tested == 113
+    chrm = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"cHRM")
+    assert chrm.length == 32
+    assert chrm.data == SRGB_CHRM_PAYLOAD
+    assert chrm.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_chrm_length_infers_when_crc_does_not_match():
+    broken = (BROKEN_FIXTURES / "length_chrm.png").read_bytes()
+
+    repaired = repair_chrm_length(broken)
+
+    assert repaired is not None
+    assert repaired.preserved_crc is False
+    assert repaired.crc_bruteforce_attempted is True
+    assert repaired.crc_candidates_tested == 256
+    assert repaired.missing_bytes == 1
+    assert repaired.inferred_payload == SRGB_CHRM_PAYLOAD
+    assert repaired.removal_data is not None
+    chrm = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"cHRM")
+    assert chrm.length == 32
+    assert chrm.data == SRGB_CHRM_PAYLOAD
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_repair_known_chunk_type_case_requires_coherent_data():
     broken = minimal_gray_png_with_chunk(b"GaMA", b"\x00\x00\x00\x00")
 
@@ -797,6 +944,99 @@ def test_repair_known_chunk_type_case_accepts_other_coherent_chunks():
     chunks = list(iter_chunks(repaired.data))
     assert [chunk.chunk_type for chunk in chunks] == [b"IHDR", b"sRGB", b"IDAT", b"IEND"]
     assert all(chunk.crc_ok for chunk in chunks)
+
+
+def test_repair_itxt_compression_flag_to_uncompressed_text():
+    itxt = b"Vegetable\x00\x02\x00en-us\x00\x00Cucumber"
+    broken = minimal_gray_png_with_chunk(b"iTXt", itxt)
+
+    repaired = repair_itxt_compression_flag(broken)
+
+    assert repaired is not None
+    assert repaired.old_flag == 2
+    assert repaired.new_flag == 0
+    chunk = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"iTXt")
+    assert chunk.data == b"Vegetable\x00\x00\x00en-us\x00\x00Cucumber"
+    assert chunk.crc_ok
+    assert is_complete_png_with_valid_crc(repaired.data)
+
+
+def test_repair_itxt_compression_flag_to_compressed_text():
+    compressed_text = zlib.compress("Cucumber".encode())
+    itxt = b"Vegetable\x00\x02\x00en-us\x00\x00" + compressed_text
+    broken = minimal_gray_png_with_chunk(b"iTXt", itxt)
+
+    repaired = repair_itxt_compression_flag(broken)
+
+    assert repaired is not None
+    assert repaired.old_flag == 2
+    assert repaired.new_flag == 1
+    chunk = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"iTXt")
+    assert chunk.data == b"Vegetable\x00\x01\x00en-us\x00\x00" + compressed_text
+    assert chunk.crc_ok
+    assert is_complete_png_with_valid_crc(repaired.data)
+
+
+def test_repair_itxt_compression_method_with_compressed_text():
+    compressed_text = zlib.compress("Cucumber".encode())
+    itxt = b"Vegetable\x00\x01\x01en-us\x00\x00" + compressed_text
+    broken = minimal_gray_png_with_chunk(b"iTXt", itxt)
+
+    repaired = repair_itxt_compression_method(broken)
+
+    assert repaired is not None
+    assert repaired.old_method == 1
+    assert repaired.new_method == 0
+    chunk = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"iTXt")
+    assert chunk.data == b"Vegetable\x00\x01\x00en-us\x00\x00" + compressed_text
+    assert chunk.crc_ok
+    assert is_complete_png_with_valid_crc(repaired.data)
+
+
+def test_repair_itxt_compression_method_with_uncompressed_text():
+    itxt = b"Vegetable\x00\x00\x01en-us\x00\x00Cucumber"
+    broken = minimal_gray_png_with_chunk(b"iTXt", itxt)
+
+    repaired = repair_itxt_compression_method(broken)
+
+    assert repaired is not None
+    assert repaired.old_method == 1
+    assert repaired.new_method == 0
+    chunk = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"iTXt")
+    assert chunk.data == b"Vegetable\x00\x00\x00en-us\x00\x00Cucumber"
+    assert chunk.crc_ok
+    assert is_complete_png_with_valid_crc(repaired.data)
+
+
+def test_repair_itxt_keyword_length_replaces_empty_keyword():
+    itxt = b"\x00\x00\x00en-us\x00\x00Cucumber"
+    broken = minimal_gray_png_with_chunk(b"iTXt", itxt)
+
+    repaired = repair_itxt_keyword_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_keyword_length == 0
+    assert repaired.new_keyword == b"Comment"
+    chunk = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"iTXt")
+    assert chunk.data == b"Comment\x00\x00\x00en-us\x00\x00Cucumber"
+    assert chunk.crc_ok
+    assert is_complete_png_with_valid_crc(repaired.data)
+
+
+def test_repair_itxt_keyword_length_truncates_long_keyword():
+    keyword = b"0123456789" * 8
+    itxt = keyword + b"\x00\x00\x00en-us\x00\x00Cucumber"
+    broken = minimal_gray_png_with_chunk(b"iTXt", itxt)
+
+    repaired = repair_itxt_keyword_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_keyword_length == 80
+    assert repaired.new_keyword == keyword[:79]
+    chunk = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"iTXt")
+    assert chunk.data == keyword[:79] + b"\x00\x00\x00en-us\x00\x00Cucumber"
+    assert chunk.crc_ok
+    assert is_complete_png_with_valid_crc(repaired.data)
 
 
 def test_known_bad_srgb_profile_warning_detects_photoshop_iccp_profile():
@@ -951,6 +1191,14 @@ def main():
             test_repair_ihdr_rebuilds_indexed_header_when_plte_and_idat_disagree,
         ),
         (
+            "Rebuild invalid RGBA IHDR bit depth",
+            test_repair_ihdr_rebuilds_invalid_rgba_bit_depth_from_idat,
+        ),
+        (
+            "Rebuild invalid indexed IHDR bit depth",
+            test_repair_ihdr_rebuilds_invalid_indexed_bit_depth_from_idat,
+        ),
+        (
             "Insert strict indexed IHDR when missing",
             test_repair_missing_ihdr_from_idat_inserts_strict_indexed_header,
         ),
@@ -967,10 +1215,27 @@ def main():
         ("Rebuild empty indexed PLTE", test_repair_empty_plte_rebuilds_indexed_palette),
         ("Rebuild malformed indexed PLTE", test_repair_indexed_plte_rebuilds_malformed_palette),
         ("Truncate oversized indexed PLTE", test_repair_indexed_plte_truncates_palette_with_too_many_entries),
+        ("Truncate long gray-alpha bKGD", test_repair_bkgd_length_truncates_gray_alpha_payload),
+        ("Truncate long palette bKGD", test_repair_bkgd_length_truncates_palette_payload),
+        ("Remove short truecolor-alpha bKGD", test_repair_bkgd_length_removes_short_truecolor_alpha_payload),
+        ("Recover short cHRM from stored CRC", test_repair_chrm_length_uses_crc_proven_missing_byte),
+        ("Infer short cHRM after CRC miss", test_repair_chrm_length_infers_when_crc_does_not_match),
         ("Repair missing data byte using shifted CRC", test_repair_missing_chunk_data_byte_uses_shifted_crc),
         ("Repair known chunk type case and CRC", test_repair_known_chunk_type_case_rebuilds_crc),
         ("Reject known chunk type case with incoherent data", test_repair_known_chunk_type_case_requires_coherent_data),
         ("Repair coherent sRGB chunk type case", test_repair_known_chunk_type_case_accepts_other_coherent_chunks),
+        ("Repair iTXt compression flag to 00", test_repair_itxt_compression_flag_to_uncompressed_text),
+        ("Repair iTXt compression flag to 01", test_repair_itxt_compression_flag_to_compressed_text),
+        (
+            "Repair compressed iTXt compression method",
+            test_repair_itxt_compression_method_with_compressed_text,
+        ),
+        (
+            "Repair uncompressed iTXt compression method",
+            test_repair_itxt_compression_method_with_uncompressed_text,
+        ),
+        ("Repair empty iTXt keyword", test_repair_itxt_keyword_length_replaces_empty_keyword),
+        ("Repair long iTXt keyword", test_repair_itxt_keyword_length_truncates_long_keyword),
         (
             "Detect known bad sRGB iCCP warning",
             test_known_bad_srgb_profile_warning_detects_photoshop_iccp_profile,

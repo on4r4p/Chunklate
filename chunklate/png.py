@@ -17,6 +17,17 @@ PNG_COLOR_BIT_DEPTHS = {
     4: (8, 16),
     6: (8, 16),
 }
+SRGB_CHRM_PAYLOAD = struct.pack(
+    "!IIIIIIII",
+    31270,
+    32900,
+    64000,
+    33000,
+    30000,
+    60000,
+    15000,
+    6000,
+)
 
 
 class PngFormatError(ValueError):
@@ -143,7 +154,7 @@ class IhdrRepair:
     bit_depth: int | None = None
     color_type: int | None = None
     strict_candidate_count: int = 0
-    selection_score: tuple[int, int, int, int, int] | None = None
+    selection_score: tuple[int, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -168,6 +179,45 @@ class ColorProfileRepair:
 class PlteRepair:
     data: bytes
     strategy: str
+
+
+@dataclass(frozen=True)
+class ItxtRepair:
+    data: bytes
+    strategy: str
+    chunk_offset: int
+    old_keyword_length: int | None = None
+    new_keyword: bytes | None = None
+    old_flag: int | None = None
+    new_flag: int | None = None
+    old_method: int | None = None
+    new_method: int | None = None
+
+
+@dataclass(frozen=True)
+class BkgdRepair:
+    data: bytes
+    strategy: str
+    chunk_offset: int
+    old_length: int
+    new_length: int
+    removed: bool = False
+
+
+@dataclass(frozen=True)
+class ChrmRepair:
+    data: bytes
+    strategy: str
+    chunk_offset: int
+    old_length: int
+    new_length: int
+    removed: bool = False
+    missing_bytes: int = 0
+    inferred_payload: bytes | None = None
+    removal_data: bytes | None = None
+    preserved_crc: bool = False
+    crc_bruteforce_attempted: bool = False
+    crc_candidates_tested: int = 0
 
 
 @dataclass(frozen=True)
@@ -553,6 +603,153 @@ def replace_png_chunk(data: bytes, chunk: PngChunk, replacement: bytes) -> bytes
     return data[: chunk.offset] + replacement + data[chunk_end:]
 
 
+def _itxt_text_offset(chunk_data: bytes) -> int | None:
+    try:
+        keyword_end = chunk_data.index(0)
+    except ValueError:
+        return None
+
+    if keyword_end == 0 or keyword_end > 79 or keyword_end + 3 > len(chunk_data):
+        return None
+
+    language_start = keyword_end + 3
+    try:
+        language_end = chunk_data.index(0, language_start)
+    except ValueError:
+        return None
+
+    translated_start = language_end + 1
+    try:
+        translated_end = chunk_data.index(0, translated_start)
+    except ValueError:
+        return None
+
+    return translated_end + 1
+
+
+def _itxt_best_repaired_compression_flag(chunk_data: bytes, flag_offset: int) -> int | None:
+    old_flag = chunk_data[flag_offset]
+    if old_flag in (0, 1):
+        return None
+
+    text_offset = _itxt_text_offset(chunk_data)
+    if text_offset is None:
+        return None
+
+    method = chunk_data[flag_offset + 1]
+    text = chunk_data[text_offset:]
+    if method == 0:
+        try:
+            zlib.decompress(text).decode("utf-8")
+        except (UnicodeDecodeError, zlib.error):
+            return 0
+        return 1
+
+    return 0
+
+
+def _itxt_compression_method_offset(chunk_data: bytes) -> int | None:
+    try:
+        keyword_end = chunk_data.index(0)
+    except ValueError:
+        return None
+
+    method_offset = keyword_end + 2
+    if keyword_end == 0 or keyword_end > 79 or method_offset >= len(chunk_data):
+        return None
+    return method_offset
+
+
+def _bkgd_expected_length_for_color_type(color_type: int) -> int | None:
+    return {
+        0: 2,
+        4: 2,
+        2: 6,
+        6: 6,
+        3: 1,
+    }.get(color_type)
+
+
+def _chrm_payload_values(payload: bytes) -> tuple[int, ...] | None:
+    if len(payload) != 32:
+        return None
+    return struct.unpack("!IIIIIIII", payload)
+
+
+def _chrm_payload_score(payload: bytes) -> tuple[int, int, int] | None:
+    values = _chrm_payload_values(payload)
+    standard = _chrm_payload_values(SRGB_CHRM_PAYLOAD)
+    if values is None or standard is None:
+        return None
+    if any(value > 100000 for value in values):
+        return None
+
+    pairs = tuple(zip(values[::2], values[1::2], strict=True))
+    pair_overflow = sum(max(0, x + y - 100000) for x, y in pairs)
+    zero_count = sum(1 for value in values if value == 0)
+    standard_distance = sum(abs(value - expected) for value, expected in zip(values, standard, strict=True))
+    return (-pair_overflow, -zero_count, -standard_distance)
+
+
+def _complete_short_chrm_payload(payload: bytes) -> bytes | None:
+    deficit = 32 - len(payload)
+    if deficit <= 0:
+        return None
+
+    candidates: list[bytes] = []
+    if SRGB_CHRM_PAYLOAD.startswith(payload):
+        candidates.append(SRGB_CHRM_PAYLOAD)
+
+    if deficit == 1:
+        candidates.extend(payload + bytes((value,)) for value in range(256))
+    elif deficit == 2:
+        candidates.extend(
+            payload + high.to_bytes(1, "big") + low.to_bytes(1, "big")
+            for high in range(256)
+            for low in range(256)
+        )
+    elif not candidates:
+        return None
+
+    scored = [
+        (score, candidate)
+        for candidate in candidates
+        if (score := _chrm_payload_score(candidate)) is not None
+    ]
+    if not scored:
+        return None
+    return max(scored, key=lambda item: item[0])[1]
+
+
+def _complete_short_chrm_payload_by_crc(
+    payload: bytes,
+    stored_crc: int,
+) -> tuple[bytes | None, int]:
+    deficit = 32 - len(payload)
+    if deficit <= 0:
+        return None, 0
+
+    if deficit == 1:
+        tested = 0
+        for value in range(256):
+            tested += 1
+            candidate = payload + bytes((value,))
+            if zlib.crc32(b"cHRM" + candidate) & 0xFFFFFFFF == stored_crc:
+                return candidate, tested
+        return None, tested
+
+    if deficit == 2:
+        tested = 0
+        for value in range(65536):
+            tested += 1
+            candidate = payload + value.to_bytes(2, "big")
+            if zlib.crc32(b"cHRM" + candidate) & 0xFFFFFFFF == stored_crc:
+                return candidate, tested
+        return None, tested
+
+    return None, 0
+
+
 def is_complete_png_with_valid_crc(data: bytes) -> bool:
     try:
         chunks = list(iter_chunks(data))
@@ -653,6 +850,26 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
             errors.append("PLTE has too many entries for indexed bit depth")
     elif color_type == 3:
         errors.append("Indexed-color PNG requires a PLTE chunk")
+
+    bkgd_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"bKGD"]
+    if len(bkgd_indices) > 1:
+        errors.append("PNG must not contain multiple bKGD chunks")
+    if bkgd_indices:
+        bkgd = chunks[bkgd_indices[0]]
+        expected_bkgd_length = _bkgd_expected_length_for_color_type(color_type)
+        if expected_bkgd_length is not None and bkgd.length != expected_bkgd_length:
+            errors.append(
+                "bKGD chunk length must be %s for IHDR color type %s"
+                % (expected_bkgd_length, color_type)
+            )
+
+    chrm_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"cHRM"]
+    if len(chrm_indices) > 1:
+        errors.append("PNG must not contain multiple cHRM chunks")
+    if chrm_indices:
+        chrm = chunks[chrm_indices[0]]
+        if chrm.length != 32:
+            errors.append("cHRM chunk length must be 32")
 
     iend = chunks[-1]
     if iend.chunk_type == b"IEND" and iend.length != 0:
@@ -1410,6 +1627,141 @@ def _parse_ihdr_data(ihdr: PngChunk) -> tuple[int, int, int, int, int, int, int]
     return struct.unpack("!IIBBBBB", ihdr.data)
 
 
+def repair_bkgd_length(data: bytes) -> BkgdRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    bkgd = next((chunk for chunk in chunks if chunk.chunk_type == b"bKGD"), None)
+    if ihdr is None or bkgd is None:
+        return None
+
+    ihdr_values = _parse_ihdr_data(ihdr)
+    if ihdr_values is None:
+        return None
+
+    _width, _height, _bit_depth, color_type, _method, _filter_method, _interlace = ihdr_values
+    expected_length = _bkgd_expected_length_for_color_type(color_type)
+    if expected_length is None or bkgd.length == expected_length:
+        return None
+
+    if bkgd.length > expected_length:
+        repaired_chunk = build_png_chunk(b"bKGD", bkgd.data[:expected_length])
+        repaired = replace_png_chunk(data, bkgd, repaired_chunk)
+        if not is_complete_png_with_valid_crc(repaired):
+            return None
+        return BkgdRepair(
+            data=repaired,
+            strategy=(
+                "trimmed bKGD length from %s to %s and rebuilt CRC"
+                % (bkgd.length, expected_length)
+            ),
+            chunk_offset=bkgd.offset,
+            old_length=bkgd.length,
+            new_length=expected_length,
+        )
+
+    repaired = replace_png_chunk(data, bkgd, b"")
+    if not is_complete_png_with_valid_crc(repaired):
+        return None
+    return BkgdRepair(
+        data=repaired,
+        strategy=(
+            "removed short bKGD chunk length %s below required %s"
+            % (bkgd.length, expected_length)
+        ),
+        chunk_offset=bkgd.offset,
+        old_length=bkgd.length,
+        new_length=0,
+        removed=True,
+    )
+
+
+def repair_chrm_length(data: bytes) -> ChrmRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    chrm = next((chunk for chunk in chunks if chunk.chunk_type == b"cHRM"), None)
+    if chrm is None or chrm.length == 32:
+        return None
+
+    if chrm.length > 32:
+        repaired_chunk = build_png_chunk(b"cHRM", chrm.data[:32])
+        repaired = replace_png_chunk(data, chrm, repaired_chunk)
+        if not is_complete_png_with_valid_crc(repaired):
+            return None
+        return ChrmRepair(
+            data=repaired,
+            strategy="trimmed cHRM length from %s to 32 and rebuilt CRC" % chrm.length,
+            chunk_offset=chrm.offset,
+            old_length=chrm.length,
+            new_length=32,
+        )
+
+    removal = replace_png_chunk(data, chrm, b"")
+    if not is_complete_png_with_valid_crc(removal):
+        return None
+
+    crc_payload, candidates_tested = _complete_short_chrm_payload_by_crc(chrm.data, chrm.crc)
+    if crc_payload is not None:
+        repaired_chunk = build_png_chunk(b"cHRM", crc_payload)
+        repaired = replace_png_chunk(data, chrm, repaired_chunk)
+        if is_complete_png_with_valid_crc(repaired):
+            return ChrmRepair(
+                data=repaired,
+                strategy=(
+                    "recovered %s missing cHRM byte(s) by stored CRC brute force"
+                    % (32 - chrm.length)
+                ),
+                chunk_offset=chrm.offset,
+                old_length=chrm.length,
+                new_length=32,
+                missing_bytes=32 - chrm.length,
+                inferred_payload=crc_payload,
+                removal_data=removal,
+                preserved_crc=True,
+                crc_bruteforce_attempted=True,
+                crc_candidates_tested=candidates_tested,
+            )
+
+    inferred_payload = _complete_short_chrm_payload(chrm.data)
+    if inferred_payload is not None:
+        repaired_chunk = build_png_chunk(b"cHRM", inferred_payload)
+        repaired = replace_png_chunk(data, chrm, repaired_chunk)
+        if is_complete_png_with_valid_crc(repaired):
+            return ChrmRepair(
+                data=repaired,
+                strategy=(
+                    "inferred %s missing cHRM byte(s) and rebuilt CRC"
+                    % (32 - chrm.length)
+                ),
+                chunk_offset=chrm.offset,
+                old_length=chrm.length,
+                new_length=32,
+                missing_bytes=32 - chrm.length,
+                inferred_payload=inferred_payload,
+                removal_data=removal,
+                crc_bruteforce_attempted=candidates_tested > 0,
+                crc_candidates_tested=candidates_tested,
+            )
+
+    return ChrmRepair(
+        data=removal,
+        strategy="removed short cHRM chunk length %s below required 32" % chrm.length,
+        chunk_offset=chrm.offset,
+        old_length=chrm.length,
+        new_length=0,
+        removed=True,
+        missing_bytes=32 - chrm.length,
+        crc_bruteforce_attempted=candidates_tested > 0,
+        crc_candidates_tested=candidates_tested,
+    )
+
+
 def indexed_png_indices(data: bytes) -> list[int] | None:
     try:
         chunks = list(iter_chunks(data))
@@ -1570,6 +1922,130 @@ def repair_empty_plte(data: bytes) -> PlteRepair | None:
         data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
         strategy="rebuilt empty indexed PLTE as grayscale palette",
     )
+
+
+def repair_itxt_compression_flag(data: bytes) -> ItxtRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    for chunk in chunks:
+        if chunk.chunk_type != b"iTXt":
+            continue
+
+        try:
+            keyword_end = chunk.data.index(0)
+        except ValueError:
+            continue
+
+        flag_offset = keyword_end + 1
+        if flag_offset >= len(chunk.data):
+            continue
+
+        new_flag = _itxt_best_repaired_compression_flag(chunk.data, flag_offset)
+        if new_flag is None:
+            continue
+
+        repaired_payload = bytearray(chunk.data)
+        old_flag = repaired_payload[flag_offset]
+        repaired_payload[flag_offset] = new_flag
+        repaired_chunk = build_png_chunk(b"iTXt", bytes(repaired_payload))
+        repaired = replace_png_chunk(data, chunk, repaired_chunk)
+        if not is_complete_png_with_valid_crc(repaired):
+            continue
+
+        return ItxtRepair(
+            data=repaired,
+            strategy=(
+                "fixed iTXt compression flag 0x%02x to 0x%02x and rebuilt CRC"
+                % (old_flag, new_flag)
+            ),
+            chunk_offset=chunk.offset,
+            old_flag=old_flag,
+            new_flag=new_flag,
+        )
+
+    return None
+
+
+def repair_itxt_compression_method(data: bytes) -> ItxtRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    for chunk in chunks:
+        if chunk.chunk_type != b"iTXt":
+            continue
+
+        method_offset = _itxt_compression_method_offset(chunk.data)
+        if method_offset is None or chunk.data[method_offset] == 0:
+            continue
+
+        repaired_payload = bytearray(chunk.data)
+        old_method = repaired_payload[method_offset]
+        repaired_payload[method_offset] = 0
+        repaired_chunk = build_png_chunk(b"iTXt", bytes(repaired_payload))
+        repaired = replace_png_chunk(data, chunk, repaired_chunk)
+        if not is_complete_png_with_valid_crc(repaired):
+            continue
+
+        return ItxtRepair(
+            data=repaired,
+            strategy=(
+                "fixed iTXt compression method 0x%02x to 0x00 and rebuilt CRC"
+                % old_method
+            ),
+            chunk_offset=chunk.offset,
+            old_method=old_method,
+            new_method=0,
+        )
+
+    return None
+
+
+def repair_itxt_keyword_length(data: bytes) -> ItxtRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    for chunk in chunks:
+        if chunk.chunk_type != b"iTXt":
+            continue
+
+        try:
+            keyword_end = chunk.data.index(0)
+        except ValueError:
+            continue
+
+        if 1 <= keyword_end <= 79:
+            continue
+
+        if keyword_end == 0:
+            new_keyword = b"Comment"
+        else:
+            new_keyword = chunk.data[:79]
+
+        repaired_payload = new_keyword + chunk.data[keyword_end:]
+        repaired_chunk = build_png_chunk(b"iTXt", repaired_payload)
+        repaired = replace_png_chunk(data, chunk, repaired_chunk)
+        if not is_complete_png_with_valid_crc(repaired):
+            continue
+
+        return ItxtRepair(
+            data=repaired,
+            strategy=(
+                "fixed iTXt keyword length %s to %s and rebuilt CRC"
+                % (keyword_end, len(new_keyword))
+            ),
+            chunk_offset=chunk.offset,
+            old_keyword_length=keyword_end,
+            new_keyword=new_keyword,
+        )
+
+    return None
 
 
 def png_scanline_size(width: int, bit_depth: int, color_type: int) -> int | None:
@@ -1840,7 +2316,7 @@ def _ihdr_rebuild_score(
     has_plte: bool,
     current_bit_depth: int,
     current_color_type: int,
-) -> tuple[int, int, int, int, int]:
+) -> tuple[int, ...]:
     width, height, bit_depth, color_type, _method, _filter_method, _interlace = struct.unpack(
         "!IIBBBBB",
         ihdr_data,
@@ -1848,11 +2324,13 @@ def _ihdr_rebuild_score(
     area = width * height
     aspect_penalty = abs(width - height)
     plte_coherent = (has_plte and color_type == 3) or (not has_plte and color_type != 3)
+    preserves_color_type = color_type == current_color_type
     preserves_mode = bit_depth == current_bit_depth and color_type == current_color_type
     balanced = min(width, height) > 0 and _dimension_aspect_ratio((width, height)) <= 2
 
     return (
         int(plte_coherent),
+        int(preserves_color_type),
         int(preserves_mode),
         int(balanced),
         area,
@@ -1983,8 +2461,6 @@ def _best_rebuild_ihdr_candidate_from_idat(data: bytes) -> tuple[IhdrRebuildCand
     width, height, bit_depth, color_type, method, filter_method, interlace = struct.unpack(
         "!IIBBBBB", ihdr.data
     )
-    if not valid_png_color_depth(bit_depth, color_type):
-        return None
     if interlace not in (0, 1):
         interlace = 0
     if interlace != 0:

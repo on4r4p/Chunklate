@@ -133,11 +133,16 @@ def action_smash_brute_brawl_retry_ihdr(runtime: CheckPointActionRuntime, decisi
     brute_level = runtime.get_brute_level() + 1
     runtime.set_brute_level(brute_level)
     runtime.side_notes.append("-CheckPoint: %s" % info)
+    has_old_crc = "OldCrc" in info
+    from_error = toolkit[9] if has_old_crc else toolkit[8]
+    old_crc = toolkit[8] if has_old_crc else None
     return checkpoint_runtime.run_smash_brute_brawl_retry_ihdr(
         runtime.checkpoint,
         toolkit,
-        toolkit[8],
+        from_error,
         brute_level,
+        has_old_crc=has_old_crc,
+        old_crc=old_crc,
     )
 
 

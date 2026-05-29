@@ -4,7 +4,7 @@ import builtins
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import cli, output, runtime_state
+from . import cli, messages, output, runtime_state
 
 
 @dataclass(frozen=True)
@@ -585,6 +585,73 @@ def stop_chunk_walk_after_clone(runtime: MainChunkWalkRuntime) -> bool:
     return break_loop is True
 
 
+def _is_iend_chunk(value: Any) -> bool:
+    if isinstance(value, bytes):
+        return value == b"IEND"
+    return str(value) == "IEND"
+
+
+def _has_deferred_ihdr_value_finding(pandora_box: Any) -> bool:
+    for finding in pandora_box:
+        text = str(finding)
+        if "GetInfo" not in text or "IHDR" not in text:
+            continue
+        if "Wrong bit depht" in text or "Wrong bit depth" in text:
+            return True
+        if "IHDR Color" in text or "IHDR Depht" in text:
+            return True
+    return False
+
+
+def _has_immediate_repair_flags(namespace: dict[str, Any]) -> bool:
+    immediate_flags = (
+        "Bad_Crc",
+        "Bad_Libpng",
+        "Bad_Current_Name",
+        "Bad_Next_Name",
+        "Bad_Ancillary",
+        "Bad_Next_Ancillary",
+        "Bad_No_Next_Chunk",
+        "Bad_Critical",
+        "Bad_Missplaced",
+    )
+    return any(bool(namespace.get(flag, False)) for flag in immediate_flags)
+
+
+def should_defer_fix_it_felix_until_file_tour(namespace: dict[str, Any]) -> bool:
+    if _is_iend_chunk(namespace.get("Orig_CT")):
+        return False
+    if not _has_deferred_ihdr_value_finding(namespace.get("PandoraBox", ())):
+        return False
+    return not _has_immediate_repair_flags(namespace)
+
+
+def maybe_explain_deferred_fix_it_felix(namespace: dict[str, Any]) -> None:
+    if namespace.get("DEFERRED_FIXIT_NOTICE_SHOWN") is True:
+        return
+    candy = namespace.get("Candy")
+    if callable(candy):
+        candy(
+            "Cowsay",
+            "I found an IHDR value problem, but the chunk road is still walkable. I am finishing the file tour before Felix touches it.",
+            "com",
+        )
+    namespace["DEFERRED_FIXIT_NOTICE_SHOWN"] = True
+
+
+def has_unresolved_findings(namespace: dict[str, Any]) -> bool:
+    return bool(namespace.get("PandoraBox", {}))
+
+
+def explain_unimplemented_repair_route(namespace: dict[str, Any]) -> None:
+    namespace["Candy"](
+        "Cowsay",
+        messages.UNIMPLEMENTED_REPAIR_ROUTE_MESSAGE,
+        "bad",
+    )
+    namespace["PRINT"]("-No repair route implemented for remaining findings.")
+
+
 def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIterationState:
     clear_screen_state = run_main_clear_screen(
         build_clear_screen_runtime_from_namespace(namespace),
@@ -620,11 +687,15 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
         ),
     )
     if namespace["SAVE_COUNT"] == save_count_before:
-        namespace["Candy"](
-            "Cowsay",
-            "Alright. I did not save anything this round. If I chew the same file again, that is not bravery, that is a loop.",
-            "good",
-        )
+        if has_unresolved_findings(namespace):
+            explain_unimplemented_repair_route(namespace)
+        else:
+            namespace.get("Open_Current_Final_Image_If_Valid", lambda: None)()
+            namespace["Candy"](
+                "Cowsay",
+                "Alright. I did not save anything this round. If I chew the same file again, that is not bravery, that is a loop.",
+                "good",
+            )
         namespace["PRINT"]("-No new clone produced, stopping main loop.")
         return MainLoopIterationState(should_return=True)
 
@@ -670,6 +741,19 @@ def run_main_chunk_walk(
         )
         if stop_chunk_walk_after_clone(runtime):
             break
+
+        if should_defer_fix_it_felix_until_file_tour(namespace):
+            maybe_explain_deferred_fix_it_felix(namespace)
+            offset = runtime.next_chunk_offset(
+                offset,
+                namespace["Raw_Length"],
+                namespace["Raw_Type"],
+                namespace["Raw_Data"],
+                namespace["Raw_Crc"],
+            )
+            if stop_chunk_walk_after_clone(runtime):
+                break
+            continue
 
         while True:
             runtime.fix_it_felix(namespace["Orig_CT"])

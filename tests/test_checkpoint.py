@@ -138,6 +138,18 @@ def test_checkpoint_action_decision_handles_flags():
     assert crc.flags == {"Bad_Crc": True}
 
 
+def test_checkpoint_action_decision_handles_lowercase_missplaced_flag():
+    decision = checkpoint.action_decision(
+        error=True,
+        function="CheckChunkOrder",
+        chunk="Missplaced",
+        info="-cHRM is missplaced must appears before PLTE Chunk",
+        toolkit=(),
+    )
+
+    assert decision.flags == {"Bad_Missplaced": True}
+
+
 def test_checkpoint_action_decision_handles_libpng_error():
     decision = checkpoint.action_decision(
         error=True,
@@ -150,6 +162,19 @@ def test_checkpoint_action_decision_handles_libpng_error():
     assert decision.action == "fix_it_felix_continue"
     assert decision.flags == {"Bad_Libpng": True}
     assert decision.return_value == "LibpngCheck"
+
+
+def test_checkpoint_action_decision_blocks_libpng_success_with_pending_structural_error():
+    decision = checkpoint.action_decision(
+        error=True,
+        function="LibpngCheck",
+        chunk="sample.png",
+        info="-Libpng is happy, but Chunklate still has unresolved findings: CheckChunkOrder_Error_0:-cHRM is missplaced",
+        toolkit=(),
+    )
+
+    assert decision.action is None
+    assert decision.flags == {"Bad_Libpng": True}
 
 
 def test_checkpoint_action_decision_handles_known_srgb_warning():
@@ -350,7 +375,15 @@ def main():
         ("Checkpoint action handles CheckLength paths", test_checkpoint_action_decision_handles_check_length_paths),
         ("Checkpoint action handles dummy IEND write clone", test_checkpoint_action_decision_handles_dummy_iend_write_clone),
         ("Checkpoint action handles flags", test_checkpoint_action_decision_handles_flags),
+        (
+            "Checkpoint action handles lowercase missplaced flag",
+            test_checkpoint_action_decision_handles_lowercase_missplaced_flag,
+        ),
         ("Checkpoint action handles libpng error", test_checkpoint_action_decision_handles_libpng_error),
+        (
+            "Checkpoint action blocks libpng success with pending structural error",
+            test_checkpoint_action_decision_blocks_libpng_success_with_pending_structural_error,
+        ),
         ("Checkpoint action handles known sRGB warning", test_checkpoint_action_decision_handles_known_srgb_warning),
         ("Checkpoint action handles libpng warning classification", test_checkpoint_action_decision_handles_libpng_warning_classification),
         ("Checkpoint action handles chunk name fixes", test_checkpoint_action_decision_handles_chunk_name_fixes),

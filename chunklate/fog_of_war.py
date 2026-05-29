@@ -35,6 +35,8 @@ class FogOfWarMap:
     reached_iend: bool
     sample_name: str = ""
     idat_wrong_crc_count: int = 0
+    preview_label: str = ""
+    preview_state: str = ""
 
 
 def _chunk_label(chunk: Any) -> str:
@@ -44,6 +46,15 @@ def _chunk_label(chunk: Any) -> str:
 
 
 def _compact_seen_chunks(chunks: Iterable[Any]) -> tuple[FogSegment, ...]:
+    return _compact_seen_chunks_with_state(chunks, bad_chunk_labels=())
+
+
+def _compact_seen_chunks_with_state(
+    chunks: Iterable[Any],
+    *,
+    bad_chunk_labels: Iterable[Any],
+) -> tuple[FogSegment, ...]:
+    bad_labels = {_chunk_label(label) for label in bad_chunk_labels}
     labels = [
         _chunk_label(chunk)
         for chunk in chunks
@@ -57,7 +68,8 @@ def _compact_seen_chunks(chunks: Iterable[Any]) -> tuple[FogSegment, ...]:
         while index + count < len(labels) and labels[index + count] == label:
             count += 1
         display = "%sx%s" % (label, count) if count > 1 else label
-        segments.append(FogSegment(display, "seen", label, count))
+        state = "error" if label in bad_labels else "seen"
+        segments.append(FogSegment(display, state, label, count))
         index += count
     return tuple(segments)
 
@@ -79,18 +91,24 @@ def build_map(
     error: bool,
     sample_name: str = "",
     idat_wrong_crc_count: int = 0,
+    bad_chunk_labels: Iterable[Any] = (),
+    preview_chunk: Any = None,
+    preview_error: bool = False,
 ) -> FogOfWarMap:
     history = tuple(chunks_history)
     current_label = _chunk_label(current_chunk)
+    preview_label = "" if preview_chunk is None else _chunk_label(preview_chunk)
     reached_iend = bool(history and _chunk_label(history[-1]) == "IEND")
     return FogOfWarMap(
-        segments=_compact_seen_chunks(history),
+        segments=_compact_seen_chunks_with_state(history, bad_chunk_labels=bad_chunk_labels),
         current_label=current_label,
         current_state="error" if error else "current",
         data_left_bytes=None if reached_iend else _data_left_bytes(data_hex, current_offset),
         reached_iend=reached_iend,
         sample_name=sample_name,
         idat_wrong_crc_count=idat_wrong_crc_count,
+        preview_label=preview_label,
+        preview_state="error" if preview_error else ("pending" if preview_label else ""),
     )
 
 
@@ -121,6 +139,10 @@ def _idat_status_text(
 
 
 def _segment_text(segment: FogSegment, color: Colorizer, fog_map: FogOfWarMap) -> str:
+    if segment.state == "error" and not (
+        _is_idat_label(segment.chunk_label) and fog_map.idat_wrong_crc_count > 0
+    ):
+        return str(color("red", "[!%s!]" % segment.label))
     if _is_idat_label(segment.chunk_label):
         return _idat_status_text(
             wrong_crc_count=fog_map.idat_wrong_crc_count,
@@ -135,6 +157,14 @@ def _current_text(fog_map: FogOfWarMap, color: Colorizer) -> str:
     if fog_map.current_state == "error":
         return str(color("red", "[!%s!]" % fog_map.current_label))
     return str(color("yellow", "[>%s<]" % fog_map.current_label))
+
+
+def _preview_text(fog_map: FogOfWarMap, color: Colorizer) -> str:
+    if not fog_map.preview_label:
+        return ""
+    if fog_map.preview_state == "error":
+        return str(color("red", "[!%s!]" % fog_map.preview_label))
+    return str(color("blue", "[%s?]" % fog_map.preview_label))
 
 
 def _tail_text(fog_map: FogOfWarMap, color: Colorizer) -> str:
@@ -171,6 +201,7 @@ def _render_line(fog_map: FogOfWarMap, *, color: Colorizer) -> str:
         )
     elif not fog_map.reached_iend:
         pieces.append(_current_text(fog_map, color))
+    pieces.append(_preview_text(fog_map, color))
     pieces.append(_tail_text(fog_map, color))
     return "".join(pieces)
 

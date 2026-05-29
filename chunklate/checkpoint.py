@@ -162,7 +162,7 @@ def action_decision(
         flags = {}
         if chunk == "Critical":
             flags["Bad_Critical"] = error
-        if "Missplaced" in info:
+        if "missplaced" in str(info).lower():
             flags["Bad_Missplaced"] = error
         if flags:
             return CheckPointActionDecision(flags=flags)
@@ -229,6 +229,9 @@ def libpng_check_decision(
             return CheckPointActionDecision(action="discard_libpng_warning_and_end")
 
         return CheckPointActionDecision(action="discard_libpng_warning")
+
+    if error:
+        return CheckPointActionDecision(flags={"Bad_Libpng": error})
 
     return CheckPointActionDecision(action="libpng_end_success")
 

@@ -637,6 +637,13 @@ def loadingbar_progress(
     )
 
 
+def terminal_columns_from_namespace(namespace: dict, fallback: int = 120) -> int:
+    try:
+        return int(namespace["os"].get_terminal_size(0)[0])
+    except (AttributeError, KeyError, OSError, TypeError, ValueError):
+        return fallback
+
+
 def run_loadingbar_from_namespace(
     namespace: dict,
     fishs: int,
@@ -648,7 +655,7 @@ def run_loadingbar_from_namespace(
         built = build_loadingbar_frames(
             fishs,
             fishsize,
-            int(namespace["os"].get_terminal_size(0)[0]),
+            terminal_columns_from_namespace(namespace),
         )
         namespace["ThksForTheFish"] = built.frames
         namespace["LenFishList"] = built.len_fish_list

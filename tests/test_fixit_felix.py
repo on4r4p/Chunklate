@@ -32,6 +32,30 @@ def build_rgb_png(width, height, filtered_scanlines, *, idat_data=None):
     )
 
 
+def build_png_with_color_chunk(color_type, chunk_type, chunk_data):
+    ihdr = struct.pack("!IIBBBBB", 1, 1, 8, color_type, 0, 0, 0)
+    prefix = b""
+    if color_type == 3:
+        prefix = build_png_chunk(b"PLTE", bytes(range(60)))
+        scanline = b"\x00\x00"
+    elif color_type == 4:
+        scanline = b"\x00\x00\xff"
+    elif color_type == 6:
+        scanline = b"\x00\x00\x00\x00\xff"
+    elif color_type == 2:
+        scanline = b"\x00\x00\x00\x00"
+    else:
+        scanline = b"\x00\x00"
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + prefix
+        + build_png_chunk(chunk_type, chunk_data)
+        + build_png_chunk(b"IDAT", zlib.compress(scanline))
+        + IEND_CHUNK
+    )
+
+
 def test_route_finding_keeps_legacy_handler_order():
     assert fixit_felix.route_finding("Checksum_Error_0:Wrong Crc", skip_bad_crc=False).handler == "wrong_crc"
     assert fixit_felix.route_finding("Libpng_Error_0:libpng error: bad adaptive filter", skip_bad_crc=False).handler == "libpng_error"
@@ -298,6 +322,11 @@ def test_automatic_repair_order_keeps_legacy_priority():
     assert fixit_felix.automatic_repair_order() == (
         "color_profile_cleanup",
         "plte_cleanup",
+        "chrm_length",
+        "bkgd_length",
+        "itxt_keyword_length",
+        "itxt_compression_flag",
+        "itxt_compression_method",
         "known_chunk_type_case",
         "unknown_private_critical_removal",
         "missing_chunk_data_byte",
@@ -668,6 +697,113 @@ def test_plte_cleanup_requires_noninteractive_mode_and_plte_finding():
     assert b"PLTE" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
 
 
+def test_bkgd_length_requires_matching_finding():
+    original = build_png_with_color_chunk(4, b"bKGD", b"\x00\x00\x00\x00\x00\x00")
+
+    assert fixit_felix.bkgd_length(original, []) is None
+
+    repaired = fixit_felix.bkgd_length(
+        original,
+        ["GetInfo_Error_0:-bKGD length is not Valid :6 must be 2 for IHDR color type 4"],
+    )
+
+    assert repaired is not None
+    assert repaired.old_length == 6
+    assert repaired.new_length == 2
+    bkgd = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"bKGD")
+    assert bkgd.length == 2
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_chrm_length_requires_matching_finding():
+    original = build_png_with_color_chunk(2, b"cHRM", b"\x00" * 31)
+
+    assert fixit_felix.chrm_length(original, []) is None
+
+    repaired = fixit_felix.chrm_length(
+        original,
+        ["GetInfo_Error_0:-cHRM length is not Valid :31 must be 32"],
+    )
+
+    assert repaired is not None
+    assert repaired.old_length == 31
+    assert repaired.missing_bytes == 1
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_itxt_compression_flag_requires_matching_finding():
+    itxt = b"Vegetable\x00\x02\x00en-us\x00\x00Cucumber"
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
+        + build_png_chunk(b"iTXt", itxt)
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+    assert fixit_felix.itxt_compression_flag(original, []) is None
+
+    repaired = fixit_felix.itxt_compression_flag(
+        original,
+        ["GetInfo_Error_0:-iTXt Compression Flag must be 0 or 1"],
+    )
+
+    assert repaired is not None
+    assert repaired.new_flag == 0
+    chunk = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"iTXt")
+    assert chunk.data == b"Vegetable\x00\x00\x00en-us\x00\x00Cucumber"
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_itxt_keyword_length_requires_matching_finding():
+    itxt = b"\x00\x00\x00en-us\x00\x00Cucumber"
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
+        + build_png_chunk(b"iTXt", itxt)
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+    assert fixit_felix.itxt_keyword_length(original, []) is None
+
+    repaired = fixit_felix.itxt_keyword_length(
+        original,
+        ["GetInfo_Error_0:-iTXt Keyword length is not Valid :0"],
+    )
+
+    assert repaired is not None
+    assert repaired.new_keyword == b"Comment"
+    chunk = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"iTXt")
+    assert chunk.data == b"Comment\x00\x00\x00en-us\x00\x00Cucumber"
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_itxt_compression_method_requires_matching_finding():
+    compressed_text = zlib.compress(b"Cucumber")
+    itxt = b"Vegetable\x00\x01\x01en-us\x00\x00" + compressed_text
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
+        + build_png_chunk(b"iTXt", itxt)
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+    assert fixit_felix.itxt_compression_method(original, []) is None
+
+    repaired = fixit_felix.itxt_compression_method(
+        original,
+        ["GetInfo_Error_0:-iTXt Compression Method must be 0"],
+    )
+
+    assert repaired is not None
+    assert repaired.new_method == 0
+    chunk = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"iTXt")
+    assert chunk.data == b"Vegetable\x00\x01\x00en-us\x00\x00" + compressed_text
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_missing_chunk_data_byte_requires_crc_or_no_next_finding():
     original = read_fixture("Good-Chunk-lenght-Missing-Bit.png")
 
@@ -805,6 +941,11 @@ def main():
         ("Tool prefix preserves legacy labels", test_tool_prefix_for_chunk_preserves_legacy_bytes_and_string_labels),
         ("Color profile cleanup requires matching finding", test_color_profile_cleanup_requires_matching_finding),
         ("PLTE cleanup requires noninteractive mode and PLTE finding", test_plte_cleanup_requires_noninteractive_mode_and_plte_finding),
+        ("cHRM length requires matching finding", test_chrm_length_requires_matching_finding),
+        ("bKGD length requires matching finding", test_bkgd_length_requires_matching_finding),
+        ("iTXt keyword length requires matching finding", test_itxt_keyword_length_requires_matching_finding),
+        ("iTXt compression flag requires matching finding", test_itxt_compression_flag_requires_matching_finding),
+        ("iTXt compression method requires matching finding", test_itxt_compression_method_requires_matching_finding),
         ("Missing chunk data byte requires CRC or no-next finding", test_missing_chunk_data_byte_requires_crc_or_no_next_finding),
         ("Known chunk type case requires wrong ancillary finding", test_known_chunk_type_case_requires_wrong_ancillary_finding),
         ("Unknown private critical removal is standalone salvage", test_unknown_private_critical_removal_is_standalone_salvage),

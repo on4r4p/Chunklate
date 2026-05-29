@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chunklate import cli, main_runtime, runtime_state
+from chunklate import cli, main_runtime, messages, runtime_state
 
 
 class ExitReached(Exception):
@@ -612,6 +612,75 @@ def test_run_main_chunk_walk_runs_legacy_callback_order_and_updates_offset():
     assert namespace["Have_A_KitKat"] is False
 
 
+def test_run_main_chunk_walk_defers_ihdr_value_repair_until_file_tour_ends():
+    calls = []
+    sequence = {
+        0: b"IHDR",
+        16: b"IEND",
+    }
+    namespace = chunk_namespace(
+        PandoraBox={
+            "GetInfo_Error_0:-IHDR Color 3: Wrong bit depht with IHDR Color type 3": {}
+        },
+        Candy=lambda *args: calls.append(("candy", args)),
+    )
+
+    def chunk_by_chunk(offset):
+        chunk = sequence[offset]
+        namespace.update(
+            {
+                "Orig_CD": "orig-data",
+                "Orig_CL": "orig-len",
+                "Orig_CT": chunk,
+                "Chunks_History": [chunk],
+                "Raw_Data": b"data",
+                "Raw_Type": chunk,
+                "Raw_Crc": b"crc!",
+                "Raw_Length": b"len!",
+                "Show_Must_Go_On": False,
+                "Have_A_KitKat": False,
+            }
+        )
+        calls.append(("chunk_by_chunk", (offset,)))
+
+    def callback(name):
+        def inner(*args):
+            calls.append((name, args))
+            if name == "fix_it_felix":
+                namespace["Show_Must_Go_On"] = True
+
+        return inner
+
+    runtime = main_runtime.MainChunkWalkRuntime(
+        namespace=namespace,
+        chunk_by_chunk=chunk_by_chunk,
+        check_length=callback("check_length"),
+        check_chunk_name=callback("check_chunk_name"),
+        get_info=callback("get_info"),
+        checksum=callback("checksum"),
+        fix_it_felix=callback("fix_it_felix"),
+        next_chunk_offset=lambda offset, *_args: 16 if offset == 0 else 32,
+    )
+
+    state = main_runtime.run_main_chunk_walk(
+        runtime,
+        main_runtime.MainChunkWalkContext(offset=0, data_hex="0" * 32),
+    )
+
+    assert state == main_runtime.MainChunkWalkState(offset=32)
+    assert [call for call in calls if call[0] == "fix_it_felix"] == [
+        ("fix_it_felix", (b"IEND",))
+    ]
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "I found an IHDR value problem, but the chunk road is still walkable. I am finishing the file tour before Felix touches it.",
+            "com",
+        ),
+    ) in calls
+
+
 def test_run_main_chunk_walk_stops_when_kitkat_breaks():
     calls = []
     namespace = chunk_namespace(Have_A_KitKat=True)
@@ -759,6 +828,105 @@ def test_run_main_loop_once_counts_clone_written_by_find_magic():
     assert namespace["SAVE_COUNT"] == 1
 
 
+def test_run_main_loop_once_opens_valid_final_image_when_no_clone_written():
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    namespace = {
+        "sys": SimpleNamespace(
+            stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+            exit=lambda code: calls.append(("exit", code)),
+        ),
+        "os": os,
+        "CLEAR": False,
+        "FirStart": True,
+        "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+        "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+        "Chunklate": lambda mode: calls.append(("banner", mode)),
+        "Sample": sample_path,
+        "CLONESWAR": False,
+        "SAVE_COUNT": 0,
+        "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "FindMagic": lambda: calls.append(("find_magic",)) or None,
+        "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+        "CheckLength": lambda *args: calls.append(("check_length", args)),
+        "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+        "GetInfo": lambda *args: calls.append(("get_info", args)),
+        "Checksum": lambda *args: calls.append(("checksum", args)),
+        "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+        "Open_Current_Final_Image_If_Valid": lambda: calls.append(("open_final",)),
+    }
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState(should_return=True)
+    assert ("find_magic",) in calls
+    assert ("open_final",) in calls
+    assert calls.index(("open_final",)) < calls.index(("emit", "-No new clone produced, stopping main loop."))
+    assert not any(call[0] == "chunk_by_chunk" for call in calls)
+
+
+def test_run_main_loop_once_keeps_unresolved_file_closed_when_no_clone_written():
+    calls = []
+    finding = "GetInfo_Error_0:-iTXt Compression Flag must be 0 or 1"
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    def find_magic_with_unresolved_finding():
+        calls.append(("find_magic",))
+        namespace["PandoraBox"] = {finding: {}}
+        return None
+
+    namespace = {
+        "sys": SimpleNamespace(
+            stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+            exit=lambda code: calls.append(("exit", code)),
+        ),
+        "os": os,
+        "CLEAR": False,
+        "FirStart": True,
+        "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+        "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+        "Chunklate": lambda mode: calls.append(("banner", mode)),
+        "Sample": sample_path,
+        "CLONESWAR": False,
+        "SAVE_COUNT": 0,
+        "PandoraBox": {},
+        "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "FindMagic": find_magic_with_unresolved_finding,
+        "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+        "CheckLength": lambda *args: calls.append(("check_length", args)),
+        "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+        "GetInfo": lambda *args: calls.append(("get_info", args)),
+        "Checksum": lambda *args: calls.append(("checksum", args)),
+        "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+        "Open_Current_Final_Image_If_Valid": lambda: calls.append(("open_final",)),
+    }
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState(should_return=True)
+    assert ("find_magic",) in calls
+    assert ("open_final",) not in calls
+    assert ("candy", ("Cowsay", messages.UNIMPLEMENTED_REPAIR_ROUTE_MESSAGE, "bad")) in calls
+    assert ("emit", "-No repair route implemented for remaining findings.") in calls
+    assert ("emit", "-No new clone produced, stopping main loop.") in calls
+    assert not any(call[0] == "chunk_by_chunk" for call in calls)
+
+
 def test_run_main_loop_once_asks_output_cleanup_after_banner():
     calls = []
     with tempfile.NamedTemporaryFile(delete=False) as handle:
@@ -867,9 +1035,11 @@ def main():
         ("load sample error", test_load_main_sample_routes_load_error_to_legacy_error_path),
         ("chunk walk no offset", test_run_main_chunk_walk_returns_without_offset),
         ("chunk walk order", test_run_main_chunk_walk_runs_legacy_callback_order_and_updates_offset),
+        ("chunk walk defers IHDR value repair", test_run_main_chunk_walk_defers_ihdr_value_repair_until_file_tour_ends),
         ("chunk walk kitkat", test_run_main_chunk_walk_stops_when_kitkat_breaks),
         ("main loop namespace", test_run_main_loop_once_from_namespace_resets_loads_and_walks_sample),
         ("main loop counts FindMagic clone", test_run_main_loop_once_counts_clone_written_by_find_magic),
+        ("main loop opens final image on clean no-clone exit", test_run_main_loop_once_opens_valid_final_image_when_no_clone_written),
         ("main loop cleanup after banner", test_run_main_loop_once_asks_output_cleanup_after_banner),
     ]
 

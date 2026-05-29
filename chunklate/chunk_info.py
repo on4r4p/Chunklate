@@ -20,6 +20,13 @@ SRGB_RENDERING_INTENTS = {
     "2": "Saturation",
     "3": "Absolute colorimetric",
 }
+BKGD_EXPECTED_HEX_LENGTH = {
+    "0": 4,
+    "4": 4,
+    "2": 12,
+    "6": 12,
+    "3": 2,
+}
 
 
 @dataclass(frozen=True)
@@ -309,6 +316,13 @@ def _keyword_bad_char_fixes(data: str, chunk_name: str) -> list[str]:
     return fixes
 
 
+def _keyword_length_fixes(keyword: str, chunk_name: str) -> list[str]:
+    byte_length = len(keyword) // 2
+    if 1 <= byte_length <= 79:
+        return []
+    return ["-%s Keyword length is not Valid :%s" % (chunk_name, len(keyword))]
+
+
 def parse_ihdr(data: str, max_resolution: int | None = None) -> IhdrInfo:
     fixes: list[str] = []
     width, error = _parse_ihdr_field(data, 0, 8, "Height", 1)
@@ -430,6 +444,12 @@ def parse_ihdr(data: str, max_resolution: int | None = None) -> IhdrInfo:
 def parse_bkgd(data: str, ihdr_color: str, ihdr_depth: str) -> BkgdInfo:
     fixes: list[str] = []
     gray = red = green = blue = index = ""
+    expected_length = BKGD_EXPECTED_HEX_LENGTH.get(str(ihdr_color))
+    if expected_length is not None and len(data) != expected_length:
+        fixes.append(
+            "-bKGD length is not Valid :%s must be %s for IHDR color type %s"
+            % (len(data) // 2, expected_length // 2, ihdr_color)
+        )
 
     def max_depth_value() -> int:
         return (2 ** int(ihdr_depth)) - 1
@@ -944,10 +964,8 @@ def parse_text(data: str) -> TextInfo:
 
     keyword = data[:null_pos]
     text = data[null_pos + 2 :]
-    fixes.extend(_keyword_bad_char_fixes(data, "tEXt"))
-
-    if len(keyword) >= 79:
-        fixes.append("-tEXt Keyword length is not Valid :%s" % len(keyword))
+    fixes.extend(_keyword_bad_char_fixes(keyword, "tEXt"))
+    fixes.extend(_keyword_length_fixes(keyword, "tEXt"))
 
     return TextInfo(
         keyword=keyword,
@@ -975,9 +993,7 @@ def parse_ztxt(data: str) -> ZtxtInfo:
         )
 
     fixes.extend(_keyword_bad_char_fixes(keyword, "zTXt"))
-
-    if len(keyword) >= 79:
-        fixes.append("-tEXt Keyword length is not Valid :%s" % len(keyword))
+    fixes.extend(_keyword_length_fixes(keyword, "zTXt"))
 
     return ZtxtInfo(
         keyword=keyword,
@@ -996,9 +1012,7 @@ def parse_itxt(data: str) -> ItxtInfo:
 
     keyword = data[:null_pos]
     fixes.extend(_keyword_bad_char_fixes(keyword, "iTXt"))
-
-    if len(keyword) >= 79:
-        fixes.append("-tEXt Keyword length is not Valid :%s" % len(keyword))
+    fixes.extend(_keyword_length_fixes(keyword, "iTXt"))
 
     flag = data[len(keyword) + 2 : len(keyword) + 4]
     method = data[len(keyword) + 4 : len(keyword) + 6]
@@ -1373,6 +1387,9 @@ def parse_srgb(data: str, has_chrm: bool = False) -> SrgbInfo:
 def parse_chrm(data: str, has_srgb_or_iccp: bool = False) -> ChrmInfo:
     fixes: list[str] = []
     values: dict[str, str] = {}
+    if len(data) != 64:
+        fixes.append("-cHRM length is not Valid :%s must be 32" % (len(data) // 2))
+
     fields = (
         ("white_x", "WhiteX", 0, 8),
         ("white_y", "WhiteY", 8, 16),
@@ -1575,6 +1592,9 @@ def parse_iccp(
     if has_chrm:
         fixes.append("-cHRM already present cHRM will be overide if reconized by decoders")
 
+    if _is_known_bad_srgb_iccp_profile(name, method, profile):
+        fixes.append("libpng warning: iCCP: known incorrect sRGB profile")
+
     return IccpInfo(
         name=name,
         method=method,
@@ -1583,6 +1603,18 @@ def parse_iccp(
         bad_chars=tuple(bad_chars),
         fixes=tuple(fixes),
     )
+
+
+def _is_known_bad_srgb_iccp_profile(name: str, method: int | str, profile: str) -> bool:
+    if name != "Photoshop ICC profile" or method != 0:
+        return False
+
+    try:
+        decompressed = zlib.decompress(bytes.fromhex(profile))
+    except Exception:
+        return False
+
+    return b"IEC sRGB" in decompressed and b"acsp" in decompressed[:64]
 
 
 def parse_exif(data: str) -> ExifInfo:

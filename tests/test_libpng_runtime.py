@@ -59,6 +59,40 @@ def test_run_libpng_check_reports_success_and_checkpoints():
     ) in calls
 
 
+def test_run_libpng_check_blocks_happy_path_with_pending_errors():
+    calls = []
+
+    result = libpng_runtime.run_libpng_check(
+        build_runtime(calls, result=""),
+        context(pending_errors=("CheckChunkOrder_Error_0:-cHRM is missplaced",)),
+        "sample.png",
+    )
+
+    assert result == "checkpoint-result"
+    assert ("emit", "Result:") in calls
+    assert not any(
+        call == ("candy", ("Cowsay", "Good ! The AllMighty Libpng is happy !", "good"))
+        for call in calls
+    )
+    assert any(
+        call[0] == "emit" and "unresolved findings" in call[1]
+        for call in calls
+    )
+    assert (
+        "checkpoint",
+        (
+            True,
+            False,
+            "LibpngCheck",
+            "sample.png",
+            [
+                "-Libpng is happy, but Chunklate still has unresolved findings: "
+                "CheckChunkOrder_Error_0:-cHRM is missplaced"
+            ],
+        ),
+    ) in calls
+
+
 def test_run_libpng_check_reports_failure_and_checkpoints():
     calls = []
 
@@ -111,6 +145,7 @@ def test_run_known_bad_srgb_profile_warning_delegates_reader():
 def main():
     checks = [
         ("Libpng success", test_run_libpng_check_reports_success_and_checkpoints),
+        ("Libpng pending errors block happy path", test_run_libpng_check_blocks_happy_path_with_pending_errors),
         ("Libpng failure", test_run_libpng_check_reports_failure_and_checkpoints),
         ("Libpng reader kwargs", test_run_libpng_check_passes_modules_to_result_reader),
         ("Known bad sRGB warning", test_run_known_bad_srgb_profile_warning_delegates_reader),
