@@ -81,6 +81,8 @@ def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
         return "Question: Should i brute force IHDR against the stored CRC before rebuilding it?"
     if "cHRM Missing Bytes Inference" in str(question_id):
         return "Question: Should i write the inferred cHRM bytes instead of removing the optional cHRM chunk?"
+    if "Unknown Private Chunk Removal" in str(question_id):
+        return "Question: Should i remove this unknown private chunk from the clone?"
     if skipauto:
         return "Question: Should i stop this brute force branch and save the current candidate?"
     if "IDAT Heavy Probe" in str(question_id):

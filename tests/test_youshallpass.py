@@ -116,7 +116,8 @@ def test_youshallpass_uses_offs_parser():
 
 
 def test_youshallpass_uses_gifg_parser():
-    assert Chunklate.YouShallPass(b"gIFg", "010203") is True
+    assert Chunklate.YouShallPass(b"gIFg", "01020003") is True
+    assert Chunklate.YouShallPass(b"gIFg", "0200000a00") is False
     assert Chunklate.YouShallPass(b"gIFg", "01") is False
     assert Chunklate.YouShallPass(b"gIFg", "0102zz") is False
 

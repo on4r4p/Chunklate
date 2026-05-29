@@ -322,6 +322,8 @@ def test_automatic_repair_order_keeps_legacy_priority():
     assert fixit_felix.automatic_repair_order() == (
         "color_profile_cleanup",
         "plte_cleanup",
+        "gama_length",
+        "gifg_length",
         "chrm_length",
         "bkgd_length",
         "itxt_keyword_length",
@@ -715,6 +717,42 @@ def test_bkgd_length_requires_matching_finding():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_gama_length_requires_matching_finding():
+    original = build_png_with_color_chunk(2, b"gAMA", b"\x00\x01\x86")
+
+    assert fixit_felix.gama_length(original, []) is None
+
+    repaired = fixit_felix.gama_length(
+        original,
+        ["GetInfo_Error_0:-gAMA length is not Valid :3 must be 4"],
+    )
+
+    assert repaired is not None
+    assert repaired.old_length == 3
+    assert repaired.new_length == 4
+    gama = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"gAMA")
+    assert gama.data == (100000).to_bytes(4, "big")
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_gifg_length_requires_matching_finding():
+    original = build_png_with_color_chunk(2, b"gIFg", bytes.fromhex("0200000a00"))
+
+    assert fixit_felix.gifg_length(original, []) is None
+
+    repaired = fixit_felix.gifg_length(
+        original,
+        ["GetInfo_Error_0:-gIFg length is not Valid :5 must be 4"],
+    )
+
+    assert repaired is not None
+    assert repaired.old_length == 5
+    assert repaired.new_length == 4
+    gifg = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"gIFg")
+    assert gifg.data == bytes.fromhex("0200000a")
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_chrm_length_requires_matching_finding():
     original = build_png_with_color_chunk(2, b"cHRM", b"\x00" * 31)
 
@@ -941,6 +979,8 @@ def main():
         ("Tool prefix preserves legacy labels", test_tool_prefix_for_chunk_preserves_legacy_bytes_and_string_labels),
         ("Color profile cleanup requires matching finding", test_color_profile_cleanup_requires_matching_finding),
         ("PLTE cleanup requires noninteractive mode and PLTE finding", test_plte_cleanup_requires_noninteractive_mode_and_plte_finding),
+        ("gAMA length requires matching finding", test_gama_length_requires_matching_finding),
+        ("gIFg length requires matching finding", test_gifg_length_requires_matching_finding),
         ("cHRM length requires matching finding", test_chrm_length_requires_matching_finding),
         ("bKGD length requires matching finding", test_bkgd_length_requires_matching_finding),
         ("iTXt keyword length requires matching finding", test_itxt_keyword_length_requires_matching_finding),

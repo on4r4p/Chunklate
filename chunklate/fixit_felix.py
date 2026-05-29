@@ -12,6 +12,8 @@ from .png import (
     repair_chrm_length,
     repair_color_profile_chunks,
     repair_empty_plte,
+    repair_gama_length,
+    repair_gifg_length,
     repair_ihdr,
     repair_indexed_plte,
     repair_itxt_compression_flag,
@@ -58,6 +60,8 @@ NoNextAppendIendAction = Literal[
 AutomaticRepairHandler = Literal[
     "color_profile_cleanup",
     "plte_cleanup",
+    "gama_length",
+    "gifg_length",
     "chrm_length",
     "bkgd_length",
     "itxt_keyword_length",
@@ -75,6 +79,8 @@ FixItFelixWorkKind = Literal["automatic_repair", "finding"]
 AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "color_profile_cleanup",
     "plte_cleanup",
+    "gama_length",
+    "gifg_length",
     "chrm_length",
     "bkgd_length",
     "itxt_keyword_length",
@@ -593,6 +599,20 @@ def bkgd_length(data: bytes, findings: Iterable[object]) -> Any | None:
     return repair_bkgd_length(data)
 
 
+def gama_length(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not has_finding(findings, "gAMA length is not Valid"):
+        return None
+
+    return repair_gama_length(data)
+
+
+def gifg_length(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not has_finding(findings, "gIFg length is not Valid"):
+        return None
+
+    return repair_gifg_length(data)
+
+
 def chrm_length(data: bytes, findings: Iterable[object]) -> Any | None:
     if not has_finding(findings, "cHRM length is not Valid"):
         return None
@@ -683,6 +703,10 @@ def automatic_repair(
         )
     if name == "bkgd_length":
         return bkgd_length(data, findings)
+    if name == "gama_length":
+        return gama_length(data, findings)
+    if name == "gifg_length":
+        return gifg_length(data, findings)
     if name == "chrm_length":
         return chrm_length(data, findings)
     if name == "itxt_keyword_length":

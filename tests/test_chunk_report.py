@@ -197,10 +197,15 @@ def test_render_srgb_reports_intent_and_chrm_override():
 
 def test_render_gama_reports_zero_as_useless():
     info = chunk_info.parse_gama("00000000")
+    short = chunk_info.parse_gama("000186")
 
     assert collect(chunk_report.render_gama, info) == [
         "-Gama   :<white>0</white>",
         "-A gAMA Chunk of <red>0</red> is Useless.",
+    ]
+    assert collect(chunk_report.render_gama, short) == [
+        "-gAMA length is <red>not Valid</red>",
+        "-Gama   :<white>390</white>",
     ]
 
 
@@ -304,14 +309,21 @@ def test_render_offs_reports_fields_and_legacy_validation_messages():
 
 
 def test_render_gif_and_ster_reports_legacy_labels():
-    gifg = chunk_info.parse_gifg("010203")
+    gifg = chunk_info.parse_gifg("01020003")
+    long_gifg = chunk_info.parse_gifg("0200000a00")
     gifx = chunk_info.parse_gifx("0000000000000001000002ff")
     ster = chunk_info.parse_ster("01")
 
     assert collect(chunk_report.render_gifg, gifg) == [
         "-Disposal Method    :<yellow>1</yellow>",
-        "-User Input Flag    :<yellow>3</yellow>",
+        "-User Input Flag    :<yellow>2</yellow>",
         "-Delay Time    :<yellow>3</yellow>",
+    ]
+    assert collect(chunk_report.render_gifg, long_gifg) == [
+        "-gIFg length is <red>not Valid</red>",
+        "-Disposal Method    :<yellow>2</yellow>",
+        "-User Input Flag    :<yellow>0</yellow>",
+        "-Delay Time    :<yellow>10</yellow>",
     ]
     assert collect(chunk_report.render_gifx, gifx) == [
         "-Application Identifier    :<yellow>1</yellow>",

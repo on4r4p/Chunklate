@@ -17,7 +17,7 @@ def test_chunk_name_semantics_preserves_legacy_case_bits():
     assert semantics.letters == ("I", "H", "D", "R")
     assert semantics.follows_naming is True
     assert semantics.is_critical is True
-    assert semantics.is_private is True
+    assert semantics.is_private is False
     assert semantics.is_reserved_valid is True
     assert semantics.is_unsafe_to_copy is True
 
@@ -27,7 +27,7 @@ def test_chunk_name_semantics_handles_mixed_case_bits():
 
     assert semantics.follows_naming is True
     assert semantics.is_critical is False
-    assert semantics.is_private is True
+    assert semantics.is_private is False
     assert semantics.is_reserved_valid is True
     assert semantics.is_unsafe_to_copy is True
 
@@ -43,13 +43,19 @@ def test_chunk_name_semantics_stops_on_non_letter():
 def test_semantic_labels_preserve_legacy_report_order():
     assert ancillary.semantic_labels(ancillary.chunk_name_semantics("IHDR")) == (
         ("I", "Critical"),
-        ("H", "Private"),
+        ("H", "Public"),
         ("D", "Conform to PNG specifications"),
         ("R", "Unsafe to Copy"),
     )
+    assert ancillary.semantic_labels(ancillary.chunk_name_semantics("msOG")) == (
+        ("m", "Not Critical"),
+        ("s", "Private"),
+        ("O", "Conform to PNG specifications"),
+        ("G", "Unsafe to Copy"),
+    )
     assert ancillary.semantic_labels(ancillary.chunk_name_semantics("gAMa")) == (
         ("g", "Not Critical"),
-        ("A", "Private"),
+        ("A", "Public"),
         ("M", "Conform to PNG specifications"),
         ("a", "Safe to Copy"),
     )

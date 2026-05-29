@@ -4,8 +4,9 @@ import builtins
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+import zlib
 
-from . import prompts, sorting
+from . import ancillary, prompts, sorting
 
 
 LegacyCall = Callable[..., Any]
@@ -23,6 +24,7 @@ class ChunkNameContext:
     idat_average_length: Any
     original_next_chunk: Any
     next_chunk_offset: Any
+    data_hex: str = ""
     debug: bool = False
     pause_debug: bool = False
 
@@ -43,6 +45,8 @@ class ChunkNameRuntime:
     save_auto_name: LegacyCall
     unknown_private_critical_removal: LegacyCall
     ask_pokemon_choice: LegacyCall
+    question: LegacyCall
+    remove_chunk: LegacyCall
 
 
 def _color(runtime: ChunkNameRuntime, color: str, value: Any) -> Any:
@@ -51,6 +55,24 @@ def _color(runtime: ChunkNameRuntime, color: str, value: Any) -> Any:
 
 def _chunky(runtime: ChunkNameRuntime, value: str) -> Any:
     return runtime.candy("Chunky", value)
+
+
+def _unknown_ancillary_semantics(chunk_type: bytes) -> ancillary.ChunkNameSemantics | None:
+    try:
+        text = chunk_type.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+
+    semantics = ancillary.chunk_name_semantics(text)
+    if not semantics.follows_naming:
+        return None
+    if semantics.is_critical or not semantics.is_reserved_valid:
+        return None
+    return semantics
+
+
+def _unknown_ancillary_kind(semantics: ancillary.ChunkNameSemantics) -> str:
+    return "private" if semantics.is_private else "public"
 
 
 def _ctype_bytes(runtime: ChunkNameRuntime, chunk_type: Any) -> bytes:
@@ -86,6 +108,187 @@ def _scrabble_candidates(chunk_type: Any, candidates: list[bytes]) -> list[str]:
 
 def _best_bingo_count(bingo_list: list[str], best_score: str) -> int:
     return len([item.count(best_score) for item in bingo_list if int(item.count(best_score)) > 0])
+
+
+def _chunk_length_int(chunk_length: Any) -> int | None:
+    if isinstance(chunk_length, int):
+        return chunk_length
+    try:
+        return int(str(chunk_length), 16)
+    except (TypeError, ValueError):
+        return None
+
+
+def _checked_chunk_type_index(
+    context: ChunkNameContext,
+    chunk_length: Any,
+    next_chunk: Any,
+) -> int | None:
+    try:
+        current_type_index = int(context.current_type_offset)
+    except (TypeError, ValueError):
+        return None
+
+    if next_chunk is None:
+        return current_type_index
+
+    current_length = _chunk_length_int(chunk_length)
+    if current_length is None:
+        return None
+    return current_type_index + 8 + (current_length * 2) + 16
+
+
+def _chunk_bounds_from_type_index(
+    data_hex: str,
+    type_index: int,
+) -> tuple[int, int, bytes, bytes, int] | None:
+    if type_index < 8:
+        return None
+    length_index = type_index - 8
+    if length_index < 0 or type_index + 8 > len(data_hex):
+        return None
+
+    try:
+        declared_length = int(data_hex[length_index:type_index], 16)
+        chunk_type = bytes.fromhex(data_hex[type_index : type_index + 8])
+    except ValueError:
+        return None
+
+    data_start = type_index + 8
+    data_end = data_start + (declared_length * 2)
+    crc_start = data_end
+    crc_end = crc_start + 8
+    if crc_end > len(data_hex):
+        return None
+
+    try:
+        chunk_data = bytes.fromhex(data_hex[data_start:data_end])
+        stored_crc = int(data_hex[crc_start:crc_end], 16)
+    except ValueError:
+        return None
+
+    return length_index, crc_end, chunk_type, chunk_data, stored_crc
+
+
+def _chunk_crc_ok_at_type_index(
+    context: ChunkNameContext,
+    type_index: int,
+    expected_type: bytes,
+) -> tuple[bool, tuple[int, int] | None]:
+    bounds = _chunk_bounds_from_type_index(context.data_hex, type_index)
+    if bounds is None:
+        return False, None
+
+    start, end, actual_type, chunk_data, stored_crc = bounds
+    if actual_type != expected_type:
+        return False, None
+
+    computed_crc = zlib.crc32(actual_type + chunk_data) & 0xFFFFFFFF
+    return stored_crc == computed_crc, (start, end)
+
+
+def _unknown_ancillary_crc_context(
+    context: ChunkNameContext,
+    chunk_type: bytes,
+    chunk_length: Any,
+    next_chunk: Any,
+) -> tuple[bool, tuple[int, int] | None]:
+    type_index = _checked_chunk_type_index(context, chunk_length, next_chunk)
+    if type_index is None:
+        return False, None
+    return _chunk_crc_ok_at_type_index(context, type_index, chunk_type)
+
+
+def _same_position_score(left: bytes, right: bytes) -> int:
+    return sum(
+        1
+        for left_char, right_char in zip(left.lower(), right.lower())
+        if left_char == right_char
+    )
+
+
+def _looks_like_known_chunk_typo(
+    chunk_type: bytes,
+    known_chunk_types: tuple[bytes, ...],
+) -> bool:
+    return any(
+        len(known) == len(chunk_type)
+        and known.lower() != chunk_type.lower()
+        and _same_position_score(chunk_type, known) >= 3
+        for known in known_chunk_types
+    )
+
+
+def _next_chunk_type_after_bounds(data_hex: str, bounds: tuple[int, int]) -> bytes | None:
+    _, end = bounds
+    next_type_index = end + 8
+    if next_type_index + 8 > len(data_hex):
+        return None
+    try:
+        return bytes.fromhex(data_hex[next_type_index : next_type_index + 8])
+    except ValueError:
+        return None
+
+
+def _would_split_idat_sequence(
+    context: ChunkNameContext,
+    last_chunk_type: bytes,
+    bounds: tuple[int, int] | None,
+) -> bool:
+    if last_chunk_type != b"IDAT" or bounds is None:
+        return False
+    return _next_chunk_type_after_bounds(context.data_hex, bounds) == b"IDAT"
+
+
+def _private_chunk_remove_prompt(
+    runtime: ChunkNameRuntime,
+    context: ChunkNameContext,
+    chunk_type: bytes,
+    semantics: ancillary.ChunkNameSemantics,
+    bounds: tuple[int, int],
+) -> Any:
+    chunk_name = chunk_type.decode("ascii", errors="replace")
+    copy_mode = "unsafe-to-copy" if semantics.is_unsafe_to_copy else "safe-to-copy"
+    runtime.candy(
+        "Cowsay",
+        "%s is a valid unknown private ancillary chunk and its CRC matches the bytes on disk."
+        % chunk_name,
+        "com",
+    )
+    if semantics.is_unsafe_to_copy:
+        runtime.candy(
+            "Cowsay",
+            "But its unsafe-to-copy bit is set. If I rewrite this PNG without understanding %s, keeping it may be risky."
+            % chunk_name,
+            "bad",
+        )
+    else:
+        runtime.candy(
+            "Cowsay",
+            (
+                "Its safe-to-copy bit is set, so preserving it is allowed, "
+                "but it is still private and I do not know its private meaning."
+            ),
+            "com",
+        )
+    runtime.candy(
+        "Cowsay",
+        "I can leave it alone, or remove that %s private passenger from the clone."
+        % copy_mode,
+        "com",
+    )
+
+    question_id = "Unknown Private Chunk Removal: %s" % chunk_name
+    if not runtime.question(question_id, context.current_type_offset, skipauto=True):
+        return None
+
+    start, end = bounds
+    info = (
+        "-Removed unknown private ancillary Chunk[%s] after user confirmation. "
+        "Stored CRC was valid; copy mode was %s."
+        % (chunk_type, copy_mode)
+    )
+    return runtime.remove_chunk(start, end, info)
 
 
 def _run_name_shift_probe(
@@ -342,6 +545,64 @@ def run_check_chunk_name(
             )
 
     runtime.emit("\n-Chunk name:" + _color(runtime, "red", " FAILED! ") + _chunky(runtime, "bad"))
+    unknown_ancillary_semantics = _unknown_ancillary_semantics(ctype)
+    if unknown_ancillary_semantics is not None:
+        crc_ok, chunk_bounds = _unknown_ancillary_crc_context(
+            context,
+            ctype,
+            chunk_length,
+            next_chunk,
+        )
+    else:
+        crc_ok, chunk_bounds = False, None
+
+    likely_known_typo = _looks_like_known_chunk_typo(ctype, context.all_chunks)
+    splits_idat_sequence = _would_split_idat_sequence(context, last_chunk_type, chunk_bounds)
+    if unknown_ancillary_semantics is not None and crc_ok and not likely_known_typo and not splits_idat_sequence:
+        unknown_ancillary_kind = _unknown_ancillary_kind(unknown_ancillary_semantics)
+        runtime.emit(
+            "\n-Chunk name:"
+            + _color(runtime, "yellow", " UNKNOWN %s ancillary " % unknown_ancillary_kind)
+            + _chunky(runtime, "com")
+        )
+        if (
+            next_chunk is None
+            and unknown_ancillary_semantics.is_private
+            and chunk_bounds is not None
+        ):
+            removal = _private_chunk_remove_prompt(
+                runtime,
+                context,
+                ctype,
+                unknown_ancillary_semantics,
+                chunk_bounds,
+            )
+            if removal is not None:
+                return removal
+        if next_chunk is None:
+            return runtime.checkpoint(
+                False,
+                False,
+                "CheckChunkName",
+                ctype,
+                [
+                    "-Name is valid for unknown %s ancillary Chunk[%s]."
+                    % (unknown_ancillary_kind, ctype)
+                ],
+                next_chunk,
+            )
+        return runtime.checkpoint(
+            False,
+            False,
+            "CheckChunkName",
+            ctype,
+            [
+                "-Name is valid for unknown %s ancillary next Chunk[%s]."
+                % (unknown_ancillary_kind, ctype)
+            ],
+            next_chunk,
+        )
+
     if next_chunk is None:
         runtime.candy("Cowsay", "Mokay That could explain all this mess...", "com")
         if (
@@ -425,6 +686,12 @@ def build_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> ChunkN
             count,
             on_invalid=on_invalid,
         ),
+        question=lambda question_id=None, question_hash=None, skipauto=False: namespace["Question"](
+            question_id,
+            question_hash,
+            skipauto=skipauto,
+        ),
+        remove_chunk=namespace["RemoveChunk"],
     )
 
 
@@ -440,6 +707,7 @@ def build_chunk_name_context_from_namespace(namespace: dict[str, Any]) -> ChunkN
         idat_average_length=namespace["IDAT_Avg_Len"],
         original_next_chunk=namespace["Orig_NC"],
         next_chunk_offset=namespace["NCoffI"],
+        data_hex=namespace["DATAX"],
         debug=namespace["DEBUG"],
         pause_debug=namespace["PAUSEDEBUG"],
     )

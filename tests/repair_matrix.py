@@ -337,6 +337,13 @@ REPAIR_MATRIX: tuple[RepairCase, ...] = (
         expected_outputs=("gama_zero.0_Fixed.png",),
     ),
     RepairCase(
+        fixture="length_gama.png",
+        corruption="gAMA chunk with one missing byte",
+        expected_strategy="infer common gAMA payload",
+        max_saves=1,
+        expected_outputs=("length_gama.0_Fixed.png",),
+    ),
+    RepairCase(
         fixture="ihdr_image_size.png",
         corruption="IHDR image size mismatch",
         expected_strategy="repair IHDR dimensions",
@@ -450,6 +457,7 @@ _VALIDATORS_BY_FIXTURE = {
         "idat_decompressed_len:3104",
         "last_chunk:IEND",
     ),
+    "length_gama.png": VALID_32_PALETTE,
     "ihdr_image_size.png": VALID_32_PALETTE,
     "Unhandled-Critical-Chunk.png": VALID_32_PALETTE_NO_GAMA + ("missing_chunk:QpZZ",),
 }
@@ -582,6 +590,9 @@ _SUMMARY_MARKERS_BY_FIXTURE = {
     ),
     "gama_zero.png": (
         "removed zero gAMA chunk",
+    ),
+    "length_gama.png": (
+        "inferred 1 missing gAMA byte(s) from common gamma value and rebuilt CRC",
     ),
     "ihdr_image_size.png": (
         "rebuilt IHDR from IDAT scanline size",

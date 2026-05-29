@@ -278,9 +278,12 @@ def test_parse_spal_keeps_placeholder_message():
 
 def test_parse_gama_keeps_zero_as_useless_fix():
     info = chunk_info.parse_gama("00000000")
+    short = chunk_info.parse_gama("000186")
 
     assert info.value == "0"
     assert info.fixes == ("-A gAMA Chunk of 0 is Useless.",)
+    assert short.value == "390"
+    assert short.fixes == ("-gAMA length is not Valid :3 must be 4",)
 
 
 def test_parse_phys_preserves_legacy_field_order_and_unit_validation():
@@ -409,8 +412,9 @@ def test_parse_offs_validates_signed_offsets_and_unit():
 
 
 def test_parse_gifg_reads_legacy_numeric_fields():
-    info = chunk_info.parse_gifg("010203")
+    info = chunk_info.parse_gifg("01020003")
     malformed = chunk_info.parse_gifg("01")
+    long = chunk_info.parse_gifg("0200000a00")
 
     assert info.disposal_method == "1"
     assert info.user_input_flag == "2"
@@ -419,8 +423,11 @@ def test_parse_gifg_reads_legacy_numeric_fields():
     assert malformed.disposal_method == "1"
     assert malformed.user_input_flag == ""
     assert malformed.delay_time == ""
-    assert malformed.fixes[0].startswith("-gIFg User Input Flag Error:")
-    assert malformed.fixes[1].startswith("-gIFg Delay Time Error:")
+    assert malformed.fixes[0] == "-gIFg length is not Valid :1 must be 4"
+    assert malformed.fixes[1].startswith("-gIFg User Input Flag Error:")
+    assert malformed.fixes[2].startswith("-gIFg Delay Time Error:")
+    assert long.delay_time == "10"
+    assert long.fixes == ("-gIFg length is not Valid :5 must be 4",)
 
 
 def test_parse_gifx_reads_legacy_numeric_fields():

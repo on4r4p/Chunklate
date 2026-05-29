@@ -34,7 +34,7 @@ def test_run_ancillary_check_reports_valid_semantics_and_returns_true():
     assert ("emit", "-[gAMa] <green:Seems to be Following> Chunks's naming conventions") in calls
     assert ("candy", ("Cowsay", "If this is a real Chunk this means that gAMa is :", "good")) in calls
     assert ("emit", "-<green:g>:<yellow:Not Critical>") in calls
-    assert ("emit", "-<green:A>:<yellow:Private>") in calls
+    assert ("emit", "-<green:A>:<yellow:Public>") in calls
     assert ("emit", "-<green:M>:<yellow:Conform to PNG specifications>") in calls
     assert ("emit", "-<green:a>:<yellow:Safe to Copy>") in calls
 

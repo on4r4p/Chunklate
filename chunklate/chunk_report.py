@@ -325,6 +325,13 @@ def render_srgb(
 
 
 def render_gama(info: chunk_info.GamaInfo, emit: Emit, color: Color) -> None:
+    length_error = next(
+        (fix for fix in info.fixes if fix.startswith("-gAMA length is not Valid")),
+        "",
+    )
+    if length_error:
+        emit("-gAMA length is %s" % color("red", "not Valid"))
+
     if len(info.value) > 0:
         emit("-Gama   :%s" % color("white", info.value))
         if info.value == "0":
@@ -471,10 +478,18 @@ def render_pcal(info: chunk_info.PcalInfo, emit: Emit, color: Color) -> None:
 
 
 def render_gifg(info: chunk_info.GifgInfo, emit: Emit, color: Color) -> None:
+    length_error = next(
+        (fix for fix in info.fixes if fix.startswith("-gIFg length is not Valid")),
+        "",
+    )
+    if length_error:
+        emit("-gIFg length is %s" % color("red", "not Valid"))
+
     if len(info.disposal_method) > 0:
         emit("-Disposal Method    :%s" % color("yellow", info.disposal_method))
+    if len(info.user_input_flag) > 0:
+        emit("-User Input Flag    :%s" % color("yellow", info.user_input_flag))
     if len(info.delay_time) > 0:
-        emit("-User Input Flag    :%s" % color("yellow", info.delay_time))
         emit("-Delay Time    :%s" % color("yellow", info.delay_time))
 
 

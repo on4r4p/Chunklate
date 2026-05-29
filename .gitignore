@@ -18,6 +18,7 @@ Folder_*/
 *_Fixed.png
 png_to_check/*.png
 scratch/
+David/
 
 # Local scratch media at repository root. Tracked fixtures are unaffected.
 /*.gif

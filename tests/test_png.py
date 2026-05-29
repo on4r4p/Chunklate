@@ -37,6 +37,8 @@ from chunklate.png import (
     repair_chrm_length,
     repair_color_profile_chunks,
     repair_empty_plte,
+    repair_gama_length,
+    repair_gifg_length,
     repair_ihdr,
     repair_ihdr_from_idat,
     repair_ihdr_preserving_crc,
@@ -58,6 +60,14 @@ from chunklate.png import (
 FIXTURE = ROOT / "schaik-javapng-samples" / "basn0g01.png"
 REPAIR_FIXTURES = ROOT / "Png_Errors_handled_by_Chunklate_So_Far"
 BROKEN_FIXTURES = ROOT / "schaik-javapng-samples" / "brokenjavapngsuite"
+
+
+def repair_fixture(name: str) -> Path:
+    for directory in (REPAIR_FIXTURES, BROKEN_FIXTURES, ROOT / "brokenjavapngsuite"):
+        candidate = directory / name
+        if candidate.exists():
+            return candidate
+    return REPAIR_FIXTURES / name
 
 
 def tiny_rgb_png(*, filtered_scanlines: bytes | None = None, width: int = 1, height: int = 1) -> bytes:
@@ -879,6 +889,76 @@ def test_repair_bkgd_length_removes_short_truecolor_alpha_payload():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_repair_gama_length_infers_common_missing_byte():
+    broken = repair_fixture("length_gama.png").read_bytes()
+
+    assert "gAMA chunk length must be 4" in validate_png_structure(broken).errors
+
+    repaired = repair_gama_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 3
+    assert repaired.new_length == 4
+    assert repaired.missing_bytes == 1
+    assert repaired.inferred_payload == (100000).to_bytes(4, "big")
+    gama = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"gAMA")
+    assert gama.data == (100000).to_bytes(4, "big")
+    assert gama.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_gama_length_removes_uninferrable_short_payload():
+    broken = minimal_png_with_color_and_chunk(2, b"gAMA", b"\xff")
+
+    repaired = repair_gama_length(broken)
+
+    assert repaired is not None
+    assert repaired.removed is True
+    assert repaired.new_length == 0
+    assert b"gAMA" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_gifg_length_truncates_legacy_payload():
+    broken = repair_fixture("length_gifg.png").read_bytes()
+
+    assert "gIFg chunk length must be 4" in validate_png_structure(broken).errors
+
+    repaired = repair_gifg_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 5
+    assert repaired.new_length == 4
+    gifg = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"gIFg")
+    assert gifg.data == bytes.fromhex("0200000a")
+    assert gifg.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_validate_png_structure_catches_known_length_fixtures():
+    expected_errors = {
+        "length_gama.png": "gAMA chunk length must be 4",
+        "length_gifg.png": "gIFg chunk length must be 4",
+        "length_hist.png": "hIST chunk length must match PLTE entry count",
+        "length_iend.png": "IEND chunk length must be zero",
+        "length_ihdr.png": "IHDR chunk is missing or malformed",
+        "length_offs.png": "oFFs chunk length must be 9",
+        "length_phys.png": "pHYs chunk length must be 9",
+        "length_sbit.png": "sBIT chunk length must be 3 for IHDR color type 3",
+        "length_sbit_2.png": "sBIT chunk length must be 1 for IHDR color type 0",
+        "length_srgb.png": "sRGB chunk length must be 1",
+        "length_ster.png": "sTER chunk length must be 1",
+        "length_time.png": "tIME chunk length must be 7",
+        "length_trns_gray.png": "tRNS chunk length must be 2 for IHDR color type 0",
+        "length_trns_palette.png": "tRNS chunk length must not exceed PLTE entry count",
+        "length_trns_rgb.png": "tRNS chunk length must be 6 for IHDR color type 2",
+    }
+
+    for fixture, expected_error in expected_errors.items():
+        errors = validate_png_structure(repair_fixture(fixture).read_bytes()).errors
+        assert expected_error in errors
+
+
 def test_repair_chrm_length_uses_crc_proven_missing_byte():
     chrm_chunk = (
         (len(SRGB_CHRM_PAYLOAD) - 1).to_bytes(4, "big")
@@ -1218,6 +1298,10 @@ def main():
         ("Truncate long gray-alpha bKGD", test_repair_bkgd_length_truncates_gray_alpha_payload),
         ("Truncate long palette bKGD", test_repair_bkgd_length_truncates_palette_payload),
         ("Remove short truecolor-alpha bKGD", test_repair_bkgd_length_removes_short_truecolor_alpha_payload),
+        ("Infer common short gAMA", test_repair_gama_length_infers_common_missing_byte),
+        ("Remove unknown short gAMA", test_repair_gama_length_removes_uninferrable_short_payload),
+        ("Truncate long gIFg", test_repair_gifg_length_truncates_legacy_payload),
+        ("Catch known length fixtures", test_validate_png_structure_catches_known_length_fixtures),
         ("Recover short cHRM from stored CRC", test_repair_chrm_length_uses_crc_proven_missing_byte),
         ("Infer short cHRM after CRC miss", test_repair_chrm_length_infers_when_crc_does_not_match),
         ("Repair missing data byte using shifted CRC", test_repair_missing_chunk_data_byte_uses_shifted_crc),

@@ -172,6 +172,28 @@ def test_question_runtime_names_chrm_inference_prompt():
     assert not [call for call in calls if call[0] == "emit" and "Auto Answer Mode" in str(call[1])]
 
 
+def test_question_runtime_names_unknown_private_removal_prompt_and_skips_auto():
+    runtime, calls = runtime_from(answers=["yes"], auto=True)
+
+    assert question_runtime.ask_question(
+        runtime,
+        "Unknown Private Chunk Removal: msOG",
+        ("msOG", 24),
+        skipauto=True,
+    ) is True
+
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "Question: Should i remove this unknown private chunk from the clone?",
+            "com",
+        ),
+        {},
+    ) in calls
+    assert not [call for call in calls if call[0] == "emit" and "Auto Answer Mode" in str(call[1])]
+
+
 def test_question_runtime_names_super_mega_linefeed_force_prompt():
     runtime, calls = runtime_from(answers=["yes"])
 
@@ -308,6 +330,10 @@ def main():
         ("IDAT heavy probe prompt", test_question_runtime_names_idat_heavy_probe_prompt),
         ("IHDR CRC brute force prompt", test_question_runtime_names_ihdr_crc_bruteforce_prompt),
         ("cHRM inference prompt", test_question_runtime_names_chrm_inference_prompt),
+        (
+            "Unknown private removal prompt",
+            test_question_runtime_names_unknown_private_removal_prompt_and_skips_auto,
+        ),
         ("SuperMegaLineFeedForceOfDeath prompt", test_question_runtime_names_super_mega_linefeed_force_prompt),
         (
             "UltimateMegaSuperLineFeedBruteForce prompt",

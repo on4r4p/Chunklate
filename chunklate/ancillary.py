@@ -18,7 +18,7 @@ class ChunkNameSemantics:
 
     @property
     def is_private(self) -> bool:
-        return self.letters[1].isupper()
+        return self.letters[1].islower()
 
     @property
     def is_reserved_valid(self) -> bool:
@@ -46,7 +46,7 @@ def semantic_labels(semantics: ChunkNameSemantics) -> tuple[tuple[str, str], ...
         return ()
     return (
         (semantics.letters[0], "Critical" if semantics.is_critical else "Not Critical"),
-        (semantics.letters[1], "Private" if semantics.is_private else "Not Private"),
+        (semantics.letters[1], "Private" if semantics.is_private else "Public"),
         (
             semantics.letters[2],
             (

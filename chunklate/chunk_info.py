@@ -1213,6 +1213,10 @@ def parse_spal(data: str) -> SpalInfo:
 def parse_gama(data: str) -> GamaInfo:
     fixes: list[str] = []
     value = ""
+    byte_length = len(data) // 2
+
+    if byte_length != 4:
+        fixes.append("-gAMA length is not Valid :%s must be 4" % byte_length)
 
     try:
         value = _hex_int_text(data, 0, 8)
@@ -1460,6 +1464,10 @@ def parse_offs(data: str) -> OffsInfo:
 
 def parse_gifg(data: str) -> GifgInfo:
     fixes: list[str] = []
+    byte_length = len(data) // 2
+
+    if byte_length != 4:
+        fixes.append("-gIFg length is not Valid :%s must be 4" % byte_length)
 
     try:
         disposal_method = _hex_int_text(data, 0, 2)
@@ -1474,7 +1482,7 @@ def parse_gifg(data: str) -> GifgInfo:
         fixes.append("-gIFg User Input Flag Error:" + str(exc))
 
     try:
-        delay_time = _hex_int_text(data, 4, 6)
+        delay_time = _hex_int_text(data, 4, 8)
     except Exception as exc:
         delay_time = ""
         fixes.append("-gIFg Delay Time Error:" + str(exc))

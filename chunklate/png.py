@@ -205,6 +205,29 @@ class BkgdRepair:
 
 
 @dataclass(frozen=True)
+class GamaRepair:
+    data: bytes
+    strategy: str
+    chunk_offset: int
+    old_length: int
+    new_length: int
+    removed: bool = False
+    inferred_payload: bytes | None = None
+    missing_bytes: int = 0
+
+
+@dataclass(frozen=True)
+class ChunkDataLengthRepair:
+    data: bytes
+    strategy: str
+    chunk_name: str
+    chunk_offset: int
+    old_length: int
+    new_length: int
+    removed: bool = False
+
+
+@dataclass(frozen=True)
 class ChrmRepair:
     data: bytes
     strategy: str
@@ -670,6 +693,35 @@ def _bkgd_expected_length_for_color_type(color_type: int) -> int | None:
     }.get(color_type)
 
 
+def _sbit_expected_length_for_color_type(color_type: int) -> int | None:
+    return {
+        0: 1,
+        2: 3,
+        3: 3,
+        4: 2,
+        6: 4,
+    }.get(color_type)
+
+
+COMMON_GAMA_PAYLOADS: tuple[bytes, ...] = (
+    (100000).to_bytes(4, "big"),
+    (45455).to_bytes(4, "big"),
+    (50000).to_bytes(4, "big"),
+    (220000).to_bytes(4, "big"),
+)
+
+
+def _complete_short_gama_payload(payload: bytes) -> bytes | None:
+    if len(payload) >= 4:
+        return None
+
+    matches = [candidate for candidate in COMMON_GAMA_PAYLOADS if candidate.startswith(payload)]
+    if len(matches) == 1:
+        return matches[0]
+
+    return None
+
+
 def _chrm_payload_values(payload: bytes) -> tuple[int, ...] | None:
     if len(payload) != 32:
         return None
@@ -850,6 +902,115 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
             errors.append("PLTE has too many entries for indexed bit depth")
     elif color_type == 3:
         errors.append("Indexed-color PNG requires a PLTE chunk")
+
+    gama_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"gAMA"]
+    if len(gama_indices) > 1:
+        errors.append("PNG must not contain multiple gAMA chunks")
+    if gama_indices:
+        gama = chunks[gama_indices[0]]
+        if gama.length != 4:
+            errors.append("gAMA chunk length must be 4")
+        elif int.from_bytes(gama.data, "big") == 0:
+            errors.append("gAMA value must be greater than zero")
+
+    srgb_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"sRGB"]
+    if len(srgb_indices) > 1:
+        errors.append("PNG must not contain multiple sRGB chunks")
+    if srgb_indices:
+        srgb = chunks[srgb_indices[0]]
+        if srgb.length != 1:
+            errors.append("sRGB chunk length must be 1")
+        elif srgb.data[0] not in (0, 1, 2, 3):
+            errors.append("sRGB rendering intent must be 0, 1, 2, or 3")
+
+    sbit_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"sBIT"]
+    if len(sbit_indices) > 1:
+        errors.append("PNG must not contain multiple sBIT chunks")
+    if sbit_indices:
+        sbit = chunks[sbit_indices[0]]
+        expected_sbit_length = _sbit_expected_length_for_color_type(color_type)
+        if expected_sbit_length is not None and sbit.length != expected_sbit_length:
+            errors.append(
+                "sBIT chunk length must be %s for IHDR color type %s"
+                % (expected_sbit_length, color_type)
+            )
+
+    phys_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"pHYs"]
+    if len(phys_indices) > 1:
+        errors.append("PNG must not contain multiple pHYs chunks")
+    if phys_indices:
+        phys = chunks[phys_indices[0]]
+        if phys.length != 9:
+            errors.append("pHYs chunk length must be 9")
+        elif phys.data[8] not in (0, 1):
+            errors.append("pHYs unit specifier must be 0 or 1")
+
+    offs_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"oFFs"]
+    if len(offs_indices) > 1:
+        errors.append("PNG must not contain multiple oFFs chunks")
+    if offs_indices:
+        offs = chunks[offs_indices[0]]
+        if offs.length != 9:
+            errors.append("oFFs chunk length must be 9")
+        elif offs.data[8] not in (0, 1):
+            errors.append("oFFs unit specifier must be 0 or 1")
+
+    time_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"tIME"]
+    if len(time_indices) > 1:
+        errors.append("PNG must not contain multiple tIME chunks")
+    if time_indices:
+        time = chunks[time_indices[0]]
+        if time.length != 7:
+            errors.append("tIME chunk length must be 7")
+
+    ster_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"sTER"]
+    if len(ster_indices) > 1:
+        errors.append("PNG must not contain multiple sTER chunks")
+    if ster_indices:
+        ster = chunks[ster_indices[0]]
+        if ster.length != 1:
+            errors.append("sTER chunk length must be 1")
+        elif ster.data[0] not in (0, 1):
+            errors.append("sTER mode must be 0 or 1")
+
+    gifg_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"gIFg"]
+    if len(gifg_indices) > 1:
+        errors.append("PNG must not contain multiple gIFg chunks")
+    if gifg_indices:
+        gifg = chunks[gifg_indices[0]]
+        if gifg.length != 4:
+            errors.append("gIFg chunk length must be 4")
+
+    hist_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"hIST"]
+    if len(hist_indices) > 1:
+        errors.append("PNG must not contain multiple hIST chunks")
+    if hist_indices:
+        hist = chunks[hist_indices[0]]
+        if hist.length == 0 or hist.length % 2 != 0:
+            errors.append("hIST chunk length must be a non-zero multiple of 2")
+        if plte_indices:
+            expected_hist_length = chunks[plte_indices[0]].length // 3 * 2
+            if hist.length != expected_hist_length:
+                errors.append("hIST chunk length must match PLTE entry count")
+        else:
+            errors.append("hIST chunk requires a PLTE chunk")
+
+    trns_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"tRNS"]
+    if len(trns_indices) > 1:
+        errors.append("PNG must not contain multiple tRNS chunks")
+    if trns_indices:
+        trns = chunks[trns_indices[0]]
+        if color_type == 0 and trns.length != 2:
+            errors.append("tRNS chunk length must be 2 for IHDR color type 0")
+        elif color_type == 2 and trns.length != 6:
+            errors.append("tRNS chunk length must be 6 for IHDR color type 2")
+        elif color_type == 3:
+            if trns.length == 0:
+                errors.append("tRNS chunk length must not be zero for IHDR color type 3")
+            if plte_indices and trns.length > chunks[plte_indices[0]].length // 3:
+                errors.append("tRNS chunk length must not exceed PLTE entry count")
+        elif color_type in (4, 6):
+            errors.append("tRNS chunk is not allowed for alpha color types")
 
     bkgd_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"bKGD"]
     if len(bkgd_indices) > 1:
@@ -1421,6 +1582,9 @@ def png_chunk_data_is_coherent(chunk_type: bytes, chunk_data: bytes) -> bool:
     if chunk_type == b"pHYs":
         return length == 9 and chunk_data[8] in (0, 1)
 
+    if chunk_type == b"gIFg":
+        return length == 4
+
     if chunk_type == b"tIME":
         if length != 7:
             return False
@@ -1677,6 +1841,117 @@ def repair_bkgd_length(data: bytes) -> BkgdRepair | None:
         new_length=0,
         removed=True,
     )
+
+
+def repair_gama_length(data: bytes) -> GamaRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    gama = next((chunk for chunk in chunks if chunk.chunk_type == b"gAMA"), None)
+    if gama is None or gama.length == 4:
+        return None
+
+    if gama.length > 4:
+        payload = gama.data[:4]
+        if int.from_bytes(payload, "big") == 0:
+            return None
+        repaired_chunk = build_png_chunk(b"gAMA", payload)
+        repaired = replace_png_chunk(data, gama, repaired_chunk)
+        if not is_complete_png_with_valid_crc(repaired):
+            return None
+        return GamaRepair(
+            data=repaired,
+            strategy="trimmed gAMA length from %s to 4 and rebuilt CRC" % gama.length,
+            chunk_offset=gama.offset,
+            old_length=gama.length,
+            new_length=4,
+        )
+
+    inferred_payload = _complete_short_gama_payload(gama.data)
+    if inferred_payload is not None and int.from_bytes(inferred_payload, "big") > 0:
+        repaired_chunk = build_png_chunk(b"gAMA", inferred_payload)
+        repaired = replace_png_chunk(data, gama, repaired_chunk)
+        if is_complete_png_with_valid_crc(repaired):
+            return GamaRepair(
+                data=repaired,
+                strategy=(
+                    "inferred %s missing gAMA byte(s) from common gamma value and rebuilt CRC"
+                    % (4 - gama.length)
+                ),
+                chunk_offset=gama.offset,
+                old_length=gama.length,
+                new_length=4,
+                inferred_payload=inferred_payload,
+                missing_bytes=4 - gama.length,
+            )
+
+    repaired = replace_png_chunk(data, gama, b"")
+    if not is_complete_png_with_valid_crc(repaired):
+        return None
+    return GamaRepair(
+        data=repaired,
+        strategy="removed short gAMA chunk length %s below required 4" % gama.length,
+        chunk_offset=gama.offset,
+        old_length=gama.length,
+        new_length=0,
+        removed=True,
+        missing_bytes=4 - gama.length,
+    )
+
+
+def _repair_fixed_length_chunk(
+    data: bytes,
+    chunk_type: bytes,
+    expected_length: int,
+) -> ChunkDataLengthRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    chunk = next((item for item in chunks if item.chunk_type == chunk_type), None)
+    if chunk is None or chunk.length == expected_length:
+        return None
+
+    chunk_name = chunk_type.decode("ascii", errors="replace")
+    if chunk.length > expected_length:
+        repaired_chunk = build_png_chunk(chunk_type, chunk.data[:expected_length])
+        repaired = replace_png_chunk(data, chunk, repaired_chunk)
+        if not is_complete_png_with_valid_crc(repaired):
+            return None
+        return ChunkDataLengthRepair(
+            data=repaired,
+            strategy=(
+                "trimmed %s length from %s to %s and rebuilt CRC"
+                % (chunk_name, chunk.length, expected_length)
+            ),
+            chunk_name=chunk_name,
+            chunk_offset=chunk.offset,
+            old_length=chunk.length,
+            new_length=expected_length,
+        )
+
+    repaired = replace_png_chunk(data, chunk, b"")
+    if not is_complete_png_with_valid_crc(repaired):
+        return None
+    return ChunkDataLengthRepair(
+        data=repaired,
+        strategy=(
+            "removed short %s chunk length %s below required %s"
+            % (chunk_name, chunk.length, expected_length)
+        ),
+        chunk_name=chunk_name,
+        chunk_offset=chunk.offset,
+        old_length=chunk.length,
+        new_length=0,
+        removed=True,
+    )
+
+
+def repair_gifg_length(data: bytes) -> ChunkDataLengthRepair | None:
+    return _repair_fixed_length_chunk(data, b"gIFg", 4)
 
 
 def repair_chrm_length(data: bytes) -> ChrmRepair | None:
