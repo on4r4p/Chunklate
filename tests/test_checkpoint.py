@@ -83,6 +83,23 @@ def test_checkpoint_action_decision_handles_find_magic_offset():
     assert decision.side_note == "-CheckPoint: Returning next position based on Magic Offset 16"
 
 
+def test_checkpoint_action_decision_handles_find_magic_cut_without_legacy_dash():
+    decision = checkpoint.action_decision(
+        error=False,
+        function="FindMagic",
+        chunk="PngSig",
+        info="Cutting at Magic",
+        toolkit=("89504e47", "0x43c"),
+    )
+
+    assert decision.action == "summarise_and_write_clone"
+    assert decision.summary == (
+        "-File does not start with a png signature.\n"
+        "-Found a png signature at offset: 0x43c\n"
+        "-Creating starting with the right signature."
+    )
+
+
 def test_checkpoint_action_decision_handles_check_length_paths():
     found = checkpoint.action_decision(
         error=False,
@@ -372,6 +389,10 @@ def main():
         ("Checkpoint registration builds PandoraBox entry", test_checkpoint_registration_builds_pandorabox_entry),
         ("Checkpoint registration builds Cornucopia entry", test_checkpoint_registration_builds_cornucopia_entry),
         ("Checkpoint action handles FindMagic offset", test_checkpoint_action_decision_handles_find_magic_offset),
+        (
+            "Checkpoint action handles FindMagic cut without dash",
+            test_checkpoint_action_decision_handles_find_magic_cut_without_legacy_dash,
+        ),
         ("Checkpoint action handles CheckLength paths", test_checkpoint_action_decision_handles_check_length_paths),
         ("Checkpoint action handles dummy IEND write clone", test_checkpoint_action_decision_handles_dummy_iend_write_clone),
         ("Checkpoint action handles flags", test_checkpoint_action_decision_handles_flags),

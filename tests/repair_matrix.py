@@ -344,6 +344,20 @@ REPAIR_MATRIX: tuple[RepairCase, ...] = (
         expected_outputs=("length_gama.0_Fixed.png",),
     ),
     RepairCase(
+        fixture="length_gifg.png",
+        corruption="gIFg chunk with one extra byte",
+        expected_strategy="trim gIFg payload",
+        max_saves=1,
+        expected_outputs=("length_gifg.0_Fixed.png",),
+    ),
+    RepairCase(
+        fixture="length_hist.png",
+        corruption="hIST chunk shorter than PLTE entry count",
+        expected_strategy="pad hIST payload",
+        max_saves=1,
+        expected_outputs=("length_hist.0_Fixed.png",),
+    ),
+    RepairCase(
         fixture="ihdr_image_size.png",
         corruption="IHDR image size mismatch",
         expected_strategy="repair IHDR dimensions",
@@ -458,6 +472,33 @@ _VALIDATORS_BY_FIXTURE = {
         "last_chunk:IEND",
     ),
     "length_gama.png": VALID_32_PALETTE,
+    "length_gifg.png": (
+        "chunk_order_exact:IHDR,gIFx,tEXt,PLTE,bKGD,gIFg,cmPP,IDAT,msOG,IEND",
+        "first_chunk:IHDR",
+        "ihdr_dimensions:32x32",
+        "has_chunk:PLTE",
+        "has_chunk:gIFg",
+        "plte_non_empty",
+        "plte_len:48",
+        "idat_chunk_count:1",
+        "idat_decompress",
+        "idat_decompressed_len:544",
+        "last_chunk:IEND",
+    ),
+    "length_hist.png": (
+        "chunk_order_exact:IHDR,gAMA,sBIT,PLTE,hIST,IDAT,IEND",
+        "first_chunk:IHDR",
+        "ihdr_dimensions:32x32",
+        "has_chunk:PLTE",
+        "has_chunk:hIST",
+        "plte_non_empty",
+        "plte_len:45",
+        "gama_non_zero",
+        "idat_chunk_count:1",
+        "idat_decompress",
+        "idat_decompressed_len:544",
+        "last_chunk:IEND",
+    ),
     "ihdr_image_size.png": VALID_32_PALETTE,
     "Unhandled-Critical-Chunk.png": VALID_32_PALETTE_NO_GAMA + ("missing_chunk:QpZZ",),
 }
@@ -593,6 +634,13 @@ _SUMMARY_MARKERS_BY_FIXTURE = {
     ),
     "length_gama.png": (
         "inferred 1 missing gAMA byte(s) from common gamma value and rebuilt CRC",
+    ),
+    "length_gifg.png": (
+        "trimmed gIFg length from 5 to 4 and rebuilt CRC",
+    ),
+    "length_hist.png": (
+        "hIST length is not Valid :28 must be 30 for PLTE entries",
+        "padded hIST length from 28 to 30 with zero frequencies and rebuilt CRC",
     ),
     "ihdr_image_size.png": (
         "rebuilt IHDR from IDAT scanline size",

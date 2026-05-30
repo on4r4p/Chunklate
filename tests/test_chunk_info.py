@@ -91,6 +91,7 @@ def test_parse_hist_matches_palette_entry_count():
     )
     assert wrong_count.fixes == (
         "-Histogram frequencies entries must match PLTE entries number",
+        "-hIST length is not Valid :4 must be 2 for PLTE entries",
     )
 
 
@@ -121,10 +122,14 @@ def test_parse_sbit_covers_color_dependent_shapes():
     indexed = chunk_info.parse_sbit("090807", ihdr_color="3", ihdr_depth="8")
     gray_alpha = chunk_info.parse_sbit("0900", ihdr_color="4", ihdr_depth="8")
     true_alpha = chunk_info.parse_sbit("08080809", ihdr_color="6", ihdr_depth="8")
+    long_indexed = chunk_info.parse_sbit("01010100", ihdr_color="3", ihdr_depth="2")
 
     assert gray.gray == "8"
     assert gray.fixes == ()
     assert indexed.fixes == ("-sBit red value (must be greater than 0",)
+    assert long_indexed.fixes == (
+        "-sBIT length is not Valid :4 must be 3 for IHDR color type 3",
+    )
     assert gray_alpha.gray_scale == "9"
     assert gray_alpha.gray_alpha == "0"
     assert gray_alpha.fixes == (

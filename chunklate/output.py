@@ -14,9 +14,17 @@ class CloneTarget:
     path: str
 
 
+def source_stem(file_origin: str) -> str:
+    filename = os.path.basename(file_origin)
+    if filename.lower().endswith(".realpng"):
+        filename = filename[: -len(".realpng")]
+    if "." in filename:
+        filename = os.path.splitext(filename)[0]
+    return filename
+
+
 def clone_folder(file_origin: str, file_dir: str = "") -> str:
-    folder_name = "Folder_" + os.path.basename(file_origin)
-    return os.path.splitext(os.path.join(file_dir, folder_name))[0]
+    return os.path.join(file_dir, "Folder_" + source_stem(file_origin))
 
 
 def lockdown_folder_lines(file_origin: str, file_dir: str = "") -> tuple[str, str]:
@@ -31,10 +39,7 @@ def ensure_clone_folder(file_origin: str, file_dir: str = "") -> str:
 
 
 def clone_basename(file_origin: str) -> str:
-    filename = os.path.basename(file_origin)
-    if "." in filename:
-        filename = os.path.splitext(filename)[0]
-    return filename + "."
+    return source_stem(file_origin) + "."
 
 
 def next_clone_target(file_origin: str, file_dir: str = "") -> CloneTarget:
@@ -67,7 +72,7 @@ def summary_path(file_origin: str, file_dir: str = "") -> str:
     folder = ensure_clone_folder(file_origin, file_dir)
     return os.path.join(
         folder,
-        "Summary_Of_" + os.path.splitext(os.path.basename(file_origin))[0],
+        "Summary_Of_" + source_stem(file_origin),
     )
 
 

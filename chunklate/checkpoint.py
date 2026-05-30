@@ -106,7 +106,7 @@ def action_decision(
                 side_note="-CheckPoint: Returning next position based on Magic Offset %s" % toolkit[0],
                 return_value=toolkit[0],
             )
-        if info == "-Cutting at Magic":
+        if info in ("-Cutting at Magic", "Cutting at Magic"):
             return CheckPointActionDecision(
                 action="summarise_and_write_clone",
                 summary=(

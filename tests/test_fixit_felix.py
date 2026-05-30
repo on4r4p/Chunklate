@@ -324,11 +324,15 @@ def test_automatic_repair_order_keeps_legacy_priority():
         "plte_cleanup",
         "gama_length",
         "gifg_length",
+        "hist_length",
         "chrm_length",
         "bkgd_length",
         "itxt_keyword_length",
         "itxt_compression_flag",
         "itxt_compression_method",
+        "offs_length",
+        "phys_length",
+        "sbit_length",
         "known_chunk_type_case",
         "unknown_private_critical_removal",
         "missing_chunk_data_byte",
@@ -753,6 +757,26 @@ def test_gifg_length_requires_matching_finding():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_hist_length_requires_matching_finding():
+    original = build_png_with_color_chunk(3, b"hIST", b"\x00\x01")
+
+    assert fixit_felix.hist_length(original, []) is None
+
+    repaired = fixit_felix.hist_length(
+        original,
+        ["GetInfo_Error_0:-Histogram frequencies entries must match PLTE entries number"],
+    )
+
+    assert repaired is not None
+    assert repaired.old_length == 2
+    assert repaired.new_length == 40
+    hist = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"hIST")
+    assert hist.length == 40
+    assert hist.data.startswith(b"\x00\x01")
+    assert hist.data.endswith(b"\x00\x00")
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_chrm_length_requires_matching_finding():
     original = build_png_with_color_chunk(2, b"cHRM", b"\x00" * 31)
 
@@ -842,6 +866,73 @@ def test_itxt_compression_method_requires_matching_finding():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_offs_length_requires_matching_finding():
+    valid = build_rgb_png(1, 1, b"\x00\x00\x00\x00")
+    ihdr = next(iter_chunks(valid))
+    ihdr_end = ihdr.offset + 12 + ihdr.length
+    original = valid[:ihdr_end] + build_png_chunk(b"oFFs", b"\x00" * 8) + valid[ihdr_end:]
+
+    assert fixit_felix.offs_length(original, []) is None
+
+    repaired = fixit_felix.offs_length(
+        original,
+        ["GetInfo_Error_0:-Wrong Offset unit must be between 0 or 1"],
+    )
+
+    assert repaired is not None
+    assert repaired.old_length == 8
+    assert repaired.new_length == 9
+    assert repaired.strategy == "inferred missing oFFs unit byte 0 and rebuilt CRC"
+    offs = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"oFFs")
+    assert offs.data == b"\x00" * 9
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_phys_length_requires_matching_finding():
+    valid = build_rgb_png(1, 1, b"\x00\x00\x00\x00")
+    ihdr = next(iter_chunks(valid))
+    ihdr_end = ihdr.offset + 12 + ihdr.length
+    phys_data = bytes.fromhex("000003e8000003e8")
+    original = valid[:ihdr_end] + build_png_chunk(b"pHYs", phys_data) + valid[ihdr_end:]
+
+    assert fixit_felix.phys_length(original, []) is None
+
+    repaired = fixit_felix.phys_length(
+        original,
+        ["GetInfo_Error_0:-Error pHYs U:invalid literal for int() with base 16: ''"],
+    )
+
+    assert repaired is not None
+    assert repaired.old_length == 8
+    assert repaired.new_length == 9
+    assert repaired.strategy == "inferred missing pHYs unit byte 0 and rebuilt CRC"
+    phys = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"pHYs")
+    assert phys.data == bytes.fromhex("000003e8000003e800")
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_sbit_length_requires_matching_finding():
+    valid = build_rgb_png(1, 1, b"\x00\x00\x00\x00")
+    ihdr = next(iter_chunks(valid))
+    ihdr_end = ihdr.offset + 12 + ihdr.length
+    original = valid[:ihdr_end] + build_png_chunk(b"sBIT", b"\x01\x01\x01\x00") + valid[ihdr_end:]
+
+    assert fixit_felix.sbit_length(original, []) is None
+
+    repaired = fixit_felix.sbit_length(
+        original,
+        ["GetInfo_Error_0:-sBIT length is not Valid :4 must be 3 for IHDR color type 2"],
+    )
+
+    assert repaired is not None
+    assert repaired.old_length == 4
+    assert repaired.new_length == 3
+    assert repaired.strategy == "trimmed sBIT length from 4 to 3 and rebuilt CRC"
+    sbit = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sBIT")
+    assert sbit.data == b"\x01\x01\x01"
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_missing_chunk_data_byte_requires_crc_or_no_next_finding():
     original = read_fixture("Good-Chunk-lenght-Missing-Bit.png")
 
@@ -887,6 +978,26 @@ def test_ihdr_rebuild_requires_ihdr_finding():
 
     assert repaired is not None
     assert next(iter_chunks(repaired.data)).chunk_type == b"IHDR"
+
+
+def test_ihdr_rebuild_trims_overlong_ihdr_payload():
+    filtered_scanlines = b"\x00\x00\x00\x00"
+    valid = build_rgb_png(1, 1, filtered_scanlines)
+    ihdr = next(iter_chunks(valid))
+    overlong_ihdr = build_png_chunk(b"IHDR", ihdr.data + b"\x00")
+    original = PNG_SIGNATURE + overlong_ihdr + valid[ihdr.offset + 12 + ihdr.length :]
+
+    assert validate_png_structure(original).errors
+
+    repaired = fixit_felix.ihdr_rebuild(
+        original,
+        ["GetInfo_Error_0:-IHDR size have to always be 13 bytes"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "trimmed IHDR length from 14 to 13 and rebuilt CRC"
+    assert validate_png_structure(repaired.data).ok
+    assert next(iter_chunks(repaired.data)).length == 13
 
 
 def test_partial_idat_blackfill_requires_idat_finding_and_partial_stream():
@@ -981,15 +1092,20 @@ def main():
         ("PLTE cleanup requires noninteractive mode and PLTE finding", test_plte_cleanup_requires_noninteractive_mode_and_plte_finding),
         ("gAMA length requires matching finding", test_gama_length_requires_matching_finding),
         ("gIFg length requires matching finding", test_gifg_length_requires_matching_finding),
+        ("hIST length requires matching finding", test_hist_length_requires_matching_finding),
         ("cHRM length requires matching finding", test_chrm_length_requires_matching_finding),
         ("bKGD length requires matching finding", test_bkgd_length_requires_matching_finding),
         ("iTXt keyword length requires matching finding", test_itxt_keyword_length_requires_matching_finding),
         ("iTXt compression flag requires matching finding", test_itxt_compression_flag_requires_matching_finding),
         ("iTXt compression method requires matching finding", test_itxt_compression_method_requires_matching_finding),
+        ("oFFs length requires matching finding", test_offs_length_requires_matching_finding),
+        ("pHYs length requires matching finding", test_phys_length_requires_matching_finding),
+        ("sBIT length requires matching finding", test_sbit_length_requires_matching_finding),
         ("Missing chunk data byte requires CRC or no-next finding", test_missing_chunk_data_byte_requires_crc_or_no_next_finding),
         ("Known chunk type case requires wrong ancillary finding", test_known_chunk_type_case_requires_wrong_ancillary_finding),
         ("Unknown private critical removal is standalone salvage", test_unknown_private_critical_removal_is_standalone_salvage),
         ("IHDR rebuild requires IHDR finding", test_ihdr_rebuild_requires_ihdr_finding),
+        ("IHDR rebuild trims overlong IHDR", test_ihdr_rebuild_trims_overlong_ihdr_payload),
         (
             "Partial IDAT blackfill requires IDAT finding",
             test_partial_idat_blackfill_requires_idat_finding_and_partial_stream,

@@ -17,6 +17,16 @@ def test_clone_folder_matches_legacy_folder_name(tmp_path):
     assert folder == str(tmp_path / "Folder_sample")
 
 
+def test_realpng_names_use_inner_png_stem(tmp_path):
+    source = "/somewhere/length_ihdr.png.realpng"
+
+    assert output.clone_folder(source, str(tmp_path)) == str(tmp_path / "Folder_length_ihdr")
+    assert output.clone_basename(source) == "length_ihdr."
+    assert output.summary_path(source, str(tmp_path)) == str(
+        tmp_path / "Folder_length_ihdr" / "Summary_Of_length_ihdr"
+    )
+
+
 def test_lockdown_folder_lines_preserve_legacy_printed_paths(tmp_path):
     assert output.lockdown_folder_lines("/somewhere/sample.png", str(tmp_path)) == (
         str(tmp_path / "Folder_sample"),
@@ -217,6 +227,7 @@ def main():
     tmp_path = Path(tmpdir.name)
     checks = [
         ("Clone folder matches legacy folder name", lambda: test_clone_folder_matches_legacy_folder_name(tmp_path)),
+        ("realpng names use inner PNG stem", lambda: test_realpng_names_use_inner_png_stem(tmp_path)),
         ("LockDown folder lines", lambda: test_lockdown_folder_lines_preserve_legacy_printed_paths(tmp_path)),
         ("Clone target uses next fixed name", lambda: test_next_clone_target_uses_next_available_fixed_name(tmp_path)),
         ("Clone bytes accepts hex and bytes", test_clone_bytes_accepts_hex_and_bytes),

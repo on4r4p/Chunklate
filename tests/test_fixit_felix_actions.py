@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import zlib
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -10,6 +11,18 @@ if str(ROOT) not in sys.path:
 
 import Chunklate
 from chunklate import fixit_felix
+from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk
+
+
+def valid_png_bytes():
+    ihdr = b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00"
+    idat = zlib.compress(b"\x00\x00")
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"IDAT", idat)
+        + IEND_CHUNK
+    )
 
 
 @contextmanager
@@ -663,11 +676,15 @@ def test_no_next_false_positive_iend_writes_clean_cut_when_extra_bytes_follow_ie
     ]
 
 
-def test_no_next_wrong_iend_length_records_note_and_ends():
+def test_no_next_wrong_iend_length_rebuilds_canonical_iend():
     reset_fixit_globals()
     key = "CheckLength_Error_0:-No NextChunk"
     chkd = "IEND_Tool_"
-    end_calls = []
+    write_calls = []
+    prefix = valid_png_bytes()[: -len(IEND_CHUNK)]
+    broken = prefix + bytes.fromhex("0000000149454e44aad11a4fe1")
+    expected = prefix + IEND_CHUNK
+    Chunklate.DATAX = broken.hex()
     Chunklate.PandoraBox = no_next_pandora_box(
         key,
         chkd,
@@ -680,14 +697,17 @@ def test_no_next_wrong_iend_length_records_note_and_ends():
         Chunklate,
         PRINT=lambda *args, **kwargs: None,
         Candy=lambda *args, **kwargs: "",
-        TheEnd=lambda: end_calls.append("end"),
+        WriteClone=lambda data, note: write_calls.append((data, note)) or "write-result",
+        TheEnd=lambda: (_ for _ in ()).throw(AssertionError("should not end")),
     ):
         should_return, result = Chunklate.FixItFelix_No_NextChunk(key, chkd, b"IDAT")
 
-    assert should_return is False
-    assert result is None
-    assert end_calls == ["end"]
-    assert Chunklate.SideNotes == ["-Wrong length for IEND"]
+    assert should_return is True
+    assert result == "write-result"
+    assert write_calls == [
+        (expected, "-FixItFelix:rebuilt IEND with zero length and canonical CRC.")
+    ]
+    assert Chunklate.SideNotes == ["-FixItFelix:rebuilt IEND with zero length and canonical CRC."]
 
 
 def test_no_next_append_missing_iend_uses_dummy_at_crc_tail():
@@ -927,7 +947,10 @@ def main():
             "No-next false positive writes clean cut",
             test_no_next_false_positive_iend_writes_clean_cut_when_extra_bytes_follow_iend,
         ),
-        ("No-next wrong IEND length ends", test_no_next_wrong_iend_length_records_note_and_ends),
+        (
+            "No-next wrong IEND length rebuilds canonical IEND",
+            test_no_next_wrong_iend_length_rebuilds_canonical_iend,
+        ),
         ("No-next append missing IEND uses dummy chunk", test_no_next_append_missing_iend_uses_dummy_at_crc_tail),
         (
             "No-next append missing IEND uses dummy at EOF",

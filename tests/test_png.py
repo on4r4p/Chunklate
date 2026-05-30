@@ -18,6 +18,7 @@ from chunklate.png import (
     complete_iend_tail,
     chunk_type_crc_matches,
     detect_png_signature_recovery,
+    extract_png_segment,
     find_signature_offset,
     infer_png_dimensions,
     iter_chunks,
@@ -39,9 +40,11 @@ from chunklate.png import (
     repair_empty_plte,
     repair_gama_length,
     repair_gifg_length,
+    repair_hist_length,
     repair_ihdr,
     repair_ihdr_from_idat,
     repair_ihdr_preserving_crc,
+    repair_iend_length,
     repair_indexed_plte,
     repair_itxt_compression_flag,
     repair_itxt_keyword_length,
@@ -50,7 +53,10 @@ from chunklate.png import (
     repair_linefeed_conversion,
     repair_missing_ihdr_from_idat,
     repair_missing_chunk_data_byte,
+    repair_offs_length,
+    repair_phys_length,
     repair_overlong_chunk_length_to_next_header,
+    repair_sbit_length,
     repair_unknown_private_critical_chunks,
     SRGB_CHRM_PAYLOAD,
     validate_png_structure,
@@ -131,6 +137,19 @@ def test_detect_png_signature_recovery_cuts_prefixed_data():
     assert recovery.signature_offset == 4
     assert recovery.signature_hex_offset == 8
     assert recovery.fixed_data == PNG_SIGNATURE + b"tail"
+
+
+def test_extract_png_segment_cuts_trailing_container_bytes():
+    embedded = tiny_rgb_png()
+    data = b"RIFF" + embedded + b"%PDF-tailPK"
+
+    assert extract_png_segment(data, signature_offset=4) == embedded
+
+    recovery = detect_png_signature_recovery(data)
+
+    assert recovery.action == "cut_at_signature"
+    assert recovery.signature_offset == 4
+    assert recovery.fixed_data == embedded
 
 
 def test_detect_png_signature_recovery_classifies_linefeed_candidates():
@@ -935,6 +954,131 @@ def test_repair_gifg_length_truncates_legacy_payload():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_repair_offs_length_infers_missing_unit_byte():
+    broken = repair_fixture("length_offs.png").read_bytes()
+
+    assert "oFFs chunk length must be 9" in validate_png_structure(broken).errors
+
+    repaired = repair_offs_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 8
+    assert repaired.new_length == 9
+    assert repaired.strategy == "inferred missing oFFs unit byte 0 and rebuilt CRC"
+    offs = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"oFFs")
+    assert offs.data == b"\x00" * 9
+    assert offs.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_phys_length_infers_missing_unit_byte():
+    broken = repair_fixture("length_phys.png").read_bytes()
+
+    assert "pHYs chunk length must be 9" in validate_png_structure(broken).errors
+
+    repaired = repair_phys_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 8
+    assert repaired.new_length == 9
+    assert repaired.strategy == "inferred missing pHYs unit byte 0 and rebuilt CRC"
+    phys = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"pHYs")
+    assert phys.data == bytes.fromhex("000003e8000003e800")
+    assert phys.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_sbit_length_trims_indexed_payload():
+    broken = repair_fixture("length_sbit.png").read_bytes()
+
+    assert "sBIT chunk length must be 3 for IHDR color type 3" in validate_png_structure(broken).errors
+
+    repaired = repair_sbit_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 4
+    assert repaired.new_length == 3
+    assert repaired.strategy == "trimmed sBIT length from 4 to 3 and rebuilt CRC"
+    sbit = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sBIT")
+    assert sbit.data == bytes.fromhex("010101")
+    assert sbit.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_sbit_length_trims_grayscale_payload():
+    broken = repair_fixture("length_sbit_2.png").read_bytes()
+
+    assert "sBIT chunk length must be 1 for IHDR color type 0" in validate_png_structure(broken).errors
+
+    repaired = repair_sbit_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 3
+    assert repaired.new_length == 1
+    assert repaired.strategy == "trimmed sBIT length from 3 to 1 and rebuilt CRC"
+    sbit = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sBIT")
+    assert sbit.data == b"\x01"
+    assert sbit.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_hist_length_pads_missing_frequency():
+    broken = repair_fixture("length_hist.png").read_bytes()
+
+    assert "hIST chunk length must match PLTE entry count" in validate_png_structure(broken).errors
+
+    repaired = repair_hist_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 28
+    assert repaired.new_length == 30
+    hist = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"hIST")
+    assert hist.length == 30
+    assert hist.data.endswith(b"\x00\x00")
+    assert hist.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_hist_length_trims_extra_frequency():
+    plte = build_png_chunk(b"PLTE", bytes(range(6)))
+    hist = build_png_chunk(b"hIST", b"\x00\x01\x00\x02\x00\x03")
+    broken = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x03\x00\x00\x00")
+        + plte
+        + hist
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+    repaired = repair_hist_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 6
+    assert repaired.new_length == 4
+    hist = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"hIST")
+    assert hist.data == b"\x00\x01\x00\x02"
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_iend_length_rebuilds_canonical_iend():
+    broken = repair_fixture("length_iend.png").read_bytes()
+
+    assert "IEND chunk length must be zero" in validate_png_structure(broken).errors
+
+    repaired = repair_iend_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 1
+    assert repaired.new_length == 0
+    assert repaired.data.endswith(IEND_CHUNK)
+    chunks = list(iter_chunks(repaired.data))
+    assert chunks[-1].chunk_type == b"IEND"
+    assert chunks[-1].length == 0
+    assert chunks[-1].crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_validate_png_structure_catches_known_length_fixtures():
     expected_errors = {
         "length_gama.png": "gAMA chunk length must be 4",
@@ -1174,6 +1318,10 @@ def main():
             test_detect_png_signature_recovery_cuts_prefixed_data,
         ),
         (
+            "Extract PNG segment cuts trailing container bytes",
+            test_extract_png_segment_cuts_trailing_container_bytes,
+        ),
+        (
             "Detect PNG signature recovery classifies linefeed candidates",
             test_detect_png_signature_recovery_classifies_linefeed_candidates,
         ),
@@ -1301,6 +1449,13 @@ def main():
         ("Infer common short gAMA", test_repair_gama_length_infers_common_missing_byte),
         ("Remove unknown short gAMA", test_repair_gama_length_removes_uninferrable_short_payload),
         ("Truncate long gIFg", test_repair_gifg_length_truncates_legacy_payload),
+        ("Infer missing oFFs unit", test_repair_offs_length_infers_missing_unit_byte),
+        ("Infer missing pHYs unit", test_repair_phys_length_infers_missing_unit_byte),
+        ("Trim indexed sBIT", test_repair_sbit_length_trims_indexed_payload),
+        ("Trim grayscale sBIT", test_repair_sbit_length_trims_grayscale_payload),
+        ("Pad short hIST", test_repair_hist_length_pads_missing_frequency),
+        ("Trim long hIST", test_repair_hist_length_trims_extra_frequency),
+        ("Rebuild wrong-length IEND", test_repair_iend_length_rebuilds_canonical_iend),
         ("Catch known length fixtures", test_validate_png_structure_catches_known_length_fixtures),
         ("Recover short cHRM from stored CRC", test_repair_chrm_length_uses_crc_proven_missing_byte),
         ("Infer short cHRM after CRC miss", test_repair_chrm_length_infers_when_crc_does_not_match),

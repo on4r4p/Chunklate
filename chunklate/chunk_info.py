@@ -27,6 +27,13 @@ BKGD_EXPECTED_HEX_LENGTH = {
     "6": 12,
     "3": 2,
 }
+SBIT_EXPECTED_HEX_LENGTH = {
+    "0": 2,
+    "2": 6,
+    "3": 6,
+    "4": 4,
+    "6": 8,
+}
 
 
 @dataclass(frozen=True)
@@ -530,6 +537,10 @@ def parse_hist(
 
     if has_plte and len(entries) != plte_entries:
         fixes.append("-Histogram frequencies entries must match PLTE entries number")
+        fixes.append(
+            "-hIST length is not Valid :%s must be %s for PLTE entries"
+            % (int(len(data) / 2), plte_entries * 2)
+        )
 
     if has_splt and len(entries) != splt_entries:
         fixes.append("-Histogram frequencies entries must match sPLT entries number")
@@ -619,6 +630,13 @@ def parse_sbit(data: str, ihdr_color: str, ihdr_depth: str) -> SbitInfo:
     gray = true_r = true_g = true_b = ""
     gray_scale = gray_alpha = ""
     true_alpha_r = true_alpha_g = true_alpha_b = true_alpha = ""
+    expected_hex_length = SBIT_EXPECTED_HEX_LENGTH.get(ihdr_color)
+
+    if expected_hex_length is not None and len(data) != expected_hex_length:
+        fixes.append(
+            "-sBIT length is not Valid :%s must be %s for IHDR color type %s"
+            % (len(data) // 2, expected_hex_length // 2, ihdr_color)
+        )
 
     def parse_component(start: int, end: int, label: str) -> str:
         try:

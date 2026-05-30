@@ -632,6 +632,7 @@ def apply_chrm_inference_choice(runtime: AutomaticRepairRuntime, repair: Any) ->
 
 def emit_ihdr_repair_explanation(runtime: AutomaticRepairRuntime, repair: Any) -> None:
     description = _ihdr_repair_description(repair)
+    strategy = str(getattr(repair, "strategy", ""))
 
     if _has_ihdr_crc_finding(runtime):
         runtime.candy(
@@ -647,11 +648,19 @@ def emit_ihdr_repair_explanation(runtime: AutomaticRepairRuntime, repair: Any) -
         )
 
     if description is not None:
-        runtime.candy(
-            "Cowsay",
-            "I rebuilt IHDR from the IDAT scanline math: %s." % description,
-            "com",
-        )
+        if "trimmed IHDR length" in strategy:
+            runtime.candy(
+                "Cowsay",
+                "I trimmed IHDR back to 13 bytes and rebuilt its CRC. The header still describes: %s."
+                % description,
+                "com",
+            )
+        else:
+            runtime.candy(
+                "Cowsay",
+                "I rebuilt IHDR from the IDAT scanline math: %s." % description,
+                "com",
+            )
 
     runtime.candy(
         "Cowsay",
@@ -2004,10 +2013,29 @@ def handle_no_next_wrong_iend_length(runtime: NoNextChunkRuntime) -> tuple[bool,
         "-%s length for IEND %s "
         % (runtime.candy("Color", "red", "Wrong"), runtime.candy("Chunky", "bad"))
     )
-    runtime.emit(runtime.candy("Color", "yellow", "\n-ToDo"))
-    runtime.side_notes.append("-Wrong length for IEND")
-    runtime.the_end()
-    return False, None
+    runtime.candy(
+        "Cowsay",
+        "IEND is supposed to be empty. This one packed a byte like it was going on vacation.",
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "I am rebuilding the final IEND chunk with zero length and the canonical CRC.",
+        "com",
+    )
+    try:
+        repair = png.repair_iend_length(bytes.fromhex(runtime.data_hex))
+    except ValueError:
+        repair = None
+    if repair is None:
+        runtime.emit(runtime.candy("Color", "yellow", "\n-ToDo"))
+        runtime.side_notes.append("-Wrong length for IEND")
+        runtime.the_end()
+        return False, None
+
+    note = "-FixItFelix:%s." % repair.strategy
+    runtime.side_notes.append(note)
+    return True, runtime.write_clone(repair.data, note)
 
 
 def print_no_next_append_debug(runtime: NoNextChunkRuntime) -> None:

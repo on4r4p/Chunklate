@@ -304,15 +304,40 @@ def find_signature_offset(data: bytes) -> int:
     return data.find(PNG_SIGNATURE)
 
 
+def extract_png_segment(data: bytes, *, signature_offset: int | None = None) -> bytes | None:
+    if signature_offset is None:
+        signature_offset = find_signature_offset(data)
+    if signature_offset < 0:
+        return None
+
+    offset = signature_offset + len(PNG_SIGNATURE)
+    while offset < len(data):
+        if len(data) - offset < 12:
+            return None
+
+        length = int.from_bytes(data[offset : offset + 4], "big")
+        chunk_type = data[offset + 4 : offset + 8]
+        chunk_end = offset + 12 + length
+        if chunk_end > len(data):
+            return None
+
+        offset = chunk_end
+        if chunk_type == b"IEND":
+            return data[signature_offset:offset]
+
+    return None
+
+
 def detect_png_signature_recovery(data: bytes) -> PngSignatureRecovery:
     signature_offset = find_signature_offset(data)
     if signature_offset == 0:
         return PngSignatureRecovery("found_at_start", signature_offset=0)
     if signature_offset > 0:
+        fixed_data = extract_png_segment(data, signature_offset=signature_offset)
         return PngSignatureRecovery(
             "cut_at_signature",
             signature_offset=signature_offset,
-            fixed_data=data[signature_offset:],
+            fixed_data=fixed_data if fixed_data is not None else data[signature_offset:],
         )
 
     data_hex = data.hex()
@@ -1954,6 +1979,249 @@ def repair_gifg_length(data: bytes) -> ChunkDataLengthRepair | None:
     return _repair_fixed_length_chunk(data, b"gIFg", 4)
 
 
+def repair_offs_length(data: bytes) -> ChunkDataLengthRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    offs = next((chunk for chunk in chunks if chunk.chunk_type == b"oFFs"), None)
+    if offs is None or offs.length == 9:
+        return None
+
+    if offs.length > 9:
+        payload = offs.data[:9]
+        strategy = "trimmed oFFs length from %s to 9 and rebuilt CRC" % offs.length
+        new_length = 9
+        removed = False
+    elif offs.length == 8:
+        payload = offs.data + b"\x00"
+        strategy = "inferred missing oFFs unit byte 0 and rebuilt CRC"
+        new_length = 9
+        removed = False
+    else:
+        repaired = replace_png_chunk(data, offs, b"")
+        if not is_complete_png_with_valid_crc(repaired):
+            return None
+        return ChunkDataLengthRepair(
+            data=repaired,
+            strategy="removed short oFFs chunk length %s below required 9" % offs.length,
+            chunk_name="oFFs",
+            chunk_offset=offs.offset,
+            old_length=offs.length,
+            new_length=0,
+            removed=True,
+        )
+
+    repaired = replace_png_chunk(data, offs, build_png_chunk(b"oFFs", payload))
+    if not validate_png_structure(repaired).ok:
+        return None
+    return ChunkDataLengthRepair(
+        data=repaired,
+        strategy=strategy,
+        chunk_name="oFFs",
+        chunk_offset=offs.offset,
+        old_length=offs.length,
+        new_length=new_length,
+        removed=removed,
+    )
+
+
+def repair_phys_length(data: bytes) -> ChunkDataLengthRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    phys = next((chunk for chunk in chunks if chunk.chunk_type == b"pHYs"), None)
+    if phys is None or phys.length == 9:
+        return None
+
+    if phys.length > 9:
+        payload = phys.data[:9]
+        strategy = "trimmed pHYs length from %s to 9 and rebuilt CRC" % phys.length
+        new_length = 9
+        removed = False
+    elif phys.length == 8:
+        payload = phys.data + b"\x00"
+        strategy = "inferred missing pHYs unit byte 0 and rebuilt CRC"
+        new_length = 9
+        removed = False
+    else:
+        repaired = replace_png_chunk(data, phys, b"")
+        if not is_complete_png_with_valid_crc(repaired):
+            return None
+        return ChunkDataLengthRepair(
+            data=repaired,
+            strategy="removed short pHYs chunk length %s below required 9" % phys.length,
+            chunk_name="pHYs",
+            chunk_offset=phys.offset,
+            old_length=phys.length,
+            new_length=0,
+            removed=True,
+        )
+
+    repaired = replace_png_chunk(data, phys, build_png_chunk(b"pHYs", payload))
+    if not validate_png_structure(repaired).ok:
+        return None
+    return ChunkDataLengthRepair(
+        data=repaired,
+        strategy=strategy,
+        chunk_name="pHYs",
+        chunk_offset=phys.offset,
+        old_length=phys.length,
+        new_length=new_length,
+        removed=removed,
+    )
+
+
+def repair_sbit_length(data: bytes) -> ChunkDataLengthRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    sbit = next((chunk for chunk in chunks if chunk.chunk_type == b"sBIT"), None)
+    ihdr_values = _parse_ihdr_data(ihdr) if ihdr is not None else None
+    if sbit is None or ihdr_values is None:
+        return None
+
+    color_type = ihdr_values[3]
+    expected_length = _sbit_expected_length_for_color_type(color_type)
+    if expected_length is None or sbit.length == expected_length:
+        return None
+
+    if sbit.length > expected_length:
+        repaired_chunk = build_png_chunk(b"sBIT", sbit.data[:expected_length])
+        repaired = replace_png_chunk(data, sbit, repaired_chunk)
+        if not validate_png_structure(repaired).ok:
+            return None
+        return ChunkDataLengthRepair(
+            data=repaired,
+            strategy=(
+                "trimmed sBIT length from %s to %s and rebuilt CRC"
+                % (sbit.length, expected_length)
+            ),
+            chunk_name="sBIT",
+            chunk_offset=sbit.offset,
+            old_length=sbit.length,
+            new_length=expected_length,
+        )
+
+    repaired = replace_png_chunk(data, sbit, b"")
+    if not validate_png_structure(repaired).ok:
+        return None
+    return ChunkDataLengthRepair(
+        data=repaired,
+        strategy=(
+            "removed short sBIT chunk length %s below required %s"
+            % (sbit.length, expected_length)
+        ),
+        chunk_name="sBIT",
+        chunk_offset=sbit.offset,
+        old_length=sbit.length,
+        new_length=0,
+        removed=True,
+    )
+
+
+def repair_hist_length(data: bytes) -> ChunkDataLengthRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    hist = next((chunk for chunk in chunks if chunk.chunk_type == b"hIST"), None)
+    if hist is None:
+        return None
+
+    plte = next((chunk for chunk in chunks if chunk.chunk_type == b"PLTE"), None)
+    if plte is None:
+        repaired = replace_png_chunk(data, hist, b"")
+        if not is_complete_png_with_valid_crc(repaired):
+            return None
+        return ChunkDataLengthRepair(
+            data=repaired,
+            strategy="removed hIST chunk because no PLTE chunk is available",
+            chunk_name="hIST",
+            chunk_offset=hist.offset,
+            old_length=hist.length,
+            new_length=0,
+            removed=True,
+        )
+
+    expected_length = (plte.length // 3) * 2
+    if hist.length == expected_length and hist.length > 0 and hist.length % 2 == 0:
+        return None
+
+    if expected_length <= 0:
+        repaired = replace_png_chunk(data, hist, b"")
+        if not is_complete_png_with_valid_crc(repaired):
+            return None
+        return ChunkDataLengthRepair(
+            data=repaired,
+            strategy="removed hIST chunk because PLTE has no usable entries",
+            chunk_name="hIST",
+            chunk_offset=hist.offset,
+            old_length=hist.length,
+            new_length=0,
+            removed=True,
+        )
+
+    if hist.length > expected_length:
+        payload = hist.data[:expected_length]
+        strategy = "trimmed hIST length from %s to %s and rebuilt CRC" % (
+            hist.length,
+            expected_length,
+        )
+    else:
+        payload = hist.data + (b"\x00" * (expected_length - hist.length))
+        strategy = "padded hIST length from %s to %s with zero frequencies and rebuilt CRC" % (
+            hist.length,
+            expected_length,
+        )
+
+    repaired_chunk = build_png_chunk(b"hIST", payload)
+    repaired = replace_png_chunk(data, hist, repaired_chunk)
+    if not is_complete_png_with_valid_crc(repaired):
+        return None
+    return ChunkDataLengthRepair(
+        data=repaired,
+        strategy=strategy,
+        chunk_name="hIST",
+        chunk_offset=hist.offset,
+        old_length=hist.length,
+        new_length=expected_length,
+    )
+
+
+def repair_iend_length(data: bytes) -> ChunkDataLengthRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    if not chunks:
+        return None
+
+    iend = chunks[-1]
+    if iend.chunk_type != b"IEND" or iend.length == 0:
+        return None
+
+    repaired = data[: iend.offset] + IEND_CHUNK
+    if not is_complete_png_with_valid_crc(repaired):
+        return None
+    return ChunkDataLengthRepair(
+        data=repaired,
+        strategy="rebuilt IEND with zero length and canonical CRC",
+        chunk_name="IEND",
+        chunk_offset=iend.offset,
+        old_length=iend.length,
+        new_length=0,
+    )
+
+
 def repair_chrm_length(data: bytes) -> ChrmRepair | None:
     try:
         chunks = list(iter_chunks(data))
@@ -2556,6 +2824,41 @@ def _replace_ihdr_chunk(data: bytes, ihdr: PngChunk, ihdr_data: bytes, crc: int)
     return data[: ihdr.offset] + fixed_chunk + data[ihdr.offset + 12 + ihdr.length :]
 
 
+def repair_ihdr_length(data: bytes) -> IhdrRepair | None:
+    signature_offset = find_signature_offset(data)
+    if signature_offset < 0:
+        return None
+
+    ihdr = chunk_at(data, signature_offset + len(PNG_SIGNATURE))
+    if ihdr is None or ihdr.chunk_type != b"IHDR" or ihdr.length == 13:
+        return None
+    if ihdr.length < 13:
+        return None
+
+    ihdr_data = ihdr.data[:13]
+    if not png_chunk_data_is_coherent(b"IHDR", ihdr_data):
+        return None
+
+    fixed = replace_png_chunk(data, ihdr, build_png_chunk(b"IHDR", ihdr_data))
+    validation = validate_png_structure(fixed)
+    if not validation.ok:
+        return None
+
+    width, height, bit_depth, color_type, _method, _filter_method, _interlace = struct.unpack(
+        "!IIBBBBB",
+        ihdr_data,
+    )
+    return IhdrRepair(
+        data=fixed,
+        strategy="trimmed IHDR length from %s to 13 and rebuilt CRC" % ihdr.length,
+        preserved_crc=False,
+        width=width,
+        height=height,
+        bit_depth=bit_depth,
+        color_type=color_type,
+    )
+
+
 def _ihdr_candidate_data_from_idat(
     decompressed_size: int,
     current_width: int,
@@ -2771,6 +3074,10 @@ def rebuild_ihdr_from_idat(data: bytes) -> bytes | None:
 
 
 def repair_ihdr(data: bytes) -> IhdrRepair | None:
+    fixed_length = repair_ihdr_length(data)
+    if fixed_length is not None:
+        return fixed_length
+
     fixed = repair_ihdr_preserving_crc(data)
     if fixed is not None:
         return IhdrRepair(

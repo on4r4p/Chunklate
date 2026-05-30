@@ -168,6 +168,7 @@ def render_splt(
 def render_hist(entries: Sequence[str], emit: Emit, color: Color) -> None:
     if len(entries) > 0:
         emit("-%s Histogram frequencies are stored." % color("yellow", len(entries)))
+        emit("-%s hIST payload bytes are present." % color("yellow", len(entries) * 2))
 
 
 def render_trns(info: chunk_info.TrnsInfo, emit: Emit, color: Color) -> None:

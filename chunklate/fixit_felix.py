@@ -14,6 +14,7 @@ from .png import (
     repair_empty_plte,
     repair_gama_length,
     repair_gifg_length,
+    repair_hist_length,
     repair_ihdr,
     repair_indexed_plte,
     repair_itxt_compression_flag,
@@ -21,6 +22,9 @@ from .png import (
     repair_itxt_compression_method,
     repair_known_chunk_type_case,
     repair_missing_chunk_data_byte,
+    repair_offs_length,
+    repair_phys_length,
+    repair_sbit_length,
     repair_unknown_private_critical_chunks,
 )
 from .idat import rebuild_partial_idat_blackfill
@@ -62,11 +66,15 @@ AutomaticRepairHandler = Literal[
     "plte_cleanup",
     "gama_length",
     "gifg_length",
+    "hist_length",
     "chrm_length",
     "bkgd_length",
     "itxt_keyword_length",
     "itxt_compression_flag",
     "itxt_compression_method",
+    "offs_length",
+    "phys_length",
+    "sbit_length",
     "known_chunk_type_case",
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
@@ -81,11 +89,15 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "plte_cleanup",
     "gama_length",
     "gifg_length",
+    "hist_length",
     "chrm_length",
     "bkgd_length",
     "itxt_keyword_length",
     "itxt_compression_flag",
     "itxt_compression_method",
+    "offs_length",
+    "phys_length",
+    "sbit_length",
     "known_chunk_type_case",
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
@@ -613,6 +625,16 @@ def gifg_length(data: bytes, findings: Iterable[object]) -> Any | None:
     return repair_gifg_length(data)
 
 
+def hist_length(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "hIST length is not Valid")
+        or has_finding(findings, "Histogram frequencies entries must match PLTE entries number")
+    ):
+        return None
+
+    return repair_hist_length(data)
+
+
 def chrm_length(data: bytes, findings: Iterable[object]) -> Any | None:
     if not has_finding(findings, "cHRM length is not Valid"):
         return None
@@ -639,6 +661,37 @@ def itxt_compression_method(data: bytes, findings: Iterable[object]) -> Any | No
         return None
 
     return repair_itxt_compression_method(data)
+
+
+def offs_length(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "Wrong Offset unit")
+        or has_finding(findings, "oFFs length is not Valid")
+    ):
+        return None
+
+    return repair_offs_length(data)
+
+
+def phys_length(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "Error pHYs U")
+        or has_finding(findings, "pHYs length is not Valid")
+        or has_finding(findings, "pHYs chunk length must be 9")
+    ):
+        return None
+
+    return repair_phys_length(data)
+
+
+def sbit_length(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "sBIT length is not Valid")
+        or has_finding(findings, "sBIT chunk length must be")
+    ):
+        return None
+
+    return repair_sbit_length(data)
 
 
 def missing_chunk_data_byte(data: bytes, findings: Iterable[object]) -> Any | None:
@@ -707,6 +760,8 @@ def automatic_repair(
         return gama_length(data, findings)
     if name == "gifg_length":
         return gifg_length(data, findings)
+    if name == "hist_length":
+        return hist_length(data, findings)
     if name == "chrm_length":
         return chrm_length(data, findings)
     if name == "itxt_keyword_length":
@@ -715,6 +770,12 @@ def automatic_repair(
         return itxt_compression_flag(data, findings)
     if name == "itxt_compression_method":
         return itxt_compression_method(data, findings)
+    if name == "offs_length":
+        return offs_length(data, findings)
+    if name == "phys_length":
+        return phys_length(data, findings)
+    if name == "sbit_length":
+        return sbit_length(data, findings)
     if name == "known_chunk_type_case":
         return known_chunk_type_case(data, findings, known_chunk_types)
     if name == "unknown_private_critical_removal":

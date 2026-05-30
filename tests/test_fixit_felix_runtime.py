@@ -1808,9 +1808,12 @@ def test_apply_no_next_false_positive_iend_reports_unimplemented_non_order_error
     assert calls[-1] == ("the_end", (), {})
 
 
-def test_apply_no_next_wrong_iend_length_records_note_and_ends():
+def test_apply_no_next_wrong_iend_length_rebuilds_canonical_iend():
     calls = []
-    runtime, side_notes, _state = no_next_runtime(calls)
+    prefix = valid_png_bytes()[: -len(IEND_CHUNK)]
+    broken = prefix + bytes.fromhex("0000000149454e44aad11a4fe1")
+    expected = prefix + IEND_CHUNK
+    runtime, side_notes, _state = no_next_runtime(calls, data_hex=broken.hex())
 
     result = fixit_felix_runtime.apply_no_next_chunk(
         runtime,
@@ -1820,9 +1823,16 @@ def test_apply_no_next_wrong_iend_length_records_note_and_ends():
         no_next_tools(chunk_type=b"IEND", chunk_length="1"),
     )
 
-    assert result == (False, None)
-    assert side_notes == ["-Wrong length for IEND"]
-    assert calls[-1] == ("the_end", (), {})
+    assert result == (True, "write-result")
+    assert side_notes == ["-FixItFelix:rebuilt IEND with zero length and canonical CRC."]
+    assert calls[-1] == (
+        "write_clone",
+        (
+            expected,
+            "-FixItFelix:rebuilt IEND with zero length and canonical CRC.",
+        ),
+        {},
+    )
 
 
 def test_apply_no_next_append_missing_iend_uses_dummy_at_crc_tail():
@@ -2646,7 +2656,7 @@ def main():
             "Apply no-next false positive blocks libpng with pending errors",
             test_apply_no_next_false_positive_iend_refuses_libpng_when_other_errors_remain,
         ),
-        ("Apply no-next wrong IEND length ends", test_apply_no_next_wrong_iend_length_records_note_and_ends),
+        ("Apply no-next wrong IEND length rebuilds IEND", test_apply_no_next_wrong_iend_length_rebuilds_canonical_iend),
         ("Apply no-next appends dummy at CRC tail", test_apply_no_next_append_missing_iend_uses_dummy_at_crc_tail),
         (
             "Apply no-next IDAT chain batch",
