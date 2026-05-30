@@ -26,6 +26,8 @@ from .png import (
     repair_phys_length,
     repair_sbit_length,
     repair_srgb_length,
+    repair_ster_length,
+    repair_time_length,
     repair_unknown_private_critical_chunks,
 )
 from .idat import rebuild_partial_idat_blackfill
@@ -75,8 +77,10 @@ AutomaticRepairHandler = Literal[
     "itxt_compression_method",
     "offs_length",
     "phys_length",
+    "time_length",
     "sbit_length",
     "srgb_length",
+    "ster_length",
     "known_chunk_type_case",
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
@@ -99,8 +103,10 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "itxt_compression_method",
     "offs_length",
     "phys_length",
+    "time_length",
     "sbit_length",
     "srgb_length",
+    "ster_length",
     "known_chunk_type_case",
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
@@ -687,6 +693,17 @@ def phys_length(data: bytes, findings: Iterable[object]) -> Any | None:
     return repair_phys_length(data)
 
 
+def time_length(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "tIME length is not Valid")
+        or has_finding(findings, "tIME Not enough bytes")
+        or has_finding(findings, "tIME chunk length must be 7")
+    ):
+        return None
+
+    return repair_time_length(data)
+
+
 def sbit_length(data: bytes, findings: Iterable[object]) -> Any | None:
     if not (
         has_finding(findings, "sBIT length is not Valid")
@@ -705,6 +722,16 @@ def srgb_length(data: bytes, findings: Iterable[object]) -> Any | None:
         return None
 
     return repair_srgb_length(data)
+
+
+def ster_length(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "sTER length is not Valid")
+        or has_finding(findings, "sTER chunk length must be")
+    ):
+        return None
+
+    return repair_ster_length(data)
 
 
 def missing_chunk_data_byte(data: bytes, findings: Iterable[object]) -> Any | None:
@@ -787,10 +814,14 @@ def automatic_repair(
         return offs_length(data, findings)
     if name == "phys_length":
         return phys_length(data, findings)
+    if name == "time_length":
+        return time_length(data, findings)
     if name == "sbit_length":
         return sbit_length(data, findings)
     if name == "srgb_length":
         return srgb_length(data, findings)
+    if name == "ster_length":
+        return ster_length(data, findings)
     if name == "known_chunk_type_case":
         return known_chunk_type_case(data, findings, known_chunk_types)
     if name == "unknown_private_critical_removal":

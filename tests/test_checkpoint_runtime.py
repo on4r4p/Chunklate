@@ -709,6 +709,26 @@ def test_emit_checkpoint_debug_uses_injected_emit_callback():
     ]
 
 
+def test_checkpoint_debug_lines_accept_multiple_infos_tuple():
+    lines = checkpoint_runtime.checkpoint_debug_lines(
+        error=True,
+        fixed=False,
+        function="GetInfo",
+        infos=(
+            "-tIME length is not Valid :6 must be 7",
+            "-tIME Not enough bytes inside tIME data.",
+        ),
+        chunk=b"tIME",
+        toolkit=(),
+        pandora_keys=(),
+    )
+
+    assert lines[3] == (
+        "infos:['-tIME length is not Valid :6 must be 7', "
+        "'-tIME Not enough bytes inside tIME data.']"
+    )
+
+
 def test_checkpoint_runtime_keeps_legacy_callbacks():
     calls = []
     runtime = callback_runtime(calls)
@@ -999,6 +1019,7 @@ def main():
         ("CheckPoint FogOfWar clears fixed chunk", test_checkpoint_fog_of_war_removes_fixed_chunk_from_bad_memory),
         ("CheckPoint debug lines", test_checkpoint_debug_lines_preserve_legacy_print_shape),
         ("CheckPoint debug emit callback", test_emit_checkpoint_debug_uses_injected_emit_callback),
+        ("CheckPoint debug multiple infos", test_checkpoint_debug_lines_accept_multiple_infos_tuple),
         ("CheckPointRuntime keeps callbacks", test_checkpoint_runtime_keeps_legacy_callbacks),
         ("CheckPointRuntime runs simple actions", test_checkpoint_runtime_runs_simple_actions),
         ("CheckPointRuntime runs libpng actions", test_checkpoint_runtime_runs_libpng_actions),

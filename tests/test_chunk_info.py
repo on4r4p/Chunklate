@@ -347,14 +347,20 @@ def test_parse_time_keeps_parse_and_validation_fixes_separate():
         "-Second  value is not valid61",
     )
     assert short.can_print_timestamp is False
-    assert short.fixes == ("-tIME Not enough bytes inside tIME data.",)
+    assert short.fixes == (
+        "-tIME length is not Valid :1 must be 7",
+        "-tIME Not enough bytes inside tIME data.",
+    )
 
 
 def test_parse_ster_validates_mode():
     info = chunk_info.parse_ster("02")
+    long = chunk_info.parse_ster("0000")
 
     assert info.mode == "2"
     assert info.fixes == ("-sTER should be 0 or 1",)
+    assert long.mode == "0"
+    assert long.fixes == ("-sTER length is not Valid :2 must be 1",)
 
 
 def test_parse_srgb_validates_rendering_intent_and_chrm_override():

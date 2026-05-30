@@ -359,6 +359,14 @@ def checkpoint_debug_toolkit_value(value: Any, limit: int = 100) -> Any:
     return str(value)[0:40] + "...To big to be displayed ..."
 
 
+def checkpoint_debug_infos_value(infos: Any) -> Any:
+    if isinstance(infos, tuple):
+        if len(infos) == 1:
+            return infos[0]
+        return list(infos)
+    return infos
+
+
 def checkpoint_debug_lines(
     *,
     error: Any,
@@ -373,7 +381,7 @@ def checkpoint_debug_lines(
         "error:%s" % error,
         "fixed:%s" % fixed,
         "function:%s" % function,
-        "infos:%s" % infos,
+        "infos:%s" % checkpoint_debug_infos_value(infos),
         "chunk:%s" % chunk,
         "ToolKit:",
     ]

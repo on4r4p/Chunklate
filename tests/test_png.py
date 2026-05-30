@@ -58,6 +58,8 @@ from chunklate.png import (
     repair_overlong_chunk_length_to_next_header,
     repair_sbit_length,
     repair_srgb_length,
+    repair_ster_length,
+    repair_time_length,
     repair_unknown_private_critical_chunks,
     SRGB_CHRM_PAYLOAD,
     validate_png_structure,
@@ -1040,6 +1042,40 @@ def test_repair_srgb_length_trims_rendering_intent_payload():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_repair_ster_length_trims_stereo_mode_payload():
+    broken = repair_fixture("length_ster.png").read_bytes()
+
+    assert "sTER chunk length must be 1" in validate_png_structure(broken).errors
+
+    repaired = repair_ster_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 2
+    assert repaired.new_length == 1
+    assert repaired.strategy == "trimmed sTER length from 2 to 1 and rebuilt CRC"
+    ster = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sTER")
+    assert ster.data == b"\x00"
+    assert ster.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_time_length_infers_missing_second_byte():
+    broken = repair_fixture("length_time.png").read_bytes()
+
+    assert "tIME chunk length must be 7" in validate_png_structure(broken).errors
+
+    repaired = repair_time_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 6
+    assert repaired.new_length == 7
+    assert repaired.strategy == "inferred missing tIME second byte 0 and rebuilt CRC"
+    time = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"tIME")
+    assert time.data == bytes.fromhex("07d001010c2200")
+    assert time.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_repair_hist_length_pads_missing_frequency():
     broken = repair_fixture("length_hist.png").read_bytes()
 
@@ -1472,6 +1508,8 @@ def main():
         ("Trim indexed sBIT", test_repair_sbit_length_trims_indexed_payload),
         ("Trim grayscale sBIT", test_repair_sbit_length_trims_grayscale_payload),
         ("Trim long sRGB", test_repair_srgb_length_trims_rendering_intent_payload),
+        ("Trim long sTER", test_repair_ster_length_trims_stereo_mode_payload),
+        ("Infer short tIME", test_repair_time_length_infers_missing_second_byte),
         ("Pad short hIST", test_repair_hist_length_pads_missing_frequency),
         ("Trim long hIST", test_repair_hist_length_trims_extra_frequency),
         ("Rebuild wrong-length IEND", test_repair_iend_length_rebuilds_canonical_iend),

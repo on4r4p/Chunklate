@@ -32,6 +32,26 @@ CHUNKLATE = ROOT / "Chunklate.py"
 FIXTURES = ROOT / "Png_Errors_handled_by_Chunklate_So_Far"
 
 
+def current_repair_fixture_names():
+    if (ROOT / ".git").exists():
+        result = subprocess.run(
+            [
+                "git",
+                "ls-files",
+                "--",
+                "Png_Errors_handled_by_Chunklate_So_Far/*.png",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return {Path(path).name for path in result.stdout.splitlines()}
+
+    return {path.name for path in FIXTURES.glob("*.png")}
+
+
 def repair_validation_errors(path):
     return validate_png_structure(path.read_bytes()).errors
 
@@ -167,7 +187,7 @@ def test_legacy_crc_only_repair_cases_are_not_counted_as_strict_repairs(tmp_path
 
 
 def test_all_current_repair_fixtures_are_classified():
-    fixture_names = {path.name for path in FIXTURES.glob("*.png")}
+    fixture_names = current_repair_fixture_names()
     classified_names = (
         set(REPAIR_CASES)
         | set(LEGACY_CRC_ONLY_REPAIR_CASES)

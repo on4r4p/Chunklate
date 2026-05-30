@@ -332,8 +332,10 @@ def test_automatic_repair_order_keeps_legacy_priority():
         "itxt_compression_method",
         "offs_length",
         "phys_length",
+        "time_length",
         "sbit_length",
         "srgb_length",
+        "ster_length",
         "known_chunk_type_case",
         "unknown_private_critical_removal",
         "missing_chunk_data_byte",
@@ -912,6 +914,29 @@ def test_phys_length_requires_matching_finding():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_time_length_requires_matching_finding():
+    valid = build_rgb_png(1, 1, b"\x00\x00\x00\x00")
+    ihdr = next(iter_chunks(valid))
+    ihdr_end = ihdr.offset + 12 + ihdr.length
+    time_data = bytes.fromhex("07d001010c22")
+    original = valid[:ihdr_end] + build_png_chunk(b"tIME", time_data) + valid[ihdr_end:]
+
+    assert fixit_felix.time_length(original, []) is None
+
+    repaired = fixit_felix.time_length(
+        original,
+        ["GetInfo_Error_0:-tIME length is not Valid :6 must be 7"],
+    )
+
+    assert repaired is not None
+    assert repaired.old_length == 6
+    assert repaired.new_length == 7
+    assert repaired.strategy == "inferred missing tIME second byte 0 and rebuilt CRC"
+    time = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"tIME")
+    assert time.data == bytes.fromhex("07d001010c2200")
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_sbit_length_requires_matching_finding():
     valid = build_rgb_png(1, 1, b"\x00\x00\x00\x00")
     ihdr = next(iter_chunks(valid))
@@ -953,6 +978,28 @@ def test_srgb_length_requires_matching_finding():
     assert repaired.strategy == "trimmed sRGB length from 2 to 1 and rebuilt CRC"
     srgb = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sRGB")
     assert srgb.data == b"\x03"
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_ster_length_requires_matching_finding():
+    valid = build_rgb_png(1, 1, b"\x00\x00\x00\x00")
+    ihdr = next(iter_chunks(valid))
+    ihdr_end = ihdr.offset + 12 + ihdr.length
+    original = valid[:ihdr_end] + build_png_chunk(b"sTER", b"\x00\x00") + valid[ihdr_end:]
+
+    assert fixit_felix.ster_length(original, []) is None
+
+    repaired = fixit_felix.ster_length(
+        original,
+        ["GetInfo_Error_0:-sTER length is not Valid :2 must be 1"],
+    )
+
+    assert repaired is not None
+    assert repaired.old_length == 2
+    assert repaired.new_length == 1
+    assert repaired.strategy == "trimmed sTER length from 2 to 1 and rebuilt CRC"
+    ster = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sTER")
+    assert ster.data == b"\x00"
     assert validate_png_structure(repaired.data).ok
 
 
@@ -1123,8 +1170,10 @@ def main():
         ("iTXt compression method requires matching finding", test_itxt_compression_method_requires_matching_finding),
         ("oFFs length requires matching finding", test_offs_length_requires_matching_finding),
         ("pHYs length requires matching finding", test_phys_length_requires_matching_finding),
+        ("tIME length requires matching finding", test_time_length_requires_matching_finding),
         ("sBIT length requires matching finding", test_sbit_length_requires_matching_finding),
         ("sRGB length requires matching finding", test_srgb_length_requires_matching_finding),
+        ("sTER length requires matching finding", test_ster_length_requires_matching_finding),
         ("Missing chunk data byte requires CRC or no-next finding", test_missing_chunk_data_byte_requires_crc_or_no_next_finding),
         ("Known chunk type case requires wrong ancillary finding", test_known_chunk_type_case_requires_wrong_ancillary_finding),
         ("Unknown private critical removal is standalone salvage", test_unknown_private_critical_removal_is_standalone_salvage),

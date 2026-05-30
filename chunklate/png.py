@@ -2075,6 +2075,54 @@ def repair_phys_length(data: bytes) -> ChunkDataLengthRepair | None:
     )
 
 
+def repair_time_length(data: bytes) -> ChunkDataLengthRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    time = next((chunk for chunk in chunks if chunk.chunk_type == b"tIME"), None)
+    if time is None or time.length == 7:
+        return None
+
+    if time.length > 7:
+        payload = time.data[:7]
+        strategy = "trimmed tIME length from %s to 7 and rebuilt CRC" % time.length
+        new_length = 7
+        removed = False
+    elif time.length == 6:
+        payload = time.data + b"\x00"
+        strategy = "inferred missing tIME second byte 0 and rebuilt CRC"
+        new_length = 7
+        removed = False
+    else:
+        repaired = replace_png_chunk(data, time, b"")
+        if not validate_png_structure(repaired).ok:
+            return None
+        return ChunkDataLengthRepair(
+            data=repaired,
+            strategy="removed short tIME chunk length %s below required 7" % time.length,
+            chunk_name="tIME",
+            chunk_offset=time.offset,
+            old_length=time.length,
+            new_length=0,
+            removed=True,
+        )
+
+    repaired = replace_png_chunk(data, time, build_png_chunk(b"tIME", payload))
+    if not validate_png_structure(repaired).ok:
+        return None
+    return ChunkDataLengthRepair(
+        data=repaired,
+        strategy=strategy,
+        chunk_name="tIME",
+        chunk_offset=time.offset,
+        old_length=time.length,
+        new_length=new_length,
+        removed=removed,
+    )
+
+
 def repair_sbit_length(data: bytes) -> ChunkDataLengthRepair | None:
     try:
         chunks = list(iter_chunks(data))
@@ -2159,6 +2207,44 @@ def repair_srgb_length(data: bytes) -> ChunkDataLengthRepair | None:
         chunk_name="sRGB",
         chunk_offset=srgb.offset,
         old_length=srgb.length,
+        new_length=0,
+        removed=True,
+    )
+
+
+def repair_ster_length(data: bytes) -> ChunkDataLengthRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    ster = next((chunk for chunk in chunks if chunk.chunk_type == b"sTER"), None)
+    if ster is None or ster.length == 1:
+        return None
+
+    if ster.length > 1:
+        repaired_chunk = build_png_chunk(b"sTER", ster.data[:1])
+        repaired = replace_png_chunk(data, ster, repaired_chunk)
+        if not validate_png_structure(repaired).ok:
+            return None
+        return ChunkDataLengthRepair(
+            data=repaired,
+            strategy="trimmed sTER length from %s to 1 and rebuilt CRC" % ster.length,
+            chunk_name="sTER",
+            chunk_offset=ster.offset,
+            old_length=ster.length,
+            new_length=1,
+        )
+
+    repaired = replace_png_chunk(data, ster, b"")
+    if not validate_png_structure(repaired).ok:
+        return None
+    return ChunkDataLengthRepair(
+        data=repaired,
+        strategy="removed empty sTER chunk length 0 below required 1",
+        chunk_name="sTER",
+        chunk_offset=ster.offset,
+        old_length=ster.length,
         new_length=0,
         removed=True,
     )

@@ -1303,10 +1303,16 @@ def parse_time(data: str, current_year: int | None = None) -> TimeInfo:
     if current_year is None:
         current_year = datetime.now().year
 
+    length_fix = "-tIME length is not Valid :%s must be 7" % (len(data) // 2)
+
     if len(data) < 14:
-        return TimeInfo(parse_fixes=("-tIME Not enough bytes inside tIME data.",))
+        return TimeInfo(
+            parse_fixes=(length_fix, "-tIME Not enough bytes inside tIME data.")
+        )
 
     parse_fixes: list[str] = []
+    if len(data) != 14:
+        parse_fixes.append(length_fix)
 
     try:
         year = _hex_int_text(data, 0, 4)
@@ -1374,6 +1380,9 @@ def parse_time(data: str, current_year: int | None = None) -> TimeInfo:
 def parse_ster(data: str) -> SterInfo:
     fixes: list[str] = []
     mode = ""
+
+    if len(data) != 2:
+        fixes.append("-sTER length is not Valid :%s must be 1" % (len(data) // 2))
 
     try:
         mode = _hex_int_text(data, 0, 2)
