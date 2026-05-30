@@ -83,6 +83,8 @@ def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
         return "Question: Should i write the inferred cHRM bytes instead of removing the optional cHRM chunk?"
     if "Unknown Private Chunk Removal" in str(question_id):
         return "Question: Should i remove this unknown private chunk from the clone?"
+    if "PLTE Palette Editor" in str(question_id):
+        return "Question: Should i open Tkinter to tune this reconstructed PLTE?"
     if skipauto:
         return "Question: Should i stop this brute force branch and save the current candidate?"
     if "IDAT Heavy Probe" in str(question_id):

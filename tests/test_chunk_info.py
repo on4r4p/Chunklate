@@ -97,6 +97,7 @@ def test_parse_hist_matches_palette_entry_count():
 
 def test_parse_trns_uses_color_type_and_palette_count():
     gray = chunk_info.parse_trns("0007", ihdr_color="0")
+    empty_gray = chunk_info.parse_trns("", ihdr_color="0")
     truecolor = chunk_info.parse_trns("000100020003", ihdr_color="2")
     indexed = chunk_info.parse_trns(
         "000102",
@@ -107,6 +108,10 @@ def test_parse_trns_uses_color_type_and_palette_count():
 
     assert gray.gray == "7"
     assert gray.fixes == ()
+    assert empty_gray.fixes == (
+        "-tRNS length is not Valid :0 must be 2 for IHDR color type 0",
+        "-tRNS Chunk Must not be empty",
+    )
     assert truecolor.true_r == "1"
     assert truecolor.true_g == "2"
     assert truecolor.true_b == "3"

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 import io
+import inspect
 
 from . import palette, palette_ui
 
@@ -96,6 +97,7 @@ class ManualPaletteEditorRuntime:
     render_preview: Callable
     create_window: Callable = palette_ui.create_palette_editor_window
     build_layout: Callable = palette_ui.build_editor_layout
+    center_window: Callable = palette_ui.center_palette_editor_window
     create_frames: Callable = palette_ui.create_palette_editor_frames
     create_buttons: Callable = palette_ui.create_palette_action_buttons
     build_action_specs: Callable | None = None
@@ -190,6 +192,11 @@ def encode_manual_palette_chunk_name(
     *,
     debug: bool,
 ) -> object:
+    if isinstance(chunk_name, bytes):
+        return chunk_name
+    if isinstance(chunk_name, bytearray):
+        return bytes(chunk_name)
+
     try:
         return chunk_name.encode(errors="ignore")
     except Exception as exc:
@@ -244,11 +251,12 @@ def create_manual_palette_setup(
         for line in manual_palette_debug_lines(context, chunk_name, session):
             runtime.emit(line)
 
-    image_array = runtime.cv2.imdecode(
-        runtime.numpy.frombuffer(session.wanabyte, runtime.numpy.uint8),
-        -1,
+    image_array, pil_image = palette_ui.decode_preview_image(
+        session.wanabyte,
+        cv2_module=runtime.cv2,
+        numpy_module=runtime.numpy,
+        image_module=runtime.image,
     )
-    pil_image = runtime.image.fromarray(image_array)
     return ManualPaletteSetup(
         chunk_name=chunk_name,
         session=session,
@@ -298,9 +306,12 @@ def render_palette_preview_from_namespace(
     wanabyte: bytes,
     width: int,
     height: int,
+    frame_img: object | None = None,
     *,
     renderer: Callable = palette_ui.render_preview_label,
 ) -> None:
+    if frame_img is not None:
+        namespace["frame_img"] = frame_img
     im, pil_image, tk_image = renderer(
         wanabyte,
         namespace["frame_img"],
@@ -315,6 +326,65 @@ def render_palette_preview_from_namespace(
     namespace["im"] = im
     namespace["pil_image"] = pil_image
     namespace["tk_image"] = tk_image
+
+
+def render_preview_accepts_frame(render_preview: Callable) -> bool:
+    try:
+        signature = inspect.signature(render_preview)
+    except (TypeError, ValueError):
+        return True
+    positional_count = 0
+    for parameter in signature.parameters.values():
+        if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
+            return True
+        if parameter.kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        ):
+            positional_count += 1
+    return positional_count >= 4
+
+
+def build_layout_accepts_screen_height(build_layout: Callable) -> bool:
+    try:
+        signature = inspect.signature(build_layout)
+    except (TypeError, ValueError):
+        return True
+    positional_count = 0
+    for parameter in signature.parameters.values():
+        if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
+            return True
+        if parameter.kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        ):
+            positional_count += 1
+    return positional_count >= 3
+
+
+def build_manual_palette_layout(
+    build_layout: Callable,
+    window: object,
+    image_size: tuple[int, int],
+) -> palette_ui.PaletteEditorLayout:
+    screen_width = window.winfo_screenwidth()
+    screen_height = window.winfo_screenheight() if hasattr(window, "winfo_screenheight") else None
+    if screen_height is not None and build_layout_accepts_screen_height(build_layout):
+        return build_layout(screen_width, image_size, screen_height)
+    return build_layout(screen_width, image_size)
+
+
+def render_manual_palette_preview(
+    render_preview: Callable,
+    wanabyte: bytes,
+    width: int,
+    height: int,
+    frame_img: object,
+) -> None:
+    if render_preview_accepts_frame(render_preview):
+        render_preview(wanabyte, width, height, frame_img)
+    else:
+        render_preview(wanabyte, width, height)
 
 
 def update_palette_value_from_namespace(
@@ -542,14 +612,20 @@ def create_manual_palette_editor(
         tkinter_module=runtime.tkinter_module,
         title=context.title,
     )
-    layout = runtime.build_layout(window.winfo_screenwidth(), context.pil_image.size)
+    layout = build_manual_palette_layout(runtime.build_layout, window, context.pil_image.size)
     frames = runtime.create_frames(
         tkinter_module=runtime.tkinter_module,
         window=window,
         layout=layout,
     )
 
-    runtime.render_preview(context.session.wanabyte, layout.basewidth, layout.hsize)
+    render_manual_palette_preview(
+        runtime.render_preview,
+        context.session.wanabyte,
+        layout.basewidth,
+        layout.hsize,
+        frames.img,
+    )
     build_action_specs = runtime.build_action_specs or build_manual_palette_action_specs
 
     action_buttons = runtime.create_buttons(
@@ -592,6 +668,7 @@ def create_manual_palette_editor(
     )
     runtime.set_state_sliders(context.session.state, sliders)
     slider_canvas.canvas.bind("<Configure>", context.update_scrollregion)
+    runtime.center_window(window, layout)
 
     return ManualPaletteEditor(
         window=window,
@@ -706,6 +783,14 @@ def guess_palette_count(
     before: bytes,
     after: bytes,
 ) -> int:
+    if (
+        runtime.cv2 is None
+        or runtime.numpy is None
+        or runtime.image is None
+        or runtime.imagehash is None
+    ):
+        return fallback_palette_count(runtime, context)
+
     hashes = []
     palette_guess_count = None
     palette_values = []
@@ -714,6 +799,7 @@ def guess_palette_count(
         palette_values.append(int(color, 16))
         wanabyte = runtime.build_palette_png(before, palette_values, after)
         stderr = io.BytesIO()
+        image_array = None
 
         with runtime.stderr_redirector(stderr):
             try:
@@ -721,13 +807,21 @@ def guess_palette_count(
                     runtime.numpy.frombuffer(wanabyte, runtime.numpy.uint8),
                     -1,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                runtime.betterror(exc, "Guess_Palettes_Nbr")
+                runtime.raw_print("-Error Guess_Palettes_Nbr():", exc)
 
         result = "{0}".format(stderr.getvalue().decode("utf-8"))
         if any(error in result for error in context.libpng_errors):
             runtime.raw_print("-Error Guess_Palettes_Nbr():", result)
             runtime.end()
+            continue
+
+        if image_array is None:
+            runtime.betterror(ValueError("Could not decode PLTE candidate"), "Guess_Palettes_Nbr")
+            runtime.raw_print("-Error Guess_Palettes_Nbr():", "Could not decode PLTE candidate")
+            runtime.end()
+            continue
 
         try:
             pil_image = runtime.image.fromarray(image_array)
@@ -735,6 +829,7 @@ def guess_palette_count(
             runtime.betterror(exc, "Guess_Palettes_Nbr")
             runtime.raw_print("-Error Guess_Palettes_Nbr():", exc)
             runtime.end()
+            continue
 
         current_hash = runtime.imagehash.phash(pil_image)
         hashes.append(current_hash)
@@ -755,7 +850,29 @@ def guess_palette_count(
     runtime.side_notes.append(
         "Warning:Could not estimate palette number.Returning Max Palettes number according to IHDR Depht"
     )
-    return 2 ** int(context.ihdr_depth) - 1
+    return max_palette_count(context)
+
+
+def max_palette_count(context: PaletteCountGuessContext) -> int:
+    try:
+        bit_depth = int(context.ihdr_depth)
+    except (TypeError, ValueError):
+        bit_depth = 8
+    return 2 ** bit_depth - 1
+
+
+def fallback_palette_count(
+    runtime: PaletteCountGuessRuntime,
+    context: PaletteCountGuessContext,
+) -> int:
+    runtime.emit(
+        runtime.candy("Color", "yellow", "Warning:%s")
+        % "Could not estimate palette number; using max palettes from IHDR depth."
+    )
+    runtime.side_notes.append(
+        "Warning:Could not estimate palette number.Returning Max Palettes number according to IHDR Depht"
+    )
+    return max_palette_count(context)
 
 
 def build_palette_count_guess_runtime_from_namespace(namespace: dict) -> PaletteCountGuessRuntime:

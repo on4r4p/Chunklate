@@ -300,6 +300,22 @@ class ChunkRemovalRepair:
     removed_chunks: tuple[str, ...]
 
 
+SINGLETON_ANCILLARY_CHUNKS = (
+    b"gAMA",
+    b"sRGB",
+    b"sBIT",
+    b"pHYs",
+    b"oFFs",
+    b"tIME",
+    b"sTER",
+    b"gIFg",
+    b"hIST",
+    b"tRNS",
+    b"bKGD",
+    b"cHRM",
+)
+
+
 def find_signature_offset(data: bytes) -> int:
     return data.find(PNG_SIGNATURE)
 
@@ -918,6 +934,18 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
     if len(plte_indices) > 1:
         errors.append("PNG must not contain multiple PLTE chunks")
     if plte_indices:
+        if color_type == 3:
+            first_plte = plte_indices[0]
+            for dependent_type in (b"tRNS", b"hIST", b"bKGD"):
+                if any(
+                    index < first_plte
+                    for index, chunk_type in enumerate(chunk_types)
+                    if chunk_type == dependent_type
+                ):
+                    errors.append(
+                        "%s chunk must appear after PLTE chunk for indexed color"
+                        % dependent_type.decode()
+                    )
         plte = chunks[plte_indices[0]]
         if not png_chunk_data_is_coherent(b"PLTE", plte.data):
             errors.append("PLTE chunk is malformed")
@@ -1716,6 +1744,37 @@ def repair_unknown_private_critical_chunks(
     )
 
 
+def repair_duplicate_singleton_chunks(
+    data: bytes,
+    chunk_types: Iterable[bytes] = SINGLETON_ANCILLARY_CHUNKS,
+) -> ChunkRemovalRepair | None:
+    singleton_chunk_types = tuple(chunk_types)
+    seen: set[bytes] = set()
+
+    def should_remove(chunk: PngChunk) -> bool:
+        if chunk.chunk_type not in singleton_chunk_types:
+            return False
+        if chunk.chunk_type in seen:
+            return True
+        seen.add(chunk.chunk_type)
+        return False
+
+    result = remove_png_chunks(data, should_remove)
+    if result is None:
+        return None
+
+    repaired, removed = result
+    if not is_complete_png_with_valid_crc(repaired):
+        return None
+
+    removed_names = tuple(chunk.name for chunk in removed)
+    return ChunkRemovalRepair(
+        data=repaired,
+        strategy="removed duplicate singleton chunk(s): %s" % ", ".join(removed_names),
+        removed_chunks=removed_names,
+    )
+
+
 def iccp_profile_name(chunk: PngChunk) -> bytes | None:
     if chunk.chunk_type != b"iCCP":
         return None
@@ -2123,6 +2182,112 @@ def repair_time_length(data: bytes) -> ChunkDataLengthRepair | None:
     )
 
 
+def repair_trns_length(data: bytes) -> ChunkDataLengthRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    trns = next((chunk for chunk in chunks if chunk.chunk_type == b"tRNS"), None)
+    ihdr_values = _parse_ihdr_data(ihdr) if ihdr is not None else None
+    if trns is None or ihdr_values is None:
+        return None
+
+    color_type = ihdr_values[3]
+    if color_type in (0, 2):
+        expected_length = 2 if color_type == 0 else 6
+        if trns.length == expected_length:
+            return None
+        if trns.length > expected_length:
+            payload = trns.data[:expected_length]
+            strategy = "trimmed tRNS length from %s to %s and rebuilt CRC" % (
+                trns.length,
+                expected_length,
+            )
+        else:
+            payload = trns.data.ljust(expected_length, b"\x00")
+            strategy = "padded tRNS length from %s to %s with zero bytes and rebuilt CRC" % (
+                trns.length,
+                expected_length,
+            )
+        repaired = replace_png_chunk(data, trns, build_png_chunk(b"tRNS", payload))
+        if not validate_png_structure(repaired).ok:
+            return None
+        return ChunkDataLengthRepair(
+            data=repaired,
+            strategy=strategy,
+            chunk_name="tRNS",
+            chunk_offset=trns.offset,
+            old_length=trns.length,
+            new_length=expected_length,
+        )
+
+    if color_type == 3:
+        plte = next((chunk for chunk in chunks if chunk.chunk_type == b"PLTE"), None)
+        if plte is None:
+            return None
+        max_length = plte.length // 3
+        if trns.length == 0:
+            repaired = replace_png_chunk(data, trns, b"")
+            if not validate_png_structure(repaired).ok:
+                return None
+            return ChunkDataLengthRepair(
+                data=repaired,
+                strategy="removed empty indexed tRNS chunk",
+                chunk_name="tRNS",
+                chunk_offset=trns.offset,
+                old_length=trns.length,
+                new_length=0,
+                removed=True,
+            )
+        if trns.length <= max_length:
+            return None
+        payload = trns.data[:max_length]
+        if payload and all(alpha == 0 for alpha in payload):
+            repaired = replace_png_chunk(data, trns, b"")
+            if not validate_png_structure(repaired).ok:
+                return None
+            return ChunkDataLengthRepair(
+                data=repaired,
+                strategy="removed indexed tRNS because repaired alpha table would be fully transparent",
+                chunk_name="tRNS",
+                chunk_offset=trns.offset,
+                old_length=trns.length,
+                new_length=0,
+                removed=True,
+            )
+
+        repaired = replace_png_chunk(data, trns, build_png_chunk(b"tRNS", payload))
+        if not validate_png_structure(repaired).ok:
+            return None
+        return ChunkDataLengthRepair(
+            data=repaired,
+            strategy="trimmed indexed tRNS length from %s to PLTE entry count %s and rebuilt CRC"
+            % (trns.length, max_length),
+            chunk_name="tRNS",
+            chunk_offset=trns.offset,
+            old_length=trns.length,
+            new_length=max_length,
+        )
+
+    if color_type in (4, 6):
+        repaired = replace_png_chunk(data, trns, b"")
+        if not validate_png_structure(repaired).ok:
+            return None
+        return ChunkDataLengthRepair(
+            data=repaired,
+            strategy="removed tRNS chunk not allowed for IHDR color type %s" % color_type,
+            chunk_name="tRNS",
+            chunk_offset=trns.offset,
+            old_length=trns.length,
+            new_length=0,
+            removed=True,
+        )
+
+    return None
+
+
 def repair_sbit_length(data: bytes) -> ChunkDataLengthRepair | None:
     try:
         chunks = list(iter_chunks(data))
@@ -2509,12 +2674,19 @@ def repair_indexed_plte(data: bytes) -> PlteRepair | None:
 
     plte = next((chunk for chunk in chunks if chunk.chunk_type == b"PLTE"), None)
     if plte is None:
-        first_idat = next((chunk for chunk in chunks if chunk.chunk_type == b"IDAT"), None)
+        insert_before = next(
+            (
+                chunk
+                for chunk in chunks
+                if chunk.chunk_type in (b"tRNS", b"hIST", b"bKGD", b"IDAT")
+            ),
+            None,
+        )
         palette = grayscale_palette(max_entries)
-        if first_idat is None or palette is None:
+        if insert_before is None or palette is None:
             return None
         return PlteRepair(
-            data=data[: first_idat.offset] + build_png_chunk(b"PLTE", palette) + data[first_idat.offset :],
+            data=data[: insert_before.offset] + build_png_chunk(b"PLTE", palette) + data[insert_before.offset :],
             strategy="inserted missing indexed PLTE as grayscale palette",
         )
 

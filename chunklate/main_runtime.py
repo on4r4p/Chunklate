@@ -444,6 +444,7 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "PAUSEDIALOGUE": flags.pause_dialogue,
         "NODIALOGUE": flags.nodialogue,
         "DEBUG": flags.debug,
+        "DEBUGFILE": flags.debug_file,
         "AUTO": flags.auto,
         "MAX_SAVES": options.max_saves,
         "SAVE_COUNT": options.save_count,
@@ -664,6 +665,7 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
     namespace["CLEAR_SCREEN_ACTIVE_THIS_PASS"] = clear_screen_state.cleared
 
     reset_main_loop_state(build_loop_reset_runtime_from_namespace(namespace))
+    namespace.get("Prepare_Immediate_Summary", lambda: None)()
     run_pending_output_folder_cleanup_from_namespace(namespace)
 
     loaded_sample = load_main_sample(

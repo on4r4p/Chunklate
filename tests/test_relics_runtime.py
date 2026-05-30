@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import builtins
 import sys
+import zlib
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,6 +26,16 @@ def patched_attrs(module, **attrs):
     finally:
         for name, value in old_values.items():
             setattr(module, name, value)
+
+
+def build_indexed_png_without_plte():
+    ihdr = b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x03\x00\x00\x00"
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
 
 
 def test_relics_runtime_keeps_legacy_callbacks():
@@ -190,6 +201,7 @@ def test_chunklate_relics_context_captures_current_legacy_globals():
         file_origin="origin.png",
         sample="sample.png",
         sample_name="sample.png",
+        data_hex="00112233445566778899",
         bad_crc=True,
         old_crc="22334455",
         skip_bad_current_name=False,
@@ -289,6 +301,7 @@ def test_relics_namespace_bridge_builds_runtime_context_and_flow():
             file_origin="origin.png",
             sample="sample.png",
             sample_name="sample.png",
+            data_hex="00112233445566778899",
             bad_crc=True,
             old_crc="22334455",
             skip_bad_current_name=False,
@@ -736,6 +749,54 @@ def test_relics_runtime_handles_plte_repair_flow_with_valid_crc():
     assert calls[1] == ("ui", "valid-crc")
     assert calls[3] == ("manual", ("sample.png", b"PLTE", 801, 33, "-PLTE Wrong Data"), {})
     assert side_notes == []
+
+
+def test_relics_runtime_handles_missing_plte_with_manual_insert_window():
+    calls = []
+
+    class FakeUi:
+        @staticmethod
+        def say_plte_intro(*, candy):
+            calls.append(("ui", "intro"))
+
+        @staticmethod
+        def say_plte_valid_crc(*, candy):
+            calls.append(("ui", "valid-crc"))
+
+        @staticmethod
+        def say_plte_bad_crc(*, candy):
+            calls.append(("ui", "bad-crc"))
+
+        @staticmethod
+        def say_plte_fallback(*, candy):
+            calls.append(("ui", "fallback"))
+
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: None,
+        smash_brute_brawl=lambda *args, **kwargs: None,
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: calls.append(("manual", args, kwargs)) or "manual",
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: calls.append(("ask", args, kwargs)) or "manually",
+    )
+
+    assert relics_runtime.handle_plte_repair_flow(
+        runtime,
+        relics,
+        FakeUi,
+        has_bad_crc=False,
+        chunks_history=[b"IHDR", b"gAMA", b"IDAT", b"IEND"],
+        chunks_history_index=["0:16:58:13", "1:66:90:4", "2:98:980:433", "3:988:1012:0"],
+        target_file="sample.png",
+        finding="LibpngCheck_Error_0:-libpng error: Indexed-color PNG requires a PLTE chunk",
+        ask_fallback=lambda: False,
+        add_side_note=lambda note: calls.append(("note", (note,), {})),
+        the_end=lambda: calls.append(("end", (), {})),
+        candy=lambda *args: None,
+    ) == (True, "manual")
+
+    assert [call[0] for call in calls] == ["ui", "ui", "ask", "manual"]
+    assert calls[3] == ("manual", ("sample.png", b"PLTE", 98, 98, "-PLTE Wrong Data"), {})
 
 
 def test_relics_runtime_handles_plte_repair_flow_with_bad_crc():
@@ -1208,14 +1269,32 @@ def test_relics_runtime_defers_current_idat_crc_when_stream_stays_invalid():
 def test_relics_runtime_applies_no_pandemonium_repair_decisions():
     calls = []
     runtime = relics_runtime.RelicsRuntime(
-        save_clone=lambda *args, **kwargs: None,
+        save_clone=lambda *args, **kwargs: calls.append(("save", args, kwargs)) or "saved",
         smash_brute_brawl=lambda *args, **kwargs: calls.append(("brawl", args, kwargs)) or "brawl",
         full_chunk_forcer_no_crc=lambda *args, **kwargs: calls.append(("forcer", args, kwargs)) or "forcer",
-        tk_manual_plte=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: calls.append(("manual", args, kwargs)) or "manual",
         remove_chunk=lambda *args, **kwargs: None,
         ask_choice=lambda *args, **kwargs: None,
     )
 
+    assert relics_runtime.apply_no_pandemonium_repair_decision(
+        runtime,
+        relics.NoPandemoniumRepairDecision(
+            "save_clone",
+            relics.WrongCrcSaveClonePlan("aabb", 4, 4, "inserted"),
+        ),
+    ) == (True, "saved")
+    assert relics_runtime.apply_no_pandemonium_repair_decision(
+        runtime,
+        relics.NoPandemoniumRepairDecision(
+            "missing_plte_auto",
+            relics.MissingPlteRepairPlan(
+                relics.WrongCrcSaveClonePlan("ccdd", 6, 6, "missing"),
+                relics.PlteManualPlan("sample.png", b"PLTE", 6, 6, "-PLTE Wrong Data"),
+                "preview-data",
+            ),
+        ),
+    ) == (True, "saved")
     assert relics_runtime.apply_no_pandemonium_repair_decision(
         runtime,
         relics.NoPandemoniumRepairDecision(
@@ -1230,6 +1309,13 @@ def test_relics_runtime_applies_no_pandemonium_repair_decisions():
             relics.FullChunkForcerPlan("sample.png", "tEXt", 33, 277, "GetInfo"),
         ),
     ) == (True, "forcer")
+    assert relics_runtime.apply_no_pandemonium_repair_decision(
+        runtime,
+        relics.NoPandemoniumRepairDecision(
+            "plte_manual",
+            relics.PlteManualPlan("sample.png", b"PLTE", 98, 98, "-PLTE Wrong Data"),
+        ),
+    ) == (True, "manual")
     assert relics_runtime.apply_no_pandemonium_repair_decision(
         runtime,
         relics.NoPandemoniumRepairDecision("none"),
@@ -1249,7 +1335,33 @@ def test_relics_runtime_applies_no_pandemonium_repair_decisions():
     else:
         raise AssertionError("unknown no-Pandemonium decisions must fail")
 
-    assert [call[0] for call in calls] == ["brawl", "forcer"]
+    assert [call[0] for call in calls] == ["save", "save", "brawl", "forcer", "manual"]
+
+
+def test_relics_runtime_previews_missing_plte_and_can_open_manual_palette():
+    calls = []
+    plan = relics.MissingPlteRepairPlan(
+        relics.WrongCrcSaveClonePlan("aabb", 4, 4, "save"),
+        relics.PlteManualPlan("sample.png", b"PLTE", 4, 4, "-PLTE Wrong Data"),
+        "preview-data",
+    )
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: calls.append(("save", args, kwargs)) or "saved",
+        smash_brute_brawl=lambda *args, **kwargs: None,
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: calls.append(("manual", args, kwargs)) or "manual",
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+        preview_repair_image=lambda *args, **kwargs: calls.append(("preview", args, kwargs)),
+        ask_manual_palette=lambda question_id: calls.append(("ask_manual", (question_id,), {})) or True,
+    )
+
+    assert relics_runtime.run_missing_plte_repair_plan(runtime, plan) == "manual"
+    assert calls == [
+        ("preview", ("preview-data", "missing_plte_grayscale_plte"), {}),
+        ("ask_manual", ("PLTE Palette Editor:-Open Tkinter to tune the reconstructed PLTE?",), {}),
+        ("manual", ("sample.png", b"PLTE", 4, 4, "-PLTE Wrong Data"), {}),
+    ]
 
 
 def test_relics_runtime_handles_no_pandemonium_getinfo_flow():
@@ -1381,6 +1493,75 @@ def test_relics_runtime_handles_no_pandemonium_forcer_flow():
         ("ui", "hits", ("hit-0",)),
         ("ui", "forcer"),
         ("forcer", ("sample.png", "tEXt", 33, 277, "GetInfo"), {}),
+    ]
+
+
+def test_relics_runtime_handles_no_pandemonium_missing_plte_flow():
+    calls = []
+    finding = "LibpngCheck_Error_0:-libpng error: Indexed-color PNG requires a PLTE chunk"
+    data = build_indexed_png_without_plte()
+    runtime = relics_runtime.RelicsRuntime(
+        save_clone=lambda *args, **kwargs: calls.append(("save", args, kwargs)) or "saved",
+        smash_brute_brawl=lambda *args, **kwargs: None,
+        full_chunk_forcer_no_crc=lambda *args, **kwargs: None,
+        tk_manual_plte=lambda *args, **kwargs: calls.append(("manual", args, kwargs)) or "manual",
+        remove_chunk=lambda *args, **kwargs: None,
+        ask_choice=lambda *args, **kwargs: None,
+    )
+
+    class FakeUi:
+        @staticmethod
+        def say_no_pandemonium_intro(*, emit, candy):
+            calls.append(("ui", "intro"))
+
+        @staticmethod
+        def emit_prompt_context_hits(prompt_context, *, emit):
+            calls.append(("ui", "hits", prompt_context.print_hits))
+
+        @staticmethod
+        def say_no_pandemonium_getinfo(*, skip_bad_crc, candy):
+            calls.append(("ui", "getinfo"))
+
+        @staticmethod
+        def say_no_pandemonium_forcer(*, candy):
+            calls.append(("ui", "forcer"))
+
+        @staticmethod
+        def say_no_pandemonium_failure(*, candy):
+            calls.append(("ui", "failure"))
+
+    result = relics_runtime.handle_no_pandemonium_flow(
+        runtime,
+        relics,
+        FakeUi,
+        policy=relics.NoPandemoniumPolicy(
+            action="missing_plte",
+            missing_plte_finding=finding,
+        ),
+        prompt_context=relics.NoPandemoniumPromptContext("missing_plte", (finding,)),
+        chunks_history=[b"IHDR", b"IDAT", b"IEND"],
+        chunks_history_index=["0:16:66:13", "1:66:100:10", "2:100:124:0"],
+        target_file="sample.png",
+        from_error="LibpngCheck",
+        chunks_len_not_fixed=[],
+        skip_bad_crc=False,
+        data_hex=data.hex(),
+        ask=lambda: True,
+        emit=lambda value: calls.append(("emit", (value,), {})),
+        candy=lambda *args: None,
+        the_end=lambda: calls.append(("end", (), {})),
+    )
+
+    plan = relics.missing_plte_save_clone_plan(
+        data.hex(),
+        [b"IHDR", b"IDAT", b"IEND"],
+        ["0:16:66:13", "1:66:100:10", "2:100:124:0"],
+    )
+    assert result == "saved"
+    assert calls == [
+        ("ui", "intro"),
+        ("ui", "hits", (finding,)),
+        ("save", (plan.fixed_data, plan.start, plan.end, plan.info), {}),
     ]
 
 
@@ -1746,6 +1927,10 @@ def main():
             test_relics_runtime_handles_plte_repair_flow_with_valid_crc,
         ),
         (
+            "RelicsRuntime handles missing PLTE manual insert",
+            test_relics_runtime_handles_missing_plte_with_manual_insert_window,
+        ),
+        (
             "RelicsRuntime handles PLTE repair flow with bad CRC",
             test_relics_runtime_handles_plte_repair_flow_with_bad_crc,
         ),
@@ -1779,12 +1964,20 @@ def main():
             test_relics_runtime_applies_no_pandemonium_repair_decisions,
         ),
         (
+            "RelicsRuntime previews missing PLTE before manual palette",
+            test_relics_runtime_previews_missing_plte_and_can_open_manual_palette,
+        ),
+        (
             "RelicsRuntime handles no-Pandemonium GetInfo flow",
             test_relics_runtime_handles_no_pandemonium_getinfo_flow,
         ),
         (
             "RelicsRuntime handles no-Pandemonium forcer flow",
             test_relics_runtime_handles_no_pandemonium_forcer_flow,
+        ),
+        (
+            "RelicsRuntime handles no-Pandemonium missing PLTE flow",
+            test_relics_runtime_handles_no_pandemonium_missing_plte_flow,
         ),
         (
             "RelicsRuntime handles no-Pandemonium failure flow",

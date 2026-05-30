@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import sys
+import tempfile
+import zlib
 from pathlib import Path
 
 
@@ -8,6 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import libpng_check
+from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk
 
 
 FIXTURE = ROOT / "schaik-javapng-samples" / "basn0g01.png"
@@ -54,12 +57,41 @@ class FakeRedirector:
         return False
 
 
+def indexed_png_without_plte():
+    ihdr = (1).to_bytes(4, "big") + (1).to_bytes(4, "big") + b"\x08\x03\x00\x00\x00"
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+
+def write_temp_png(data):
+    png_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    try:
+        png_file.write(data)
+        return Path(png_file.name)
+    finally:
+        png_file.close()
+
+
 def test_chunk_stream_check_accepts_valid_png_fixture():
     assert libpng_check.chunk_stream_check_result(str(FIXTURE)) == ""
 
 
 def test_chunk_stream_check_reports_invalid_png_stream():
     assert "libpng error:" in libpng_check.chunk_stream_check_result(str(ROOT / "missing.png"))
+
+
+def test_structure_check_reports_missing_indexed_palette():
+    png_file = write_temp_png(indexed_png_without_plte())
+    try:
+        assert libpng_check.structure_check_result(str(png_file)) == (
+            "libpng error: Indexed-color PNG requires a PLTE chunk"
+        )
+    finally:
+        png_file.unlink(missing_ok=True)
 
 
 def test_pillow_check_result_uses_verify_success():
@@ -89,7 +121,7 @@ def test_append_known_bad_srgb_warning_adds_missing_warning_once():
 
 def test_libpng_result_prefers_cv2_then_appends_known_warning():
     result = libpng_check.libpng_result(
-        "sample.png",
+        str(FIXTURE),
         cv2_module=FakeCv2,
         image_module=FakePillowError,
         stderr_redirector=FakeRedirector,
@@ -100,6 +132,18 @@ def test_libpng_result_prefers_cv2_then_appends_known_warning():
         "libpng warning: noisy profile\n"
         "libpng warning: iCCP: known incorrect sRGB profile"
     )
+
+
+def test_libpng_result_appends_structure_errors_after_pillow_success():
+    png_file = write_temp_png(indexed_png_without_plte())
+    try:
+        assert libpng_check.libpng_result(
+            str(png_file),
+            image_module=FakePillowOk,
+            warning_reader=lambda file: "",
+        ) == "libpng error: Indexed-color PNG requires a PLTE chunk"
+    finally:
+        png_file.unlink(missing_ok=True)
 
 
 def test_result_has_error_uses_legacy_error_markers():
@@ -134,11 +178,13 @@ def main():
     checks = [
         ("Chunk stream accepts valid PNG", test_chunk_stream_check_accepts_valid_png_fixture),
         ("Chunk stream reports invalid PNG", test_chunk_stream_check_reports_invalid_png_stream),
+        ("Structure check reports missing PLTE", test_structure_check_reports_missing_indexed_palette),
         ("Pillow verify success", test_pillow_check_result_uses_verify_success),
         ("Pillow verify error", test_pillow_check_result_reports_verify_error),
         ("cv2 stderr capture", test_cv2_check_result_captures_stderr_redirector_output),
         ("Append known sRGB warning", test_append_known_bad_srgb_warning_adds_missing_warning_once),
         ("Libpng result preference order", test_libpng_result_prefers_cv2_then_appends_known_warning),
+        ("Libpng result appends structure errors", test_libpng_result_appends_structure_errors_after_pillow_success),
         ("Libpng result error markers", test_result_has_error_uses_legacy_error_markers),
         ("Libpng checkpoint args", test_checkpoint_args_preserve_success_and_error_call_shapes),
     ]

@@ -69,8 +69,69 @@ def test_summary_path_uses_clone_folder(tmp_path):
 def test_summary_body_preserves_legacy_note_layout():
     assert output.summary_body("fixed", []) == "\nfixed\n"
     assert output.summary_body("fixed", ["note-a", "note-b"]) == "\nnote-a\n\nnote-b\nfixed\n"
+    assert output.summary_body("\033[1;37;49mfixed\033[m", ["\033[1;31;49mnote\033[m"]) == "\nnote\nfixed\n"
     assert output.summary_body(None, ["note-a"]) == "\nnote-a\n"
     assert output.summary_body(None, []) is None
+
+
+def test_immediate_summary_notes_flushes_each_append_and_summarise_does_not_duplicate(tmp_path):
+    namespace = {
+        "Sample_Name": "sample.png",
+        "MAXCHAR": 80,
+        "SideNotes": [],
+        "FILE_Origin": "sample.png",
+        "FILE_DIR": str(tmp_path),
+        "Candy": lambda kind, color, value: "<%s:%s>" % (color, value),
+        "Summary_Header": True,
+    }
+
+    notes = output.ensure_immediate_summary_notes(namespace)
+    notes.append("\033[1;31;49mearly-note\033[m")
+
+    summary = tmp_path / "Folder_sample" / "Summary_Of_sample"
+    text = summary.read_text()
+    assert "C|h|u|n|k|l|a|t|e" in text
+    assert "early-note" in text
+    assert "\033[" not in text
+
+    output.run_summarise_from_namespace(namespace, "final-info", False)
+    text = summary.read_text()
+    assert text.count("early-note") == 1
+    assert "final-info" in text
+    assert namespace["SideNotes"] is notes
+    assert list(notes) == []
+
+
+def test_strip_ansi_removes_terminal_color_artifacts():
+    assert output.strip_ansi("\033[1;37;49mwhite\033[m") == "white"
+
+
+def test_debug_trace_body_keeps_only_relevant_clean_debug_lines():
+    assert output.debug_trace_body([]) is None
+    assert output.debug_trace_body(["first", "second"]) is None
+    trace = output.debug_trace_body(
+        [
+            "\033[1;31;49m-CriticalHit\033[m: boom\n"
+            "╭─━━━━━━━━━━─╮\n"
+            "function:CheckLength\n"
+            "infos:-No NextChunk\n"
+            "chunk:b'IEND'\n"
+            "          /\n"
+            "(ಠ_ಠ)\n"
+            "Arg0:00000000 type:<class 'str'>\n"
+            "Patch bytes ready: b'abc'... (3 bytes total)\n"
+        ]
+    )
+
+    assert trace == (
+        "\n\n『Debug Log: 』\n"
+        "\n-CriticalHit: boom"
+        "\nfunction:CheckLength"
+        "\ninfos:-No NextChunk"
+        "\nchunk:b'IEND'"
+        "\nArg0:00000000 type:<class 'str'>"
+        "\nPatch bytes ready: b'abc'... (3 bytes total)\n"
+    )
 
 
 def test_render_summary_footer_preserves_legacy_sections():
@@ -222,6 +283,46 @@ def test_run_summarise_from_namespace_writes_summary_and_resets_notes(tmp_path):
     assert namespace["SideNotes"] == []
 
 
+def test_run_summarise_from_namespace_appends_debug_trace_to_normal_summary(tmp_path):
+    namespace = {
+        "Sample_Name": "sample.png",
+        "MAXCHAR": 80,
+        "SideNotes": ["\033[1;31;49mnote\033[m"],
+        "DebugNotes": [
+            "\033[1;31;49m-CriticalHit\033[m: broken",
+            "╭─━━━━━━━━━━─╮",
+            "function:LibpngCheck",
+            "this terminal narration should stay out",
+            "Arg0:payload",
+        ],
+        "FILE_Origin": "sample.png",
+        "FILE_DIR": str(tmp_path),
+        "Candy": lambda kind, color, value: "<%s:%s>" % (color, value),
+        "Summary_Header": True,
+        "DEBUGFILE": True,
+    }
+
+    output.run_summarise_from_namespace(namespace, "fixed", False)
+
+    summary = tmp_path / "Folder_sample" / "Summary_Of_sample"
+    debug_summary = tmp_path / "Folder_sample" / "Summary_Of_sample.Debug"
+    text = summary.read_text()
+    assert summary.exists()
+    assert not debug_summary.exists()
+    assert "C|h|u|n|k|l|a|t|e" in text
+    assert "『sample.png :』" in text
+    assert "\nnote\nfixed\n" in text
+    assert "『Debug Log: 』" in text
+    assert "\033[" not in text
+    assert "-CriticalHit: broken" in text
+    assert "function:LibpngCheck" in text
+    assert "Arg0:payload" in text
+    assert "terminal narration" not in text
+    assert "╭─" not in text
+    assert namespace["DebugNotes"] == []
+    assert namespace["SideNotes"] == []
+
+
 def main():
     tmpdir = tempfile.TemporaryDirectory()
     tmp_path = Path(tmpdir.name)
@@ -234,10 +335,20 @@ def main():
         ("Write clone writes PNG bytes", lambda: test_write_clone_writes_png_bytes(tmp_path)),
         ("Summary path uses clone folder", lambda: test_summary_path_uses_clone_folder(tmp_path)),
         ("Summary body preserves notes", test_summary_body_preserves_legacy_note_layout),
+        (
+            "Immediate summary notes",
+            lambda: test_immediate_summary_notes_flushes_each_append_and_summarise_does_not_duplicate(tmp_path),
+        ),
+        ("Strip ANSI", test_strip_ansi_removes_terminal_color_artifacts),
+        ("Debug trace body keeps relevant lines", test_debug_trace_body_keeps_only_relevant_clean_debug_lines),
         ("Summary footer preserves sections", test_render_summary_footer_preserves_legacy_sections),
         ("Summary separator preserves spacing", test_summary_separator_preserves_legacy_spacing),
         ("TheEnd debug lines", test_the_end_debug_lines_preserve_legacy_values),
         ("Summarise namespace bridge", lambda: test_run_summarise_from_namespace_writes_summary_and_resets_notes(tmp_path)),
+        (
+            "Summarise debug namespace bridge",
+            lambda: test_run_summarise_from_namespace_appends_debug_trace_to_normal_summary(tmp_path),
+        ),
     ]
 
     try:

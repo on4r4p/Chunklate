@@ -11,6 +11,7 @@ from .png import (
     repair_bkgd_length,
     repair_chrm_length,
     repair_color_profile_chunks,
+    repair_duplicate_singleton_chunks,
     repair_empty_plte,
     repair_gama_length,
     repair_gifg_length,
@@ -28,6 +29,7 @@ from .png import (
     repair_srgb_length,
     repair_ster_length,
     repair_time_length,
+    repair_trns_length,
     repair_unknown_private_critical_chunks,
 )
 from .idat import rebuild_partial_idat_blackfill
@@ -66,6 +68,7 @@ NoNextAppendIendAction = Literal[
 ]
 AutomaticRepairHandler = Literal[
     "color_profile_cleanup",
+    "duplicate_singleton_cleanup",
     "plte_cleanup",
     "gama_length",
     "gifg_length",
@@ -78,6 +81,7 @@ AutomaticRepairHandler = Literal[
     "offs_length",
     "phys_length",
     "time_length",
+    "trns_length",
     "sbit_length",
     "srgb_length",
     "ster_length",
@@ -92,6 +96,7 @@ FixItFelixWorkKind = Literal["automatic_repair", "finding"]
 
 AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "color_profile_cleanup",
+    "duplicate_singleton_cleanup",
     "plte_cleanup",
     "gama_length",
     "gifg_length",
@@ -104,6 +109,7 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "offs_length",
     "phys_length",
     "time_length",
+    "trns_length",
     "sbit_length",
     "srgb_length",
     "ster_length",
@@ -596,6 +602,16 @@ def color_profile_cleanup(data: bytes, findings: Iterable[object]) -> Any | None
     )
 
 
+def duplicate_singleton_cleanup(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "Multiple")
+        or has_finding(findings, "multiple", "chunks")
+    ):
+        return None
+
+    return repair_duplicate_singleton_chunks(data)
+
+
 def plte_cleanup(
     data: bytes,
     findings: Iterable[object],
@@ -704,6 +720,20 @@ def time_length(data: bytes, findings: Iterable[object]) -> Any | None:
     return repair_time_length(data)
 
 
+def trns_length(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "tRNS length is not Valid")
+        or has_finding(findings, "tRNS Chunk Must not be empty")
+        or has_finding(findings, "Error tRNS_")
+        or has_finding(findings, "tRNS Alpha indexes palettes entries must not be superior")
+        or has_finding(findings, "tRNS chunk length must")
+        or has_finding(findings, "tRNS chunk is not allowed")
+    ):
+        return None
+
+    return repair_trns_length(data)
+
+
 def sbit_length(data: bytes, findings: Iterable[object]) -> Any | None:
     if not (
         has_finding(findings, "sBIT length is not Valid")
@@ -786,6 +816,8 @@ def automatic_repair(
 ) -> Any | None:
     if name == "color_profile_cleanup":
         return color_profile_cleanup(data, findings)
+    if name == "duplicate_singleton_cleanup":
+        return duplicate_singleton_cleanup(data, findings)
     if name == "plte_cleanup":
         return plte_cleanup(
             data,
@@ -816,6 +848,8 @@ def automatic_repair(
         return phys_length(data, findings)
     if name == "time_length":
         return time_length(data, findings)
+    if name == "trns_length":
+        return trns_length(data, findings)
     if name == "sbit_length":
         return sbit_length(data, findings)
     if name == "srgb_length":

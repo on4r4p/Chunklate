@@ -21,6 +21,7 @@ def args(**overrides):
         "PAUSEDIALOGUE": False,
         "NODIALOGUE": False,
         "DEBUG": False,
+        "DEBUGFILE": False,
         "AUTO": False,
     }
     values.update(overrides)
@@ -42,6 +43,7 @@ def test_configure_parser_preserves_legacy_options():
     assert "--clear" in help_text
     assert "--pause" in help_text
     assert "--debug" in help_text
+    assert "--debug-file" in help_text
     assert "--pause-debug" in help_text
     assert "--pause-error" in help_text
     assert "--pause-dialogue" in help_text
@@ -63,6 +65,7 @@ def test_configure_parser_parses_runtime_arguments():
             "--clear",
             "-p",
             "-d",
+            "-df",
             "-dp",
             "-ep",
             "-sp",
@@ -82,6 +85,7 @@ def test_configure_parser_parses_runtime_arguments():
     assert parsed.CLEAR is True
     assert parsed.PAUSE is True
     assert parsed.DEBUG is True
+    assert parsed.DEBUGFILE is True
     assert parsed.PAUSEDEBUG is True
     assert parsed.PAUSEERROR is True
     assert parsed.PAUSEDIALOGUE is True
@@ -154,8 +158,28 @@ def test_runtime_flags_pause_debug_enables_debug():
     flags = cli.runtime_flags_from_args(args(PAUSEDEBUG=True))
 
     assert flags.debug is True
+    assert flags.debug_file is False
     assert flags.pause_debug is True
     assert flags.auto is False
+
+
+def test_runtime_flags_debug_file_does_not_enable_terminal_debug_without_debug_arg():
+    flags = cli.runtime_flags_from_args(args(DEBUGFILE=True))
+
+    assert flags.debug is False
+    assert flags.debug_file is True
+    assert flags.pause_debug is False
+    assert flags.auto is False
+
+
+def test_runtime_flags_stfu_keeps_debug_file_without_terminal_debug():
+    flags = cli.runtime_flags_from_args(args(NODIALOGUE=True, DEBUGFILE=True))
+
+    assert flags.debug is False
+    assert flags.debug_file is True
+    assert flags.nodialogue is True
+    assert flags.pause_debug is False
+    assert flags.auto is True
 
 
 def test_runtime_flags_nodialogue_preserves_stfu_side_effects():
@@ -180,6 +204,7 @@ def test_runtime_flags_nodialogue_preserves_stfu_side_effects():
         pause_dialogue=False,
         nodialogue=True,
         debug=False,
+        debug_file=False,
         auto=True,
     )
 
@@ -196,6 +221,8 @@ def main():
         ("max-saves validation", test_max_saves_error_preserves_legacy_validation),
         ("output dir prefix", test_output_file_dir_preserves_empty_default_and_trailing_separator),
         ("pause-debug flags", test_runtime_flags_pause_debug_enables_debug),
+        ("debug-file flags", test_runtime_flags_debug_file_does_not_enable_terminal_debug_without_debug_arg),
+        ("stfu debug-file flags", test_runtime_flags_stfu_keeps_debug_file_without_terminal_debug),
         ("stfu flags", test_runtime_flags_nodialogue_preserves_stfu_side_effects),
     ]
 

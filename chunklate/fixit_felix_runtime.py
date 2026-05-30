@@ -162,6 +162,7 @@ class NoNextChunkRuntime:
     chunk_story: Callable[..., Any]
     check_chunk_order: Callable[..., Any]
     libpng_check: Callable[[Any], Any]
+    run_relics: Callable[[str], Any]
     the_good_place: Callable[[Any, Any, Any], Any]
     write_clone: Callable[[Any, str], Any]
     the_end: Callable[[], Any]
@@ -294,11 +295,12 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         chunk_story=namespace["ChunkStory"],
         check_chunk_order=namespace["CheckChunkOrder"],
         libpng_check=namespace["LibpngCheck"],
+        run_relics=namespace["Relics"],
         the_good_place=namespace["TheGoodPlace"],
         write_clone=namespace["WriteClone"],
         the_end=namespace["TheEnd"],
         pause=namespace["Pause"],
-        debug_print=print,
+        debug_print=namespace.get("DebugPrint", print),
         dummy_chunk=namespace["DummyChunk"],
         nearby_chunk=namespace["NearbyChunk"],
         nearby_found_later_iend=lambda: namespace.get("NEARBY_FOUND_LATER_IEND"),
@@ -1923,6 +1925,18 @@ def stop_before_libpng_for_unresolved_findings(
         "-Stopped before libpng: unresolved findings remain: %s."
         % ", ".join(str(finding) for finding in findings)
     )
+    missing_plte_finding = next(
+        (finding for finding in findings if relics.is_missing_plte_finding(finding)),
+        None,
+    )
+    if missing_plte_finding is not None:
+        runtime.candy(
+            "Cowsay",
+            "I found a missing PLTE repair path, so I am opening the Ark before calling this unsupported.",
+            "com",
+        )
+        return True, runtime.run_relics(str(missing_plte_finding))
+
     if any(_is_chunk_order_finding(finding) for finding in findings):
         rustine = no_next_missplaced_tools(runtime)
         if rustine is not None and len(rustine) >= 3:

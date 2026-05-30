@@ -13,6 +13,7 @@ class RuntimeFlags:
     pause_dialogue: bool
     nodialogue: bool
     debug: bool
+    debug_file: bool
     auto: bool
 
 
@@ -58,6 +59,13 @@ def configure_parser(parser: Any) -> Any:
     )
     parser.add_argument(
         "-d", "--debug", dest="DEBUG", help="Debug stuffs.", action="store_true"
+    )
+    parser.add_argument(
+        "-df",
+        "--debug-file",
+        dest="DEBUGFILE",
+        help="Append debug output to the normal summary file.",
+        action="store_true",
     )
     parser.add_argument(
         "-dp",
@@ -172,6 +180,7 @@ def runtime_flags_from_args(args: Any) -> RuntimeFlags:
     pause_error = args.PAUSEERROR
     pause_dialogue = args.PAUSEDIALOGUE
     nodialogue = args.NODIALOGUE
+    debug_file = bool(getattr(args, "DEBUGFILE", False))
     debug = args.DEBUG
     auto = args.AUTO
 
@@ -195,5 +204,6 @@ def runtime_flags_from_args(args: Any) -> RuntimeFlags:
         pause_dialogue=pause_dialogue,
         nodialogue=nodialogue,
         debug=debug,
+        debug_file=debug_file,
         auto=auto,
     )

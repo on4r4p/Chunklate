@@ -4,10 +4,11 @@ from typing import Any, Callable
 import io
 
 from . import stdio
-from .png import PngFormatError, iter_chunks, known_bad_srgb_profile_warning
+from .png import PngFormatError, iter_chunks, known_bad_srgb_profile_warning, validate_png_structure
 
 
 WarningReader = Callable[[str], str]
+StructureChecker = Callable[[str], str]
 
 
 def cv2_check_result(file: str, cv2_module: Any, stderr_redirector=stdio.stderr_redirector) -> str:
@@ -37,6 +38,18 @@ def chunk_stream_check_result(file: str) -> str:
         return "libpng error: %s" % e
 
 
+def structure_check_result(file: str) -> str:
+    try:
+        with open(file, "rb") as png_file:
+            validation = validate_png_structure(png_file.read())
+    except OSError as e:
+        return "libpng error: %s" % e
+
+    if validation.errors:
+        return "libpng error: %s" % "; ".join(validation.errors)
+    return ""
+
+
 def known_bad_srgb_profile_warning_for_file(file: str) -> str:
     try:
         with open(file, "rb") as png_file:
@@ -48,6 +61,12 @@ def known_bad_srgb_profile_warning_for_file(file: str) -> str:
 def append_known_bad_srgb_warning(result: str, warning: str) -> str:
     if warning and "known incorrect sRGB profile" not in result:
         return (result + "\n" if result else "") + warning
+    return result
+
+
+def append_structure_check_result(result: str, structural_result: str) -> str:
+    if structural_result and structural_result not in result:
+        return (result + "\n" if result else "") + structural_result
     return result
 
 
@@ -78,6 +97,7 @@ def libpng_result(
     image_module: Any = None,
     stderr_redirector=stdio.stderr_redirector,
     warning_reader: WarningReader = known_bad_srgb_profile_warning_for_file,
+    structure_checker: StructureChecker = structure_check_result,
 ) -> str:
     if cv2_module is not None:
         result = cv2_check_result(file, cv2_module, stderr_redirector)
@@ -86,4 +106,5 @@ def libpng_result(
     else:
         result = chunk_stream_check_result(file)
 
+    result = append_structure_check_result(result, structure_checker(file))
     return append_known_bad_srgb_warning(result, warning_reader(file))

@@ -391,6 +391,46 @@ def test_checkpoint_namespace_entry_bridge_builds_runtime_and_context():
     assert result == "checkpoint"
 
 
+def test_chunklate_checkpoint_records_structured_debug_file_lines_without_terminal_debug():
+    calls = []
+
+    def fake_run_checkpoint_from_namespace(namespace, **kwargs):
+        calls.append(kwargs)
+        return "checkpoint"
+
+    with patched_attrs(checkpoint_runtime, run_checkpoint_from_namespace=fake_run_checkpoint_from_namespace):
+        with patched_attrs(
+            Chunklate,
+            DEBUGFILE=True,
+            DebugNotes=[],
+            PandoraBox={"Checksum_Error_0:-Wrong Crc": {}},
+        ):
+            assert (
+                Chunklate.CheckPoint(
+                    True,
+                    False,
+                    "Checksum",
+                    b"IDAT",
+                    ("-Wrong Crc",),
+                    "crc",
+                )
+                == "checkpoint"
+            )
+            assert Chunklate.DebugNotes == [
+                "error:True",
+                "fixed:False",
+                "function:Checksum",
+                "infos:-Wrong Crc",
+                "chunk:b'IDAT'",
+                "ToolKit:",
+                "Arg0:crc type:<class 'str'>",
+                "Pandora:",
+                "key:Checksum_Error_0:-Wrong Crc",
+            ]
+
+    assert calls[0]["function"] == "Checksum"
+
+
 def test_checkpoint_fog_of_war_counts_current_and_previous_idat_crc_errors():
     context = checkpoint_runtime.CheckPointEntryContext(
         error=True,
@@ -995,6 +1035,10 @@ def main():
         ("CheckPoint entry prints findings", test_checkpoint_entry_runtime_prints_error_finding_before_action),
         ("CheckPoint entry builders", test_checkpoint_entry_builders_preserve_legacy_namespace_mapping),
         ("CheckPoint namespace entry bridge", test_checkpoint_namespace_entry_bridge_builds_runtime_and_context),
+        (
+            "Chunklate CheckPoint records debug-file lines",
+            test_chunklate_checkpoint_records_structured_debug_file_lines_without_terminal_debug,
+        ),
         ("CheckPoint FogOfWar IDAT count", test_checkpoint_fog_of_war_counts_current_and_previous_idat_crc_errors),
         (
             "CheckPoint FogOfWar no duplicate checksum current",

@@ -53,6 +53,7 @@ class RelicsRuntimeContext:
     file_origin: Any
     sample: Any
     sample_name: Any
+    data_hex: str
     bad_crc: bool
     old_crc: Any
     skip_bad_current_name: bool
@@ -114,6 +115,7 @@ def main_loop_history_reset_values() -> dict[str, object]:
         "PandoraBox": {},
         "Cornucopia": {},
         "SideNotes": [],
+        "DebugNotes": [],
         "IDAT_CRC_PATCH_FAILED": False,
         "IDAT_CRC_PATCH_FAILED_FINDING": None,
         "IDAT_CRC_DEFER_EXPLAINED": False,
@@ -242,6 +244,7 @@ def relics_runtime_context(
         file_origin=file_origin,
         sample=sample,
         sample_name=sample_name,
+        data_hex=data_hex,
         bad_crc=bad_crc,
         old_crc=data_hex[crc_offset:crc_offset + 8] if bad_crc else None,
         skip_bad_current_name=skip_bad_current_name,

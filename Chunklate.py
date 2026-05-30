@@ -1,42 +1,86 @@
 #!/usr/bin/env python3
 from argparse import ArgumentParser, SUPPRESS
 from datetime import datetime
+import os
+import sys
+
+
+def Local_Venv_Python(script_path=None):
+    root = os.path.dirname(os.path.abspath(script_path or __file__))
+    if os.name == "nt":
+        candidate = os.path.join(root, ".venv", "Scripts", "python.exe")
+    else:
+        candidate = os.path.join(root, ".venv", "bin", "python")
+    if os.path.exists(candidate):
+        return candidate
+    return None
+
+
+def Should_Reexec_Local_Venv(script_path=None, executable=None, env=None):
+    env = env if env is not None else os.environ
+    if env.get("CHUNKLATE_NO_VENV_REEXEC"):
+        return False
+    venv_python = Local_Venv_Python(script_path)
+    if not venv_python:
+        return False
+    current = executable or sys.executable
+    return os.path.normcase(os.path.abspath(current)) != os.path.normcase(os.path.abspath(venv_python))
+
+
+def Maybe_Reexec_Local_Venv():
+    if __name__ != "__main__" or not Should_Reexec_Local_Venv():
+        return
+    venv_python = Local_Venv_Python()
+    os.execv(venv_python, [venv_python, os.path.abspath(__file__), *sys.argv[1:]])
+
+
+Maybe_Reexec_Local_Venv()
+
+MISSING_IMPORT_ERRORS = {}
+
 try:
     from PIL import Image,ImageShow,ImageTk
-except ModuleNotFoundError:
+except ImportError as exc:
+    MISSING_IMPORT_ERRORS["Pillow"] = exc
     Image = ImageShow = ImageTk = None
 
 try:
     from inputimeout import inputimeout
-except ModuleNotFoundError:
+except ImportError as exc:
+    MISSING_IMPORT_ERRORS["inputimeout"] = exc
     def inputimeout(prompt="", timeout=None):
         return input(prompt)
 
 try:
     import numpy as np
-except ModuleNotFoundError:
+except ImportError as exc:
+    MISSING_IMPORT_ERRORS["numpy"] = exc
     np = None
 
 try:
     import tkinter
-except ModuleNotFoundError:
+except ImportError as exc:
+    MISSING_IMPORT_ERRORS["tkinter"] = exc
     tkinter = None
 
-import sys, os, random, time, zlib, io, inspect, types, collections, itertools, shutil
+import random, time, zlib, io, inspect, types, collections, itertools, shutil, shlex, subprocess
 
 try:
     import cv2
-except ModuleNotFoundError:
+except ImportError as exc:
+    MISSING_IMPORT_ERRORS["opencv-python"] = exc
     cv2 = None
 
 try:
     import psutil
-except ModuleNotFoundError:
+except ImportError as exc:
+    MISSING_IMPORT_ERRORS["psutil"] = exc
     psutil = None
 
 try:
     import imagehash
-except ModuleNotFoundError:
+except ImportError as exc:
+    MISSING_IMPORT_ERRORS["ImageHash"] = exc
     imagehash = None
 
 from chunklate import ancillary, ancillary_runtime, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, image_viewer, libpng_check, libpng_runtime, magic_runtime, main_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, writer_runtime, youshallpass_runtime
@@ -52,6 +96,107 @@ from chunklate.png import (
     legacy_length_decision,
     validate_png_structure,
 )
+
+
+RUNTIME_IMPORTS = (
+    ("Pillow", "PIL.Image/PIL.ImageTk", lambda: Image is not None and ImageShow is not None and ImageTk is not None),
+    ("inputimeout", "inputimeout", lambda: "inputimeout" not in MISSING_IMPORT_ERRORS),
+    ("numpy", "numpy", lambda: np is not None),
+    ("opencv-python", "cv2", lambda: cv2 is not None),
+    ("psutil", "psutil", lambda: psutil is not None),
+    ("ImageHash", "imagehash", lambda: imagehash is not None),
+    ("python3-tk", "tkinter", lambda: tkinter is not None),
+)
+
+
+def Missing_Runtime_Dependencies():
+    missing = []
+    for package, import_name, is_available in RUNTIME_IMPORTS:
+        if not is_available():
+            missing.append((package, import_name, MISSING_IMPORT_ERRORS.get(package)))
+    return tuple(missing)
+
+
+def Format_Missing_Runtime_Dependencies(missing):
+    root = os.path.dirname(os.path.abspath(__file__))
+    bootstrap = shlex.quote(Bootstrap_Script_Path())
+    local_python = Local_Venv_Python() or os.path.join(root, ".venv", "bin", "python")
+    lines = [
+        "Missing runtime dependencies; Chunklate cannot safely continue.",
+        "",
+        "Missing imports:",
+    ]
+    for package, import_name, error in missing:
+        lines.append("- %s (import %s)" % (package, import_name))
+        if error is not None:
+            lines.append("  error: %s" % error)
+    lines.extend(
+        [
+            "",
+            "Install/refresh the local virtual environment with:",
+            "  %s" % bootstrap,
+            "",
+            "Then run Chunklate with:",
+            "  %s %s -f <file>" % (shlex.quote(local_python), shlex.quote(os.path.abspath(__file__))),
+        ]
+    )
+    if any(package == "python3-tk" for package, _, _ in missing):
+        lines.extend(
+            [
+                "",
+                "Tkinter is a system Python module on many Linux distributions.",
+                "On Debian/Ubuntu install it with: sudo apt install python3-tk",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def Bootstrap_Script_Path(script_path=None):
+    root = os.path.dirname(os.path.abspath(script_path or __file__))
+    return os.path.join(root, "scripts", "bootstrap_dev.sh")
+
+
+def Can_Prompt_Dependency_Install(stdin=None):
+    stream = stdin or sys.stdin
+    return (
+        not NODIALOGUE
+        and not AUTO
+        and hasattr(stream, "isatty")
+        and stream.isatty()
+    )
+
+
+def Prompt_Dependency_Install(missing, *, input_func=input, stdin=None, runner=subprocess.run):
+    print(Format_Missing_Runtime_Dependencies(missing), file=sys.stderr)
+    if not Can_Prompt_Dependency_Install(stdin):
+        return False
+
+    answer = input_func("Install/refresh missing dependencies now? (yes/no): ").strip().lower()
+    if answer not in ("y", "yes"):
+        return False
+
+    bootstrap = Bootstrap_Script_Path()
+    print("Running: %s" % bootstrap, file=sys.stderr)
+    result = runner([bootstrap], cwd=os.path.dirname(os.path.abspath(__file__)))
+    return getattr(result, "returncode", 0) == 0
+
+
+def Reexec_Local_Venv_Or_Exit():
+    venv_python = Local_Venv_Python()
+    if not venv_python:
+        print("Dependency install finished, but .venv Python was not found.", file=sys.stderr)
+        sys.exit(1)
+    os.execv(venv_python, [venv_python, os.path.abspath(__file__), *sys.argv[1:]])
+
+
+def Ensure_Runtime_Dependencies(*, prompt_installer=Prompt_Dependency_Install, reexec=Reexec_Local_Venv_Or_Exit):
+    missing = Missing_Runtime_Dependencies()
+    if missing:
+        if prompt_installer(missing):
+            reexec()
+            return True
+        sys.exit(1)
+    return True
 
 
 def Betterror(error_msg, def_name): ##useless since 3.11
@@ -462,6 +607,11 @@ def Sumform(waitforit, switch):
 def Summarise(infos, Summary_Footer=False):
     return output.run_summarise_from_namespace(globals(), infos, Summary_Footer)
 
+
+def Prepare_Immediate_Summary():
+    return output.ensure_immediate_summary_notes(globals())
+
+
 def Legacy_UI_Runtime():
     return ui_runtime.LegacyUiRuntime(
         emit=PRINT,
@@ -566,12 +716,17 @@ class Tk_Gen_Scale_Plte:
         )
         self.var = widget.var
         self.s = widget.scale
+        self.swatch = widget.swatch
+        self.container = widget.container
     def clean(self):
-       self.s.destroy()
+       if hasattr(self, "container") and hasattr(self.container, "destroy"):
+           self.container.destroy()
+       else:
+           self.s.destroy()
 
 
-def Tk_Render_Plte_Preview(wanabyte, w, h):
-    return palette_runtime.render_palette_preview_from_namespace(globals(), wanabyte, w, h)
+def Tk_Render_Plte_Preview(wanabyte, w, h, frame=None):
+    return palette_runtime.render_palette_preview_from_namespace(globals(), wanabyte, w, h, frame)
 
 
 def Sync_Palette_Legacy_State():
@@ -1216,6 +1371,18 @@ def FixItFelix(Chunk=None):
     Show_Must_Go_On = True
 
 def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
+    if DEBUGFILE is True:
+        DebugNotes.extend(
+            checkpoint_runtime.checkpoint_debug_lines(
+                error=error,
+                fixed=fixed,
+                function=function,
+                infos=infos,
+                chunk=chunk,
+                toolkit=ToolKit,
+                pandora_keys=tuple(PandoraBox),
+            )
+        )
     return checkpoint_runtime.run_checkpoint_from_namespace(
         globals(),
         error=error,
@@ -1239,11 +1406,19 @@ def Pause(msg):
 
 def PRINT(msg):
     Finish_Progress_Line()
+    if DEBUGFILE is True:
+        DebugNotes.append(msg)
     ui.emit_printable_message(print, msg, max_columns=MAXCHAR, no_dialogue=NODIALOGUE)
 
 #    else:
 #        print("-not print-")
 #        print(msg)
+
+
+def DebugPrint(*args, **kwargs):
+    if DEBUGFILE is True:
+        DebugNotes.append(" ".join(str(arg) for arg in args))
+    print(*args, **kwargs)
 
 def main():
     parser = cli.configure_parser(ArgumentParser())
@@ -1257,6 +1432,7 @@ def main():
     )
     if MainOptions is None:
         return
+    Ensure_Runtime_Dependencies()
 
     while True:
         MainLoopState = main_runtime.run_main_loop_once_from_namespace(globals())
@@ -1314,6 +1490,7 @@ zTXt_Key_List = []
 zTXt_Str_List = []
 ThksForTheFish = []
 SideNotes = []
+DebugNotes = []
 ERRORSFLAG = []
 
 PandoraBox = {}
@@ -1379,6 +1556,7 @@ FINAL_IMAGE_OPEN_REQUESTED = False
 CRASH = False
 PAUSE = False
 DEBUG = False
+DEBUGFILE = False
 PAUSEDEBUG = False
 PAUSEERROR = False
 PAUSEDIALOGUE = False

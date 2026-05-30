@@ -40,6 +40,7 @@ def args(**updates):
         "PAUSEDIALOGUE": False,
         "NODIALOGUE": False,
         "DEBUG": False,
+        "DEBUGFILE": False,
         "AUTO": False,
         "ULTIMATE_LINEFEED_BUDGET": None,
         "ULTIMATE_LINEFEED_UNBOUNDED": False,
@@ -185,6 +186,7 @@ def test_apply_main_cli_options_builds_initial_state():
             pause_dialogue=False,
             nodialogue=False,
             debug=True,
+            debug_file=False,
             auto=False,
         ),
         max_saves=2,
@@ -289,6 +291,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
             pause_dialogue=False,
             nodialogue=False,
             debug=True,
+            debug_file=True,
             auto=False,
         ),
         max_saves=4,
@@ -310,6 +313,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         "PAUSEDIALOGUE": False,
         "NODIALOGUE": False,
         "DEBUG": True,
+        "DEBUGFILE": True,
         "AUTO": False,
         "MAX_SAVES": 4,
         "SAVE_COUNT": 0,
@@ -357,6 +361,7 @@ def test_apply_main_cli_options_from_namespace_updates_legacy_globals():
     assert namespace["FILE_DIR"] == "/abs/out/"
     assert namespace["PAUSEERROR"] is True
     assert namespace["DEBUG"] is False
+    assert namespace["DEBUGFILE"] is False
     assert namespace["MAX_SAVES"] == 3
     assert namespace["SAVE_COUNT"] == 0
     assert namespace["Sample"] == "sample.png"

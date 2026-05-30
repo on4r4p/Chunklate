@@ -24,6 +24,8 @@ class RelicsRuntime:
     tk_manual_plte: LegacyCall
     remove_chunk: LegacyCall
     ask_choice: AskChoice
+    preview_repair_image: LegacyCall | None = None
+    ask_manual_palette: LegacyCall | None = None
 
 
 def build_relics_runtime(
@@ -34,6 +36,8 @@ def build_relics_runtime(
     tk_manual_plte: LegacyCall,
     remove_chunk: LegacyCall,
     ask_choice: AskChoice,
+    preview_repair_image: LegacyCall | None = None,
+    ask_manual_palette: LegacyCall | None = None,
 ) -> RelicsRuntime:
     return RelicsRuntime(
         save_clone=save_clone,
@@ -42,6 +46,8 @@ def build_relics_runtime(
         tk_manual_plte=tk_manual_plte,
         remove_chunk=remove_chunk,
         ask_choice=ask_choice,
+        preview_repair_image=preview_repair_image,
+        ask_manual_palette=ask_manual_palette,
     )
 
 
@@ -57,6 +63,12 @@ def build_relics_runtime_from_namespace(namespace: dict[str, Any]) -> RelicsRunt
             prompt,
             choices,
             retry_prompt,
+        ),
+        preview_repair_image=namespace.get("Preview_Repair_Image"),
+        ask_manual_palette=(
+            lambda question_id: False
+            if namespace.get("NODIALOGUE") or namespace.get("AUTO")
+            else namespace["Question"](id=question_id)
         ),
     )
 
@@ -194,6 +206,21 @@ def run_plte_manual_plan(runtime: RelicsRuntime, plte_plan: Any) -> Any:
         plte_plan.data_offset,
         plte_plan.from_error,
     )
+
+
+def run_missing_plte_repair_plan(runtime: RelicsRuntime, repair_plan: Any) -> Any:
+    if runtime.preview_repair_image is not None:
+        runtime.preview_repair_image(
+            repair_plan.preview_data,
+            "missing_plte_grayscale_plte",
+        )
+
+    if runtime.ask_manual_palette is not None and runtime.ask_manual_palette(
+        "PLTE Palette Editor:-Open Tkinter to tune the reconstructed PLTE?"
+    ):
+        return run_plte_manual_plan(runtime, repair_plan.manual_plan)
+
+    return run_save_clone_plan(runtime, repair_plan.save_plan)
 
 
 def run_plte_remove_plan(runtime: RelicsRuntime, plte_plan: Any) -> Any:
@@ -335,6 +362,7 @@ def handle_plte_repair_flow(
     chunks_history: Any,
     chunks_history_index: Any,
     target_file: Any,
+    finding: Any = None,
     old_crc: Any = None,
     ask_fallback: Callable[[], Any],
     add_side_note: Callable[[Any], Any],
@@ -343,10 +371,16 @@ def handle_plte_repair_flow(
 ) -> tuple[bool, Any]:
     ui_module.say_plte_intro(candy=candy)
 
+    def repair_window() -> Any:
+        window = relics_module.plte_chunk_window(chunks_history, chunks_history_index)
+        if window is None and relics_module.is_missing_plte_finding(finding):
+            return relics_module.missing_plte_chunk_window(chunks_history, chunks_history_index)
+        return window
+
     if not has_bad_crc:
         ui_module.say_plte_valid_crc(candy=candy)
         answer = ask_plte_repair(runtime, relics_module, False)
-        window = relics_module.plte_chunk_window(chunks_history, chunks_history_index)
+        window = repair_window()
         should_return, result = apply_plte_repair_decision(
             runtime,
             relics_module.plte_repair_decision(
@@ -364,7 +398,7 @@ def handle_plte_repair_flow(
     else:
         ui_module.say_plte_bad_crc(candy=candy)
         answer = ask_plte_repair(runtime, relics_module, True)
-        window = relics_module.plte_chunk_window(chunks_history, chunks_history_index)
+        window = repair_window()
         should_return, result = apply_plte_repair_decision(
             runtime,
             relics_module.plte_repair_decision(
@@ -383,7 +417,7 @@ def handle_plte_repair_flow(
     ui_module.say_plte_fallback(candy=candy)
     answer = ask_fallback()
     if answer is True:
-        window = relics_module.plte_chunk_window(chunks_history, chunks_history_index)
+        window = repair_window()
         should_return, result = apply_plte_repair_decision(
             runtime,
             relics_module.plte_repair_decision(
@@ -532,6 +566,7 @@ def handle_pandemonium_flow(
                     chunks_history=context.chunks_history,
                     chunks_history_index=context.chunks_history_index,
                     target_file=context.sample_name,
+                    finding=plte_finding,
                     old_crc=context.old_crc,
                     ask_fallback=ask,
                     add_side_note=context.side_notes.append,
@@ -584,11 +619,20 @@ def apply_no_pandemonium_repair_decision(
     runtime: RelicsRuntime,
     decision: Any,
 ) -> tuple[bool, Any]:
+    if decision.action == "save_clone":
+        return True, run_save_clone_plan(runtime, decision.plan)
+
+    if decision.action == "missing_plte_auto":
+        return True, run_missing_plte_repair_plan(runtime, decision.plan)
+
     if decision.action == "getinfo_brawl":
         return True, run_getinfo_brawl_plan(runtime, decision.plan)
 
     if decision.action == "full_chunk_forcer":
         return True, run_full_chunk_forcer_plan(runtime, decision.plan)
+
+    if decision.action == "plte_manual":
+        return True, run_plte_manual_plan(runtime, decision.plan)
 
     if decision.action in ("none", "unsupported"):
         return False, None
@@ -611,6 +655,7 @@ def handle_no_pandemonium_flow(
     from_error: Any,
     chunks_len_not_fixed: Any,
     skip_bad_crc: bool,
+    data_hex: str = "",
     ask: Callable[[], Any],
     emit: Callable[[str], Any],
     candy: LegacyCall,
@@ -635,6 +680,7 @@ def handle_no_pandemonium_flow(
                     from_error=from_error,
                     chunks_len_not_fixed=chunks_len_not_fixed,
                     answer=ask(),
+                    data_hex=data_hex,
                 ),
             )
             if should_return:
@@ -654,6 +700,25 @@ def handle_no_pandemonium_flow(
                     from_error=from_error,
                     chunks_len_not_fixed=chunks_len_not_fixed,
                     answer=ask(),
+                    data_hex=data_hex,
+                ),
+            )
+            if should_return:
+                return result
+
+        elif prompt_context.action == "missing_plte":
+            ui_module.emit_prompt_context_hits(prompt_context, emit=emit)
+            should_return, result = apply_no_pandemonium_repair_decision(
+                runtime,
+                relics_module.no_pandemonium_repair_decision(
+                    policy,
+                    chunks_history,
+                    chunks_history_index,
+                    target_file=target_file,
+                    from_error=from_error,
+                    chunks_len_not_fixed=chunks_len_not_fixed,
+                    answer=True,
+                    data_hex=data_hex,
                 ),
             )
             if should_return:
@@ -699,6 +764,7 @@ def handle_no_pandemonium_context_flow(
         from_error=context.from_error,
         chunks_len_not_fixed=context.chunks_len_not_fixed,
         skip_bad_crc=context.skip_bad_crc,
+        data_hex=getattr(context, "data_hex", ""),
         ask=ask,
         emit=emit,
         candy=candy,

@@ -15,9 +15,18 @@ class FakeSlider:
     def __init__(self):
         self.var = self
         self.value = None
+        self.swatch = FakeSwatch()
 
     def set(self, value):
         self.value = value
+
+
+class FakeSwatch:
+    def __init__(self):
+        self.config_calls = []
+
+    def config(self, **kwargs):
+        self.config_calls.append(kwargs)
 
 
 class FakeNumpy:
@@ -49,6 +58,9 @@ class FakePillowImage:
         self.resize_call = (dimensions, resampling)
         return "resized-preview"
 
+    def load(self):
+        return None
+
 
 class FakeImageModule:
     class Resampling:
@@ -61,6 +73,10 @@ class FakeImageModule:
         self.last_image = FakePillowImage(payload)
         return self.last_image
 
+    def open(self, payload):
+        self.last_image = FakePillowImage(payload.read())
+        return self.last_image
+
 
 class FakeImageTk:
     class PhotoImage:
@@ -69,13 +85,18 @@ class FakeImageTk:
 
 
 class FakeLabel:
-    def __init__(self, parent, image):
+    def __init__(self, parent, image=None, **kwargs):
         self.parent = parent
         self.image = image
+        self.kwargs = kwargs
         self.grid_call = None
+        self.config_calls = []
 
     def grid(self, **kwargs):
         self.grid_call = kwargs
+
+    def config(self, **kwargs):
+        self.config_calls.append(kwargs)
 
 
 class FakeIntVar:
@@ -103,6 +124,7 @@ class FakeFrame:
         self.grid_call = None
         self.columnconfigure_calls = []
         self.rowconfigure_calls = []
+        self.destroy_called = False
 
     def grid(self, **kwargs):
         self.grid_call = kwargs
@@ -112,6 +134,9 @@ class FakeFrame:
 
     def rowconfigure(self, *args, **kwargs):
         self.rowconfigure_calls.append((args, kwargs))
+
+    def destroy(self):
+        self.destroy_called = True
 
 
 class FakeCanvas:
@@ -167,6 +192,8 @@ class FakeWindow:
         self.title_call = None
         self.config_call = None
         self.resizable_call = None
+        self.geometry_call = None
+        self.update_idletasks_called = False
 
     def title(self, value):
         self.title_call = value
@@ -176,6 +203,18 @@ class FakeWindow:
 
     def resizable(self, *args):
         self.resizable_call = args
+
+    def winfo_screenwidth(self):
+        return 1920
+
+    def winfo_screenheight(self):
+        return 1080
+
+    def update_idletasks(self):
+        self.update_idletasks_called = True
+
+    def geometry(self, value):
+        self.geometry_call = value
 
 
 class FakeTkinter:
@@ -194,8 +233,8 @@ class FakeTkinter:
         self.last_window = FakeWindow()
         return self.last_window
 
-    def Label(self, parent, image):
-        self.last_label = FakeLabel(parent, image)
+    def Label(self, parent, image=None, **kwargs):
+        self.last_label = FakeLabel(parent, image, **kwargs)
         return self.last_label
 
     def IntVar(self):
@@ -266,6 +305,10 @@ def test_apply_palette_state_colors_updates_sliders_and_wanabyte():
 
     assert state.values == [1, 255]
     assert [slider.value for slider in state.sliders] == [1, 255]
+    assert [slider.swatch.config_calls for slider in state.sliders] == [
+        [{"bg": "#000001"}],
+        [{"bg": "#0000ff"}],
+    ]
     assert wanabyte == palette.build_palette_png(b"before", state.values, b"after")
     assert state.wanabyte == wanabyte
 
@@ -284,6 +327,10 @@ def test_randomize_palette_state_uses_injected_random_source():
 
     assert state.values == [7, 9]
     assert [slider.value for slider in state.sliders] == [7, 9]
+    assert [slider.swatch.config_calls for slider in state.sliders] == [
+        [{"bg": "#000007"}],
+        [{"bg": "#000009"}],
+    ]
     assert wanabyte == palette.build_palette_png(b"before", state.values, b"after")
     assert state.wanabyte == wanabyte
 
@@ -306,6 +353,35 @@ def test_build_editor_layout_preserves_legacy_geometry():
     assert layout.action_height == 50
     assert layout.canvas_width == 985
     assert layout.slider_length == 970
+
+
+def test_build_editor_layout_caps_square_preview_to_screen_height():
+    layout = palette_ui.build_editor_layout(1920, (32, 32), 1080)
+
+    assert layout.basewidth == 865
+    assert layout.hsize == 865
+    assert layout.action_width == 1730
+    assert layout.action_height == 86
+    assert layout.canvas_width == 850
+    assert layout.slider_length == 835
+
+
+def test_center_palette_editor_window_uses_screen_center():
+    window = FakeWindow()
+    layout = palette_ui.PaletteEditorLayout(
+        basewidth=865,
+        hsize=865,
+        action_width=1730,
+        action_height=86,
+        canvas_width=850,
+        slider_length=835,
+    )
+
+    geometry = palette_ui.center_palette_editor_window(window, layout)
+
+    assert geometry == "1770x971+75+54"
+    assert window.geometry_call == "1770x971+75+54"
+    assert window.update_idletasks_called is True
 
 
 def test_create_palette_editor_window_preserves_legacy_window_setup():
@@ -391,8 +467,33 @@ def test_render_preview_label_uses_injected_ui_modules():
     assert fake_tkinter.last_label.grid_call == {"row": 1, "column": 0, "padx": 5, "pady": 5}
 
 
+def test_render_preview_label_falls_back_to_pillow_without_cv2():
+    fake_image = FakeImageModule()
+    fake_tkinter = FakeTkinter()
+
+    im, pil_image, tk_image = palette_ui.render_preview_label(
+        b"png-bytes",
+        "frame",
+        120,
+        90,
+        cv2_module=None,
+        numpy_module=None,
+        image_module=fake_image,
+        image_tk_module=FakeImageTk,
+        tkinter_module=fake_tkinter,
+    )
+
+    assert im is None
+    assert pil_image.source == b"png-bytes"
+    assert pil_image.resize_call == ((110, 80), "lanczos")
+    assert tk_image.image == "resized-preview"
+    assert fake_tkinter.last_label.parent == "frame"
+    assert fake_tkinter.last_label.image is tk_image
+
+
 def test_create_palette_scale_uses_injected_tkinter_module():
     fake_tkinter = FakeTkinter()
+    callback_calls = []
 
     widget = palette_ui.create_palette_scale(
         tkinter_module=fake_tkinter,
@@ -402,24 +503,48 @@ def test_create_palette_scale_uses_injected_tkinter_module():
         from_=-1,
         to=16777215,
         length=970,
-        command="callback",
+        command=lambda value: callback_calls.append(value),
         grid_options={"padx": 10, "pady": 5},
     )
 
     assert widget.var is fake_tkinter.last_int_var
     assert widget.scale is fake_tkinter.last_scale
+    assert widget.swatch is fake_tkinter.last_label
+    assert widget.container is fake_tkinter.frames[-1]
     assert widget.var.value == 42
-    assert widget.scale.parent == "frame"
+    assert widget.container.parent == "frame"
+    assert widget.container.kwargs == {}
+    assert widget.container.grid_call == {"padx": 10, "pady": 5}
+    assert widget.container.columnconfigure_calls == [((1,), {"weight": 1})]
+    assert widget.swatch.parent is widget.container
+    assert widget.swatch.kwargs == {
+        "bg": "#00002a",
+        "width": 4,
+        "height": 2,
+        "relief": "solid",
+        "borderwidth": 1,
+    }
+    assert widget.swatch.grid_call == {
+        "row": 0,
+        "column": 0,
+        "padx": (0, 8),
+        "pady": 0,
+        "sticky": "ns",
+    }
+    assert widget.scale.parent is widget.container
     assert widget.scale.kwargs == {
         "label": "Palette 1",
         "variable": widget.var,
         "from_": -1,
         "to": 16777215,
         "length": 970,
-        "command": "callback",
+        "command": widget.scale.kwargs["command"],
         "orient": "horizontal",
     }
-    assert widget.scale.grid_call == {"padx": 10, "pady": 5}
+    widget.scale.kwargs["command"](255)
+    assert widget.swatch.config_calls == [{"bg": "#0000ff"}]
+    assert callback_calls == [255]
+    assert widget.scale.grid_call == {"row": 0, "column": 1, "sticky": "ew"}
 
 
 def test_create_palette_slider_canvas_wires_canvas_frame_and_scrollbar():
@@ -625,9 +750,12 @@ def main():
         ("Editor state randomize", test_randomize_palette_state_uses_injected_random_source),
         ("Editor state sliders", test_set_palette_state_sliders_preserves_slider_list_reference),
         ("Editor layout", test_build_editor_layout_preserves_legacy_geometry),
+        ("Editor layout height cap", test_build_editor_layout_caps_square_preview_to_screen_height),
+        ("Editor window center", test_center_palette_editor_window_uses_screen_center),
         ("Editor window", test_create_palette_editor_window_preserves_legacy_window_setup),
         ("Editor frames", test_create_palette_editor_frames_preserves_legacy_frame_wiring),
         ("Preview renderer", test_render_preview_label_uses_injected_ui_modules),
+        ("Preview renderer no cv2", test_render_preview_label_falls_back_to_pillow_without_cv2),
         ("Palette scale widget", test_create_palette_scale_uses_injected_tkinter_module),
         ("Palette slider canvas", test_create_palette_slider_canvas_wires_canvas_frame_and_scrollbar),
         ("Palette action buttons", test_create_palette_action_buttons_uses_specs_and_grid_options),

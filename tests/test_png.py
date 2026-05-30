@@ -37,6 +37,7 @@ from chunklate.png import (
     repair_bkgd_length,
     repair_chrm_length,
     repair_color_profile_chunks,
+    repair_duplicate_singleton_chunks,
     repair_empty_plte,
     repair_gama_length,
     repair_gifg_length,
@@ -60,6 +61,7 @@ from chunklate.png import (
     repair_srgb_length,
     repair_ster_length,
     repair_time_length,
+    repair_trns_length,
     repair_unknown_private_critical_chunks,
     SRGB_CHRM_PAYLOAD,
     validate_png_structure,
@@ -86,6 +88,14 @@ def tiny_rgb_png(*, filtered_scanlines: bytes | None = None, width: int = 1, hei
     return PNG_SIGNATURE + build_png_chunk(b"IHDR", ihdr) + build_png_chunk(
         b"IDAT",
         zlib.compress(filtered_scanlines, level=0),
+    ) + IEND_CHUNK
+
+
+def tiny_indexed_png_without_plte() -> bytes:
+    ihdr = (1).to_bytes(4, "big") + (1).to_bytes(4, "big") + b"\x08\x03\x00\x00\x00"
+    return PNG_SIGNATURE + build_png_chunk(b"IHDR", ihdr) + build_png_chunk(
+        b"IDAT",
+        zlib.compress(b"\x00\x00", level=0),
     ) + IEND_CHUNK
 
 
@@ -116,6 +126,51 @@ def test_repair_indexed_plte_truncates_palette_with_too_many_entries():
     assert validate_png_structure(repaired.data).errors == ()
     plte = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"PLTE")
     assert plte.length == 48
+
+
+def test_repair_indexed_plte_inserts_missing_palette():
+    original = tiny_indexed_png_without_plte()
+
+    assert validate_png_structure(original).errors == ("Indexed-color PNG requires a PLTE chunk",)
+
+    repaired = repair_indexed_plte(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "inserted missing indexed PLTE as grayscale palette"
+    assert validate_png_structure(repaired.data).ok
+    plte = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"PLTE")
+    assert plte.length == 768
+
+
+def test_repair_indexed_plte_inserts_missing_palette_before_trns():
+    ihdr = (1).to_bytes(4, "big") + (1).to_bytes(4, "big") + b"\x08\x03\x00\x00\x00"
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"gAMA", b"\x00\x01\x86\xa0")
+        + build_png_chunk(b"tRNS", b"\xff")
+        + build_png_chunk(b"bKGD", b"\x00")
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00", level=0))
+        + IEND_CHUNK
+    )
+
+    assert validate_png_structure(original).errors == (
+        "Indexed-color PNG requires a PLTE chunk",
+    )
+
+    repaired = repair_indexed_plte(original)
+
+    assert repaired is not None
+    assert validate_png_structure(repaired.data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)] == [
+        b"IHDR",
+        b"gAMA",
+        b"PLTE",
+        b"tRNS",
+        b"bKGD",
+        b"IDAT",
+        b"IEND",
+    ]
 
 
 def test_find_signature_inside_prefixed_data():
@@ -911,6 +966,39 @@ def test_repair_bkgd_length_removes_short_truecolor_alpha_payload():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_repair_duplicate_singleton_chunks_removes_second_bkgd():
+    ihdr = build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x10\x04\x00\x00\x00")
+    original = (
+        PNG_SIGNATURE
+        + ihdr
+        + build_png_chunk(b"gAMA", b"\x00\x01\x86\xa0")
+        + build_png_chunk(b"bKGD", b"\x00\x01")
+        + build_png_chunk(b"bKGD", b"\x00\x02")
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\xff\xff"))
+        + IEND_CHUNK
+    )
+
+    assert validate_png_structure(original).errors == (
+        "PNG must not contain multiple bKGD chunks",
+    )
+
+    repaired = repair_duplicate_singleton_chunks(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "removed duplicate singleton chunk(s): bKGD"
+    assert repaired.removed_chunks == ("bKGD",)
+    assert validate_png_structure(repaired.data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)] == [
+        b"IHDR",
+        b"gAMA",
+        b"bKGD",
+        b"IDAT",
+        b"IEND",
+    ]
+    bkgd = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"bKGD")
+    assert bkgd.data == b"\x00\x01"
+
+
 def test_repair_gama_length_infers_common_missing_byte():
     broken = repair_fixture("length_gama.png").read_bytes()
 
@@ -1073,6 +1161,39 @@ def test_repair_time_length_infers_missing_second_byte():
     time = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"tIME")
     assert time.data == bytes.fromhex("07d001010c2200")
     assert time.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_trns_length_pads_empty_grayscale_sample():
+    broken = repair_fixture("length_trns_gray.png").read_bytes()
+
+    assert "tRNS chunk length must be 2 for IHDR color type 0" in validate_png_structure(broken).errors
+
+    repaired = repair_trns_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 0
+    assert repaired.new_length == 2
+    assert repaired.strategy == "padded tRNS length from 0 to 2 with zero bytes and rebuilt CRC"
+    trns = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"tRNS")
+    assert trns.data == b"\x00\x00"
+    assert trns.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_trns_length_removes_fully_transparent_palette_alpha_entries():
+    broken = repair_fixture("length_trns_palette.png").read_bytes()
+
+    assert "tRNS chunk length must not exceed PLTE entry count" in validate_png_structure(broken).errors
+
+    repaired = repair_trns_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 174
+    assert repaired.new_length == 0
+    assert repaired.removed is True
+    assert repaired.strategy == "removed indexed tRNS because repaired alpha table would be fully transparent"
+    assert not any(chunk.chunk_type == b"tRNS" for chunk in iter_chunks(repaired.data))
     assert validate_png_structure(repaired.data).ok
 
 
@@ -1497,9 +1618,12 @@ def main():
         ("Rebuild empty indexed PLTE", test_repair_empty_plte_rebuilds_indexed_palette),
         ("Rebuild malformed indexed PLTE", test_repair_indexed_plte_rebuilds_malformed_palette),
         ("Truncate oversized indexed PLTE", test_repair_indexed_plte_truncates_palette_with_too_many_entries),
+        ("Insert missing indexed PLTE", test_repair_indexed_plte_inserts_missing_palette),
+        ("Insert missing indexed PLTE before tRNS", test_repair_indexed_plte_inserts_missing_palette_before_trns),
         ("Truncate long gray-alpha bKGD", test_repair_bkgd_length_truncates_gray_alpha_payload),
         ("Truncate long palette bKGD", test_repair_bkgd_length_truncates_palette_payload),
         ("Remove short truecolor-alpha bKGD", test_repair_bkgd_length_removes_short_truecolor_alpha_payload),
+        ("Remove duplicate singleton bKGD", test_repair_duplicate_singleton_chunks_removes_second_bkgd),
         ("Infer common short gAMA", test_repair_gama_length_infers_common_missing_byte),
         ("Remove unknown short gAMA", test_repair_gama_length_removes_uninferrable_short_payload),
         ("Truncate long gIFg", test_repair_gifg_length_truncates_legacy_payload),
@@ -1510,6 +1634,8 @@ def main():
         ("Trim long sRGB", test_repair_srgb_length_trims_rendering_intent_payload),
         ("Trim long sTER", test_repair_ster_length_trims_stereo_mode_payload),
         ("Infer short tIME", test_repair_time_length_infers_missing_second_byte),
+        ("Pad empty grayscale tRNS", test_repair_trns_length_pads_empty_grayscale_sample),
+        ("Remove fully transparent indexed tRNS", test_repair_trns_length_removes_fully_transparent_palette_alpha_entries),
         ("Pad short hIST", test_repair_hist_length_pads_missing_frequency),
         ("Trim long hIST", test_repair_hist_length_trims_extra_frequency),
         ("Rebuild wrong-length IEND", test_repair_iend_length_rebuilds_canonical_iend),

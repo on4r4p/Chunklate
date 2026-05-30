@@ -2,9 +2,41 @@ from __future__ import annotations
 
 import builtins
 import os
+import re
 from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 from typing import Any
+
+
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+DEBUG_LINE_PREFIXES = (
+    "error:",
+    "fixed:",
+    "function:",
+    "infos:",
+    "chunk:",
+    "ToolKit:",
+    "Arg",
+    "Pandora:",
+    "key:",
+    "Context:",
+    "Result:",
+    "Question:",
+    "Patch bytes ready:",
+    "Chnks nbr:",
+    "idacounter:",
+    "IDAT_Bytes_Len:",
+)
+DEBUG_DASH_PREFIXES = (
+    "-CheckPoint:",
+    "-CriticalHit:",
+    "-CriticalMiss:",
+    "-Error",
+    "-No Error",
+    "-Saved in",
+    "-Saving",
+    "-Preview image",
+)
 
 
 @dataclass(frozen=True)
@@ -68,6 +100,14 @@ def write_clone(target: CloneTarget, data: Any) -> None:
         file.write(clone_bytes(data))
 
 
+def strip_ansi(text: Any) -> str:
+    return ANSI_ESCAPE_RE.sub("", str(text))
+
+
+def clean_summary_text(text: Any) -> str:
+    return strip_ansi(text)
+
+
 def summary_path(file_origin: str, file_dir: str = "") -> str:
     folder = ensure_clone_folder(file_origin, file_dir)
     return os.path.join(
@@ -76,19 +116,116 @@ def summary_path(file_origin: str, file_dir: str = "") -> str:
     )
 
 
+def summary_title(max_columns: int) -> str:
+    return summary_separator(
+        "▇ ▆ =|C|h|u|n|k|l|a|t|e| |S|u|m|m|a|r|y|= ▆ ▇",
+        True,
+        max_columns,
+    )
+
+
+def summary_entry_separator(sample_name: str) -> str:
+    return "\n\n『" + sample_name + " :』\n"
+
+
+def _write_summary_header_if_needed(namespace: Mapping[str, Any], handle: Any) -> None:
+    if namespace.get("Summary_Header") is True:
+        handle.write(summary_title(namespace["MAXCHAR"]))
+        namespace["Summary_Header"] = False
+
+
+def append_summary_progress_note(namespace: Mapping[str, Any], note: Any) -> None:
+    if "FILE_Origin" not in namespace or "FILE_DIR" not in namespace:
+        return
+    filename = summary_path(namespace["FILE_Origin"], namespace["FILE_DIR"])
+    sample_name = namespace.get("Sample_Name") or os.path.basename(namespace["FILE_Origin"])
+    with builtins.open(filename, "a+") as handle:
+        _write_summary_header_if_needed(namespace, handle)
+        handle.write(summary_entry_separator(sample_name))
+        handle.write("\n" + clean_summary_text(note) + "\n")
+
+
+class ImmediateSummaryNotes(list):
+    def __init__(self, namespace: Mapping[str, Any]):
+        super().__init__()
+        self.namespace = namespace
+        self.flushed_count = 0
+
+    def append(self, note: Any) -> None:
+        super().append(note)
+        append_summary_progress_note(self.namespace, note)
+        self.flushed_count = len(self)
+
+    def extend(self, notes: Sequence[Any]) -> None:
+        for note in notes:
+            self.append(note)
+
+
+def ensure_immediate_summary_notes(namespace: dict[str, Any]) -> ImmediateSummaryNotes:
+    current = namespace.get("SideNotes", [])
+    if isinstance(current, ImmediateSummaryNotes):
+        return current
+    notes = ImmediateSummaryNotes(namespace)
+    for note in current:
+        notes.append(note)
+    namespace["SideNotes"] = notes
+    return notes
+
+
+def pending_summary_notes(side_notes: Sequence[Any]) -> list[Any]:
+    flushed_count = getattr(side_notes, "flushed_count", 0)
+    return list(side_notes)[flushed_count:]
+
+
 def summary_body(infos: Any, side_notes: Sequence[Any]) -> str | None:
     tmp = ""
     if infos is not None:
         if len(side_notes) > 0:
             for note in side_notes:
-                tmp += "\n" + str(note) + "\n"
-            return tmp + str(infos) + "\n"
-        return "\n" + str(infos) + "\n"
+                tmp += "\n" + clean_summary_text(note) + "\n"
+            return tmp + clean_summary_text(infos) + "\n"
+        return "\n" + clean_summary_text(infos) + "\n"
     if len(side_notes) > 0:
         for note in side_notes:
-            tmp += "\n" + str(note) + "\n"
+            tmp += "\n" + clean_summary_text(note) + "\n"
         return tmp
     return None
+
+
+def _is_relevant_debug_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if stripped.startswith(DEBUG_LINE_PREFIXES):
+        return True
+    return stripped.startswith(DEBUG_DASH_PREFIXES)
+
+
+def relevant_debug_lines(debug_notes: Sequence[Any]) -> list[str]:
+    lines: list[str] = []
+    previous = None
+    for note in debug_notes:
+        for raw_line in clean_summary_text(note).splitlines():
+            line = raw_line.strip()
+            if not _is_relevant_debug_line(line):
+                continue
+            if line == previous:
+                continue
+            lines.append(line)
+            previous = line
+    return lines
+
+
+def debug_trace_body(debug_notes: Sequence[Any]) -> str | None:
+    lines = relevant_debug_lines(debug_notes)
+    if len(lines) == 0:
+        return None
+
+    body = ["\n\n『Debug Log: 』\n"]
+    for line in lines:
+        body.append("\n" + line)
+    body.append("\n")
+    return "".join(body)
 
 
 def _value(state: Mapping[str, Any], name: str, default: Any = "") -> Any:
@@ -309,31 +446,40 @@ def run_summarise_from_namespace(
     infos: Any,
     summary_footer: bool = False,
 ) -> None:
-    sep = "\n\n『" + namespace["Sample_Name"] + " :』\n"
-    title = summary_separator(
-        "▇ ▆ =|C|h|u|n|k|l|a|t|e| |S|u|m|m|a|r|y|= ▆ ▇",
-        True,
-        namespace["MAXCHAR"],
-    )
+    sep = summary_entry_separator(namespace["Sample_Name"])
+    title = summary_title(namespace["MAXCHAR"])
     eof = summary_separator(
         "_,-=|S|u|m|m|a|r|y| |E|n|d|=-,_",
         False,
         namespace["MAXCHAR"],
     )
-    body = summary_body(infos, namespace["SideNotes"])
+    current_side_notes = namespace["SideNotes"]
+    side_notes = pending_summary_notes(current_side_notes)
+    debug_notes = list(namespace.get("DebugNotes", []))
+    body = summary_body(infos, side_notes)
+    debug_trace = debug_trace_body(debug_notes) if namespace.get("DEBUGFILE") is True else None
 
     filename = summary_path(namespace["FILE_Origin"], namespace["FILE_DIR"])
     builtins.print(namespace["Candy"]("Color", "green", "-Saving Summary : "), filename)
     with builtins.open(filename, "a+") as handle:
 
-        if namespace["Summary_Header"] is True:
-            handle.write(title)
-            namespace["Summary_Header"] = False
+        _write_summary_header_if_needed(namespace, handle)
 
         if body is not None:
             handle.write(sep)
             handle.write(body)
 
+        if debug_trace is not None:
+            handle.write(sep)
+            handle.write(debug_trace)
+
         if summary_footer is True:
             handle.write(render_summary_footer(namespace, eof))
-    namespace["SideNotes"] = []
+
+    if namespace.get("DEBUGFILE") is True:
+        namespace["DebugNotes"] = []
+    if isinstance(current_side_notes, ImmediateSummaryNotes):
+        current_side_notes.clear()
+        current_side_notes.flushed_count = 0
+    else:
+        namespace["SideNotes"] = []

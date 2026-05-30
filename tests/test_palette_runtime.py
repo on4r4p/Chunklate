@@ -31,6 +31,9 @@ class FakeImage:
     def fromarray(self, value):
         return ("image", value)
 
+    def open(self, payload):
+        return FakePilImage(payload.read())
+
 
 class FailingImage:
     def fromarray(self, value):
@@ -81,6 +84,11 @@ class FakeWindow:
         self.calls.append("quit")
 
 
+class FakeWindowWithHeight(FakeWindow):
+    def winfo_screenheight(self):
+        return 1080
+
+
 class FakeCanvas:
     def __init__(self):
         self.binds = []
@@ -91,6 +99,12 @@ class FakeCanvas:
 
 class FakePilImage:
     size = (100, 50)
+
+    def __init__(self, source=None):
+        self.source = source
+
+    def load(self):
+        return None
 
 
 @contextmanager
@@ -229,7 +243,7 @@ def test_create_manual_palette_setup_builds_session_image_and_debug_report():
     assert ("emit", "Palette_nbr:3") in calls
 
 
-def test_create_manual_palette_setup_preserves_bytes_chunk_name_error_path():
+def test_create_manual_palette_setup_accepts_bytes_chunk_name_without_error():
     calls = []
 
     setup = palette_runtime.create_manual_palette_setup(
@@ -245,8 +259,32 @@ def test_create_manual_palette_setup_preserves_bytes_chunk_name_error_path():
     )
 
     assert setup.chunk_name == b"PLTE"
-    assert ("betterror", "'bytes' object has no attribute 'encode'", "Tk_Manual_Plte") in calls
-    assert any(call[0] == "emit" and "<red:Error:" in call[1] for call in calls)
+    assert not any(call[0] == "betterror" for call in calls)
+    assert not any(call[0] == "emit" and "<red:Error:" in call[1] for call in calls)
+
+
+def test_create_manual_palette_setup_uses_pillow_preview_without_cv2():
+    calls = []
+    runtime = build_manual_setup_runtime(calls)
+    runtime = palette_runtime.ManualPaletteSetupRuntime(
+        **{**runtime.__dict__, "cv2": None, "numpy": None}
+    )
+
+    setup = palette_runtime.create_manual_palette_setup(
+        runtime,
+        palette_runtime.ManualPaletteSetupContext(
+            file="sample.png",
+            chunk_name=b"PLTE",
+            chunk_length=10,
+            data_offset=4,
+            data_hex="0011223344556677",
+            debug=False,
+        ),
+    )
+
+    assert setup.image_array is None
+    assert setup.pil_image.size == (100, 50)
+    assert ("guess", bytes.fromhex("0011"), bytes.fromhex("556677")) in calls
 
 
 def test_manual_palette_full_new_data_returns_chunk_bytes_between_slices():
@@ -332,6 +370,33 @@ def test_render_palette_preview_from_namespace_updates_image_globals():
             },
         )
     ]
+
+
+def test_render_palette_preview_from_namespace_accepts_frame_argument():
+    calls = []
+    namespace = {
+        "cv2": "cv2",
+        "np": "np",
+        "Image": "Image",
+        "ImageTk": "ImageTk",
+        "tkinter": "tkinter",
+    }
+
+    def renderer(*args, **kwargs):
+        calls.append((args, kwargs))
+        return "im", "pil", "tk"
+
+    palette_runtime.render_palette_preview_from_namespace(
+        namespace,
+        b"png",
+        100,
+        50,
+        "new-frame",
+        renderer=renderer,
+    )
+
+    assert namespace["frame_img"] == "new-frame"
+    assert calls[0][0] == (b"png", "new-frame", 100, 50)
 
 
 def test_update_palette_value_from_namespace_updates_state_sync_and_preview():
@@ -677,6 +742,9 @@ def test_create_manual_palette_editor_wires_window_frames_actions_and_sliders():
             build_layout=lambda screen_width, image_size: calls.append(
                 ("build_layout", screen_width, image_size)
             ) or layout,
+            center_window=lambda target, target_layout: calls.append(
+                ("center_window", target, target_layout)
+            ),
             create_frames=lambda **kwargs: calls.append(("create_frames", kwargs)) or frames,
             build_action_specs=lambda runtime, context: calls.append(
                 ("build_action_specs", runtime, context)
@@ -709,6 +777,7 @@ def test_create_manual_palette_editor_wires_window_frames_actions_and_sliders():
     assert ("render_preview", b"png", 1000, 500) in calls
     assert calls[0] == ("create_window", {"tkinter_module": "tk", "title": "PLTE Editor:file.png"})
     assert ("build_layout", 2100, (100, 50)) in calls
+    assert ("center_window", window, layout) in calls
     assert ("set_state_sliders", state, ["slider-a", "slider-b"]) in calls
 
     action_call = next(call for call in calls if call[0] == "build_action_specs")
@@ -738,6 +807,107 @@ def test_create_manual_palette_editor_wires_window_frames_actions_and_sliders():
     assert create_sliders_call[1]["height"] == 500
     assert create_sliders_call[1]["width"] == 1000
     assert create_sliders_call[1]["slider_length"] == 970
+
+
+def test_build_manual_palette_layout_passes_screen_height_when_supported():
+    calls = []
+    window = FakeWindowWithHeight()
+
+    layout = palette_runtime.build_manual_palette_layout(
+        lambda screen_width, image_size, screen_height: calls.append(
+            ("layout", screen_width, image_size, screen_height)
+        )
+        or "layout",
+        window,
+        (32, 32),
+    )
+
+    assert layout == "layout"
+    assert calls == [("layout", 2100, (32, 32), 1080)]
+
+
+def test_build_manual_palette_layout_keeps_two_argument_builders():
+    calls = []
+    window = FakeWindowWithHeight()
+
+    layout = palette_runtime.build_manual_palette_layout(
+        lambda screen_width, image_size: calls.append(
+            ("layout", screen_width, image_size)
+        )
+        or "layout",
+        window,
+        (32, 32),
+    )
+
+    assert layout == "layout"
+    assert calls == [("layout", 2100, (32, 32))]
+
+
+def test_create_manual_palette_editor_passes_frame_to_preview_when_supported():
+    calls = []
+    window = FakeWindow()
+    frames = palette_ui.PaletteEditorFrames(
+        img="frame-img",
+        slider="frame-slider",
+        action="frame-action",
+    )
+    slider_canvas = palette_ui.PaletteSliderCanvas(
+        canvas=FakeCanvas(),
+        frame="frame-canvas",
+        scrollbar="scrollbar",
+    )
+    session = palette_runtime.ManualPaletteSession(
+        before=b"before",
+        after=b"after",
+        wanabyte=b"png",
+        palette_count=1,
+        state=palette_ui.PaletteEditorState(values=["empty"], sliders=[], wanabyte=b"png"),
+    )
+    action_runtime = palette_runtime.ManualPaletteActionRuntime(
+        web_safe=lambda *args, **kwargs: None,
+        web_random=lambda *args, **kwargs: None,
+        x11=lambda *args, **kwargs: None,
+        x11_random=lambda *args, **kwargs: None,
+        randomize=lambda *args, **kwargs: None,
+        save_palette=lambda *args, **kwargs: None,
+    )
+
+    palette_runtime.create_manual_palette_editor(
+        palette_runtime.ManualPaletteEditorRuntime(
+            tkinter_module="tk",
+            render_preview=lambda data, width, height, frame: calls.append(
+                ("render_preview", data, width, height, frame)
+            ),
+            create_window=lambda **kwargs: window,
+            build_layout=lambda screen_width, image_size: palette_ui.PaletteEditorLayout(
+                basewidth=1000,
+                hsize=500,
+                action_width=2000,
+                action_height=50,
+                canvas_width=985,
+                slider_length=970,
+            ),
+            create_frames=lambda **kwargs: frames,
+            build_action_specs=lambda runtime, context: (),
+            create_buttons=lambda **kwargs: {},
+            create_slider_canvas=lambda **kwargs: slider_canvas,
+            create_sliders=lambda **kwargs: [],
+            set_state_sliders=lambda state, sliders: None,
+        ),
+        palette_runtime.ManualPaletteEditorContext(
+            title="PLTE Editor:file.png",
+            session=session,
+            pil_image=FakePilImage(),
+            chunk_length=12,
+            data_offset=4,
+            from_error="source",
+            scale_factory=object(),
+            update_scrollregion=object(),
+            action_runtime=action_runtime,
+        ),
+    )
+
+    assert calls == [("render_preview", b"png", 1000, 500, "frame-img")]
 
 
 def test_create_manual_palette_editor_from_namespace_wires_legacy_globals():
@@ -966,6 +1136,58 @@ def test_guess_palette_count_routes_image_error_to_betterror_and_end():
     assert ("end",) in calls
 
 
+def test_guess_palette_count_falls_back_when_decode_candidate_fails():
+    calls = []
+    side_notes = []
+
+    class FailingCv2:
+        def imdecode(self, value, flags):
+            raise ValueError("decode failed")
+
+    runtime = build_guess_runtime(calls, side_notes, hashes=(10, 11, 12))
+    runtime = palette_runtime.PaletteCountGuessRuntime(
+        **{**runtime.__dict__, "cv2": FailingCv2()}
+    )
+
+    result = palette_runtime.guess_palette_count(
+        runtime,
+        guess_context(ihdr_depth="3"),
+        b"before",
+        b"after",
+    )
+
+    assert result == 7
+    assert ("betterror", "decode failed", "Guess_Palettes_Nbr") in calls
+    assert ("end",) in calls
+    assert side_notes == [
+        "Warning:Could not estimate palette number.Returning Max Palettes number according to IHDR Depht"
+    ]
+
+
+def test_guess_palette_count_falls_back_without_cv2_dependencies():
+    calls = []
+    side_notes = []
+    runtime = build_guess_runtime(calls, side_notes, hashes=(10, 11, 12))
+    runtime = palette_runtime.PaletteCountGuessRuntime(
+        **{**runtime.__dict__, "cv2": None, "numpy": None}
+    )
+
+    result = palette_runtime.guess_palette_count(
+        runtime,
+        guess_context(ihdr_depth="4"),
+        b"before",
+        b"after",
+    )
+
+    assert result == 15
+    assert ("emit", "<yellow:Warning:%s>" % "Could not estimate palette number; using max palettes from IHDR depth.") in calls
+    assert ("end",) not in calls
+    assert not any(call[0] == "build_palette_png" for call in calls)
+    assert side_notes == [
+        "Warning:Could not estimate palette number.Returning Max Palettes number according to IHDR Depht"
+    ]
+
+
 def test_guess_palette_count_from_namespace_uses_globals_and_builtin_print_fallback():
     calls = []
     side_notes = []
@@ -1000,11 +1222,16 @@ def main():
         ("Before/after slices", test_manual_palette_slices_preserve_legacy_before_after_cut),
         ("Manual palette session", test_create_manual_palette_session_builds_initial_png_and_state),
         ("Manual palette setup", test_create_manual_palette_setup_builds_session_image_and_debug_report),
-        ("Manual palette bytes chunk", test_create_manual_palette_setup_preserves_bytes_chunk_name_error_path),
+        ("Manual palette bytes chunk", test_create_manual_palette_setup_accepts_bytes_chunk_name_without_error),
+        ("Manual palette setup no cv2", test_create_manual_palette_setup_uses_pillow_preview_without_cv2),
         ("Full new data", test_manual_palette_full_new_data_returns_chunk_bytes_between_slices),
         ("Sync palette legacy state", test_sync_palette_legacy_state_updates_namespace_when_state_exists),
         ("Sync palette none state", test_sync_palette_legacy_state_ignores_none_state),
         ("Render palette namespace preview", test_render_palette_preview_from_namespace_updates_image_globals),
+        (
+            "Render palette namespace preview frame",
+            test_render_palette_preview_from_namespace_accepts_frame_argument,
+        ),
         (
             "Update palette namespace state",
             test_update_palette_value_from_namespace_updates_state_sync_and_preview,
@@ -1020,6 +1247,15 @@ def main():
         ("Manual palette action specs", test_build_manual_palette_action_specs_preserves_legacy_callbacks),
         ("Manual palette editor", test_create_manual_palette_editor_wires_window_frames_actions_and_sliders),
         (
+            "Manual palette layout screen height",
+            test_build_manual_palette_layout_passes_screen_height_when_supported,
+        ),
+        (
+            "Manual palette layout two-arg compatibility",
+            test_build_manual_palette_layout_keeps_two_argument_builders,
+        ),
+        ("Manual palette editor preview frame", test_create_manual_palette_editor_passes_frame_to_preview_when_supported),
+        (
             "Manual palette namespace editor",
             test_create_manual_palette_editor_from_namespace_wires_legacy_globals,
         ),
@@ -1027,6 +1263,8 @@ def main():
         ("Guess palette fallback", test_guess_palette_count_preserves_ihdr_depth_fallback),
         ("Guess palette libpng error", test_guess_palette_count_routes_libpng_error_to_end),
         ("Guess palette image error", test_guess_palette_count_routes_image_error_to_betterror_and_end),
+        ("Guess palette decode fallback", test_guess_palette_count_falls_back_when_decode_candidate_fails),
+        ("Guess palette no cv2 fallback", test_guess_palette_count_falls_back_without_cv2_dependencies),
         (
             "Guess palette namespace bridge",
             test_guess_palette_count_from_namespace_uses_globals_and_builtin_print_fallback,

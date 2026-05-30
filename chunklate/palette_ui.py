@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import io
 from typing import Any
 from typing import Iterable
 
@@ -31,6 +32,8 @@ class PaletteEditorLayout:
 class PaletteScaleWidget:
     var: Any
     scale: Any
+    swatch: Any
+    container: Any
 
 
 @dataclass(frozen=True)
@@ -112,14 +115,43 @@ def randomize_palette_state(
     return state.wanabyte
 
 
+def palette_value_to_hex(value: Any) -> str:
+    try:
+        color_value = int(value)
+    except (TypeError, ValueError):
+        return "#ffffff"
+    if color_value < 0:
+        return "#ffffff"
+    return "#%06x" % min(color_value, 0xFFFFFF)
+
+
+def update_palette_swatch(swatch: Any, value: Any) -> None:
+    if swatch is None or not hasattr(swatch, "config"):
+        return
+    swatch.config(bg=palette_value_to_hex(value))
+
+
+def update_slider_swatch(slider: Any, value: Any) -> None:
+    update_palette_swatch(getattr(slider, "swatch", None), value)
+
+
 def preview_dimensions(width: int, height: int) -> tuple[int, int]:
     return width - 10, height - 10
 
 
-def build_editor_layout(screen_width: int, image_size: tuple[int, int]) -> PaletteEditorLayout:
+def build_editor_layout(
+    screen_width: int,
+    image_size: tuple[int, int],
+    screen_height: int | None = None,
+) -> PaletteEditorLayout:
     basewidth = int(screen_width / 2.10)
     wpercent = basewidth / float(image_size[0])
     hsize = int(float(image_size[1]) * float(wpercent))
+    if screen_height is not None:
+        max_hsize = max(100, int((screen_height * 0.90 - 20) / 1.10))
+        if hsize > max_hsize:
+            hsize = max_hsize
+            basewidth = int(hsize * float(image_size[0]) / float(image_size[1]))
     return PaletteEditorLayout(
         basewidth=basewidth,
         hsize=hsize,
@@ -128,6 +160,37 @@ def build_editor_layout(screen_width: int, image_size: tuple[int, int]) -> Palet
         canvas_width=basewidth - 15,
         slider_length=basewidth - 30,
     )
+
+
+def palette_editor_window_size(layout: PaletteEditorLayout) -> tuple[int, int]:
+    return (
+        max(layout.basewidth * 2 + 40, layout.action_width + 20),
+        layout.hsize + layout.action_height + 20,
+    )
+
+
+def center_palette_editor_window(
+    window: Any,
+    layout: PaletteEditorLayout,
+    *,
+    margin: int = 20,
+) -> str | None:
+    required = ("geometry", "winfo_screenwidth", "winfo_screenheight")
+    if not all(hasattr(window, name) for name in required):
+        return None
+    if hasattr(window, "update_idletasks"):
+        window.update_idletasks()
+
+    screen_width = int(window.winfo_screenwidth())
+    screen_height = int(window.winfo_screenheight())
+    width, height = palette_editor_window_size(layout)
+    width = min(width, max(1, screen_width - margin * 2))
+    height = min(height, max(1, screen_height - margin * 2))
+    x = max(0, int((screen_width - width) / 2))
+    y = max(0, int((screen_height - height) / 2))
+    geometry = f"{width}x{height}+{x}+{y}"
+    window.geometry(geometry)
+    return geometry
 
 
 def create_palette_editor_window(
@@ -173,6 +236,26 @@ def create_palette_editor_frames(
     return PaletteEditorFrames(img=frame_img, slider=frame_slider, action=frame_action)
 
 
+def decode_preview_image(
+    wanabyte: bytes,
+    *,
+    cv2_module: Any,
+    numpy_module: Any,
+    image_module: Any,
+) -> tuple[Any, Any]:
+    if cv2_module is not None and numpy_module is not None:
+        im = cv2_module.imdecode(numpy_module.frombuffer(wanabyte, numpy_module.uint8), -1)
+        if im is not None:
+            return im, image_module.fromarray(im)
+
+    if image_module is None:
+        raise RuntimeError("PIL is required to render the PLTE editor preview without OpenCV.")
+
+    pil_image = image_module.open(io.BytesIO(wanabyte))
+    pil_image.load()
+    return None, pil_image
+
+
 def render_preview_label(
     wanabyte: bytes,
     frame_img: Any,
@@ -185,8 +268,12 @@ def render_preview_label(
     image_tk_module: Any,
     tkinter_module: Any,
 ) -> tuple[Any, Any, Any]:
-    im = cv2_module.imdecode(numpy_module.frombuffer(wanabyte, numpy_module.uint8), -1)
-    pil_image = image_module.fromarray(im)
+    im, pil_image = decode_preview_image(
+        wanabyte,
+        cv2_module=cv2_module,
+        numpy_module=numpy_module,
+        image_module=image_module,
+    )
     new_pil_image = pil_image.resize(
         preview_dimensions(width, height),
         image_module.Resampling.LANCZOS,
@@ -209,20 +296,39 @@ def create_palette_scale(
     orient: str = "horizontal",
     grid_options: dict[str, Any] | None = None,
 ) -> PaletteScaleWidget:
+    container = tkinter_module.Frame(master)
+    container.grid(**(grid_options or {}))
+    container.columnconfigure(1, weight=1)
     var = tkinter_module.IntVar()
+    swatch = tkinter_module.Label(
+        container,
+        bg=palette_value_to_hex(value),
+        width=4,
+        height=2,
+        relief="solid",
+        borderwidth=1,
+    )
+    swatch.grid(row=0, column=0, padx=(0, 8), pady=0, sticky="ns")
+
+    def update_and_call(event):
+        update_palette_swatch(swatch, event)
+        if callable(command):
+            return command(event)
+        return None
+
     scale = tkinter_module.Scale(
-        master,
+        container,
         label=label,
         variable=var,
         from_=from_,
         to=to,
         length=length,
-        command=command,
+        command=update_and_call,
         orient=orient,
     )
     var.set(value)
-    scale.grid(**(grid_options or {}))
-    return PaletteScaleWidget(var=var, scale=scale)
+    scale.grid(row=0, column=1, sticky="ew")
+    return PaletteScaleWidget(var=var, scale=scale, swatch=swatch, container=container)
 
 
 def create_palette_slider_canvas(
@@ -316,6 +422,7 @@ def apply_color_table(values: list[Any], sliders: Iterable[Any], colors: Iterabl
         color_value = int(color, 16)
         values[index] = color_value
         slider.var.set(color_value)
+        update_slider_swatch(slider, color_value)
 
 
 def random_palette_values(values: list[Any], sliders: Iterable[Any], random_int) -> None:
@@ -323,6 +430,7 @@ def random_palette_values(values: list[Any], sliders: Iterable[Any], random_int)
         color_value = random_int(0, 16777215)
         values[index] = color_value
         slider.var.set(color_value)
+        update_slider_swatch(slider, color_value)
 
 
 def save_checkpoint(

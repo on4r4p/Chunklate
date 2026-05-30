@@ -1540,6 +1540,7 @@ def no_next_runtime(
             chunk_story=record("chunk_story"),
             check_chunk_order=record("check_chunk_order"),
             libpng_check=record("libpng_check", "libpng-result"),
+            run_relics=record("relics", "relics-result"),
             the_good_place=record("the_good_place", "good-place-result"),
             write_clone=record("write_clone", "write-result"),
             the_end=record("the_end"),
@@ -1741,6 +1742,39 @@ def test_apply_no_next_false_positive_iend_repairs_hist_before_plte_before_libpn
     assert ("the_good_place", (b"hIST", 4, b"PLTE"), {}) in calls
     assert not [call for call in calls if call[0] == "libpng_check"]
     assert not [call for call in calls if call[0] == "the_end"]
+
+
+def test_apply_no_next_false_positive_iend_routes_missing_plte_to_relics():
+    calls = []
+    finding = "GetInfo_Error_0:-PLTE Chunk or sPLT is missing.(tRNS must be used after one of them)"
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        pandora_box={finding: {}},
+        chunks_history=(b"PNG", b"IHDR", b"gAMA", b"tRNS", b"bKGD", b"IDAT"),
+    )
+
+    result = fixit_felix_runtime.apply_no_next_false_positive_iend(
+        runtime,
+        fixit_felix.NoNextFalsePositiveIendDecision("libpng_check"),
+    )
+
+    assert result == (True, "relics-result")
+    assert state["eof"] is True
+    assert side_notes == [
+        "-Reached the end of file.",
+        "-Stopped before libpng: unresolved findings remain: %s." % finding,
+    ]
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "I found a missing PLTE repair path, so I am opening the Ark before calling this unsupported.",
+            "com",
+        ),
+        {},
+    ) in calls
+    assert ("relics", (finding,), {}) in calls
+    assert not [call for call in calls if call[0] in ("libpng_check", "the_good_place", "the_end")]
 
 
 def test_apply_no_next_false_positive_iend_refuses_libpng_when_other_errors_remain():
@@ -2407,6 +2441,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert no_next.chunk_story is namespace["ChunkStory"]
     assert no_next.check_chunk_order is namespace["CheckChunkOrder"]
     assert no_next.libpng_check is namespace["LibpngCheck"]
+    assert no_next.run_relics is namespace["Relics"]
     assert no_next.the_good_place is namespace["TheGoodPlace"]
     assert no_next.write_clone is namespace["WriteClone"]
     assert no_next.the_end is namespace["TheEnd"]

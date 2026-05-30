@@ -564,6 +564,17 @@ def parse_trns(
         fixes.append("-IHDR Color Have to be either 0,2 or 3 when used with tRNS")
         return TrnsInfo(fixes=tuple(fixes))
 
+    if ihdr_color == "0" and len(data) != 4:
+        fixes.append(
+            "-tRNS length is not Valid :%s must be 2 for IHDR color type 0"
+            % (len(data) // 2)
+        )
+    if ihdr_color == "2" and len(data) != 12:
+        fixes.append(
+            "-tRNS length is not Valid :%s must be 6 for IHDR color type 2"
+            % (len(data) // 2)
+        )
+
     if len(data) == 0:
         fixes.append("-tRNS Chunk Must not be empty")
         return TrnsInfo(fixes=tuple(fixes))

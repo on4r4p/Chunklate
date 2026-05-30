@@ -56,6 +56,16 @@ def build_png_with_color_chunk(color_type, chunk_type, chunk_data):
     )
 
 
+def build_indexed_png_without_plte():
+    ihdr = struct.pack("!IIBBBBB", 1, 1, 8, 3, 0, 0, 0)
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+
 def test_route_finding_keeps_legacy_handler_order():
     assert fixit_felix.route_finding("Checksum_Error_0:Wrong Crc", skip_bad_crc=False).handler == "wrong_crc"
     assert fixit_felix.route_finding("Libpng_Error_0:libpng error: bad adaptive filter", skip_bad_crc=False).handler == "libpng_error"
@@ -321,6 +331,7 @@ def test_applied_repair_adds_ihdr_metadata_when_available():
 def test_automatic_repair_order_keeps_legacy_priority():
     assert fixit_felix.automatic_repair_order() == (
         "color_profile_cleanup",
+        "duplicate_singleton_cleanup",
         "plte_cleanup",
         "gama_length",
         "gifg_length",
@@ -333,6 +344,7 @@ def test_automatic_repair_order_keeps_legacy_priority():
         "offs_length",
         "phys_length",
         "time_length",
+        "trns_length",
         "sbit_length",
         "srgb_length",
         "ster_length",
@@ -706,6 +718,47 @@ def test_plte_cleanup_requires_noninteractive_mode_and_plte_finding():
     assert b"PLTE" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
 
 
+def test_plte_cleanup_inserts_missing_indexed_palette_from_structure_finding():
+    original = build_indexed_png_without_plte()
+
+    repaired = fixit_felix.plte_cleanup(
+        original,
+        ["libpng error: Indexed-color PNG requires a PLTE chunk"],
+        auto=False,
+        nodialogue=False,
+        max_saves=1,
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "inserted missing indexed PLTE as grayscale palette"
+    assert validate_png_structure(repaired.data).ok
+    plte = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"PLTE")
+    assert plte.length == 768
+
+
+def test_duplicate_singleton_cleanup_requires_multiple_finding():
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", struct.pack("!IIBBBBB", 1, 1, 16, 4, 0, 0, 0))
+        + build_png_chunk(b"bKGD", b"\x00\x01")
+        + build_png_chunk(b"bKGD", b"\x00\x02")
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\xff\xff"))
+        + IEND_CHUNK
+    )
+
+    assert fixit_felix.duplicate_singleton_cleanup(original, []) is None
+
+    repaired = fixit_felix.duplicate_singleton_cleanup(
+        original,
+        ["CheckChunkOrder_Error_0:-Multiple"],
+    )
+
+    assert repaired is not None
+    assert repaired.removed_chunks == ("bKGD",)
+    assert validate_png_structure(repaired.data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)].count(b"bKGD") == 1
+
+
 def test_bkgd_length_requires_matching_finding():
     original = build_png_with_color_chunk(4, b"bKGD", b"\x00\x00\x00\x00\x00\x00")
 
@@ -937,6 +990,25 @@ def test_time_length_requires_matching_finding():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_trns_length_requires_matching_finding():
+    original = build_png_with_color_chunk(0, b"tRNS", b"")
+
+    assert fixit_felix.trns_length(original, []) is None
+
+    repaired = fixit_felix.trns_length(
+        original,
+        ["GetInfo_Error_0:-tRNS Chunk Must not be empty"],
+    )
+
+    assert repaired is not None
+    assert repaired.old_length == 0
+    assert repaired.new_length == 2
+    assert repaired.strategy == "padded tRNS length from 0 to 2 with zero bytes and rebuilt CRC"
+    trns = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"tRNS")
+    assert trns.data == b"\x00\x00"
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_sbit_length_requires_matching_finding():
     valid = build_rgb_png(1, 1, b"\x00\x00\x00\x00")
     ihdr = next(iter_chunks(valid))
@@ -1160,6 +1232,11 @@ def main():
         ("Tool prefix preserves legacy labels", test_tool_prefix_for_chunk_preserves_legacy_bytes_and_string_labels),
         ("Color profile cleanup requires matching finding", test_color_profile_cleanup_requires_matching_finding),
         ("PLTE cleanup requires noninteractive mode and PLTE finding", test_plte_cleanup_requires_noninteractive_mode_and_plte_finding),
+        (
+            "PLTE cleanup inserts missing indexed palette",
+            test_plte_cleanup_inserts_missing_indexed_palette_from_structure_finding,
+        ),
+        ("Duplicate singleton cleanup requires Multiple finding", test_duplicate_singleton_cleanup_requires_multiple_finding),
         ("gAMA length requires matching finding", test_gama_length_requires_matching_finding),
         ("gIFg length requires matching finding", test_gifg_length_requires_matching_finding),
         ("hIST length requires matching finding", test_hist_length_requires_matching_finding),
@@ -1171,6 +1248,7 @@ def main():
         ("oFFs length requires matching finding", test_offs_length_requires_matching_finding),
         ("pHYs length requires matching finding", test_phys_length_requires_matching_finding),
         ("tIME length requires matching finding", test_time_length_requires_matching_finding),
+        ("tRNS length requires matching finding", test_trns_length_requires_matching_finding),
         ("sBIT length requires matching finding", test_sbit_length_requires_matching_finding),
         ("sRGB length requires matching finding", test_srgb_length_requires_matching_finding),
         ("sTER length requires matching finding", test_ster_length_requires_matching_finding),

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util
 import sys
+import zlib
 from pathlib import Path
 
 
@@ -9,6 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import checkpoint, relics
+from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks, validate_png_structure
 
 CHUNKLATE = ROOT / "Chunklate.py"
 
@@ -35,6 +37,16 @@ def reset_relic_state():
     chunklate.PAUSEDEBUG = False
     chunklate.PAUSEERROR = False
     chunklate.NODIALOGUE = True
+
+
+def build_indexed_png_without_plte():
+    ihdr = b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x03\x00\x00\x00"
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
 
 
 def test_relic_build_tools_uses_legacy_tool_names():
@@ -442,6 +454,112 @@ def test_relics_module_finds_plte_chunk_window():
         end_offset=801,
     )
     assert relics.plte_chunk_window([b"IHDR", b"IDAT"], ["0:8:21", "1:21:900"]) is None
+
+
+def test_relics_module_finds_missing_plte_insert_window():
+    assert relics.is_missing_plte_finding(
+        "LibpngCheck_Error_0:-libpng error: Indexed-color PNG requires a PLTE chunk"
+    )
+    assert relics.is_missing_plte_finding(
+        "GetInfo_Error_0:-PLTE Chunk or sPLT is missing.(tRNS must be used after one of them)"
+    )
+    assert relics.is_missing_plte_finding("GetInfo_Error_0:-PLTE Wrong Data") is False
+
+    window = relics.missing_plte_chunk_window(
+        [b"IHDR", b"gAMA", b"IDAT", b"IEND"],
+        ["0:16:58:13", "1:66:90:4", "2:98:980:433", "3:988:1012:0"],
+    )
+
+    assert window == relics.PlteChunkWindow(
+        chunk=b"PLTE",
+        data_offset=98,
+        end_offset=98,
+    )
+    assert relics.missing_plte_chunk_window(
+        [b"IHDR", b"gAMA", b"tRNS", b"bKGD", b"IDAT", b"IEND"],
+        [
+            "0:16:58:13",
+            "1:66:90:4",
+            "2:98:110:1",
+            "3:110:122:1",
+            "4:122:980:433",
+            "5:988:1012:0",
+        ],
+    ) == relics.PlteChunkWindow(
+        chunk=b"PLTE",
+        data_offset=98,
+        end_offset=98,
+    )
+    assert relics.missing_plte_chunk_window([b"IHDR"], ["0:16:58:13"]) is None
+
+
+def test_relics_module_builds_missing_plte_save_clone_plan():
+    original = build_indexed_png_without_plte()
+    plan = relics.missing_plte_save_clone_plan(
+        original.hex(),
+        [b"IHDR", b"IDAT", b"IEND"],
+        ["0:16:66:13", "1:66:100:10", "2:100:124:0"],
+    )
+
+    assert plan is not None
+    assert plan.start == 66
+    assert plan.end == 66
+    assert plan.info == "-Inserted missing indexed PLTE as grayscale palette."
+
+    repaired = bytes.fromhex(original.hex()[:66] + plan.fixed_data + original.hex()[66:])
+    assert validate_png_structure(repaired).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired)] == [b"IHDR", b"PLTE", b"IDAT", b"IEND"]
+    assert next(chunk.length for chunk in iter_chunks(repaired) if chunk.chunk_type == b"PLTE") == 768
+
+    repair_plan = relics.missing_plte_repair_plan(
+        original.hex(),
+        [b"IHDR", b"IDAT", b"IEND"],
+        ["0:16:66:13", "1:66:100:10", "2:100:124:0"],
+        target_file="sample.png",
+    )
+    assert repair_plan.save_plan == plan
+    assert repair_plan.manual_plan == relics.PlteManualPlan("sample.png", b"PLTE", 66, 66, "-PLTE Wrong Data")
+    assert bytes.fromhex(repair_plan.preview_data) == repaired
+
+
+def test_relics_module_builds_missing_plte_plan_before_trns():
+    ihdr = b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x03\x00\x00\x00"
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"gAMA", b"\x00\x01\x86\xa0")
+        + build_png_chunk(b"tRNS", b"\xff")
+        + build_png_chunk(b"bKGD", b"\x00")
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+    plan = relics.missing_plte_save_clone_plan(
+        original.hex(),
+        [b"IHDR", b"gAMA", b"tRNS", b"bKGD", b"IDAT", b"IEND"],
+        [
+            "0:16:66:13",
+            "1:66:98:4",
+            "2:98:124:1",
+            "3:124:150:1",
+            "4:150:194:10",
+            "5:194:218:0",
+        ],
+    )
+
+    assert plan is not None
+    assert plan.start == 98
+    repaired = bytes.fromhex(original.hex()[:98] + plan.fixed_data + original.hex()[98:])
+    assert validate_png_structure(repaired).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired)] == [
+        b"IHDR",
+        b"gAMA",
+        b"PLTE",
+        b"tRNS",
+        b"bKGD",
+        b"IDAT",
+        b"IEND",
+    ]
 
 
 def test_relics_module_builds_plte_manual_plan():
@@ -986,6 +1104,18 @@ def test_relics_module_selects_no_pandemonium_policy_for_full_chunk_forcer():
     )
 
 
+def test_relics_module_selects_no_pandemonium_policy_for_missing_plte():
+    finding = "LibpngCheck_Error_0:-libpng error: Indexed-color PNG requires a PLTE chunk"
+
+    assert relics.first_missing_plte_finding({"Other_Error": {}, finding: {}}) == finding
+    assert relics.no_pandemonium_policy({finding: {}}, [b"IHDR"], [b"IDAT"]) == (
+        relics.NoPandemoniumPolicy(
+            action="missing_plte",
+            missing_plte_finding=finding,
+        )
+    )
+
+
 def test_relics_module_preserves_legacy_getinfo_print_hits():
     pandora_box = {
         "GetInfo_Error_0:IDAT missing info": {},
@@ -1043,6 +1173,15 @@ def test_relics_module_builds_no_pandemonium_prompt_contexts():
         relics.NoPandemoniumPolicy(action="unsupported"),
         pandora_box,
     ) == relics.NoPandemoniumPromptContext("unsupported")
+
+    missing_plte_finding = "LibpngCheck_Error_0:-libpng error: Indexed-color PNG requires a PLTE chunk"
+    assert relics.no_pandemonium_prompt_context(
+        relics.NoPandemoniumPolicy(
+            action="missing_plte",
+            missing_plte_finding=missing_plte_finding,
+        ),
+        pandora_box,
+    ) == relics.NoPandemoniumPromptContext("missing_plte", (missing_plte_finding,))
 
 
 def test_relics_module_builds_full_chunk_forcer_plan():
@@ -1107,6 +1246,36 @@ def test_relics_module_selects_no_pandemonium_repair_decisions():
     ) == relics.NoPandemoniumRepairDecision(
         "full_chunk_forcer",
         relics.FullChunkForcerPlan("sample.png", "tEXt", 33, 277, "GetInfo"),
+    )
+    assert relics.no_pandemonium_repair_decision(
+        relics.NoPandemoniumPolicy(action="missing_plte"),
+        [b"IHDR", b"IDAT", b"IEND"],
+        ["0:16:66:13", "1:66:100:10", "2:100:124:0"],
+        target_file="sample.png",
+        from_error="LibpngCheck",
+        chunks_len_not_fixed=[],
+        answer=True,
+        data_hex=build_indexed_png_without_plte().hex(),
+    ) == relics.NoPandemoniumRepairDecision(
+        "missing_plte_auto",
+        relics.missing_plte_repair_plan(
+            build_indexed_png_without_plte().hex(),
+            [b"IHDR", b"IDAT", b"IEND"],
+            ["0:16:66:13", "1:66:100:10", "2:100:124:0"],
+            target_file="sample.png",
+        ),
+    )
+    assert relics.no_pandemonium_repair_decision(
+        relics.NoPandemoniumPolicy(action="missing_plte"),
+        [b"IHDR", b"gAMA", b"IDAT", b"IEND"],
+        ["0:16:58:13", "1:66:90:4", "2:98:980:433", "3:988:1012:0"],
+        target_file="sample.png",
+        from_error="LibpngCheck",
+        chunks_len_not_fixed=[],
+        answer=True,
+    ) == relics.NoPandemoniumRepairDecision(
+        "plte_manual",
+        relics.PlteManualPlan("sample.png", b"PLTE", 98, 98, "-PLTE Wrong Data"),
     )
     assert relics.no_pandemonium_repair_decision(
         getinfo_policy,
@@ -1400,6 +1569,8 @@ def main():
         ("Relics module exposes PLTE prompts", test_relics_module_exposes_plte_interactive_prompts),
         ("Relics module finds current PLTE repair finding", test_relics_module_finds_current_plte_repair_finding),
         ("Relics module finds PLTE chunk window", test_relics_module_finds_plte_chunk_window),
+        ("Relics module finds missing PLTE insert window", test_relics_module_finds_missing_plte_insert_window),
+        ("Relics module builds missing PLTE SaveClone plan", test_relics_module_builds_missing_plte_save_clone_plan),
         ("Relics module builds PLTE manual plan", test_relics_module_builds_plte_manual_plan),
         ("Relics module builds PLTE remove plan", test_relics_module_builds_plte_remove_plan),
         ("Relics module builds PLTE brawl plan", test_relics_module_builds_plte_brawl_plan),
@@ -1439,6 +1610,7 @@ def main():
         ("Relics module finds first GetInfo known chunk", test_relics_module_finds_first_getinfo_known_chunk),
         ("Relics module selects no-Pandemonium GetInfo policy", test_relics_module_selects_no_pandemonium_policy_for_getinfo_brawl),
         ("Relics module selects no-Pandemonium full forcer policy", test_relics_module_selects_no_pandemonium_policy_for_full_chunk_forcer),
+        ("Relics module selects no-Pandemonium missing PLTE policy", test_relics_module_selects_no_pandemonium_policy_for_missing_plte),
         (
             "Relics module preserves legacy GetInfo print hits",
             test_relics_module_preserves_legacy_getinfo_print_hits,

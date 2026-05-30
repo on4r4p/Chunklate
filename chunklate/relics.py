@@ -5,6 +5,8 @@ from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from typing import Any
 
+from . import png
+
 
 LEGACY_BAD_CHUNK_LABEL = "johnnybytesme"
 
@@ -91,6 +93,7 @@ class NoPandemoniumPolicy:
     chunk_name: str | None = None
     struct_index_errors: tuple[Any, ...] = ()
     known_chunk_route: "GetInfoChunkRoute | None" = None
+    missing_plte_finding: Any = None
 
 
 @dataclass(frozen=True)
@@ -117,6 +120,13 @@ class WrongCrcSaveClonePlan:
     start: Any
     end: Any
     info: str
+
+
+@dataclass(frozen=True)
+class MissingPlteRepairPlan:
+    save_plan: WrongCrcSaveClonePlan
+    manual_plan: Any
+    preview_data: str
 
 
 @dataclass(frozen=True)
@@ -548,6 +558,97 @@ def first_current_plte_repair_finding(
     return None
 
 
+def is_missing_plte_finding(finding: Any) -> bool:
+    text = str(finding).lower()
+    return (
+        "missing plte" in text
+        or "requires a plte chunk" in text
+        or "plte chunk or splt is missing" in text
+    )
+
+
+def first_missing_plte_finding(pandora_box: Mapping[Any, Any]) -> Any | None:
+    for key in pandora_box:
+        if is_missing_plte_finding(key):
+            return key
+    return None
+
+
+def missing_plte_chunk_window(
+    chunks_history: list[Any] | tuple[Any, ...],
+    chunks_history_index: list[Any] | tuple[Any, ...],
+) -> PlteChunkWindow | None:
+    for chunk, chunk_index in zip(chunks_history, chunks_history_index):
+        if chunk not in (b"tRNS", b"hIST", b"bKGD", b"IDAT"):
+            continue
+        parts = str(chunk_index).split(":")
+        insert_offset = int(parts[1])
+        return PlteChunkWindow(
+            chunk=b"PLTE",
+            data_offset=insert_offset,
+            end_offset=insert_offset,
+        )
+    return None
+
+
+def missing_plte_save_clone_plan(
+    data_hex: str,
+    chunks_history: list[Any] | tuple[Any, ...],
+    chunks_history_index: list[Any] | tuple[Any, ...],
+) -> WrongCrcSaveClonePlan | None:
+    window = missing_plte_chunk_window(chunks_history, chunks_history_index)
+    if window is None or not data_hex:
+        return None
+
+    try:
+        chunks = list(png.iter_chunks(bytes.fromhex(data_hex)))
+    except (ValueError, png.PngFormatError):
+        return None
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    if ihdr is None or len(ihdr.data) < 10:
+        return None
+
+    bit_depth = ihdr.data[8]
+    color_type = ihdr.data[9]
+    if color_type != 3 or bit_depth not in (1, 2, 4, 8):
+        return None
+
+    palette = png.grayscale_palette(2 ** bit_depth)
+    if palette is None:
+        return None
+
+    return WrongCrcSaveClonePlan(
+        fixed_data=png.build_png_chunk(b"PLTE", palette).hex(),
+        start=window.data_offset,
+        end=window.data_offset,
+        info="-Inserted missing indexed PLTE as grayscale palette.",
+    )
+
+
+def missing_plte_repair_plan(
+    data_hex: str,
+    chunks_history: list[Any] | tuple[Any, ...],
+    chunks_history_index: list[Any] | tuple[Any, ...],
+    *,
+    target_file: Any,
+) -> MissingPlteRepairPlan | None:
+    save_plan = missing_plte_save_clone_plan(
+        data_hex,
+        chunks_history,
+        chunks_history_index,
+    )
+    window = missing_plte_chunk_window(chunks_history, chunks_history_index)
+    if save_plan is None or window is None:
+        return None
+
+    return MissingPlteRepairPlan(
+        save_plan=save_plan,
+        manual_plan=plte_manual_plan(window, target_file=target_file),
+        preview_data=data_hex[: save_plan.start] + save_plan.fixed_data + data_hex[save_plan.end :],
+    )
+
+
 def plte_chunk_window(
     chunks_history: list[Any] | tuple[Any, ...],
     chunks_history_index: list[Any] | tuple[Any, ...],
@@ -889,6 +990,13 @@ def no_pandemonium_policy(
     critical_chunks: list[bytes] | tuple[bytes, ...],
     known_chunks: list[bytes] | tuple[bytes, ...],
 ) -> NoPandemoniumPolicy:
+    missing_plte_finding = first_missing_plte_finding(pandora_box)
+    if missing_plte_finding is not None:
+        return NoPandemoniumPolicy(
+            action="missing_plte",
+            missing_plte_finding=missing_plte_finding,
+        )
+
     chosen_one = first_getinfo_critical_chunk(pandora_box, critical_chunks)
     struct_index_errors = (
         getinfo_struct_index_errors(pandora_box, chosen_one)
@@ -941,6 +1049,12 @@ def no_pandemonium_prompt_context(
             ),
         )
 
+    if policy.action == "missing_plte" and policy.missing_plte_finding is not None:
+        return NoPandemoniumPromptContext(
+            "missing_plte",
+            (policy.missing_plte_finding,),
+        )
+
     return NoPandemoniumPromptContext("unsupported")
 
 
@@ -975,6 +1089,7 @@ def no_pandemonium_repair_decision(
     from_error: Any,
     chunks_len_not_fixed: list[bytes] | tuple[bytes, ...],
     answer: Any,
+    data_hex: str = "",
 ) -> NoPandemoniumRepairDecision:
     if answer is not True:
         return NoPandemoniumRepairDecision("none")
@@ -1003,6 +1118,24 @@ def no_pandemonium_repair_decision(
         )
         if plan is not None:
             return NoPandemoniumRepairDecision("full_chunk_forcer", plan)
+        return NoPandemoniumRepairDecision("none")
+
+    if policy.action == "missing_plte":
+        repair_plan = missing_plte_repair_plan(
+            data_hex,
+            chunks_history,
+            chunks_history_index,
+            target_file=target_file,
+        )
+        if repair_plan is not None:
+            return NoPandemoniumRepairDecision("missing_plte_auto", repair_plan)
+
+        window = missing_plte_chunk_window(chunks_history, chunks_history_index)
+        if window is not None:
+            return NoPandemoniumRepairDecision(
+                "plte_manual",
+                plte_manual_plan(window, target_file=target_file),
+            )
         return NoPandemoniumRepairDecision("none")
 
     return NoPandemoniumRepairDecision("unsupported")
