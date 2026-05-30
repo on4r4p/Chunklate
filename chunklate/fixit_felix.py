@@ -25,6 +25,7 @@ from .png import (
     repair_offs_length,
     repair_phys_length,
     repair_sbit_length,
+    repair_srgb_length,
     repair_unknown_private_critical_chunks,
 )
 from .idat import rebuild_partial_idat_blackfill
@@ -75,6 +76,7 @@ AutomaticRepairHandler = Literal[
     "offs_length",
     "phys_length",
     "sbit_length",
+    "srgb_length",
     "known_chunk_type_case",
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
@@ -98,6 +100,7 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "offs_length",
     "phys_length",
     "sbit_length",
+    "srgb_length",
     "known_chunk_type_case",
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
@@ -694,6 +697,16 @@ def sbit_length(data: bytes, findings: Iterable[object]) -> Any | None:
     return repair_sbit_length(data)
 
 
+def srgb_length(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "sRGB length is not Valid")
+        or has_finding(findings, "sRGB chunk length must be")
+    ):
+        return None
+
+    return repair_srgb_length(data)
+
+
 def missing_chunk_data_byte(data: bytes, findings: Iterable[object]) -> Any | None:
     if not (has_finding(findings, "Wrong Crc") or has_finding(findings, "No NextChunk")):
         return None
@@ -776,6 +789,8 @@ def automatic_repair(
         return phys_length(data, findings)
     if name == "sbit_length":
         return sbit_length(data, findings)
+    if name == "srgb_length":
+        return srgb_length(data, findings)
     if name == "known_chunk_type_case":
         return known_chunk_type_case(data, findings, known_chunk_types)
     if name == "unknown_private_critical_removal":

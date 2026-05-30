@@ -245,6 +245,36 @@ def test_loadingbar_progress_maps_position_to_budget_ratio():
     assert progress == ui.LoadingbarProgress(text="250/500frame2>", fish_pos=2)
 
 
+def test_loadingbar_fish_speed_scales_with_budget_digits():
+    assert ui.loadingbar_fish_speed(500) == 1
+    assert ui.loadingbar_fish_speed(100000) == 4
+
+
+def test_loadingbar_progress_moves_faster_for_large_budgets():
+    progress = ui.loadingbar_progress(
+        100000,
+        6,
+        6000,
+        [
+            "frame0>",
+            "frame1>",
+            "frame2>",
+            "frame3>",
+            "frame4>",
+            "frame5>",
+            "frame6>",
+            "frame7>",
+            "frame8>",
+            "frame9>",
+            "frame10>",
+        ],
+        fish_pos=0,
+        len_fish_list=10,
+    )
+
+    assert progress == ui.LoadingbarProgress(text="006000/100000frame2>", fish_pos=2)
+
+
 def test_loadingbar_progress_stops_at_last_visible_fish_frame():
     progress = ui.loadingbar_progress(
         500,
@@ -414,6 +444,8 @@ def main():
         ("Loadingbar frames", test_build_loadingbar_frames_preserves_legacy_animation_shape),
         ("Loadingbar progress static", test_loadingbar_progress_keeps_frame_between_100_steps),
         ("Loadingbar progress ratio", test_loadingbar_progress_maps_position_to_budget_ratio),
+        ("Loadingbar fish speed scales", test_loadingbar_fish_speed_scales_with_budget_digits),
+        ("Loadingbar progress large budget speed", test_loadingbar_progress_moves_faster_for_large_budgets),
         ("Loadingbar progress visible end", test_loadingbar_progress_stops_at_last_visible_fish_frame),
         ("Loadingbar namespace bridge", test_run_loadingbar_from_namespace_builds_and_prints_progress),
         ("Loadingbar print fallback", test_run_loadingbar_from_namespace_uses_print_fallback),

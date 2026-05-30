@@ -57,6 +57,7 @@ from chunklate.png import (
     repair_phys_length,
     repair_overlong_chunk_length_to_next_header,
     repair_sbit_length,
+    repair_srgb_length,
     repair_unknown_private_critical_chunks,
     SRGB_CHRM_PAYLOAD,
     validate_png_structure,
@@ -1022,6 +1023,23 @@ def test_repair_sbit_length_trims_grayscale_payload():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_repair_srgb_length_trims_rendering_intent_payload():
+    broken = repair_fixture("length_srgb.png").read_bytes()
+
+    assert "sRGB chunk length must be 1" in validate_png_structure(broken).errors
+
+    repaired = repair_srgb_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 2
+    assert repaired.new_length == 1
+    assert repaired.strategy == "trimmed sRGB length from 2 to 1 and rebuilt CRC"
+    srgb = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sRGB")
+    assert srgb.data == b"\x03"
+    assert srgb.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_repair_hist_length_pads_missing_frequency():
     broken = repair_fixture("length_hist.png").read_bytes()
 
@@ -1453,6 +1471,7 @@ def main():
         ("Infer missing pHYs unit", test_repair_phys_length_infers_missing_unit_byte),
         ("Trim indexed sBIT", test_repair_sbit_length_trims_indexed_payload),
         ("Trim grayscale sBIT", test_repair_sbit_length_trims_grayscale_payload),
+        ("Trim long sRGB", test_repair_srgb_length_trims_rendering_intent_payload),
         ("Pad short hIST", test_repair_hist_length_pads_missing_frequency),
         ("Trim long hIST", test_repair_hist_length_trims_extra_frequency),
         ("Rebuild wrong-length IEND", test_repair_iend_length_rebuilds_canonical_iend),

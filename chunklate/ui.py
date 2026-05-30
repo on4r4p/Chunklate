@@ -612,6 +612,16 @@ def loadingbar_last_visible_fish_frame(frames: list[str], len_fish_list: int) ->
     return len_fish_list
 
 
+def loadingbar_fish_speed(fishs: int) -> int:
+    try:
+        fish_count = abs(int(fishs))
+    except (TypeError, ValueError):
+        return 1
+    if fish_count <= 0:
+        return 1
+    return max(1, len(str(fish_count)) - 2)
+
+
 def loadingbar_progress(
     fishs: int,
     fishsize: int,
@@ -624,7 +634,12 @@ def loadingbar_progress(
 
     if fishs > 0 and visible_fish_end > 0:
         current_loop = min(max(0, int(loop)), fishs)
-        fish_pos = round((current_loop / fishs) * visible_fish_end)
+        if current_loop >= fishs:
+            fish_pos = visible_fish_end
+        else:
+            fish_speed = loadingbar_fish_speed(fishs)
+            animated_loop = (current_loop * fish_speed) % fishs
+            fish_pos = round((animated_loop / fishs) * visible_fish_end)
     elif loop % 100 == 0:
         if fish_pos != len_fish_list:
             fish_pos += 1

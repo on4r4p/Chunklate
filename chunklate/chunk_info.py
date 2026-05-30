@@ -1391,6 +1391,9 @@ def parse_srgb(data: str, has_chrm: bool = False) -> SrgbInfo:
     fixes: list[str] = []
     value = ""
 
+    if len(data) != 2:
+        fixes.append("-sRGB length is not Valid :%s must be 1" % (len(data) // 2))
+
     try:
         value = _hex_int_text(data, 0, 2)
     except Exception as exc:

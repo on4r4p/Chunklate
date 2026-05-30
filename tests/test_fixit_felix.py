@@ -333,6 +333,7 @@ def test_automatic_repair_order_keeps_legacy_priority():
         "offs_length",
         "phys_length",
         "sbit_length",
+        "srgb_length",
         "known_chunk_type_case",
         "unknown_private_critical_removal",
         "missing_chunk_data_byte",
@@ -933,6 +934,28 @@ def test_sbit_length_requires_matching_finding():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_srgb_length_requires_matching_finding():
+    valid = build_rgb_png(1, 1, b"\x00\x00\x00\x00")
+    ihdr = next(iter_chunks(valid))
+    ihdr_end = ihdr.offset + 12 + ihdr.length
+    original = valid[:ihdr_end] + build_png_chunk(b"sRGB", b"\x03\x00") + valid[ihdr_end:]
+
+    assert fixit_felix.srgb_length(original, []) is None
+
+    repaired = fixit_felix.srgb_length(
+        original,
+        ["GetInfo_Error_0:-sRGB length is not Valid :2 must be 1"],
+    )
+
+    assert repaired is not None
+    assert repaired.old_length == 2
+    assert repaired.new_length == 1
+    assert repaired.strategy == "trimmed sRGB length from 2 to 1 and rebuilt CRC"
+    srgb = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sRGB")
+    assert srgb.data == b"\x03"
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_missing_chunk_data_byte_requires_crc_or_no_next_finding():
     original = read_fixture("Good-Chunk-lenght-Missing-Bit.png")
 
@@ -1101,6 +1124,7 @@ def main():
         ("oFFs length requires matching finding", test_offs_length_requires_matching_finding),
         ("pHYs length requires matching finding", test_phys_length_requires_matching_finding),
         ("sBIT length requires matching finding", test_sbit_length_requires_matching_finding),
+        ("sRGB length requires matching finding", test_srgb_length_requires_matching_finding),
         ("Missing chunk data byte requires CRC or no-next finding", test_missing_chunk_data_byte_requires_crc_or_no_next_finding),
         ("Known chunk type case requires wrong ancillary finding", test_known_chunk_type_case_requires_wrong_ancillary_finding),
         ("Unknown private critical removal is standalone salvage", test_unknown_private_critical_removal_is_standalone_salvage),

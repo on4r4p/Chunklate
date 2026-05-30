@@ -2126,6 +2126,44 @@ def repair_sbit_length(data: bytes) -> ChunkDataLengthRepair | None:
     )
 
 
+def repair_srgb_length(data: bytes) -> ChunkDataLengthRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    srgb = next((chunk for chunk in chunks if chunk.chunk_type == b"sRGB"), None)
+    if srgb is None or srgb.length == 1:
+        return None
+
+    if srgb.length > 1:
+        repaired_chunk = build_png_chunk(b"sRGB", srgb.data[:1])
+        repaired = replace_png_chunk(data, srgb, repaired_chunk)
+        if not validate_png_structure(repaired).ok:
+            return None
+        return ChunkDataLengthRepair(
+            data=repaired,
+            strategy="trimmed sRGB length from %s to 1 and rebuilt CRC" % srgb.length,
+            chunk_name="sRGB",
+            chunk_offset=srgb.offset,
+            old_length=srgb.length,
+            new_length=1,
+        )
+
+    repaired = replace_png_chunk(data, srgb, b"")
+    if not validate_png_structure(repaired).ok:
+        return None
+    return ChunkDataLengthRepair(
+        data=repaired,
+        strategy="removed empty sRGB chunk length 0 below required 1",
+        chunk_name="sRGB",
+        chunk_offset=srgb.offset,
+        old_length=srgb.length,
+        new_length=0,
+        removed=True,
+    )
+
+
 def repair_hist_length(data: bytes) -> ChunkDataLengthRepair | None:
     try:
         chunks = list(iter_chunks(data))

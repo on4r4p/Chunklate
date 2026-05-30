@@ -359,11 +359,14 @@ def test_parse_ster_validates_mode():
 
 def test_parse_srgb_validates_rendering_intent_and_chrm_override():
     valid = chunk_info.parse_srgb("02")
+    long = chunk_info.parse_srgb("0300")
     invalid = chunk_info.parse_srgb("04")
     overridden = chunk_info.parse_srgb("01", has_chrm=True)
 
     assert valid.value == "2"
     assert valid.fixes == ()
+    assert long.value == "3"
+    assert long.fixes == ("-sRGB length is not Valid :2 must be 1",)
     assert invalid.fixes == ("-sRGB value must be between 0 to 3.",)
     assert overridden.fixes == ("-cHRM is overided by sRGB chunk",)
 
