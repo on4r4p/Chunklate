@@ -1038,6 +1038,8 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
     if len(hist_indices) > 1:
         errors.append("PNG must not contain multiple hIST chunks")
     if hist_indices:
+        if idat_indices and any(index > idat_indices[0] for index in hist_indices):
+            errors.append("hIST chunk must appear before the first IDAT chunk")
         hist = chunks[hist_indices[0]]
         if hist.length == 0 or hist.length % 2 != 0:
             errors.append("hIST chunk length must be a non-zero multiple of 2")
@@ -1771,6 +1773,35 @@ def repair_duplicate_singleton_chunks(
     return ChunkRemovalRepair(
         data=repaired,
         strategy="removed duplicate singleton chunk(s): %s" % ", ".join(removed_names),
+        removed_chunks=removed_names,
+    )
+
+
+def repair_hist_out_of_place(
+    data: bytes,
+    *,
+    require_multiple: bool = False,
+) -> ChunkRemovalRepair | None:
+    try:
+        hist_count = sum(1 for chunk in iter_chunks(data) if chunk.chunk_type == b"hIST")
+    except PngFormatError:
+        return None
+
+    if hist_count == 0 or (require_multiple and hist_count < 2):
+        return None
+
+    result = remove_png_chunks(data, lambda chunk: chunk.chunk_type == b"hIST")
+    if result is None:
+        return None
+
+    repaired, removed = result
+    if not is_complete_png_with_valid_crc(repaired):
+        return None
+
+    removed_names = tuple(chunk.name for chunk in removed)
+    return ChunkRemovalRepair(
+        data=repaired,
+        strategy="removed optional hIST chunk(s) after duplicate/out-of-place finding",
         removed_chunks=removed_names,
     )
 

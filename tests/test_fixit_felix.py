@@ -331,6 +331,7 @@ def test_applied_repair_adds_ihdr_metadata_when_available():
 def test_automatic_repair_order_keeps_legacy_priority():
     assert fixit_felix.automatic_repair_order() == (
         "color_profile_cleanup",
+        "hist_out_of_place_cleanup",
         "duplicate_singleton_cleanup",
         "plte_cleanup",
         "gama_length",
@@ -704,6 +705,44 @@ def test_color_profile_cleanup_requires_matching_finding():
 
     assert repaired is not None
     assert b"iCCP" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
+
+
+def test_hist_out_of_place_cleanup_removes_hist_warning():
+    original = build_png_with_color_chunk(3, b"hIST", b"\x00\x01" * 20)
+
+    assert fixit_felix.hist_out_of_place_cleanup(original, []) is None
+
+    repaired = fixit_felix.hist_out_of_place_cleanup(
+        original,
+        ["LibpngCheck_Error_0:libpng warning: hIST: out of place"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "removed optional hIST chunk(s) after duplicate/out-of-place finding"
+    assert b"hIST" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
+
+
+def test_hist_out_of_place_cleanup_uses_multiple_finding_only_for_duplicate_hist():
+    single = build_png_with_color_chunk(3, b"hIST", b"\x00\x01" * 20)
+    duplicate = single.replace(
+        build_png_chunk(b"hIST", b"\x00\x01" * 20),
+        build_png_chunk(b"hIST", b"\x00\x01" * 20) + build_png_chunk(b"hIST", b"\x00\x02" * 20),
+        1,
+    )
+
+    assert fixit_felix.hist_out_of_place_cleanup(
+        single,
+        ["CheckChunkOrder_Error_0:-Multiple"],
+    ) is None
+
+    repaired = fixit_felix.hist_out_of_place_cleanup(
+        duplicate,
+        ["CheckChunkOrder_Error_0:-Multiple"],
+    )
+
+    assert repaired is not None
+    assert repaired.removed_chunks == ("hIST", "hIST")
+    assert b"hIST" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
 
 
 def test_plte_cleanup_requires_noninteractive_mode_and_plte_finding():
@@ -1231,6 +1270,11 @@ def main():
         ("Dispatch finding work item rejects unknown handler", test_dispatch_finding_work_item_rejects_unknown_handler),
         ("Tool prefix preserves legacy labels", test_tool_prefix_for_chunk_preserves_legacy_bytes_and_string_labels),
         ("Color profile cleanup requires matching finding", test_color_profile_cleanup_requires_matching_finding),
+        ("hIST out-of-place cleanup removes warning", test_hist_out_of_place_cleanup_removes_hist_warning),
+        (
+            "hIST out-of-place cleanup gates Multiple finding",
+            test_hist_out_of_place_cleanup_uses_multiple_finding_only_for_duplicate_hist,
+        ),
         ("PLTE cleanup requires noninteractive mode and PLTE finding", test_plte_cleanup_requires_noninteractive_mode_and_plte_finding),
         (
             "PLTE cleanup inserts missing indexed palette",

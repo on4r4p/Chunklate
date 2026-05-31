@@ -41,6 +41,7 @@ from chunklate.png import (
     repair_empty_plte,
     repair_gama_length,
     repair_gifg_length,
+    repair_hist_out_of_place,
     repair_hist_length,
     repair_ihdr,
     repair_ihdr_from_idat,
@@ -999,6 +1000,62 @@ def test_repair_duplicate_singleton_chunks_removes_second_bkgd():
     assert bkgd.data == b"\x00\x01"
 
 
+def test_repair_hist_out_of_place_removes_optional_hist_chunk():
+    ihdr = build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x01\x03\x00\x00\x00")
+    original = (
+        PNG_SIGNATURE
+        + ihdr
+        + build_png_chunk(b"PLTE", b"\x00\x00\x00\xff\xff\xff")
+        + build_png_chunk(b"hIST", b"\x00\x01\x00\x02")
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+    repaired = repair_hist_out_of_place(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "removed optional hIST chunk(s) after duplicate/out-of-place finding"
+    assert repaired.removed_chunks == ("hIST",)
+    assert validate_png_structure(repaired.data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)] == [
+        b"IHDR",
+        b"PLTE",
+        b"IDAT",
+        b"IEND",
+    ]
+
+
+def test_repair_hist_out_of_place_can_require_duplicate_hist_chunks():
+    ihdr = build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x01\x03\x00\x00\x00")
+    prefix = PNG_SIGNATURE + ihdr + build_png_chunk(b"PLTE", b"\x00\x00\x00\xff\xff\xff")
+    suffix = build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00")) + IEND_CHUNK
+    hist = build_png_chunk(b"hIST", b"\x00\x01\x00\x02")
+    single = prefix + hist + suffix
+    duplicate = prefix + hist + hist + suffix
+
+    assert repair_hist_out_of_place(single, require_multiple=True) is None
+
+    repaired = repair_hist_out_of_place(duplicate, require_multiple=True)
+
+    assert repaired is not None
+    assert repaired.removed_chunks == ("hIST", "hIST")
+    assert b"hIST" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
+
+
+def test_validate_png_structure_rejects_hist_after_idat():
+    ihdr = build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x01\x03\x00\x00\x00")
+    broken = (
+        PNG_SIGNATURE
+        + ihdr
+        + build_png_chunk(b"PLTE", b"\x00\x00\x00\xff\xff\xff")
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + build_png_chunk(b"hIST", b"\x00\x01\x00\x02")
+        + IEND_CHUNK
+    )
+
+    assert "hIST chunk must appear before the first IDAT chunk" in validate_png_structure(broken).errors
+
+
 def test_repair_gama_length_infers_common_missing_byte():
     broken = repair_fixture("length_gama.png").read_bytes()
 
@@ -1624,6 +1681,12 @@ def main():
         ("Truncate long palette bKGD", test_repair_bkgd_length_truncates_palette_payload),
         ("Remove short truecolor-alpha bKGD", test_repair_bkgd_length_removes_short_truecolor_alpha_payload),
         ("Remove duplicate singleton bKGD", test_repair_duplicate_singleton_chunks_removes_second_bkgd),
+        ("Remove out-of-place hIST", test_repair_hist_out_of_place_removes_optional_hist_chunk),
+        (
+            "Require duplicate hIST for multiple finding cleanup",
+            test_repair_hist_out_of_place_can_require_duplicate_hist_chunks,
+        ),
+        ("Reject hIST after IDAT", test_validate_png_structure_rejects_hist_after_idat),
         ("Infer common short gAMA", test_repair_gama_length_infers_common_missing_byte),
         ("Remove unknown short gAMA", test_repair_gama_length_removes_uninferrable_short_payload),
         ("Truncate long gIFg", test_repair_gifg_length_truncates_legacy_payload),

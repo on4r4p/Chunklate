@@ -15,6 +15,7 @@ from .png import (
     repair_empty_plte,
     repair_gama_length,
     repair_gifg_length,
+    repair_hist_out_of_place,
     repair_hist_length,
     repair_ihdr,
     repair_indexed_plte,
@@ -68,6 +69,7 @@ NoNextAppendIendAction = Literal[
 ]
 AutomaticRepairHandler = Literal[
     "color_profile_cleanup",
+    "hist_out_of_place_cleanup",
     "duplicate_singleton_cleanup",
     "plte_cleanup",
     "gama_length",
@@ -96,6 +98,7 @@ FixItFelixWorkKind = Literal["automatic_repair", "finding"]
 
 AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "color_profile_cleanup",
+    "hist_out_of_place_cleanup",
     "duplicate_singleton_cleanup",
     "plte_cleanup",
     "gama_length",
@@ -612,6 +615,18 @@ def duplicate_singleton_cleanup(data: bytes, findings: Iterable[object]) -> Any 
     return repair_duplicate_singleton_chunks(data)
 
 
+def hist_out_of_place_cleanup(data: bytes, findings: Iterable[object]) -> Any | None:
+    has_hist_warning = has_finding(findings, "hIST: out of place")
+    has_multiple_finding = has_finding(findings, "Multiple")
+    if not (has_hist_warning or has_multiple_finding):
+        return None
+
+    return repair_hist_out_of_place(
+        data,
+        require_multiple=not has_hist_warning,
+    )
+
+
 def plte_cleanup(
     data: bytes,
     findings: Iterable[object],
@@ -816,6 +831,8 @@ def automatic_repair(
 ) -> Any | None:
     if name == "color_profile_cleanup":
         return color_profile_cleanup(data, findings)
+    if name == "hist_out_of_place_cleanup":
+        return hist_out_of_place_cleanup(data, findings)
     if name == "duplicate_singleton_cleanup":
         return duplicate_singleton_cleanup(data, findings)
     if name == "plte_cleanup":
