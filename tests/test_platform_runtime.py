@@ -40,7 +40,7 @@ def test_local_venv_python_uses_platform_layouts():
 
 
 def test_bootstrap_command_uses_python_script():
-    assert platform_runtime.bootstrap_command("/repo", executable="python") == [
+    assert platform_runtime.bootstrap_command("/repo", executable="python", os_name="posix") == [
         "python",
         "/repo/scripts/bootstrap_dev.py",
     ]

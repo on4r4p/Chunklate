@@ -46,6 +46,7 @@ def test_open_image_prefers_feh_when_available():
         popen=popen,
         which=lambda name: "/usr/bin/feh" if name == "feh" else None,
         sleep=lambda _seconds: None,
+        platform="linux",
     )
 
     assert result.success is True

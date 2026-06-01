@@ -212,7 +212,7 @@ def append_summary_progress_note(namespace: Mapping[str, Any], note: Any) -> Non
     if "FILE_Origin" not in namespace or "FILE_DIR" not in namespace:
         return
     filename = summary_path(namespace["FILE_Origin"], namespace["FILE_DIR"])
-    with builtins.open(filename, "a+") as handle:
+    with builtins.open(filename, "a+", encoding="utf-8") as handle:
         _write_summary_header_if_needed(namespace, handle)
         _write_summary_operations_header_if_needed(namespace, handle)
         handle.write(summary_note_block(note, _next_summary_step(namespace)))
@@ -607,7 +607,7 @@ def run_summarise_from_namespace(
 
     filename = summary_path(namespace["FILE_Origin"], namespace["FILE_DIR"])
     builtins.print(namespace["Candy"]("Color", "green", "-Saving Summary : "), filename)
-    with builtins.open(filename, "a+") as handle:
+    with builtins.open(filename, "a+", encoding="utf-8") as handle:
 
         _write_summary_header_if_needed(namespace, handle)
 

@@ -128,7 +128,7 @@ def Missing_Runtime_Dependencies():
 def Format_Missing_Runtime_Dependencies(missing, *, os_name=None):
     os_name = os.name if os_name is None else os_name
     root = os.path.dirname(os.path.abspath(__file__))
-    bootstrap_command = Bootstrap_Command()
+    bootstrap_command = Bootstrap_Command(os_name=os_name)
     local_python = Local_Venv_Python(os_name=os_name) or platform_runtime.local_venv_python(root, os_name=os_name)
     run_command = platform_runtime.format_command(
         [local_python, os.path.abspath(__file__), "-f", "<file>"],
@@ -172,14 +172,21 @@ def Format_Missing_Runtime_Dependencies(missing, *, os_name=None):
     return "\n".join(lines)
 
 
-def Bootstrap_Script_Path(script_path=None):
+def Bootstrap_Script_Path(script_path=None, *, os_name=None):
     root = os.path.dirname(os.path.abspath(script_path or __file__))
-    return platform_runtime.bootstrap_python_script(root)
+    return platform_runtime.bootstrap_python_script(
+        root,
+        os_name=os.name if os_name is None else os_name,
+    )
 
 
-def Bootstrap_Command(script_path=None):
+def Bootstrap_Command(script_path=None, *, os_name=None):
     root = os.path.dirname(os.path.abspath(script_path or __file__))
-    return platform_runtime.bootstrap_command(root, executable=sys.executable)
+    return platform_runtime.bootstrap_command(
+        root,
+        executable=sys.executable,
+        os_name=os.name if os_name is None else os_name,
+    )
 
 
 def Can_Prompt_Dependency_Install(stdin=None):

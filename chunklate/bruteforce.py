@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import binascii
 import difflib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import struct
 import tempfile
 from dataclasses import dataclass
@@ -605,7 +605,7 @@ def process_command_is_tmp_png(
     raw_command = " ".join(cmdline)
     command = _portable_path_text(raw_command)
     temp_root = _portable_path_text(temp_dir or tempfile.gettempdir())
-    return temp_root in command and ".PNG" in raw_command
+    return ".PNG" in raw_command and (temp_root in command or "/tmp/" in command)
 
 
 def process_is_tmp_png_viewer(proc: Any) -> bool:
@@ -697,6 +697,8 @@ def viewer_timeout_save_path(
     timestamp: str,
 ) -> str:
     filename = "BF-W" + str(width) + "-H" + str(height) + timestamp + original_name
+    if "/" in str(original_dir) and "\\" not in str(original_dir):
+        return str(PurePosixPath(str(original_dir)) / filename)
     return str(Path(original_dir) / filename)
 
 

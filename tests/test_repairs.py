@@ -211,7 +211,7 @@ def test_missing_ihdr_repair_summary_includes_selected_candidate(tmp_path):
 
     assert result.returncode == 0
     assert summary.exists()
-    summary_text = summary.read_text()
+    summary_text = summary.read_text(encoding="utf-8")
     assert "Selected IHDR 32x32, bit depth 8, color type 3" in summary_text
     assert "strict candidates:" in summary_text
     assert "selection score:" in summary_text
@@ -241,7 +241,7 @@ def test_partial_idat_blackfill_summary_and_output_are_explicit(tmp_path):
     assert (width, height) == (1, 10)
     assert len(decompressed) == 40
 
-    summary_text = summary.read_text()
+    summary_text = summary.read_text(encoding="utf-8")
     assert "partial-idat-blackfill recovered 1/10 scanlines" in summary_text
     assert "Selected IHDR 1x10, bit depth 8, color type 2" in summary_text
 

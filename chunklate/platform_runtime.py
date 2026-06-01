@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import PurePosixPath, PureWindowsPath
 import os
 import shlex
 import subprocess
@@ -28,23 +28,30 @@ def is_windows(*, platform: str = sys.platform, os_name: str = os.name) -> bool:
     return os_family(platform=platform, os_name=os_name) == "windows"
 
 
+def _pure_path_for_os(os_name: str):
+    if os_name == "nt":
+        return PureWindowsPath
+    return PurePosixPath
+
+
 def local_venv_python(root: str | os.PathLike[str], *, os_name: str = os.name) -> str:
-    root_path = Path(root)
+    root_path = _pure_path_for_os(os_name)(root)
     if os_name == "nt":
         return str(root_path / ".venv" / "Scripts" / "python.exe")
     return str(root_path / ".venv" / "bin" / "python")
 
 
-def bootstrap_python_script(root: str | os.PathLike[str]) -> str:
-    return str(Path(root) / "scripts" / "bootstrap_dev.py")
+def bootstrap_python_script(root: str | os.PathLike[str], *, os_name: str = os.name) -> str:
+    return str(_pure_path_for_os(os_name)(root) / "scripts" / "bootstrap_dev.py")
 
 
 def bootstrap_command(
     root: str | os.PathLike[str],
     *,
     executable: str = sys.executable,
+    os_name: str = os.name,
 ) -> list[str]:
-    return [executable, bootstrap_python_script(root)]
+    return [executable, bootstrap_python_script(root, os_name=os_name)]
 
 
 def format_command(command: list[str] | tuple[str, ...], *, os_name: str = os.name) -> str:

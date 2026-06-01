@@ -178,7 +178,7 @@ def save_clone_debug_payloads(
         path = os.path.join(payload_folder, filename)
         with open(path, "wb") as file:
             file.write(raw)
-        saved_paths.append(os.path.relpath(path, clone_folder))
+        saved_paths.append(os.path.relpath(path, clone_folder).replace("\\", "/"))
     return saved_paths
 
 

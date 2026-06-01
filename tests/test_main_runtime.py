@@ -88,7 +88,7 @@ def apply_options(calls, parsed_args=None, unknown=(), argv_len=2):
 
 
 def chunklate_main_node():
-    module = ast.parse((ROOT / "Chunklate.py").read_text())
+    module = ast.parse((ROOT / "Chunklate.py").read_text(encoding="utf-8"))
     for node in module.body:
         if isinstance(node, ast.FunctionDef) and node.name == "main":
             return node
@@ -96,7 +96,7 @@ def chunklate_main_node():
 
 
 def test_chunklate_main_has_no_direct_global_wiring_and_no_dead_reached_end_comment():
-    source = (ROOT / "Chunklate.py").read_text()
+    source = (ROOT / "Chunklate.py").read_text(encoding="utf-8")
     main_node = chunklate_main_node()
     global_names = []
     for node in ast.walk(main_node):

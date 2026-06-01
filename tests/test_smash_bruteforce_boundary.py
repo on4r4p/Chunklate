@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
 
 
 def smash_brute_brawl_node():
-    module = ast.parse((ROOT / "Chunklate.py").read_text())
+    module = ast.parse((ROOT / "Chunklate.py").read_text(encoding="utf-8"))
     for node in module.body:
         if isinstance(node, ast.FunctionDef) and node.name == "SmashBruteBrawl":
             return node

@@ -450,7 +450,16 @@ def emit_printable_message(
 
 
 def render_chunklate_banner(os_name: str, random_int, *, use_color: bool = True) -> tuple[str, ...]:
-    if os_name == "nt" or not use_color:
+    if os_name == "nt":
+        return (
+            """
++-------------------------------------------------+
+  <[0x00000016]>[C|H|U|N|K|L|A|T|E]<[0x98bd5cb8]>
++-------------------------------------------------+
+""",
+        )
+
+    if not use_color:
         return (
             """
 ╭─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╮

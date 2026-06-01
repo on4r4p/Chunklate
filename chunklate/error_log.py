@@ -49,7 +49,7 @@ def format_exception_from_exc_info(
 
 def append_error_log(message: str, base_path: str, *, now: datetime | None = None) -> str:
     logfile = error_log_path(base_path)
-    with open(logfile, "a+") as handle:
+    with open(logfile, "a+", encoding="utf-8") as handle:
         handle.write(format_error_log_entry(message, now=now))
     return logfile
 

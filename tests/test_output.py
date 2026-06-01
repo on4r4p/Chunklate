@@ -90,7 +90,7 @@ def test_immediate_summary_notes_flushes_each_append_and_summarise_does_not_dupl
     notes.append("second-note")
 
     summary = tmp_path / "Folder_sample" / "Summary_Of_sample"
-    text = summary.read_text()
+    text = summary.read_text(encoding="utf-8")
     assert "C|h|u|n|k|l|a|t|e" in text
     assert "『Summary: sample.png』" in text
     assert text.count("『Summary: sample.png』") == 1
@@ -99,7 +99,7 @@ def test_immediate_summary_notes_flushes_each_append_and_summarise_does_not_dupl
     assert "\033[" not in text
 
     output.run_summarise_from_namespace(namespace, "final-info", False)
-    text = summary.read_text()
+    text = summary.read_text(encoding="utf-8")
     assert text.count("early-note") == 1
     assert text.count("『Summary: sample.png』") == 1
     assert "003. Result: final-info" in text
@@ -285,7 +285,7 @@ def test_run_summarise_from_namespace_writes_summary_and_resets_notes(tmp_path):
     output.run_summarise_from_namespace(namespace, "fixed", False)
 
     summary = tmp_path / "Folder_sample" / "Summary_Of_sample"
-    text = summary.read_text()
+    text = summary.read_text(encoding="utf-8")
     assert "C|h|u|n|k|l|a|t|e" in text
     assert "『Summary: sample.png』" in text
     assert "001. Note: note" in text
@@ -317,7 +317,7 @@ def test_run_summarise_from_namespace_appends_debug_trace_to_normal_summary(tmp_
 
     summary = tmp_path / "Folder_sample" / "Summary_Of_sample"
     debug_summary = tmp_path / "Folder_sample" / "Summary_Of_sample.Debug"
-    text = summary.read_text()
+    text = summary.read_text(encoding="utf-8")
     assert summary.exists()
     assert not debug_summary.exists()
     assert "C|h|u|n|k|l|a|t|e" in text

@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
 
 
 def tk_manual_plte_node():
-    module = ast.parse((ROOT / "Chunklate.py").read_text())
+    module = ast.parse((ROOT / "Chunklate.py").read_text(encoding="utf-8"))
     for node in module.body:
         if isinstance(node, ast.FunctionDef) and node.name == "Tk_Manual_Plte":
             return node

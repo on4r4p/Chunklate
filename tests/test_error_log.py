@@ -68,7 +68,7 @@ def test_append_error_log_writes_and_appends(tmp_path):
     error_log.append_error_log("second", str(tmp_path), now=second)
 
     assert path == str(tmp_path / "Chunklate_Errors.log")
-    assert Path(path).read_text() == (
+    assert Path(path).read_text(encoding="utf-8") == (
         "2026-05-22 10:11:12\nfirst\n"
         "2026-05-22 10:11:13\nsecond\n"
     )
@@ -86,7 +86,7 @@ def test_append_error_log_from_namespace_writes_and_records_side_note(tmp_path):
     error_log.append_error_log_from_namespace(namespace, "boom")
 
     assert side_notes == ["boom"]
-    assert (tmp_path / "Chunklate_Errors.log").read_text().endswith("boom\n")
+    assert (tmp_path / "Chunklate_Errors.log").read_text(encoding="utf-8").endswith("boom\n")
 
 
 def test_betterror_from_namespace_formats_prints_and_delegates_to_error_log():

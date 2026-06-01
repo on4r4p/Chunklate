@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from contextlib import contextmanager
+import os
 import subprocess
 import sys
 import tempfile
@@ -106,8 +107,9 @@ def test_runtime_dependency_check_reports_missing_cv2_install_command():
 
     assert ("opencv-python", "cv2", next(error for package, _, error in missing if package == "opencv-python")) in missing
     assert "- opencv-python (import cv2)" in text
-    assert "scripts/bootstrap_dev.py" in text
-    assert ".venv/bin/python" in text
+    normalized = text.replace("\\", "/")
+    assert "scripts/bootstrap_dev.py" in normalized
+    assert ".venv/bin/python" in normalized or ".venv/Scripts/python.exe" in normalized
 
 
 def test_runtime_dependency_message_uses_windows_paths_and_tkinter_guidance():
@@ -139,7 +141,7 @@ def test_dependency_install_prompt_runs_bootstrap_when_user_accepts():
     assert calls[0] == ("prompt", "Install/refresh missing dependencies now? (yes/no): ")
     assert calls[1][0] == "run"
     assert calls[1][1][0] == sys.executable
-    assert calls[1][1][1].endswith("scripts/bootstrap_dev.py")
+    assert calls[1][1][1].replace("\\", "/").endswith("scripts/bootstrap_dev.py")
 
 
 def test_dependency_install_prompt_does_not_run_in_noninteractive_mode():
@@ -180,12 +182,15 @@ def test_ensure_runtime_dependencies_reexecs_after_successful_install():
 
 def test_should_reexec_local_venv_uses_venv_path_not_realpath(tmp_path):
     root = tmp_path / "project"
-    venv_bin = root / ".venv" / "bin"
-    venv_bin.mkdir(parents=True)
-    real_python = tmp_path / "python-real"
+    if os.name == "nt":
+        venv_python = root / ".venv" / "Scripts" / "python.exe"
+        real_python = tmp_path / "python-real.exe"
+    else:
+        venv_python = root / ".venv" / "bin" / "python"
+        real_python = tmp_path / "python-real"
+    venv_python.parent.mkdir(parents=True)
     real_python.write_text("")
-    venv_python = venv_bin / "python"
-    venv_python.symlink_to(real_python)
+    venv_python.write_text("")
     script = root / "Chunklate.py"
     script.write_text("")
 

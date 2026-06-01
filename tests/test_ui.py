@@ -147,9 +147,9 @@ def test_emit_printable_message_uses_injected_emit_callback():
 def test_render_chunklate_banner_preserves_windows_layout():
     assert ui.render_chunklate_banner("nt", lambda start, end: start) == (
         """
-╭─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╮
++-------------------------------------------------+
   <[0x00000016]>[C|H|U|N|K|L|A|T|E]<[0x98bd5cb8]>
-╰─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╯
++-------------------------------------------------+
 """,
     )
 
