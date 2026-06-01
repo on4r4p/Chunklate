@@ -208,6 +208,34 @@ def test_checkpoint_action_decision_handles_known_srgb_warning():
     assert decision.return_value == "LibpngCheck"
 
 
+def test_checkpoint_action_decision_handles_hist_out_of_place_warning():
+    decision = checkpoint.action_decision(
+        error=True,
+        function="LibpngCheck",
+        chunk="LibpngCheck",
+        info="libpng warning: hIST: out of place",
+        toolkit=(),
+    )
+
+    assert decision.action == "fix_it_felix_return"
+    assert decision.flags == {"Bad_Libpng": True}
+    assert decision.return_value == "LibpngCheck"
+
+
+def test_checkpoint_action_decision_handles_pcal_out_of_place_warning():
+    decision = checkpoint.action_decision(
+        error=True,
+        function="LibpngCheck",
+        chunk="LibpngCheck",
+        info="libpng warning: pCAL: out of place",
+        toolkit=(),
+    )
+
+    assert decision.action == "fix_it_felix_return"
+    assert decision.flags == {"Bad_Libpng": True}
+    assert decision.return_value == "LibpngCheck"
+
+
 def test_checkpoint_action_decision_handles_libpng_warning_classification():
     known_warning = checkpoint.action_decision(
         error=True,
@@ -406,6 +434,14 @@ def main():
             test_checkpoint_action_decision_blocks_libpng_success_with_pending_structural_error,
         ),
         ("Checkpoint action handles known sRGB warning", test_checkpoint_action_decision_handles_known_srgb_warning),
+        (
+            "Checkpoint action handles hIST out-of-place warning",
+            test_checkpoint_action_decision_handles_hist_out_of_place_warning,
+        ),
+        (
+            "Checkpoint action handles pCAL out-of-place warning",
+            test_checkpoint_action_decision_handles_pcal_out_of_place_warning,
+        ),
         ("Checkpoint action handles libpng warning classification", test_checkpoint_action_decision_handles_libpng_warning_classification),
         ("Checkpoint action handles chunk name fixes", test_checkpoint_action_decision_handles_chunk_name_fixes),
         ("Checkpoint action handles chunk name flags", test_checkpoint_action_decision_handles_chunk_name_flags),

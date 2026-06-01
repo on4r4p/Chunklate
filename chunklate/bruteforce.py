@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import binascii
 import difflib
+from pathlib import Path
 import struct
+import tempfile
 from dataclasses import dataclass
 from typing import Any
 from typing import Mapping
@@ -591,9 +593,19 @@ def viewer_candidate_decision(output: str, libpng_errors: tuple[str, ...] | list
     )
 
 
-def process_command_is_tmp_png(cmdline: tuple[str, ...] | list[str]) -> bool:
-    command = " ".join(cmdline)
-    return "/tmp/tmp" in command and ".PNG" in command
+def _portable_path_text(value: str) -> str:
+    return str(value).replace("\\", "/").lower()
+
+
+def process_command_is_tmp_png(
+    cmdline: tuple[str, ...] | list[str],
+    *,
+    temp_dir: str | None = None,
+) -> bool:
+    raw_command = " ".join(cmdline)
+    command = _portable_path_text(raw_command)
+    temp_root = _portable_path_text(temp_dir or tempfile.gettempdir())
+    return temp_root in command and ".PNG" in raw_command
 
 
 def process_is_tmp_png_viewer(proc: Any) -> bool:
@@ -684,7 +696,8 @@ def viewer_timeout_save_path(
     height: int,
     timestamp: str,
 ) -> str:
-    return original_dir + "/" + "BF-W" + str(width) + "-H" + str(height) + timestamp + original_name
+    filename = "BF-W" + str(width) + "-H" + str(height) + timestamp + original_name
+    return str(Path(original_dir) / filename)
 
 
 def viewer_timeout_saved_summary(try_number: int, tmpname: str) -> str:

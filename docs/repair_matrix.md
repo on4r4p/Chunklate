@@ -1,7 +1,10 @@
 # Repair Matrix
 
 This document summarizes the current repair contract. The source of truth is
-`tests/repair_matrix.py`; this page is a readable map for humans.
+`tests/repair_matrix.py` for strict fixture-level regressions. Additional
+targeted repair routes are covered by focused tests in `tests/test_png.py`,
+`tests/test_fixit_felix.py`, `tests/test_fixit_felix_runtime.py`, and the
+related runtime test modules. This page is a readable map for humans.
 
 Each fixture listed here is expected to produce a strict repaired PNG. Strict
 means the output has a valid PNG structure and CRCs, passes Pillow verification
@@ -10,6 +13,46 @@ summary containing the declared repair markers.
 
 Current validators also lock exact output shape where it matters: chunk order,
 number of `IDAT` chunks, decompressed `IDAT` size, and exact `PLTE` size.
+
+## Current Repair Families
+
+Chunklate currently has automatic or guided repair routes for these corruption
+families:
+
+- PNG signature/header recovery: missing signatures, shifted signatures, files
+  where a valid PNG starts after non-PNG bytes, and line-feed damaged
+  signatures.
+- Chunk framing: wrong chunk lengths, one missing or extra byte around chunk
+  boundaries, bad CRCs, wrong chunk names/types, and known chunk type case
+  errors.
+- Terminal structure: missing `IEND`, malformed `IEND`, and trailing bytes
+  after the PNG stream.
+- `IHDR`: wrong length, duplicate `IHDR`, misplaced `IHDR`, missing `IHDR`,
+  bad dimensions, invalid bit depth/color type/method values, and rebuilds from
+  IDAT scanline math or stored CRC evidence.
+- `PLTE`: missing indexed palettes, empty palettes, malformed palette length,
+  undersized indexed palettes, and too many entries for the indexed bit depth.
+  Chunklate can also offer the Tkinter PLTE editor for manual palette tuning.
+- Ancillary chunk payloads: length/value repairs for `bKGD`, `cHRM`, `gAMA`,
+  `gIFg`, `hIST`, `iTXt`, `oFFs`, `pHYs`, `sBIT`, `sRGB`, `sTER`, `tIME`, and
+  `tRNS`.
+- Chunk order: misplaced `IHDR`, `hIST` after `IDAT`, `pCAL` after `IDAT`, and
+  ancillary chunks inserted between non-consecutive `IDAT` chunks. For IDAT
+  interruptions Chunklate asks whether to move the ancillary chunk to a neutral
+  position or remove safe-to-copy ancillary chunks.
+- Duplicate singleton chunks: automatic cleanup for chunk types that may appear
+  at most once, including `IHDR`, `PLTE`, `gAMA`, `sRGB`, `iCCP`, `pHYs`,
+  `pCAL`, `sCAL`, `sBIT`, `bKGD`, `tRNS`, `hIST`, `sTER`, `oFFs`, and `eXIf`.
+- Unsafe or unknown chunks: removal/renaming paths for unknown private critical
+  chunks and known bad sRGB/iCCP profile chunks.
+- IDAT/data stream salvage: partial non-interlaced IDAT recovery with
+  `partial-idat-blackfill`, line-feed conversion repair, and heavier line-feed
+  brute force probes behind explicit prompts/budgets.
+
+Known limits: a completely missing `IDAT` stream is not reconstructable from
+nothing, Adam7/interlaced PNGs are not handled by `partial-idat-blackfill`, and
+some targeted routes are covered by unit/runtime tests before they are promoted
+to the strict fixture matrix below.
 
 ## Validation Levels
 
@@ -95,5 +138,32 @@ number of `IDAT` chunks, decompressed `IDAT` size, and exact `PLTE` size.
 | `chunk_private_critical_goodcrc.png` | unknown private critical chunk with valid CRC | remove unsafe private critical chunk | 32x32 indexed without `baMA` |
 | `chunk_type.png` | wrong chunk type/name | repair chunk name | 32x32 indexed |
 | `gama_zero.png` | gAMA chunk with zero value | repair gAMA | 32x32 without `gAMA` |
+| `length_gama.png` | gAMA chunk with one missing byte | infer common gAMA payload | 32x32 indexed |
+| `length_gifg.png` | gIFg chunk with one extra byte | trim gIFg payload | GIF-extension PNG with valid `gIFg` |
+| `length_hist.png` | hIST chunk shorter than PLTE entry count | pad hIST payload | 32x32 indexed with `hIST` |
 | `ihdr_image_size.png` | IHDR image size mismatch | repair IHDR dimensions | 32x32 indexed |
 | `Unhandled-Critical-Chunk.png` | unknown unsafe critical chunk | remove unsafe critical chunk | 32x32 indexed, no gAMA, without `QpZZ` |
+
+## Targeted But Not Yet Strict Matrix Cases
+
+The following fixture families are covered by focused tests or are available as
+automatic/guided routes, but are not all promoted to the strict fixture table
+above yet:
+
+- Ancillary length/value repairs: `length_bkgd_*`, `length_chrm`,
+  `length_iend`, `length_ihdr`, `length_offs`, `length_phys`, `length_sbit*`,
+  `length_srgb`, `length_ster`, `length_time`, and `length_trns_*`.
+- iTXt metadata repairs: `itxt_keyword_length*`, `itxt_compression_flag`, and
+  `itxt_compression_method`.
+- Missing critical/structural routes: `missing_ihdr`, `missing_plte*`, and
+  missing-IDAT diagnostics.
+- Duplicate singleton chunks: `multiple_bkgd`, `multiple_chrm`,
+  `multiple_gama`, `multiple_hist`, `multiple_iccp`, `multiple_ihdr`,
+  `multiple_offs`, `multiple_pcal`, `multiple_phys`, `multiple_plte`,
+  `multiple_sbit`, `multiple_scal`, `multiple_srgb`, `multiple_ster`,
+  `multiple_time`, and `multiple_trns`.
+- Misplaced ancillary chunks: `*_after_idat`, `*_after_plte`, and
+  `hist_before_plte` style cases.
+- Non-consecutive IDAT chains: ancillary chunks between `IDAT` chunks can be
+  moved after the final `IDAT` or removed when safe.
+- Line-feed corruption fixtures: `badlinefeed1` and `linefeedcorruption*`.

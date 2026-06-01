@@ -22,6 +22,8 @@ def test_chunk_constant_groups_preserve_legacy_sets_and_order():
     assert specs.ALLCHUNKS == specs.CHUNKS + specs.PRIVATE_CHUNKS
     assert specs.CHUNKS_LEN_NOT_FIXED == (b"PLTE", b"tRNS", b"hIST")
     assert "known incorrect sRGB profile" in specs.LIBPNG_ERR
+    assert "hIST: out of place" in specs.LIBPNG_ERR
+    assert "pCAL: out of place" in specs.LIBPNG_ERR
 
 
 def test_min_res_iter_preserves_legacy_counting():

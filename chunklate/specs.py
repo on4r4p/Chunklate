@@ -151,6 +151,8 @@ LIBPNG_ERR = (
     "bad result",
     "conversion not supported",
     "known incorrect sRGB profile",
+    "hIST: out of place",
+    "pCAL: out of place",
 )
 
 

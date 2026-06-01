@@ -128,6 +128,9 @@ def main_loop_history_reset_values() -> dict[str, object]:
         "FOG_OF_WAR_BAD_CHUNKS": set(),
         "FOG_OF_WAR_LAST_MAP": None,
         "FOG_OF_WAR_LAST_WIDTH": None,
+        "FOG_OF_WAR_LAST_RENDER_KEY": None,
+        "FOG_OF_WAR_PREVIEW_CHUNK": None,
+        "FOG_OF_WAR_PREVIEW_ERROR": False,
     }
 
 

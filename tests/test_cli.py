@@ -58,6 +58,7 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "--clear" in result.stdout
     assert "--output-dir" in result.stdout
     assert "--max-saves" in result.stdout
+    assert "--no-color" in result.stdout
     assert "--ultimate-linefeed-budget" in result.stdout
     assert "--ultimate-linefeed-unbounded" in result.stdout
 
@@ -105,8 +106,21 @@ def test_runtime_dependency_check_reports_missing_cv2_install_command():
 
     assert ("opencv-python", "cv2", next(error for package, _, error in missing if package == "opencv-python")) in missing
     assert "- opencv-python (import cv2)" in text
-    assert "scripts/bootstrap_dev.sh" in text
+    assert "scripts/bootstrap_dev.py" in text
     assert ".venv/bin/python" in text
+
+
+def test_runtime_dependency_message_uses_windows_paths_and_tkinter_guidance():
+    missing = (("python3-tk", "tkinter", ModuleNotFoundError("No module named 'tkinter'")),)
+
+    text = Chunklate.Format_Missing_Runtime_Dependencies(missing, os_name="nt")
+
+    assert "scripts\\bootstrap_dev.py" in text or "scripts/bootstrap_dev.py" in text
+    assert ".venv" in text
+    assert "Scripts" in text
+    assert "python.exe" in text
+    assert "official Python for Windows installer" in text
+    assert "sudo apt install python3-tk" not in text
 
 
 def test_dependency_install_prompt_runs_bootstrap_when_user_accepts():
@@ -124,7 +138,8 @@ def test_dependency_install_prompt_runs_bootstrap_when_user_accepts():
     assert result is True
     assert calls[0] == ("prompt", "Install/refresh missing dependencies now? (yes/no): ")
     assert calls[1][0] == "run"
-    assert calls[1][1][0].endswith("scripts/bootstrap_dev.sh")
+    assert calls[1][1][0] == sys.executable
+    assert calls[1][1][1].endswith("scripts/bootstrap_dev.py")
 
 
 def test_dependency_install_prompt_does_not_run_in_noninteractive_mode():
@@ -192,6 +207,7 @@ def main():
         ("Missing -f/--file returns a usage error", test_missing_file_argument_returns_usage_error),
         ("Valid PNG exits successfully with optional libpng fallback", test_valid_png_exits_successfully_with_optional_libpng_fallback),
         ("Runtime dependency check reports cv2", test_runtime_dependency_check_reports_missing_cv2_install_command),
+        ("Runtime dependency check reports Windows tkinter", test_runtime_dependency_message_uses_windows_paths_and_tkinter_guidance),
         ("Dependency prompt runs bootstrap", test_dependency_install_prompt_runs_bootstrap_when_user_accepts),
         ("Dependency prompt skips noninteractive", test_dependency_install_prompt_does_not_run_in_noninteractive_mode),
         ("Ensure dependencies reexecs after install", test_ensure_runtime_dependencies_reexecs_after_successful_install),

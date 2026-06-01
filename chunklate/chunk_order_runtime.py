@@ -270,7 +270,7 @@ def run_the_good_place_mode(
                 _color(runtime, "red", "cannot"),
             )
         )
-        to_fix.append(chunk_order.multiple_chunk_info())
+        to_fix.append(chunk_order.multiple_chunk_info(lastchunk))
 
     if chunk_order.png_signature_is_misplaced(context.chunk_order_context.chunks_history):
         runtime.emit(

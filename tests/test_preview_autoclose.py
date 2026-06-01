@@ -290,6 +290,8 @@ def test_the_end_opens_valid_current_image_before_summary(tmp_path, monkeypatch)
         ) in calls
         assert calls.index(("open", str(original))) < calls.index(("summary", (None, True)))
         assert ("summary", (None, True)) in calls
+        assert calls.index(("summary", (None, True))) < calls.index(("banner", 0))
+        assert calls[-1] == ("candy", ("Cowsay", "See you Space Cowboy...", "good"))
         assert Chunklate.DIALOGUE_PAUSE_STATE.pending is False
         assert Chunklate.DIALOGUE_PAUSE_STATE.paused_in_group is False
     finally:

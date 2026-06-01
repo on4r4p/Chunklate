@@ -300,6 +300,23 @@ class ChunkRemovalRepair:
     removed_chunks: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class ChunkMoveRepair:
+    data: bytes
+    strategy: str
+    moved_chunks: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class IdatInterruptionRepairPlan:
+    data: bytes
+    strategy: str
+    interrupting_chunks: tuple[str, ...]
+    move_repair: ChunkMoveRepair
+    remove_repair: ChunkRemovalRepair | None = None
+    removal_is_low_risk: bool = False
+
+
 SINGLETON_ANCILLARY_CHUNKS = (
     b"gAMA",
     b"sRGB",
@@ -309,11 +326,16 @@ SINGLETON_ANCILLARY_CHUNKS = (
     b"tIME",
     b"sTER",
     b"gIFg",
+    b"iCCP",
+    b"sCAL",
+    b"pCAL",
+    b"eXIf",
     b"hIST",
     b"tRNS",
     b"bKGD",
     b"cHRM",
 )
+DUPLICATE_SINGLETON_REPAIR_CHUNKS = SINGLETON_ANCILLARY_CHUNKS + (b"PLTE",)
 
 
 def find_signature_offset(data: bytes) -> int:
@@ -1034,6 +1056,20 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
         if gifg.length != 4:
             errors.append("gIFg chunk length must be 4")
 
+    pcal_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"pCAL"]
+    if len(pcal_indices) > 1:
+        errors.append("PNG must not contain multiple pCAL chunks")
+    if pcal_indices and idat_indices and any(index > idat_indices[0] for index in pcal_indices):
+        errors.append("pCAL chunk must appear before the first IDAT chunk")
+
+    scal_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"sCAL"]
+    if len(scal_indices) > 1:
+        errors.append("PNG must not contain multiple sCAL chunks")
+
+    exif_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"eXIf"]
+    if len(exif_indices) > 1:
+        errors.append("PNG must not contain multiple eXIf chunks")
+
     hist_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"hIST"]
     if len(hist_indices) > 1:
         errors.append("PNG must not contain multiple hIST chunks")
@@ -1746,9 +1782,200 @@ def repair_unknown_private_critical_chunks(
     )
 
 
+def _chunk_raw_bytes(data: bytes, chunk: PngChunk) -> bytes:
+    return data[chunk.offset : chunk.offset + 12 + chunk.length]
+
+
+def _chunk_is_ancillary(chunk: PngChunk) -> bool:
+    return _is_ascii_chunk_type(chunk.chunk_type) and bool(chunk.chunk_type[0] & 0x20)
+
+
+def _chunk_reserved_bit_is_valid(chunk: PngChunk) -> bool:
+    return _is_ascii_chunk_type(chunk.chunk_type) and not bool(chunk.chunk_type[2] & 0x20)
+
+
+def _chunk_is_safe_to_copy(chunk: PngChunk) -> bool:
+    return _is_ascii_chunk_type(chunk.chunk_type) and bool(chunk.chunk_type[3] & 0x20)
+
+
+def _idat_interrupter_indices(chunks: list[PngChunk]) -> list[int]:
+    idat_indices = [index for index, chunk in enumerate(chunks) if chunk.chunk_type == b"IDAT"]
+    if len(idat_indices) < 2:
+        return []
+
+    first_idat = idat_indices[0]
+    last_idat = idat_indices[-1]
+    if idat_indices == list(range(first_idat, last_idat + 1)):
+        return []
+
+    return [
+        index
+        for index in range(first_idat + 1, last_idat)
+        if chunks[index].chunk_type != b"IDAT"
+    ]
+
+
+def _is_movable_idat_interrupter(chunk: PngChunk) -> bool:
+    return _chunk_is_ancillary(chunk) and _chunk_reserved_bit_is_valid(chunk) and chunk.crc_ok
+
+
+def _is_low_risk_removable_idat_interrupter(chunk: PngChunk) -> bool:
+    return _is_movable_idat_interrupter(chunk) and _chunk_is_safe_to_copy(chunk)
+
+
+def _rebuild_png_with_moved_chunks(
+    data: bytes,
+    chunks: list[PngChunk],
+    *,
+    move_indices: set[int],
+    insert_after_index: int,
+) -> bytes | None:
+    signature_offset = find_signature_offset(data)
+    if signature_offset < 0:
+        return None
+
+    output = bytearray(data[: signature_offset + len(PNG_SIGNATURE)])
+    moved_chunks = [_chunk_raw_bytes(data, chunks[index]) for index in sorted(move_indices)]
+
+    for index, chunk in enumerate(chunks):
+        if index in move_indices:
+            continue
+
+        output.extend(_chunk_raw_bytes(data, chunk))
+        if index == insert_after_index:
+            for raw_chunk in moved_chunks:
+                output.extend(raw_chunk)
+
+        if chunk.chunk_type == b"IEND":
+            break
+
+    return bytes(output)
+
+
+def _rebuild_png_with_chunks_before(
+    data: bytes,
+    chunks: list[PngChunk],
+    *,
+    move_indices: set[int],
+    insert_before_index: int,
+) -> bytes | None:
+    signature_offset = find_signature_offset(data)
+    if signature_offset < 0:
+        return None
+
+    output = bytearray(data[: signature_offset + len(PNG_SIGNATURE)])
+    moved_chunks = [_chunk_raw_bytes(data, chunks[index]) for index in sorted(move_indices)]
+
+    for index, chunk in enumerate(chunks):
+        if index == insert_before_index:
+            for raw_chunk in moved_chunks:
+                output.extend(raw_chunk)
+
+        if index in move_indices:
+            continue
+
+        output.extend(_chunk_raw_bytes(data, chunk))
+        if chunk.chunk_type == b"IEND":
+            break
+
+    return bytes(output)
+
+
+def repair_nonconsecutive_idat_interruption(data: bytes) -> IdatInterruptionRepairPlan | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    interrupter_indices = _idat_interrupter_indices(chunks)
+    if not interrupter_indices:
+        return None
+
+    interrupters = [chunks[index] for index in interrupter_indices]
+    if not all(_is_movable_idat_interrupter(chunk) for chunk in interrupters):
+        return None
+
+    last_idat_index = max(index for index, chunk in enumerate(chunks) if chunk.chunk_type == b"IDAT")
+    moved_data = _rebuild_png_with_moved_chunks(
+        data,
+        chunks,
+        move_indices=set(interrupter_indices),
+        insert_after_index=last_idat_index,
+    )
+    if moved_data is None or not validate_png_structure(moved_data).ok:
+        return None
+
+    names = tuple(chunk.name for chunk in interrupters)
+    names_text = ", ".join(names)
+    move_repair = ChunkMoveRepair(
+        data=moved_data,
+        strategy="moved IDAT-interrupting ancillary chunk(s) after final IDAT: %s" % names_text,
+        moved_chunks=names,
+    )
+
+    remove_repair = None
+    removal_is_low_risk = all(_is_low_risk_removable_idat_interrupter(chunk) for chunk in interrupters)
+    if removal_is_low_risk:
+        interrupter_offsets = {chunk.offset for chunk in interrupters}
+        result = remove_png_chunks(data, lambda chunk: chunk.offset in interrupter_offsets)
+        if result is not None:
+            removed_data, removed_chunks = result
+            if validate_png_structure(removed_data).ok:
+                remove_repair = ChunkRemovalRepair(
+                    data=removed_data,
+                    strategy="removed safe-to-copy IDAT-interrupting ancillary chunk(s): %s" % names_text,
+                    removed_chunks=tuple(chunk.name for chunk in removed_chunks),
+                )
+
+    return IdatInterruptionRepairPlan(
+        data=moved_data,
+        strategy="IDAT chain interrupted by ancillary chunk(s): %s" % names_text,
+        interrupting_chunks=names,
+        move_repair=move_repair,
+        remove_repair=remove_repair,
+        removal_is_low_risk=remove_repair is not None,
+    )
+
+
+def repair_pcal_out_of_place(data: bytes) -> ChunkMoveRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    idat_indices = [index for index, chunk in enumerate(chunks) if chunk.chunk_type == b"IDAT"]
+    if not idat_indices:
+        return None
+
+    first_idat_index = idat_indices[0]
+    move_indices = {
+        index
+        for index, chunk in enumerate(chunks)
+        if chunk.chunk_type == b"pCAL" and index > first_idat_index
+    }
+    if not move_indices:
+        return None
+
+    moved_data = _rebuild_png_with_chunks_before(
+        data,
+        chunks,
+        move_indices=move_indices,
+        insert_before_index=first_idat_index,
+    )
+    if moved_data is None or not validate_png_structure(moved_data).ok:
+        return None
+
+    moved_names = tuple(chunks[index].name for index in sorted(move_indices))
+    return ChunkMoveRepair(
+        data=moved_data,
+        strategy="moved pCAL chunk(s) before first IDAT",
+        moved_chunks=moved_names,
+    )
+
+
 def repair_duplicate_singleton_chunks(
     data: bytes,
-    chunk_types: Iterable[bytes] = SINGLETON_ANCILLARY_CHUNKS,
+    chunk_types: Iterable[bytes] = DUPLICATE_SINGLETON_REPAIR_CHUNKS,
 ) -> ChunkRemovalRepair | None:
     singleton_chunk_types = tuple(chunk_types)
     seen: set[bytes] = set()
@@ -1774,6 +2001,18 @@ def repair_duplicate_singleton_chunks(
         data=repaired,
         strategy="removed duplicate singleton chunk(s): %s" % ", ".join(removed_names),
         removed_chunks=removed_names,
+    )
+
+
+def repair_duplicate_ihdr_chunks(data: bytes) -> ChunkRemovalRepair | None:
+    repair = repair_duplicate_singleton_chunks(data, chunk_types=(b"IHDR",))
+    if repair is None:
+        return None
+
+    return ChunkRemovalRepair(
+        data=repair.data,
+        strategy="removed duplicate IHDR chunk(s) after first header",
+        removed_chunks=repair.removed_chunks,
     )
 
 
@@ -2076,11 +2315,20 @@ def repair_offs_length(data: bytes) -> ChunkDataLengthRepair | None:
         return None
 
     offs = next((chunk for chunk in chunks if chunk.chunk_type == b"oFFs"), None)
-    if offs is None or offs.length == 9:
+    if offs is None:
         return None
 
-    if offs.length > 9:
+    if offs.length == 9:
+        if not offs.data or offs.data[8] in (0, 1):
+            return None
+        payload = offs.data[:8] + b"\x00"
+        strategy = "normalized invalid oFFs unit specifier to 0 and rebuilt CRC"
+        new_length = 9
+        removed = False
+    elif offs.length > 9:
         payload = offs.data[:9]
+        if payload[8] not in (0, 1):
+            payload = payload[:8] + b"\x00"
         strategy = "trimmed oFFs length from %s to 9 and rebuilt CRC" % offs.length
         new_length = 9
         removed = False
@@ -2124,11 +2372,20 @@ def repair_phys_length(data: bytes) -> ChunkDataLengthRepair | None:
         return None
 
     phys = next((chunk for chunk in chunks if chunk.chunk_type == b"pHYs"), None)
-    if phys is None or phys.length == 9:
+    if phys is None:
         return None
 
-    if phys.length > 9:
+    if phys.length == 9:
+        if not phys.data or phys.data[8] in (0, 1):
+            return None
+        payload = phys.data[:8] + b"\x00"
+        strategy = "normalized invalid pHYs unit specifier to 0 and rebuilt CRC"
+        new_length = 9
+        removed = False
+    elif phys.length > 9:
         payload = phys.data[:9]
+        if payload[8] not in (0, 1):
+            payload = payload[:8] + b"\x00"
         strategy = "trimmed pHYs length from %s to 9 and rebuilt CRC" % phys.length
         new_length = 9
         removed = False

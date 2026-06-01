@@ -5,9 +5,10 @@ import os
 import sys
 
 
-def Local_Venv_Python(script_path=None):
+def Local_Venv_Python(script_path=None, *, os_name=None):
     root = os.path.dirname(os.path.abspath(script_path or __file__))
-    if os.name == "nt":
+    os_name = os.name if os_name is None else os_name
+    if os_name == "nt":
         candidate = os.path.join(root, ".venv", "Scripts", "python.exe")
     else:
         candidate = os.path.join(root, ".venv", "bin", "python")
@@ -83,7 +84,13 @@ except ImportError as exc:
     MISSING_IMPORT_ERRORS["ImageHash"] = exc
     imagehash = None
 
-from chunklate import ancillary, ancillary_runtime, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, image_viewer, libpng_check, libpng_runtime, magic_runtime, main_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, writer_runtime, youshallpass_runtime
+try:
+    import colorama
+except ImportError as exc:
+    MISSING_IMPORT_ERRORS["colorama"] = exc
+    colorama = None
+
+from chunklate import ancillary, ancillary_runtime, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, image_viewer, libpng_check, libpng_runtime, magic_runtime, main_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, platform_runtime, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, writer_runtime, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -106,6 +113,7 @@ RUNTIME_IMPORTS = (
     ("psutil", "psutil", lambda: psutil is not None),
     ("ImageHash", "imagehash", lambda: imagehash is not None),
     ("python3-tk", "tkinter", lambda: tkinter is not None),
+    ("colorama", "colorama", lambda: colorama is not None),
 )
 
 
@@ -117,10 +125,15 @@ def Missing_Runtime_Dependencies():
     return tuple(missing)
 
 
-def Format_Missing_Runtime_Dependencies(missing):
+def Format_Missing_Runtime_Dependencies(missing, *, os_name=None):
+    os_name = os.name if os_name is None else os_name
     root = os.path.dirname(os.path.abspath(__file__))
-    bootstrap = shlex.quote(Bootstrap_Script_Path())
-    local_python = Local_Venv_Python() or os.path.join(root, ".venv", "bin", "python")
+    bootstrap_command = Bootstrap_Command()
+    local_python = Local_Venv_Python(os_name=os_name) or platform_runtime.local_venv_python(root, os_name=os_name)
+    run_command = platform_runtime.format_command(
+        [local_python, os.path.abspath(__file__), "-f", "<file>"],
+        os_name=os_name,
+    )
     lines = [
         "Missing runtime dependencies; Chunklate cannot safely continue.",
         "",
@@ -134,13 +147,13 @@ def Format_Missing_Runtime_Dependencies(missing):
         [
             "",
             "Install/refresh the local virtual environment with:",
-            "  %s" % bootstrap,
+            "  %s" % platform_runtime.format_command(bootstrap_command, os_name=os_name),
             "",
             "Then run Chunklate with:",
-            "  %s %s -f <file>" % (shlex.quote(local_python), shlex.quote(os.path.abspath(__file__))),
+            "  %s" % run_command,
         ]
     )
-    if any(package == "python3-tk" for package, _, _ in missing):
+    if any(package == "python3-tk" for package, _, _ in missing) and os_name != "nt":
         lines.extend(
             [
                 "",
@@ -148,12 +161,25 @@ def Format_Missing_Runtime_Dependencies(missing):
                 "On Debian/Ubuntu install it with: sudo apt install python3-tk",
             ]
         )
+    elif any(package == "python3-tk" for package, _, _ in missing):
+        lines.extend(
+            [
+                "",
+                "Tkinter is normally installed by the official Python for Windows installer.",
+                "Repair or reinstall Python with the Tcl/Tk option enabled if tkinter is missing.",
+            ]
+        )
     return "\n".join(lines)
 
 
 def Bootstrap_Script_Path(script_path=None):
     root = os.path.dirname(os.path.abspath(script_path or __file__))
-    return os.path.join(root, "scripts", "bootstrap_dev.sh")
+    return platform_runtime.bootstrap_python_script(root)
+
+
+def Bootstrap_Command(script_path=None):
+    root = os.path.dirname(os.path.abspath(script_path or __file__))
+    return platform_runtime.bootstrap_command(root, executable=sys.executable)
 
 
 def Can_Prompt_Dependency_Install(stdin=None):
@@ -175,9 +201,9 @@ def Prompt_Dependency_Install(missing, *, input_func=input, stdin=None, runner=s
     if answer not in ("y", "yes"):
         return False
 
-    bootstrap = Bootstrap_Script_Path()
-    print("Running: %s" % bootstrap, file=sys.stderr)
-    result = runner([bootstrap], cwd=os.path.dirname(os.path.abspath(__file__)))
+    command = Bootstrap_Command()
+    print("Running: %s" % platform_runtime.format_command(command), file=sys.stderr)
+    result = runner(command, cwd=os.path.dirname(os.path.abspath(__file__)))
     return getattr(result, "returncode", 0) == 0
 
 
@@ -187,6 +213,19 @@ def Reexec_Local_Venv_Or_Exit():
         print("Dependency install finished, but .venv Python was not found.", file=sys.stderr)
         sys.exit(1)
     os.execv(venv_python, [venv_python, os.path.abspath(__file__), *sys.argv[1:]])
+
+
+def Configure_Terminal_Color():
+    global USE_COLOR
+    decision = platform_runtime.decide_terminal_color(
+        COLOR_MODE,
+        stream=sys.stdout,
+        os_name=os.name,
+        platform=sys.platform,
+        colorama_module=colorama,
+    )
+    USE_COLOR = decision.use_color
+    return decision
 
 
 def Ensure_Runtime_Dependencies(*, prompt_installer=Prompt_Dependency_Install, reexec=Reexec_Local_Venv_Or_Exit):
@@ -247,7 +286,6 @@ def CheckPoint_Libpng_End_Success(message):
     Candy("Cowsay", "Your file is here: %s" % saved_path, "good")
     PRINT(Candy("Color", "green", "-Saved in : %s") % saved_path)
     Open_Final_Image_Once(saved_path)
-    Candy("Cowsay", "See you Space Cowboy...", "good")
     TheEnd()
 
 
@@ -553,7 +591,7 @@ def GroundhogDay(NewDay):
 
 def Chunklate(sec):
 
-    for line in ui.render_chunklate_banner(os.name, random.randint):
+    for line in ui.render_chunklate_banner(os.name, random.randint, use_color=USE_COLOR):
         print(line)
 
     if sec:
@@ -618,7 +656,7 @@ def Legacy_UI_Runtime():
         random_int=random.randint,
         max_columns=MAXCHAR,
         no_dialogue=NODIALOGUE,
-        use_color=os.name != "nt",
+        use_color=USE_COLOR,
         pause_dialogue_enabled=PAUSEDIALOGUE,
         pause_dialogue=lambda: prompts.pause_dialogue(input, PAUSEDIALOGUE),
         pause_state=DIALOGUE_PAUSE_STATE,
@@ -635,7 +673,7 @@ def Prompt_Candy(mode, arg, data=None):
         random_int=random.randint,
         max_columns=MAXCHAR,
         no_dialogue=False,
-        use_color=os.name != "nt",
+        use_color=USE_COLOR,
     ).candy(mode, arg, data)
 
 
@@ -685,6 +723,7 @@ def TheEnd():
     Open_Current_Final_Image_If_Valid()
     Summarise(None, True)
     Chunklate(0)
+    Candy("Cowsay", "See you Space Cowboy...", "good")
     sys.exit(0)
 
 
@@ -1312,6 +1351,8 @@ def FixItFelix_Apply_Repair(repair):
 
 
 def FixItFelix_Try_Automatic_Repair(name):
+    global Bad_Libpng
+
     repair = fixit_felix.automatic_repair(
         name,
         DATA_BYTES,
@@ -1323,6 +1364,29 @@ def FixItFelix_Try_Automatic_Repair(name):
     )
     if repair is None:
         return None
+
+    if name == "hist_out_of_place_cleanup":
+        if NODIALOGUE:
+            for key in list(PandoraBox):
+                key_text = str(key)
+                if "hIST: out of place" in key_text or "hIST chunk must appear before" in key_text:
+                    relics.discard_pandora_error(PandoraBox, key)
+            SideNotes.append(
+                "-Keeping optional hIST chunk(s): non-interactive mode cannot confirm metadata removal."
+            )
+            Bad_Libpng = False
+            return True
+        if not AUTO and not Question(
+            id="hIST Optional Metadata Removal:-Remove hIST chunk(s) to silence libpng?"
+        ):
+            for key in list(PandoraBox):
+                key_text = str(key)
+                if "hIST: out of place" in key_text or "hIST chunk must appear before" in key_text:
+                    relics.discard_pandora_error(PandoraBox, key)
+            SideNotes.append("-Keeping optional hIST chunk(s) as requested.")
+            PRINT("-Keeping hIST chunk(s) as requested.")
+            Bad_Libpng = False
+            return True
 
     if name == "ihdr_rebuild":
         crc_bruteforce_result = fixit_felix_runtime.try_ihdr_stored_crc_bruteforce(
@@ -1433,6 +1497,7 @@ def main():
     if MainOptions is None:
         return
     Ensure_Runtime_Dependencies()
+    Configure_Terminal_Color()
 
     while True:
         MainLoopState = main_runtime.run_main_loop_once_from_namespace(globals())
@@ -1507,6 +1572,9 @@ NEARBY_FOUND_LATER_IEND = None
 FOG_OF_WAR_BAD_CHUNKS = set()
 FOG_OF_WAR_LAST_MAP = None
 FOG_OF_WAR_LAST_WIDTH = None
+FOG_OF_WAR_LAST_RENDER_KEY = None
+FOG_OF_WAR_PREVIEW_CHUNK = None
+FOG_OF_WAR_PREVIEW_ERROR = False
 ArkOfCovenant = {}
 Pandemonium = {}
 CHUNK_INFO_STATE = chunk_state.ChunkInfoState()
@@ -1563,6 +1631,8 @@ PAUSEDIALOGUE = False
 DIALOGUE_PAUSE_STATE = ui_runtime.LegacyDialoguePauseState()
 NODIALOGUE = False
 AUTO = False
+COLOR_MODE = "auto"
+USE_COLOR = os.name != "nt"
 CLONESWAR = False
 MAX_SAVES = None
 SAVE_COUNT = 0

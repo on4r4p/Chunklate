@@ -675,7 +675,128 @@ def emit_libpng_critical(runtime: LibpngErrorRuntime, finding: Any) -> None:
     runtime.emit("\n-\033[1;31;49mCriticalHit\033[m: %s" % finding)
 
 
+def _idat_interruption_question_hash(repair: png.IdatInterruptionRepairPlan, action: str) -> str:
+    return "IDAT-interruption:%s:%s" % (action, ",".join(repair.interrupting_chunks))
+
+
+def _apply_idat_interruption_plan(
+    runtime: AutomaticRepairRuntime,
+    repair: png.IdatInterruptionRepairPlan,
+) -> bool | None:
+    chunks = ", ".join(repair.interrupting_chunks)
+    runtime.candy(
+        "Cowsay",
+        "This PNG has ancillary chunk(s) sitting between IDAT chunks: %s." % chunks,
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "IDAT chunks must stay consecutive. I can move that passenger after the final IDAT, before IEND.",
+        "com",
+    )
+
+    if runtime.question is not None and runtime.question(
+        id="IDAT Interruption Move:-Move ancillary chunk(s) out of the IDAT chain?",
+        idhash=_idat_interruption_question_hash(repair, "move"),
+        skipauto=True,
+    ):
+        return apply_repair(runtime, repair.move_repair)
+
+    if repair.remove_repair is None:
+        runtime.candy(
+            "Cowsay",
+            "I am not deleting it automatically: at least one interrupter is not low-risk safe-to-copy metadata.",
+            "bad",
+        )
+        runtime.side_notes.append(
+            "-FixItFelix:kept IDAT-interrupting chunk(s) after relocation was declined: %s."
+            % chunks
+        )
+        return None
+
+    runtime.candy(
+        "Cowsay",
+        "Those interrupter chunk(s) are ancillary and safe-to-copy, so deletion is also a reasonable cleanup.",
+        "com",
+    )
+    if runtime.question is not None and runtime.question(
+        id="IDAT Interruption Removal:-Remove safe-to-copy ancillary chunk(s) from the clone?",
+        idhash=_idat_interruption_question_hash(repair, "remove"),
+        skipauto=True,
+    ):
+        return apply_repair(runtime, repair.remove_repair)
+
+    runtime.side_notes.append(
+        "-FixItFelix:kept IDAT-interrupting safe-to-copy chunk(s) after user declined move/removal: %s."
+        % chunks
+    )
+    return None
+
+
+def _write_no_next_repair(runtime: NoNextChunkRuntime, repair: Any) -> Any:
+    note = fixit_felix.repair_note(repair)
+    runtime.side_notes.append(note)
+    return runtime.write_clone(repair.data.hex(), note)
+
+
+def _apply_idat_interruption_plan_before_libpng(
+    runtime: NoNextChunkRuntime,
+    repair: png.IdatInterruptionRepairPlan,
+) -> tuple[bool, Any]:
+    chunks = ", ".join(repair.interrupting_chunks)
+    runtime.candy(
+        "Cowsay",
+        "I found ancillary chunk(s) between IDAT chunks before libpng gets a vote: %s." % chunks,
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "The least destructive repair is to move them after the final IDAT, before IEND.",
+        "com",
+    )
+
+    if runtime.question(
+        id="IDAT Interruption Move:-Move ancillary chunk(s) out of the IDAT chain?",
+        idhash=_idat_interruption_question_hash(repair, "move"),
+        skipauto=True,
+    ):
+        return True, _write_no_next_repair(runtime, repair.move_repair)
+
+    if repair.remove_repair is None:
+        runtime.candy(
+            "Cowsay",
+            "I am leaving it alone: deleting an unsafe-to-copy or non-low-risk chunk needs a human choice.",
+            "bad",
+        )
+        runtime.side_notes.append(
+            "-FixItFelix:kept IDAT-interrupting chunk(s) after relocation was declined: %s."
+            % chunks
+        )
+        return False, None
+
+    runtime.candy(
+        "Cowsay",
+        "Those interrupter chunk(s) are ancillary and safe-to-copy, so deletion is also available.",
+        "com",
+    )
+    if runtime.question(
+        id="IDAT Interruption Removal:-Remove safe-to-copy ancillary chunk(s) from the clone?",
+        idhash=_idat_interruption_question_hash(repair, "remove"),
+        skipauto=True,
+    ):
+        return True, _write_no_next_repair(runtime, repair.remove_repair)
+
+    runtime.side_notes.append(
+        "-FixItFelix:kept IDAT-interrupting safe-to-copy chunk(s) after user declined move/removal: %s."
+        % chunks
+    )
+    return False, None
+
+
 def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
+    if isinstance(repair, png.IdatInterruptionRepairPlan):
+        return _apply_idat_interruption_plan(runtime, repair)
+
     applied_repair = fixit_felix.applied_repair(repair)
     strategy = str(getattr(repair, "strategy", "automatic repair"))
     validation_errors = _ihdr_validation_errors(repair)
@@ -700,7 +821,13 @@ def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
     if _chrm_repair_needs_choice(repair):
         return apply_chrm_inference_choice(runtime, repair)
 
-    if "IHDR" in strategy:
+    if "duplicate IHDR" in strategy:
+        runtime.candy(
+            "Cowsay",
+            "PNG only gets one IHDR. I am keeping the first header and cutting the duplicate.",
+            "com",
+        )
+    elif "IHDR" in strategy:
         emit_ihdr_repair_explanation(runtime, repair)
     elif "cHRM" in strategy and getattr(repair, "preserved_crc", False):
         runtime.candy(
@@ -1937,6 +2064,38 @@ def stop_before_libpng_for_unresolved_findings(
         )
         return True, runtime.run_relics(str(missing_plte_finding))
 
+    png_bytes = bytes.fromhex(runtime.data_hex)
+    duplicate_ihdr_repair = fixit_felix.duplicate_ihdr_cleanup(png_bytes, findings)
+    if duplicate_ihdr_repair is not None:
+        note = fixit_felix.repair_note(duplicate_ihdr_repair)
+        runtime.candy(
+            "Cowsay",
+            "I found more than one IHDR, so I am keeping the first header and cutting the extra one.",
+            "com",
+        )
+        runtime.side_notes.append(note)
+        return True, runtime.write_clone(duplicate_ihdr_repair.data.hex(), note)
+
+    duplicate_repair = fixit_felix.duplicate_singleton_cleanup(png_bytes, findings)
+    if duplicate_repair is not None:
+        note = fixit_felix.repair_note(duplicate_repair)
+        runtime.candy(
+            "Cowsay",
+            "I found duplicate singleton metadata, so I am keeping the first copy and writing a cleaner clone.",
+            "com",
+        )
+        runtime.side_notes.append(note)
+        return True, runtime.write_clone(duplicate_repair.data.hex(), note)
+
+    idat_interruption_repair = fixit_felix.idat_interruption_cleanup(png_bytes, findings)
+    if isinstance(idat_interruption_repair, png.IdatInterruptionRepairPlan):
+        should_return, result = _apply_idat_interruption_plan_before_libpng(
+            runtime,
+            idat_interruption_repair,
+        )
+        if should_return:
+            return True, result
+
     if any(_is_chunk_order_finding(finding) for finding in findings):
         rustine = no_next_missplaced_tools(runtime)
         if rustine is not None and len(rustine) >= 3:
@@ -2271,7 +2430,7 @@ def apply_libpng_error(
 
     if decision.action == "not_enough_image_data":
         runtime.candy("Cowsay", "Well this is as far as i could get for now. ", "bad")
-        runtime.candy("Cowsay", "At least i was able to get some pixels out of it ..", "com")
+        runtime.candy("Cowsay", "At least I was able to get some pixels out of it.", "com")
         runtime.emit(runtime.candy("Color", "yellow", "\n-ToDo"))
         runtime.the_end()
         return None
@@ -2299,7 +2458,6 @@ def apply_libpng_error(
             runtime.set_skip_bad_libpng(True)
             return True, runtime.run_relics(str(decision.finding))
 
-        runtime.candy("Cowsay", "See You Space Cowboy....", "good")
         runtime.the_end()
         return None
 

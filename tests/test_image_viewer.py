@@ -109,6 +109,50 @@ def test_open_image_uses_default_when_feh_is_missing():
     assert calls == [("xdg-open", "/tmp/fixed.png")]
 
 
+def test_open_image_uses_windows_startfile_before_subprocess_launcher():
+    calls = []
+
+    def popen(_command, **_kwargs):
+        raise AssertionError("subprocess launcher should not run when startfile succeeds")
+
+    result = image_viewer.open_image(
+        "C:/Users/Alice/My Pictures/fixed image.png",
+        popen=popen,
+        which=lambda _name: None,
+        startfile=lambda path: calls.append(("startfile", path)),
+        sleep=lambda _seconds: None,
+        platform="win32",
+    )
+
+    assert result.success is True
+    assert result.opener == "startfile"
+    assert calls == [("startfile", "C:/Users/Alice/My Pictures/fixed image.png")]
+    assert result.close(platform="win32") is False
+
+
+def test_open_image_falls_back_to_cmd_start_when_windows_startfile_fails():
+    calls = []
+
+    def popen(command, **_kwargs):
+        calls.append(tuple(command))
+        return FakeProcess(None)
+
+    result = image_viewer.open_image(
+        "C:/Users/Alice/My Pictures/fixed image.png",
+        popen=popen,
+        which=lambda _name: None,
+        startfile=lambda _path: (_ for _ in ()).throw(OSError("denied")),
+        sleep=lambda _seconds: None,
+        platform="win32",
+    )
+
+    assert result.success is True
+    assert result.opener == "cmd"
+    assert result.attempts[0].opener == "startfile"
+    assert result.attempts[0].success is False
+    assert calls == [("cmd", "/c", "start", "", "C:/Users/Alice/My Pictures/fixed image.png")]
+
+
 def test_default_image_open_command_uses_platform_launcher():
     assert image_viewer.default_image_open_command("/tmp/a.png", platform="linux") == (
         "xdg-open",
@@ -157,6 +201,8 @@ def main():
         ("Prefer feh", test_open_image_prefers_feh_when_available),
         ("Fallback after feh failure", test_open_image_falls_back_to_default_when_feh_fails),
         ("Fallback when feh is missing", test_open_image_uses_default_when_feh_is_missing),
+        ("Windows startfile", test_open_image_uses_windows_startfile_before_subprocess_launcher),
+        ("Windows cmd fallback", test_open_image_falls_back_to_cmd_start_when_windows_startfile_fails),
         ("Platform defaults", test_default_image_open_command_uses_platform_launcher),
         ("Close live viewer", test_image_open_result_close_terminates_live_viewer_process),
         ("Close finished viewer", test_image_open_result_close_is_noop_for_finished_viewer_process),

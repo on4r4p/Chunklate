@@ -11,6 +11,7 @@ from .png import (
     repair_bkgd_length,
     repair_chrm_length,
     repair_color_profile_chunks,
+    repair_duplicate_ihdr_chunks,
     repair_duplicate_singleton_chunks,
     repair_empty_plte,
     repair_gama_length,
@@ -24,7 +25,9 @@ from .png import (
     repair_itxt_compression_method,
     repair_known_chunk_type_case,
     repair_missing_chunk_data_byte,
+    repair_nonconsecutive_idat_interruption,
     repair_offs_length,
+    repair_pcal_out_of_place,
     repair_phys_length,
     repair_sbit_length,
     repair_srgb_length,
@@ -70,6 +73,8 @@ NoNextAppendIendAction = Literal[
 AutomaticRepairHandler = Literal[
     "color_profile_cleanup",
     "hist_out_of_place_cleanup",
+    "pcal_out_of_place_cleanup",
+    "duplicate_ihdr_cleanup",
     "duplicate_singleton_cleanup",
     "plte_cleanup",
     "gama_length",
@@ -87,6 +92,7 @@ AutomaticRepairHandler = Literal[
     "sbit_length",
     "srgb_length",
     "ster_length",
+    "idat_interruption_cleanup",
     "known_chunk_type_case",
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
@@ -99,6 +105,8 @@ FixItFelixWorkKind = Literal["automatic_repair", "finding"]
 AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "color_profile_cleanup",
     "hist_out_of_place_cleanup",
+    "pcal_out_of_place_cleanup",
+    "duplicate_ihdr_cleanup",
     "duplicate_singleton_cleanup",
     "plte_cleanup",
     "gama_length",
@@ -116,6 +124,7 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "sbit_length",
     "srgb_length",
     "ster_length",
+    "idat_interruption_cleanup",
     "known_chunk_type_case",
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
@@ -615,16 +624,34 @@ def duplicate_singleton_cleanup(data: bytes, findings: Iterable[object]) -> Any 
     return repair_duplicate_singleton_chunks(data)
 
 
-def hist_out_of_place_cleanup(data: bytes, findings: Iterable[object]) -> Any | None:
-    has_hist_warning = has_finding(findings, "hIST: out of place")
-    has_multiple_finding = has_finding(findings, "Multiple")
-    if not (has_hist_warning or has_multiple_finding):
+def duplicate_ihdr_cleanup(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "Multiple", "IHDR")
+        or has_finding(findings, "IHDR", "must appear at most once")
+    ):
         return None
 
-    return repair_hist_out_of_place(
-        data,
-        require_multiple=not has_hist_warning,
-    )
+    return repair_duplicate_ihdr_chunks(data)
+
+
+def hist_out_of_place_cleanup(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "hIST: out of place")
+        or has_finding(findings, "hIST chunk must appear before the first IDAT chunk")
+    ):
+        return None
+
+    return repair_hist_out_of_place(data)
+
+
+def pcal_out_of_place_cleanup(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "pCAL: out of place")
+        or has_finding(findings, "pCAL chunk must appear before the first IDAT chunk")
+    ):
+        return None
+
+    return repair_pcal_out_of_place(data)
 
 
 def plte_cleanup(
@@ -718,6 +745,8 @@ def phys_length(data: bytes, findings: Iterable[object]) -> Any | None:
         has_finding(findings, "Error pHYs U")
         or has_finding(findings, "pHYs length is not Valid")
         or has_finding(findings, "pHYs chunk length must be 9")
+        or has_finding(findings, "pHYs unit specifier must be 0 or 1")
+        or has_finding(findings, "Unit specifier :Wrong value")
     ):
         return None
 
@@ -797,6 +826,18 @@ def unknown_private_critical_removal(data: bytes, known_chunk_types: Iterable[by
     return repair_unknown_private_critical_chunks(data, known_chunk_types)
 
 
+def idat_interruption_cleanup(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "Wrong Chunk name after Chunk[b'IDAT']")
+        or has_finding(findings, "IDAT chunks must be consecutive")
+        or has_finding(findings, "nonconsecutive", "IDAT")
+        or has_finding(findings, "No NextChunk")
+    ):
+        return None
+
+    return repair_nonconsecutive_idat_interruption(data)
+
+
 def ihdr_rebuild(data: bytes, findings: Iterable[object]) -> Any | None:
     if not (
         has_finding(findings, "IHDR", "GetInfo")
@@ -833,6 +874,10 @@ def automatic_repair(
         return color_profile_cleanup(data, findings)
     if name == "hist_out_of_place_cleanup":
         return hist_out_of_place_cleanup(data, findings)
+    if name == "pcal_out_of_place_cleanup":
+        return pcal_out_of_place_cleanup(data, findings)
+    if name == "duplicate_ihdr_cleanup":
+        return duplicate_ihdr_cleanup(data, findings)
     if name == "duplicate_singleton_cleanup":
         return duplicate_singleton_cleanup(data, findings)
     if name == "plte_cleanup":
@@ -873,6 +918,8 @@ def automatic_repair(
         return srgb_length(data, findings)
     if name == "ster_length":
         return ster_length(data, findings)
+    if name == "idat_interruption_cleanup":
+        return idat_interruption_cleanup(data, findings)
     if name == "known_chunk_type_case":
         return known_chunk_type_case(data, findings, known_chunk_types)
     if name == "unknown_private_critical_removal":

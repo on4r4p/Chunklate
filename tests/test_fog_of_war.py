@@ -130,6 +130,37 @@ def test_fog_of_war_renders_bad_pending_next_chunk_red():
     assert "<blue:[bKGG?]>" not in rendered
 
 
+def test_fog_of_war_renders_eof_marker_in_purple():
+    fog_map = fog_of_war.build_map(
+        [b"PNG", b"IHDR", b"IDAT", b"IEND"],
+        b"IEND",
+        data_hex="00" * 128,
+        current_offset=128,
+        error=False,
+    )
+
+    rendered = fog_of_war.render(fog_map, color=color)
+
+    assert "<purple:[EOF]>" in rendered
+    assert " done" not in rendered
+
+
+def test_fog_of_war_marks_only_bad_duplicate_occurrence_red():
+    fog_map = fog_of_war.build_map(
+        [b"PNG", b"IHDR", b"sRGB", b"sRGB"],
+        b"PLTE",
+        data_hex="00" * 128,
+        current_offset=64,
+        error=False,
+        bad_chunk_occurrences=(("sRGB", 2),),
+    )
+
+    rendered = fog_of_war.render(fog_map, color=color)
+
+    assert "<green:[sRGB]><red:[!sRGB!]>" in rendered
+    assert "<red:[!sRGBx2!]>" not in rendered
+
+
 def main():
     checks = [
         ("clean IDAT compaction", test_fog_of_war_keeps_clean_idat_compaction),
@@ -139,6 +170,8 @@ def main():
         ("unrepaired chunk stays red", test_fog_of_war_keeps_unrepaired_seen_chunk_red),
         ("pending next chunk", test_fog_of_war_renders_pending_next_chunk_after_current),
         ("bad pending next chunk", test_fog_of_war_renders_bad_pending_next_chunk_red),
+        ("EOF marker", test_fog_of_war_renders_eof_marker_in_purple),
+        ("bad duplicate occurrence", test_fog_of_war_marks_only_bad_duplicate_occurrence_red),
     ]
 
     print("Running FogOfWar tests")

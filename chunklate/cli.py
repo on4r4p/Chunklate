@@ -15,6 +15,7 @@ class RuntimeFlags:
     debug: bool
     debug_file: bool
     auto: bool
+    color_mode: str
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,12 @@ def configure_parser(parser: Any) -> Any:
         "-a", "--auto", dest="AUTO", help="Auto Choose action.", action="store_true"
     )
     parser.add_argument(
+        "--no-color",
+        dest="NO_COLOR",
+        help="Disable terminal colors.",
+        action="store_true",
+    )
+    parser.add_argument(
         "--output-dir",
         dest="OUTPUT_DIR",
         help="Directory where Folder_* repair outputs are written.",
@@ -183,6 +190,7 @@ def runtime_flags_from_args(args: Any) -> RuntimeFlags:
     debug_file = bool(getattr(args, "DEBUGFILE", False))
     debug = args.DEBUG
     auto = args.AUTO
+    color_mode = "never" if bool(getattr(args, "NO_COLOR", False)) else "auto"
 
     if pause_debug is True:
         debug = True
@@ -206,4 +214,5 @@ def runtime_flags_from_args(args: Any) -> RuntimeFlags:
         debug=debug,
         debug_file=debug_file,
         auto=auto,
+        color_mode=color_mode,
     )

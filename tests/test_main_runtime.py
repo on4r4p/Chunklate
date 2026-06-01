@@ -42,6 +42,7 @@ def args(**updates):
         "DEBUG": False,
         "DEBUGFILE": False,
         "AUTO": False,
+        "COLOR_MODE": "auto",
         "ULTIMATE_LINEFEED_BUDGET": None,
         "ULTIMATE_LINEFEED_UNBOUNDED": False,
     }
@@ -188,6 +189,7 @@ def test_apply_main_cli_options_builds_initial_state():
             debug=True,
             debug_file=False,
             auto=False,
+            color_mode="auto",
         ),
         max_saves=2,
         save_count=0,
@@ -293,6 +295,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
             debug=True,
             debug_file=True,
             auto=False,
+            color_mode="never",
         ),
         max_saves=4,
         save_count=0,
@@ -315,6 +318,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         "DEBUG": True,
         "DEBUGFILE": True,
         "AUTO": False,
+        "COLOR_MODE": "never",
         "MAX_SAVES": 4,
         "SAVE_COUNT": 0,
         "Sample": "sample.png",
@@ -530,6 +534,25 @@ def test_load_main_sample_uses_cloneswar_then_resets_it():
     assert state.sample_name == "base-clone.png"
     assert state.cloneswar is False
     assert ("load", "clone.png") in calls
+    assert (
+        "candy",
+        ("Cowsay", main_runtime.clone_study_phrase("base-clone.png"), "com"),
+    ) in calls
+
+
+def test_load_main_sample_announces_fixed_clone_even_without_cloneswar_flag():
+    calls = []
+
+    state = main_runtime.load_main_sample(
+        build_sample_runtime(calls),
+        main_runtime.MainSampleContext(sample="sample.0_Fixed.png", cloneswar=False),
+    )
+
+    assert state.sample_name == "base-sample.0_Fixed.png"
+    assert (
+        "candy",
+        ("Cowsay", main_runtime.clone_study_phrase("base-sample.0_Fixed.png"), "com"),
+    ) in calls
 
 
 def test_load_main_sample_routes_load_error_to_legacy_error_path():
@@ -874,7 +897,12 @@ def test_run_main_loop_once_opens_valid_final_image_when_no_clone_written():
     assert state == main_runtime.MainLoopIterationState(should_return=True)
     assert ("find_magic",) in calls
     assert ("open_final",) in calls
+    assert ("candy", ("Cowsay", "See you Space Cowboy...", "good")) in calls
     assert calls.index(("open_final",)) < calls.index(("emit", "-No new clone produced, stopping main loop."))
+    assert calls.index(("emit", "-No new clone produced, stopping main loop.")) < calls.index(
+        ("candy", ("Cowsay", "See you Space Cowboy...", "good"))
+    )
+    assert calls[-1] == ("candy", ("Cowsay", "See you Space Cowboy...", "good"))
     assert not any(call[0] == "chunk_by_chunk" for call in calls)
 
 
@@ -1037,6 +1065,7 @@ def main():
         ("clear screen windows", test_run_main_clear_screen_calls_cls_on_windows_after_startup),
         ("load sample", test_load_main_sample_selects_current_sample_and_loads_data),
         ("load clone sample", test_load_main_sample_uses_cloneswar_then_resets_it),
+        ("load fixed clone sample", test_load_main_sample_announces_fixed_clone_even_without_cloneswar_flag),
         ("load sample error", test_load_main_sample_routes_load_error_to_legacy_error_path),
         ("chunk walk no offset", test_run_main_chunk_walk_returns_without_offset),
         ("chunk walk order", test_run_main_chunk_walk_runs_legacy_callback_order_and_updates_offset),

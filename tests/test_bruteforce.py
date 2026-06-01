@@ -599,6 +599,10 @@ def test_viewer_helpers_preserve_libpng_process_and_diff_decisions():
     )
     assert bruteforce.process_command_is_tmp_png(("/usr/bin/display", "/tmp/tmpabcd.PNG")) is True
     assert bruteforce.process_command_is_tmp_png(("/usr/bin/display", "/home/user/out.png")) is False
+    assert bruteforce.process_command_is_tmp_png(
+        ("display.exe", "C:\\Users\\Alice\\AppData\\Local\\Temp\\tmpabcd.PNG"),
+        temp_dir="C:\\Users\\Alice\\AppData\\Local\\Temp",
+    ) is True
     assert bruteforce.viewer_wait_step(False, 0) == bruteforce.BruteForceViewerWaitState(
         found=False,
         count=1,

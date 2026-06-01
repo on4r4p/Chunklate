@@ -194,6 +194,48 @@ def test_question_runtime_names_unknown_private_removal_prompt_and_skips_auto():
     assert not [call for call in calls if call[0] == "emit" and "Auto Answer Mode" in str(call[1])]
 
 
+def test_question_runtime_names_idat_interruption_prompts_and_skips_auto():
+    runtime, calls = runtime_from(answers=["yes"], auto=True)
+
+    assert question_runtime.ask_question(
+        runtime,
+        "IDAT Interruption Move:-Move ancillary chunk(s) out of the IDAT chain?",
+        ("heRB", "move"),
+        skipauto=True,
+    ) is True
+
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "Question: Should i move this ancillary chunk out of the IDAT chain?",
+            "com",
+        ),
+        {},
+    ) in calls
+    assert not [call for call in calls if call[0] == "emit" and "Auto Answer Mode" in str(call[1])]
+
+
+def test_question_runtime_names_hist_optional_removal_prompt():
+    runtime, calls = runtime_from(answers=["no"])
+
+    assert question_runtime.ask_question(
+        runtime,
+        "hIST Optional Metadata Removal:-Remove hIST chunk(s) to silence libpng?",
+        ("hIST", 121),
+    ) is False
+
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "Question: Should i remove the optional hIST chunk(s), or keep them as-is?",
+            "com",
+        ),
+        {},
+    ) in calls
+
+
 def test_question_runtime_names_super_mega_linefeed_force_prompt():
     runtime, calls = runtime_from(answers=["yes"])
 
@@ -334,6 +376,11 @@ def main():
             "Unknown private removal prompt",
             test_question_runtime_names_unknown_private_removal_prompt_and_skips_auto,
         ),
+        (
+            "IDAT interruption move prompt",
+            test_question_runtime_names_idat_interruption_prompts_and_skips_auto,
+        ),
+        ("hIST optional removal prompt", test_question_runtime_names_hist_optional_removal_prompt),
         ("SuperMegaLineFeedForceOfDeath prompt", test_question_runtime_names_super_mega_linefeed_force_prompt),
         (
             "UltimateMegaSuperLineFeedBruteForce prompt",

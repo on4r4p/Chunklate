@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
 from chunklate import fixit_felix
 from chunklate import fixit_felix_runtime
 from chunklate import messages
-from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk
+from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks, validate_png_structure
 
 
 def valid_png_bytes():
@@ -22,6 +22,18 @@ def valid_png_bytes():
         PNG_SIGNATURE
         + build_png_chunk(b"IHDR", ihdr)
         + build_png_chunk(b"IDAT", idat)
+        + IEND_CHUNK
+    )
+
+
+def png_with_split_idat(interrupter: bytes = b"heRB"):
+    compressed = zlib.compress(b"\x00\x00")
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
+        + build_png_chunk(b"IDAT", compressed[:2])
+        + build_png_chunk(interrupter, b"")
+        + build_png_chunk(b"IDAT", compressed[2:])
         + IEND_CHUNK
     )
 
@@ -52,6 +64,83 @@ def test_apply_repair_records_note_and_writes_clone():
     ]
     assert side_notes == ["-FixItFelix:unit-test-repair."]
     assert writes == [("6669786564", "-unit-test-repair.")]
+
+
+def test_apply_repair_prompts_to_move_idat_interruption_before_writing_clone():
+    original = png_with_split_idat(b"heRB")
+    repair = fixit_felix.idat_interruption_cleanup(
+        original,
+        ["CheckChunkName_Error_0:-Found Next Chunk[b'heRB'] has Wrong Chunk name after Chunk[b'IDAT']"],
+    )
+    side_notes = []
+    writes = []
+    questions = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: None,
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+        question=lambda **kwargs: questions.append(kwargs) or True,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert questions == [
+        {
+            "id": "IDAT Interruption Move:-Move ancillary chunk(s) out of the IDAT chain?",
+            "idhash": "IDAT-interruption:move:heRB",
+            "skipauto": True,
+        }
+    ]
+    fixed_data = bytes.fromhex(writes[0][0])
+    assert validate_png_structure(fixed_data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(fixed_data)] == [
+        b"IHDR",
+        b"IDAT",
+        b"IDAT",
+        b"heRB",
+        b"IEND",
+    ]
+    assert side_notes == [
+        "-FixItFelix:moved IDAT-interrupting ancillary chunk(s) after final IDAT: heRB."
+    ]
+
+
+def test_apply_repair_can_remove_safe_to_copy_idat_interruption_when_move_declined():
+    original = png_with_split_idat(b"heRb")
+    repair = fixit_felix.idat_interruption_cleanup(
+        original,
+        ["CheckChunkName_Error_0:-Found Next Chunk[b'heRb'] has Wrong Chunk name after Chunk[b'IDAT']"],
+    )
+    answers = iter((False, True))
+    side_notes = []
+    writes = []
+    questions = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: None,
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+        question=lambda **kwargs: questions.append(kwargs) or next(answers),
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert [question["id"] for question in questions] == [
+        "IDAT Interruption Move:-Move ancillary chunk(s) out of the IDAT chain?",
+        "IDAT Interruption Removal:-Remove safe-to-copy ancillary chunk(s) from the clone?",
+    ]
+    fixed_data = bytes.fromhex(writes[0][0])
+    assert validate_png_structure(fixed_data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(fixed_data)] == [
+        b"IHDR",
+        b"IDAT",
+        b"IDAT",
+        b"IEND",
+    ]
+    assert side_notes == [
+        "-FixItFelix:removed safe-to-copy IDAT-interrupting ancillary chunk(s): heRb."
+    ]
 
 
 def test_apply_repair_prompts_before_unproven_chrm_inference():
@@ -240,6 +329,40 @@ def test_apply_repair_rejects_invalid_ihdr_rebuild_before_clone():
     ]
     assert side_notes == [
         "-FixItFelix:IHDR automatic repair rejected before clone write: PNG signature is not at offset 0."
+    ]
+
+
+def test_apply_repair_explains_duplicate_ihdr_cut_without_rebuild_noise():
+    data = valid_png_bytes()
+    side_notes = []
+    writes = []
+    candy_calls = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: candy_calls.append(args),
+        write_clone=lambda data_hex, summary: writes.append((data_hex, summary)),
+    )
+    repair = SimpleNamespace(
+        data=data,
+        strategy="removed duplicate IHDR chunk(s) after first header",
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert candy_calls == [
+        (
+            "Cowsay",
+            "PNG only gets one IHDR. I am keeping the first header and cutting the duplicate.",
+            "com",
+        ),
+    ]
+    assert side_notes == ["-FixItFelix:removed duplicate IHDR chunk(s) after first header."]
+    assert writes == [
+        (
+            data.hex(),
+            "-removed duplicate IHDR chunk(s) after first header.",
+        ),
     ]
 
 
@@ -1777,6 +1900,126 @@ def test_apply_no_next_false_positive_iend_routes_missing_plte_to_relics():
     assert not [call for call in calls if call[0] in ("libpng_check", "the_good_place", "the_end")]
 
 
+def test_apply_no_next_false_positive_iend_repairs_duplicate_iccp_before_libpng():
+    calls = []
+    finding = "CheckChunkOrder_Error_0:-Multiple iCCP chunk"
+    duplicate_iccp = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x01\x03\x00\x00\x00")
+        + build_png_chunk(b"iCCP", b"profile\x00\x00x\x9c\x03\x00\x00\x00\x00\x01")
+        + build_png_chunk(b"iCCP", b"profile\x00\x00x\x9c\x03\x00\x00\x00\x00\x01")
+        + build_png_chunk(b"PLTE", b"\x00\x00\x00\xff\xff\xff")
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        pandora_box={finding: {}},
+        data_hex=duplicate_iccp.hex(),
+        chunks_history=(b"PNG", b"IHDR", b"iCCP", b"iCCP", b"PLTE", b"IDAT"),
+    )
+
+    result = fixit_felix_runtime.apply_no_next_false_positive_iend(
+        runtime,
+        fixit_felix.NoNextFalsePositiveIendDecision("libpng_check"),
+    )
+
+    assert result == (True, "write-result")
+    assert state["eof"] is True
+    assert side_notes == [
+        "-Reached the end of file.",
+        "-Stopped before libpng: unresolved findings remain: %s." % finding,
+        "-FixItFelix:removed duplicate singleton chunk(s): iCCP.",
+    ]
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert len(write_calls) == 1
+    fixed_data = bytes.fromhex(write_calls[0][1][0])
+    assert fixed_data.count(b"iCCP") == 1
+    assert not [call for call in calls if call[0] in ("libpng_check", "the_good_place", "the_end")]
+
+
+def test_apply_no_next_false_positive_iend_repairs_duplicate_ihdr_before_libpng():
+    calls = []
+    finding = "CheckChunkOrder_Error_0:-Multiple IHDR chunk"
+    ihdr = build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x01\x03\x00\x00\x00")
+    duplicate_ihdr = (
+        PNG_SIGNATURE
+        + ihdr
+        + ihdr
+        + build_png_chunk(b"PLTE", b"\x00\x00\x00\xff\xff\xff")
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        pandora_box={finding: {}},
+        data_hex=duplicate_ihdr.hex(),
+        chunks_history=(b"PNG", b"IHDR", b"IHDR", b"PLTE", b"IDAT"),
+    )
+
+    result = fixit_felix_runtime.apply_no_next_false_positive_iend(
+        runtime,
+        fixit_felix.NoNextFalsePositiveIendDecision("libpng_check"),
+    )
+
+    assert result == (True, "write-result")
+    assert state["eof"] is True
+    assert side_notes == [
+        "-Reached the end of file.",
+        "-Stopped before libpng: unresolved findings remain: %s." % finding,
+        "-FixItFelix:removed duplicate IHDR chunk(s) after first header.",
+    ]
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert len(write_calls) == 1
+    fixed_data = bytes.fromhex(write_calls[0][1][0])
+    assert fixed_data.count(b"IHDR") == 1
+    assert not [call for call in calls if call[0] in ("libpng_check", "the_good_place", "the_end")]
+
+
+def test_apply_no_next_false_positive_iend_repairs_duplicate_pcal_before_libpng():
+    calls = []
+    finding = "CheckChunkOrder_Error_0:-Multiple pCAL chunk"
+    pcal = build_png_chunk(
+        b"pCAL",
+        bytes.fromhex(
+            "626f67757320756e69747300000000000000ffff0002666f6f2f626172"
+            "00312e3065300036352e3533356533"
+        ),
+    )
+    duplicate_pcal = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
+        + pcal
+        + pcal
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        pandora_box={finding: {}},
+        data_hex=duplicate_pcal.hex(),
+        chunks_history=(b"PNG", b"IHDR", b"pCAL", b"pCAL", b"IDAT"),
+    )
+
+    result = fixit_felix_runtime.apply_no_next_false_positive_iend(
+        runtime,
+        fixit_felix.NoNextFalsePositiveIendDecision("libpng_check"),
+    )
+
+    assert result == (True, "write-result")
+    assert state["eof"] is True
+    assert side_notes == [
+        "-Reached the end of file.",
+        "-Stopped before libpng: unresolved findings remain: %s." % finding,
+        "-FixItFelix:removed duplicate singleton chunk(s): pCAL.",
+    ]
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert len(write_calls) == 1
+    fixed_data = bytes.fromhex(write_calls[0][1][0])
+    assert fixed_data.count(b"pCAL") == 1
+    assert not [call for call in calls if call[0] in ("libpng_check", "the_good_place", "the_end")]
+
+
 def test_apply_no_next_false_positive_iend_refuses_libpng_when_other_errors_remain():
     calls = []
     runtime, side_notes, state = no_next_runtime(
@@ -2166,10 +2409,7 @@ def test_apply_libpng_error_declines_relics_prompt_and_ends():
     )
 
     assert result is None
-    assert calls[-2:] == [
-        ("candy", ("Cowsay", "See You Space Cowboy....", "good"), {}),
-        ("the_end", (), {}),
-    ]
+    assert calls[-1] == ("the_end", (), {})
 
 
 def test_apply_libpng_error_not_enough_image_data_ends_after_todo():
@@ -2560,6 +2800,14 @@ def main():
     checks = [
         ("Apply repair records note and writes clone", test_apply_repair_records_note_and_writes_clone),
         (
+            "Apply repair moves IDAT interruption after prompt",
+            test_apply_repair_prompts_to_move_idat_interruption_before_writing_clone,
+        ),
+        (
+            "Apply repair removes safe IDAT interruption when move declined",
+            test_apply_repair_can_remove_safe_to_copy_idat_interruption_when_move_declined,
+        ),
+        (
             "Apply repair prompts before unproven cHRM inference",
             test_apply_repair_prompts_before_unproven_chrm_inference,
         ),
@@ -2578,6 +2826,10 @@ def main():
         (
             "Apply repair rejects invalid IHDR rebuild",
             test_apply_repair_rejects_invalid_ihdr_rebuild_before_clone,
+        ),
+        (
+            "Apply repair explains duplicate IHDR cut",
+            test_apply_repair_explains_duplicate_ihdr_cut_without_rebuild_noise,
         ),
         (
             "IHDR stored CRC brute force uses loader",
@@ -2686,6 +2938,18 @@ def main():
         (
             "Apply no-next false positive repairs hIST before PLTE",
             test_apply_no_next_false_positive_iend_repairs_hist_before_plte_before_libpng,
+        ),
+        (
+            "Apply no-next false positive repairs duplicate iCCP",
+            test_apply_no_next_false_positive_iend_repairs_duplicate_iccp_before_libpng,
+        ),
+        (
+            "Apply no-next false positive repairs duplicate IHDR",
+            test_apply_no_next_false_positive_iend_repairs_duplicate_ihdr_before_libpng,
+        ),
+        (
+            "Apply no-next false positive repairs duplicate pCAL",
+            test_apply_no_next_false_positive_iend_repairs_duplicate_pcal_before_libpng,
         ),
         (
             "Apply no-next false positive blocks libpng with pending errors",

@@ -89,6 +89,7 @@ class ImageOpenResult:
 PopenFactory = Callable[..., subprocess.Popen]
 WhichLookup = Callable[[str], str | None]
 Sleeper = Callable[[float], None]
+StartFile = Callable[[str], Any]
 
 
 def default_image_open_command(path: str, *, platform: str = sys.platform) -> tuple[str, ...]:
@@ -105,6 +106,7 @@ def _launch_image_viewer(
     popen: PopenFactory,
     sleep: Sleeper,
     settle_seconds: float,
+    platform: str = sys.platform,
 ) -> ImageOpenAttempt:
     opener = os.path.basename(command[0])
     command_tuple = tuple(command)
@@ -115,7 +117,7 @@ def _launch_image_viewer(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             close_fds=True,
-            start_new_session=True,
+            start_new_session=not platform.startswith("win"),
         )
     except Exception as exc:
         return ImageOpenAttempt(opener, command_tuple, False, str(exc))
@@ -136,6 +138,17 @@ def _launch_image_viewer(
     return ImageOpenAttempt(opener, command_tuple, True, process=process)
 
 
+def _launch_startfile(path: str, *, startfile: StartFile | None) -> ImageOpenAttempt:
+    command = ("os.startfile", path)
+    if startfile is None:
+        return ImageOpenAttempt("startfile", command, False, "os.startfile is not available")
+    try:
+        startfile(path)
+    except Exception as exc:
+        return ImageOpenAttempt("startfile", command, False, str(exc))
+    return ImageOpenAttempt("startfile", command, True)
+
+
 def open_image(
     path: str,
     *,
@@ -143,9 +156,16 @@ def open_image(
     which: WhichLookup = shutil.which,
     sleep: Sleeper = time.sleep,
     platform: str = sys.platform,
+    startfile: StartFile | None = getattr(os, "startfile", None),
     settle_seconds: float = 0.2,
 ) -> ImageOpenResult:
     attempts: list[ImageOpenAttempt] = []
+
+    if platform.startswith("win"):
+        attempt = _launch_startfile(path, startfile=startfile)
+        attempts.append(attempt)
+        if attempt.success:
+            return ImageOpenResult(True, attempt.opener, tuple(attempts))
 
     feh = which("feh")
     if feh is not None:
@@ -154,6 +174,7 @@ def open_image(
             popen=popen,
             sleep=sleep,
             settle_seconds=settle_seconds,
+            platform=platform,
         )
         attempts.append(attempt)
         if attempt.success:
@@ -165,6 +186,7 @@ def open_image(
         popen=popen,
         sleep=sleep,
         settle_seconds=settle_seconds,
+        platform=platform,
     )
     attempts.append(attempt)
     if attempt.success:

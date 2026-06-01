@@ -312,6 +312,22 @@ def test_rebuild_partial_idat_blackfill_keeps_prefix_and_fills_remaining_rows():
     )
 
 
+def test_rebuild_partial_idat_blackfill_handles_valid_empty_stream():
+    empty_stream_png = build_rgb_png(1, 2, b"\x00abc\x00def", idat_data=zlib.compress(b""))
+
+    repair = idat.rebuild_partial_idat_blackfill(empty_stream_png)
+
+    assert repair is not None
+    assert repair.strategy == "partial-idat-blackfill recovered 0/2 scanlines"
+    assert repair.recovered_scanlines == 0
+    assert repair.total_scanlines == 2
+    assert validate_png_structure(repair.data).ok
+
+    chunks = list(iter_chunks(repair.data))
+    rebuilt_stream = b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
+    assert zlib.decompress(rebuilt_stream) == b"\x00\x00\x00\x00" * 2
+
+
 def test_rebuild_tolerant_idat_salvage_keeps_rows_after_bad_filters():
     linefeed = repair_linefeed_conversion(
         (ROOT / "David" / "6.bad.png").read_bytes(),
@@ -1208,6 +1224,10 @@ def main():
         (
             "Partial IDAT blackfill repair",
             test_rebuild_partial_idat_blackfill_keeps_prefix_and_fills_remaining_rows,
+        ),
+        (
+            "Partial IDAT blackfill empty valid stream",
+            test_rebuild_partial_idat_blackfill_handles_valid_empty_stream,
         ),
         (
             "Partial IDAT tolerant salvage",

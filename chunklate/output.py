@@ -128,21 +128,94 @@ def summary_entry_separator(sample_name: str) -> str:
     return "\n\n『" + sample_name + " :』\n"
 
 
+def summary_operations_header(sample_name: str) -> str:
+    return "\n\n『Summary: " + sample_name + "』\n\nOperations:\n"
+
+
 def _write_summary_header_if_needed(namespace: Mapping[str, Any], handle: Any) -> None:
     if namespace.get("Summary_Header") is True:
         handle.write(summary_title(namespace["MAXCHAR"]))
         namespace["Summary_Header"] = False
 
 
+def _write_summary_operations_header_if_needed(namespace: Mapping[str, Any], handle: Any) -> None:
+    if namespace.get("Summary_Operations_Header") is True:
+        return
+    sample_name = namespace.get("Sample_Name") or os.path.basename(namespace["FILE_Origin"])
+    handle.write(summary_operations_header(sample_name))
+    namespace["Summary_Operations_Header"] = True
+
+
+def _next_summary_step(namespace: Mapping[str, Any]) -> int:
+    step = int(namespace.get("Summary_Step_Count", 0)) + 1
+    namespace["Summary_Step_Count"] = step
+    return step
+
+
+def _summary_line_title(line: str, default_title: str) -> tuple[str, str]:
+    prefixes = (
+        ("-CheckPoint:", "CheckPoint"),
+        ("-FixItFelix:", "FixItFelix"),
+        ("-CriticalHit:", "CriticalHit"),
+        ("-CriticalMiss:", "CriticalMiss"),
+        ("-Error", "Error"),
+        ("Error:", "Error"),
+        ("-No Error", "Repair"),
+        ("-Saved in", "Output"),
+        ("-Saving", "Output"),
+        ("-Preview image", "Preview"),
+        ("error:", "Error Flag"),
+        ("fixed:", "Fixed Flag"),
+        ("function:", "Function"),
+        ("infos:", "Info"),
+        ("chunk:", "Chunk"),
+        ("ToolKit:", "ToolKit"),
+        ("Arg", "Tool"),
+        ("Pandora:", "Pandora"),
+        ("key:", "Pandora Key"),
+        ("Context:", "Context"),
+        ("Result:", "Result"),
+        ("Question:", "Question"),
+        ("Patch bytes ready:", "Patch"),
+        ("Chnks nbr:", "Chunk Count"),
+        ("idacounter:", "IDAT Count"),
+        ("IDAT_Bytes_Len:", "IDAT Bytes"),
+    )
+    for prefix, title in prefixes:
+        if not line.startswith(prefix):
+            continue
+        if prefix == "Arg":
+            return title, line
+        if prefix in ("-Error", "-No Error", "-Saved in", "-Saving", "-Preview image"):
+            return title, line[1:].strip()
+        detail = line[len(prefix):].strip()
+        return title, detail
+    return default_title, line
+
+
+def summary_note_block(note: Any, step: int, *, default_title: str = "Note") -> str:
+    lines = [line.strip() for line in clean_summary_text(note).splitlines() if line.strip()]
+    if not lines:
+        return ""
+
+    title, detail = _summary_line_title(lines[0], default_title)
+    output_lines = ["  %03d. %s" % (step, title)]
+    if detail:
+        separator = ":" if title == "Error" and detail.startswith("-") else ": "
+        output_lines[0] += separator + detail
+    for line in lines[1:]:
+        output_lines.append("       " + line)
+    return "\n".join(output_lines) + "\n"
+
+
 def append_summary_progress_note(namespace: Mapping[str, Any], note: Any) -> None:
     if "FILE_Origin" not in namespace or "FILE_DIR" not in namespace:
         return
     filename = summary_path(namespace["FILE_Origin"], namespace["FILE_DIR"])
-    sample_name = namespace.get("Sample_Name") or os.path.basename(namespace["FILE_Origin"])
     with builtins.open(filename, "a+") as handle:
         _write_summary_header_if_needed(namespace, handle)
-        handle.write(summary_entry_separator(sample_name))
-        handle.write("\n" + clean_summary_text(note) + "\n")
+        _write_summary_operations_header_if_needed(namespace, handle)
+        handle.write(summary_note_block(note, _next_summary_step(namespace)))
 
 
 class ImmediateSummaryNotes(list):
@@ -196,6 +269,8 @@ def _is_relevant_debug_line(line: str) -> bool:
     stripped = line.strip()
     if not stripped:
         return False
+    if stripped.startswith("-Errors Check"):
+        return False
     if stripped.startswith(DEBUG_LINE_PREFIXES):
         return True
     return stripped.startswith(DEBUG_DASH_PREFIXES)
@@ -216,14 +291,86 @@ def relevant_debug_lines(debug_notes: Sequence[Any]) -> list[str]:
     return lines
 
 
+def _debug_value(line: str, prefix: str) -> str:
+    return line[len(prefix):].strip()
+
+
+def _format_debug_event(event: dict[str, Any], step: int) -> str:
+    function = event.get("function") or "Checkpoint"
+    chunk = event.get("chunk")
+    status = "ERROR" if event.get("error") == "True" else "OK"
+    if event.get("fixed") == "True":
+        status += " fixed"
+
+    header = "  %03d. %s" % (step, function)
+    if chunk:
+        header += " [%s]" % chunk
+    header += ": " + status
+
+    output_lines = [header]
+    for info in event.get("infos", []):
+        output_lines.append("       info: " + info)
+    for arg in event.get("args", []):
+        output_lines.append("       tool: " + arg)
+    keys = event.get("keys", [])
+    if keys:
+        output_lines.append("       pandora: " + ", ".join(keys))
+    return "\n".join(output_lines) + "\n"
+
+
+def debug_trace_blocks(debug_notes: Sequence[Any]) -> list[str]:
+    blocks: list[str] = []
+    event: dict[str, Any] | None = None
+
+    def flush_event() -> None:
+        nonlocal event
+        if event is None:
+            return
+        blocks.append(_format_debug_event(event, len(blocks) + 1))
+        event = None
+
+    for line in relevant_debug_lines(debug_notes):
+        if line.startswith("error:"):
+            flush_event()
+            event = {"error": _debug_value(line, "error:"), "infos": [], "args": [], "keys": []}
+            continue
+
+        if event is not None:
+            if line.startswith("fixed:"):
+                event["fixed"] = _debug_value(line, "fixed:")
+                continue
+            if line.startswith("function:"):
+                event["function"] = _debug_value(line, "function:")
+                continue
+            if line.startswith("infos:"):
+                event["infos"].append(_debug_value(line, "infos:"))
+                continue
+            if line.startswith("chunk:"):
+                event["chunk"] = _debug_value(line, "chunk:")
+                continue
+            if line.startswith("Arg"):
+                event["args"].append(line)
+                continue
+            if line.startswith("key:"):
+                event["keys"].append(_debug_value(line, "key:"))
+                continue
+            if line in ("ToolKit:", "Pandora:"):
+                continue
+
+        flush_event()
+        blocks.append(summary_note_block(line, len(blocks) + 1, default_title="Debug"))
+
+    flush_event()
+    return blocks
+
+
 def debug_trace_body(debug_notes: Sequence[Any]) -> str | None:
-    lines = relevant_debug_lines(debug_notes)
-    if len(lines) == 0:
+    blocks = debug_trace_blocks(debug_notes)
+    if len(blocks) == 0:
         return None
 
-    body = ["\n\n『Debug Log: 』\n"]
-    for line in lines:
-        body.append("\n" + line)
+    body = ["\n\n『Debug Trace』\n\n"]
+    body.extend(blocks)
     body.append("\n")
     return "".join(body)
 
@@ -446,7 +593,6 @@ def run_summarise_from_namespace(
     infos: Any,
     summary_footer: bool = False,
 ) -> None:
-    sep = summary_entry_separator(namespace["Sample_Name"])
     title = summary_title(namespace["MAXCHAR"])
     eof = summary_separator(
         "_,-=|S|u|m|m|a|r|y| |E|n|d|=-,_",
@@ -466,11 +612,13 @@ def run_summarise_from_namespace(
         _write_summary_header_if_needed(namespace, handle)
 
         if body is not None:
-            handle.write(sep)
-            handle.write(body)
+            _write_summary_operations_header_if_needed(namespace, handle)
+            for note in side_notes:
+                handle.write(summary_note_block(note, _next_summary_step(namespace)))
+            if infos is not None:
+                handle.write(summary_note_block(infos, _next_summary_step(namespace), default_title="Result"))
 
         if debug_trace is not None:
-            handle.write(sep)
             handle.write(debug_trace)
 
         if summary_footer is True:

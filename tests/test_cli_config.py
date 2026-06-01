@@ -23,6 +23,7 @@ def args(**overrides):
         "DEBUG": False,
         "DEBUGFILE": False,
         "AUTO": False,
+        "NO_COLOR": False,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -49,6 +50,7 @@ def test_configure_parser_preserves_legacy_options():
     assert "--pause-dialogue" in help_text
     assert "--shut-the-fuck-up" in help_text
     assert "--auto" in help_text
+    assert "--no-color" in help_text
     assert "--output-dir DIR" in help_text
     assert "--max-saves N" in help_text
     assert "--ultimate-linefeed-budget N" in help_text
@@ -71,6 +73,7 @@ def test_configure_parser_parses_runtime_arguments():
             "-sp",
             "-stfu",
             "-a",
+            "--no-color",
             "--output-dir",
             "out",
             "--max-saves",
@@ -91,6 +94,7 @@ def test_configure_parser_parses_runtime_arguments():
     assert parsed.PAUSEDIALOGUE is True
     assert parsed.NODIALOGUE is True
     assert parsed.AUTO is True
+    assert parsed.NO_COLOR is True
     assert parsed.OUTPUT_DIR == "out"
     assert parsed.MAX_SAVES == 2
     assert parsed.ULTIMATE_LINEFEED_BUDGET == 1234
@@ -172,6 +176,11 @@ def test_runtime_flags_debug_file_does_not_enable_terminal_debug_without_debug_a
     assert flags.auto is False
 
 
+def test_runtime_flags_preserves_no_color_mode():
+    assert cli.runtime_flags_from_args(args(NO_COLOR=True)).color_mode == "never"
+    assert cli.runtime_flags_from_args(args()).color_mode == "auto"
+
+
 def test_runtime_flags_stfu_keeps_debug_file_without_terminal_debug():
     flags = cli.runtime_flags_from_args(args(NODIALOGUE=True, DEBUGFILE=True))
 
@@ -206,6 +215,7 @@ def test_runtime_flags_nodialogue_preserves_stfu_side_effects():
         debug=False,
         debug_file=False,
         auto=True,
+        color_mode="auto",
     )
 
 
@@ -222,6 +232,7 @@ def main():
         ("output dir prefix", test_output_file_dir_preserves_empty_default_and_trailing_separator),
         ("pause-debug flags", test_runtime_flags_pause_debug_enables_debug),
         ("debug-file flags", test_runtime_flags_debug_file_does_not_enable_terminal_debug_without_debug_arg),
+        ("no-color flags", test_runtime_flags_preserves_no_color_mode),
         ("stfu debug-file flags", test_runtime_flags_stfu_keeps_debug_file_without_terminal_debug),
         ("stfu flags", test_runtime_flags_nodialogue_preserves_stfu_side_effects),
     ]

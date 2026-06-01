@@ -33,10 +33,10 @@ CANDIDATE_CASES: tuple[CandidateCase, ...] = (
     CandidateCase(
         "nonconsecutive_idat.png",
         f"{BROKEN_SUITE}/nonconsecutive_idat.png",
-        NEEDS_REPAIR_STRATEGY,
+        CANDIDATE_FOR_STRICT_REPAIR,
         (
             "Found Next Chunk[b'heRB'] has Wrong Chunk name",
-            "Critical Chunk b'IEND' is Missing",
+            "moved IDAT-interrupting ancillary chunk(s) after final IDAT: heRB",
         ),
     ),
     CandidateCase(

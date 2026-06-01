@@ -529,6 +529,76 @@ def test_checkpoint_fog_of_war_keeps_next_chunk_as_blue_preview():
     assert "<red:[!bKGD!]>" not in rendered
 
 
+def test_checkpoint_fog_of_war_remembers_next_chunk_preview_until_it_becomes_current():
+    namespace = {
+        "Candy": lambda mode, color, value: f"<{color}:{value}>",
+        "FOG_OF_WAR_LAST_MAP": None,
+        "FOG_OF_WAR_LAST_WIDTH": None,
+        "FOG_OF_WAR_LAST_RENDER_KEY": None,
+        "FOG_OF_WAR_PREVIEW_CHUNK": None,
+        "FOG_OF_WAR_PREVIEW_ERROR": False,
+    }
+    next_context = checkpoint_runtime.CheckPointEntryContext(
+        error=False,
+        fixed=False,
+        function="CheckChunkName",
+        chunk=b"gAMA",
+        infos=("-Name is valid for next Chunk[b'gAMA'].",),
+        toolkit=(True,),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=(),
+        chunks_history=(b"PNG",),
+        data_hex="00" * 128,
+        current_offset=64,
+        current_chunk_hint=b"IHDR",
+        sample_name="sample.png",
+    )
+    current_context = checkpoint_runtime.CheckPointEntryContext(
+        error=False,
+        fixed=False,
+        function="CheckChunkName",
+        chunk=b"IHDR",
+        infos=("-Name is valid for Chunk[b'IHDR'].",),
+        toolkit=(None,),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=(),
+        chunks_history=(b"PNG",),
+        data_hex="00" * 128,
+        current_offset=64,
+        sample_name="sample.png",
+    )
+    advanced_context = checkpoint_runtime.CheckPointEntryContext(
+        error=False,
+        fixed=False,
+        function="CheckLength",
+        chunk=b"gAMA",
+        infos=("-Found NextChunk",),
+        toolkit=("00000004",),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=(),
+        chunks_history=(b"PNG", b"IHDR"),
+        data_hex="00" * 128,
+        current_offset=96,
+        sample_name="sample.png",
+    )
+
+    first_render = checkpoint_runtime.render_fog_of_war_from_context(namespace, next_context)
+    remembered_render = checkpoint_runtime.render_fog_of_war_from_context(namespace, current_context)
+    advanced_render = checkpoint_runtime.render_fog_of_war_from_context(namespace, advanced_context)
+
+    assert "<blue:[gAMA?]>" in first_render
+    assert "<blue:[gAMA?]>" in remembered_render
+    assert remembered_render != ""
+    assert "<blue:[gAMA?]>" not in advanced_render
+    assert namespace["FOG_OF_WAR_PREVIEW_CHUNK"] is None
+
+
 def test_checkpoint_fog_of_war_marks_bad_next_chunk_preview_red():
     context = checkpoint_runtime.CheckPointEntryContext(
         error=True,
@@ -590,6 +660,85 @@ def test_checkpoint_fog_of_war_marks_lowercase_missplaced_info_red():
     assert "<red:[!cHRM!]>" in rendered
     assert "<green:[cHRM]>" not in rendered
     assert "<red:[!IDAT!]>" not in rendered
+
+
+def test_checkpoint_fog_of_war_marks_duplicate_occurrence_red():
+    context = checkpoint_runtime.CheckPointEntryContext(
+        error=True,
+        fixed=False,
+        function="CheckChunkOrder",
+        chunk="Missplaced",
+        infos=("-Multiple IHDR chunk",),
+        toolkit=("tool",),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=(),
+        chunks_history=(b"PNG", b"IHDR"),
+        data_hex="00" * 128,
+        current_offset=64,
+        sample_name="sample.png",
+    )
+    namespace = {
+        "Candy": lambda mode, color, value: f"<{color}:{value}>",
+        "FOG_OF_WAR_LAST_MAP": None,
+        "FOG_OF_WAR_LAST_WIDTH": None,
+    }
+
+    rendered = checkpoint_runtime.render_fog_of_war_from_context(namespace, context)
+
+    assert namespace["FOG_OF_WAR_BAD_CHUNKS"] == set()
+    assert namespace["FOG_OF_WAR_BAD_CHUNK_OCCURRENCES"] == {("IHDR", 2)}
+    assert "<green:[IHDR]><red:[!IHDR!]>" in rendered
+    assert "<red:[!IHDRx2!]>" not in rendered
+    assert "<red:[!Missplaced!]>" not in rendered
+
+
+def test_checkpoint_fog_of_war_keeps_duplicate_occurrence_red_when_current_moves_on():
+    namespace = {
+        "Candy": lambda mode, color, value: f"<{color}:{value}>",
+        "FOG_OF_WAR_LAST_MAP": None,
+        "FOG_OF_WAR_LAST_WIDTH": None,
+    }
+    duplicate_context = checkpoint_runtime.CheckPointEntryContext(
+        error=True,
+        fixed=False,
+        function="CheckChunkOrder",
+        chunk="Missplaced",
+        infos=("-Multiple sRGB chunk",),
+        toolkit=("tool",),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=(),
+        chunks_history=(b"PNG", b"IHDR", b"sRGB"),
+        data_hex="00" * 128,
+        current_offset=64,
+        sample_name="sample.png",
+    )
+    checksum_context = checkpoint_runtime.CheckPointEntryContext(
+        error=False,
+        fixed=False,
+        function="Checksum",
+        chunk=b"sRGB",
+        infos=("-Crc is correct",),
+        toolkit=(),
+        brute_level=0,
+        libpng_errors=(),
+        libpng_finished_at_iend=False,
+        pandora_keys=("CheckChunkOrder_Error_0:-Multiple sRGB chunk",),
+        chunks_history=(b"PNG", b"IHDR", b"sRGB", b"sRGB"),
+        data_hex="00" * 128,
+        current_offset=64,
+        sample_name="sample.png",
+    )
+
+    checkpoint_runtime.render_fog_of_war_from_context(namespace, duplicate_context)
+    rendered = checkpoint_runtime.render_fog_of_war_from_context(namespace, checksum_context)
+
+    assert namespace["FOG_OF_WAR_BAD_CHUNK_OCCURRENCES"] == {("sRGB", 2)}
+    assert "<green:[sRGB]><red:[!sRGB!]>" in rendered
+    assert "<red:[!sRGBx2!]>" not in rendered
 
 
 def test_checkpoint_fog_of_war_keeps_unrepaired_misplaced_chunk_red():
@@ -1049,12 +1198,24 @@ def main():
             test_checkpoint_fog_of_war_keeps_next_chunk_as_blue_preview,
         ),
         (
+            "CheckPoint FogOfWar remembers next chunk preview",
+            test_checkpoint_fog_of_war_remembers_next_chunk_preview_until_it_becomes_current,
+        ),
+        (
             "CheckPoint FogOfWar bad next chunk preview",
             test_checkpoint_fog_of_war_marks_bad_next_chunk_preview_red,
         ),
         (
             "CheckPoint FogOfWar lower-case missplaced red",
             test_checkpoint_fog_of_war_marks_lowercase_missplaced_info_red,
+        ),
+        (
+            "CheckPoint FogOfWar duplicate occurrence red",
+            test_checkpoint_fog_of_war_marks_duplicate_occurrence_red,
+        ),
+        (
+            "CheckPoint FogOfWar duplicate occurrence persists",
+            test_checkpoint_fog_of_war_keeps_duplicate_occurrence_red_when_current_moves_on,
         ),
         (
             "CheckPoint FogOfWar keeps bad chunk red",

@@ -9,7 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from chunklate import specs
 from chunklate.png import (
+    DUPLICATE_SINGLETON_REPAIR_CHUNKS,
     IEND_CHUNK,
     PNG_SIGNATURE,
     PngFormatError,
@@ -37,6 +39,7 @@ from chunklate.png import (
     repair_bkgd_length,
     repair_chrm_length,
     repair_color_profile_chunks,
+    repair_duplicate_ihdr_chunks,
     repair_duplicate_singleton_chunks,
     repair_empty_plte,
     repair_gama_length,
@@ -55,7 +58,9 @@ from chunklate.png import (
     repair_linefeed_conversion,
     repair_missing_ihdr_from_idat,
     repair_missing_chunk_data_byte,
+    repair_nonconsecutive_idat_interruption,
     repair_offs_length,
+    repair_pcal_out_of_place,
     repair_phys_length,
     repair_overlong_chunk_length_to_next_header,
     repair_sbit_length,
@@ -1000,6 +1005,162 @@ def test_repair_duplicate_singleton_chunks_removes_second_bkgd():
     assert bkgd.data == b"\x00\x01"
 
 
+def test_repair_duplicate_singleton_chunks_removes_second_pcal():
+    pcal = build_png_chunk(
+        b"pCAL",
+        bytes.fromhex(
+            "626f67757320756e69747300000000000000ffff0002666f6f2f626172"
+            "00312e3065300036352e3533356533"
+        ),
+    )
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
+        + pcal
+        + pcal
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+    assert validate_png_structure(original).errors == (
+        "PNG must not contain multiple pCAL chunks",
+    )
+
+    repaired = repair_duplicate_singleton_chunks(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "removed duplicate singleton chunk(s): pCAL"
+    assert repaired.removed_chunks == ("pCAL",)
+    assert validate_png_structure(repaired.data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)].count(b"pCAL") == 1
+
+
+def test_duplicate_singleton_repair_list_covers_unique_non_terminal_chunks():
+    expected = set(specs.UNIQUE_CHUNK) - {b"PNG", b"IHDR", b"IEND"}
+    expected.update({b"tIME", b"gIFg"})
+
+    assert expected <= set(DUPLICATE_SINGLETON_REPAIR_CHUNKS)
+    assert b"IHDR" not in DUPLICATE_SINGLETON_REPAIR_CHUNKS
+    assert b"IEND" not in DUPLICATE_SINGLETON_REPAIR_CHUNKS
+
+
+def test_repair_duplicate_singleton_chunks_covers_remaining_unique_chunks():
+    cases = (
+        (b"sCAL", b"\x011\x001", 0, b"\x00\x00"),
+        (b"eXIf", b"II\x00\x00\x00\x00", 0, b"\x00\x00"),
+        (b"PLTE", b"\x00\x00\x00\xff\xff\xff", 2, b"\x00\x00\x00\x00"),
+    )
+
+    for chunk_type, payload, color_type, scanline in cases:
+        ihdr = struct.pack("!IIBBBBB", 1, 1, 8, color_type, 0, 0, 0)
+        duplicate = build_png_chunk(chunk_type, payload)
+        original = (
+            PNG_SIGNATURE
+            + build_png_chunk(b"IHDR", ihdr)
+            + duplicate
+            + duplicate
+            + build_png_chunk(b"IDAT", zlib.compress(scanline))
+            + IEND_CHUNK
+        )
+
+        assert validate_png_structure(original).errors == (
+            "PNG must not contain multiple %s chunks" % chunk_type.decode(),
+        )
+
+        repaired = repair_duplicate_singleton_chunks(original)
+
+        assert repaired is not None
+        assert repaired.strategy == "removed duplicate singleton chunk(s): %s" % chunk_type.decode()
+        assert repaired.removed_chunks == (chunk_type.decode(),)
+        assert validate_png_structure(repaired.data).ok
+        assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)].count(chunk_type) == 1
+
+
+def test_repair_duplicate_ihdr_chunks_removes_second_header():
+    ihdr = build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x01\x03\x00\x00\x00")
+    original = (
+        PNG_SIGNATURE
+        + ihdr
+        + ihdr
+        + build_png_chunk(b"PLTE", b"\x00\x00\x00\xff\xff\xff")
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+    assert validate_png_structure(original).errors == (
+        "PNG must contain exactly one IHDR chunk",
+    )
+
+    repaired = repair_duplicate_ihdr_chunks(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "removed duplicate IHDR chunk(s) after first header"
+    assert repaired.removed_chunks == ("IHDR",)
+    assert validate_png_structure(repaired.data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)] == [
+        b"IHDR",
+        b"PLTE",
+        b"IDAT",
+        b"IEND",
+    ]
+
+
+def test_repair_nonconsecutive_idat_interruption_moves_ancillary_after_idat_chain():
+    compressed = zlib.compress(b"\x00\x00")
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", struct.pack("!IIBBBBB", 1, 1, 8, 0, 0, 0, 0))
+        + build_png_chunk(b"IDAT", compressed[:2])
+        + build_png_chunk(b"heRB", b"")
+        + build_png_chunk(b"IDAT", compressed[2:])
+        + IEND_CHUNK
+    )
+
+    assert validate_png_structure(original).errors == ("IDAT chunks must be consecutive",)
+
+    repair = repair_nonconsecutive_idat_interruption(original)
+
+    assert repair is not None
+    assert repair.interrupting_chunks == ("heRB",)
+    assert repair.remove_repair is None
+    assert repair.removal_is_low_risk is False
+    assert repair.move_repair.moved_chunks == ("heRB",)
+    assert validate_png_structure(repair.move_repair.data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repair.move_repair.data)] == [
+        b"IHDR",
+        b"IDAT",
+        b"IDAT",
+        b"heRB",
+        b"IEND",
+    ]
+
+
+def test_repair_nonconsecutive_idat_interruption_can_remove_safe_to_copy_ancillary():
+    compressed = zlib.compress(b"\x00\x00")
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", struct.pack("!IIBBBBB", 1, 1, 8, 0, 0, 0, 0))
+        + build_png_chunk(b"IDAT", compressed[:2])
+        + build_png_chunk(b"heRb", b"")
+        + build_png_chunk(b"IDAT", compressed[2:])
+        + IEND_CHUNK
+    )
+
+    repair = repair_nonconsecutive_idat_interruption(original)
+
+    assert repair is not None
+    assert repair.removal_is_low_risk is True
+    assert repair.remove_repair is not None
+    assert repair.remove_repair.removed_chunks == ("heRb",)
+    assert validate_png_structure(repair.remove_repair.data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repair.remove_repair.data)] == [
+        b"IHDR",
+        b"IDAT",
+        b"IDAT",
+        b"IEND",
+    ]
+
+
 def test_repair_hist_out_of_place_removes_optional_hist_chunk():
     ihdr = build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x01\x03\x00\x00\x00")
     original = (
@@ -1040,6 +1201,38 @@ def test_repair_hist_out_of_place_can_require_duplicate_hist_chunks():
     assert repaired is not None
     assert repaired.removed_chunks == ("hIST", "hIST")
     assert b"hIST" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
+
+
+def test_repair_pcal_out_of_place_moves_it_before_idat():
+    pcal = build_png_chunk(
+        b"pCAL",
+        bytes.fromhex(
+            "626f67757320756e69747300000000000000ffff0002666f6f2f626172"
+            "00312e3065300036352e3533356533"
+        ),
+    )
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + pcal
+        + IEND_CHUNK
+    )
+
+    assert "pCAL chunk must appear before the first IDAT chunk" in validate_png_structure(original).errors
+
+    repaired = repair_pcal_out_of_place(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "moved pCAL chunk(s) before first IDAT"
+    assert repaired.moved_chunks == ("pCAL",)
+    assert validate_png_structure(repaired.data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)] == [
+        b"IHDR",
+        b"pCAL",
+        b"IDAT",
+        b"IEND",
+    ]
 
 
 def test_validate_png_structure_rejects_hist_after_idat():
@@ -1119,6 +1312,30 @@ def test_repair_offs_length_infers_missing_unit_byte():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_repair_offs_length_normalizes_invalid_unit_byte():
+    valid = tiny_rgb_png()
+    ihdr = next(iter_chunks(valid))
+    broken = (
+        PNG_SIGNATURE
+        + valid[ihdr.offset : ihdr.offset + 12 + ihdr.length]
+        + build_png_chunk(b"oFFs", b"\x00" * 8 + b"\x02")
+        + valid[ihdr.offset + 12 + ihdr.length :]
+    )
+
+    assert "oFFs unit specifier must be 0 or 1" in validate_png_structure(broken).errors
+
+    repaired = repair_offs_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 9
+    assert repaired.new_length == 9
+    assert repaired.strategy == "normalized invalid oFFs unit specifier to 0 and rebuilt CRC"
+    offs = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"oFFs")
+    assert offs.data == b"\x00" * 9
+    assert offs.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_repair_phys_length_infers_missing_unit_byte():
     broken = repair_fixture("length_phys.png").read_bytes()
 
@@ -1130,6 +1347,30 @@ def test_repair_phys_length_infers_missing_unit_byte():
     assert repaired.old_length == 8
     assert repaired.new_length == 9
     assert repaired.strategy == "inferred missing pHYs unit byte 0 and rebuilt CRC"
+    phys = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"pHYs")
+    assert phys.data == bytes.fromhex("000003e8000003e800")
+    assert phys.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_phys_length_normalizes_invalid_unit_byte():
+    valid = tiny_rgb_png()
+    ihdr = next(iter_chunks(valid))
+    broken = (
+        PNG_SIGNATURE
+        + valid[ihdr.offset : ihdr.offset + 12 + ihdr.length]
+        + build_png_chunk(b"pHYs", bytes.fromhex("000003e8000003e802"))
+        + valid[ihdr.offset + 12 + ihdr.length :]
+    )
+
+    assert "pHYs unit specifier must be 0 or 1" in validate_png_structure(broken).errors
+
+    repaired = repair_phys_length(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 9
+    assert repaired.new_length == 9
+    assert repaired.strategy == "normalized invalid pHYs unit specifier to 0 and rebuilt CRC"
     phys = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"pHYs")
     assert phys.data == bytes.fromhex("000003e8000003e800")
     assert phys.crc_ok
@@ -1681,17 +1922,38 @@ def main():
         ("Truncate long palette bKGD", test_repair_bkgd_length_truncates_palette_payload),
         ("Remove short truecolor-alpha bKGD", test_repair_bkgd_length_removes_short_truecolor_alpha_payload),
         ("Remove duplicate singleton bKGD", test_repair_duplicate_singleton_chunks_removes_second_bkgd),
+        ("Remove duplicate singleton pCAL", test_repair_duplicate_singleton_chunks_removes_second_pcal),
+        (
+            "Duplicate singleton repair list covers unique chunks",
+            test_duplicate_singleton_repair_list_covers_unique_non_terminal_chunks,
+        ),
+        (
+            "Remove remaining duplicate singletons",
+            test_repair_duplicate_singleton_chunks_covers_remaining_unique_chunks,
+        ),
+        ("Remove duplicate IHDR", test_repair_duplicate_ihdr_chunks_removes_second_header),
+        (
+            "Move ancillary chunk out of nonconsecutive IDAT chain",
+            test_repair_nonconsecutive_idat_interruption_moves_ancillary_after_idat_chain,
+        ),
+        (
+            "Remove safe-to-copy ancillary chunk from nonconsecutive IDAT chain",
+            test_repair_nonconsecutive_idat_interruption_can_remove_safe_to_copy_ancillary,
+        ),
         ("Remove out-of-place hIST", test_repair_hist_out_of_place_removes_optional_hist_chunk),
         (
             "Require duplicate hIST for multiple finding cleanup",
             test_repair_hist_out_of_place_can_require_duplicate_hist_chunks,
         ),
+        ("Move out-of-place pCAL", test_repair_pcal_out_of_place_moves_it_before_idat),
         ("Reject hIST after IDAT", test_validate_png_structure_rejects_hist_after_idat),
         ("Infer common short gAMA", test_repair_gama_length_infers_common_missing_byte),
         ("Remove unknown short gAMA", test_repair_gama_length_removes_uninferrable_short_payload),
         ("Truncate long gIFg", test_repair_gifg_length_truncates_legacy_payload),
         ("Infer missing oFFs unit", test_repair_offs_length_infers_missing_unit_byte),
+        ("Normalize invalid oFFs unit", test_repair_offs_length_normalizes_invalid_unit_byte),
         ("Infer missing pHYs unit", test_repair_phys_length_infers_missing_unit_byte),
+        ("Normalize invalid pHYs unit", test_repair_phys_length_normalizes_invalid_unit_byte),
         ("Trim indexed sBIT", test_repair_sbit_length_trims_indexed_payload),
         ("Trim grayscale sBIT", test_repair_sbit_length_trims_grayscale_payload),
         ("Trim long sRGB", test_repair_srgb_length_trims_rendering_intent_payload),

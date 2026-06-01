@@ -7,6 +7,15 @@ from typing import Any, Callable
 from . import cli, messages, output, runtime_state
 
 
+CLONE_STUDY_PHRASES = (
+    "Fresh clone on the bench. I am checking its alibi.",
+    "New clone, new pass. I am reading it byte by byte.",
+    "This clone gets a full inspection before I trust it.",
+    "Round two: same mystery, sharper notes.",
+    "I picked up the new clone. Let me see what changed.",
+)
+
+
 @dataclass(frozen=True)
 class MainCliOptionsRuntime:
     print_error: Callable[[str], Any]
@@ -446,6 +455,7 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "DEBUG": flags.debug,
         "DEBUGFILE": flags.debug_file,
         "AUTO": flags.auto,
+        "COLOR_MODE": flags.color_mode,
         "MAX_SAVES": options.max_saves,
         "SAVE_COUNT": options.save_count,
         "Sample": options.sample,
@@ -556,6 +566,12 @@ def load_main_sample(
         " %s is loaded!" % runtime.candy("Color", "green", sample_selection.sample_name),
         "good",
     )
+    if context.cloneswar is not False or is_clone_sample_name(sample_selection.sample_name):
+        runtime.candy(
+            "Cowsay",
+            clone_study_phrase(sample_selection.sample_name),
+            "com",
+        )
     return MainSampleState(
         sample=sample_selection.sample,
         sample_name=sample_selection.sample_name,
@@ -563,6 +579,15 @@ def load_main_sample(
         data_bytes=loaded_sample.data_bytes,
         data_hex=loaded_sample.data_hex,
     )
+
+
+def clone_study_phrase(sample_name: Any) -> str:
+    index = sum(ord(char) for char in str(sample_name)) % len(CLONE_STUDY_PHRASES)
+    return CLONE_STUDY_PHRASES[index]
+
+
+def is_clone_sample_name(sample_name: Any) -> bool:
+    return "_Fixed" in str(sample_name)
 
 
 def sync_loaded_sample_to_namespace(namespace: dict[str, Any], state: MainSampleState) -> None:
@@ -699,6 +724,8 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
                 "good",
             )
         namespace["PRINT"]("-No new clone produced, stopping main loop.")
+        if not has_unresolved_findings(namespace):
+            namespace["Candy"]("Cowsay", "See you Space Cowboy...", "good")
         return MainLoopIterationState(should_return=True)
 
     return MainLoopIterationState()

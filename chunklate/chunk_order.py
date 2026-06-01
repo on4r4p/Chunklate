@@ -100,8 +100,10 @@ def multiple_chunk_print_line(colored_chunk: str, colored_cannot: str) -> str:
     return "-%s chunk %s be used multiple times." % (colored_chunk, colored_cannot)
 
 
-def multiple_chunk_info() -> str:
-    return "-Multiple"
+def multiple_chunk_info(chunk: bytes | str | None = None) -> str:
+    if chunk is None:
+        return "-Multiple"
+    return "-Multiple %s chunk" % decode_chunk_name(as_chunk_bytes(chunk))
 
 
 def missplaced_info() -> str:

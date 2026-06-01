@@ -9,6 +9,7 @@ description = "PNG corruption analyzer and repair helper."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "colorama>=0.4.6",
     "ImageHash>=4.3",
     "inputimeout>=1.0",
     "numpy>=1.24",

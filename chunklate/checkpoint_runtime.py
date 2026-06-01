@@ -218,9 +218,15 @@ def render_fog_of_war_from_context(namespace: dict[str, Any], context: CheckPoin
     idat_wrong_crc_count = _idat_wrong_crc_count(context)
     update_fog_of_war_bad_chunks(namespace, context)
     preview_next = _is_check_chunk_name_next_context(context)
-    current_chunk = _fog_current_chunk(context) if preview_next else context.chunk
+    current_chunk = _fog_current_chunk(context) if preview_next or _is_multiple_chunk_order_context(context) else context.chunk
     current_error = context.error and not context.fixed and not preview_next
     chunks_history = _fog_chunks_history(context, current_chunk, preview_next)
+    preview_chunk, preview_error = update_fog_of_war_preview(
+        namespace,
+        context,
+        current_chunk,
+        preview_next,
+    )
     fog_map = fog_of_war.build_map(
         chunks_history,
         current_chunk,
@@ -230,16 +236,18 @@ def render_fog_of_war_from_context(namespace: dict[str, Any], context: CheckPoin
         sample_name=context.sample_name,
         idat_wrong_crc_count=idat_wrong_crc_count,
         bad_chunk_labels=namespace.get("FOG_OF_WAR_BAD_CHUNKS", ()),
-        preview_chunk=context.chunk if preview_next else None,
-        preview_error=context.error and not context.fixed if preview_next else False,
+        bad_chunk_occurrences=namespace.get("FOG_OF_WAR_BAD_CHUNK_OCCURRENCES", ()),
+        preview_chunk=preview_chunk,
+        preview_error=preview_error,
     )
-    previous_map = namespace.get("FOG_OF_WAR_LAST_MAP")
-    previous_width = namespace.get("FOG_OF_WAR_LAST_WIDTH")
+    previous_key = namespace.get("FOG_OF_WAR_LAST_RENDER_KEY")
+    current_key = _fog_of_war_render_key(fog_map, context)
     current_width = fog_of_war.visible_body_width(fog_map, color=colorizer)
     namespace["FOG_OF_WAR_LAST_MAP"] = fog_map
     namespace["FOG_OF_WAR_LAST_WIDTH"] = current_width
+    namespace["FOG_OF_WAR_LAST_RENDER_KEY"] = current_key
 
-    if previous_map == fog_map:
+    if previous_key == current_key:
         return ""
 
     return fog_of_war.render(fog_map, color=colorizer)
@@ -258,6 +266,12 @@ def _is_check_chunk_name_next_context(context: CheckPointEntryContext) -> bool:
 
 
 def _fog_current_chunk(context: CheckPointEntryContext) -> Any:
+    if _is_multiple_chunk_order_context(context):
+        parsed_label = _multiple_chunk_label_from_info(" ".join(str(info) for info in context.infos))
+        if parsed_label:
+            return parsed_label
+        if context.chunks_history:
+            return context.chunks_history[-1]
     hint_label = _chunk_label(context.current_chunk_hint)
     if hint_label not in GENERIC_BAD_CHUNK_LABELS and hint_label != "None":
         return context.current_chunk_hint
@@ -273,11 +287,53 @@ def _fog_chunks_history(
 ) -> tuple[Any, ...]:
     if preview_next:
         return context.chunks_history
+    if _is_multiple_chunk_order_context(context):
+        return context.chunks_history
     if context.function != "Checksum" or not context.chunks_history:
         return context.chunks_history
     if _chunk_label(context.chunks_history[-1]) != _chunk_label(current_chunk):
         return context.chunks_history
     return context.chunks_history[:-1]
+
+
+def _clear_fog_of_war_preview(namespace: dict[str, Any]) -> None:
+    namespace["FOG_OF_WAR_PREVIEW_CHUNK"] = None
+    namespace["FOG_OF_WAR_PREVIEW_ERROR"] = False
+
+
+def update_fog_of_war_preview(
+    namespace: dict[str, Any],
+    context: CheckPointEntryContext,
+    current_chunk: Any,
+    preview_next: bool,
+) -> tuple[Any, bool]:
+    if preview_next:
+        preview_error = context.error and not context.fixed
+        namespace["FOG_OF_WAR_PREVIEW_CHUNK"] = context.chunk
+        namespace["FOG_OF_WAR_PREVIEW_ERROR"] = preview_error
+        return context.chunk, preview_error
+
+    preview_chunk = namespace.get("FOG_OF_WAR_PREVIEW_CHUNK")
+    if preview_chunk is None:
+        return None, False
+
+    preview_label = _chunk_label(preview_chunk)
+    current_label = _chunk_label(current_chunk)
+    history_label = _chunk_label(context.chunks_history[-1]) if context.chunks_history else ""
+    if preview_label in ("", "None", "PNG") or preview_label in (current_label, history_label):
+        _clear_fog_of_war_preview(namespace)
+        return None, False
+
+    return preview_chunk, bool(namespace.get("FOG_OF_WAR_PREVIEW_ERROR", False))
+
+
+def _fog_of_war_render_key(fog_map: fog_of_war.FogOfWarMap, context: CheckPointEntryContext) -> tuple[Any, ...]:
+    return (
+        fog_map,
+        context.function,
+        _chunk_label(context.chunk),
+        tuple(str(info) for info in context.infos),
+    )
 
 
 GENERIC_BAD_CHUNK_LABELS = {"", "Critical", "Missplaced", "LibpngCheck"}
@@ -297,6 +353,35 @@ def _misplaced_chunk_label_from_info(info_text: str) -> str:
     if match:
         return match.group(1)
     return ""
+
+
+def _multiple_chunk_label_from_info(info_text: str) -> str:
+    match = re.search(r"-Multiple\s+([A-Za-z][A-Za-z0-9]{3})\s+chunk", info_text, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    match = re.search(r"-Multiple\s+\[b'([^']+)'\]", info_text)
+    if match:
+        return match.group(1)
+    return ""
+
+
+def _is_multiple_chunk_order_context(context: CheckPointEntryContext) -> bool:
+    if context.function != "CheckChunkOrder":
+        return False
+    info_text = " ".join(str(info) for info in context.infos)
+    return "multiple" in info_text.lower()
+
+
+def _multiple_chunk_occurrence_from_context(context: CheckPointEntryContext) -> tuple[str, int] | None:
+    info_text = " ".join(str(info) for info in context.infos)
+    label = _multiple_chunk_label_from_info(info_text)
+    if not label and context.chunks_history:
+        label = _chunk_label(context.chunks_history[-1])
+    if not label or label == "PNG":
+        return None
+
+    occurrence = sum(1 for chunk in context.chunks_history if _chunk_label(chunk) == label) + 1
+    return label, occurrence
 
 
 def _context_bad_chunk_labels(context: CheckPointEntryContext) -> tuple[str, ...]:
@@ -326,15 +411,21 @@ def _context_bad_chunk_labels(context: CheckPointEntryContext) -> tuple[str, ...
 
 def update_fog_of_war_bad_chunks(namespace: dict[str, Any], context: CheckPointEntryContext) -> None:
     bad_chunks = namespace.setdefault("FOG_OF_WAR_BAD_CHUNKS", set())
+    bad_occurrences = namespace.setdefault("FOG_OF_WAR_BAD_CHUNK_OCCURRENCES", set())
     labels = _context_bad_chunk_labels(context)
-    if not labels:
+    occurrence = _multiple_chunk_occurrence_from_context(context) if _is_multiple_chunk_order_context(context) else None
+    if not labels and occurrence is None:
         return
     if context.error is True and context.fixed is True:
         for label in labels:
             bad_chunks.discard(label)
+        if occurrence is not None:
+            bad_occurrences.discard(occurrence)
         return
     if context.error is True:
         bad_chunks.update(labels)
+        if occurrence is not None:
+            bad_occurrences.add(occurrence)
 
 
 def _idat_wrong_crc_count(context: CheckPointEntryContext) -> int:

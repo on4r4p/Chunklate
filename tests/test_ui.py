@@ -43,7 +43,7 @@ def test_colorize_returns_data_on_windows_mode():
     marker = object()
 
     assert ui.colorize("red", "ERR", use_color=False) == "ERR"
-    assert ui.colorize("green", marker, use_color=False) is marker
+    assert ui.colorize("green", marker, use_color=False) == str(marker)
 
 
 def test_pick_chunky_uses_legacy_groups_deterministically():
@@ -152,6 +152,19 @@ def test_render_chunklate_banner_preserves_windows_layout():
 ╰─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╯
 """,
     )
+
+
+def test_render_chunklate_banner_can_disable_color_on_posix():
+    calls = []
+
+    assert ui.render_chunklate_banner("posix", lambda start, end: calls.append((start, end)), use_color=False) == (
+        """
+╭─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╮
+  <[0x00000016]>[C|H|U|N|K|L|A|T|E]<[0x98bd5cb8]>
+╰─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╯
+""",
+    )
+    assert calls == []
 
 
 def test_render_chunklate_banner_preserves_legacy_color_calls():

@@ -108,6 +108,7 @@ def test_legacy_unique_chunk_multiple_check_preserves_current_behavior():
     assert chunk_order.legacy_flags_unique_chunk_as_multiple(b"IHDR", excluded, (b"IHDR",))
     assert not chunk_order.legacy_flags_unique_chunk_as_multiple(b"IDAT", excluded, (b"IHDR",))
     assert chunk_order.multiple_chunk_info() == "-Multiple"
+    assert chunk_order.multiple_chunk_info(b"iCCP") == "-Multiple iCCP chunk"
     assert chunk_order.missplaced_info() == "-Missplaced"
     findings = [chunk_order.missplaced_info()]
     assert chunk_order.missplaced_checkpoint_args(findings) == (

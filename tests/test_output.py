@@ -87,17 +87,22 @@ def test_immediate_summary_notes_flushes_each_append_and_summarise_does_not_dupl
 
     notes = output.ensure_immediate_summary_notes(namespace)
     notes.append("\033[1;31;49mearly-note\033[m")
+    notes.append("second-note")
 
     summary = tmp_path / "Folder_sample" / "Summary_Of_sample"
     text = summary.read_text()
     assert "C|h|u|n|k|l|a|t|e" in text
-    assert "early-note" in text
+    assert "『Summary: sample.png』" in text
+    assert text.count("『Summary: sample.png』") == 1
+    assert "001. Note: early-note" in text
+    assert "002. Note: second-note" in text
     assert "\033[" not in text
 
     output.run_summarise_from_namespace(namespace, "final-info", False)
     text = summary.read_text()
     assert text.count("early-note") == 1
-    assert "final-info" in text
+    assert text.count("『Summary: sample.png』") == 1
+    assert "003. Result: final-info" in text
     assert namespace["SideNotes"] is notes
     assert list(notes) == []
 
@@ -111,7 +116,8 @@ def test_debug_trace_body_keeps_only_relevant_clean_debug_lines():
     assert output.debug_trace_body(["first", "second"]) is None
     trace = output.debug_trace_body(
         [
-            "\033[1;31;49m-CriticalHit\033[m: boom\n"
+            "error:True\n"
+            "fixed:False\n"
             "╭─━━━━━━━━━━─╮\n"
             "function:CheckLength\n"
             "infos:-No NextChunk\n"
@@ -119,18 +125,22 @@ def test_debug_trace_body_keeps_only_relevant_clean_debug_lines():
             "          /\n"
             "(ಠ_ಠ)\n"
             "Arg0:00000000 type:<class 'str'>\n"
+            "Pandora:\n"
+            "key:CheckLength_Error_0:-No NextChunk\n"
+            "\033[1;31;49m-CriticalHit\033[m: boom\n"
             "Patch bytes ready: b'abc'... (3 bytes total)\n"
         ]
     )
 
     assert trace == (
-        "\n\n『Debug Log: 』\n"
-        "\n-CriticalHit: boom"
-        "\nfunction:CheckLength"
-        "\ninfos:-No NextChunk"
-        "\nchunk:b'IEND'"
-        "\nArg0:00000000 type:<class 'str'>"
-        "\nPatch bytes ready: b'abc'... (3 bytes total)\n"
+        "\n\n『Debug Trace』\n\n"
+        "  001. CheckLength [b'IEND']: ERROR\n"
+        "       info: -No NextChunk\n"
+        "       tool: Arg0:00000000 type:<class 'str'>\n"
+        "       pandora: CheckLength_Error_0:-No NextChunk\n"
+        "  002. CriticalHit: boom\n"
+        "  003. Patch: b'abc'... (3 bytes total)\n"
+        "\n"
     )
 
 
@@ -277,8 +287,9 @@ def test_run_summarise_from_namespace_writes_summary_and_resets_notes(tmp_path):
     summary = tmp_path / "Folder_sample" / "Summary_Of_sample"
     text = summary.read_text()
     assert "C|h|u|n|k|l|a|t|e" in text
-    assert "『sample.png :』" in text
-    assert "\nnote\nfixed\n" in text
+    assert "『Summary: sample.png』" in text
+    assert "001. Note: note" in text
+    assert "002. Result: fixed" in text
     assert namespace["Summary_Header"] is False
     assert namespace["SideNotes"] == []
 
@@ -310,13 +321,14 @@ def test_run_summarise_from_namespace_appends_debug_trace_to_normal_summary(tmp_
     assert summary.exists()
     assert not debug_summary.exists()
     assert "C|h|u|n|k|l|a|t|e" in text
-    assert "『sample.png :』" in text
-    assert "\nnote\nfixed\n" in text
-    assert "『Debug Log: 』" in text
+    assert "『Summary: sample.png』" in text
+    assert "001. Note: note" in text
+    assert "002. Result: fixed" in text
+    assert "『Debug Trace』" in text
     assert "\033[" not in text
-    assert "-CriticalHit: broken" in text
-    assert "function:LibpngCheck" in text
-    assert "Arg0:payload" in text
+    assert "CriticalHit: broken" in text
+    assert "LibpngCheck" in text
+    assert "Tool: Arg0:payload" in text
     assert "terminal narration" not in text
     assert "╭─" not in text
     assert namespace["DebugNotes"] == []

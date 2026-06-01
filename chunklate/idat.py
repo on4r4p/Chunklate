@@ -639,7 +639,13 @@ def analyze_partial_idat(data: bytes) -> PartialIdatAnalysis:
 
 def rebuild_partial_idat_blackfill(data: bytes) -> PartialIdatBlackfillRepair | None:
     analysis = analyze_partial_idat(data)
-    if not analysis.partial:
+    can_blackfill_from_short_valid_stream = (
+        analysis.supported
+        and not analysis.complete
+        and analysis.decompression_error == ""
+        and 0 <= analysis.decompressed_size < analysis.expected_size
+    )
+    if not analysis.partial and not can_blackfill_from_short_valid_stream:
         return None
 
     try:

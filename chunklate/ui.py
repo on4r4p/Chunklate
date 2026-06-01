@@ -275,7 +275,7 @@ Chunky_State = {
 
 def colorize(color: str, data: object, *, use_color: bool = True) -> object:
     if not use_color:
-        return data
+        return str(data)
     return "%s%s%s" % (COLOR_CODES[color], data, RESET)
 
 
@@ -449,8 +449,8 @@ def emit_printable_message(
     return printable
 
 
-def render_chunklate_banner(os_name: str, random_int) -> tuple[str, ...]:
-    if os_name == "nt":
+def render_chunklate_banner(os_name: str, random_int, *, use_color: bool = True) -> tuple[str, ...]:
+    if os_name == "nt" or not use_color:
         return (
             """
 ╭─━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─╮

@@ -53,24 +53,31 @@ def _compact_seen_chunks_with_state(
     chunks: Iterable[Any],
     *,
     bad_chunk_labels: Iterable[Any],
+    bad_chunk_occurrences: Iterable[tuple[Any, int]] = (),
 ) -> tuple[FogSegment, ...]:
     bad_labels = {_chunk_label(label) for label in bad_chunk_labels}
+    bad_occurrences = {
+        (_chunk_label(label), int(occurrence))
+        for label, occurrence in bad_chunk_occurrences
+        if int(occurrence) > 0
+    }
     labels = [
         _chunk_label(chunk)
         for chunk in chunks
         if _chunk_label(chunk) != "PNG"
     ]
     segments: list[FogSegment] = []
-    index = 0
-    while index < len(labels):
-        label = labels[index]
-        count = 1
-        while index + count < len(labels) and labels[index + count] == label:
-            count += 1
-        display = "%sx%s" % (label, count) if count > 1 else label
-        state = "error" if label in bad_labels else "seen"
-        segments.append(FogSegment(display, state, label, count))
-        index += count
+    occurrence_counts: dict[str, int] = {}
+    for label in labels:
+        occurrence = occurrence_counts.get(label, 0) + 1
+        occurrence_counts[label] = occurrence
+        state = "error" if label in bad_labels or (label, occurrence) in bad_occurrences else "seen"
+        if segments and segments[-1].chunk_label == label and segments[-1].state == state:
+            count = segments[-1].count + 1
+            display = "%sx%s" % (label, count) if count > 1 else label
+            segments[-1] = FogSegment(display, state, label, count)
+            continue
+        segments.append(FogSegment(label, state, label, 1))
     return tuple(segments)
 
 
@@ -92,17 +99,30 @@ def build_map(
     sample_name: str = "",
     idat_wrong_crc_count: int = 0,
     bad_chunk_labels: Iterable[Any] = (),
+    bad_chunk_occurrences: Iterable[tuple[Any, int]] = (),
     preview_chunk: Any = None,
     preview_error: bool = False,
 ) -> FogOfWarMap:
     history = tuple(chunks_history)
     current_label = _chunk_label(current_chunk)
     preview_label = "" if preview_chunk is None else _chunk_label(preview_chunk)
+    bad_labels = {_chunk_label(label) for label in bad_chunk_labels}
+    bad_occurrences = {
+        (_chunk_label(label), int(occurrence))
+        for label, occurrence in bad_chunk_occurrences
+        if int(occurrence) > 0
+    }
+    current_occurrence = sum(1 for chunk in history if _chunk_label(chunk) == current_label) + 1
+    current_is_bad = current_label in bad_labels or (current_label, current_occurrence) in bad_occurrences
     reached_iend = bool(history and _chunk_label(history[-1]) == "IEND")
     return FogOfWarMap(
-        segments=_compact_seen_chunks_with_state(history, bad_chunk_labels=bad_chunk_labels),
+        segments=_compact_seen_chunks_with_state(
+            history,
+            bad_chunk_labels=bad_labels,
+            bad_chunk_occurrences=bad_occurrences,
+        ),
         current_label=current_label,
-        current_state="error" if error else "current",
+        current_state="error" if error or current_is_bad else "current",
         data_left_bytes=None if reached_iend else _data_left_bytes(data_hex, current_offset),
         reached_iend=reached_iend,
         sample_name=sample_name,
@@ -169,7 +189,7 @@ def _preview_text(fog_map: FogOfWarMap, color: Colorizer) -> str:
 
 def _tail_text(fog_map: FogOfWarMap, color: Colorizer) -> str:
     if fog_map.reached_iend:
-        return str(color("green", " done"))
+        return str(color("purple", "[EOF]"))
     if fog_map.data_left_bytes is None:
         return str(color("blue", "........ data left"))
     return str(color("blue", "........ %s bytes left" % fog_map.data_left_bytes))

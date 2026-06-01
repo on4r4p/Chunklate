@@ -8,20 +8,34 @@
 
 **Chunklate**'s aim is to be able to provide those features:
 
-- Get all informations it could find from a png file
-- Repair Magic Header and Footer
-- Repair wrong chunk length  
-- Repair wrong chunk name
-- Repair wrong chunk crc
-- Repair wrong image size
-- Repair line feed conversion
-- Smart crc fixer based on errors found
-- Save each modifications in a different file
-- Provide a summary of all modifications 
-- User friendly human readability
-- Bruteforce corrupted data chunk
-- Repair missplaced chunks (Just IHDR for now)
-- Replace critical missing chunk
+- Get all information it can find from a PNG file.
+- Repair or extract PNGs when the PNG signature is missing, shifted, or embedded
+  after another file header.
+- Repair wrong chunk length, chunk name/type, chunk CRC, and one-byte
+  missing/extra chunk data cases.
+- Repair or rebuild broken `IHDR` values from CRC evidence or IDAT scanline
+  math, including wrong dimensions and invalid color metadata.
+- Repair missing or malformed terminal structure such as missing `IEND` and
+  trailing garbage after the PNG stream.
+- Repair empty, missing, undersized, oversized, or malformed indexed `PLTE`
+  chunks; optionally open the Tkinter PLTE editor when manual tuning is useful.
+- Repair known ancillary payload issues for chunks such as `bKGD`, `cHRM`,
+  `gAMA`, `gIFg`, `hIST`, `iTXt`, `oFFs`, `pHYs`, `sBIT`, `sRGB`, `sTER`,
+  `tIME`, and `tRNS`.
+- Repair duplicate singleton chunks such as duplicate `IHDR`, `PLTE`, `gAMA`,
+  `sRGB`, `iCCP`, `pHYs`, `pCAL`, `sCAL`, `sBIT`, `bKGD`, `tRNS`, `hIST`,
+  `sTER`, `oFFs`, and `eXIf`.
+- Repair selected misplaced chunks, including misplaced `IHDR`, out-of-place
+  `hIST`/`pCAL`, and ancillary chunks interrupting consecutive `IDAT` chunks.
+- Remove or rename unsafe unknown/private critical chunks when the PNG can be
+  made structurally valid.
+- Repair known bad sRGB/iCCP profile chunks and zero-value `gAMA`.
+- Repair line-feed conversion damage and run heavier line-feed brute force
+  probes when requested.
+- Salvage partially decompressible non-interlaced `IDAT` streams with
+  `partial-idat-blackfill`.
+- Save each modification in a different file and write a readable summary of
+  the repair path.
 
 
 
@@ -31,6 +45,11 @@ Install the runtime dependencies in a virtual environment:
 
     ./scripts/bootstrap_dev.sh
     . .venv/bin/activate
+
+On Windows, use the cross-platform bootstrap directly:
+
+    py scripts\bootstrap_dev.py
+    .venv\Scripts\activate
 
 Run Chunklate on a PNG file:
 
@@ -42,7 +61,8 @@ Or run it directly from the repository:
 
 Current CLI:
 
-    usage: Chunklate.py [-h] [-f FILE] [-c] [-p] [-d] [-dp] [-ep] [-sp] [-stfu] [-a]
+    usage: Chunklate.py [-h] [-f FILE] [-c] [-p] [-d] [-df] [-dp] [-ep] [-sp]
+                       [-stfu] [-a] [--no-color]
                        [--output-dir DIR] [--max-saves N]
 
     optional arguments:
@@ -56,6 +76,7 @@ Current CLI:
       -sp, --pause-dialogue Pause at dialogues.
       -stfu, --shut-the-fuck-up Show minimal output.
       -a, --auto            Auto Choose action.
+      --no-color            Disable terminal colors.
       --output-dir DIR      Directory where Folder_* repair outputs are written.
       --max-saves N         Exit successfully after writing N repaired files.
 
@@ -84,6 +105,10 @@ Architecture overview:
 Repair matrix:
 
     docs/repair_matrix.md
+
+That file is the readable reference for the current repair coverage. The strict
+regression source of truth is `tests/repair_matrix.py`; additional targeted
+repair routes are covered by focused unit/runtime tests.
 
 Or without pytest:
 

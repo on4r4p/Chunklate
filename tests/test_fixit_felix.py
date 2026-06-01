@@ -332,6 +332,8 @@ def test_automatic_repair_order_keeps_legacy_priority():
     assert fixit_felix.automatic_repair_order() == (
         "color_profile_cleanup",
         "hist_out_of_place_cleanup",
+        "pcal_out_of_place_cleanup",
+        "duplicate_ihdr_cleanup",
         "duplicate_singleton_cleanup",
         "plte_cleanup",
         "gama_length",
@@ -349,6 +351,7 @@ def test_automatic_repair_order_keeps_legacy_priority():
         "sbit_length",
         "srgb_length",
         "ster_length",
+        "idat_interruption_cleanup",
         "known_chunk_type_case",
         "unknown_private_critical_removal",
         "missing_chunk_data_byte",
@@ -722,7 +725,48 @@ def test_hist_out_of_place_cleanup_removes_hist_warning():
     assert b"hIST" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
 
 
-def test_hist_out_of_place_cleanup_uses_multiple_finding_only_for_duplicate_hist():
+def test_hist_out_of_place_cleanup_handles_structure_error_text():
+    original = build_png_with_color_chunk(3, b"hIST", b"\x00\x01" * 20)
+
+    repaired = fixit_felix.hist_out_of_place_cleanup(
+        original,
+        ["LibpngCheck_Error_0:-libpng error: hIST chunk must appear before the first IDAT chunk"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "removed optional hIST chunk(s) after duplicate/out-of-place finding"
+    assert b"hIST" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
+
+
+def test_pcal_out_of_place_cleanup_moves_pcal_warning():
+    pcal = build_png_chunk(
+        b"pCAL",
+        bytes.fromhex(
+            "626f67757320756e69747300000000000000ffff0002666f6f2f626172"
+            "00312e3065300036352e3533356533"
+        ),
+    )
+    original = build_rgb_png(1, 1, b"\x00\x00\x00\x00")[:-len(IEND_CHUNK)] + pcal + IEND_CHUNK
+
+    assert fixit_felix.pcal_out_of_place_cleanup(original, []) is None
+
+    repaired = fixit_felix.pcal_out_of_place_cleanup(
+        original,
+        ["LibpngCheck_Error_0:libpng warning: pCAL: out of place"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "moved pCAL chunk(s) before first IDAT"
+    assert validate_png_structure(repaired.data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)] == [
+        b"IHDR",
+        b"pCAL",
+        b"IDAT",
+        b"IEND",
+    ]
+
+
+def test_hist_out_of_place_cleanup_ignores_plain_multiple_finding():
     single = build_png_with_color_chunk(3, b"hIST", b"\x00\x01" * 20)
     duplicate = single.replace(
         build_png_chunk(b"hIST", b"\x00\x01" * 20),
@@ -734,15 +778,10 @@ def test_hist_out_of_place_cleanup_uses_multiple_finding_only_for_duplicate_hist
         single,
         ["CheckChunkOrder_Error_0:-Multiple"],
     ) is None
-
-    repaired = fixit_felix.hist_out_of_place_cleanup(
+    assert fixit_felix.hist_out_of_place_cleanup(
         duplicate,
         ["CheckChunkOrder_Error_0:-Multiple"],
-    )
-
-    assert repaired is not None
-    assert repaired.removed_chunks == ("hIST", "hIST")
-    assert b"hIST" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
+    ) is None
 
 
 def test_plte_cleanup_requires_noninteractive_mode_and_plte_finding():
@@ -796,6 +835,103 @@ def test_duplicate_singleton_cleanup_requires_multiple_finding():
     assert repaired.removed_chunks == ("bKGD",)
     assert validate_png_structure(repaired.data).ok
     assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)].count(b"bKGD") == 1
+
+
+def test_idat_interruption_cleanup_requires_idat_order_finding():
+    compressed = zlib.compress(b"\x00\x00")
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", struct.pack("!IIBBBBB", 1, 1, 8, 0, 0, 0, 0))
+        + build_png_chunk(b"IDAT", compressed[:2])
+        + build_png_chunk(b"heRB", b"")
+        + build_png_chunk(b"IDAT", compressed[2:])
+        + IEND_CHUNK
+    )
+
+    assert fixit_felix.idat_interruption_cleanup(original, []) is None
+
+    repair = fixit_felix.idat_interruption_cleanup(
+        original,
+        ["CheckChunkName_Error_0:-Found Next Chunk[b'heRB'] has Wrong Chunk name after Chunk[b'IDAT']"],
+    )
+
+    assert repair is not None
+    assert repair.interrupting_chunks == ("heRB",)
+    assert validate_png_structure(repair.move_repair.data).ok
+
+
+def test_duplicate_singleton_cleanup_removes_duplicate_iccp():
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", struct.pack("!IIBBBBB", 1, 1, 1, 3, 0, 0, 0))
+        + build_png_chunk(b"iCCP", b"profile\x00\x00x\x9c\x03\x00\x00\x00\x00\x01")
+        + build_png_chunk(b"iCCP", b"profile\x00\x00x\x9c\x03\x00\x00\x00\x00\x01")
+        + build_png_chunk(b"PLTE", b"\x00\x00\x00\xff\xff\xff")
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+    repaired = fixit_felix.duplicate_singleton_cleanup(
+        original,
+        ["CheckChunkOrder_Error_0:-Multiple iCCP chunk"],
+    )
+
+    assert repaired is not None
+    assert repaired.removed_chunks == ("iCCP",)
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)].count(b"iCCP") == 1
+
+
+def test_duplicate_singleton_cleanup_removes_duplicate_pcal():
+    pcal = build_png_chunk(
+        b"pCAL",
+        bytes.fromhex(
+            "626f67757320756e69747300000000000000ffff0002666f6f2f626172"
+            "00312e3065300036352e3533356533"
+        ),
+    )
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", struct.pack("!IIBBBBB", 1, 1, 8, 0, 0, 0, 0))
+        + pcal
+        + pcal
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+    repaired = fixit_felix.duplicate_singleton_cleanup(
+        original,
+        ["CheckChunkOrder_Error_0:-Multiple pCAL chunk"],
+    )
+
+    assert repaired is not None
+    assert repaired.removed_chunks == ("pCAL",)
+    assert validate_png_structure(repaired.data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)].count(b"pCAL") == 1
+
+
+def test_duplicate_ihdr_cleanup_removes_duplicate_header():
+    ihdr = build_png_chunk(b"IHDR", struct.pack("!IIBBBBB", 1, 1, 1, 3, 0, 0, 0))
+    original = (
+        PNG_SIGNATURE
+        + ihdr
+        + ihdr
+        + build_png_chunk(b"PLTE", b"\x00\x00\x00\xff\xff\xff")
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+    assert fixit_felix.duplicate_ihdr_cleanup(original, []) is None
+
+    repaired = fixit_felix.duplicate_ihdr_cleanup(
+        original,
+        ["CheckChunkOrder_Error_0:-Multiple IHDR chunk"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "removed duplicate IHDR chunk(s) after first header"
+    assert repaired.removed_chunks == ("IHDR",)
+    assert validate_png_structure(repaired.data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)].count(b"IHDR") == 1
 
 
 def test_bkgd_length_requires_matching_finding():
@@ -1001,6 +1137,27 @@ def test_phys_length_requires_matching_finding():
     assert repaired.old_length == 8
     assert repaired.new_length == 9
     assert repaired.strategy == "inferred missing pHYs unit byte 0 and rebuilt CRC"
+    phys = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"pHYs")
+    assert phys.data == bytes.fromhex("000003e8000003e800")
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_phys_length_normalizes_invalid_unit_finding():
+    valid = build_rgb_png(1, 1, b"\x00\x00\x00\x00")
+    ihdr = next(iter_chunks(valid))
+    ihdr_end = ihdr.offset + 12 + ihdr.length
+    original = valid[:ihdr_end] + build_png_chunk(
+        b"pHYs",
+        bytes.fromhex("000003e8000003e802"),
+    ) + valid[ihdr_end:]
+
+    repaired = fixit_felix.phys_length(
+        original,
+        ["GetInfo_Error_0:-Unit specifier :Wrong value Must be between 0 (unknown) or 1(meter)."],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "normalized invalid pHYs unit specifier to 0 and rebuilt CRC"
     phys = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"pHYs")
     assert phys.data == bytes.fromhex("000003e8000003e800")
     assert validate_png_structure(repaired.data).ok
@@ -1272,8 +1429,13 @@ def main():
         ("Color profile cleanup requires matching finding", test_color_profile_cleanup_requires_matching_finding),
         ("hIST out-of-place cleanup removes warning", test_hist_out_of_place_cleanup_removes_hist_warning),
         (
-            "hIST out-of-place cleanup gates Multiple finding",
-            test_hist_out_of_place_cleanup_uses_multiple_finding_only_for_duplicate_hist,
+            "hIST out-of-place cleanup handles structure error",
+            test_hist_out_of_place_cleanup_handles_structure_error_text,
+        ),
+        ("pCAL out-of-place cleanup moves warning", test_pcal_out_of_place_cleanup_moves_pcal_warning),
+        (
+            "hIST out-of-place cleanup ignores plain Multiple finding",
+            test_hist_out_of_place_cleanup_ignores_plain_multiple_finding,
         ),
         ("PLTE cleanup requires noninteractive mode and PLTE finding", test_plte_cleanup_requires_noninteractive_mode_and_plte_finding),
         (
@@ -1281,6 +1443,10 @@ def main():
             test_plte_cleanup_inserts_missing_indexed_palette_from_structure_finding,
         ),
         ("Duplicate singleton cleanup requires Multiple finding", test_duplicate_singleton_cleanup_requires_multiple_finding),
+        ("Duplicate singleton cleanup removes duplicate iCCP", test_duplicate_singleton_cleanup_removes_duplicate_iccp),
+        ("Duplicate singleton cleanup removes duplicate pCAL", test_duplicate_singleton_cleanup_removes_duplicate_pcal),
+        ("Duplicate IHDR cleanup removes duplicate header", test_duplicate_ihdr_cleanup_removes_duplicate_header),
+        ("IDAT interruption cleanup requires order finding", test_idat_interruption_cleanup_requires_idat_order_finding),
         ("gAMA length requires matching finding", test_gama_length_requires_matching_finding),
         ("gIFg length requires matching finding", test_gifg_length_requires_matching_finding),
         ("hIST length requires matching finding", test_hist_length_requires_matching_finding),
@@ -1291,6 +1457,7 @@ def main():
         ("iTXt compression method requires matching finding", test_itxt_compression_method_requires_matching_finding),
         ("oFFs length requires matching finding", test_offs_length_requires_matching_finding),
         ("pHYs length requires matching finding", test_phys_length_requires_matching_finding),
+        ("pHYs invalid unit finding", test_phys_length_normalizes_invalid_unit_finding),
         ("tIME length requires matching finding", test_time_length_requires_matching_finding),
         ("tRNS length requires matching finding", test_trns_length_requires_matching_finding),
         ("sBIT length requires matching finding", test_sbit_length_requires_matching_finding),
