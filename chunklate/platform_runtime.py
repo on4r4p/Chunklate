@@ -60,6 +60,20 @@ def format_command(command: list[str] | tuple[str, ...], *, os_name: str = os.na
     return shlex.join([str(part) for part in command])
 
 
+def configure_text_stream_errors(*streams: Any, errors: str = "replace") -> int:
+    configured = 0
+    for stream in streams:
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(errors=errors)
+        except (OSError, TypeError, ValueError):
+            continue
+        configured += 1
+    return configured
+
+
 def stream_is_tty(stream: Any) -> bool:
     return bool(hasattr(stream, "isatty") and stream.isatty())
 

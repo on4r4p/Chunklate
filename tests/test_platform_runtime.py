@@ -26,6 +26,17 @@ class FakeColorama:
         self.calls += 1
 
 
+class FakeTextStream:
+    def __init__(self, fail=False):
+        self.fail = fail
+        self.calls = []
+
+    def reconfigure(self, **kwargs):
+        if self.fail:
+            raise OSError("closed")
+        self.calls.append(kwargs)
+
+
 def test_os_family_detects_common_platforms():
     assert platform_runtime.os_family(platform="win32", os_name="nt") == "windows"
     assert platform_runtime.os_family(platform="darwin", os_name="posix") == "darwin"
@@ -51,6 +62,14 @@ def test_format_command_uses_windows_and_posix_quoting():
 
     assert platform_runtime.format_command(command, os_name="nt") == 'python "C:/repo/scripts/bootstrap dev.py"'
     assert platform_runtime.format_command(command, os_name="posix") == "python 'C:/repo/scripts/bootstrap dev.py'"
+
+
+def test_configure_text_stream_errors_uses_reconfigure_when_available():
+    ok = FakeTextStream()
+    failed = FakeTextStream(fail=True)
+
+    assert platform_runtime.configure_text_stream_errors(ok, object(), failed, errors="replace") == 1
+    assert ok.calls == [{"errors": "replace"}]
 
 
 def test_terminal_color_decision_modes():
@@ -90,6 +109,7 @@ def main():
         ("venv python path", test_local_venv_python_uses_platform_layouts),
         ("bootstrap command", test_bootstrap_command_uses_python_script),
         ("command quoting", test_format_command_uses_windows_and_posix_quoting),
+        ("stream error handling", test_configure_text_stream_errors_uses_reconfigure_when_available),
         ("terminal color modes", test_terminal_color_decision_modes),
     ]
 

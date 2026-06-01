@@ -224,6 +224,7 @@ def Reexec_Local_Venv_Or_Exit():
 
 def Configure_Terminal_Color():
     global USE_COLOR
+    platform_runtime.configure_text_stream_errors(sys.stdout, sys.stderr)
     decision = platform_runtime.decide_terminal_color(
         COLOR_MODE,
         stream=sys.stdout,
