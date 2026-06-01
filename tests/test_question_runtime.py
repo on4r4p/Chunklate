@@ -172,6 +172,29 @@ def test_question_runtime_names_chrm_inference_prompt():
     assert not [call for call in calls if call[0] == "emit" and "Auto Answer Mode" in str(call[1])]
 
 
+def test_question_runtime_names_plte_palette_editor_prompt():
+    runtime, calls = runtime_from(answers=["yes"], auto=True)
+
+    assert question_runtime.ask_question(
+        runtime,
+        "PLTE Palette Editor:-Open Tkinter to tune this reconstructed PLTE?",
+        ("PLTE", 98, 122),
+        skipauto=True,
+    ) is True
+
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "Question: Chunky built a grayscale PLTE. Happy with the preview? Say no. "
+            "Want the palette steering wheel in Tkinter? Say yes.",
+            "com",
+        ),
+        {},
+    ) in calls
+    assert not [call for call in calls if call[0] == "emit" and "Auto Answer Mode" in str(call[1])]
+
+
 def test_question_runtime_names_unknown_private_removal_prompt_and_skips_auto():
     runtime, calls = runtime_from(answers=["yes"], auto=True)
 
@@ -372,6 +395,7 @@ def main():
         ("IDAT heavy probe prompt", test_question_runtime_names_idat_heavy_probe_prompt),
         ("IHDR CRC brute force prompt", test_question_runtime_names_ihdr_crc_bruteforce_prompt),
         ("cHRM inference prompt", test_question_runtime_names_chrm_inference_prompt),
+        ("PLTE palette editor prompt", test_question_runtime_names_plte_palette_editor_prompt),
         (
             "Unknown private removal prompt",
             test_question_runtime_names_unknown_private_removal_prompt_and_skips_auto,

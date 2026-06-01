@@ -59,6 +59,8 @@ class AutomaticRepairRuntime:
     candy: Callable[..., Any]
     write_clone: Callable[[Any, str], Any]
     question: Callable[..., Any] | None = None
+    preview_repair_image: Callable[..., Any] | None = None
+    tk_manual_plte: Callable[..., Any] | None = None
     data_hex: str = ""
     pandora_box: Any = None
     get_spec: Callable[..., Any] | None = None
@@ -66,6 +68,7 @@ class AutomaticRepairRuntime:
     loadingbar: Callable[..., Any] | None = None
     minibar: Callable[..., Any] | None = None
     file_origin: Any = ""
+    interactive: bool = False
 
 
 @dataclass(frozen=True)
@@ -338,6 +341,8 @@ def build_automatic_repair_runtime_from_namespace(namespace: dict[str, Any]) -> 
         candy=namespace["Candy"],
         write_clone=namespace["WriteClone"],
         question=namespace["Question"],
+        preview_repair_image=namespace.get("Preview_Repair_Image"),
+        tk_manual_plte=namespace.get("Tk_Manual_Plte"),
         data_hex=namespace["DATAX"],
         pandora_box=namespace["PandoraBox"],
         get_spec=namespace["GetSpec"],
@@ -345,7 +350,21 @@ def build_automatic_repair_runtime_from_namespace(namespace: dict[str, Any]) -> 
         loadingbar=namespace.get("Loadingbar"),
         minibar=namespace.get("Minibar"),
         file_origin=namespace.get("FILE_Origin") or namespace.get("Sample") or "",
+        interactive=namespace_interactive_prompts(namespace),
     )
+
+
+def namespace_interactive_prompts(namespace: dict[str, Any]) -> bool:
+    configured = namespace.get("INTERACTIVE_REPAIR_PROMPTS")
+    if configured is not None:
+        return bool(configured)
+
+    sys_module = namespace.get("sys")
+    stdin = getattr(sys_module, "stdin", None)
+    stdout = getattr(sys_module, "stdout", None)
+    if stdin is None or stdout is None:
+        return False
+    return bool(stdin.isatty() and stdout.isatty())
 
 
 def _ihdr_validation_errors(repair: Any) -> tuple[str, ...]:
@@ -793,6 +812,96 @@ def _apply_idat_interruption_plan_before_libpng(
     return False, None
 
 
+GRAYSCALE_PLTE_REBUILD_PROMPTS = {
+    "rebuilt empty indexed PLTE as grayscale palette": (
+        "empty_plte_grayscale_plte",
+        "empty-indexed-grayscale",
+    ),
+    "rebuilt malformed indexed PLTE as grayscale palette": (
+        "malformed_plte_grayscale_plte",
+        "malformed-indexed-grayscale",
+    ),
+    "rebuilt undersized indexed PLTE as grayscale palette": (
+        "undersized_plte_grayscale_plte",
+        "undersized-indexed-grayscale",
+    ),
+    "rebuilt oversized indexed PLTE as grayscale palette": (
+        "oversized_plte_grayscale_plte",
+        "oversized-indexed-grayscale",
+    ),
+    "rebuilt low-diversity indexed PLTE as grayscale palette": (
+        "low_diversity_plte_grayscale_plte",
+        "low-diversity-indexed-grayscale",
+    ),
+}
+
+
+def _grayscale_plte_rebuild_prompt(repair: Any) -> tuple[str, str] | None:
+    return GRAYSCALE_PLTE_REBUILD_PROMPTS.get(str(getattr(repair, "strategy", "")))
+
+
+def _plte_manual_window_from_data_hex(data_hex: str) -> tuple[int, int] | None:
+    try:
+        chunks = tuple(png.iter_chunks(bytes.fromhex(data_hex)))
+    except (ValueError, png.PngFormatError):
+        return None
+
+    plte = next((chunk for chunk in chunks if chunk.chunk_type == b"PLTE"), None)
+    if plte is None:
+        return None
+
+    start = plte.offset * 2
+    end = (plte.offset + 12 + plte.length) * 2
+    return start, end
+
+
+def maybe_offer_manual_plte_editor(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
+    prompt = _grayscale_plte_rebuild_prompt(repair)
+    if prompt is None:
+        return None
+    if not runtime.interactive:
+        return None
+    if runtime.question is None or runtime.tk_manual_plte is None:
+        return None
+
+    window = _plte_manual_window_from_data_hex(runtime.data_hex)
+    if window is None:
+        return None
+
+    start, end = window
+    preview_label, route_label = prompt
+    if runtime.preview_repair_image is not None:
+        runtime.preview_repair_image(repair.data, preview_label)
+
+    runtime.candy(
+        "Cowsay",
+        "I rebuilt that PLTE with a grayscale emergency palette. Valid PNG, yes. Haute couture, maybe not.",
+        "com",
+    )
+    runtime.candy(
+        "Cowsay",
+        "If the preview makes your eyes file a complaint, say yes and I hand you the Tkinter palette controls.",
+        "com",
+    )
+
+    if not runtime.question(
+        id="PLTE Palette Editor:-Open Tkinter to tune this reconstructed PLTE?",
+        idhash=("PLTE", start, end, route_label),
+        skipauto=True,
+    ):
+        return None
+
+    runtime.side_notes.append("-FixItFelix:opened Tkinter PLTE editor after grayscale PLTE preview.")
+    runtime.tk_manual_plte(
+        runtime.file_origin,
+        b"PLTE",
+        end,
+        start,
+        "-PLTE Wrong Data",
+    )
+    return True
+
+
 def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
     if isinstance(repair, png.IdatInterruptionRepairPlan):
         return _apply_idat_interruption_plan(runtime, repair)
@@ -820,6 +929,10 @@ def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
 
     if _chrm_repair_needs_choice(repair):
         return apply_chrm_inference_choice(runtime, repair)
+
+    manual_plte_result = maybe_offer_manual_plte_editor(runtime, repair)
+    if manual_plte_result is not None:
+        return manual_plte_result
 
     if "duplicate IHDR" in strategy:
         runtime.candy(

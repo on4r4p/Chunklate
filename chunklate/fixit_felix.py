@@ -16,6 +16,7 @@ from .png import (
     repair_empty_plte,
     repair_gama_length,
     repair_gifg_length,
+    repair_grayscale_plte,
     repair_hist_out_of_place,
     repair_hist_length,
     repair_ihdr,
@@ -27,6 +28,7 @@ from .png import (
     repair_missing_chunk_data_byte,
     repair_nonconsecutive_idat_interruption,
     repair_offs_length,
+    repair_optional_truecolor_plte,
     repair_pcal_out_of_place,
     repair_phys_length,
     repair_sbit_length,
@@ -662,13 +664,15 @@ def plte_cleanup(
     nodialogue: bool,
     max_saves: int | None,
 ) -> Any | None:
-    if not (auto or nodialogue or max_saves is not None):
-        return None
-
     if not has_finding(findings, "PLTE"):
         return None
 
-    return repair_empty_plte(data) or repair_indexed_plte(data)
+    return (
+        repair_empty_plte(data)
+        or repair_grayscale_plte(data)
+        or repair_indexed_plte(data)
+        or repair_optional_truecolor_plte(data)
+    )
 
 
 def bkgd_length(data: bytes, findings: Iterable[object]) -> Any | None:

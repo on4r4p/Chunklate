@@ -12,8 +12,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 CHUNKLATE = ROOT / "Chunklate.py"
 VALID_FIXTURE = ROOT / "schaik-javapng-samples" / "basn0g01.png"
+PLTE_EMPTY_FIXTURE = ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "plte_empty.png"
 
 import Chunklate
+from chunklate.png import iter_chunks, validate_png_structure
 
 
 @contextmanager
@@ -94,6 +96,41 @@ def test_valid_png_exits_successfully_with_optional_libpng_fallback():
         )
 
     assert result.returncode == 0
+
+
+def test_plte_empty_repairs_in_default_interactive_mode():
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        sample = tmp_path / PLTE_EMPTY_FIXTURE.name
+        sample.write_bytes(PLTE_EMPTY_FIXTURE.read_bytes())
+        output_dir = tmp_path / "out"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(CHUNKLATE),
+                "-f",
+                sample.name,
+                "--output-dir",
+                str(output_dir),
+                "--no-color",
+            ],
+            cwd=tmp_path,
+            input="yes\n" * 20,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        fixed_path = output_dir / "Folder_plte_empty" / "plte_empty.0_Fixed.png"
+        summary_path = output_dir / "Folder_plte_empty" / "Summary_Of_plte_empty"
+
+        assert result.returncode == 0
+        assert fixed_path.exists()
+        assert validate_png_structure(fixed_path.read_bytes()).ok
+        plte = next(chunk for chunk in iter_chunks(fixed_path.read_bytes()) if chunk.chunk_type == b"PLTE")
+        assert plte.length == 768
+        assert "rebuilt empty indexed PLTE as grayscale palette" in summary_path.read_text(errors="replace")
 
 
 def test_runtime_dependency_check_reports_missing_cv2_install_command():
@@ -211,6 +248,7 @@ def main():
         ("CLI help starts without optional runtime dependencies", test_help_starts_without_optional_runtime_dependencies),
         ("Missing -f/--file returns a usage error", test_missing_file_argument_returns_usage_error),
         ("Valid PNG exits successfully with optional libpng fallback", test_valid_png_exits_successfully_with_optional_libpng_fallback),
+        ("Empty PLTE repairs in default mode", test_plte_empty_repairs_in_default_interactive_mode),
         ("Runtime dependency check reports cv2", test_runtime_dependency_check_reports_missing_cv2_install_command),
         ("Runtime dependency check reports Windows tkinter", test_runtime_dependency_message_uses_windows_paths_and_tkinter_guidance),
         ("Dependency prompt runs bootstrap", test_dependency_install_prompt_runs_bootstrap_when_user_accepts),
@@ -222,7 +260,11 @@ def main():
     print("Running CLI smoke tests")
     for label, check in checks:
         print(f"  - {label} ... ", end="", flush=True)
-        check()
+        if check is test_should_reexec_local_venv_uses_venv_path_not_realpath:
+            with tempfile.TemporaryDirectory(prefix="chunklate-cli-") as tmp:
+                check(Path(tmp))
+        else:
+            check()
         print("ok")
 
     print(f"cli smoke tests passed ({len(checks)} checks)")

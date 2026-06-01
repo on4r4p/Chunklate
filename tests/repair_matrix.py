@@ -262,7 +262,7 @@ REPAIR_MATRIX: tuple[RepairCase, ...] = (
     RepairCase(
         fixture="plte_too_many_entries.png",
         corruption="PLTE contains too many entries for indexed bit depth",
-        expected_strategy="truncate indexed PLTE",
+        expected_strategy="rebuild low-diversity PLTE",
         max_saves=1,
         expected_outputs=("plte_too_many_entries.0_Fixed.png",),
     ),
@@ -592,7 +592,7 @@ _SUMMARY_MARKERS_BY_FIXTURE = {
         "rebuilt malformed indexed PLTE as grayscale palette",
     ),
     "plte_too_many_entries.png": (
-        "truncated indexed PLTE to bit depth entry count",
+        "rebuilt oversized indexed PLTE as grayscale palette",
     ),
     "Private_Critical_Chunk_Bad_Crc.png": (
         "turning it into a valid Chunk name: gAMA",

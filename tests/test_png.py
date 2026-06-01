@@ -44,6 +44,7 @@ from chunklate.png import (
     repair_empty_plte,
     repair_gama_length,
     repair_gifg_length,
+    repair_grayscale_plte,
     repair_hist_out_of_place,
     repair_hist_length,
     repair_ihdr,
@@ -60,6 +61,7 @@ from chunklate.png import (
     repair_missing_chunk_data_byte,
     repair_nonconsecutive_idat_interruption,
     repair_offs_length,
+    repair_optional_truecolor_plte,
     repair_pcal_out_of_place,
     repair_phys_length,
     repair_overlong_chunk_length_to_next_header,
@@ -97,12 +99,34 @@ def tiny_rgb_png(*, filtered_scanlines: bytes | None = None, width: int = 1, hei
     ) + IEND_CHUNK
 
 
+def tiny_rgb_png_with_plte(plte: bytes) -> bytes:
+    ihdr = (1).to_bytes(4, "big") + (1).to_bytes(4, "big") + b"\x08\x02\x00\x00\x00"
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"PLTE", plte)
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00", level=0))
+        + IEND_CHUNK
+    )
+
+
 def tiny_indexed_png_without_plte() -> bytes:
     ihdr = (1).to_bytes(4, "big") + (1).to_bytes(4, "big") + b"\x08\x03\x00\x00\x00"
     return PNG_SIGNATURE + build_png_chunk(b"IHDR", ihdr) + build_png_chunk(
         b"IDAT",
         zlib.compress(b"\x00\x00", level=0),
     ) + IEND_CHUNK
+
+
+def tiny_indexed_png_with_plte(plte: bytes, filtered_scanlines: bytes = b"\x00\x12") -> bytes:
+    ihdr = (2).to_bytes(4, "big") + (1).to_bytes(4, "big") + b"\x04\x03\x00\x00\x00"
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"PLTE", plte)
+        + build_png_chunk(b"IDAT", zlib.compress(filtered_scanlines, level=0))
+        + IEND_CHUNK
+    )
 
 
 def test_read_valid_png_chunks_from_fixture():
@@ -124,15 +148,45 @@ def test_repair_indexed_plte_rebuilds_malformed_palette():
     assert plte.length == 768
 
 
-def test_repair_indexed_plte_truncates_palette_with_too_many_entries():
+def test_repair_indexed_plte_rebuilds_oversized_black_palette():
     repaired = repair_indexed_plte((BROKEN_FIXTURES / "plte_too_many_entries.png").read_bytes())
 
     assert repaired is not None
-    assert repaired.strategy == "truncated indexed PLTE to bit depth entry count"
+    assert repaired.strategy == "rebuilt oversized indexed PLTE as grayscale palette"
     assert validate_png_structure(repaired.data).errors == ()
     plte = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"PLTE")
     assert plte.length == 48
+    assert len({plte.data[index : index + 3] for index in range(0, plte.length, 3)}) > 1
 
+
+def test_repair_indexed_plte_keeps_useful_oversized_palette_by_truncating():
+    plte = bytes(channel for value in range(17) for channel in (value, value, value))
+    original = tiny_indexed_png_with_plte(plte)
+
+    assert validate_png_structure(original).errors == ("PLTE has too many entries for indexed bit depth",)
+
+    repaired = repair_indexed_plte(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "truncated indexed PLTE to bit depth entry count"
+    assert validate_png_structure(repaired.data).ok
+    repaired_plte = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"PLTE")
+    assert repaired_plte.data == plte[:48]
+
+
+def test_repair_indexed_plte_rebuilds_valid_low_diversity_palette():
+    original = tiny_indexed_png_with_plte(b"\x00\x00\x00" * 16)
+
+    assert validate_png_structure(original).ok
+
+    repaired = repair_indexed_plte(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "rebuilt low-diversity indexed PLTE as grayscale palette"
+    assert validate_png_structure(repaired.data).ok
+    repaired_plte = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"PLTE")
+    assert repaired_plte.length == 48
+    assert len({repaired_plte.data[index : index + 3] for index in range(0, repaired_plte.length, 3)}) > 1
 
 def test_repair_indexed_plte_inserts_missing_palette():
     original = tiny_indexed_png_without_plte()
@@ -877,6 +931,45 @@ def test_repair_empty_plte_rebuilds_indexed_palette():
     assert plte.data[-3:] == b"\xff\xff\xff"
     assert plte.crc_ok
     assert chunks[-1].chunk_type == b"IEND"
+
+
+def test_repair_grayscale_plte_removes_forbidden_palette():
+    original = (BROKEN_FIXTURES / "plte_in_grayscale.png").read_bytes()
+
+    repaired = repair_grayscale_plte(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "removed PLTE chunk forbidden in grayscale PNG"
+    assert validate_png_structure(repaired.data).ok
+    chunks = list(iter_chunks(repaired.data))
+    assert [chunk.chunk_type for chunk in chunks] == [b"IHDR", b"gAMA", b"IDAT", b"IEND"]
+    assert all(chunk.crc_ok for chunk in chunks)
+
+
+def test_repair_optional_truecolor_plte_truncates_oversized_palette():
+    original = (BROKEN_FIXTURES / "plte_too_many_entries_2.png").read_bytes()
+
+    repaired = repair_optional_truecolor_plte(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "truncated optional truecolor PLTE to 256 entries"
+    assert validate_png_structure(repaired.data).ok
+    chunks = list(iter_chunks(repaired.data))
+    plte = next(chunk for chunk in chunks if chunk.chunk_type == b"PLTE")
+    assert plte.length == 768
+    assert chunks[-1].chunk_type == b"IEND"
+    assert all(chunk.crc_ok for chunk in chunks)
+
+
+def test_repair_optional_truecolor_plte_removes_malformed_palette():
+    original = tiny_rgb_png_with_plte(b"\x00\x00\x00\xff")
+
+    repaired = repair_optional_truecolor_plte(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "removed malformed optional truecolor PLTE chunk"
+    assert validate_png_structure(repaired.data).ok
+    assert b"PLTE" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
 
 
 def test_repair_missing_chunk_data_byte_uses_shifted_crc():
@@ -1914,8 +2007,13 @@ def main():
         ),
         ("Remove empty optional truecolor PLTE", test_repair_empty_plte_removes_optional_truecolor_palette),
         ("Rebuild empty indexed PLTE", test_repair_empty_plte_rebuilds_indexed_palette),
+        ("Remove forbidden grayscale PLTE", test_repair_grayscale_plte_removes_forbidden_palette),
+        ("Truncate oversized optional truecolor PLTE", test_repair_optional_truecolor_plte_truncates_oversized_palette),
+        ("Remove malformed optional truecolor PLTE", test_repair_optional_truecolor_plte_removes_malformed_palette),
         ("Rebuild malformed indexed PLTE", test_repair_indexed_plte_rebuilds_malformed_palette),
-        ("Truncate oversized indexed PLTE", test_repair_indexed_plte_truncates_palette_with_too_many_entries),
+        ("Rebuild oversized black indexed PLTE", test_repair_indexed_plte_rebuilds_oversized_black_palette),
+        ("Truncate useful oversized indexed PLTE", test_repair_indexed_plte_keeps_useful_oversized_palette_by_truncating),
+        ("Rebuild low-diversity indexed PLTE", test_repair_indexed_plte_rebuilds_valid_low_diversity_palette),
         ("Insert missing indexed PLTE", test_repair_indexed_plte_inserts_missing_palette),
         ("Insert missing indexed PLTE before tRNS", test_repair_indexed_plte_inserts_missing_palette_before_trns),
         ("Truncate long gray-alpha bKGD", test_repair_bkgd_length_truncates_gray_alpha_payload),

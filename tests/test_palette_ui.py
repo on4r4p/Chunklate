@@ -112,9 +112,13 @@ class FakeScale:
         self.parent = parent
         self.kwargs = kwargs
         self.grid_call = None
+        self.configure_calls = []
 
     def grid(self, **kwargs):
         self.grid_call = kwargs
+
+    def configure(self, **kwargs):
+        self.configure_calls.append(kwargs)
 
 
 class FakeFrame:
@@ -124,10 +128,14 @@ class FakeFrame:
         self.grid_call = None
         self.columnconfigure_calls = []
         self.rowconfigure_calls = []
+        self.bind_calls = []
         self.destroy_called = False
 
     def grid(self, **kwargs):
         self.grid_call = kwargs
+
+    def bind(self, *args):
+        self.bind_calls.append(args)
 
     def columnconfigure(self, *args, **kwargs):
         self.columnconfigure_calls.append((args, kwargs))
@@ -145,19 +153,55 @@ class FakeCanvas:
         self.kwargs = kwargs
         self.grid_call = None
         self.create_window_call = None
+        self.create_window_result = "window-id"
         self.config_call = None
+        self.configure_call = None
+        self.itemconfigure_call = None
+        self.bind_calls = []
+        self.bbox_call = None
+        self.bbox_result = (0, 0, 10, 20)
+        self.width = kwargs.get("width", 0)
+        self.update_idletasks_called = False
+        self.focus_set_called = False
+        self.yview_scroll_calls = []
 
     def grid(self, **kwargs):
         self.grid_call = kwargs
 
     def create_window(self, *args, **kwargs):
         self.create_window_call = (args, kwargs)
+        return self.create_window_result
 
     def config(self, **kwargs):
         self.config_call = kwargs
 
+    def configure(self, **kwargs):
+        self.configure_call = kwargs
+
+    def itemconfigure(self, *args, **kwargs):
+        self.itemconfigure_call = (args, kwargs)
+
+    def bind(self, *args):
+        self.bind_calls.append(args)
+
+    def bbox(self, *args):
+        self.bbox_call = args
+        return self.bbox_result
+
+    def winfo_width(self):
+        return self.width
+
+    def update_idletasks(self):
+        self.update_idletasks_called = True
+
+    def focus_set(self):
+        self.focus_set_called = True
+
     def yview(self, *args):
         return args
+
+    def yview_scroll(self, *args):
+        self.yview_scroll_calls.append(args)
 
 
 class FakeScrollbar:
@@ -567,12 +611,76 @@ def test_create_palette_slider_canvas_wires_canvas_frame_and_scrollbar():
     assert widgets.canvas.grid_call == {"row": 0, "column": 1, "padx": 10, "pady": 5}
     assert widgets.frame.parent is widgets.canvas
     assert widgets.frame.kwargs == {"bg": "#EBEBEB"}
-    assert widgets.canvas.create_window_call == ((0, 0), {"window": widgets.frame, "anchor": "sw"})
+    assert widgets.window_id == "window-id"
+    assert widgets.canvas.create_window_call == (
+        (0, 0),
+        {"window": widgets.frame, "anchor": "nw", "width": 985},
+    )
     assert widgets.scrollbar.parent == "slider-frame"
     assert widgets.scrollbar.kwargs == {"orient": "vertical"}
     assert widgets.scrollbar.config_call["command"].__self__ is widgets.canvas
     assert widgets.canvas.config_call == {"yscrollcommand": widgets.scrollbar.set}
     assert widgets.scrollbar.grid_call == {"row": 0, "column": 0, "sticky": "ns"}
+
+
+def test_bind_palette_slider_scrollregion_refreshes_canvas_on_layout_changes():
+    fake_tkinter = FakeTkinter()
+    widgets = palette_ui.create_palette_slider_canvas(
+        tkinter_module=fake_tkinter,
+        master="slider-frame",
+        height=500,
+        width=985,
+    )
+    slider = FakeSlider()
+    slider.s = FakeScale("scale-parent")
+
+    callback = palette_ui.bind_palette_slider_scrollregion(widgets, [slider])
+    callback()
+
+    assert widgets.frame.bind_calls == [("<Configure>", callback)]
+    assert widgets.canvas.bind_calls == [("<Configure>", callback)]
+    assert widgets.canvas.update_idletasks_called is True
+    assert widgets.canvas.itemconfigure_call == (("window-id",), {"width": 985})
+    assert slider.s.configure_calls == [{"length": 845}]
+    assert widgets.canvas.bbox_call == ("all",)
+    assert widgets.canvas.configure_call == {"scrollregion": (0, 0, 10, 20)}
+
+
+def test_bind_palette_slider_mousewheel_scrolls_when_pointer_is_over_controls():
+    fake_tkinter = FakeTkinter()
+    widgets = palette_ui.create_palette_slider_canvas(
+        tkinter_module=fake_tkinter,
+        master="slider-frame",
+        height=500,
+        width=985,
+    )
+    slider = FakeSlider()
+    slider.container = FakeFrame("frame")
+    slider.s = FakeScale("scale-parent")
+    slider.s.bind_calls = []
+    slider.s.bind = lambda *args: slider.s.bind_calls.append(args)
+
+    scroll_callback = palette_ui.bind_palette_slider_mousewheel(widgets, [slider])
+
+    enter_callback = next(call[1] for call in widgets.canvas.bind_calls if call[0] == "<Enter>")
+    enter_callback(None)
+    assert widgets.canvas.focus_set_called is True
+
+    class WheelEvent:
+        delta = -120
+        num = None
+
+    assert scroll_callback(WheelEvent()) == "break"
+    assert widgets.canvas.yview_scroll_calls == [(1, "units")]
+
+    class ButtonEvent:
+        delta = 0
+        num = 4
+
+    scroll_callback(ButtonEvent())
+    assert widgets.canvas.yview_scroll_calls[-1] == (-1, "units")
+    assert any(call[0] == "<MouseWheel>" for call in slider.container.bind_calls)
+    assert any(call[0] == "<Button-5>" for call in slider.s.bind_calls)
 
 
 def test_create_palette_action_buttons_uses_specs_and_grid_options():
@@ -758,6 +866,8 @@ def main():
         ("Preview renderer no cv2", test_render_preview_label_falls_back_to_pillow_without_cv2),
         ("Palette scale widget", test_create_palette_scale_uses_injected_tkinter_module),
         ("Palette slider canvas", test_create_palette_slider_canvas_wires_canvas_frame_and_scrollbar),
+        ("Palette slider scrollregion", test_bind_palette_slider_scrollregion_refreshes_canvas_on_layout_changes),
+        ("Palette slider mousewheel", test_bind_palette_slider_mousewheel_scrolls_when_pointer_is_over_controls),
         ("Palette action buttons", test_create_palette_action_buttons_uses_specs_and_grid_options),
         ("Palette action specs", test_build_palette_action_button_specs_preserves_legacy_actions),
         ("Palette sliders", test_create_palette_sliders_uses_legacy_factory_arguments),

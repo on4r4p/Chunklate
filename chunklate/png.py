@@ -2933,6 +2933,20 @@ def grayscale_palette(entry_count: int) -> bytes | None:
     return bytes(palette)
 
 
+def indexed_palette_lacks_used_color_diversity(palette_data: bytes, indices: Iterable[int]) -> bool:
+    used_indices = set(indices)
+    if len(used_indices) <= 1:
+        return False
+
+    colors = set()
+    for index in used_indices:
+        start = index * 3
+        end = start + 3
+        if end <= len(palette_data):
+            colors.add(palette_data[start:end])
+    return len(colors) <= 1
+
+
 def repair_indexed_plte(data: bytes) -> PlteRepair | None:
     try:
         chunks = list(iter_chunks(data))
@@ -2990,6 +3004,14 @@ def repair_indexed_plte(data: bytes) -> PlteRepair | None:
     entry_count = plte.length // 3
     if entry_count > max_entries:
         palette = plte.data[: max_entries * 3]
+        if indexed_palette_lacks_used_color_diversity(palette, indices):
+            palette = grayscale_palette(max_entries)
+            if palette is None:
+                return None
+            return PlteRepair(
+                data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
+                strategy="rebuilt oversized indexed PLTE as grayscale palette",
+            )
         return PlteRepair(
             data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
             strategy="truncated indexed PLTE to bit depth entry count",
@@ -3002,6 +3024,15 @@ def repair_indexed_plte(data: bytes) -> PlteRepair | None:
         return PlteRepair(
             data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
             strategy="rebuilt undersized indexed PLTE as grayscale palette",
+        )
+
+    if indexed_palette_lacks_used_color_diversity(plte.data, indices):
+        palette = grayscale_palette(max_entries)
+        if palette is None:
+            return None
+        return PlteRepair(
+            data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
+            strategy="rebuilt low-diversity indexed PLTE as grayscale palette",
         )
 
     return None
@@ -3049,6 +3080,65 @@ def repair_empty_plte(data: bytes) -> PlteRepair | None:
         data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
         strategy="rebuilt empty indexed PLTE as grayscale palette",
     )
+
+
+def repair_grayscale_plte(data: bytes) -> PlteRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    plte = next((chunk for chunk in chunks if chunk.chunk_type == b"PLTE"), None)
+    if ihdr is None or plte is None:
+        return None
+
+    ihdr_values = _parse_ihdr_data(ihdr)
+    if ihdr_values is None:
+        return None
+
+    _width, _height, _bit_depth, color_type, _method, _filter_method, _interlace = ihdr_values
+    if color_type not in (0, 4):
+        return None
+
+    return PlteRepair(
+        data=replace_png_chunk(data, plte, b""),
+        strategy="removed PLTE chunk forbidden in grayscale PNG",
+    )
+
+
+def repair_optional_truecolor_plte(data: bytes) -> PlteRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    plte = next((chunk for chunk in chunks if chunk.chunk_type == b"PLTE"), None)
+    if ihdr is None or plte is None:
+        return None
+
+    ihdr_values = _parse_ihdr_data(ihdr)
+    if ihdr_values is None:
+        return None
+
+    _width, _height, _bit_depth, color_type, _method, _filter_method, _interlace = ihdr_values
+    if color_type not in (2, 6):
+        return None
+
+    if plte.length % 3 != 0:
+        return PlteRepair(
+            data=replace_png_chunk(data, plte, b""),
+            strategy="removed malformed optional truecolor PLTE chunk",
+        )
+
+    if (plte.length // 3) > 256:
+        return PlteRepair(
+            data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", plte.data[: 256 * 3])),
+            strategy="truncated optional truecolor PLTE to 256 entries",
+        )
+
+    return None
 
 
 def repair_itxt_compression_flag(data: bytes) -> ItxtRepair | None:

@@ -63,6 +63,12 @@ CANDIDATE_CASES: tuple[CandidateCase, ...] = (
         ("PLTE Wrong RED 1 palettes not in bitdepht range",),
     ),
     CandidateCase(
+        "plte_too_many_entries_2.png",
+        f"{BROKEN_SUITE}/plte_too_many_entries_2.png",
+        CANDIDATE_FOR_STRICT_REPAIR,
+        ("Error PLTER > 256",),
+    ),
+    CandidateCase(
         "gama_after_idat.png",
         f"{BROKEN_SUITE}/gama_after_idat.png",
         NEEDS_REPAIR_STRATEGY,

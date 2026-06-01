@@ -38,6 +38,18 @@ def png_with_split_idat(interrupter: bytes = b"heRB"):
     )
 
 
+def plte_empty_fixture_bytes():
+    return (ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "plte_empty.png").read_bytes()
+
+
+def plte_length_mod_three_fixture_bytes():
+    return (ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "plte_length_mod_three.png").read_bytes()
+
+
+def plte_too_many_entries_fixture_bytes():
+    return (ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "plte_too_many_entries.png").read_bytes()
+
+
 def test_apply_repair_records_note_and_writes_clone():
     side_notes = []
     writes = []
@@ -64,6 +76,152 @@ def test_apply_repair_records_note_and_writes_clone():
     ]
     assert side_notes == ["-FixItFelix:unit-test-repair."]
     assert writes == [("6669786564", "-unit-test-repair.")]
+
+
+def test_apply_repair_offers_tkinter_controls_after_empty_plte_preview():
+    original = plte_empty_fixture_bytes()
+    repair = fixit_felix.plte_cleanup(
+        original,
+        ["GetInfo_Error_0:-PLTE Wrong RED palettes entry must Not be empty"],
+        auto=False,
+        nodialogue=False,
+        max_saves=None,
+    )
+    plte = next(chunk for chunk in iter_chunks(original) if chunk.chunk_type == b"PLTE")
+    start = plte.offset * 2
+    end = (plte.offset + 12 + plte.length) * 2
+    side_notes = []
+    calls = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: calls.append(("candy", args)),
+        write_clone=lambda *args: calls.append(("write", args)),
+        question=lambda **kwargs: calls.append(("question", kwargs)) or True,
+        preview_repair_image=lambda *args: calls.append(("preview", args)),
+        tk_manual_plte=lambda *args: calls.append(("manual", args)),
+        data_hex=original.hex(),
+        file_origin="plte_empty.png",
+        interactive=True,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert ("preview", (repair.data, "empty_plte_grayscale_plte")) in calls
+    assert ("question", {
+        "id": "PLTE Palette Editor:-Open Tkinter to tune this reconstructed PLTE?",
+        "idhash": ("PLTE", start, end, "empty-indexed-grayscale"),
+        "skipauto": True,
+    }) in calls
+    assert ("manual", ("plte_empty.png", b"PLTE", end, start, "-PLTE Wrong Data")) in calls
+    assert [call for call in calls if call[0] == "write"] == []
+    assert side_notes == ["-FixItFelix:opened Tkinter PLTE editor after grayscale PLTE preview."]
+
+
+def test_apply_repair_keeps_empty_plte_auto_path_without_interactive_tty():
+    original = plte_empty_fixture_bytes()
+    repair = fixit_felix.plte_cleanup(
+        original,
+        ["GetInfo_Error_0:-PLTE Wrong RED palettes entry must Not be empty"],
+        auto=False,
+        nodialogue=False,
+        max_saves=None,
+    )
+    writes = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=[],
+        candy=lambda *args: None,
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+        question=lambda **kwargs: False,
+        preview_repair_image=lambda *args: None,
+        tk_manual_plte=lambda *args: None,
+        data_hex=original.hex(),
+        file_origin="plte_empty.png",
+        interactive=False,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert writes == [(repair.data.hex(), "-rebuilt empty indexed PLTE as grayscale palette.")]
+
+
+def test_apply_repair_offers_tkinter_controls_after_malformed_plte_preview():
+    original = plte_length_mod_three_fixture_bytes()
+    repair = fixit_felix.plte_cleanup(
+        original,
+        ["GetInfo_Error_0:-PLTE Total palettes number must be divisible by 3"],
+        auto=False,
+        nodialogue=False,
+        max_saves=None,
+    )
+    plte = next(chunk for chunk in iter_chunks(original) if chunk.chunk_type == b"PLTE")
+    start = plte.offset * 2
+    end = (plte.offset + 12 + plte.length) * 2
+    calls = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=[],
+        candy=lambda *args: calls.append(("candy", args)),
+        write_clone=lambda *args: calls.append(("write", args)),
+        question=lambda **kwargs: calls.append(("question", kwargs)) or True,
+        preview_repair_image=lambda *args: calls.append(("preview", args)),
+        tk_manual_plte=lambda *args: calls.append(("manual", args)),
+        data_hex=original.hex(),
+        file_origin="plte_length_mod_three.png",
+        interactive=True,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert repair.strategy == "rebuilt malformed indexed PLTE as grayscale palette"
+    assert ("preview", (repair.data, "malformed_plte_grayscale_plte")) in calls
+    assert ("question", {
+        "id": "PLTE Palette Editor:-Open Tkinter to tune this reconstructed PLTE?",
+        "idhash": ("PLTE", start, end, "malformed-indexed-grayscale"),
+        "skipauto": True,
+    }) in calls
+    assert ("manual", ("plte_length_mod_three.png", b"PLTE", end, start, "-PLTE Wrong Data")) in calls
+    assert [call for call in calls if call[0] == "write"] == []
+
+
+def test_apply_repair_offers_tkinter_controls_after_oversized_black_plte_preview():
+    original = plte_too_many_entries_fixture_bytes()
+    repair = fixit_felix.plte_cleanup(
+        original,
+        ["GetInfo_Error_0:-PLTE Wrong RED palettes not in bitdepht range"],
+        auto=False,
+        nodialogue=False,
+        max_saves=None,
+    )
+    plte = next(chunk for chunk in iter_chunks(original) if chunk.chunk_type == b"PLTE")
+    start = plte.offset * 2
+    end = (plte.offset + 12 + plte.length) * 2
+    calls = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=[],
+        candy=lambda *args: calls.append(("candy", args)),
+        write_clone=lambda *args: calls.append(("write", args)),
+        question=lambda **kwargs: calls.append(("question", kwargs)) or True,
+        preview_repair_image=lambda *args: calls.append(("preview", args)),
+        tk_manual_plte=lambda *args: calls.append(("manual", args)),
+        data_hex=original.hex(),
+        file_origin="plte_too_many_entries.png",
+        interactive=True,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert repair.strategy == "rebuilt oversized indexed PLTE as grayscale palette"
+    assert ("preview", (repair.data, "oversized_plte_grayscale_plte")) in calls
+    assert ("question", {
+        "id": "PLTE Palette Editor:-Open Tkinter to tune this reconstructed PLTE?",
+        "idhash": ("PLTE", start, end, "oversized-indexed-grayscale"),
+        "skipauto": True,
+    }) in calls
+    assert ("manual", ("plte_too_many_entries.png", b"PLTE", end, start, "-PLTE Wrong Data")) in calls
+    assert [call for call in calls if call[0] == "write"] == []
 
 
 def test_apply_repair_prompts_to_move_idat_interruption_before_writing_clone():
@@ -2584,6 +2742,8 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
         "LibpngCheck": callback("LibpngCheck"),
         "TheGoodPlace": callback("TheGoodPlace"),
         "WriteClone": callback("WriteClone"),
+        "Preview_Repair_Image": callback("Preview_Repair_Image"),
+        "Tk_Manual_Plte": callback("Tk_Manual_Plte"),
         "GetSpec": callback("GetSpec"),
         "Product": callback("Product"),
         "Loadingbar": callback("Loadingbar"),
@@ -2704,6 +2864,8 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert automatic.side_notes is side_notes
     assert automatic.write_clone is namespace["WriteClone"]
     assert automatic.question is namespace["Question"]
+    assert automatic.preview_repair_image is namespace["Preview_Repair_Image"]
+    assert automatic.tk_manual_plte is namespace["Tk_Manual_Plte"]
     assert automatic.data_hex == "001122"
     assert automatic.pandora_box is pandora_box
     assert automatic.get_spec is namespace["GetSpec"]
@@ -2711,6 +2873,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert automatic.loadingbar is namespace["Loadingbar"]
     assert automatic.minibar is namespace["Minibar"]
     assert automatic.file_origin == "source.png"
+    assert automatic.interactive is False
 
 
 def test_namespace_pipeline_builder_preserves_debug_and_repair_wiring():
@@ -2806,6 +2969,22 @@ def main():
         (
             "Apply repair removes safe IDAT interruption when move declined",
             test_apply_repair_can_remove_safe_to_copy_idat_interruption_when_move_declined,
+        ),
+        (
+            "Apply repair offers PLTE Tkinter controls",
+            test_apply_repair_offers_tkinter_controls_after_empty_plte_preview,
+        ),
+        (
+            "Apply repair keeps PLTE auto path without TTY",
+            test_apply_repair_keeps_empty_plte_auto_path_without_interactive_tty,
+        ),
+        (
+            "Apply repair offers malformed PLTE Tkinter controls",
+            test_apply_repair_offers_tkinter_controls_after_malformed_plte_preview,
+        ),
+        (
+            "Apply repair offers oversized black PLTE Tkinter controls",
+            test_apply_repair_offers_tkinter_controls_after_oversized_black_plte_preview,
         ),
         (
             "Apply repair prompts before unproven cHRM inference",

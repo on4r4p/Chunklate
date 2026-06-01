@@ -88,7 +88,10 @@ def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
     if "IDAT Interruption Removal" in str(question_id):
         return "Question: Should i remove this safe-to-copy ancillary chunk from the clone?"
     if "PLTE Palette Editor" in str(question_id):
-        return "Question: Should i open Tkinter to tune this reconstructed PLTE?"
+        return (
+            "Question: Chunky built a grayscale PLTE. Happy with the preview? Say no. "
+            "Want the palette steering wheel in Tkinter? Say yes."
+        )
     if "hIST Optional Metadata Removal" in str(question_id):
         return "Question: Should i remove the optional hIST chunk(s), or keep them as-is?"
     if skipauto:

@@ -104,6 +104,9 @@ class ManualPaletteEditorRuntime:
     create_slider_canvas: Callable = palette_ui.create_palette_slider_canvas
     create_sliders: Callable = palette_ui.create_palette_sliders
     set_state_sliders: Callable = palette_ui.set_palette_state_sliders
+    bind_slider_scrollregion: Callable = palette_ui.bind_palette_slider_scrollregion
+    bind_slider_mousewheel: Callable = palette_ui.bind_palette_slider_mousewheel
+    refresh_slider_canvas: Callable = palette_ui.refresh_palette_slider_canvas
 
 
 @dataclass(frozen=True)
@@ -667,7 +670,9 @@ def create_manual_palette_editor(
         slider_length=layout.slider_length,
     )
     runtime.set_state_sliders(context.session.state, sliders)
-    slider_canvas.canvas.bind("<Configure>", context.update_scrollregion)
+    runtime.bind_slider_scrollregion(slider_canvas, sliders)
+    runtime.bind_slider_mousewheel(slider_canvas, sliders)
+    runtime.refresh_slider_canvas(slider_canvas, sliders)
     runtime.center_window(window, layout)
 
     return ManualPaletteEditor(

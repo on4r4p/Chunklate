@@ -804,8 +804,11 @@ def Tk_Randomize_Plte(bfn=None,afn=None,w=None,h=None):
     return palette_runtime.randomize_palette_from_namespace(globals(), bfn, afn, w, h)
 
 def Tk_update_scrollregion_Plte(event):
-    global canvas_slider
-    canvas_slider.configure(scrollregion=canvas_slider.bbox("all"))
+    canvas = getattr(event, "widget", None)
+    if canvas is None or not hasattr(canvas, "bbox"):
+        canvas = globals().get("canvas_slider")
+    if canvas is not None and hasattr(canvas, "bbox"):
+        canvas.configure(scrollregion=canvas.bbox("all"))
 
 def Tk_Save_Plte(Tkwin,Cancel,ChunkLength,DataOffset,FromError,wanabyte):
     return palette_runtime.save_manual_palette_from_namespace(

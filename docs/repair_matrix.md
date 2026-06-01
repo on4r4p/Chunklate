@@ -31,8 +31,17 @@ families:
   bad dimensions, invalid bit depth/color type/method values, and rebuilds from
   IDAT scanline math or stored CRC evidence.
 - `PLTE`: missing indexed palettes, empty palettes, malformed palette length,
-  undersized indexed palettes, and too many entries for the indexed bit depth.
-  Chunklate can also offer the Tkinter PLTE editor for manual palette tuning.
+  undersized indexed palettes, too many entries for the indexed bit depth, and
+  indexed palettes whose used entries collapse to one visible color. Chunklate
+  can also offer the Tkinter PLTE editor for manual palette tuning. Indexed
+  `PLTE` chunks that cannot preserve useful colors are rebuilt from the usable
+  `IDAT` index range as grayscale palettes; in an interactive terminal
+  Chunklate previews that result and can hand the palette over to the Tkinter
+  editor.
+  Empty non-indexed `PLTE` chunks and forbidden grayscale `PLTE` chunks are
+  removed. Oversized optional truecolor `PLTE` chunks are truncated to the PNG
+  maximum of 256 entries; malformed optional truecolor `PLTE` chunks are
+  removed because RGB/RGBA pixels do not depend on them.
 - Ancillary chunk payloads: length/value repairs for `bKGD`, `cHRM`, `gAMA`,
   `gIFg`, `hIST`, `iTXt`, `oFFs`, `pHYs`, `sBIT`, `sRGB`, `sTER`, `tIME`, and
   `tRNS`.
@@ -127,7 +136,8 @@ to the strict fixture matrix below.
 | `PLTE_Empty_Bad_Crc.png` | empty PLTE with bad CRC | repair empty PLTE | 32x32 no PLTE |
 | `PLTE_Empty_Good_Crc.png` | empty PLTE with valid CRC | repair empty PLTE | 32x32 indexed |
 | `plte_length_mod_three.png` | PLTE length is not divisible by three | rebuild malformed indexed PLTE | 32x32 indexed |
-| `plte_too_many_entries.png` | PLTE contains too many entries for indexed bit depth | truncate indexed PLTE | 32x32 indexed, 4-bit palette |
+| `plte_too_many_entries.png` | PLTE contains too many entries for indexed bit depth | truncate useful indexed PLTE or rebuild low-diversity PLTE | 32x32 indexed, 4-bit palette |
+| `plte_too_many_entries_2.png` | optional truecolor PLTE contains more than 256 entries | truncate optional truecolor PLTE | 32x32 truecolor |
 | `Private_Critical_Chunk_Bad_Crc.png` | unknown private critical chunk with bad CRC | remove unsafe private critical chunk | 32x32 indexed without `baMA` |
 | `Private_Critical_Chunk_Crc_Valid.png` | unknown private critical chunk with valid CRC | remove unsafe private critical chunk | 32x32 indexed without `baMA` |
 | `Wrong-Chunk-Name-Bad-Crc.png` | wrong chunk name with bad CRC | repair chunk name | 1642x1095 |

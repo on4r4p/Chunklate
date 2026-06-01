@@ -14,6 +14,7 @@ from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunk
 
 
 REPAIR_FIXTURES = ROOT / "Png_Errors_handled_by_Chunklate_So_Far"
+BROKEN_FIXTURES = ROOT / "schaik-javapng-samples" / "brokenjavapngsuite"
 
 
 def read_fixture(name):
@@ -784,13 +785,12 @@ def test_hist_out_of_place_cleanup_ignores_plain_multiple_finding():
     ) is None
 
 
-def test_plte_cleanup_requires_noninteractive_mode_and_plte_finding():
+def test_plte_cleanup_repairs_with_plte_finding_in_interactive_mode():
     original = read_fixture("PLTE_Empty_Bad_Crc.png")
 
-    assert fixit_felix.plte_cleanup(original, ["PLTE"], auto=False, nodialogue=False, max_saves=None) is None
     assert fixit_felix.plte_cleanup(original, ["Wrong Crc"], auto=True, nodialogue=False, max_saves=None) is None
 
-    repaired = fixit_felix.plte_cleanup(original, ["PLTE"], auto=False, nodialogue=False, max_saves=1)
+    repaired = fixit_felix.plte_cleanup(original, ["PLTE"], auto=False, nodialogue=False, max_saves=None)
 
     assert repaired is not None
     assert b"PLTE" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
@@ -809,6 +809,41 @@ def test_plte_cleanup_inserts_missing_indexed_palette_from_structure_finding():
 
     assert repaired is not None
     assert repaired.strategy == "inserted missing indexed PLTE as grayscale palette"
+    assert validate_png_structure(repaired.data).ok
+    plte = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"PLTE")
+    assert plte.length == 768
+
+
+def test_plte_cleanup_removes_forbidden_grayscale_palette_from_libpng_finding():
+    original = (BROKEN_FIXTURES / "plte_in_grayscale.png").read_bytes()
+
+    repaired = fixit_felix.plte_cleanup(
+        original,
+        ["libpng error: PLTE chunk is not allowed for grayscale color types"],
+        auto=False,
+        nodialogue=False,
+        max_saves=None,
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "removed PLTE chunk forbidden in grayscale PNG"
+    assert validate_png_structure(repaired.data).ok
+    assert b"PLTE" not in {chunk.chunk_type for chunk in iter_chunks(repaired.data)}
+
+
+def test_plte_cleanup_truncates_oversized_optional_truecolor_palette():
+    original = (BROKEN_FIXTURES / "plte_too_many_entries_2.png").read_bytes()
+
+    repaired = fixit_felix.plte_cleanup(
+        original,
+        ["GetInfo_Error_0:-Error PLTER > 256 :257"],
+        auto=False,
+        nodialogue=False,
+        max_saves=None,
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "truncated optional truecolor PLTE to 256 entries"
     assert validate_png_structure(repaired.data).ok
     plte = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"PLTE")
     assert plte.length == 768
@@ -1437,10 +1472,18 @@ def main():
             "hIST out-of-place cleanup ignores plain Multiple finding",
             test_hist_out_of_place_cleanup_ignores_plain_multiple_finding,
         ),
-        ("PLTE cleanup requires noninteractive mode and PLTE finding", test_plte_cleanup_requires_noninteractive_mode_and_plte_finding),
+        ("PLTE cleanup repairs with PLTE finding", test_plte_cleanup_repairs_with_plte_finding_in_interactive_mode),
         (
             "PLTE cleanup inserts missing indexed palette",
             test_plte_cleanup_inserts_missing_indexed_palette_from_structure_finding,
+        ),
+        (
+            "PLTE cleanup removes forbidden grayscale palette",
+            test_plte_cleanup_removes_forbidden_grayscale_palette_from_libpng_finding,
+        ),
+        (
+            "PLTE cleanup truncates oversized optional truecolor palette",
+            test_plte_cleanup_truncates_oversized_optional_truecolor_palette,
         ),
         ("Duplicate singleton cleanup requires Multiple finding", test_duplicate_singleton_cleanup_requires_multiple_finding),
         ("Duplicate singleton cleanup removes duplicate iCCP", test_duplicate_singleton_cleanup_removes_duplicate_iccp),

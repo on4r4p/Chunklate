@@ -41,6 +41,7 @@ class PaletteSliderCanvas:
     canvas: Any
     frame: Any
     scrollbar: Any
+    window_id: Any = None
 
 
 @dataclass(frozen=True)
@@ -137,6 +138,10 @@ def update_slider_swatch(slider: Any, value: Any) -> None:
 
 def preview_dimensions(width: int, height: int) -> tuple[int, int]:
     return width - 10, height - 10
+
+
+def slider_length_for_canvas_width(width: int) -> int:
+    return max(120, int(width) - 140)
 
 
 def build_editor_layout(
@@ -331,6 +336,51 @@ def create_palette_scale(
     return PaletteScaleWidget(var=var, scale=scale, swatch=swatch, container=container)
 
 
+def slider_scale_widget(slider: Any) -> Any:
+    return getattr(slider, "s", None) or getattr(slider, "scale", None) or slider
+
+
+def set_slider_widget_length(slider: Any, length: int) -> None:
+    widget = slider_scale_widget(slider)
+    configure = getattr(widget, "configure", None) or getattr(widget, "config", None)
+    if callable(configure):
+        configure(length=length)
+
+
+def set_palette_slider_lengths(sliders: Iterable[Any], length: int) -> None:
+    for slider in sliders:
+        set_slider_widget_length(slider, length)
+
+
+def widget_width(widget: Any, fallback: int | None = None) -> int | None:
+    if hasattr(widget, "winfo_width"):
+        try:
+            width = int(widget.winfo_width())
+        except (TypeError, ValueError):
+            width = 0
+        if width > 1:
+            return width
+
+    if hasattr(widget, "cget"):
+        try:
+            width = int(widget.cget("width"))
+        except (TypeError, ValueError):
+            width = 0
+        if width > 1:
+            return width
+
+    kwargs = getattr(widget, "kwargs", None)
+    if isinstance(kwargs, dict):
+        try:
+            width = int(kwargs.get("width", 0))
+        except (TypeError, ValueError):
+            width = 0
+        if width > 1:
+            return width
+
+    return fallback
+
+
 def create_palette_slider_canvas(
     *,
     tkinter_module: Any,
@@ -344,13 +394,127 @@ def create_palette_slider_canvas(
     canvas = tkinter_module.Canvas(master, height=height, width=width)
     canvas.grid(**(canvas_grid_options or {}))
     frame = tkinter_module.Frame(canvas, bg=frame_bg)
-    canvas.create_window(0, 0, window=frame, anchor="sw")
+    window_id = canvas.create_window(0, 0, window=frame, anchor="nw", width=width)
 
     scrollbar = tkinter_module.Scrollbar(master, orient="vertical")
     scrollbar.config(command=canvas.yview)
     canvas.config(yscrollcommand=scrollbar.set)
     scrollbar.grid(**(scrollbar_grid_options or {}))
-    return PaletteSliderCanvas(canvas=canvas, frame=frame, scrollbar=scrollbar)
+    return PaletteSliderCanvas(canvas=canvas, frame=frame, scrollbar=scrollbar, window_id=window_id)
+
+
+def resize_palette_slider_canvas(
+    slider_canvas: PaletteSliderCanvas,
+    sliders: Iterable[Any] = (),
+) -> None:
+    width = widget_width(slider_canvas.canvas)
+    if width is None:
+        return
+
+    if slider_canvas.window_id is not None and hasattr(slider_canvas.canvas, "itemconfigure"):
+        slider_canvas.canvas.itemconfigure(slider_canvas.window_id, width=width)
+    set_palette_slider_lengths(sliders, slider_length_for_canvas_width(width))
+
+
+def refresh_palette_slider_canvas(
+    slider_canvas: PaletteSliderCanvas,
+    sliders: Iterable[Any] = (),
+) -> None:
+    canvas = slider_canvas.canvas
+    if hasattr(canvas, "update_idletasks"):
+        canvas.update_idletasks()
+
+    resize_palette_slider_canvas(slider_canvas, sliders)
+    if hasattr(canvas, "update_idletasks"):
+        canvas.update_idletasks()
+
+    bbox = canvas.bbox("all") if hasattr(canvas, "bbox") else None
+    if bbox is None:
+        return
+
+    configure = getattr(canvas, "configure", None) or getattr(canvas, "config", None)
+    if callable(configure):
+        configure(scrollregion=bbox)
+
+
+def bind_palette_slider_scrollregion(
+    slider_canvas: PaletteSliderCanvas,
+    sliders: Iterable[Any] = (),
+) -> Any:
+    def refresh(_event: Any = None) -> None:
+        refresh_palette_slider_canvas(slider_canvas, sliders)
+
+    if hasattr(slider_canvas.frame, "bind"):
+        slider_canvas.frame.bind("<Configure>", refresh)
+    if hasattr(slider_canvas.canvas, "bind"):
+        slider_canvas.canvas.bind("<Configure>", refresh)
+    return refresh
+
+
+def palette_mousewheel_units(event: Any) -> int:
+    delta = getattr(event, "delta", 0)
+    if delta:
+        if abs(delta) >= 120:
+            return max(-10, min(10, int(-delta / 120)))
+        return -1 if delta > 0 else 1
+
+    button = getattr(event, "num", None)
+    if button == 4:
+        return -1
+    if button == 5:
+        return 1
+    return 0
+
+
+def palette_slider_mousewheel_widgets(
+    slider_canvas: PaletteSliderCanvas,
+    sliders: Iterable[Any] = (),
+) -> tuple[Any, ...]:
+    widgets = [slider_canvas.canvas, slider_canvas.frame]
+    for slider in sliders:
+        for candidate in (
+            getattr(slider, "container", None),
+            getattr(slider, "swatch", None),
+            slider_scale_widget(slider),
+        ):
+            if candidate is not None:
+                widgets.append(candidate)
+
+    unique_widgets = []
+    seen = set()
+    for widget in widgets:
+        identity = id(widget)
+        if identity not in seen:
+            seen.add(identity)
+            unique_widgets.append(widget)
+    return tuple(unique_widgets)
+
+
+def bind_palette_slider_mousewheel(
+    slider_canvas: PaletteSliderCanvas,
+    sliders: Iterable[Any] = (),
+) -> Any:
+    canvas = slider_canvas.canvas
+
+    def focus_canvas(_event: Any = None) -> None:
+        if hasattr(canvas, "focus_set"):
+            canvas.focus_set()
+
+    def scroll(event: Any = None) -> str | None:
+        units = palette_mousewheel_units(event)
+        if units and hasattr(canvas, "yview_scroll"):
+            canvas.yview_scroll(units, "units")
+            return "break"
+        return None
+
+    for widget in palette_slider_mousewheel_widgets(slider_canvas, sliders):
+        if not hasattr(widget, "bind"):
+            continue
+        widget.bind("<Enter>", focus_canvas)
+        widget.bind("<MouseWheel>", scroll)
+        widget.bind("<Button-4>", scroll)
+        widget.bind("<Button-5>", scroll)
+    return scroll
 
 
 def create_palette_action_buttons(

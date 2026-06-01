@@ -753,6 +753,13 @@ def test_create_manual_palette_editor_wires_window_frames_actions_and_sliders():
             create_slider_canvas=lambda **kwargs: calls.append(("create_slider_canvas", kwargs)) or slider_canvas,
             create_sliders=lambda **kwargs: calls.append(("create_sliders", kwargs)) or ["slider-a", "slider-b"],
             set_state_sliders=lambda target, sliders: calls.append(("set_state_sliders", target, sliders)),
+            bind_slider_scrollregion=lambda target, sliders: calls.append(
+                ("bind_slider_scrollregion", target, sliders)
+            ),
+            bind_slider_mousewheel=lambda target, sliders: calls.append(
+                ("bind_slider_mousewheel", target, sliders)
+            ),
+            refresh_slider_canvas=lambda target, sliders: calls.append(("refresh_slider_canvas", target, sliders)),
         ),
         palette_runtime.ManualPaletteEditorContext(
             title="PLTE Editor:file.png",
@@ -773,7 +780,9 @@ def test_create_manual_palette_editor_wires_window_frames_actions_and_sliders():
     assert editor.action_buttons == {"save_btn": "save"}
     assert editor.slider_canvas is slider_canvas
     assert editor.sliders == ["slider-a", "slider-b"]
-    assert canvas.binds == [("<Configure>", update_scrollregion)]
+    assert ("bind_slider_scrollregion", slider_canvas, ["slider-a", "slider-b"]) in calls
+    assert ("bind_slider_mousewheel", slider_canvas, ["slider-a", "slider-b"]) in calls
+    assert ("refresh_slider_canvas", slider_canvas, ["slider-a", "slider-b"]) in calls
     assert ("render_preview", b"png", 1000, 500) in calls
     assert calls[0] == ("create_window", {"tkinter_module": "tk", "title": "PLTE Editor:file.png"})
     assert ("build_layout", 2100, (100, 50)) in calls
