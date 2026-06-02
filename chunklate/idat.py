@@ -681,6 +681,77 @@ def rebuild_partial_idat_blackfill(data: bytes) -> PartialIdatBlackfillRepair | 
     )
 
 
+def rebuild_invalid_filter_type_as_filter0(data: bytes) -> PartialIdatBlackfillRepair | None:
+    try:
+        chunks = list(png.iter_chunks(data))
+    except png.PngFormatError:
+        return None
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    ihdr_values = _parse_ihdr(ihdr)
+    if ihdr_values is None:
+        return None
+
+    width, height, bit_depth, color_type, compression, filter_method, interlace = ihdr_values
+    if width < 1 or height < 1:
+        return None
+    if compression != 0 or filter_method != 0 or interlace != 0:
+        return None
+    if not png.valid_png_color_depth(bit_depth, color_type):
+        return None
+
+    scanline_size = png.png_scanline_size(width, bit_depth, color_type)
+    if scanline_size is None:
+        return None
+
+    idat_stream = b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
+    if len(idat_stream) == 0:
+        return None
+
+    try:
+        decompressed = zlib.decompress(idat_stream)
+    except zlib.error:
+        return None
+
+    expected_size = scanline_size * height
+    if len(decompressed) != expected_size:
+        return None
+
+    rebuilt_scanlines = bytearray(decompressed)
+    invalid_rows: list[int] = []
+    for row_index in range(height):
+        filter_offset = row_index * scanline_size
+        if rebuilt_scanlines[filter_offset] not in range(5):
+            rebuilt_scanlines[filter_offset] = 0
+            invalid_rows.append(row_index)
+
+    if not invalid_rows:
+        return None
+
+    rebuilt_idat = zlib.compress(bytes(rebuilt_scanlines))
+    fixed = bytearray(png.PNG_SIGNATURE)
+    idat_written = False
+    for chunk in chunks:
+        if chunk.chunk_type == b"IDAT":
+            if not idat_written:
+                fixed.extend(png.build_png_chunk(b"IDAT", rebuilt_idat))
+                idat_written = True
+            continue
+        fixed.extend(png.build_png_chunk(chunk.chunk_type, chunk.data))
+
+    return PartialIdatBlackfillRepair(
+        data=bytes(fixed),
+        strategy="idat-filter0-normalize replaced %s invalid scanline filter bytes"
+        % len(invalid_rows),
+        recovered_scanlines=height,
+        total_scanlines=height,
+        width=width,
+        height=height,
+        bit_depth=bit_depth,
+        color_type=color_type,
+    )
+
+
 def rebuild_tolerant_idat_salvage(data: bytes) -> PartialIdatBlackfillRepair | None:
     analysis = analyze_partial_idat(data)
     if not analysis.partial:
