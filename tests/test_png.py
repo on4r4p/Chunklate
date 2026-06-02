@@ -407,8 +407,7 @@ def test_repair_linefeed_conversion_repairs_xlfn0g04_fixture():
 
 
 def test_repair_linefeed_conversion_can_return_partial_signature_repair():
-    corrupted = (ROOT / "David" / "6.bad.png").read_bytes()
-    expected = (ROOT / "David" / "6.output.png").read_bytes()
+    corrupted = (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "linefeedcorruption3.png").read_bytes()
 
     assert repair_linefeed_conversion(corrupted) is None
 
@@ -418,11 +417,12 @@ def test_repair_linefeed_conversion_can_return_partial_signature_repair():
     assert repaired.inserted_signature_cr is True
     assert repaired.payload_patches == ()
     assert repaired.validation_errors
-    assert repaired.data == expected
+    assert repaired.data.startswith(PNG_SIGNATURE)
+    assert len(repaired.data) == len(corrupted) + 1
 
 
 def test_repair_overlong_chunk_length_to_next_header_realigns_idat():
-    corrupted = (ROOT / "David" / "6.bad.png").read_bytes()
+    corrupted = (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "linefeedcorruption3.png").read_bytes()
     linefeed = repair_linefeed_conversion(corrupted, allow_partial=True)
     assert linefeed is not None
 

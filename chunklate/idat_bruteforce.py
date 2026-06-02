@@ -17,6 +17,7 @@ from . import png
 ProgressCallback = Callable[[int, int, bool], None]
 QueueProgressCallback = Callable[[str, int, int], None]
 UNBOUNDED_PROGRESS_TOTAL = 10**12
+ULTIMATE_LINEFEED_PROGRESS_STEP = 100
 
 
 @dataclass(frozen=True)
@@ -1444,7 +1445,9 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                     visited.add(stream_hash)
                     tested += 1
 
-                    if progress is not None and (tested == 1 or tested % max(1, progress_total // 100) == 0):
+                    if progress is not None and (
+                        tested == 1 or tested % ULTIMATE_LINEFEED_PROGRESS_STEP == 0
+                    ):
                         progress(strategy, tested, progress_total)
 
                     candidate = _candidate_from_stream(
@@ -1538,7 +1541,9 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
 
                     visited.add(stream_hash)
                     tested += 1
-                    if progress is not None and (tested == 1 or tested % max(1, progress_total // 100) == 0):
+                    if progress is not None and (
+                        tested == 1 or tested % ULTIMATE_LINEFEED_PROGRESS_STEP == 0
+                    ):
                         progress(strategy, tested, progress_total)
 
                     candidate_data = _rebuild_with_single_idat_stream(chunks, candidate_stream)

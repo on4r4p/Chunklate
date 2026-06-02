@@ -80,6 +80,10 @@ def tiny_rgb_png():
     ) + IEND_CHUNK
 
 
+def linefeed_salvage_fixture():
+    return (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "linefeedcorruption3.png").read_bytes()
+
+
 def checkpoint_args(calls):
     matches = [call[1] for call in calls if call[0] == "checkpoint"]
     assert len(matches) == 1
@@ -187,7 +191,7 @@ def test_find_header_magic_runtime_writes_linefeed_salvage_clone():
     calls = []
     side_notes = []
     runtime = build_runtime(calls, side_notes)
-    corrupted = (ROOT / "David" / "6.bad.png").read_bytes()
+    corrupted = linefeed_salvage_fixture()
 
     result = magic_runtime.run_find_magic(runtime, base_context(corrupted.hex()))
 
@@ -247,7 +251,7 @@ def test_linefeed_full_bruteforce_checks_length_realign_before_prompt():
         raise AssertionError("brute force prompt should not run before length realignment")
 
     runtime = build_runtime(calls, side_notes, ask=ask)
-    corrupted = (ROOT / "David" / "6.bad.png").read_bytes()
+    corrupted = linefeed_salvage_fixture()
     linefeed = repair_linefeed_conversion(corrupted, allow_partial=True)
     current_repair = SimpleNamespace(
         data=linefeed.data,
@@ -301,7 +305,7 @@ def test_linefeed_full_bruteforce_passes_known_gap_to_super_probe():
             reason="fake super",
         )
 
-    corrupted = (ROOT / "David" / "6.bad.png").read_bytes()
+    corrupted = linefeed_salvage_fixture()
     linefeed = repair_linefeed_conversion(corrupted, allow_partial=True)
     realignment = magic_runtime.repair_overlong_chunk_length_to_next_header(linefeed.data)
     current_repair = SimpleNamespace(
@@ -362,7 +366,7 @@ def test_find_header_magic_runtime_can_choose_linefeed_heavy_probe():
         return answers.pop(0)
 
     runtime = build_runtime(calls, side_notes, ask=ask)
-    corrupted = (ROOT / "David" / "6.bad.png").read_bytes()
+    corrupted = linefeed_salvage_fixture()
 
     magic_runtime.idat_bruteforce.probe_super_mega_linefeed_force_of_death = fast_super_mega
     try:
@@ -473,7 +477,7 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
         return answers.pop(0)
 
     runtime = build_runtime(calls, side_notes, ask=ask, ultimate_linefeed_budget=lambda: 1234)
-    corrupted = (ROOT / "David" / "6.bad.png").read_bytes()
+    corrupted = linefeed_salvage_fixture()
 
     magic_runtime.idat_bruteforce.probe_super_mega_linefeed_force_of_death = fast_super_mega
     magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce = fake_ultimate
@@ -493,16 +497,23 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
     assert ultimate_asks
     assert ultimate_asks[0][2] == {"skipauto": True}
     assert ("candy", ("Title", "UltimateMegaSuperLineFeedBruteForce")) in calls
-    ultimate_prompt_lines = [
-        call[1][1]
+    ultimate_prompt_calls = [
+        call
         for call in calls
         if call[0] == "candy"
         and call[1][0] == "Cowsay"
-        and "UltimateMegaSuperLineFeedBruteForce is the last basement door" in str(call[1][1])
+        and (
+            "UltimateMegaSuperLineFeedBruteForce is the last basement door" in str(call[1][1])
+            or "several billion years" in str(call[1][1])
+            or "original Adler" in str(call[1][1])
+            or "--ultimate-linefeed-budget" in str(call[1][1])
+            or "--ultimate-linefeed-unbounded" in str(call[1][1])
+        )
     ]
-    assert ultimate_prompt_lines
-    assert "--ultimate-linefeed-budget 1000000000000" in ultimate_prompt_lines[0]
-    assert "--ultimate-linefeed-unbounded" in ultimate_prompt_lines[0]
+    assert [call[1][2] for call in ultimate_prompt_calls] == ["bad", "bad", "com", "com", "com"]
+    ultimate_prompt_text = " ".join(str(call[1][1]) for call in ultimate_prompt_calls)
+    assert "--ultimate-linefeed-budget 1000000000000" in ultimate_prompt_text
+    assert "--ultimate-linefeed-unbounded" in ultimate_prompt_text
     assert [call for call in calls if call[0] == "loadingbar"]
     assert [call for call in calls if call[0] == "ultimate_kwargs"][0][1]["budget"] == 1234
     assert "UltimateMegaSuperLineFeedBruteForce: start=0x3ee9" in write_calls[0][2]

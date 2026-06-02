@@ -6,8 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED_LINEFEED_FIXTURES = (
-    Path("David/6.bad.png"),
-    Path("David/6.output.png"),
+    Path("Png_Errors_handled_by_Chunklate_So_Far/linefeedcorruption3.png"),
 )
 
 

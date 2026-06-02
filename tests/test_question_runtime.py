@@ -293,7 +293,7 @@ def test_question_runtime_names_ultimate_linefeed_force_prompt_and_skips_auto():
         "candy",
         (
             "Cowsay",
-            "Question: Should I open the forbidden line-feed combinatorics vault?",
+            "Question: Should I open the forbidden line-feed combinatorics vault no jutsu?",
             "com",
         ),
         {},

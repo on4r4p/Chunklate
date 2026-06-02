@@ -222,7 +222,7 @@ def _preview_linefeed_candidate(runtime: FindMagicRuntime, repair, round_index: 
 def _preview_ultimate_linefeed_candidate(runtime: FindMagicRuntime, repair) -> None:
     _cowsay(
         runtime,
-        "Ultimate preview: this is the best visible reconstruction before I open the forbidden line-feed combinatorics vault.",
+        "Ultimate preview: this is the best visible reconstruction before I open the forbidden line-feed combinatorics vault no jutsu.",
         "com",
     )
     runtime.preview_image(
@@ -367,18 +367,25 @@ def _ask_ultimate_linefeed_bruteforce(
     start_offset: int | None,
 ) -> bool:
     offset_label = "unknown" if start_offset is None else "0x%x" % start_offset
+    _cowsay(runtime, "%s is the last basement door." % ULTIMATE_LINEFEED_FORCE, "bad")
     _cowsay(
         runtime,
-        (
-            "%s is the last basement door. This can take several billion years, "
-            "several coffees, and possibly the emotional collapse of this terminal. "
-            "If I recover the original Adler, we get real evidence. If I do not, "
-            "I may only bring back a better-looking reconstruction. "
-            "By default I try 50000 candidates, because even chaos deserves a receipt. "
-            "If you want me to go much further, rerun with --ultimate-linefeed-budget 1000000000000. "
-            "If you really want the no-ceiling vault, rerun with --ultimate-linefeed-unbounded."
-        )
-        % ULTIMATE_LINEFEED_FORCE,
+        "This can take several billion years, several coffees, and possibly the emotional collapse of this terminal.",
+        "bad",
+    )
+    _cowsay(
+        runtime,
+        "If I recover the original Adler, we get real evidence. If I do not, I may only bring back a better-looking reconstruction.",
+        "com",
+    )
+    _cowsay(
+        runtime,
+        "Default budget: 50000 candidates. For more, rerun with --ultimate-linefeed-budget 1000000000000.",
+        "com",
+    )
+    _cowsay(
+        runtime,
+        "For the no-ceiling vault no jutsu, rerun with --ultimate-linefeed-unbounded.",
         "com",
     )
     return _ask_runtime_question(
@@ -443,7 +450,7 @@ def _linefeed_ultimate_alternative(
     runtime.candy("Title", ULTIMATE_LINEFEED_FORCE)
     _cowsay(
         runtime,
-        "Opening the forbidden line-feed combinatorics vault. I brought a checkpoint, because hope is not a persistence format.",
+        "Opening the forbidden line-feed combinatorics vault no jutsu. I brought a checkpoint, because hope is not a persistence format.",
         "com",
     )
     probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(

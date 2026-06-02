@@ -330,7 +330,7 @@ def test_rebuild_partial_idat_blackfill_handles_valid_empty_stream():
 
 def test_rebuild_tolerant_idat_salvage_keeps_rows_after_bad_filters():
     linefeed = repair_linefeed_conversion(
-        (ROOT / "David" / "6.bad.png").read_bytes(),
+        (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "linefeedcorruption3.png").read_bytes(),
         allow_partial=True,
     )
     assert linefeed is not None
@@ -359,7 +359,7 @@ def test_rebuild_tolerant_idat_salvage_keeps_rows_after_bad_filters():
 
 def test_idat_linefeed_cr_insert_probe_improves_salvage_candidate():
     linefeed = repair_linefeed_conversion(
-        (ROOT / "David" / "6.bad.png").read_bytes(),
+        (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "linefeedcorruption3.png").read_bytes(),
         allow_partial=True,
     )
     assert linefeed is not None
@@ -734,6 +734,7 @@ def test_ultimate_linefeed_bruteforce_spends_budget_when_no_terminal_match(tmp_p
 
     corrupt = build_rgb_png(1, 120, filtered, idat_data=bytes(compressed))
     start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+    progress_calls = []
 
     probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
         corrupt,
@@ -743,12 +744,16 @@ def test_ultimate_linefeed_bruteforce_spends_budget_when_no_terminal_match(tmp_p
         max_offsets=128,
         budget=300,
         beam_width=1,
+        progress=lambda stage, tested, budget: progress_calls.append((stage, tested, budget)),
     )
 
     assert probe.tested_candidates == 300
     assert probe.budget_exhausted is True
     assert probe.best is not None
     assert probe.best.after.adler_status != "adler_match"
+    assert ("UltimateMegaSuperLineFeedBruteForce", 100, 300) in progress_calls
+    assert ("UltimateMegaSuperLineFeedBruteForce", 200, 300) in progress_calls
+    assert ("UltimateMegaSuperLineFeedBruteForce", 300, 300) in progress_calls
 
 
 def test_ultimate_linefeed_bruteforce_broadens_small_focused_space(tmp_path):

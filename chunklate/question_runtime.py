@@ -76,7 +76,7 @@ def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
     if "SuperMegaLineFeedForceOfDeath" in str(question_id):
         return "Question: Should i launch SuperMegaLineFeedForceOfDeath, the full IDAT line-feed brute force?"
     if "UltimateMegaSuperLineFeedBruteForce" in str(question_id):
-        return "Question: Should I open the forbidden line-feed combinatorics vault?"
+        return "Question: Should I open the forbidden line-feed combinatorics vault no jutsu?"
     if "IHDR CRC Brute Force" in str(question_id):
         return "Question: Should i brute force IHDR against the stored CRC before rebuilding it?"
     if "cHRM Missing Bytes Inference" in str(question_id):
