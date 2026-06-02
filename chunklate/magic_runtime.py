@@ -82,7 +82,22 @@ def _cowsay(runtime: FindMagicRuntime, message: str, mood: str | None = None) ->
 
 
 def _linefeed_repair_summary(repair) -> str:
-    lines = ["-Line feed conversion repair: restored missing carriage returns."]
+    if getattr(repair, "linefeed_pattern", "") == "nul_stripped_linefeed_corruption":
+        lines = [
+            "-Line feed conversion repair: reconstructed bytes stripped by NUL removal and line-feed conversion.",
+            "-Line feed conversion repair: %s." % repair.strategy,
+        ]
+    elif getattr(repair, "removed_extra_cr_offsets", ()):
+        lines = ["-Line feed conversion repair: removed carriage returns inserted by CRLF conversion."]
+        lines.append(
+            "-Line feed conversion repair: removed %s extra CR byte%s."
+            % (
+                len(repair.removed_extra_cr_offsets),
+                "" if len(repair.removed_extra_cr_offsets) == 1 else "s",
+            )
+        )
+    else:
+        lines = ["-Line feed conversion repair: restored missing carriage returns."]
     if repair.removed_prefix_bytes:
         lines.append(
             "-Line feed conversion repair: cut %s bytes before PNG signature."
@@ -715,21 +730,46 @@ def run_find_magic(runtime: FindMagicRuntime, context: FindMagicContext) -> Any:
     _cowsay(runtime, " This better be a real png or else ....", "bad")
 
     if recovery.action == "linefeed_signature_candidate":
-        if recovery.linefeed_pattern == "minor_linefeed_corruption":
-            runtime.emit(
-                "-Some bytes are %s from Png Signature.."
-                % _color(runtime, "red", "missing")
-            )
-            _cowsay(
-                runtime,
-                " %s seems corrupted due to line feed conversion...It doesnt look that bad...But I ll keep that in mind while im on it.."
-                % _color(runtime, "white", context.sample_name),
-            )
+        if recovery.linefeed_pattern in (
+            "minor_linefeed_corruption",
+            "extra_cr_linefeed_corruption",
+            "nul_stripped_linefeed_corruption",
+        ):
+            if recovery.linefeed_pattern == "extra_cr_linefeed_corruption":
+                runtime.emit(
+                    "-Some bytes are %s in Png Signature.."
+                    % _color(runtime, "red", "extra")
+                )
+                _cowsay(
+                    runtime,
+                    " %s seems corrupted by CRLF line ending conversion...I will try to remove the injected carriage returns."
+                    % _color(runtime, "white", context.sample_name),
+                )
+            elif recovery.linefeed_pattern == "nul_stripped_linefeed_corruption":
+                runtime.emit(
+                    "-Some bytes are %s from Png Signature.."
+                    % _color(runtime, "red", "missing")
+                )
+                _cowsay(
+                    runtime,
+                    " %s seems corrupted by NUL stripping plus line-feed conversion...I will try a bounded structural reconstruction."
+                    % _color(runtime, "white", context.sample_name),
+                )
+            else:
+                runtime.emit(
+                    "-Some bytes are %s from Png Signature.."
+                    % _color(runtime, "red", "missing")
+                )
+                _cowsay(
+                    runtime,
+                    " %s seems corrupted due to line feed conversion...It doesnt look that bad...But I ll keep that in mind while im on it.."
+                    % _color(runtime, "white", context.sample_name),
+                )
             repair = repair_linefeed_conversion(context.data_bytes, allow_partial=True)
             if repair is not None:
                 _cowsay(
                     runtime,
-                    "Yep. Line-feed conversion chewed some carriage returns out of this PNG.",
+                    "Yep. Line-feed conversion damaged the carriage returns in this PNG.",
                     "com",
                 )
                 summary = _linefeed_repair_summary(repair)
@@ -787,7 +827,7 @@ def run_find_magic(runtime: FindMagicRuntime, context: FindMagicContext) -> Any:
 
                     _cowsay(
                         runtime,
-                        "I can restore the signature CR, but the result is still not a valid PNG, so I am not writing it.",
+                        "I can repair the line-ending damage, but the result is still not a valid PNG, so I am not writing it.",
                         "com",
                     )
                     runtime.side_notes.append(summary)
@@ -797,7 +837,7 @@ def run_find_magic(runtime: FindMagicRuntime, context: FindMagicContext) -> Any:
                 else:
                     _cowsay(
                         runtime,
-                        "I can put those CR bytes back where the CRCs agree and write a clean clone.",
+                        "I can repair the line-ending damage and write a clean clone.",
                         "good",
                     )
                 runtime.side_notes.append(summary)
@@ -973,9 +1013,9 @@ def _prepend_magic_before_nearest(
     length_hex = nearest.preceding_length
     spec_length = runtime.spec_length(nearest.chunk, length_hex)
 
-    if spec_length != length_hex and type(spec_length) != list:
+    if spec_length != length_hex and not isinstance(spec_length, list):
         length_hex = spec_length
-    elif type(spec_length) == list:
+    elif isinstance(spec_length, list):
         runtime.emit(_color(runtime, "yellow", "\n-ToDo"))
 
     odin = chunk_scanner.prepend_magic_before_nearest(

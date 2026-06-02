@@ -160,14 +160,18 @@ def test_parse_plte_reads_entries_and_checks_depth_limit():
 
 
 def test_parse_splt_keeps_legacy_entry_slicing_and_name_checks():
-    payload = "70616c0008" + ("01" * 13)
+    payload = "70616c0008" + ("01" * 6)
     valid = chunk_info.parse_splt(payload)
     duplicate = chunk_info.parse_splt(payload, previous_names=("70616c",))
 
     assert valid.name == "70616c"
     assert valid.decoded_name == "pal"
     assert valid.depth == "8"
-    assert len(valid.red) == len(payload)
+    assert valid.red == ("01",)
+    assert valid.green == ("01",)
+    assert valid.blue == ("01",)
+    assert valid.alpha == ("01",)
+    assert valid.freq == ("0101",)
     assert valid.fixes == ()
     assert duplicate.fixes == (
         "-sPLT can be used multiple times but cannot share the same name.",
@@ -179,6 +183,7 @@ def test_parse_text_reads_keyword_and_payload():
     empty_key = chunk_info.parse_text("0048656c6c6f")
     max_key = chunk_info.parse_text(("41" * 79) + "00")
     long_key = chunk_info.parse_text(("41" * 80) + "00")
+    trailing_null = chunk_info.parse_text("5469746c650048656c6c6f00")
 
     assert info.keyword == "5469746c65"
     assert info.decoded_keyword == "Title"
@@ -187,18 +192,22 @@ def test_parse_text_reads_keyword_and_payload():
     assert empty_key.fixes == ("-tEXt Keyword length is not Valid :0",)
     assert max_key.fixes == ()
     assert long_key.fixes == ("-tEXt Keyword length is not Valid :160",)
+    assert trailing_null.fixes == ("-tEXt text must not contain null bytes",)
 
 
 def test_parse_ztxt_decompresses_payload():
     payload = "789cf348cdc9c90700058c01f5"
     info = chunk_info.parse_ztxt("4b65790000" + payload)
     empty_key = chunk_info.parse_ztxt("0000" + payload)
+    invalid_method = chunk_info.parse_ztxt("4b65790003" + payload)
     malformed = chunk_info.parse_ztxt("4b65790000ff")
 
     assert info.decoded_keyword == "Key"
     assert info.decoded_text == "Hello"
     assert info.fixes == ()
     assert empty_key.fixes == ("-zTXt Keyword length is not Valid :0",)
+    assert invalid_method.decoded_text == "Hello"
+    assert invalid_method.fixes == ("-zTXt Compression Method must be 0",)
     assert malformed.fixes[0].startswith("-zTXt Text Error:")
 
 

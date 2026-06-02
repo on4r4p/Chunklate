@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
+import bz2
+import gzip
+import io
+import lzma
 import struct
 import sys
+import tarfile
+import zipfile
 import zlib
 from pathlib import Path
 
@@ -10,6 +16,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import specs
+from chunklate.compression_signatures import (
+    decode_known_compression_payloads,
+    detect_known_compression_signatures,
+    known_compression_formats,
+)
 from chunklate.png import (
     DUPLICATE_SINGLETON_REPAIR_CHUNKS,
     IEND_CHUNK,
@@ -64,13 +75,24 @@ from chunklate.png import (
     repair_optional_truecolor_plte,
     repair_pcal_out_of_place,
     repair_phys_length,
+    repair_scal_payload,
+    repair_private_compression_method,
     repair_overlong_chunk_length_to_next_header,
     repair_sbit_length,
+    repair_sbit_sample_depth,
+    repair_splt_out_of_place,
+    repair_splt_payloads,
     repair_srgb_length,
+    repair_ster_out_of_place,
     repair_ster_length,
+    repair_ster_mode,
+    repair_text_null_bytes,
     repair_time_length,
+    repair_time_value_range,
     repair_trns_length,
     repair_unknown_private_critical_chunks,
+    repair_ztxt_compression_method,
+    repair_ztxt_data_format,
     SRGB_CHRM_PAYLOAD,
     validate_png_structure,
 )
@@ -273,9 +295,11 @@ def test_extract_png_segment_cuts_trailing_container_bytes():
 def test_detect_png_signature_recovery_classifies_linefeed_candidates():
     minor = bytes.fromhex("89504e470a1a0a0000000d4948445200")
     major = bytes.fromhex("89504e470a1a0a000000049484452000")
+    extra_cr = bytes.fromhex("89504e470d0d0a1a0d0a0000000d4948445200")
 
     minor_recovery = detect_png_signature_recovery(b"xx" + minor)
     major_recovery = detect_png_signature_recovery(b"xx" + major)
+    extra_cr_recovery = detect_png_signature_recovery(b"xx" + extra_cr)
 
     assert minor_recovery.action == "linefeed_signature_candidate"
     assert minor_recovery.signature_offset == 2
@@ -283,6 +307,9 @@ def test_detect_png_signature_recovery_classifies_linefeed_candidates():
     assert major_recovery.action == "linefeed_signature_candidate"
     assert major_recovery.signature_offset == 2
     assert major_recovery.linefeed_pattern == "major_linefeed_corruption"
+    assert extra_cr_recovery.action == "linefeed_signature_candidate"
+    assert extra_cr_recovery.signature_offset == 2
+    assert extra_cr_recovery.linefeed_pattern == "extra_cr_linefeed_corruption"
 
 
 def test_repair_linefeed_conversion_restores_signature_cr():
@@ -315,6 +342,68 @@ def test_repair_linefeed_conversion_restores_missing_idat_cr_from_crc():
     assert repaired.payload_patches[0].inserted_value == 0x0D
     assert repaired.data == original
     assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_linefeed_conversion_removes_inserted_crlf_bytes():
+    original = tiny_rgb_png()
+    corrupted = original.replace(b"\n", b"\r\n")
+
+    repaired = repair_linefeed_conversion(corrupted)
+
+    assert repaired is not None
+    assert repaired.inserted_signature_cr is False
+    assert repaired.payload_patches == ()
+    assert repaired.removed_extra_cr_offsets
+    assert repaired.data == original
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_linefeed_conversion_repairs_xcrn0g04_fixture():
+    for fixture in (
+        ROOT / "brokenjavapngsuite" / "xcrn0g04.png",
+        ROOT / "png_to_check" / "xcrn0g04.png",
+        ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "xcrn0g04.png",
+    ):
+        if fixture.exists():
+            corrupted = fixture.read_bytes()
+            break
+    else:
+        raise FileNotFoundError("xcrn0g04.png fixture not found")
+
+    repaired = repair_linefeed_conversion(corrupted)
+
+    assert repaired is not None
+    assert len(repaired.removed_extra_cr_offsets) == 4
+    assert validate_png_structure(repaired.data).ok
+    chunks = list(iter_chunks(repaired.data))
+    assert [chunk.chunk_type for chunk in chunks] == [b"IHDR", b"IDAT", b"IEND"]
+    ihdr = chunks[0].data
+    assert int.from_bytes(ihdr[0:4], "big") == 32
+    assert int.from_bytes(ihdr[4:8], "big") == 32
+    assert ihdr[8] == 4
+    assert ihdr[9] == 0
+
+
+def test_repair_linefeed_conversion_repairs_xlfn0g04_fixture():
+    corrupted = repair_fixture("xlfn0g04.png").read_bytes()
+
+    recovery = detect_png_signature_recovery(corrupted)
+    repaired = repair_linefeed_conversion(corrupted)
+
+    assert recovery.action == "linefeed_signature_candidate"
+    assert recovery.linefeed_pattern == "nul_stripped_linefeed_corruption"
+    assert repaired is not None
+    assert repaired.strategy == "reconstructed PNG after NUL stripping and line-feed conversion"
+    assert validate_png_structure(repaired.data).ok
+
+    chunks = list(iter_chunks(repaired.data))
+    assert [chunk.chunk_type for chunk in chunks] == [b"IHDR", b"IDAT", b"IEND"]
+    ihdr = chunks[0].data
+    assert int.from_bytes(ihdr[0:4], "big") == 32
+    assert int.from_bytes(ihdr[4:8], "big") == 32
+    assert ihdr[8] == 4
+    assert ihdr[9] == 0
+    assert len(zlib.decompress(chunks[1].data)) == 544
 
 
 def test_repair_linefeed_conversion_can_return_partial_signature_repair():
@@ -783,6 +872,253 @@ def test_repair_ihdr_falls_back_to_rebuild_when_stored_crc_is_not_original():
     assert first.crc_ok
 
 
+def _private_compression_png(idat_payload: bytes) -> bytes:
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", struct.pack("!IIBBBBB", 2, 2, 8, 0, 128, 0, 0))
+        + build_png_chunk(b"IDAT", idat_payload)
+        + IEND_CHUNK
+    )
+
+
+def _small_filtered_scanlines() -> bytes:
+    return b"\x00\x00\x01" + b"\x00\x02\x03"
+
+
+def _raw_deflate(data: bytes) -> bytes:
+    compressor = zlib.compressobj(wbits=-15)
+    return compressor.compress(data) + compressor.flush()
+
+
+def _zip_single_entry(data: bytes) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("scanlines.bin", data)
+    return buffer.getvalue()
+
+
+def _zip_two_entries(first: bytes, second: bytes) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("scanlines-a.bin", first)
+        archive.writestr("scanlines-b.bin", second)
+    return buffer.getvalue()
+
+
+def _tar_entries(
+    entries: tuple[tuple[str, bytes], ...],
+    mode: str,
+) -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode=mode) as archive:
+        for name, payload in entries:
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            archive.addfile(info, io.BytesIO(payload))
+    return buffer.getvalue()
+
+
+def _tar_gzip_single_entry(data: bytes) -> bytes:
+    return _tar_entries((("scanlines.bin", data),), "w:gz")
+
+
+def _tar_gzip_two_entries(first: bytes, second: bytes) -> bytes:
+    return _tar_entries(
+        (
+            ("scanlines-a.bin", first),
+            ("scanlines-b.bin", second),
+        ),
+        "w:gz",
+    )
+
+
+def _tar_bzip2_two_entries(first: bytes, second: bytes) -> bytes:
+    return _tar_entries(
+        (
+            ("scanlines-a.bin", first),
+            ("scanlines-b.bin", second),
+        ),
+        "w:bz2",
+    )
+
+
+def _tar_xz_two_entries(first: bytes, second: bytes) -> bytes:
+    return _tar_entries(
+        (
+            ("scanlines-a.bin", first),
+            ("scanlines-b.bin", second),
+        ),
+        "w:xz",
+    )
+
+
+def test_compression_signature_registry_decodes_missing_prefixes():
+    decoded_bzip2 = decode_known_compression_payloads(bz2.compress(b"scanlines")[2:])
+    decoded_gzip = decode_known_compression_payloads(gzip.compress(b"scanlines")[1:])
+    decoded_xz = decode_known_compression_payloads(
+        lzma.compress(b"scanlines", format=lzma.FORMAT_XZ)[2:]
+    )
+
+    bzip2_match = next(decoded for decoded in decoded_bzip2 if decoded.format_name == "bzip2")
+    gzip_match = next(decoded for decoded in decoded_gzip if decoded.format_name == "gzip")
+    xz_match = next(decoded for decoded in decoded_xz if decoded.format_name == "xz/lzma")
+
+    assert bzip2_match.decoded == b"scanlines"
+    assert bzip2_match.added_prefix == b"BZ"
+    assert gzip_match.decoded == b"scanlines"
+    assert gzip_match.added_prefix == b"\x1f"
+    assert xz_match.decoded == b"scanlines"
+    assert xz_match.added_prefix == b"\xfd7"
+
+
+def test_compression_signature_registry_decodes_raw_deflate():
+    decoded = decode_known_compression_payloads(_raw_deflate(b"scanlines"))
+
+    raw_match = next(candidate for candidate in decoded if candidate.format_name == "raw-deflate")
+
+    assert raw_match.decoded == b"scanlines"
+    assert raw_match.signature == b""
+
+
+def test_compression_signature_registry_knows_optional_and_diagnostic_formats():
+    names = set(known_compression_formats())
+    zstd_hits = detect_known_compression_signatures(b"\x28\xb5\x2f\xfdpayload")
+    lz4_hits = detect_known_compression_signatures(b"\x04\x22\x4d\x18payload")
+    compress_hits = detect_known_compression_signatures(b"\x1f\x9dpayload")
+
+    assert {"zstd", "brotli", "lz4", "compress", "lzip", "7z", "rar"} <= names
+    assert {"DCT", "Huffman", "PackBits", "LZW", "CCITT Group 4"} <= names
+    assert any(hit.format_name == "zstd" for hit in zstd_hits)
+    assert any(hit.format_name == "lz4" for hit in lz4_hits)
+    assert any(hit.format_name == "compress" and hit.diagnostic_only for hit in compress_hits)
+
+
+def test_repair_private_compression_method_converts_bzip2_idat_to_zlib():
+    original = (BROKEN_FIXTURES / "private_compression_method.png").read_bytes()
+
+    repaired = repair_private_compression_method(original)
+    described = repair_ihdr(original)
+
+    assert repaired is not None
+    assert described is not None
+    assert described.strategy == "converted private bzip2 compression method to standard zlib IDAT"
+    assert validate_png_structure(repaired.data).ok
+    chunks = list(iter_chunks(repaired.data))
+    ihdr = next(chunk for chunk in chunks if chunk.chunk_type == b"IHDR")
+    idat = next(chunk for chunk in chunks if chunk.chunk_type == b"IDAT")
+    assert ihdr.data == b"\x00\x00\x00\x20\x00\x00\x00\x20\x08\x03\x00\x00\x00"
+    assert idat.data[:2] != b"h9"
+    assert zlib.decompress(idat.data)[:8] == b"\x00\xa5\xa5\xa5\xa5\xa4\xa4\xa4"
+    assert all(chunk.crc_ok for chunk in chunks)
+
+
+def test_repair_private_compression_method_keeps_standard_zlib_idat():
+    scanlines = _small_filtered_scanlines()
+    idat_payload = zlib.compress(scanlines)
+    original = _private_compression_png(idat_payload)
+
+    repaired = repair_private_compression_method(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "restored private IHDR compression method for standard zlib IDAT"
+    assert validate_png_structure(repaired.data).ok
+    chunks = list(iter_chunks(repaired.data))
+    assert next(chunk for chunk in chunks if chunk.chunk_type == b"IHDR").data[10] == 0
+    assert next(chunk for chunk in chunks if chunk.chunk_type == b"IDAT").data == idat_payload
+
+
+def test_repair_private_compression_method_converts_raw_deflate_idat():
+    scanlines = _small_filtered_scanlines()
+    original = _private_compression_png(_raw_deflate(scanlines))
+
+    repaired = repair_private_compression_method(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "converted private raw-deflate compression method to standard zlib IDAT"
+    assert validate_png_structure(repaired.data).ok
+    idat = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"IDAT")
+    assert zlib.decompress(idat.data) == scanlines
+
+
+def test_repair_private_compression_method_converts_zip_container_idat():
+    scanlines = _small_filtered_scanlines()
+    original = _private_compression_png(_zip_single_entry(scanlines))
+
+    repaired = repair_private_compression_method(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "converted private zip container compression method to standard zlib IDAT"
+    assert validate_png_structure(repaired.data).ok
+    idat = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"IDAT")
+    assert zlib.decompress(idat.data) == scanlines
+
+
+def test_repair_private_compression_method_accepts_duplicate_identical_container_entries():
+    scanlines = _small_filtered_scanlines()
+    cases = (
+        (
+            _zip_two_entries(scanlines, scanlines),
+            "converted private zip container compression method to standard zlib IDAT",
+        ),
+        (
+            _tar_gzip_two_entries(scanlines, scanlines),
+            "converted private tar.gz container compression method to standard zlib IDAT",
+        ),
+        (
+            _tar_bzip2_two_entries(scanlines, scanlines),
+            "converted private tar.bz2 container compression method to standard zlib IDAT",
+        ),
+        (
+            _tar_xz_two_entries(scanlines, scanlines),
+            "converted private tar.xz container compression method to standard zlib IDAT",
+        ),
+    )
+
+    for payload, strategy in cases:
+        original = _private_compression_png(payload)
+        repaired = repair_private_compression_method(original)
+
+        assert repaired is not None
+        assert repaired.strategy == strategy
+        assert validate_png_structure(repaired.data).ok
+        idat = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"IDAT")
+        assert zlib.decompress(idat.data) == scanlines
+
+
+def test_repair_private_compression_method_rejects_ambiguous_different_container_entries():
+    scanlines = _small_filtered_scanlines()
+    alternate = b"\x00\x01\x01" + b"\x00\x02\x02"
+    cases = (
+        _zip_two_entries(scanlines, alternate),
+        _tar_gzip_two_entries(scanlines, alternate),
+        _tar_bzip2_two_entries(scanlines, alternate),
+        _tar_xz_two_entries(scanlines, alternate),
+    )
+
+    for payload in cases:
+        original = _private_compression_png(payload)
+        assert repair_private_compression_method(original) is None
+
+
+def test_repair_private_compression_method_converts_tar_gzip_container_idat():
+    scanlines = _small_filtered_scanlines()
+    original = _private_compression_png(_tar_gzip_single_entry(scanlines))
+
+    repaired = repair_private_compression_method(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "converted private tar.gz container compression method to standard zlib IDAT"
+    assert validate_png_structure(repaired.data).ok
+    idat = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"IDAT")
+    assert zlib.decompress(idat.data) == scanlines
+
+
+def test_repair_private_compression_method_rejects_false_positive_signature():
+    original = _private_compression_png(b"\x1f\x8bnot a gzip stream")
+
+    assert repair_private_compression_method(original) is None
+
+
 def test_repair_ihdr_rebuilds_indexed_header_when_plte_and_idat_disagree():
     bad_ihdr = build_png_chunk(
         b"IHDR",
@@ -832,6 +1168,33 @@ def test_repair_ihdr_rebuilds_invalid_rgba_bit_depth_from_idat():
     assert validate_png_structure(repaired.data).ok
     first = next(iter_chunks(repaired.data))
     assert first.data[8:10] == b"\x08\x06"
+    assert first.crc_ok
+
+
+def test_repair_ihdr_preserves_dimensions_and_bit_depth_for_invalid_color_type():
+    bad_ihdr = build_png_chunk(
+        b"IHDR",
+        struct.pack("!IIBBBBB", 32, 32, 8, 1, 0, 0, 0),
+    )
+    scanlines = b"".join(b"\x00" + bytes([row % 256]) * 32 for row in range(32))
+    original = (
+        PNG_SIGNATURE
+        + bad_ihdr
+        + build_png_chunk(b"gAMA", (100000).to_bytes(4, "big"))
+        + build_png_chunk(b"IDAT", zlib.compress(scanlines))
+        + IEND_CHUNK
+    )
+
+    repaired = repair_ihdr(original)
+
+    assert repaired is not None
+    assert repaired.width == 32
+    assert repaired.height == 32
+    assert repaired.bit_depth == 8
+    assert repaired.color_type == 0
+    assert validate_png_structure(repaired.data).ok
+    first = next(iter_chunks(repaired.data))
+    assert first.data == struct.pack("!IIBBBBB", 32, 32, 8, 0, 0, 0, 0)
     assert first.crc_ok
 
 
@@ -1328,6 +1691,134 @@ def test_repair_pcal_out_of_place_moves_it_before_idat():
     ]
 
 
+def test_repair_splt_out_of_place_moves_it_before_idat():
+    original = repair_fixture("splt_after_idat.png").read_bytes()
+
+    assert "sPLT chunk must appear before the first IDAT chunk" in validate_png_structure(original).errors
+
+    original_chunks = list(iter_chunks(original))
+    original_splt = next(chunk for chunk in original_chunks if chunk.chunk_type == b"sPLT")
+    original_idat = next(chunk for chunk in original_chunks if chunk.chunk_type == b"IDAT")
+
+    repaired = repair_splt_out_of_place(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "moved sPLT chunk(s) before first IDAT"
+    assert repaired.moved_chunks == ("sPLT",)
+    assert validate_png_structure(repaired.data).ok
+    repaired_chunks = list(iter_chunks(repaired.data))
+    assert [chunk.chunk_type for chunk in repaired_chunks] == [
+        b"IHDR",
+        b"gAMA",
+        b"sPLT",
+        b"IDAT",
+        b"IEND",
+    ]
+    assert next(chunk for chunk in repaired_chunks if chunk.chunk_type == b"sPLT").data == original_splt.data
+    assert next(chunk for chunk in repaired_chunks if chunk.chunk_type == b"IDAT").data == original_idat.data
+
+
+def test_repair_ster_out_of_place_moves_it_before_idat():
+    original = repair_fixture("ster_after_idat.png").read_bytes()
+
+    assert "sTER chunk must appear before the first IDAT chunk" in validate_png_structure(original).errors
+
+    original_chunks = list(iter_chunks(original))
+    original_ster = next(chunk for chunk in original_chunks if chunk.chunk_type == b"sTER")
+    original_idat = next(chunk for chunk in original_chunks if chunk.chunk_type == b"IDAT")
+
+    repaired = repair_ster_out_of_place(original)
+
+    assert repaired is not None
+    assert repaired.strategy == "moved sTER chunk(s) before first IDAT"
+    assert repaired.moved_chunks == ("sTER",)
+    assert validate_png_structure(repaired.data).ok
+    repaired_chunks = list(iter_chunks(repaired.data))
+    assert [chunk.chunk_type for chunk in repaired_chunks] == [
+        b"IHDR",
+        b"gAMA",
+        b"PLTE",
+        b"sTER",
+        b"IDAT",
+        b"IEND",
+    ]
+    assert next(chunk for chunk in repaired_chunks if chunk.chunk_type == b"sTER").data == original_ster.data
+    assert next(chunk for chunk in repaired_chunks if chunk.chunk_type == b"IDAT").data == original_idat.data
+
+
+def test_validate_png_structure_rejects_duplicate_splt_names():
+    valid = tiny_rgb_png()
+    ihdr = next(iter_chunks(valid))
+    splt = build_png_chunk(b"sPLT", b"pal\x00\x08" + b"\x00" * 6)
+    broken = (
+        PNG_SIGNATURE
+        + valid[ihdr.offset : ihdr.offset + 12 + ihdr.length]
+        + splt
+        + splt
+        + valid[ihdr.offset + 12 + ihdr.length :]
+    )
+
+    assert "sPLT chunks must not share the same palette name" in validate_png_structure(broken).errors
+
+
+def test_validate_png_structure_rejects_empty_duplicate_splt_fixture():
+    errors = validate_png_structure(repair_fixture("splt_duplicate_name.png").read_bytes()).errors
+
+    assert errors.count("sPLT chunk is malformed") == 2
+    assert "sPLT chunks must not share the same palette name" in errors
+
+
+def test_repair_splt_payloads_can_repair_or_remove_optional_metadata():
+    original = repair_fixture("splt_duplicate_name.png").read_bytes()
+
+    plan = repair_splt_payloads(original)
+
+    assert plan is not None
+    assert plan.strategy == "sPLT payload repair/removal choice"
+    assert plan.affected_chunks == ("sPLT", "sPLT")
+    assert plan.repair_repair is not None
+    assert plan.repair_repair.strategy == "repaired malformed/duplicate sPLT chunk(s)"
+    assert plan.remove_repair.strategy == "removed malformed/duplicate sPLT chunk(s)"
+
+    repaired_chunks = list(iter_chunks(plan.repair_repair.data))
+    repaired_splt = [chunk.data for chunk in repaired_chunks if chunk.chunk_type == b"sPLT"]
+    assert validate_png_structure(plan.repair_repair.data).ok
+    assert repaired_splt == [
+        b"Lemonade\x00\x08\x00\x00\x00\xff\x00\x00",
+        b"Lemonade-2\x00\x08\x00\x00\x00\xff\x00\x00",
+    ]
+
+    removed_chunks = list(iter_chunks(plan.remove_repair.data))
+    assert validate_png_structure(plan.remove_repair.data).ok
+    assert b"sPLT" not in [chunk.chunk_type for chunk in removed_chunks]
+    assert [chunk.chunk_type for chunk in removed_chunks] == [
+        b"IHDR",
+        b"gAMA",
+        b"PLTE",
+        b"IDAT",
+        b"IEND",
+    ]
+
+
+def test_repair_splt_payloads_can_normalize_invalid_sample_depth():
+    original = repair_fixture("splt_sample_depth.png").read_bytes()
+
+    plan = repair_splt_payloads(original)
+
+    assert plan is not None
+    assert plan.affected_chunks == ("sPLT",)
+    assert plan.repair_repair is not None
+    assert plan.repair_repair.strategy == "repaired malformed/duplicate sPLT chunk(s)"
+    assert validate_png_structure(plan.repair_repair.data).ok
+    assert [chunk.data for chunk in iter_chunks(plan.repair_repair.data) if chunk.chunk_type == b"sPLT"] == [
+        b"Bad suggestion\x00\x08\x00\x00\x00\xff\x00\x00"
+    ]
+
+    assert plan.remove_repair.strategy == "removed malformed/duplicate sPLT chunk(s)"
+    assert validate_png_structure(plan.remove_repair.data).ok
+    assert b"sPLT" not in [chunk.chunk_type for chunk in iter_chunks(plan.remove_repair.data)]
+
+
 def test_validate_png_structure_rejects_hist_after_idat():
     ihdr = build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x01\x03\x00\x00\x00")
     broken = (
@@ -1470,6 +1961,74 @@ def test_repair_phys_length_normalizes_invalid_unit_byte():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_validate_png_structure_rejects_bad_scal_floating_point_fixture():
+    broken = repair_fixture("scal_floating_point.png").read_bytes()
+
+    assert (
+        "sCAL pixel width must be a PNG floating-point value"
+        in validate_png_structure(broken).errors
+    )
+
+
+def test_repair_scal_payload_removes_bad_floating_point_metadata():
+    broken = repair_fixture("scal_floating_point.png").read_bytes()
+
+    repaired = repair_scal_payload(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 38
+    assert repaired.new_length == 0
+    assert repaired.strategy == (
+        "removed invalid sCAL chunk: "
+        "sCAL pixel width must be a PNG floating-point value"
+    )
+    assert not any(chunk.chunk_type == b"sCAL" for chunk in iter_chunks(repaired.data))
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_scal_payload_removes_non_positive_or_bad_unit_metadata():
+    valid = tiny_rgb_png()
+    ihdr = next(iter_chunks(valid))
+    broken = (
+        PNG_SIGNATURE
+        + valid[ihdr.offset : ihdr.offset + 12 + ihdr.length]
+        + build_png_chunk(b"sCAL", b"\x030\x00-1")
+        + valid[ihdr.offset + 12 + ihdr.length :]
+    )
+
+    errors = validate_png_structure(broken).errors
+    assert "sCAL unit specifier must be 1 or 2" in errors
+    assert "sCAL pixel width must be greater than zero" in errors
+    assert "sCAL pixel height must be greater than zero" in errors
+
+    repaired = repair_scal_payload(broken)
+
+    assert repaired is not None
+    assert repaired.chunk_name == "sCAL"
+    assert repaired.removed is True
+    assert not any(chunk.chunk_type == b"sCAL" for chunk in iter_chunks(repaired.data))
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_scal_payload_handles_known_bad_scal_fixture_family():
+    cases = {
+        "scal_negative.png": "sCAL pixel height must be greater than zero",
+        "scal_unit_specifier.png": "sCAL unit specifier must be 1 or 2",
+        "scal_zero.png": "sCAL pixel width must be greater than zero",
+    }
+
+    for fixture, expected_error in cases.items():
+        broken = repair_fixture(fixture).read_bytes()
+        assert expected_error in validate_png_structure(broken).errors
+
+        repaired = repair_scal_payload(broken)
+
+        assert repaired is not None
+        assert expected_error in repaired.strategy
+        assert not any(chunk.chunk_type == b"sCAL" for chunk in iter_chunks(repaired.data))
+        assert validate_png_structure(repaired.data).ok
+
+
 def test_repair_sbit_length_trims_indexed_payload():
     broken = repair_fixture("length_sbit.png").read_bytes()
 
@@ -1500,6 +2059,23 @@ def test_repair_sbit_length_trims_grayscale_payload():
     assert repaired.strategy == "trimmed sBIT length from 3 to 1 and rebuilt CRC"
     sbit = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sBIT")
     assert sbit.data == b"\x01"
+    assert sbit.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_sbit_sample_depth_clamps_values_to_ihdr_depth():
+    broken = (BROKEN_FIXTURES / "sbit_sample_depth.png").read_bytes()
+
+    assert "sBIT sample depth values must be between 1 and 8" in validate_png_structure(broken).errors
+
+    repaired = repair_sbit_sample_depth(broken)
+
+    assert repaired is not None
+    assert repaired.old_length == 3
+    assert repaired.new_length == 3
+    assert repaired.strategy == "normalized sBIT sample depths from ff0505 to 080505 and rebuilt CRC"
+    sbit = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sBIT")
+    assert sbit.data == bytes.fromhex("080505")
     assert sbit.crc_ok
     assert validate_png_structure(repaired.data).ok
 
@@ -1538,6 +2114,21 @@ def test_repair_ster_length_trims_stereo_mode_payload():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_repair_ster_mode_normalizes_invalid_mode_payload():
+    broken = repair_fixture("ster_mode.png").read_bytes()
+
+    assert "sTER mode must be 0 or 1" in validate_png_structure(broken).errors
+
+    repaired = repair_ster_mode(broken)
+
+    assert repaired is not None
+    assert repaired.strategy == "normalized sTER mode from 02 to 00 and rebuilt CRC"
+    ster = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sTER")
+    assert ster.data == b"\x00"
+    assert ster.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_repair_time_length_infers_missing_second_byte():
     broken = repair_fixture("length_time.png").read_bytes()
 
@@ -1551,6 +2142,27 @@ def test_repair_time_length_infers_missing_second_byte():
     assert repaired.strategy == "inferred missing tIME second byte 0 and rebuilt CRC"
     time = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"tIME")
     assert time.data == bytes.fromhex("07d001010c2200")
+    assert time.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_time_value_range_normalizes_invalid_timestamp():
+    broken = repair_fixture("time_value_range.png").read_bytes()
+    time = next(chunk for chunk in iter_chunks(broken) if chunk.chunk_type == b"tIME")
+
+    assert time.data == bytes.fromhex("07d000010c2238")
+    assert time.crc_ok
+    assert "tIME month must be between 1 and 12" in validate_png_structure(broken).errors
+
+    repaired = repair_time_value_range(broken)
+
+    assert repaired is not None
+    assert repaired.strategy == (
+        "normalized tIME from 2000-00-01 12:34:56 "
+        "to 2000-01-01 12:34:56 and rebuilt CRC"
+    )
+    time = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"tIME")
+    assert time.data == bytes.fromhex("07d001010c2238")
     assert time.crc_ok
     assert validate_png_structure(repaired.data).ok
 
@@ -1572,19 +2184,61 @@ def test_repair_trns_length_pads_empty_grayscale_sample():
     assert validate_png_structure(repaired.data).ok
 
 
-def test_repair_trns_length_removes_fully_transparent_palette_alpha_entries():
+def test_repair_trns_length_offers_trim_or_remove_for_overlong_indexed_alpha():
     broken = repair_fixture("length_trns_palette.png").read_bytes()
 
     assert "tRNS chunk length must not exceed PLTE entry count" in validate_png_structure(broken).errors
 
+    plan = repair_trns_length(broken)
+
+    assert plan is not None
+    assert plan.strategy == "indexed tRNS trim/removal choice"
+    assert plan.trimmed_payload_is_fully_transparent is True
+    assert plan.trim_repair.old_length == 174
+    assert plan.trim_repair.new_length == 173
+    assert plan.trim_repair.strategy == (
+        "trimmed indexed tRNS length from 174 to PLTE entry count 173 and rebuilt CRC"
+    )
+    trns = next(chunk for chunk in iter_chunks(plan.trim_repair.data) if chunk.chunk_type == b"tRNS")
+    assert trns.length == 173
+    assert all(alpha == 0 for alpha in trns.data)
+    assert validate_png_structure(plan.trim_repair.data).ok
+
+    assert plan.remove_repair.strategy == "removed overlong indexed tRNS chunk"
+    assert plan.remove_repair.removed is True
+    assert not any(chunk.chunk_type == b"tRNS" for chunk in iter_chunks(plan.remove_repair.data))
+    assert validate_png_structure(plan.remove_repair.data).ok
+
+
+def test_repair_trns_length_can_trim_too_many_palette_alpha_entries_fixture():
+    broken = repair_fixture("trns_too_many_entries.png").read_bytes()
+
+    plan = repair_trns_length(broken)
+
+    assert plan is not None
+    assert plan.trim_repair.old_length == 200
+    assert plan.trim_repair.new_length == 173
+    trns = next(chunk for chunk in iter_chunks(plan.trim_repair.data) if chunk.chunk_type == b"tRNS")
+    assert trns.length == 173
+    assert trns.crc_ok
+    assert validate_png_structure(plan.trim_repair.data).ok
+
+
+def test_repair_trns_length_removes_alpha_color_type_trns():
+    broken = repair_fixture("trns_bad_color_type.png").read_bytes()
+    ihdr = next(chunk for chunk in iter_chunks(broken) if chunk.chunk_type == b"IHDR")
+
+    assert ihdr.data == bytes.fromhex("00000020000000200806000000")
+    assert "tRNS chunk is not allowed for alpha color types" in validate_png_structure(broken).errors
+
     repaired = repair_trns_length(broken)
 
     assert repaired is not None
-    assert repaired.old_length == 174
-    assert repaired.new_length == 0
+    assert repaired.strategy == "removed tRNS chunk not allowed for IHDR color type 6"
     assert repaired.removed is True
-    assert repaired.strategy == "removed indexed tRNS because repaired alpha table would be fully transparent"
     assert not any(chunk.chunk_type == b"tRNS" for chunk in iter_chunks(repaired.data))
+    fixed_ihdr = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"IHDR")
+    assert fixed_ihdr.data == ihdr.data
     assert validate_png_structure(repaired.data).ok
 
 
@@ -1798,6 +2452,83 @@ def test_repair_itxt_compression_method_with_uncompressed_text():
     assert is_complete_png_with_valid_crc(repaired.data)
 
 
+def test_repair_ztxt_compression_method_rebuilds_crc():
+    compressed_text = zlib.compress(b"Cucumber")
+    ztxt = b"Vegetable\x00\x03" + compressed_text
+    broken = minimal_gray_png_with_chunk(b"zTXt", ztxt)
+
+    assert "zTXt Compression Method must be 0" in validate_png_structure(broken).errors
+
+    repaired = repair_ztxt_compression_method(broken)
+
+    assert repaired is not None
+    assert repaired.old_method == 3
+    assert repaired.new_method == 0
+    chunk = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"zTXt")
+    assert chunk.data == b"Vegetable\x00\x00" + compressed_text
+    assert chunk.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_ztxt_compression_method_handles_fixture():
+    broken = repair_fixture("ztxt_compression_method.png").read_bytes()
+
+    assert "zTXt Compression Method must be 0" in validate_png_structure(broken).errors
+
+    repaired = repair_ztxt_compression_method(broken)
+
+    assert repaired is not None
+    assert repaired.old_method == 3
+    assert repaired.new_method == 0
+    assert validate_png_structure(repaired.data).ok
+    chunks = list(iter_chunks(repaired.data))
+    copyright_chunk = next(
+        chunk
+        for chunk in chunks
+        if chunk.chunk_type == b"zTXt" and chunk.data.startswith(b"Copyright\x00")
+    )
+    assert copyright_chunk.data[len(b"Copyright") + 1] == 0
+    assert copyright_chunk.crc_ok
+
+
+def test_repair_ztxt_data_format_rebuilds_crc():
+    compressed_text = zlib.compress(b"Cucumber")
+    ztxt = b"Vegetable\x00\x00" + b"\x03" + compressed_text[1:]
+    broken = minimal_gray_png_with_chunk(b"zTXt", ztxt)
+
+    assert "zTXt compressed text is invalid" in validate_png_structure(broken).errors
+
+    repaired = repair_ztxt_data_format(broken)
+
+    assert repaired is not None
+    assert repaired.strategy == (
+        "fixed zTXt compressed data byte 0x03 to 0x78 at payload offset 0x0 and rebuilt CRC"
+    )
+    chunk = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"zTXt")
+    assert chunk.data == b"Vegetable\x00\x00" + compressed_text
+    assert chunk.crc_ok
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_ztxt_data_format_handles_fixture():
+    broken = repair_fixture("ztxt_data_format.png").read_bytes()
+
+    assert "zTXt compressed text is invalid" in validate_png_structure(broken).errors
+
+    repaired = repair_ztxt_data_format(broken)
+
+    assert repaired is not None
+    assert validate_png_structure(repaired.data).ok
+    chunks = list(iter_chunks(repaired.data))
+    copyright_chunk = next(
+        chunk
+        for chunk in chunks
+        if chunk.chunk_type == b"zTXt" and chunk.data.startswith(b"Copyright\x00")
+    )
+    assert copyright_chunk.data[len(b"Copyright") + 2] == 0x78
+    assert copyright_chunk.crc_ok
+
+
 def test_repair_itxt_keyword_length_replaces_empty_keyword():
     itxt = b"\x00\x00\x00en-us\x00\x00Cucumber"
     broken = minimal_gray_png_with_chunk(b"iTXt", itxt)
@@ -1827,6 +2558,21 @@ def test_repair_itxt_keyword_length_truncates_long_keyword():
     assert chunk.data == keyword[:79] + b"\x00\x00\x00en-us\x00\x00Cucumber"
     assert chunk.crc_ok
     assert is_complete_png_with_valid_crc(repaired.data)
+
+
+def test_repair_text_null_bytes_removes_nulls_from_text_field():
+    broken = repair_fixture("text_trailing_null.png").read_bytes()
+
+    assert "tEXt text must not contain null bytes" in validate_png_structure(broken).errors
+
+    repaired = repair_text_null_bytes(broken)
+
+    assert repaired is not None
+    assert repaired.strategy == "removed 1 null byte(s) from tEXt text payload and rebuilt CRC"
+    assert validate_png_structure(repaired.data).ok
+    text_chunks = [chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"tEXt"]
+    assert text_chunks[0].data == b"Title\x00PngSuite"
+    assert all(chunk.crc_ok for chunk in text_chunks)
 
 
 def test_known_bad_srgb_profile_warning_detects_photoshop_iccp_profile():
@@ -1895,6 +2641,18 @@ def main():
         (
             "Repair linefeed IDAT CR",
             test_repair_linefeed_conversion_restores_missing_idat_cr_from_crc,
+        ),
+        (
+            "Repair linefeed inserted CR bytes",
+            test_repair_linefeed_conversion_removes_inserted_crlf_bytes,
+        ),
+        (
+            "Repair xcrn0g04 CRLF expansion fixture",
+            test_repair_linefeed_conversion_repairs_xcrn0g04_fixture,
+        ),
+        (
+            "Repair xlfn0g04 NUL-stripped linefeed fixture",
+            test_repair_linefeed_conversion_repairs_xlfn0g04_fixture,
         ),
         (
             "Repair linefeed partial signature CR",
@@ -1981,12 +2739,60 @@ def main():
             test_repair_ihdr_falls_back_to_rebuild_when_stored_crc_is_not_original,
         ),
         (
+            "Decode compression signatures with missing prefixes",
+            test_compression_signature_registry_decodes_missing_prefixes,
+        ),
+        (
+            "Decode raw deflate compression signature candidate",
+            test_compression_signature_registry_decodes_raw_deflate,
+        ),
+        (
+            "Know optional and diagnostic compression formats",
+            test_compression_signature_registry_knows_optional_and_diagnostic_formats,
+        ),
+        (
+            "Convert private compression method",
+            test_repair_private_compression_method_converts_bzip2_idat_to_zlib,
+        ),
+        (
+            "Keep standard zlib IDAT under private compression IHDR",
+            test_repair_private_compression_method_keeps_standard_zlib_idat,
+        ),
+        (
+            "Convert raw deflate private compression method",
+            test_repair_private_compression_method_converts_raw_deflate_idat,
+        ),
+        (
+            "Convert zip container private compression method",
+            test_repair_private_compression_method_converts_zip_container_idat,
+        ),
+        (
+            "Accept duplicate identical private compression container entries",
+            test_repair_private_compression_method_accepts_duplicate_identical_container_entries,
+        ),
+        (
+            "Reject different private compression container entries",
+            test_repair_private_compression_method_rejects_ambiguous_different_container_entries,
+        ),
+        (
+            "Convert tar.gz container private compression method",
+            test_repair_private_compression_method_converts_tar_gzip_container_idat,
+        ),
+        (
+            "Reject false-positive private compression signature",
+            test_repair_private_compression_method_rejects_false_positive_signature,
+        ),
+        (
             "Rebuild indexed IHDR when PLTE and IDAT disagree",
             test_repair_ihdr_rebuilds_indexed_header_when_plte_and_idat_disagree,
         ),
         (
             "Rebuild invalid RGBA IHDR bit depth",
             test_repair_ihdr_rebuilds_invalid_rgba_bit_depth_from_idat,
+        ),
+        (
+            "Rebuild invalid IHDR color type preserving dimensions",
+            test_repair_ihdr_preserves_dimensions_and_bit_depth_for_invalid_color_type,
         ),
         (
             "Rebuild invalid indexed IHDR bit depth",
@@ -2044,6 +2850,21 @@ def main():
             test_repair_hist_out_of_place_can_require_duplicate_hist_chunks,
         ),
         ("Move out-of-place pCAL", test_repair_pcal_out_of_place_moves_it_before_idat),
+        ("Move out-of-place sPLT", test_repair_splt_out_of_place_moves_it_before_idat),
+        ("Move out-of-place sTER", test_repair_ster_out_of_place_moves_it_before_idat),
+        ("Reject duplicate sPLT names", test_validate_png_structure_rejects_duplicate_splt_names),
+        (
+            "Reject empty duplicate sPLT fixture",
+            test_validate_png_structure_rejects_empty_duplicate_splt_fixture,
+        ),
+        (
+            "Repair or remove malformed duplicate sPLT",
+            test_repair_splt_payloads_can_repair_or_remove_optional_metadata,
+        ),
+        (
+            "Repair invalid sPLT sample depth",
+            test_repair_splt_payloads_can_normalize_invalid_sample_depth,
+        ),
         ("Reject hIST after IDAT", test_validate_png_structure_rejects_hist_after_idat),
         ("Infer common short gAMA", test_repair_gama_length_infers_common_missing_byte),
         ("Remove unknown short gAMA", test_repair_gama_length_removes_uninferrable_short_payload),
@@ -2052,13 +2873,28 @@ def main():
         ("Normalize invalid oFFs unit", test_repair_offs_length_normalizes_invalid_unit_byte),
         ("Infer missing pHYs unit", test_repair_phys_length_infers_missing_unit_byte),
         ("Normalize invalid pHYs unit", test_repair_phys_length_normalizes_invalid_unit_byte),
+        ("Reject bad sCAL floating point", test_validate_png_structure_rejects_bad_scal_floating_point_fixture),
+        ("Remove bad sCAL floating point", test_repair_scal_payload_removes_bad_floating_point_metadata),
+        ("Remove invalid sCAL values", test_repair_scal_payload_removes_non_positive_or_bad_unit_metadata),
+        ("Remove known bad sCAL fixtures", test_repair_scal_payload_handles_known_bad_scal_fixture_family),
         ("Trim indexed sBIT", test_repair_sbit_length_trims_indexed_payload),
         ("Trim grayscale sBIT", test_repair_sbit_length_trims_grayscale_payload),
+        ("Normalize sBIT sample depth", test_repair_sbit_sample_depth_clamps_values_to_ihdr_depth),
         ("Trim long sRGB", test_repair_srgb_length_trims_rendering_intent_payload),
         ("Trim long sTER", test_repair_ster_length_trims_stereo_mode_payload),
+        ("Normalize invalid sTER mode", test_repair_ster_mode_normalizes_invalid_mode_payload),
         ("Infer short tIME", test_repair_time_length_infers_missing_second_byte),
+        ("Normalize invalid tIME value", test_repair_time_value_range_normalizes_invalid_timestamp),
         ("Pad empty grayscale tRNS", test_repair_trns_length_pads_empty_grayscale_sample),
-        ("Remove fully transparent indexed tRNS", test_repair_trns_length_removes_fully_transparent_palette_alpha_entries),
+        (
+            "Offer indexed tRNS trim/removal",
+            test_repair_trns_length_offers_trim_or_remove_for_overlong_indexed_alpha,
+        ),
+        (
+            "Trim too many indexed tRNS entries",
+            test_repair_trns_length_can_trim_too_many_palette_alpha_entries_fixture,
+        ),
+        ("Remove alpha color tRNS", test_repair_trns_length_removes_alpha_color_type_trns),
         ("Pad short hIST", test_repair_hist_length_pads_missing_frequency),
         ("Trim long hIST", test_repair_hist_length_trims_extra_frequency),
         ("Rebuild wrong-length IEND", test_repair_iend_length_rebuilds_canonical_iend),
@@ -2079,8 +2915,25 @@ def main():
             "Repair uncompressed iTXt compression method",
             test_repair_itxt_compression_method_with_uncompressed_text,
         ),
+        (
+            "Repair zTXt compression method",
+            test_repair_ztxt_compression_method_rebuilds_crc,
+        ),
+        (
+            "Repair zTXt compression method fixture",
+            test_repair_ztxt_compression_method_handles_fixture,
+        ),
+        (
+            "Repair zTXt data format",
+            test_repair_ztxt_data_format_rebuilds_crc,
+        ),
+        (
+            "Repair zTXt data format fixture",
+            test_repair_ztxt_data_format_handles_fixture,
+        ),
         ("Repair empty iTXt keyword", test_repair_itxt_keyword_length_replaces_empty_keyword),
         ("Repair long iTXt keyword", test_repair_itxt_keyword_length_truncates_long_keyword),
+        ("Repair tEXt null bytes", test_repair_text_null_bytes_removes_nulls_from_text_field),
         (
             "Detect known bad sRGB iCCP warning",
             test_known_bad_srgb_profile_warning_detects_photoshop_iccp_profile,

@@ -43,25 +43,38 @@ families:
   maximum of 256 entries; malformed optional truecolor `PLTE` chunks are
   removed because RGB/RGBA pixels do not depend on them.
 - Ancillary chunk payloads: length/value repairs for `bKGD`, `cHRM`, `gAMA`,
-  `gIFg`, `hIST`, `iTXt`, `oFFs`, `pHYs`, `sBIT`, `sRGB`, `sTER`, `tIME`, and
-  `tRNS`.
-- Chunk order: misplaced `IHDR`, `hIST` after `IDAT`, `pCAL` after `IDAT`, and
-  ancillary chunks inserted between non-consecutive `IDAT` chunks. For IDAT
-  interruptions Chunklate asks whether to move the ancillary chunk to a neutral
-  position or remove safe-to-copy ancillary chunks.
+  `gIFg`, `hIST`, `iTXt`, `oFFs`, `pHYs`, `sBIT`, `sCAL`, `sRGB`, `sTER`,
+  `tIME`, `tRNS`, and `zTXt`.
+  Text metadata repairs include `tEXt` payload cleanup, `iTXt`
+  keyword/compression field normalization, `zTXt` compression method
+  normalization, and one-byte `zTXt` zlib data-format repair when the corrected
+  stream decompresses and the rebuilt PNG validates.
+- Chunk order: misplaced `IHDR`, `hIST` after `IDAT`, `pCAL` after `IDAT`,
+  `sPLT` after `IDAT`, and ancillary chunks inserted between non-consecutive
+  `IDAT` chunks. For IDAT interruptions Chunklate asks whether to move the
+  ancillary chunk to a neutral position or remove safe-to-copy ancillary chunks.
 - Duplicate singleton chunks: automatic cleanup for chunk types that may appear
   at most once, including `IHDR`, `PLTE`, `gAMA`, `sRGB`, `iCCP`, `pHYs`,
   `pCAL`, `sCAL`, `sBIT`, `bKGD`, `tRNS`, `hIST`, `sTER`, `oFFs`, and `eXIf`.
 - Unsafe or unknown chunks: removal/renaming paths for unknown private critical
   chunks and known bad sRGB/iCCP profile chunks.
-- IDAT/data stream salvage: partial non-interlaced IDAT recovery with
-  `partial-idat-blackfill`, line-feed conversion repair, and heavier line-feed
-  brute force probes behind explicit prompts/budgets.
+- IDAT/data stream salvage: partial non-interlaced and Adam7 IDAT recovery with
+  `partial-idat-blackfill`, generic private compression method conversion via
+  a bounded known-signature prefix probe (`zlib`, raw deflate, `gzip`, `bzip2`,
+  `xz`/`lzma`, optional `zstd`/`brotli`/`lz4`, plus single-entry `zip`/`tar.*`
+  containers). Multi-entry containers are accepted only when every plausible
+  entry decodes to the same exact PNG scanlines; different valid payloads stay
+  refused as ambiguous. Chunklate also handles normalization of invalid/private
+  scanline filter bytes to filter type `0`, line-feed conversion repair,
+  NUL-stripped line-feed structural reconstruction, and heavier line-feed brute
+  force probes behind explicit prompts/budgets.
 
 Known limits: a completely missing `IDAT` stream is not reconstructable from
-nothing, Adam7/interlaced PNGs are not handled by `partial-idat-blackfill`, and
-some targeted routes are covered by unit/runtime tests before they are promoted
-to the strict fixture matrix below.
+nothing. Files with no image stream, such as zero-dimension `x00n0g01.png` or
+`xdtn0g01.png` with only `IHDR`, `gAMA`, and `IEND`, are classified as
+impossible to repair rather than converted into fake images.
+Partial scanlines are discarded, and some targeted routes are covered by
+unit/runtime tests before they are promoted to the strict fixture matrix below.
 
 ## Validation Levels
 
@@ -127,6 +140,7 @@ to the strict fixture matrix below.
 | `IEND_Missing.png` | missing IEND chunk | append IEND | 260x195 |
 | `IEND_Missing_And_Extra_Bytes.png` | missing IEND and trailing bytes | append IEND and remove extra bytes | 1920x1200 |
 | `IDAT_Partial_Blackfill.png` | partially readable IDAT stream | partial-idat-blackfill | partial IDAT blackfill |
+| `truncate_zlib_2.png` | truncated interlaced IDAT stream before missing IEND | partial-idat-blackfill | partial Adam7 IDAT blackfill |
 | `IncorrectSrgbProfile.png` | known bad sRGB/iCCP profile | remove bad color profile chunk | 272x170 without iCCP |
 | `Incorrect_Srgb_Profile.png` | known bad sRGB/iCCP profile | remove bad color profile chunk | 272x170 without iCCP |
 | `Missplaced_Ihdr.png` | IHDR placed after another chunk | move IHDR back to the first chunk position | 32x32 indexed |
@@ -163,10 +177,18 @@ above yet:
 - Ancillary length/value repairs: `length_bkgd_*`, `length_chrm`,
   `length_iend`, `length_ihdr`, `length_offs`, `length_phys`, `length_sbit*`,
   `length_srgb`, `length_ster`, `length_time`, and `length_trns_*`.
-- iTXt metadata repairs: `itxt_keyword_length*`, `itxt_compression_flag`, and
-  `itxt_compression_method`.
+- Text metadata repairs: `text_trailing_null`, `itxt_keyword_length*`,
+  `itxt_compression_flag`, `itxt_compression_method`,
+  `ztxt_compression_method`, and `ztxt_data_format`.
+- sCAL physical-scale metadata repairs: `scal_floating_point`,
+  `scal_negative`, `scal_unit_specifier`, and `scal_zero`.
 - Missing critical/structural routes: `missing_ihdr`, `missing_plte*`, and
   missing-IDAT diagnostics.
+- IHDR value repairs: `xc1n0g08.png` has invalid color type `1`; IDAT scanline
+  math now preserves its valid `32x32` dimensions and 8-bit depth while
+  repairing the color type to grayscale `0`.
+- Impossible terminal samples: `x00n0g01.png` has `IHDR` dimensions `0x0` and
+  no `IDAT` stream, so there are no image pixels to recover.
 - Duplicate singleton chunks: `multiple_bkgd`, `multiple_chrm`,
   `multiple_gama`, `multiple_hist`, `multiple_iccp`, `multiple_ihdr`,
   `multiple_offs`, `multiple_pcal`, `multiple_phys`, `multiple_plte`,
@@ -176,4 +198,5 @@ above yet:
   `hist_before_plte` style cases.
 - Non-consecutive IDAT chains: ancillary chunks between `IDAT` chunks can be
   moved after the final `IDAT` or removed when safe.
-- Line-feed corruption fixtures: `badlinefeed1` and `linefeedcorruption*`.
+- Line-feed corruption fixtures: `badlinefeed1`, `linefeedcorruption*`, and
+  `xlfn0g04` NUL-stripped line-feed reconstruction.

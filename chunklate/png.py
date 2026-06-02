@@ -3,8 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator
+import re
 import struct
 import zlib
+
+from .compression_signatures import decode_known_compression_payloads
 
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -27,6 +30,9 @@ SRGB_CHRM_PAYLOAD = struct.pack(
     60000,
     15000,
     6000,
+)
+PNG_FLOATING_POINT_RE = re.compile(
+    rb"[+-]?(?:(?:[0-9]+(?:\.[0-9]*)?)|(?:\.[0-9]+))(?:[eE][+-]?[0-9]+)?\Z"
 )
 
 
@@ -283,6 +289,7 @@ class LinefeedConversionRepair:
     inserted_signature_cr: bool
     payload_patches: tuple[LinefeedPayloadPatch, ...]
     validation_errors: tuple[str, ...] = ()
+    removed_extra_cr_offsets: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -301,6 +308,13 @@ class ChunkRemovalRepair:
 
 
 @dataclass(frozen=True)
+class ChunkPayloadRepair:
+    data: bytes
+    strategy: str
+    repaired_chunks: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ChunkMoveRepair:
     data: bytes
     strategy: str
@@ -315,6 +329,25 @@ class IdatInterruptionRepairPlan:
     move_repair: ChunkMoveRepair
     remove_repair: ChunkRemovalRepair | None = None
     removal_is_low_risk: bool = False
+
+
+@dataclass(frozen=True)
+class SpltPayloadRepairPlan:
+    data: bytes
+    strategy: str
+    affected_chunks: tuple[str, ...]
+    repair_repair: ChunkPayloadRepair | None
+    remove_repair: ChunkRemovalRepair
+
+
+@dataclass(frozen=True)
+class TrnsTransparencyRepairPlan:
+    data: bytes
+    strategy: str
+    affected_chunks: tuple[str, ...]
+    trim_repair: ChunkDataLengthRepair
+    remove_repair: ChunkDataLengthRepair
+    trimmed_payload_is_fully_transparent: bool = False
 
 
 SINGLETON_ANCILLARY_CHUNKS = (
@@ -380,6 +413,8 @@ def detect_png_signature_recovery(data: bytes) -> PngSignatureRecovery:
 
     data_hex = data.hex()
     linefeed_patterns = (
+        ("extra_cr_linefeed_corruption", "89504e470d0d0a1a0d0a0000000d4948445200"),
+        ("nul_stripped_linefeed_corruption", "89504e470a0a0a1a0a0a0a49484452"),
         ("major_linefeed_corruption", "89504e470a1a0a00000004948445200"),
         ("minor_linefeed_corruption", "89504e470a1a0a0000000d4948445200"),
     )
@@ -766,6 +801,97 @@ def _sbit_expected_length_for_color_type(color_type: int) -> int | None:
     }.get(color_type)
 
 
+def _sbit_sample_depth_limits(bit_depth: int, color_type: int) -> tuple[int, ...] | None:
+    if color_type == 0:
+        return (bit_depth,)
+    if color_type == 2:
+        return (bit_depth, bit_depth, bit_depth)
+    if color_type == 3:
+        return (8, 8, 8)
+    if color_type == 4:
+        return (bit_depth, bit_depth)
+    if color_type == 6:
+        return (bit_depth, bit_depth, bit_depth, bit_depth)
+    return None
+
+
+def is_png_floating_point_text(value: bytes) -> bool:
+    return PNG_FLOATING_POINT_RE.fullmatch(value) is not None
+
+
+def is_positive_png_floating_point_text(value: bytes) -> bool:
+    if not is_png_floating_point_text(value) or value.startswith(b"-"):
+        return False
+
+    if value.startswith(b"+"):
+        value = value[1:]
+    significand = re.split(rb"[eE]", value, maxsplit=1)[0]
+    return any(ord("1") <= byte <= ord("9") for byte in significand)
+
+
+def _scal_validation_errors(scal: PngChunk) -> tuple[str, ...]:
+    errors: list[str] = []
+
+    if scal.length < 4:
+        errors.append("sCAL chunk length must be at least 4")
+        return tuple(errors)
+
+    if scal.data[0] not in (1, 2):
+        errors.append("sCAL unit specifier must be 1 or 2")
+
+    fields = scal.data[1:].split(b"\x00")
+    if len(fields) != 2:
+        errors.append("sCAL chunk must contain width and height separated by one null byte")
+        return tuple(errors)
+
+    for label, field in (("width", fields[0]), ("height", fields[1])):
+        if not field:
+            errors.append("sCAL pixel %s must not be empty" % label)
+        elif not is_png_floating_point_text(field):
+            errors.append("sCAL pixel %s must be a PNG floating-point value" % label)
+        elif not is_positive_png_floating_point_text(field):
+            errors.append("sCAL pixel %s must be greater than zero" % label)
+
+    return tuple(errors)
+
+
+def _splt_palette_name(splt: PngChunk) -> bytes | None:
+    try:
+        null_pos = splt.data.index(0)
+    except ValueError:
+        return None
+    if not 1 <= null_pos <= 79:
+        return None
+    return splt.data[:null_pos]
+
+
+def _normalized_sbit_sample_depths(
+    payload: bytes,
+    *,
+    bit_depth: int,
+    color_type: int,
+) -> bytes | None:
+    limits = _sbit_sample_depth_limits(bit_depth, color_type)
+    if limits is None or len(payload) != len(limits):
+        return None
+
+    normalized = bytearray()
+    changed = False
+    for value, limit in zip(payload, limits):
+        fixed = value
+        if fixed == 0:
+            fixed = 1
+        elif fixed > limit:
+            fixed = limit
+        if fixed != value:
+            changed = True
+        normalized.append(fixed)
+
+    if not changed:
+        return None
+    return bytes(normalized)
+
+
 COMMON_GAMA_PAYLOADS: tuple[bytes, ...] = (
     (100000).to_bytes(4, "big"),
     (45455).to_bytes(4, "big"),
@@ -953,6 +1079,17 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
         if plte_indices and plte_indices[0] > first_idat:
             errors.append("PLTE chunk must appear before the first IDAT chunk")
 
+        for before_idat_type in (b"sPLT", b"sTER"):
+            if any(
+                index > first_idat
+                for index, chunk_type in enumerate(chunk_types)
+                if chunk_type == before_idat_type
+            ):
+                errors.append(
+                    "%s chunk must appear before the first IDAT chunk"
+                    % before_idat_type.decode()
+                )
+
     if len(plte_indices) > 1:
         errors.append("PNG must not contain multiple PLTE chunks")
     if plte_indices:
@@ -977,6 +1114,19 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
             errors.append("PLTE has too many entries for indexed bit depth")
     elif color_type == 3:
         errors.append("Indexed-color PNG requires a PLTE chunk")
+
+    splt_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"sPLT"]
+    if splt_indices:
+        splt_names: list[bytes] = []
+        for index in splt_indices:
+            splt = chunks[index]
+            if not png_chunk_data_is_coherent(b"sPLT", splt.data):
+                errors.append("sPLT chunk is malformed")
+            name = _splt_palette_name(splt)
+            if name is not None:
+                splt_names.append(name)
+        if len(splt_names) != len(set(splt_names)):
+            errors.append("sPLT chunks must not share the same palette name")
 
     gama_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"gAMA"]
     if len(gama_indices) > 1:
@@ -1009,6 +1159,16 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
                 "sBIT chunk length must be %s for IHDR color type %s"
                 % (expected_sbit_length, color_type)
             )
+        elif expected_sbit_length is not None:
+            limits = _sbit_sample_depth_limits(bit_depth, color_type)
+            if limits is not None:
+                for value, limit in zip(sbit.data, limits):
+                    if value == 0 or value > limit:
+                        errors.append(
+                            "sBIT sample depth values must be between 1 and %s"
+                            % limit
+                        )
+                        break
 
     phys_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"pHYs"]
     if len(phys_indices) > 1:
@@ -1037,6 +1197,25 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
         time = chunks[time_indices[0]]
         if time.length != 7:
             errors.append("tIME chunk length must be 7")
+        else:
+            year = int.from_bytes(time.data[:2], "big")
+            month = time.data[2]
+            day = time.data[3]
+            hour = time.data[4]
+            minute = time.data[5]
+            second = time.data[6]
+            if year < 1:
+                errors.append("tIME year must be at least 1")
+            if not 1 <= month <= 12:
+                errors.append("tIME month must be between 1 and 12")
+            if not 1 <= day <= 31:
+                errors.append("tIME day must be between 1 and 31")
+            if hour > 23:
+                errors.append("tIME hour must be between 0 and 23")
+            if minute > 59:
+                errors.append("tIME minute must be between 0 and 59")
+            if second > 60:
+                errors.append("tIME second must be between 0 and 60")
 
     ster_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"sTER"]
     if len(ster_indices) > 1:
@@ -1065,10 +1244,49 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
     scal_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"sCAL"]
     if len(scal_indices) > 1:
         errors.append("PNG must not contain multiple sCAL chunks")
+    if scal_indices:
+        if idat_indices and any(index > idat_indices[0] for index in scal_indices):
+            errors.append("sCAL chunk must appear before the first IDAT chunk")
+        errors.extend(_scal_validation_errors(chunks[scal_indices[0]]))
 
     exif_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"eXIf"]
     if len(exif_indices) > 1:
         errors.append("PNG must not contain multiple eXIf chunks")
+
+    text_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"tEXt"]
+    for index in text_indices:
+        text = chunks[index]
+        try:
+            keyword_end = text.data.index(0)
+        except ValueError:
+            errors.append("tEXt chunk must contain a keyword separator")
+            continue
+        if not 1 <= keyword_end <= 79:
+            errors.append("tEXt keyword length must be between 1 and 79 bytes")
+        if 0 in text.data[keyword_end + 1 :]:
+            errors.append("tEXt text must not contain null bytes")
+
+    ztxt_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"zTXt"]
+    for index in ztxt_indices:
+        ztxt = chunks[index]
+        try:
+            keyword_end = ztxt.data.index(0)
+        except ValueError:
+            errors.append("zTXt chunk must contain a keyword separator")
+            continue
+        if not 1 <= keyword_end <= 79:
+            errors.append("zTXt keyword length must be between 1 and 79 bytes")
+        method_offset = keyword_end + 1
+        compressed_offset = keyword_end + 2
+        if compressed_offset > ztxt.length:
+            errors.append("zTXt chunk must contain a compression method")
+            continue
+        if ztxt.data[method_offset] != 0:
+            errors.append("zTXt Compression Method must be 0")
+        try:
+            zlib.decompress(ztxt.data[compressed_offset:])
+        except zlib.error:
+            errors.append("zTXt compressed text is invalid")
 
     hist_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"hIST"]
     if len(hist_indices) > 1:
@@ -1316,6 +1534,248 @@ def _insert_png_signature_cr(data: bytes) -> tuple[bytes, bool] | None:
     return None
 
 
+def _remove_extra_cr_before_lf(data: bytes) -> tuple[bytes, tuple[int, ...]]:
+    output = bytearray()
+    removed_offsets: list[int] = []
+    index = 0
+    while index < len(data):
+        value = data[index]
+        if value == 0x0D and index + 1 < len(data) and data[index + 1] == 0x0A:
+            removed_offsets.append(index)
+            index += 1
+            continue
+        output.append(value)
+        index += 1
+    return bytes(output), tuple(removed_offsets)
+
+
+def _repair_extra_cr_linefeed_conversion(
+    source: bytes,
+    *,
+    linefeed_pattern: str,
+    removed_prefix_bytes: int,
+    allow_partial: bool,
+) -> LinefeedConversionRepair | None:
+    repaired, removed_offsets = _remove_extra_cr_before_lf(source)
+    if not removed_offsets:
+        return None
+    if not repaired.startswith(PNG_SIGNATURE):
+        return None
+
+    validation_errors = validate_png_structure(repaired).errors
+    if validation_errors and not allow_partial:
+        return None
+
+    return LinefeedConversionRepair(
+        data=repaired,
+        strategy="removed carriage returns inserted by CRLF line ending conversion",
+        linefeed_pattern=linefeed_pattern,
+        removed_prefix_bytes=removed_prefix_bytes,
+        inserted_signature_cr=False,
+        payload_patches=(),
+        validation_errors=validation_errors,
+        removed_extra_cr_offsets=removed_offsets,
+    )
+
+
+def _linefeed_null_stripped_projection(data: bytes) -> bytes:
+    return data.replace(b"\x00", b"").replace(b"\x0d", b"\x0a")
+
+
+def _collapse_doubled_linefeeds(data: bytes) -> bytes:
+    output = bytearray()
+    index = 0
+    while index < len(data):
+        if data[index] == 0x0A and index + 1 < len(data) and data[index + 1] == 0x0A:
+            output.append(0x0A)
+            index += 2
+            continue
+        output.append(data[index])
+        index += 1
+    return bytes(output)
+
+
+def _projected_uint32_candidates(projection: bytes, *, max_value: int = 8192) -> tuple[int, ...]:
+    if not 1 <= len(projection) <= 4:
+        return ()
+    return tuple(
+        value
+        for value in range(1, max_value + 1)
+        if _linefeed_null_stripped_projection(value.to_bytes(4, "big")) == projection
+    )
+
+
+def _null_stripped_lf_ihdr_candidates(
+    projection: bytes,
+    *,
+    idat_length: int,
+) -> Iterator[bytes]:
+    idat_length_projection = _linefeed_null_stripped_projection(idat_length.to_bytes(4, "big"))
+    if not idat_length_projection or not projection.endswith(idat_length_projection):
+        return
+
+    ihdr_projection = projection[: -len(idat_length_projection)]
+    max_width_projection = min(4, len(ihdr_projection))
+    for width_projection_len in range(1, max_width_projection + 1):
+        width_projection = ihdr_projection[:width_projection_len]
+        widths = _projected_uint32_candidates(width_projection)
+        if not widths:
+            continue
+
+        remaining_after_width = len(ihdr_projection) - width_projection_len
+        max_height_projection = min(4, remaining_after_width)
+        for height_projection_len in range(1, max_height_projection + 1):
+            height_projection = ihdr_projection[
+                width_projection_len : width_projection_len + height_projection_len
+            ]
+            heights = _projected_uint32_candidates(height_projection)
+            if not heights:
+                continue
+
+            for width in widths:
+                for height in heights:
+                    for color_type, bit_depths in PNG_COLOR_BIT_DEPTHS.items():
+                        for bit_depth in bit_depths:
+                            ihdr = (
+                                width.to_bytes(4, "big")
+                                + height.to_bytes(4, "big")
+                                + bytes((bit_depth, color_type, 0, 0, 0))
+                            )
+                            crc = (zlib.crc32(b"IHDR" + ihdr) & 0xFFFFFFFF).to_bytes(4, "big")
+                            if _linefeed_null_stripped_projection(ihdr + crc) == ihdr_projection:
+                                yield ihdr
+
+
+def _candidate_idat_null_insertions(data: bytes, target_length: int) -> Iterator[bytes]:
+    missing_nulls = target_length - len(data)
+    if missing_nulls < 0 or missing_nulls > 1:
+        return
+    if missing_nulls == 0:
+        yield data
+        return
+
+    for insert_offset in range(len(data) + 1):
+        yield data[:insert_offset] + b"\x00" + data[insert_offset:]
+
+
+def _candidate_linefeed_cr_restorations(data: bytes, *, max_linefeeds: int = 12) -> Iterator[bytes]:
+    linefeed_offsets = [offset for offset, value in enumerate(data) if value == 0x0A]
+    if len(linefeed_offsets) > max_linefeeds:
+        return
+
+    for mask in range(1 << len(linefeed_offsets)):
+        candidate = bytearray(data)
+        for index, offset in enumerate(linefeed_offsets):
+            if mask & (1 << index):
+                candidate[offset] = 0x0D
+        yield bytes(candidate)
+
+
+def _restore_null_stripped_linefeed_idat(
+    payload_projection: bytes,
+    crc_projection: bytes,
+    *,
+    idat_length: int,
+    ihdr: bytes,
+) -> bytes | None:
+    width = int.from_bytes(ihdr[0:4], "big")
+    height = int.from_bytes(ihdr[4:8], "big")
+    bit_depth = ihdr[8]
+    color_type = ihdr[9]
+    row_size = png_scanline_size(width, bit_depth, color_type)
+    if row_size is None:
+        return None
+    expected_scanline_size = row_size * height
+
+    normalized_payload_projection = _collapse_doubled_linefeeds(payload_projection)
+    for null_candidate in _candidate_idat_null_insertions(
+        normalized_payload_projection,
+        idat_length,
+    ):
+        for candidate in _candidate_linefeed_cr_restorations(null_candidate):
+            computed_crc = zlib.crc32(b"IDAT" + candidate) & 0xFFFFFFFF
+            computed_crc_projection = _linefeed_null_stripped_projection(
+                computed_crc.to_bytes(4, "big")
+            )
+            if computed_crc_projection != crc_projection:
+                continue
+            try:
+                filtered_scanlines = zlib.decompress(candidate)
+            except zlib.error:
+                continue
+            if len(filtered_scanlines) != expected_scanline_size:
+                continue
+            if not all(
+                filtered_scanlines[row * row_size] in range(5)
+                for row in range(height)
+            ):
+                continue
+            return candidate
+
+    return None
+
+
+def _repair_null_stripped_linefeed_conversion(
+    source: bytes,
+    *,
+    linefeed_pattern: str,
+    removed_prefix_bytes: int,
+) -> LinefeedConversionRepair | None:
+    ihdr_offset = source.find(b"IHDR")
+    idat_offset = source.find(b"IDAT", ihdr_offset + 4)
+    iend_offset = source.find(b"IEND", idat_offset + 4)
+    if ihdr_offset < 0 or idat_offset < 0 or iend_offset < 0:
+        return None
+    if not (ihdr_offset < idat_offset < iend_offset):
+        return None
+
+    ihdr_projection = source[ihdr_offset + 4 : idat_offset]
+    idat_projection_and_crc = source[idat_offset + 4 : iend_offset]
+
+    for idat_length in range(1, len(idat_projection_and_crc) + 16):
+        for ihdr in _null_stripped_lf_ihdr_candidates(
+            ihdr_projection,
+            idat_length=idat_length,
+        ):
+            for crc_projection_length in range(1, 5):
+                if len(idat_projection_and_crc) <= crc_projection_length:
+                    continue
+                payload_projection = idat_projection_and_crc[:-crc_projection_length]
+                crc_projection = idat_projection_and_crc[-crc_projection_length:]
+                idat_data = _restore_null_stripped_linefeed_idat(
+                    payload_projection,
+                    crc_projection,
+                    idat_length=idat_length,
+                    ihdr=ihdr,
+                )
+                if idat_data is None:
+                    continue
+
+                repaired = (
+                    PNG_SIGNATURE
+                    + build_png_chunk(b"IHDR", ihdr)
+                    + build_png_chunk(b"IDAT", idat_data)
+                    + IEND_CHUNK
+                )
+                validation_errors = validate_png_structure(repaired).errors
+                if validation_errors:
+                    continue
+
+                return LinefeedConversionRepair(
+                    data=repaired,
+                    strategy=(
+                        "reconstructed PNG after NUL stripping and line-feed conversion"
+                    ),
+                    linefeed_pattern=linefeed_pattern,
+                    removed_prefix_bytes=removed_prefix_bytes,
+                    inserted_signature_cr=True,
+                    payload_patches=(),
+                    validation_errors=(),
+                )
+
+    return None
+
+
 def _linefeed_candidate_next_chunk_start(
     data: bytes,
     *,
@@ -1362,6 +1822,20 @@ def repair_linefeed_conversion(
         return None
 
     source = data[recovery.signature_offset:]
+    if recovery.linefeed_pattern == "extra_cr_linefeed_corruption":
+        return _repair_extra_cr_linefeed_conversion(
+            source,
+            linefeed_pattern=recovery.linefeed_pattern,
+            removed_prefix_bytes=recovery.signature_offset,
+            allow_partial=allow_partial,
+        )
+    if recovery.linefeed_pattern == "nul_stripped_linefeed_corruption":
+        return _repair_null_stripped_linefeed_conversion(
+            source,
+            linefeed_pattern=recovery.linefeed_pattern,
+            removed_prefix_bytes=recovery.signature_offset,
+        )
+
     signature_result = _insert_png_signature_cr(source)
     if signature_result is None:
         return None
@@ -1708,7 +2182,10 @@ def png_chunk_data_is_coherent(chunk_type: bytes, chunk_data: bytes) -> bool:
             return False
         sample_depth = chunk_data[null_pos + 1]
         entries_length = length - null_pos - 2
-        return (sample_depth == 8 and entries_length % 6 == 0) or (sample_depth == 16 and entries_length % 10 == 0)
+        return entries_length > 0 and (
+            (sample_depth == 8 and entries_length % 6 == 0)
+            or (sample_depth == 16 and entries_length % 10 == 0)
+        )
 
     if chunk_type == b"IDAT":
         return length > 0
@@ -1970,6 +2447,239 @@ def repair_pcal_out_of_place(data: bytes) -> ChunkMoveRepair | None:
         data=moved_data,
         strategy="moved pCAL chunk(s) before first IDAT",
         moved_chunks=moved_names,
+    )
+
+
+def repair_splt_out_of_place(data: bytes) -> ChunkMoveRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    idat_indices = [index for index, chunk in enumerate(chunks) if chunk.chunk_type == b"IDAT"]
+    if not idat_indices:
+        return None
+
+    first_idat_index = idat_indices[0]
+    move_indices = {
+        index
+        for index, chunk in enumerate(chunks)
+        if chunk.chunk_type == b"sPLT" and index > first_idat_index
+    }
+    if not move_indices:
+        return None
+
+    moved_data = _rebuild_png_with_chunks_before(
+        data,
+        chunks,
+        move_indices=move_indices,
+        insert_before_index=first_idat_index,
+    )
+    if moved_data is None or not validate_png_structure(moved_data).ok:
+        return None
+
+    moved_names = tuple(chunks[index].name for index in sorted(move_indices))
+    return ChunkMoveRepair(
+        data=moved_data,
+        strategy="moved sPLT chunk(s) before first IDAT",
+        moved_chunks=moved_names,
+    )
+
+
+def repair_ster_out_of_place(data: bytes) -> ChunkMoveRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    idat_indices = [index for index, chunk in enumerate(chunks) if chunk.chunk_type == b"IDAT"]
+    if not idat_indices:
+        return None
+
+    first_idat_index = idat_indices[0]
+    move_indices = {
+        index
+        for index, chunk in enumerate(chunks)
+        if chunk.chunk_type == b"sTER" and index > first_idat_index
+    }
+    if not move_indices:
+        return None
+
+    moved_data = _rebuild_png_with_chunks_before(
+        data,
+        chunks,
+        move_indices=move_indices,
+        insert_before_index=first_idat_index,
+    )
+    if moved_data is None or not validate_png_structure(moved_data).ok:
+        return None
+
+    moved_names = tuple(chunks[index].name for index in sorted(move_indices))
+    return ChunkMoveRepair(
+        data=moved_data,
+        strategy="moved sTER chunk(s) before first IDAT",
+        moved_chunks=moved_names,
+    )
+
+
+def _splt_name_and_payload_parts(payload: bytes) -> tuple[bytes, int, bytes] | None:
+    try:
+        null_pos = payload.index(0)
+    except ValueError:
+        return None
+    if null_pos < 1:
+        return None
+    name = payload[:null_pos]
+    sample_depth = payload[null_pos + 1] if null_pos + 1 < len(payload) else 8
+    entries = payload[null_pos + 2 :] if null_pos + 2 <= len(payload) else b""
+    return name, sample_depth, entries
+
+
+def _unique_splt_name(name: bytes, seen_names: set[bytes]) -> bytes:
+    if name not in seen_names and 1 <= len(name) <= 79:
+        return name
+
+    base = name[:79] if name else b"sPLT"
+    suffix_number = 2
+    while True:
+        suffix = ("-%s" % suffix_number).encode("ascii")
+        candidate = base[: 79 - len(suffix)] + suffix
+        if candidate not in seen_names:
+            return candidate
+        suffix_number += 1
+
+
+def _complete_splt_entries(sample_depth: int, entries: bytes) -> tuple[int, bytes]:
+    if sample_depth not in (8, 16):
+        sample_depth = 8
+
+    entry_size = 6 if sample_depth == 8 else 10
+    if len(entries) == 0:
+        if sample_depth == 8:
+            return sample_depth, b"\x00\x00\x00\xff\x00\x00"
+        return sample_depth, b"\x00\x00\x00\x00\x00\x00\xff\xff\x00\x00"
+
+    remainder = len(entries) % entry_size
+    if remainder == 0:
+        return sample_depth, entries
+
+    return sample_depth, entries + (b"\x00" * (entry_size - remainder))
+
+
+def _repair_splt_chunk_payload(payload: bytes, seen_names: set[bytes]) -> bytes | None:
+    parts = _splt_name_and_payload_parts(payload)
+    if parts is None:
+        name = _unique_splt_name(b"sPLT", seen_names)
+        seen_names.add(name)
+        return name + b"\x00\x08\x00\x00\x00\xff\x00\x00"
+
+    name, sample_depth, entries = parts
+    name = _unique_splt_name(name, seen_names)
+    seen_names.add(name)
+    sample_depth, entries = _complete_splt_entries(sample_depth, entries)
+    repaired = name + b"\x00" + bytes((sample_depth,)) + entries
+    if not png_chunk_data_is_coherent(b"sPLT", repaired):
+        return None
+    return repaired
+
+
+def _splt_payload_removal(data: bytes) -> ChunkRemovalRepair | None:
+    seen_names: set[bytes] = set()
+
+    def should_remove(chunk: PngChunk) -> bool:
+        if chunk.chunk_type != b"sPLT":
+            return False
+
+        if not png_chunk_data_is_coherent(b"sPLT", chunk.data):
+            return True
+
+        name = _splt_palette_name(chunk)
+        if name is not None and name in seen_names:
+            return True
+
+        if name is not None:
+            seen_names.add(name)
+        return False
+
+    result = remove_png_chunks(data, should_remove)
+    if result is None:
+        return None
+
+    repaired, removed = result
+    if not validate_png_structure(repaired).ok:
+        return None
+
+    removed_names = tuple(chunk.name for chunk in removed)
+    return ChunkRemovalRepair(
+        data=repaired,
+        strategy="removed malformed/duplicate sPLT chunk(s)",
+        removed_chunks=removed_names,
+    )
+
+
+def _splt_payload_repair(data: bytes) -> ChunkPayloadRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    signature_offset = find_signature_offset(data)
+    if signature_offset < 0:
+        return None
+
+    output = bytearray(data[: signature_offset + len(PNG_SIGNATURE)])
+    repaired_names: list[str] = []
+    seen_names: set[bytes] = set()
+    changed = False
+
+    for chunk in chunks:
+        raw = data[chunk.offset : chunk.offset + 12 + chunk.length]
+        if chunk.chunk_type != b"sPLT":
+            output.extend(raw)
+            continue
+
+        repaired_payload = _repair_splt_chunk_payload(chunk.data, seen_names)
+        if repaired_payload is None:
+            return None
+
+        if repaired_payload != chunk.data:
+            output.extend(build_png_chunk(chunk.chunk_type, repaired_payload))
+            repaired_names.append(chunk.name)
+            changed = True
+        else:
+            output.extend(raw)
+
+    if not changed:
+        return None
+
+    repaired = bytes(output)
+    if not validate_png_structure(repaired).ok:
+        return None
+
+    return ChunkPayloadRepair(
+        data=repaired,
+        strategy="repaired malformed/duplicate sPLT chunk(s)",
+        repaired_chunks=tuple(repaired_names),
+    )
+
+
+def repair_splt_payloads(data: bytes) -> SpltPayloadRepairPlan | None:
+    remove_repair = _splt_payload_removal(data)
+    repair_repair = _splt_payload_repair(data)
+    if remove_repair is None:
+        return None
+
+    affected = (
+        repair_repair.repaired_chunks
+        if repair_repair is not None
+        else remove_repair.removed_chunks
+    )
+    return SpltPayloadRepairPlan(
+        data=repair_repair.data if repair_repair is not None else remove_repair.data,
+        strategy="sPLT payload repair/removal choice",
+        affected_chunks=affected,
+        repair_repair=repair_repair,
+        remove_repair=remove_repair,
     )
 
 
@@ -2422,6 +3132,43 @@ def repair_phys_length(data: bytes) -> ChunkDataLengthRepair | None:
     )
 
 
+def repair_scal_payload(data: bytes) -> ChunkDataLengthRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    scal_indices = [index for index, chunk in enumerate(chunks) if chunk.chunk_type == b"sCAL"]
+    if len(scal_indices) != 1:
+        return None
+
+    scal_index = scal_indices[0]
+    scal = chunks[scal_index]
+    idat_index = next(
+        (index for index, chunk in enumerate(chunks) if chunk.chunk_type == b"IDAT"),
+        None,
+    )
+    errors = list(_scal_validation_errors(scal))
+    if idat_index is not None and scal_index > idat_index:
+        errors.append("sCAL chunk must appear before the first IDAT chunk")
+    if not errors:
+        return None
+
+    repaired = replace_png_chunk(data, scal, b"")
+    if not validate_png_structure(repaired).ok:
+        return None
+
+    return ChunkDataLengthRepair(
+        data=repaired,
+        strategy="removed invalid sCAL chunk: %s" % "; ".join(errors),
+        chunk_name="sCAL",
+        chunk_offset=scal.offset,
+        old_length=scal.length,
+        new_length=0,
+        removed=True,
+    )
+
+
 def repair_time_length(data: bytes) -> ChunkDataLengthRepair | None:
     try:
         chunks = list(iter_chunks(data))
@@ -2470,7 +3217,66 @@ def repair_time_length(data: bytes) -> ChunkDataLengthRepair | None:
     )
 
 
-def repair_trns_length(data: bytes) -> ChunkDataLengthRepair | None:
+def repair_time_value_range(data: bytes) -> ChunkPayloadRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    time = next((chunk for chunk in chunks if chunk.chunk_type == b"tIME"), None)
+    if time is None or time.length != 7:
+        return None
+
+    year = int.from_bytes(time.data[:2], "big")
+    month = time.data[2]
+    day = time.data[3]
+    hour = time.data[4]
+    minute = time.data[5]
+    second = time.data[6]
+
+    fixed_year = min(max(year, 1), 9999)
+    fixed_month = min(max(month, 1), 12)
+    fixed_day = min(max(day, 1), 31)
+    fixed_hour = min(hour, 23)
+    fixed_minute = min(minute, 59)
+    fixed_second = min(second, 60)
+
+    payload = (
+        fixed_year.to_bytes(2, "big")
+        + bytes((fixed_month, fixed_day, fixed_hour, fixed_minute, fixed_second))
+    )
+    if payload == time.data:
+        return None
+
+    repaired = replace_png_chunk(data, time, build_png_chunk(b"tIME", payload))
+    if not validate_png_structure(repaired).ok:
+        return None
+
+    return ChunkPayloadRepair(
+        data=repaired,
+        strategy=(
+            "normalized tIME from %04d-%02d-%02d %02d:%02d:%02d "
+            "to %04d-%02d-%02d %02d:%02d:%02d and rebuilt CRC"
+            % (
+                year,
+                month,
+                day,
+                hour,
+                minute,
+                second,
+                fixed_year,
+                fixed_month,
+                fixed_day,
+                fixed_hour,
+                fixed_minute,
+                fixed_second,
+            )
+        ),
+        repaired_chunks=("tIME",),
+    )
+
+
+def repair_trns_length(data: bytes) -> ChunkDataLengthRepair | TrnsTransparencyRepairPlan | None:
     try:
         chunks = list(iter_chunks(data))
     except PngFormatError:
@@ -2532,31 +3338,38 @@ def repair_trns_length(data: bytes) -> ChunkDataLengthRepair | None:
         if trns.length <= max_length:
             return None
         payload = trns.data[:max_length]
-        if payload and all(alpha == 0 for alpha in payload):
-            repaired = replace_png_chunk(data, trns, b"")
-            if not validate_png_structure(repaired).ok:
-                return None
-            return ChunkDataLengthRepair(
-                data=repaired,
-                strategy="removed indexed tRNS because repaired alpha table would be fully transparent",
-                chunk_name="tRNS",
-                chunk_offset=trns.offset,
-                old_length=trns.length,
-                new_length=0,
-                removed=True,
-            )
 
-        repaired = replace_png_chunk(data, trns, build_png_chunk(b"tRNS", payload))
-        if not validate_png_structure(repaired).ok:
+        trimmed = replace_png_chunk(data, trns, build_png_chunk(b"tRNS", payload))
+        removed = replace_png_chunk(data, trns, b"")
+        if not validate_png_structure(trimmed).ok or not validate_png_structure(removed).ok:
             return None
-        return ChunkDataLengthRepair(
-            data=repaired,
+
+        trim_repair = ChunkDataLengthRepair(
+            data=trimmed,
             strategy="trimmed indexed tRNS length from %s to PLTE entry count %s and rebuilt CRC"
             % (trns.length, max_length),
             chunk_name="tRNS",
             chunk_offset=trns.offset,
             old_length=trns.length,
             new_length=max_length,
+        )
+        remove_repair = ChunkDataLengthRepair(
+            data=removed,
+            strategy="removed overlong indexed tRNS chunk",
+            chunk_name="tRNS",
+            chunk_offset=trns.offset,
+            old_length=trns.length,
+            new_length=0,
+            removed=True,
+        )
+        return TrnsTransparencyRepairPlan(
+            data=trim_repair.data,
+            strategy="indexed tRNS trim/removal choice",
+            affected_chunks=("tRNS",),
+            trim_repair=trim_repair,
+            remove_repair=remove_repair,
+            trimmed_payload_is_fully_transparent=bool(payload)
+            and all(alpha == 0 for alpha in payload),
         )
 
     if color_type in (4, 6):
@@ -2624,6 +3437,45 @@ def repair_sbit_length(data: bytes) -> ChunkDataLengthRepair | None:
         old_length=sbit.length,
         new_length=0,
         removed=True,
+    )
+
+
+def repair_sbit_sample_depth(data: bytes) -> ChunkDataLengthRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    sbit = next((chunk for chunk in chunks if chunk.chunk_type == b"sBIT"), None)
+    ihdr_values = _parse_ihdr_data(ihdr) if ihdr is not None else None
+    if sbit is None or ihdr_values is None:
+        return None
+
+    _width, _height, bit_depth, color_type, _method, _filter_method, _interlace = ihdr_values
+    normalized = _normalized_sbit_sample_depths(
+        sbit.data,
+        bit_depth=bit_depth,
+        color_type=color_type,
+    )
+    if normalized is None:
+        return None
+
+    repaired_chunk = build_png_chunk(b"sBIT", normalized)
+    repaired = replace_png_chunk(data, sbit, repaired_chunk)
+    if not validate_png_structure(repaired).ok:
+        return None
+
+    return ChunkDataLengthRepair(
+        data=repaired,
+        strategy=(
+            "normalized sBIT sample depths from %s to %s and rebuilt CRC"
+            % (sbit.data.hex(), normalized.hex())
+        ),
+        chunk_name="sBIT",
+        chunk_offset=sbit.offset,
+        old_length=sbit.length,
+        new_length=sbit.length,
     )
 
 
@@ -2700,6 +3552,27 @@ def repair_ster_length(data: bytes) -> ChunkDataLengthRepair | None:
         old_length=ster.length,
         new_length=0,
         removed=True,
+    )
+
+
+def repair_ster_mode(data: bytes) -> ChunkPayloadRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    ster = next((chunk for chunk in chunks if chunk.chunk_type == b"sTER"), None)
+    if ster is None or ster.length != 1 or ster.data in (b"\x00", b"\x01"):
+        return None
+
+    repaired_chunk = build_png_chunk(b"sTER", b"\x00")
+    repaired = replace_png_chunk(data, ster, repaired_chunk)
+    if not validate_png_structure(repaired).ok:
+        return None
+    return ChunkPayloadRepair(
+        data=repaired,
+        strategy="normalized sTER mode from %02x to 00 and rebuilt CRC" % ster.data[0],
+        repaired_chunks=("sTER",),
     )
 
 
@@ -3222,6 +4095,109 @@ def repair_itxt_compression_method(data: bytes) -> ItxtRepair | None:
     return None
 
 
+def repair_ztxt_compression_method(data: bytes) -> ItxtRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    for chunk in chunks:
+        if chunk.chunk_type != b"zTXt":
+            continue
+
+        try:
+            keyword_end = chunk.data.index(0)
+        except ValueError:
+            continue
+
+        method_offset = keyword_end + 1
+        if method_offset >= len(chunk.data) or chunk.data[method_offset] == 0:
+            continue
+
+        repaired_payload = bytearray(chunk.data)
+        old_method = repaired_payload[method_offset]
+        repaired_payload[method_offset] = 0
+        repaired_chunk = build_png_chunk(b"zTXt", bytes(repaired_payload))
+        repaired = replace_png_chunk(data, chunk, repaired_chunk)
+        if not is_complete_png_with_valid_crc(repaired):
+            continue
+
+        return ItxtRepair(
+            data=repaired,
+            strategy=(
+                "fixed zTXt compression method 0x%02x to 0x00 and rebuilt CRC"
+                % old_method
+            ),
+            chunk_offset=chunk.offset,
+            old_method=old_method,
+            new_method=0,
+        )
+
+    return None
+
+
+def repair_ztxt_data_format(data: bytes) -> ChunkPayloadRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    for chunk in chunks:
+        if chunk.chunk_type != b"zTXt":
+            continue
+
+        try:
+            keyword_end = chunk.data.index(0)
+        except ValueError:
+            continue
+
+        method_offset = keyword_end + 1
+        compressed_offset = keyword_end + 2
+        if compressed_offset > len(chunk.data) or chunk.data[method_offset] != 0:
+            continue
+
+        compressed_text = chunk.data[compressed_offset:]
+        try:
+            zlib.decompress(compressed_text)
+        except zlib.error:
+            pass
+        else:
+            continue
+
+        for payload_offset in range(min(2, len(compressed_text))):
+            old_byte = compressed_text[payload_offset]
+            for new_byte in range(256):
+                if new_byte == old_byte:
+                    continue
+
+                repaired_compressed_text = (
+                    compressed_text[:payload_offset]
+                    + bytes((new_byte,))
+                    + compressed_text[payload_offset + 1 :]
+                )
+                try:
+                    zlib.decompress(repaired_compressed_text)
+                except zlib.error:
+                    continue
+
+                repaired_payload = chunk.data[:compressed_offset] + repaired_compressed_text
+                repaired_chunk = build_png_chunk(b"zTXt", repaired_payload)
+                repaired = replace_png_chunk(data, chunk, repaired_chunk)
+                if not validate_png_structure(repaired).ok:
+                    continue
+
+                return ChunkPayloadRepair(
+                    data=repaired,
+                    strategy=(
+                        "fixed zTXt compressed data byte 0x%02x to 0x%02x at payload offset 0x%x and rebuilt CRC"
+                        % (old_byte, new_byte, payload_offset)
+                    ),
+                    repaired_chunks=(chunk.name,),
+                )
+
+    return None
+
+
 def repair_itxt_keyword_length(data: bytes) -> ItxtRepair | None:
     try:
         chunks = list(iter_chunks(data))
@@ -3263,6 +4239,60 @@ def repair_itxt_keyword_length(data: bytes) -> ItxtRepair | None:
         )
 
     return None
+
+
+def repair_text_null_bytes(data: bytes) -> ChunkPayloadRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    signature_offset = find_signature_offset(data)
+    if signature_offset < 0:
+        return None
+
+    output = bytearray(data[: signature_offset + len(PNG_SIGNATURE)])
+    repaired_names: list[str] = []
+    removed_nulls = 0
+    changed = False
+
+    for chunk in chunks:
+        raw = data[chunk.offset : chunk.offset + 12 + chunk.length]
+        if chunk.chunk_type != b"tEXt":
+            output.extend(raw)
+            continue
+
+        try:
+            keyword_end = chunk.data.index(0)
+        except ValueError:
+            output.extend(raw)
+            continue
+
+        text = chunk.data[keyword_end + 1 :]
+        repaired_text = text.replace(b"\x00", b"")
+        if repaired_text == text:
+            output.extend(raw)
+            continue
+
+        repaired_payload = chunk.data[: keyword_end + 1] + repaired_text
+        output.extend(build_png_chunk(chunk.chunk_type, repaired_payload))
+        repaired_names.append(chunk.name)
+        removed_nulls += len(text) - len(repaired_text)
+        changed = True
+
+    if not changed:
+        return None
+
+    repaired = bytes(output)
+    if not validate_png_structure(repaired).ok:
+        return None
+
+    return ChunkPayloadRepair(
+        data=repaired,
+        strategy="removed %s null byte(s) from tEXt text payload and rebuilt CRC"
+        % removed_nulls,
+        repaired_chunks=tuple(repaired_names),
+    )
 
 
 def png_scanline_size(width: int, bit_depth: int, color_type: int) -> int | None:
@@ -3498,6 +4528,195 @@ def _replace_ihdr_chunk(data: bytes, ihdr: PngChunk, ihdr_data: bytes, crc: int)
     return data[: ihdr.offset] + fixed_chunk + data[ihdr.offset + 12 + ihdr.length :]
 
 
+def _rebuild_png_replacing_ihdr_and_idat(
+    data: bytes,
+    chunks: list[PngChunk],
+    *,
+    ihdr: PngChunk,
+    ihdr_data: bytes,
+    idat_data: bytes,
+) -> bytes | None:
+    idat_indices = [index for index, chunk in enumerate(chunks) if chunk.chunk_type == b"IDAT"]
+    if not idat_indices:
+        return None
+
+    first_idat_index = idat_indices[0]
+    rebuilt = bytearray(data[: chunks[0].offset])
+    for index, chunk in enumerate(chunks):
+        if chunk.offset == ihdr.offset:
+            rebuilt.extend(build_png_chunk(b"IHDR", ihdr_data))
+        elif chunk.chunk_type == b"IDAT":
+            if index == first_idat_index:
+                rebuilt.extend(build_png_chunk(b"IDAT", idat_data))
+        else:
+            rebuilt.extend(_chunk_raw_bytes(data, chunk))
+
+    return bytes(rebuilt)
+
+
+def _filtered_scanlines_are_valid(
+    filtered_scanlines: bytes,
+    *,
+    width: int,
+    height: int,
+    bit_depth: int,
+    color_type: int,
+) -> bool:
+    row_size = png_scanline_size(width, bit_depth, color_type)
+    if row_size is None or height < 1:
+        return False
+    if len(filtered_scanlines) != row_size * height:
+        return False
+
+    return all(filtered_scanlines[row * row_size] in range(5) for row in range(height))
+
+
+def _private_compression_strategy(format_name: str, *, ihdr_only: bool, container: bool) -> str:
+    if ihdr_only:
+        return "restored private IHDR compression method for standard zlib IDAT"
+    if format_name == "bzip2":
+        return "converted private bzip2 compression method to standard zlib IDAT"
+
+    safe_name = format_name.replace("/", "-")
+    if container:
+        return "converted private %s container compression method to standard zlib IDAT" % safe_name
+    return "converted private %s compression method to standard zlib IDAT" % safe_name
+
+
+def repair_private_compression_method(data: bytes) -> IhdrRepair | None:
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    if ihdr is None or ihdr.length != 13:
+        return None
+
+    ihdr_values = _parse_ihdr_data(ihdr)
+    if ihdr_values is None:
+        return None
+
+    width, height, bit_depth, color_type, compression, filter_method, interlace = ihdr_values
+    if compression == 0 or filter_method != 0 or interlace != 0:
+        return None
+
+    idat_data = b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
+    if not idat_data:
+        return None
+
+    row_size = png_scanline_size(width, bit_depth, color_type)
+    if row_size is None:
+        return None
+    expected_scanline_size = row_size * height
+
+    fixed_ihdr_data = struct.pack(
+        "!IIBBBBB",
+        width,
+        height,
+        bit_depth,
+        color_type,
+        0,
+        filter_method,
+        interlace,
+    )
+    fixed_ihdr_crc = zlib.crc32(b"IHDR" + fixed_ihdr_data) & 0xFFFFFFFF
+    repair_candidates: list[tuple[tuple[int, int, int, int], bytes, str]] = []
+    decoded_candidates = []
+
+    for decoded in decode_known_compression_payloads(
+        idat_data,
+        max_output_size=expected_scanline_size,
+    ):
+        if not _filtered_scanlines_are_valid(
+            decoded.decoded,
+            width=width,
+            height=height,
+            bit_depth=bit_depth,
+            color_type=color_type,
+        ):
+            continue
+        decoded_candidates.append(decoded)
+
+    container_payloads: dict[tuple[str, bytes, bytes, int], set[bytes]] = {}
+    for decoded in decoded_candidates:
+        if not decoded.container:
+            continue
+        container_key = (
+            decoded.format_name,
+            decoded.signature,
+            decoded.added_prefix,
+            decoded.missing_prefix_bytes,
+        )
+        container_payloads.setdefault(container_key, set()).add(decoded.decoded)
+
+    accepted_container_keys: set[tuple[str, bytes, bytes, int]] = set()
+    for decoded in decoded_candidates:
+        if decoded.container:
+            container_key = (
+                decoded.format_name,
+                decoded.signature,
+                decoded.added_prefix,
+                decoded.missing_prefix_bytes,
+            )
+            if len(container_payloads[container_key]) != 1:
+                continue
+            if container_key in accepted_container_keys:
+                continue
+            accepted_container_keys.add(container_key)
+
+        ihdr_only = False
+        fixed = None
+        if (
+            decoded.format_name == "zlib"
+            and not decoded.added_prefix
+            and decoded.member_name is None
+        ):
+            fixed = _replace_ihdr_chunk(data, ihdr, fixed_ihdr_data, fixed_ihdr_crc)
+            if fixed is not None and validate_png_structure(fixed).ok:
+                ihdr_only = True
+
+        if not ihdr_only:
+            fixed = _rebuild_png_replacing_ihdr_and_idat(
+                data,
+                chunks,
+                ihdr=ihdr,
+                ihdr_data=fixed_ihdr_data,
+                idat_data=zlib.compress(decoded.decoded),
+            )
+            if fixed is None or not validate_png_structure(fixed).ok:
+                continue
+
+        strategy = _private_compression_strategy(
+            decoded.format_name,
+            ihdr_only=ihdr_only,
+            container=decoded.container,
+        )
+        score = (
+            -decoded.signature_bytes_present,
+            decoded.missing_prefix_bytes,
+            decoded.order,
+            0 if ihdr_only else 1,
+        )
+        repair_candidates.append((score, fixed, strategy))
+
+    if not repair_candidates:
+        return None
+    repair_candidates.sort(key=lambda candidate: candidate[0])
+    selection_score, fixed, strategy = repair_candidates[0]
+
+    return IhdrRepair(
+        data=fixed,
+        strategy=strategy,
+        preserved_crc=False,
+        width=width,
+        height=height,
+        bit_depth=bit_depth,
+        color_type=color_type,
+        selection_score=selection_score,
+    )
+
+
 def repair_ihdr_length(data: bytes) -> IhdrRepair | None:
     signature_offset = find_signature_offset(data)
     if signature_offset < 0:
@@ -3566,6 +4785,8 @@ def _ihdr_rebuild_score(
     ihdr_data: bytes,
     *,
     has_plte: bool,
+    current_width: int,
+    current_height: int,
     current_bit_depth: int,
     current_color_type: int,
 ) -> tuple[int, ...]:
@@ -3578,12 +4799,21 @@ def _ihdr_rebuild_score(
     plte_coherent = (has_plte and color_type == 3) or (not has_plte and color_type != 3)
     preserves_color_type = color_type == current_color_type
     preserves_mode = bit_depth == current_bit_depth and color_type == current_color_type
+    current_color_type_is_invalid = current_color_type not in PNG_COLOR_BIT_DEPTHS
+    preserves_dimensions = current_color_type_is_invalid and width == current_width and height == current_height
+    preserves_bit_depth = current_color_type_is_invalid and bit_depth == current_bit_depth
+    preserves_width = current_color_type_is_invalid and width == current_width
+    preserves_height = current_color_type_is_invalid and height == current_height
     balanced = min(width, height) > 0 and _dimension_aspect_ratio((width, height)) <= 2
 
     return (
         int(plte_coherent),
         int(preserves_color_type),
         int(preserves_mode),
+        int(preserves_dimensions),
+        int(preserves_bit_depth),
+        int(preserves_width),
+        int(preserves_height),
         int(balanced),
         area,
         -aspect_penalty,
@@ -3656,6 +4886,8 @@ def _rebuilt_ihdr_candidates(
         score = _ihdr_rebuild_score(
             fixed_ihdr_data,
             has_plte=has_plte,
+            current_width=current_width,
+            current_height=current_height,
             current_bit_depth=current_bit_depth,
             current_color_type=current_color_type,
         )
@@ -3751,6 +4983,10 @@ def repair_ihdr(data: bytes) -> IhdrRepair | None:
     fixed_length = repair_ihdr_length(data)
     if fixed_length is not None:
         return fixed_length
+
+    fixed_private_compression = repair_private_compression_method(data)
+    if fixed_private_compression is not None:
+        return fixed_private_compression
 
     fixed = repair_ihdr_preserving_crc(data)
     if fixed is not None:

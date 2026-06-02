@@ -20,19 +20,23 @@
 - Repair empty, missing, undersized, oversized, or malformed indexed `PLTE`
   chunks; optionally open the Tkinter PLTE editor when manual tuning is useful.
 - Repair known ancillary payload issues for chunks such as `bKGD`, `cHRM`,
-  `gAMA`, `gIFg`, `hIST`, `iTXt`, `oFFs`, `pHYs`, `sBIT`, `sRGB`, `sTER`,
-  `tIME`, and `tRNS`.
+  `gAMA`, `gIFg`, `hIST`, `iTXt`, `oFFs`, `pHYs`, `sBIT`, `sCAL`, `sRGB`,
+  `sTER`, `tIME`, `tRNS`, and `zTXt`.
 - Repair duplicate singleton chunks such as duplicate `IHDR`, `PLTE`, `gAMA`,
   `sRGB`, `iCCP`, `pHYs`, `pCAL`, `sCAL`, `sBIT`, `bKGD`, `tRNS`, `hIST`,
   `sTER`, `oFFs`, and `eXIf`.
 - Repair selected misplaced chunks, including misplaced `IHDR`, out-of-place
-  `hIST`/`pCAL`, and ancillary chunks interrupting consecutive `IDAT` chunks.
+  `hIST`/`pCAL`/`sPLT`, and ancillary chunks interrupting consecutive `IDAT`
+  chunks.
 - Remove or rename unsafe unknown/private critical chunks when the PNG can be
   made structurally valid.
 - Repair known bad sRGB/iCCP profile chunks and zero-value `gAMA`.
-- Repair line-feed conversion damage and run heavier line-feed brute force
-  probes when requested.
-- Salvage partially decompressible non-interlaced `IDAT` streams with
+- Repair line-feed conversion damage, including NUL-stripped line-feed samples,
+  and run heavier line-feed brute force probes when requested.
+- Repair PNG text metadata damage, including `tEXt` null bytes, `iTXt`
+  keyword/compression fields, and `zTXt` compression method or zlib data-format
+  byte errors.
+- Salvage partially decompressible non-interlaced and Adam7 `IDAT` streams with
   `partial-idat-blackfill`.
 - Save each modification in a different file and write a readable summary of
   the repair path.
@@ -122,13 +126,26 @@ Or without pytest:
 
 ## Repair Notes
 
-`partial-idat-blackfill` is an explicit fallback repair for non-interlaced PNGs
+`partial-idat-blackfill` is an explicit fallback repair for PNGs
 whose IDAT zlib stream can be decompressed only partially. Chunklate keeps the
-complete scanlines recovered before the zlib failure, fills the remaining
-scanlines with black or transparent bytes, recompresses a new IDAT stream, and
-recalculates length and CRC. This makes a valid salvage PNG; it is not a claim
-that the original image content was faithfully reconstructed.
+complete filtered scanlines recovered before the zlib failure, fills the
+remaining non-interlaced or Adam7 pass scanlines with black or transparent
+bytes, recompresses a new IDAT stream, and recalculates length and CRC. This
+makes a valid salvage PNG; it is not a claim that the original image content was
+faithfully reconstructed.
 
-Current v1 limits: Adam7/interlaced PNGs are not repaired by this path, partial
-rows are discarded, and PNG filter reconstruction is not guessed beyond the
-complete filtered scanlines already recovered from zlib.
+Current v1 limits: partial rows are discarded, and PNG filter reconstruction is
+not guessed beyond the complete filtered scanlines already recovered from zlib.
+
+Files like `x00n0g01.png`, where `IHDR` is `0x0`, or `xdtn0g01.png`, which
+contains only `IHDR`, `gAMA`, and `IEND`, are classified as impossible to
+repair when no `IDAT` exists. There are no source pixels to recover from that
+input.
+
+## In Memory Of Glenn Randers-Pehrson
+
+![Glenn Randers-Pehrson](https://i.postimg.cc/yN5YTWwH/image.png)
+
+Thank you, Glenn Randers-Pehrson (April 30, 1941 - October 2018), for the
+advice you gave me, and for the guidance that kept helping me even after your
+death.

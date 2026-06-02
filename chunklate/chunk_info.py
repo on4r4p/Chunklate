@@ -894,79 +894,79 @@ def parse_splt(data: str, previous_names: tuple[str, ...] = ()) -> SpltInfo:
     if depth not in ("8", "16"):
         fixes.append("-Sample depth is not correct it must be 8 or 16")
 
-    pos = 0
-    if depth == "8":
-        for _ in range(len(data)):
-            red.append(data[:pos])
-            green.append(data[pos : pos + 2])
-            blue.append(data[pos + 2 : pos + 4])
-            alpha.append(data[pos + 4 : pos + 6])
-            freq.append(data[pos + 6 : pos + 8])
-            pos += 8
-    elif depth == "16":
-        for _ in range(len(data)):
-            red.append(data[:pos])
-            green.append(data[pos : pos + 4])
-            blue.append(data[pos + 4 : pos + 8])
-            alpha.append(data[pos + 8 : pos + 16])
-            freq.append(data[pos + 16 : pos + 24])
-            pos += 24
+    entries = data[null_pos + 4 :]
 
-    if len(name) > 79:
+    if len(name) // 2 > 79:
         fixes.append("-Length of sPLT name is not Valid (Too long >79)")
 
     if depth == "8":
-        if not str(int(len(red)) / 6).endswith(".0"):
+        entry_hex_size = 12
+        entry_byte_size = 6
+        entry_count = len(entries) // 2
+        if not entries:
+            fixes.append("-sPLT entries must Not be empty")
+        elif len(entries) % entry_hex_size != 0:
             fixes.append(
                 "-Wrong Red sPLT length: %s /6= %s (not divisible by 6)."
-                % (len(red), str(len(red) / 6))
+                % (entry_count, str(entry_count / entry_byte_size))
             )
-        if not str(int(len(green)) / 6).endswith(".0"):
             fixes.append(
                 "-Wrong Green sPLT length: %s /6= %s (not divisible by 6)."
-                % (len(green), str(len(green) / 6))
+                % (entry_count, str(entry_count / entry_byte_size))
             )
-        if not str(int(len(blue)) / 6).endswith(".0"):
             fixes.append(
                 "-Wrong Green sPLT length: %s /6= %s (not divisible by 6)."
-                % (len(blue), str(len(blue) / 6))
+                % (entry_count, str(entry_count / entry_byte_size))
             )
-        if not str(int(len(alpha)) / 6).endswith(".0"):
             fixes.append(
                 "-Wrong Alpha sPLT length: %s /6= %s (not divisible by 6)."
-                % (len(alpha), str(len(alpha) / 6))
+                % (entry_count, str(entry_count / entry_byte_size))
             )
-        if not str(int(len(freq)) / 6).endswith(".0"):
             fixes.append(
                 "-Wrong Frequency sPLT length: %s /6= %s (not divisible by 6)."
-                % (len(freq), str(len(freq) / 6))
+                % (entry_count, str(entry_count / entry_byte_size))
             )
+        else:
+            for pos in range(0, len(entries), entry_hex_size):
+                red.append(entries[pos : pos + 2])
+                green.append(entries[pos + 2 : pos + 4])
+                blue.append(entries[pos + 4 : pos + 6])
+                alpha.append(entries[pos + 6 : pos + 8])
+                freq.append(entries[pos + 8 : pos + 12])
     elif depth == "16":
-        if not str(int(len(red)) / 10).endswith(".0"):
+        entry_hex_size = 20
+        entry_byte_size = 10
+        entry_count = len(entries) // 2
+        if not entries:
+            fixes.append("-sPLT entries must Not be empty")
+        elif len(entries) % entry_hex_size != 0:
             fixes.append(
                 "-Wrong Red sPLT length: %s /10= %s (not divisible by 10)."
-                % (len(red), str(len(red) / 10))
+                % (entry_count, str(entry_count / entry_byte_size))
             )
-        if not str(int(len(green)) / 10).endswith(".0"):
             fixes.append(
                 "-Wrong Red sPLT length: %s /10= %s (not divisible by 10)."
-                % (len(green), str(len(green) / 10))
+                % (entry_count, str(entry_count / entry_byte_size))
             )
-        if not str(int(len(blue)) / 10).endswith(".0"):
             fixes.append(
                 "-Wrong Red sPLT length: %s /10= %s (not divisible by 10)."
-                % (len(blue), str(len(blue) / 10))
+                % (entry_count, str(entry_count / entry_byte_size))
             )
-        if not str(int(len(alpha)) / 10).endswith(".0"):
             fixes.append(
                 "-Wrong Alpha sPLT length: %s /10= %s (not divisible by 10)."
-                % (len(alpha), str(len(alpha) / 10))
+                % (entry_count, str(entry_count / entry_byte_size))
             )
-        if not str(int(len(freq)) / 10).endswith(".0"):
             fixes.append(
                 "-Wrong Frequency sPLT length: %s /10= %s (not divisible by 10)."
-                % (len(freq), str(len(freq) / 10))
+                % (entry_count, str(entry_count / entry_byte_size))
             )
+        else:
+            for pos in range(0, len(entries), entry_hex_size):
+                red.append(entries[pos : pos + 4])
+                green.append(entries[pos + 4 : pos + 8])
+                blue.append(entries[pos + 8 : pos + 12])
+                alpha.append(entries[pos + 12 : pos + 16])
+                freq.append(entries[pos + 16 : pos + 20])
 
     if name in previous_names:
         fixes.append("-sPLT can be used multiple times but cannot share the same name.")
@@ -995,6 +995,8 @@ def parse_text(data: str) -> TextInfo:
     text = data[null_pos + 2 :]
     fixes.extend(_keyword_bad_char_fixes(keyword, "tEXt"))
     fixes.extend(_keyword_length_fixes(keyword, "tEXt"))
+    if "00" in (text[index : index + 2] for index in range(0, len(text), 2)):
+        fixes.append("-tEXt text must not contain null bytes")
 
     return TextInfo(
         keyword=keyword,
@@ -1012,17 +1014,21 @@ def parse_ztxt(data: str) -> ZtxtInfo:
         return ZtxtInfo(fixes=("-zTXt missing keyword separator",))
 
     keyword = data[:null_pos]
+    fixes.extend(_keyword_bad_char_fixes(keyword, "zTXt"))
+    fixes.extend(_keyword_length_fixes(keyword, "zTXt"))
+
+    compression_method = data[null_pos + 2 : null_pos + 4]
+    if compression_method != "00":
+        fixes.append("-zTXt Compression Method must be 0")
+
     try:
         text = zlib.decompress(bytes.fromhex(data[null_pos + 4 :]))
     except Exception as exc:
         return ZtxtInfo(
             keyword=keyword,
             decoded_keyword=_decode_hex_text(keyword),
-            fixes=("-zTXt Text Error:" + str(exc),),
+            fixes=tuple(fixes + ["-zTXt Text Error:" + str(exc)]),
         )
-
-    fixes.extend(_keyword_bad_char_fixes(keyword, "zTXt"))
-    fixes.extend(_keyword_length_fixes(keyword, "zTXt"))
 
     return ZtxtInfo(
         keyword=keyword,

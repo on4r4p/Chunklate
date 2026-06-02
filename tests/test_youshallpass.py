@@ -185,7 +185,7 @@ def test_youshallpass_uses_palette_dependent_parsers():
 
 
 def test_youshallpass_uses_splt_parser():
-    payload = "70616c0008" + ("01" * 13)
+    payload = "70616c0008" + ("01" * 6)
 
     assert Chunklate.YouShallPass(b"sPLT", payload) is True
 
@@ -197,10 +197,12 @@ def test_youshallpass_uses_splt_parser():
 
 def test_youshallpass_uses_text_parsers():
     assert Chunklate.YouShallPass(b"tEXt", "5469746c650048656c6c6f") is True
+    assert Chunklate.YouShallPass(b"tEXt", "5469746c650048656c6c6f00") is False
     assert Chunklate.YouShallPass(b"tEXt", "0048656c6c6f") is False
     assert Chunklate.YouShallPass(b"tEXt", ("41" * 80) + "00") is False
     assert Chunklate.YouShallPass(b"zTXt", "4b65790000789cf348cdc9c90700058c01f5") is True
     assert Chunklate.YouShallPass(b"zTXt", "0000789cf348cdc9c90700058c01f5") is False
+    assert Chunklate.YouShallPass(b"zTXt", "4b65790003789cf348cdc9c90700058c01f5") is False
     assert Chunklate.YouShallPass(b"zTXt", "4b65790000ff") is False
     assert Chunklate.YouShallPass(b"iTXt", "4b6579000000000048656c6c6f") is True
     assert Chunklate.YouShallPass(b"iTXt", "000000656e2d75730000437563756d626572") is False

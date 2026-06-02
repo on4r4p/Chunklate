@@ -31,14 +31,24 @@ from .png import (
     repair_optional_truecolor_plte,
     repair_pcal_out_of_place,
     repair_phys_length,
+    repair_scal_payload,
     repair_sbit_length,
+    repair_sbit_sample_depth,
+    repair_splt_out_of_place,
+    repair_splt_payloads,
     repair_srgb_length,
+    repair_ster_out_of_place,
     repair_ster_length,
+    repair_ster_mode,
+    repair_text_null_bytes,
     repair_time_length,
+    repair_time_value_range,
     repair_trns_length,
     repair_unknown_private_critical_chunks,
+    repair_ztxt_compression_method,
+    repair_ztxt_data_format,
 )
-from .idat import rebuild_partial_idat_blackfill
+from .idat import rebuild_invalid_filter_type_as_filter0, rebuild_partial_idat_blackfill
 
 
 FixItFelixHandler = Literal[
@@ -76,6 +86,9 @@ AutomaticRepairHandler = Literal[
     "color_profile_cleanup",
     "hist_out_of_place_cleanup",
     "pcal_out_of_place_cleanup",
+    "splt_out_of_place_cleanup",
+    "ster_out_of_place_cleanup",
+    "splt_payload_cleanup",
     "duplicate_ihdr_cleanup",
     "duplicate_singleton_cleanup",
     "plte_cleanup",
@@ -87,13 +100,19 @@ AutomaticRepairHandler = Literal[
     "itxt_keyword_length",
     "itxt_compression_flag",
     "itxt_compression_method",
+    "ztxt_compression_method",
+    "ztxt_data_format",
+    "text_null_bytes",
     "offs_length",
     "phys_length",
+    "scal_payload",
     "time_length",
+    "time_value_range",
     "trns_length",
     "sbit_length",
     "srgb_length",
     "ster_length",
+    "ster_mode",
     "idat_interruption_cleanup",
     "known_chunk_type_case",
     "unknown_private_critical_removal",
@@ -108,6 +127,9 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "color_profile_cleanup",
     "hist_out_of_place_cleanup",
     "pcal_out_of_place_cleanup",
+    "splt_out_of_place_cleanup",
+    "ster_out_of_place_cleanup",
+    "splt_payload_cleanup",
     "duplicate_ihdr_cleanup",
     "duplicate_singleton_cleanup",
     "plte_cleanup",
@@ -119,13 +141,19 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "itxt_keyword_length",
     "itxt_compression_flag",
     "itxt_compression_method",
+    "ztxt_compression_method",
+    "ztxt_data_format",
+    "text_null_bytes",
     "offs_length",
     "phys_length",
+    "scal_payload",
     "time_length",
+    "time_value_range",
     "trns_length",
     "sbit_length",
     "srgb_length",
     "ster_length",
+    "ster_mode",
     "idat_interruption_cleanup",
     "known_chunk_type_case",
     "unknown_private_critical_removal",
@@ -133,6 +161,210 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "ihdr_rebuild",
     "partial_idat_blackfill",
 )
+AUTOMATIC_REPAIR_INTENTS: dict[
+    AutomaticRepairHandler,
+    tuple[str, tuple[tuple[str, ...], ...]],
+] = {
+    "color_profile_cleanup": (
+        "I am going to remove a known-bad color profile or useless zero gAMA metadata, then rebuild the chunk list.",
+        (("gAMA Chunk of 0 is Useless",), ("known incorrect sRGB profile",)),
+    ),
+    "hist_out_of_place_cleanup": (
+        "hIST is metadata, but PNG wants it before IDAT. I am going to move or drop it safely.",
+        (("hIST: out of place",), ("hIST chunk must appear before the first IDAT chunk",)),
+    ),
+    "pcal_out_of_place_cleanup": (
+        "pCAL is out of order. I am going to move it back before IDAT and rebuild CRCs.",
+        (("pCAL: out of place",), ("pCAL chunk must appear before the first IDAT chunk",)),
+    ),
+    "splt_out_of_place_cleanup": (
+        "sPLT is out of order. I am going to move the suggested palette before IDAT and rebuild CRCs.",
+        (
+            ("sPLT: out of place",),
+            ("sPLT chunk must appear before the first IDAT chunk",),
+            ("Missplaced",),
+        ),
+    ),
+    "ster_out_of_place_cleanup": (
+        "sTER is out of order. I am going to move the stereo-layout metadata before IDAT and rebuild CRCs.",
+        (
+            ("sTER: out of place",),
+            ("sTER chunk must appear before the first IDAT chunk",),
+            ("Missplaced",),
+        ),
+    ),
+    "splt_payload_cleanup": (
+        "sPLT metadata is malformed or has duplicate names. I can try to repair it, or remove the optional suggested palette chunk(s).",
+        (
+            ("sPLT", "Wrong"),
+            ("sPLT", "malformed"),
+            ("sPLT", "entries"),
+            ("Sample depth is not correct it must be 8 or 16",),
+            ("sPLT", "same name"),
+            ("sPLT", "share the same name"),
+        ),
+    ),
+    "duplicate_ihdr_cleanup": (
+        "PNG only allows one IHDR. I am going to keep the first header and remove the duplicate.",
+        (("Multiple", "IHDR"), ("IHDR", "must appear at most once")),
+    ),
+    "duplicate_singleton_cleanup": (
+        "PNG only allows one copy of this singleton chunk. I am going to keep the safest copy and remove duplicates.",
+        (("Multiple",), ("multiple", "chunks")),
+    ),
+    "plte_cleanup": (
+        "The palette is suspicious. I am going to rebuild, trim, or remove PLTE according to the image color type and used indexes.",
+        (("PLTE",),),
+    ),
+    "gama_length": (
+        "The gAMA payload length is wrong. I am going to infer the standard 4-byte value and rebuild the chunk.",
+        (("gAMA length is not Valid",),),
+    ),
+    "gifg_length": (
+        "The gIFg payload length is wrong. I am going to trim or pad it to the expected extension layout.",
+        (("gIFg length is not Valid",),),
+    ),
+    "hist_length": (
+        "The hIST payload does not match the palette size. I am going to resize the histogram entries.",
+        (("hIST length is not Valid",), ("Histogram frequencies entries must match PLTE entries number",)),
+    ),
+    "chrm_length": (
+        "The cHRM payload is short. I am going to infer the missing chromaticity bytes when the evidence is strong enough.",
+        (("cHRM length is not Valid",),),
+    ),
+    "bkgd_length": (
+        "The bKGD payload length does not match the color type. I am going to rebuild the background chunk shape.",
+        (("bKGD length is not Valid",),),
+    ),
+    "itxt_keyword_length": (
+        "The iTXt keyword length is invalid. I am going to normalize that text metadata boundary.",
+        (("iTXt Keyword length is not Valid",),),
+    ),
+    "itxt_compression_flag": (
+        "The iTXt compression flag is invalid. I am going to normalize it to a PNG-legal value.",
+        (("iTXt Compression Flag must be 0 or 1",),),
+    ),
+    "itxt_compression_method": (
+        "The iTXt compression method is invalid. I am going to normalize it to PNG method 0.",
+        (("iTXt Compression Method must be 0",),),
+    ),
+    "ztxt_compression_method": (
+        "The zTXt compression method is invalid. I am going to normalize it to PNG method 0.",
+        (("zTXt Compression Method must be 0",),),
+    ),
+    "ztxt_data_format": (
+        "The zTXt compressed text stream is invalid. I am going to repair the zlib data-format byte and rebuild the chunk CRC.",
+        (("zTXt Text Error",), ("zTXt compressed text is invalid",)),
+    ),
+    "text_null_bytes": (
+        "The tEXt payload contains null bytes inside the text field. I am going to remove those bytes and rebuild CRCs.",
+        (("tEXt text must not contain null bytes",),),
+    ),
+    "offs_length": (
+        "The oFFs payload/unit is invalid. I am going to rebuild it with a legal unit and length.",
+        (("Wrong Offset unit",), ("oFFs length is not Valid",)),
+    ),
+    "phys_length": (
+        "The pHYs payload/unit is invalid. I am going to rebuild the physical pixel metadata shape.",
+        (
+            ("Error pHYs U",),
+            ("pHYs length is not Valid",),
+            ("pHYs chunk length must be 9",),
+            ("pHYs unit specifier must be 0 or 1",),
+            ("Unit specifier :Wrong value",),
+        ),
+    ),
+    "scal_payload": (
+        "The sCAL physical-scale metadata is malformed. I am going to remove that ancillary chunk and keep the image pixels intact.",
+        (
+            ("sCAL",),
+            ("sCAL:",),
+        ),
+    ),
+    "time_length": (
+        "The tIME payload is malformed. I am going to rebuild the timestamp chunk to its fixed 7-byte layout.",
+        (("tIME length is not Valid",), ("tIME Not enough bytes",), ("tIME chunk length must be 7",)),
+    ),
+    "time_value_range": (
+        "The tIME timestamp contains impossible values. I am going to normalize those fields and rebuild the CRC.",
+        (
+            ("Month value is not valid",),
+            ("Day value is not valid",),
+            ("Hour value is not valid",),
+            ("Minute value is not valid",),
+            ("Second  value is not valid",),
+            ("Second value is not valid",),
+            ("tIME Month value is not valid",),
+            ("tIME Day value is not valid",),
+            ("tIME Hour value is not valid",),
+            ("tIME Minute value is not valid",),
+            ("tIME Second value is not valid",),
+            ("tIME year must be at least 1",),
+            ("tIME month must be between 1 and 12",),
+            ("tIME day must be between 1 and 31",),
+            ("tIME hour must be between 0 and 23",),
+            ("tIME minute must be between 0 and 59",),
+            ("tIME second must be between 0 and 60",),
+        ),
+    ),
+    "trns_length": (
+        "The tRNS payload does not fit the color type or palette. I am going to resize or remove that transparency data.",
+        (
+            ("tRNS length is not Valid",),
+            ("tRNS Chunk Must not be empty",),
+            ("Error tRNS_",),
+            ("tRNS Alpha indexes palettes entries must not be superior",),
+            ("IHDR Color", "when used with tRNS"),
+            ("tRNS chunk length must",),
+            ("tRNS chunk is not allowed",),
+        ),
+    ),
+    "sbit_length": (
+        "The sBIT payload is invalid. I am going to resize it or clamp significant-bit metadata to the IHDR sample depth.",
+        (
+            ("sBIT length is not Valid",),
+            ("sBIT chunk length must be",),
+            ("sBit", "value"),
+            ("Significant greyscale bits",),
+        ),
+    ),
+    "srgb_length": (
+        "The sRGB payload length is invalid. I am going to rebuild it to the legal one-byte rendering intent.",
+        (("sRGB length is not Valid",), ("sRGB chunk length must be",)),
+    ),
+    "ster_length": (
+        "The sTER payload length is invalid. I am going to rebuild it to the legal one-byte stereo mode.",
+        (("sTER length is not Valid",), ("sTER chunk length must be",)),
+    ),
+    "ster_mode": (
+        "The sTER stereo-layout mode is invalid. I am going to normalize it to PNG mode 0 and rebuild the CRC.",
+        (("sTER should be 0 or 1",), ("sTER mode must be 0 or 1",)),
+    ),
+    "idat_interruption_cleanup": (
+        "The IDAT chain is interrupted. I am going to keep the image stream consecutive by moving or removing the blocker.",
+        (("Wrong Chunk name after Chunk[b'IDAT']",), ("IDAT chunks must be consecutive",), ("nonconsecutive", "IDAT"), ("No NextChunk",)),
+    ),
+    "known_chunk_type_case": (
+        "This looks like a known chunk with the wrong case bit. I am going to restore the legal chunk name.",
+        (("Wrong Ancillary in known Chunk name",),),
+    ),
+    "unknown_private_critical_removal": (
+        "An unknown critical chunk is unsafe for PNG readers. I am going to remove it if it is not a known chunk typo.",
+        (("Critical",), ("unknown", "critical"), ("Unhandled-Critical",)),
+    ),
+    "missing_chunk_data_byte": (
+        "A chunk appears to be missing one data byte. I am going to test the bounded one-byte reconstruction route.",
+        (("Wrong Crc",), ("No NextChunk",)),
+    ),
+    "ihdr_rebuild": (
+        "IHDR is not trustworthy. I am going to rebuild it from PNG rules, CRC evidence, or IDAT scanline math.",
+        (("IHDR", "GetInfo"), ("IHDR", "Wrong Crc")),
+    ),
+    "partial_idat_blackfill": (
+        "The image data is damaged. I am going to salvage complete scanlines and rebuild the IDAT stream.",
+        (("IDAT",), ("Not enough image data",), ("Too much image data",), ("bad adaptive filter",)),
+    ),
+}
 GOOD_IEND_HEX = "0000000049454e44ae426082"
 DEBUG_FLAG_NAMES: tuple[str, ...] = (
     "EOF",
@@ -276,6 +508,15 @@ def repair_metadata_note(repair: Any) -> str:
     if selection_score is not None:
         parts.append("selection score: %s" % (selection_score,))
 
+    donor_path = getattr(repair, "donor_path", "")
+    donor_label = getattr(repair, "donor_label", "")
+    if donor_path or donor_label:
+        parts.append("IDAT donor: %s" % (donor_path or donor_label))
+
+    synthetic_pattern = getattr(repair, "synthetic_pattern", "")
+    if synthetic_pattern:
+        parts.append("synthetic IDAT pattern: %s; original pixels were not recoverable" % synthetic_pattern)
+
     if not parts:
         return ""
 
@@ -292,6 +533,31 @@ def repair_note(repair: Any) -> str:
 
 def has_finding(findings: Iterable[object], *needles: str) -> bool:
     return any(all(needle in str(finding) for needle in needles) for finding in findings)
+
+
+def automatic_repair_intent(
+    name: AutomaticRepairHandler,
+    findings: Iterable[object],
+) -> str | None:
+    intent = AUTOMATIC_REPAIR_INTENTS[name]
+    message, trigger_groups = intent
+    for triggers in trigger_groups:
+        if has_finding(findings, *triggers):
+            return message
+    return None
+
+
+def automatic_repair_failure_explanation(
+    name: AutomaticRepairHandler,
+    findings: Iterable[object],
+) -> str | None:
+    if name == "ihdr_rebuild" and has_finding(findings, "IHDR Compression Algorithms"):
+        return (
+            "Private compression probe refused: the IDAT looked like a known "
+            "compression signature, but no bounded prefix completion decoded "
+            "to valid PNG scanlines"
+        )
+    return None
 
 
 def route_finding(finding: object, *, skip_bad_crc: bool) -> FixItFelixRoute:
@@ -656,6 +922,42 @@ def pcal_out_of_place_cleanup(data: bytes, findings: Iterable[object]) -> Any | 
     return repair_pcal_out_of_place(data)
 
 
+def splt_out_of_place_cleanup(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "sPLT: out of place")
+        or has_finding(findings, "sPLT chunk must appear before the first IDAT chunk")
+        or has_finding(findings, "Missplaced")
+    ):
+        return None
+
+    return repair_splt_out_of_place(data)
+
+
+def ster_out_of_place_cleanup(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "sTER: out of place")
+        or has_finding(findings, "sTER chunk must appear before the first IDAT chunk")
+        or has_finding(findings, "Missplaced")
+    ):
+        return None
+
+    return repair_ster_out_of_place(data)
+
+
+def splt_payload_cleanup(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "sPLT", "Wrong")
+        or has_finding(findings, "sPLT", "malformed")
+        or has_finding(findings, "sPLT", "entries")
+        or has_finding(findings, "Sample depth is not correct it must be 8 or 16")
+        or has_finding(findings, "sPLT", "same name")
+        or has_finding(findings, "sPLT", "share the same name")
+    ):
+        return None
+
+    return repair_splt_payloads(data)
+
+
 def plte_cleanup(
     data: bytes,
     findings: Iterable[object],
@@ -734,6 +1036,30 @@ def itxt_compression_method(data: bytes, findings: Iterable[object]) -> Any | No
     return repair_itxt_compression_method(data)
 
 
+def ztxt_compression_method(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not has_finding(findings, "zTXt Compression Method must be 0"):
+        return None
+
+    return repair_ztxt_compression_method(data)
+
+
+def ztxt_data_format(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "zTXt Text Error")
+        or has_finding(findings, "zTXt compressed text is invalid")
+    ):
+        return None
+
+    return repair_ztxt_data_format(data)
+
+
+def text_null_bytes(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not has_finding(findings, "tEXt text must not contain null bytes"):
+        return None
+
+    return repair_text_null_bytes(data)
+
+
 def offs_length(data: bytes, findings: Iterable[object]) -> Any | None:
     if not (
         has_finding(findings, "Wrong Offset unit")
@@ -757,6 +1083,13 @@ def phys_length(data: bytes, findings: Iterable[object]) -> Any | None:
     return repair_phys_length(data)
 
 
+def scal_payload(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not has_finding(findings, "sCAL"):
+        return None
+
+    return repair_scal_payload(data)
+
+
 def time_length(data: bytes, findings: Iterable[object]) -> Any | None:
     if not (
         has_finding(findings, "tIME length is not Valid")
@@ -768,12 +1101,38 @@ def time_length(data: bytes, findings: Iterable[object]) -> Any | None:
     return repair_time_length(data)
 
 
+def time_value_range(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "Month value is not valid")
+        or has_finding(findings, "Day value is not valid")
+        or has_finding(findings, "Hour value is not valid")
+        or has_finding(findings, "Minute value is not valid")
+        or has_finding(findings, "Second  value is not valid")
+        or has_finding(findings, "Second value is not valid")
+        or has_finding(findings, "tIME Month value is not valid")
+        or has_finding(findings, "tIME Day value is not valid")
+        or has_finding(findings, "tIME Hour value is not valid")
+        or has_finding(findings, "tIME Minute value is not valid")
+        or has_finding(findings, "tIME Second value is not valid")
+        or has_finding(findings, "tIME year must be at least 1")
+        or has_finding(findings, "tIME month must be between 1 and 12")
+        or has_finding(findings, "tIME day must be between 1 and 31")
+        or has_finding(findings, "tIME hour must be between 0 and 23")
+        or has_finding(findings, "tIME minute must be between 0 and 59")
+        or has_finding(findings, "tIME second must be between 0 and 60")
+    ):
+        return None
+
+    return repair_time_value_range(data)
+
+
 def trns_length(data: bytes, findings: Iterable[object]) -> Any | None:
     if not (
         has_finding(findings, "tRNS length is not Valid")
         or has_finding(findings, "tRNS Chunk Must not be empty")
         or has_finding(findings, "Error tRNS_")
         or has_finding(findings, "tRNS Alpha indexes palettes entries must not be superior")
+        or has_finding(findings, "IHDR Color", "when used with tRNS")
         or has_finding(findings, "tRNS chunk length must")
         or has_finding(findings, "tRNS chunk is not allowed")
     ):
@@ -786,10 +1145,12 @@ def sbit_length(data: bytes, findings: Iterable[object]) -> Any | None:
     if not (
         has_finding(findings, "sBIT length is not Valid")
         or has_finding(findings, "sBIT chunk length must be")
+        or has_finding(findings, "sBit", "value")
+        or has_finding(findings, "Significant greyscale bits")
     ):
         return None
 
-    return repair_sbit_length(data)
+    return repair_sbit_length(data) or repair_sbit_sample_depth(data)
 
 
 def srgb_length(data: bytes, findings: Iterable[object]) -> Any | None:
@@ -810,6 +1171,16 @@ def ster_length(data: bytes, findings: Iterable[object]) -> Any | None:
         return None
 
     return repair_ster_length(data)
+
+
+def ster_mode(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "sTER should be 0 or 1")
+        or has_finding(findings, "sTER mode must be 0 or 1")
+    ):
+        return None
+
+    return repair_ster_mode(data)
 
 
 def missing_chunk_data_byte(data: bytes, findings: Iterable[object]) -> Any | None:
@@ -861,6 +1232,11 @@ def partial_idat_blackfill(data: bytes, findings: Iterable[object]) -> Any | Non
     ):
         return None
 
+    if has_finding(findings, "bad adaptive filter"):
+        repaired_invalid_filter = rebuild_invalid_filter_type_as_filter0(data)
+        if repaired_invalid_filter is not None:
+            return repaired_invalid_filter
+
     return rebuild_partial_idat_blackfill(data)
 
 
@@ -880,6 +1256,12 @@ def automatic_repair(
         return hist_out_of_place_cleanup(data, findings)
     if name == "pcal_out_of_place_cleanup":
         return pcal_out_of_place_cleanup(data, findings)
+    if name == "splt_out_of_place_cleanup":
+        return splt_out_of_place_cleanup(data, findings)
+    if name == "ster_out_of_place_cleanup":
+        return ster_out_of_place_cleanup(data, findings)
+    if name == "splt_payload_cleanup":
+        return splt_payload_cleanup(data, findings)
     if name == "duplicate_ihdr_cleanup":
         return duplicate_ihdr_cleanup(data, findings)
     if name == "duplicate_singleton_cleanup":
@@ -908,12 +1290,22 @@ def automatic_repair(
         return itxt_compression_flag(data, findings)
     if name == "itxt_compression_method":
         return itxt_compression_method(data, findings)
+    if name == "ztxt_compression_method":
+        return ztxt_compression_method(data, findings)
+    if name == "ztxt_data_format":
+        return ztxt_data_format(data, findings)
+    if name == "text_null_bytes":
+        return text_null_bytes(data, findings)
     if name == "offs_length":
         return offs_length(data, findings)
     if name == "phys_length":
         return phys_length(data, findings)
+    if name == "scal_payload":
+        return scal_payload(data, findings)
     if name == "time_length":
         return time_length(data, findings)
+    if name == "time_value_range":
+        return time_value_range(data, findings)
     if name == "trns_length":
         return trns_length(data, findings)
     if name == "sbit_length":
@@ -922,6 +1314,8 @@ def automatic_repair(
         return srgb_length(data, findings)
     if name == "ster_length":
         return ster_length(data, findings)
+    if name == "ster_mode":
+        return ster_mode(data, findings)
     if name == "idat_interruption_cleanup":
         return idat_interruption_cleanup(data, findings)
     if name == "known_chunk_type_case":

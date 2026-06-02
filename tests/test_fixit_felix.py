@@ -334,6 +334,9 @@ def test_automatic_repair_order_keeps_legacy_priority():
         "color_profile_cleanup",
         "hist_out_of_place_cleanup",
         "pcal_out_of_place_cleanup",
+        "splt_out_of_place_cleanup",
+        "ster_out_of_place_cleanup",
+        "splt_payload_cleanup",
         "duplicate_ihdr_cleanup",
         "duplicate_singleton_cleanup",
         "plte_cleanup",
@@ -345,13 +348,19 @@ def test_automatic_repair_order_keeps_legacy_priority():
         "itxt_keyword_length",
         "itxt_compression_flag",
         "itxt_compression_method",
+        "ztxt_compression_method",
+        "ztxt_data_format",
+        "text_null_bytes",
         "offs_length",
         "phys_length",
+        "scal_payload",
         "time_length",
+        "time_value_range",
         "trns_length",
         "sbit_length",
         "srgb_length",
         "ster_length",
+        "ster_mode",
         "idat_interruption_cleanup",
         "known_chunk_type_case",
         "unknown_private_critical_removal",
@@ -359,6 +368,94 @@ def test_automatic_repair_order_keeps_legacy_priority():
         "ihdr_rebuild",
         "partial_idat_blackfill",
     )
+
+
+def test_automatic_repair_intent_describes_matching_route():
+    message = fixit_felix.automatic_repair_intent(
+        "ihdr_rebuild",
+        ["GetInfo_Error_0:-IHDR Compression Algorithms : Wrong value must be 0"],
+    )
+
+    assert message is not None
+    assert "IHDR is not trustworthy" in message
+    scal_message = fixit_felix.automatic_repair_intent(
+        "scal_payload",
+        ["Libpng_Error_0:libpng warning: sCAL: bad width format"],
+    )
+    assert scal_message is not None
+    assert "sCAL physical-scale metadata is malformed" in scal_message
+    splt_message = fixit_felix.automatic_repair_intent(
+        "splt_out_of_place_cleanup",
+        ["CheckChunkOrder_Error_0:-Missplaced"],
+    )
+    assert splt_message is not None
+    assert "sPLT is out of order" in splt_message
+    ster_message = fixit_felix.automatic_repair_intent(
+        "ster_out_of_place_cleanup",
+        ["CheckChunkOrder_Error_0:-sTER chunk must appear before the first IDAT chunk"],
+    )
+    assert ster_message is not None
+    assert "sTER is out of order" in ster_message
+    ster_mode_message = fixit_felix.automatic_repair_intent(
+        "ster_mode",
+        ["GetInfo_Error_0:-sTER should be 0 or 1"],
+    )
+    assert ster_mode_message is not None
+    assert "sTER stereo-layout mode is invalid" in ster_mode_message
+    splt_payload_message = fixit_felix.automatic_repair_intent(
+        "splt_payload_cleanup",
+        ["GetInfo_Error_0:-Wrong Red sPLT length"],
+    )
+    assert splt_payload_message is not None
+    assert "sPLT metadata is malformed" in splt_payload_message
+    splt_sample_depth_message = fixit_felix.automatic_repair_intent(
+        "splt_payload_cleanup",
+        ["GetInfo_Error_0:-Sample depth is not correct it must be 8 or 16"],
+    )
+    assert splt_sample_depth_message is not None
+    assert "sPLT metadata is malformed" in splt_sample_depth_message
+    text_null_message = fixit_felix.automatic_repair_intent(
+        "text_null_bytes",
+        ["GetInfo_Error_0:-tEXt text must not contain null bytes"],
+    )
+    assert text_null_message is not None
+    assert "tEXt payload contains null bytes" in text_null_message
+    ztxt_method_message = fixit_felix.automatic_repair_intent(
+        "ztxt_compression_method",
+        ["GetInfo_Error_0:-zTXt Compression Method must be 0"],
+    )
+    assert ztxt_method_message is not None
+    assert "zTXt compression method is invalid" in ztxt_method_message
+    ztxt_data_message = fixit_felix.automatic_repair_intent(
+        "ztxt_data_format",
+        ["GetInfo_Error_0:-zTXt Text Error:Error -3 while decompressing data"],
+    )
+    assert ztxt_data_message is not None
+    assert "zTXt compressed text stream is invalid" in ztxt_data_message
+    trns_message = fixit_felix.automatic_repair_intent(
+        "trns_length",
+        ["GetInfo_Error_0:-IHDR Color IHDR Color Have to be either 0,2 or 3 when used with tRNS"],
+    )
+    assert trns_message is not None
+    assert "tRNS payload does not fit the color type" in trns_message
+    time_value_message = fixit_felix.automatic_repair_intent(
+        "time_value_range",
+        ["GetInfo_Error_0:-Month value is not valid 0"],
+    )
+    assert time_value_message is not None
+    assert "tIME timestamp contains impossible values" in time_value_message
+    assert fixit_felix.automatic_repair_intent("plte_cleanup", ["Wrong Crc"]) is None
+
+
+def test_automatic_repair_failure_explains_private_compression_false_positive():
+    message = fixit_felix.automatic_repair_failure_explanation(
+        "ihdr_rebuild",
+        ["GetInfo_Error_0:-IHDR Compression Algorithms : Wrong value must be 0"],
+    )
+
+    assert message is not None
+    assert "Private compression probe refused" in message
+    assert "valid PNG scanlines" in message
 
 
 def test_effective_pandora_box_len_preserves_bad_next_name_adjustment():
@@ -767,6 +864,103 @@ def test_pcal_out_of_place_cleanup_moves_pcal_warning():
     ]
 
 
+def test_splt_out_of_place_cleanup_moves_splt_warning():
+    original = (BROKEN_FIXTURES / "splt_after_idat.png").read_bytes()
+
+    assert fixit_felix.splt_out_of_place_cleanup(original, []) is None
+
+    repaired = fixit_felix.splt_out_of_place_cleanup(
+        original,
+        ["LibpngCheck_Error_0:libpng warning: sPLT: out of place"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "moved sPLT chunk(s) before first IDAT"
+    assert validate_png_structure(repaired.data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)] == [
+        b"IHDR",
+        b"gAMA",
+        b"sPLT",
+        b"IDAT",
+        b"IEND",
+    ]
+
+
+def test_splt_out_of_place_cleanup_handles_legacy_missplaced_finding():
+    original = (BROKEN_FIXTURES / "splt_after_idat.png").read_bytes()
+
+    repaired = fixit_felix.splt_out_of_place_cleanup(
+        original,
+        ["CheckChunkOrder_Error_0:-Missplaced"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "moved sPLT chunk(s) before first IDAT"
+
+
+def test_ster_out_of_place_cleanup_moves_ster_warning():
+    original = (BROKEN_FIXTURES / "ster_after_idat.png").read_bytes()
+
+    assert fixit_felix.ster_out_of_place_cleanup(original, []) is None
+
+    repaired = fixit_felix.ster_out_of_place_cleanup(
+        original,
+        ["CheckChunkOrder_Error_0:-sTER chunk must appear before the first IDAT chunk"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "moved sTER chunk(s) before first IDAT"
+    assert validate_png_structure(repaired.data).ok
+    assert [chunk.chunk_type for chunk in iter_chunks(repaired.data)] == [
+        b"IHDR",
+        b"gAMA",
+        b"PLTE",
+        b"sTER",
+        b"IDAT",
+        b"IEND",
+    ]
+
+
+def test_splt_payload_cleanup_builds_repair_choice_plan():
+    original = (BROKEN_FIXTURES / "splt_duplicate_name.png").read_bytes()
+
+    assert fixit_felix.splt_payload_cleanup(original, []) is None
+
+    plan = fixit_felix.splt_payload_cleanup(
+        original,
+        [
+            "GetInfo_Error_0:-Wrong Red sPLT length",
+            "GetInfo_Error_1:-sPLT can be used multiple times but cannot share the same name.",
+        ],
+    )
+
+    assert plan is not None
+    assert plan.strategy == "sPLT payload repair/removal choice"
+    assert plan.repair_repair is not None
+    assert plan.repair_repair.strategy == "repaired malformed/duplicate sPLT chunk(s)"
+    assert plan.remove_repair.strategy == "removed malformed/duplicate sPLT chunk(s)"
+    assert validate_png_structure(plan.repair_repair.data).ok
+    assert validate_png_structure(plan.remove_repair.data).ok
+
+
+def test_splt_payload_cleanup_handles_invalid_sample_depth_finding():
+    original = (BROKEN_FIXTURES / "splt_sample_depth.png").read_bytes()
+
+    plan = fixit_felix.splt_payload_cleanup(
+        original,
+        ["GetInfo_Error_0:-Sample depth is not correct it must be 8 or 16"],
+    )
+
+    assert plan is not None
+    assert plan.strategy == "sPLT payload repair/removal choice"
+    assert plan.repair_repair is not None
+    assert validate_png_structure(plan.repair_repair.data).ok
+    assert [chunk.data for chunk in iter_chunks(plan.repair_repair.data) if chunk.chunk_type == b"sPLT"] == [
+        b"Bad suggestion\x00\x08\x00\x00\x00\xff\x00\x00"
+    ]
+    assert validate_png_structure(plan.remove_repair.data).ok
+
+
 def test_hist_out_of_place_cleanup_ignores_plain_multiple_finding():
     single = build_png_with_color_chunk(3, b"hIST", b"\x00\x01" * 20)
     duplicate = single.replace(
@@ -1132,6 +1326,72 @@ def test_itxt_compression_method_requires_matching_finding():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_ztxt_compression_method_requires_matching_finding():
+    compressed_text = zlib.compress(b"Cucumber")
+    ztxt = b"Vegetable\x00\x03" + compressed_text
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
+        + build_png_chunk(b"zTXt", ztxt)
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+    assert fixit_felix.ztxt_compression_method(original, []) is None
+
+    repaired = fixit_felix.ztxt_compression_method(
+        original,
+        ["GetInfo_Error_0:-zTXt Compression Method must be 0"],
+    )
+
+    assert repaired is not None
+    assert repaired.new_method == 0
+    chunk = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"zTXt")
+    assert chunk.data == b"Vegetable\x00\x00" + compressed_text
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_ztxt_data_format_requires_matching_finding():
+    compressed_text = zlib.compress(b"Cucumber")
+    ztxt = b"Vegetable\x00\x00" + b"\x03" + compressed_text[1:]
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
+        + build_png_chunk(b"zTXt", ztxt)
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + IEND_CHUNK
+    )
+
+    assert fixit_felix.ztxt_data_format(original, []) is None
+
+    repaired = fixit_felix.ztxt_data_format(
+        original,
+        ["GetInfo_Error_0:-zTXt Text Error:Error -3 while decompressing data"],
+    )
+
+    assert repaired is not None
+    chunk = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"zTXt")
+    assert chunk.data == b"Vegetable\x00\x00" + compressed_text
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_text_null_bytes_requires_matching_finding():
+    original = (BROKEN_FIXTURES / "text_trailing_null.png").read_bytes()
+
+    assert fixit_felix.text_null_bytes(original, []) is None
+
+    repaired = fixit_felix.text_null_bytes(
+        original,
+        ["GetInfo_Error_0:-tEXt text must not contain null bytes"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "removed 1 null byte(s) from tEXt text payload and rebuilt CRC"
+    text = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"tEXt")
+    assert text.data == b"Title\x00PngSuite"
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_offs_length_requires_matching_finding():
     valid = build_rgb_png(1, 1, b"\x00\x00\x00\x00")
     ihdr = next(iter_chunks(valid))
@@ -1198,6 +1458,25 @@ def test_phys_length_normalizes_invalid_unit_finding():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_scal_payload_requires_scal_finding():
+    original = (BROKEN_FIXTURES / "scal_floating_point.png").read_bytes()
+
+    assert fixit_felix.scal_payload(original, []) is None
+
+    repaired = fixit_felix.scal_payload(
+        original,
+        ["Libpng_Error_0:libpng warning: sCAL: bad width format"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == (
+        "removed invalid sCAL chunk: "
+        "sCAL pixel width must be a PNG floating-point value"
+    )
+    assert not any(chunk.chunk_type == b"sCAL" for chunk in iter_chunks(repaired.data))
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_time_length_requires_matching_finding():
     valid = build_rgb_png(1, 1, b"\x00\x00\x00\x00")
     ihdr = next(iter_chunks(valid))
@@ -1221,6 +1500,26 @@ def test_time_length_requires_matching_finding():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_time_value_range_requires_matching_finding():
+    original = (BROKEN_FIXTURES / "time_value_range.png").read_bytes()
+
+    assert fixit_felix.time_value_range(original, []) is None
+
+    repaired = fixit_felix.time_value_range(
+        original,
+        ["GetInfo_Error_0:-Month value is not valid 0"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == (
+        "normalized tIME from 2000-00-01 12:34:56 "
+        "to 2000-01-01 12:34:56 and rebuilt CRC"
+    )
+    time = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"tIME")
+    assert time.data == bytes.fromhex("07d001010c2238")
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_trns_length_requires_matching_finding():
     original = build_png_with_color_chunk(0, b"tRNS", b"")
 
@@ -1238,6 +1537,46 @@ def test_trns_length_requires_matching_finding():
     trns = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"tRNS")
     assert trns.data == b"\x00\x00"
     assert validate_png_structure(repaired.data).ok
+
+
+def test_trns_length_removes_bad_color_type_finding():
+    original = (BROKEN_FIXTURES / "trns_bad_color_type.png").read_bytes()
+    ihdr = next(chunk for chunk in iter_chunks(original) if chunk.chunk_type == b"IHDR")
+
+    assert fixit_felix.trns_length(original, []) is None
+
+    repaired = fixit_felix.trns_length(
+        original,
+        ["GetInfo_Error_0:-IHDR Color IHDR Color Have to be either 0,2 or 3 when used with tRNS"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "removed tRNS chunk not allowed for IHDR color type 6"
+    assert not any(chunk.chunk_type == b"tRNS" for chunk in iter_chunks(repaired.data))
+    fixed_ihdr = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"IHDR")
+    assert fixed_ihdr.data == ihdr.data
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_trns_length_builds_choice_plan_for_palette_overflow():
+    original = (BROKEN_FIXTURES / "trns_too_many_entries.png").read_bytes()
+
+    repaired = fixit_felix.trns_length(
+        original,
+        ["GetInfo_Error_0:-tRNS Alpha indexes palettes entries must not be superior to PLTE entries"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "indexed tRNS trim/removal choice"
+    assert repaired.trim_repair.strategy == (
+        "trimmed indexed tRNS length from 200 to PLTE entry count 173 and rebuilt CRC"
+    )
+    assert repaired.remove_repair.strategy == "removed overlong indexed tRNS chunk"
+    trns = next(chunk for chunk in iter_chunks(repaired.trim_repair.data) if chunk.chunk_type == b"tRNS")
+    assert trns.length == 173
+    assert validate_png_structure(repaired.trim_repair.data).ok
+    assert not any(chunk.chunk_type == b"tRNS" for chunk in iter_chunks(repaired.remove_repair.data))
+    assert validate_png_structure(repaired.remove_repair.data).ok
 
 
 def test_sbit_length_requires_matching_finding():
@@ -1259,6 +1598,24 @@ def test_sbit_length_requires_matching_finding():
     assert repaired.strategy == "trimmed sBIT length from 4 to 3 and rebuilt CRC"
     sbit = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sBIT")
     assert sbit.data == b"\x01\x01\x01"
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_sbit_length_repairs_sample_depth_finding():
+    valid = build_rgb_png(1, 1, b"\x00\x00\x00\x00")
+    ihdr = next(iter_chunks(valid))
+    ihdr_end = ihdr.offset + 12 + ihdr.length
+    original = valid[:ihdr_end] + build_png_chunk(b"sBIT", b"\xff\x05\x05") + valid[ihdr_end:]
+
+    repaired = fixit_felix.sbit_length(
+        original,
+        ["GetInfo_Error_0:-sBit red value (must not be greater than 8)"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "normalized sBIT sample depths from ff0505 to 080505 and rebuilt CRC"
+    sbit = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sBIT")
+    assert sbit.data == bytes.fromhex("080505")
     assert validate_png_structure(repaired.data).ok
 
 
@@ -1301,6 +1658,23 @@ def test_ster_length_requires_matching_finding():
     assert repaired.old_length == 2
     assert repaired.new_length == 1
     assert repaired.strategy == "trimmed sTER length from 2 to 1 and rebuilt CRC"
+    ster = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sTER")
+    assert ster.data == b"\x00"
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_ster_mode_requires_matching_finding():
+    original = (BROKEN_FIXTURES / "ster_mode.png").read_bytes()
+
+    assert fixit_felix.ster_mode(original, []) is None
+
+    repaired = fixit_felix.ster_mode(
+        original,
+        ["GetInfo_Error_0:-sTER should be 0 or 1"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "normalized sTER mode from 02 to 00 and rebuilt CRC"
     ster = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"sTER")
     assert ster.data == b"\x00"
     assert validate_png_structure(repaired.data).ok
@@ -1373,6 +1747,20 @@ def test_ihdr_rebuild_trims_overlong_ihdr_payload():
     assert next(iter_chunks(repaired.data)).length == 13
 
 
+def test_ihdr_rebuild_converts_private_compression_method():
+    original = (BROKEN_FIXTURES / "private_compression_method.png").read_bytes()
+
+    repaired = fixit_felix.ihdr_rebuild(
+        original,
+        ["GetInfo_Error_0:-IHDR Compression Algorithms : Wrong value must be 0. StructIndex:5"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "converted private bzip2 compression method to standard zlib IDAT"
+    assert validate_png_structure(repaired.data).ok
+    assert next(iter_chunks(repaired.data)).data[10] == 0
+
+
 def test_partial_idat_blackfill_requires_idat_finding_and_partial_stream():
     filtered = b"".join(b"\x00" + bytes((row, row, row)) for row in range(10))
     compressed = zlib.compress(filtered)
@@ -1391,6 +1779,38 @@ def test_partial_idat_blackfill_requires_idat_finding_and_partial_stream():
 
     assert repaired is not None
     assert "partial-idat-blackfill" in repaired.strategy
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_partial_idat_blackfill_normalizes_complete_invalid_filter_type():
+    original = build_rgb_png(1, 2, b"\x80abc" + b"\x00def")
+
+    repaired = fixit_felix.partial_idat_blackfill(
+        original,
+        ["Libpng_Error_0:libpng error: bad adaptive filter value"],
+    )
+
+    assert repaired is not None
+    assert "idat-filter0-normalize" in repaired.strategy
+    assert validate_png_structure(repaired.data).ok
+
+    idat_stream = b"".join(
+        chunk.data for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"IDAT"
+    )
+    rebuilt_scanlines = zlib.decompress(idat_stream)
+    assert rebuilt_scanlines == b"\x00abc" + b"\x00def"
+
+
+def test_partial_idat_blackfill_repairs_private_filter_type_fixture():
+    original = (BROKEN_FIXTURES / "private_filter_type.png").read_bytes()
+
+    repaired = fixit_felix.partial_idat_blackfill(
+        original,
+        ["Libpng_Error_0:libpng error: bad adaptive filter value"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "idat-filter0-normalize replaced 1 invalid scanline filter bytes"
     assert validate_png_structure(repaired.data).ok
 
 
@@ -1446,6 +1866,11 @@ def main():
         ("Applied repair formats legacy note and save suffix", test_applied_repair_formats_legacy_note_and_save_suffix),
         ("Applied repair adds IHDR metadata", test_applied_repair_adds_ihdr_metadata_when_available),
         ("Automatic repair order keeps legacy priority", test_automatic_repair_order_keeps_legacy_priority),
+        ("Automatic repair intent describes route", test_automatic_repair_intent_describes_matching_route),
+        (
+            "Automatic repair failure explains private compression false positive",
+            test_automatic_repair_failure_explains_private_compression_false_positive,
+        ),
         ("Effective PandoraBox len preserves Bad_Next_Name adjustment", test_effective_pandora_box_len_preserves_bad_next_name_adjustment),
         ("Repair work items run automatic repairs first", test_repair_work_items_runs_automatic_repairs_before_pandorabox_routes),
         ("Repair work items respect skip-bad-crc fallthrough", test_repair_work_items_respects_skip_bad_crc_route_fallthrough),
@@ -1468,6 +1893,17 @@ def main():
             test_hist_out_of_place_cleanup_handles_structure_error_text,
         ),
         ("pCAL out-of-place cleanup moves warning", test_pcal_out_of_place_cleanup_moves_pcal_warning),
+        ("sPLT out-of-place cleanup moves warning", test_splt_out_of_place_cleanup_moves_splt_warning),
+        (
+            "sPLT out-of-place cleanup handles legacy missplaced finding",
+            test_splt_out_of_place_cleanup_handles_legacy_missplaced_finding,
+        ),
+        ("sTER out-of-place cleanup moves warning", test_ster_out_of_place_cleanup_moves_ster_warning),
+        ("sPLT payload cleanup builds choice plan", test_splt_payload_cleanup_builds_repair_choice_plan),
+        (
+            "sPLT payload cleanup handles invalid sample depth",
+            test_splt_payload_cleanup_handles_invalid_sample_depth_finding,
+        ),
         (
             "hIST out-of-place cleanup ignores plain Multiple finding",
             test_hist_out_of_place_cleanup_ignores_plain_multiple_finding,
@@ -1498,22 +1934,40 @@ def main():
         ("iTXt keyword length requires matching finding", test_itxt_keyword_length_requires_matching_finding),
         ("iTXt compression flag requires matching finding", test_itxt_compression_flag_requires_matching_finding),
         ("iTXt compression method requires matching finding", test_itxt_compression_method_requires_matching_finding),
+        ("zTXt compression method requires matching finding", test_ztxt_compression_method_requires_matching_finding),
+        ("zTXt data format requires matching finding", test_ztxt_data_format_requires_matching_finding),
+        ("tEXt null bytes requires matching finding", test_text_null_bytes_requires_matching_finding),
         ("oFFs length requires matching finding", test_offs_length_requires_matching_finding),
         ("pHYs length requires matching finding", test_phys_length_requires_matching_finding),
         ("pHYs invalid unit finding", test_phys_length_normalizes_invalid_unit_finding),
+        ("sCAL payload requires matching finding", test_scal_payload_requires_scal_finding),
         ("tIME length requires matching finding", test_time_length_requires_matching_finding),
+        ("tIME value requires matching finding", test_time_value_range_requires_matching_finding),
         ("tRNS length requires matching finding", test_trns_length_requires_matching_finding),
+        ("tRNS bad color type finding", test_trns_length_removes_bad_color_type_finding),
+        ("tRNS palette overflow choice plan", test_trns_length_builds_choice_plan_for_palette_overflow),
         ("sBIT length requires matching finding", test_sbit_length_requires_matching_finding),
+        ("sBIT sample depth finding", test_sbit_length_repairs_sample_depth_finding),
         ("sRGB length requires matching finding", test_srgb_length_requires_matching_finding),
         ("sTER length requires matching finding", test_ster_length_requires_matching_finding),
+        ("sTER mode requires matching finding", test_ster_mode_requires_matching_finding),
         ("Missing chunk data byte requires CRC or no-next finding", test_missing_chunk_data_byte_requires_crc_or_no_next_finding),
         ("Known chunk type case requires wrong ancillary finding", test_known_chunk_type_case_requires_wrong_ancillary_finding),
         ("Unknown private critical removal is standalone salvage", test_unknown_private_critical_removal_is_standalone_salvage),
         ("IHDR rebuild requires IHDR finding", test_ihdr_rebuild_requires_ihdr_finding),
         ("IHDR rebuild trims overlong IHDR", test_ihdr_rebuild_trims_overlong_ihdr_payload),
+        ("IHDR rebuild converts private compression method", test_ihdr_rebuild_converts_private_compression_method),
         (
             "Partial IDAT blackfill requires IDAT finding",
             test_partial_idat_blackfill_requires_idat_finding_and_partial_stream,
+        ),
+        (
+            "Partial IDAT normalizes invalid filter type",
+            test_partial_idat_blackfill_normalizes_complete_invalid_filter_type,
+        ),
+        (
+            "Partial IDAT repairs private filter type fixture",
+            test_partial_idat_blackfill_repairs_private_filter_type_fixture,
         ),
         (
             "Automatic repair dispatches partial IDAT blackfill",
