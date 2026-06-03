@@ -193,15 +193,6 @@ The gallery writes:
     Folder_x.bad/Bruteforce_Previews/VisualCandidates/
     Folder_x.bad/_ULF.visual.json
 
-Ultimate resume artifacts use short names now:
-
-    Folder_x.bad/_ULF.checkpoint.jsonl
-    Folder_x.bad/_ULF.progress.json
-    Folder_x.bad/_ULF.Source.png
-
-Older `_UltimateMegaSuperLineFeedBruteForce.*` resume files are still accepted
-when resuming an existing run.
-
 When the gallery reaches its limit, better-ranked candidates still replace the
 current worst entry. The limit only bounds the saved gallery size. Without
 `-ulfr`, ranking uses structural signals and diversity hashes from
