@@ -318,6 +318,45 @@ def test_check_chunk_name_can_remove_unknown_private_after_prompt():
     assert any(call[0] == "remove_chunk" and call[1][0:2] == (16, 42) for call in calls)
 
 
+def test_check_chunk_name_defers_unknown_private_removal_when_findings_are_pending():
+    calls = []
+    runtime = build_runtime(
+        calls,
+        question=lambda question_id=None, question_hash=None, skipauto=False: calls.append(
+            ("question", question_id, question_hash, skipauto)
+        )
+        or True,
+    )
+    data = png_with_chunks(chunk_bytes(b"msOG", b"x"))
+
+    result = chunk_name_runtime.run_check_chunk_name(
+        runtime,
+        base_context(
+            all_chunks=(b"IHDR", b"IDAT", b"IEND"),
+            original_chunk_type=b"msOG",
+            current_type_offset=24,
+            current_type_offset_hex="0xc",
+            data_hex=data.hex(),
+            unresolved_findings=("GetInfo_Error_0:-gIFg length is not Valid :5 must be 4",),
+        ),
+        b"msOG",
+        "00000001",
+        b"IDAT",
+    )
+
+    assert result == "checkpoint-result"
+    assert not [call for call in calls if call[0] == "question"]
+    assert not [call for call in calls if call[0] == "remove_chunk"]
+    assert checkpoint_args(calls) == (
+        False,
+        False,
+        "CheckChunkName",
+        b"msOG",
+        ["-Name is valid for unknown private ancillary Chunk[b'msOG']."],
+        None,
+    )
+
+
 def test_check_chunk_name_explains_safe_unknown_private_before_prompt():
     calls = []
     runtime = build_runtime(calls)
@@ -387,6 +426,7 @@ def test_brute_chunk_prefers_single_crc_match_auto_name():
     calls = []
     runtime = build_runtime(
         calls,
+        name_shift=lambda: calls.append(("name_shift",)) or ["fixed", 7, 12],
         crc_matches=lambda candidates: calls.append(("crc_matches", tuple(candidates))) or [b"IDAT"],
     )
 
@@ -401,6 +441,65 @@ def test_brute_chunk_prefers_single_crc_match_auto_name():
 
     assert result == "auto-result"
     assert ("save_auto_name", (b"bad!", "Relics", b"IDAT", "stored CRC matched candidate chunk name")) in calls
+    assert ("name_shift",) not in calls
+
+
+def test_brute_chunk_prefers_scrabble_match_before_nameshift():
+    calls = []
+    runtime = build_runtime(
+        calls,
+        name_shift=lambda: calls.append(("name_shift",)) or ["fixed", 7, 12],
+    )
+
+    result = chunk_name_runtime.run_brute_chunk(
+        runtime,
+        base_context(
+            chunks=(b"IHDR", b"PLTE", b"IDAT", b"IEND"),
+            all_chunks=(b"IHDR", b"gAMA", b"PLTE", b"IDAT", b"IEND"),
+            original_chunk_type=b"gaM_",
+        ),
+        b"gaM_",
+        b"IHDR",
+        "00000004",
+        "Relics",
+    )
+
+    solved_msg = (
+        "-Found Chunk[b'gaM_'] has wrong name at offset: 0x8 "
+        "but BruteChunk changed 1 bytes turning it into a valid Chunk name: gAMA"
+    )
+    assert result == "checkpoint-result"
+    assert checkpoint_args(calls) == (
+        True,
+        True,
+        "CheckChunkName",
+        b"gaM_",
+        [solved_msg],
+        "67414d41",
+        16,
+        24,
+        b"gaM_",
+        solved_msg,
+        "Relics",
+    )
+    assert ("name_shift",) not in calls
+
+
+def test_ask_pokemon_choice_eof_routes_to_length_probe():
+    calls = []
+
+    def asker(prompt):
+        calls.append(("ask", prompt))
+        raise EOFError
+
+    choice = chunk_name_runtime.ask_pokemon_choice_with_input(
+        asker,
+        2,
+        lambda value: calls.append(("invalid", value)),
+    )
+
+    assert choice == decisions.PokemonChoice("length")
+    assert calls == [("ask", "WHO'S THAT POKEMON !? :"), ("invalid", "<eof>")]
 
 
 def test_brute_chunk_pokemon_length_choice_routes_nearby_chunk():
@@ -417,7 +516,7 @@ def test_brute_chunk_pokemon_length_choice_routes_nearby_chunk():
     )
 
     assert result == ()
-    assert ("ask_pokemon_choice", 2) in calls
+    assert ("ask_pokemon_choice", 3) in calls
     assert ("nearby_chunk", (b"zzzz", "00000004", b"IHDR", False)) in calls
 
 

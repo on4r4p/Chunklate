@@ -70,6 +70,7 @@ from chunklate.png import (
     repair_linefeed_conversion,
     repair_missing_ihdr_from_idat,
     repair_missing_chunk_data_byte,
+    repair_missing_chunk_length_zero_byte,
     repair_nonconsecutive_idat_interruption,
     repair_offs_length,
     repair_optional_truecolor_plte,
@@ -1347,6 +1348,19 @@ def test_repair_missing_chunk_data_byte_uses_shifted_crc():
     chunks = list(iter_chunks(repaired.data))
     assert [chunk.chunk_type for chunk in chunks] == [b"IHDR", b"gAMA", b"PLTE", b"IDAT", b"IEND"]
     assert all(chunk.crc_ok for chunk in chunks)
+
+
+def test_repair_missing_chunk_length_zero_byte_restores_shifted_length_field():
+    original = (REPAIR_FIXTURES / "Bad-Chunk-Length-Missing-Bit.png").read_bytes()
+
+    repaired = repair_missing_chunk_length_zero_byte(original)
+
+    assert repaired is not None
+    assert "Chunk length has been corrupted due to some missing bytes" in repaired.strategy
+    chunks = list(iter_chunks(repaired.data))
+    assert [chunk.chunk_type for chunk in chunks] == [b"IHDR", b"gAMA", b"PLTE", b"IDAT", b"IEND"]
+    assert all(chunk.crc_ok for chunk in chunks)
+    assert validate_png_structure(repaired.data).ok
 
 
 def test_repair_known_chunk_type_case_rebuilds_crc():
@@ -2902,6 +2916,10 @@ def main():
         ("Recover short cHRM from stored CRC", test_repair_chrm_length_uses_crc_proven_missing_byte),
         ("Infer short cHRM after CRC miss", test_repair_chrm_length_infers_when_crc_does_not_match),
         ("Repair missing data byte using shifted CRC", test_repair_missing_chunk_data_byte_uses_shifted_crc),
+        (
+            "Repair missing chunk length zero byte",
+            test_repair_missing_chunk_length_zero_byte_restores_shifted_length_field,
+        ),
         ("Repair known chunk type case and CRC", test_repair_known_chunk_type_case_rebuilds_crc),
         ("Reject known chunk type case with incoherent data", test_repair_known_chunk_type_case_requires_coherent_data),
         ("Repair coherent sRGB chunk type case", test_repair_known_chunk_type_case_accepts_other_coherent_chunks),

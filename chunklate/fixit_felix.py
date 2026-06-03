@@ -26,6 +26,7 @@ from .png import (
     repair_itxt_compression_method,
     repair_known_chunk_type_case,
     repair_missing_chunk_data_byte,
+    repair_missing_chunk_length_zero_byte,
     repair_nonconsecutive_idat_interruption,
     repair_offs_length,
     repair_optional_truecolor_plte,
@@ -45,6 +46,7 @@ from .png import (
     repair_time_value_range,
     repair_trns_length,
     repair_unknown_private_critical_chunks,
+    repair_wrong_chunk_type_name,
     repair_ztxt_compression_method,
     repair_ztxt_data_format,
 )
@@ -362,7 +364,13 @@ AUTOMATIC_REPAIR_INTENTS: dict[
     ),
     "partial_idat_blackfill": (
         "The image data is damaged. I am going to salvage complete scanlines and rebuild the IDAT stream.",
-        (("IDAT",), ("Not enough image data",), ("Too much image data",), ("bad adaptive filter",)),
+        (
+            ("IDAT",),
+            ("Not enough image data",),
+            ("Too much image data",),
+            ("bad adaptive filter",),
+            ("scanline filter type is invalid",),
+        ),
     ),
 }
 GOOD_IEND_HEX = "0000000049454e44ae426082"
@@ -1187,14 +1195,20 @@ def missing_chunk_data_byte(data: bytes, findings: Iterable[object]) -> Any | No
     if not (has_finding(findings, "Wrong Crc") or has_finding(findings, "No NextChunk")):
         return None
 
-    return repair_missing_chunk_data_byte(data)
+    return repair_missing_chunk_data_byte(data) or repair_missing_chunk_length_zero_byte(data)
 
 
 def known_chunk_type_case(data: bytes, findings: Iterable[object], known_chunk_types: Iterable[bytes]) -> Any | None:
-    if not has_finding(findings, "Wrong Ancillary in known Chunk name"):
+    if not (
+        has_finding(findings, "Wrong Ancillary in known Chunk name")
+        or has_finding(findings, "Wrong Chunk name")
+    ):
         return None
 
-    return repair_known_chunk_type_case(data, known_chunk_types)
+    return (
+        repair_known_chunk_type_case(data, known_chunk_types)
+        or repair_wrong_chunk_type_name(data, known_chunk_types)
+    )
 
 
 def unknown_private_critical_removal(data: bytes, known_chunk_types: Iterable[bytes]) -> Any | None:
@@ -1229,10 +1243,11 @@ def partial_idat_blackfill(data: bytes, findings: Iterable[object]) -> Any | Non
         or has_finding(findings, "Not enough image data")
         or has_finding(findings, "Too much image data")
         or has_finding(findings, "bad adaptive filter")
+        or has_finding(findings, "scanline filter type is invalid")
     ):
         return None
 
-    if has_finding(findings, "bad adaptive filter"):
+    if has_finding(findings, "bad adaptive filter") or has_finding(findings, "scanline filter type is invalid"):
         repaired_invalid_filter = rebuild_invalid_filter_type_as_filter0(data)
         if repaired_invalid_filter is not None:
             return repaired_invalid_filter

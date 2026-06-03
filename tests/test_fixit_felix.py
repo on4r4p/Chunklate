@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chunklate import fixit_felix
+from chunklate import fixit_felix, specs
 from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks, validate_png_structure
 
 
@@ -1707,6 +1707,37 @@ def test_known_chunk_type_case_requires_wrong_ancillary_finding():
     assert repaired.repaired_name == "gAMA"
 
 
+def test_known_chunk_type_case_repairs_wrong_public_chunk_name_by_similarity():
+    original = read_fixture("chunk_type.png")
+
+    repaired = fixit_felix.known_chunk_type_case(
+        original,
+        ["CheckChunkName_Error_0:-Found Chunk[b'gaM_'] has Wrong Chunk name at offset: 0x25"],
+        specs.ALLCHUNKS,
+    )
+
+    assert repaired is not None
+    assert repaired.original_name == "gaM_"
+    assert repaired.repaired_name == "gAMA"
+    assert "turning it into a valid Chunk name: gAMA" in repaired.strategy
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_known_chunk_type_case_repairs_wrong_public_chunk_name_by_stored_crc():
+    original = read_fixture("Wrong-Chunk-Name-Bad-Crc.png")
+
+    repaired = fixit_felix.known_chunk_type_case(
+        original,
+        ["CheckChunkName_Error_0:-Found Chunk[b'\\xabDET'] has Wrong Chunk name at offset: 0x57"],
+        specs.ALLCHUNKS,
+    )
+
+    assert repaired is not None
+    assert repaired.repaired_name == "IDAT"
+    assert "stored CRC matched candidate chunk name" in repaired.strategy
+    assert validate_png_structure(repaired.data).ok
+
+
 def test_unknown_private_critical_removal_is_standalone_salvage():
     original = read_fixture("Unhandled-Critical-Chunk.png")
 
@@ -1799,6 +1830,19 @@ def test_partial_idat_blackfill_normalizes_complete_invalid_filter_type():
     )
     rebuilt_scanlines = zlib.decompress(idat_stream)
     assert rebuilt_scanlines == b"\x00abc" + b"\x00def"
+
+
+def test_partial_idat_blackfill_normalizes_structure_filter_type_error():
+    original = build_rgb_png(1, 2, b"\x80abc" + b"\x00def")
+
+    repaired = fixit_felix.partial_idat_blackfill(
+        original,
+        ["Libpng_Error_0:libpng error: IDAT scanline filter type is invalid"],
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "idat-filter0-normalize replaced 1 invalid scanline filter bytes"
+    assert validate_png_structure(repaired.data).ok
 
 
 def test_partial_idat_blackfill_repairs_private_filter_type_fixture():
@@ -1953,6 +1997,14 @@ def main():
         ("sTER mode requires matching finding", test_ster_mode_requires_matching_finding),
         ("Missing chunk data byte requires CRC or no-next finding", test_missing_chunk_data_byte_requires_crc_or_no_next_finding),
         ("Known chunk type case requires wrong ancillary finding", test_known_chunk_type_case_requires_wrong_ancillary_finding),
+        (
+            "Known chunk type case repairs public typo by similarity",
+            test_known_chunk_type_case_repairs_wrong_public_chunk_name_by_similarity,
+        ),
+        (
+            "Known chunk type case repairs public typo by stored CRC",
+            test_known_chunk_type_case_repairs_wrong_public_chunk_name_by_stored_crc,
+        ),
         ("Unknown private critical removal is standalone salvage", test_unknown_private_critical_removal_is_standalone_salvage),
         ("IHDR rebuild requires IHDR finding", test_ihdr_rebuild_requires_ihdr_finding),
         ("IHDR rebuild trims overlong IHDR", test_ihdr_rebuild_trims_overlong_ihdr_payload),
@@ -1964,6 +2016,10 @@ def main():
         (
             "Partial IDAT normalizes invalid filter type",
             test_partial_idat_blackfill_normalizes_complete_invalid_filter_type,
+        ),
+        (
+            "Partial IDAT normalizes structure filter type error",
+            test_partial_idat_blackfill_normalizes_structure_filter_type_error,
         ),
         (
             "Partial IDAT repairs private filter type fixture",

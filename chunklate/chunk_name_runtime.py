@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 import zlib
 
-from . import ancillary, prompts, sorting
+from . import ancillary, decisions, prompts, sorting, specs
 
 
 LegacyCall = Callable[..., Any]
@@ -27,6 +27,7 @@ class ChunkNameContext:
     data_hex: str = ""
     debug: bool = False
     pause_debug: bool = False
+    unresolved_findings: tuple[Any, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -247,6 +248,9 @@ def _private_chunk_remove_prompt(
     semantics: ancillary.ChunkNameSemantics,
     bounds: tuple[int, int],
 ) -> Any:
+    if context.unresolved_findings:
+        return None
+
     chunk_name = chunk_type.decode("ascii", errors="replace")
     copy_mode = "unsafe-to-copy" if semantics.is_unsafe_to_copy else "safe-to-copy"
     runtime.candy(
@@ -396,13 +400,10 @@ def run_brute_chunk(
         "Before going any further i need to check something real quick...",
         "com",
     )
-    shifted_result = _run_name_shift_probe(runtime, context, from_error)
-    if shifted_result is not None:
-        return shifted_result
 
     runtime.candy("Cowsay", " Maybe it's name got corrupted somehow. Let's see about that.", "com")
     excluded = runtime.check_chunk_order(last_chunk_type, "Fix")
-    candidates = [name for name in context.chunks if name not in excluded]
+    candidates = [name for name in context.all_chunks if name in specs.CHUNKS and name not in excluded]
 
     crc_matches = runtime.crc_matches(candidates)
     if len(crc_matches) == 1:
@@ -458,6 +459,10 @@ def run_brute_chunk(
     removal = runtime.unknown_private_critical_removal()
     if removal is not None:
         return removal
+
+    shifted_result = _run_name_shift_probe(runtime, context, from_error)
+    if shifted_result is not None:
+        return shifted_result
 
     return _run_pokemon_prompt(
         runtime,
@@ -661,7 +666,12 @@ def run_check_chunk_name(
 
 
 def ask_pokemon_choice_with_input(asker, candidate_count: int, on_invalid):
-    return prompts.ask_pokemon_choice(asker, candidate_count, on_invalid=on_invalid)
+    try:
+        return prompts.ask_pokemon_choice(asker, candidate_count, on_invalid=on_invalid)
+    except EOFError:
+        if on_invalid is not None:
+            on_invalid("<eof>")
+        return decisions.PokemonChoice("length")
 
 
 def build_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> ChunkNameRuntime:
@@ -681,10 +691,10 @@ def build_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> ChunkN
         unknown_private_critical_removal=lambda: namespace["FixItFelix_Try_Automatic_Repair"](
             "unknown_private_critical_removal"
         ),
-        ask_pokemon_choice=lambda count, on_invalid: prompts.ask_pokemon_choice(
+        ask_pokemon_choice=lambda count, on_invalid: ask_pokemon_choice_with_input(
             builtins.input,
             count,
-            on_invalid=on_invalid,
+            on_invalid,
         ),
         question=lambda question_id=None, question_hash=None, skipauto=False: namespace["Question"](
             question_id,
@@ -710,6 +720,7 @@ def build_chunk_name_context_from_namespace(namespace: dict[str, Any]) -> ChunkN
         data_hex=namespace["DATAX"],
         debug=namespace["DEBUG"],
         pause_debug=namespace["PAUSEDEBUG"],
+        unresolved_findings=tuple(namespace.get("PandoraBox", ())),
     )
 
 

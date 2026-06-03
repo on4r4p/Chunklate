@@ -8,6 +8,7 @@ import struct
 import zlib
 
 from .compression_signatures import decode_known_compression_payloads
+from . import specs
 
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -2219,6 +2220,139 @@ def repair_known_chunk_type_case(data: bytes, known_chunk_types: Iterable[bytes]
             original_name=chunk.name,
             repaired_name=canonical.decode("ascii"),
         )
+
+    return None
+
+
+def _standard_chunk_type_candidates(known_chunk_types: Iterable[bytes]) -> tuple[bytes, ...]:
+    standard_chunks = set(specs.CHUNKS)
+    return tuple(chunk_type for chunk_type in known_chunk_types if chunk_type in standard_chunks)
+
+
+def _replace_chunk_type_repair(
+    data: bytes,
+    chunk: PngChunk,
+    repaired_type: bytes,
+    strategy: str,
+) -> ChunkTypeRepair | None:
+    if repaired_type == chunk.chunk_type:
+        return None
+    if not png_chunk_data_is_coherent(repaired_type, chunk.data):
+        return None
+
+    repaired_chunk = build_png_chunk(repaired_type, chunk.data)
+    repaired = replace_png_chunk(data, chunk, repaired_chunk)
+    if not is_complete_png_with_valid_crc(repaired):
+        return None
+
+    return ChunkTypeRepair(
+        data=repaired,
+        strategy=strategy,
+        original_name=chunk.name,
+        repaired_name=repaired_type.decode("ascii", errors="replace"),
+    )
+
+
+def _same_position_score(left: bytes, right: bytes) -> int:
+    return sum(
+        1
+        for old, new in zip(left.lower(), right.lower())
+        if old == new
+    )
+
+
+def repair_wrong_chunk_type_name(data: bytes, known_chunk_types: Iterable[bytes]) -> ChunkTypeRepair | None:
+    known_chunk_types = _standard_chunk_type_candidates(known_chunk_types)
+    if not known_chunk_types:
+        return None
+
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return None
+
+    for chunk in chunks:
+        crc_matches = chunk_type_crc_matches(chunk.data, chunk.crc, known_chunk_types)
+        if len(crc_matches) == 1:
+            repaired_type = crc_matches[0]
+            repair = _replace_chunk_type_repair(
+                data,
+                chunk,
+                repaired_type,
+                "turning it into a valid Chunk name: %s; stored CRC matched candidate chunk name"
+                % repaired_type.decode("ascii", errors="replace"),
+            )
+            if repair is not None:
+                return repair
+
+        if len(chunk.chunk_type) != 4:
+            continue
+
+        scored = [
+            (_same_position_score(chunk.chunk_type, candidate), candidate)
+            for candidate in known_chunk_types
+            if candidate != chunk.chunk_type
+        ]
+        if not scored:
+            continue
+        scored.sort(key=lambda item: item[0], reverse=True)
+        best_score, repaired_type = scored[0]
+        if best_score < 3:
+            continue
+        if len(scored) > 1 and scored[1][0] == best_score:
+            continue
+
+        repaired_crc = zlib.crc32(repaired_type + chunk.data) & 0xFFFFFFFF
+        repair = _replace_chunk_type_repair(
+            data,
+            chunk,
+            repaired_type,
+            "turning it into a valid Chunk name: %s; Replaced with: %08x"
+            % (repaired_type.decode("ascii", errors="replace"), repaired_crc),
+        )
+        if repair is not None:
+            return repair
+
+    return None
+
+
+def repair_missing_chunk_length_zero_byte(
+    data: bytes,
+    known_chunk_types: Iterable[bytes] = specs.CHUNKS,
+) -> ChunkPayloadRepair | None:
+    known_chunk_types = tuple(known_chunk_types)
+    offset = len(PNG_SIGNATURE) if data.startswith(PNG_SIGNATURE) else 0
+
+    while offset + 8 <= len(data):
+        length = int.from_bytes(data[offset : offset + 4], "big")
+        chunk_type = data[offset + 4 : offset + 8]
+        chunk_end = offset + 12 + length
+
+        crc_ok = False
+        if chunk_end <= len(data) and _is_ascii_chunk_type(chunk_type):
+            computed_crc = zlib.crc32(chunk_type + data[offset + 8 : offset + 8 + length]) & 0xFFFFFFFF
+            stored_crc = int.from_bytes(data[offset + 8 + length : chunk_end], "big")
+            crc_ok = computed_crc == stored_crc
+
+        if crc_ok:
+            offset = chunk_end
+            continue
+
+        shifted_type = data[offset + 3 : offset + 7]
+        if shifted_type in known_chunk_types:
+            repaired = data[:offset] + b"\x00" + data[offset:]
+            if is_complete_png_with_valid_crc(repaired):
+                return ChunkPayloadRepair(
+                    data=repaired,
+                    strategy=(
+                        "Chunk length has been corrupted due to some missing bytes; "
+                        "inserted missing zero byte before %s length"
+                    )
+                    % shifted_type.decode("ascii", errors="replace"),
+                    repaired_chunks=(shifted_type.decode("ascii", errors="replace"),),
+                )
+
+        break
 
     return None
 

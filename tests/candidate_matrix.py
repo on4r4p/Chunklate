@@ -114,7 +114,7 @@ CANDIDATE_CASES: tuple[CandidateCase, ...] = (
         f"{BROKEN_SUITE}/private_filter_type.png",
         CANDIDATE_FOR_STRICT_REPAIR,
         (
-            "bad adaptive filter value",
+            "IDAT scanline filter type is invalid",
             "idat-filter0-normalize replaced 1 invalid scanline filter bytes",
         ),
     ),
