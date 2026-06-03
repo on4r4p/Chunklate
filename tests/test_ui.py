@@ -356,7 +356,13 @@ def test_run_loadingbar_from_namespace_builds_and_prints_progress():
     )
     expected_position = round((250 / 500) * visible_fish_end)
     assert namespace["FishPos"] == expected_position
-    assert calls == [("print", ("250/500" + namespace["ThksForTheFish"][expected_position] + "\033[K",), {"end": "\r"})]
+    assert calls == [
+        (
+            "print",
+            ("250/500" + namespace["ThksForTheFish"][expected_position] + "\033[K",),
+            {"end": "\r", "flush": True},
+        )
+    ]
 
 
 def test_run_loadingbar_from_namespace_clears_dialogue_pause_before_loader_output():

@@ -704,5 +704,5 @@ def run_loadingbar_from_namespace(
         namespace["LenFishList"],
     )
     namespace["FishPos"] = progress.fish_pos
-    namespace.get("print", print)(progress.text + "\033[K", end="\r")
+    namespace.get("print", print)(progress.text + "\033[K", end="\r", flush=True)
     return progress
