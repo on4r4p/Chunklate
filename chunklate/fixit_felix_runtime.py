@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 import random
 from typing import Any
 from typing import Callable
@@ -582,6 +583,257 @@ def _chrm_repair_needs_choice(repair: Any) -> bool:
     )
 
 
+def _zero_scanline_blackfill_needs_choice(repair: Any) -> bool:
+    return (
+        isinstance(repair, idat.PartialIdatBlackfillRepair)
+        and str(getattr(repair, "strategy", "")).startswith("partial-idat-blackfill")
+        and getattr(repair, "recovered_scanlines", 0) == 0
+        and getattr(repair, "total_scanlines", 0) > 0
+    )
+
+
+def _dedupe_paths(paths: list[Path]) -> tuple[Path, ...]:
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return tuple(unique)
+
+
+def _idat_donor_search_roots(file_origin: Any) -> tuple[Path, ...]:
+    roots: list[Path] = []
+    origin_text = str(file_origin or "")
+    if origin_text:
+        origin = Path(origin_text)
+        if not origin.is_absolute():
+            origin = Path.cwd() / origin
+        roots.append(origin.parent)
+        for parent in origin.parents[:4]:
+            roots.append(parent)
+            roots.append(parent / "schaik-javapng-samples")
+    roots.append(Path.cwd() / "schaik-javapng-samples")
+    return _dedupe_paths(roots)
+
+
+def _candidate_idat_donor_paths(file_origin: Any) -> tuple[Path, ...]:
+    candidates: list[Path] = []
+    origin_text = str(file_origin or "")
+    try:
+        origin_resolved = str(Path(origin_text).resolve()) if origin_text else ""
+    except OSError:
+        origin_resolved = origin_text
+
+    for root in _idat_donor_search_roots(file_origin):
+        if not root.is_dir():
+            continue
+        for path in sorted(root.glob("*.png")):
+            try:
+                resolved = str(path.resolve())
+            except OSError:
+                resolved = str(path)
+            if resolved == origin_resolved:
+                continue
+            candidates.append(path)
+
+    unique = _dedupe_paths(candidates)
+    clean = tuple(path for path in unique if "brokenjavapngsuite" not in path.parts)
+    broken = tuple(path for path in unique if "brokenjavapngsuite" in path.parts)
+    return clean + broken
+
+
+def _local_idat_donor_repair(runtime: AutomaticRepairRuntime) -> idat.IdatDonorRepair | None:
+    if not runtime.data_hex:
+        return None
+    try:
+        source_data = bytes.fromhex(runtime.data_hex)
+    except ValueError:
+        return None
+
+    repairs: list[idat.IdatDonorRepair] = []
+    for path in _candidate_idat_donor_paths(runtime.file_origin):
+        try:
+            donor_data = path.read_bytes()
+        except OSError:
+            continue
+        try:
+            donor_path = str(path.relative_to(Path.cwd()))
+        except ValueError:
+            donor_path = str(path)
+        repair = idat.rebuild_idat_from_donor(
+            source_data,
+            donor_data,
+            donor_label=path.name,
+            donor_path=donor_path,
+        )
+        if repair is None:
+            continue
+        if repairs and repair.data == repairs[0].data:
+            continue
+        repairs.append(repair)
+        if len(repairs) > 1:
+            return None
+    return repairs[0] if repairs else None
+
+
+def _zero_scanline_options_message(runtime: AutomaticRepairRuntime) -> None:
+    runtime.candy(
+        "Cowsay",
+        "IDAT gives zero readable scanlines. From this file alone, the original pixels are not recoverable.",
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "I can offer three clearly different fallbacks: 1) local donor IDAT, 2) synthetic diagnostic IDAT from IHDR/PLTE, 3) all-black placeholder.",
+        "com",
+    )
+
+
+def _apply_idat_donor_choice(
+    runtime: AutomaticRepairRuntime,
+    repair: idat.PartialIdatBlackfillRepair,
+) -> bool | None:
+    donor_repair = _local_idat_donor_repair(runtime)
+    if donor_repair is None or runtime.question is None:
+        return None
+
+    runtime.candy(
+        "Cowsay",
+        "I found one local PNG with the same pixel structure and a complete IDAT: %s."
+        % donor_repair.donor_path,
+        "com",
+    )
+    runtime.candy(
+        "Cowsay",
+        "Option 1: Yes replaces only the broken IDAT stream with that donor IDAT. No means I offer the synthetic option next.",
+        "bad",
+    )
+
+    use_donor = runtime.question(
+        id=(
+            "IDAT donor repair:-No readable IDAT scanlines. Replace IDAT with "
+            "local donor %s?"
+            % donor_repair.donor_path
+        ),
+        idhash=(
+            "IDAT-donor",
+            donor_repair.donor_path,
+            repair.width,
+            repair.height,
+            repair.bit_depth,
+            repair.color_type,
+        ),
+        skipauto=True,
+    )
+    if not use_donor:
+        return None
+
+    applied_repair = fixit_felix.applied_repair(donor_repair)
+    runtime.side_notes.append(applied_repair.note)
+    runtime.write_clone(applied_repair.data_hex, applied_repair.save_suffix)
+    return True
+
+
+def _apply_synthetic_idat_choice(
+    runtime: AutomaticRepairRuntime,
+    repair: idat.PartialIdatBlackfillRepair,
+) -> bool | None:
+    if runtime.question is None or not runtime.data_hex:
+        return None
+    try:
+        source_data = bytes.fromhex(runtime.data_hex)
+    except ValueError:
+        return None
+
+    synthetic_repair = idat.rebuild_synthetic_idat(source_data)
+    if synthetic_repair is None:
+        return None
+
+    runtime.candy(
+        "Cowsay",
+        "Option 2: I can build a deterministic diagnostic IDAT from IHDR/PLTE. It will be valid PNG data, not the original picture.",
+        "com",
+    )
+    use_synthetic = runtime.question(
+        id="IDAT synthetic repair:-No original scanlines. Build synthetic diagnostic IDAT?",
+        idhash=(
+            "IDAT-synthetic",
+            repair.width,
+            repair.height,
+            repair.bit_depth,
+            repair.color_type,
+        ),
+        skipauto=True,
+    )
+    if not use_synthetic:
+        return None
+
+    applied_repair = fixit_felix.applied_repair(synthetic_repair)
+    runtime.side_notes.append(applied_repair.note)
+    runtime.write_clone(applied_repair.data_hex, applied_repair.save_suffix)
+    return True
+
+
+def apply_zero_scanline_blackfill_choice(
+    runtime: AutomaticRepairRuntime,
+    repair: idat.PartialIdatBlackfillRepair,
+) -> bool | None:
+    _zero_scanline_options_message(runtime)
+
+    donor_result = _apply_idat_donor_choice(runtime, repair)
+    if donor_result is not None:
+        return donor_result
+
+    synthetic_result = _apply_synthetic_idat_choice(runtime, repair)
+    if synthetic_result is not None:
+        return synthetic_result
+
+    runtime.candy(
+        "Cowsay",
+        "Option 3: I can frame the absence with zero bytes, but that is a placeholder, not a recovered image.",
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "Write the all-black placeholder only if you want a structurally valid PNG for testing.",
+        "com",
+    )
+
+    skipped_note = (
+        "-FixItFelix:skipped all-black placeholder because IDAT recovered 0/%s scanlines."
+        % repair.total_scanlines
+    )
+    if runtime.question is None:
+        runtime.side_notes.append(skipped_note)
+        return None
+
+    write_placeholder = runtime.question(
+        id="IDAT Zero Scanline Blackfill:-No readable IDAT scanlines. Write all-black placeholder anyway?",
+        idhash=(
+            "IDAT-zero-blackfill",
+            repair.width,
+            repair.height,
+            repair.bit_depth,
+            repair.color_type,
+        ),
+        skipauto=True,
+    )
+    if not write_placeholder:
+        runtime.side_notes.append(skipped_note)
+        return None
+
+    applied_repair = fixit_felix.applied_repair(repair)
+    runtime.side_notes.append(applied_repair.note)
+    runtime.write_clone(applied_repair.data_hex, applied_repair.save_suffix)
+    return True
+
+
 def apply_chrm_inference_choice(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
     missing = getattr(repair, "missing_bytes", 0)
     tested = getattr(repair, "crc_candidates_tested", 0)
@@ -812,6 +1064,137 @@ def _apply_idat_interruption_plan_before_libpng(
     return False, None
 
 
+def _splt_payload_question_hash(repair: png.SpltPayloadRepairPlan) -> str:
+    return "sPLT-payload:%s" % ",".join(repair.affected_chunks)
+
+
+def _trns_transparency_question_hash(repair: png.TrnsTransparencyRepairPlan) -> str:
+    return "tRNS-transparency:%s" % ",".join(repair.affected_chunks)
+
+
+def _describe_trns_transparency_plan(
+    runtime: AutomaticRepairRuntime | NoNextChunkRuntime,
+    repair: png.TrnsTransparencyRepairPlan,
+) -> None:
+    runtime.candy(
+        "Cowsay",
+        "I found an indexed tRNS alpha table longer than its PLTE palette.",
+        "bad",
+    )
+    if repair.trimmed_payload_is_fully_transparent:
+        runtime.candy(
+            "Cowsay",
+            "Trimming it to the palette size is PNG-legal, but it makes every palette entry transparent.",
+            "bad",
+        )
+    runtime.candy(
+        "Cowsay",
+        "I can trim tRNS to the PLTE entry count, or remove that optional transparency chunk.",
+        "com",
+    )
+
+
+def _trns_transparency_question_id(repair: png.TrnsTransparencyRepairPlan) -> str:
+    if repair.trimmed_payload_is_fully_transparent:
+        return (
+            "tRNS Indexed Alpha Removal:-Trimmed tRNS would make every PLTE entry "
+            "transparent. Remove tRNS instead?"
+        )
+    return "tRNS Indexed Alpha Resize:-Trim tRNS alpha table to PLTE entry count?"
+
+
+def _apply_trns_transparency_plan(
+    runtime: AutomaticRepairRuntime,
+    repair: png.TrnsTransparencyRepairPlan,
+) -> bool | None:
+    _describe_trns_transparency_plan(runtime, repair)
+    if repair.trimmed_payload_is_fully_transparent:
+        if runtime.question is None or runtime.question(
+            id=_trns_transparency_question_id(repair),
+            idhash=_trns_transparency_question_hash(repair),
+        ):
+            return apply_repair(runtime, repair.remove_repair)
+
+        return apply_repair(runtime, repair.trim_repair)
+
+    if runtime.question is None or runtime.question(
+        id=_trns_transparency_question_id(repair),
+        idhash=_trns_transparency_question_hash(repair),
+    ):
+        return apply_repair(runtime, repair.trim_repair)
+
+    return apply_repair(runtime, repair.remove_repair)
+
+
+def _apply_trns_transparency_plan_before_libpng(
+    runtime: NoNextChunkRuntime,
+    repair: png.TrnsTransparencyRepairPlan,
+) -> tuple[bool, Any]:
+    _describe_trns_transparency_plan(runtime, repair)
+    if repair.trimmed_payload_is_fully_transparent:
+        if runtime.question(
+            id=_trns_transparency_question_id(repair),
+            idhash=_trns_transparency_question_hash(repair),
+        ):
+            return True, _write_no_next_repair(runtime, repair.remove_repair)
+
+        return True, _write_no_next_repair(runtime, repair.trim_repair)
+
+    if runtime.question(
+        id=_trns_transparency_question_id(repair),
+        idhash=_trns_transparency_question_hash(repair),
+    ):
+        return True, _write_no_next_repair(runtime, repair.trim_repair)
+
+    return True, _write_no_next_repair(runtime, repair.remove_repair)
+
+
+def _apply_splt_payload_plan(
+    runtime: AutomaticRepairRuntime,
+    repair: png.SpltPayloadRepairPlan,
+) -> bool | None:
+    chunks = ", ".join(repair.affected_chunks)
+    runtime.candy(
+        "Cowsay",
+        "I found malformed or duplicate sPLT suggested-palette metadata: %s." % chunks,
+        "bad",
+    )
+    if repair.repair_repair is None:
+        runtime.candy(
+            "Cowsay",
+            "I do not have a plausible sPLT repair candidate, so deletion is the only clean branch.",
+            "bad",
+        )
+        return apply_repair(runtime, repair.remove_repair)
+
+    if runtime.question is None or runtime.question(
+        id="sPLT Payload Repair:-Try to repair malformed/duplicate sPLT chunk(s)?",
+        idhash=_splt_payload_question_hash(repair),
+    ):
+        return apply_repair(runtime, repair.repair_repair)
+
+    return apply_repair(runtime, repair.remove_repair)
+
+
+def _apply_splt_payload_plan_before_libpng(
+    runtime: NoNextChunkRuntime,
+    repair: png.SpltPayloadRepairPlan,
+) -> tuple[bool, Any]:
+    chunks = ", ".join(repair.affected_chunks)
+    runtime.candy(
+        "Cowsay",
+        "I found malformed or duplicate sPLT suggested-palette metadata before libpng: %s." % chunks,
+        "bad",
+    )
+    if repair.repair_repair is not None and runtime.question(
+        id="sPLT Payload Repair:-Try to repair malformed/duplicate sPLT chunk(s)?",
+        idhash=_splt_payload_question_hash(repair),
+    ):
+        return True, _write_no_next_repair(runtime, repair.repair_repair)
+
+    return True, _write_no_next_repair(runtime, repair.remove_repair)
+
+
 GRAYSCALE_PLTE_REBUILD_PROMPTS = {
     "rebuilt empty indexed PLTE as grayscale palette": (
         "empty_plte_grayscale_plte",
@@ -902,9 +1285,73 @@ def maybe_offer_manual_plte_editor(runtime: AutomaticRepairRuntime, repair: Any)
     return True
 
 
+def automatic_repair_success_message(repair: Any) -> str:
+    strategy = str(getattr(repair, "strategy", "automatic repair"))
+    if "converted private" in strategy and "compression method" in strategy:
+        return (
+            "The IHDR compression byte is private, but the IDAT decoded as a known "
+            "compression stream. I am rewriting IHDR compression to 0 and storing "
+            "the image data as standard zlib."
+        )
+    if strategy.startswith("idat-filter0-normalize"):
+        return (
+            "The IDAT stream decompresses cleanly, but some scanline filter bytes "
+            "are outside PNG's 0..4 range. I am changing only those row filters to "
+            "0, then recompressing IDAT."
+        )
+    if strategy.startswith("partial-idat-blackfill"):
+        return (
+            "The IDAT stream stops before the full image is available. I am keeping "
+            "the readable scanlines and filling the missing rows with black pixels."
+        )
+    if "tRNS" in strategy:
+        return (
+            "The transparency metadata does not match the PNG palette/color rules. "
+            "I am applying the selected tRNS branch and rebuilding CRCs."
+        )
+    if "PLTE" in strategy:
+        return (
+            "The palette does not match PNG rules or the used indexes. I am going "
+            "to rebuild, trim, or remove PLTE while keeping the IDAT indexes intact."
+        )
+    if "sPLT" in strategy:
+        return (
+            "The suggested-palette metadata does not match PNG rules. I am applying "
+            "the selected sPLT branch while keeping the image pixels intact."
+        )
+    if "duplicate" in strategy:
+        return (
+            "PNG readers want a single owner for this chunk type. I am removing the "
+            "extra copy and rebuilding CRCs."
+        )
+    if "length" in strategy or "trimmed" in strategy or "padded" in strategy:
+        return (
+            "The chunk payload length does not match the PNG spec. I am resizing "
+            "that payload and rebuilding the chunk CRC."
+        )
+    if "removed" in strategy:
+        return (
+            "This chunk is unsafe or illegal in this position. I am removing it and "
+            "keeping the rest of the PNG stream intact."
+        )
+    if "moved" in strategy:
+        return (
+            "The chunk data looks usable, but it is in the wrong position. I am "
+            "moving it to a PNG-legal place and rebuilding CRCs."
+        )
+    return (
+        "I found an automatic repair path: %s. I am writing a separate clone with "
+        "that change, leaving the original file untouched."
+    ) % strategy
+
+
 def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
     if isinstance(repair, png.IdatInterruptionRepairPlan):
         return _apply_idat_interruption_plan(runtime, repair)
+    if isinstance(repair, png.SpltPayloadRepairPlan):
+        return _apply_splt_payload_plan(runtime, repair)
+    if isinstance(repair, png.TrnsTransparencyRepairPlan):
+        return _apply_trns_transparency_plan(runtime, repair)
 
     applied_repair = fixit_felix.applied_repair(repair)
     strategy = str(getattr(repair, "strategy", "automatic repair"))
@@ -929,6 +1376,8 @@ def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
 
     if _chrm_repair_needs_choice(repair):
         return apply_chrm_inference_choice(runtime, repair)
+    if _zero_scanline_blackfill_needs_choice(repair):
+        return apply_zero_scanline_blackfill_choice(runtime, repair)
 
     manual_plte_result = maybe_offer_manual_plte_editor(runtime, repair)
     if manual_plte_result is not None:
@@ -951,8 +1400,7 @@ def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
     else:
         runtime.candy(
             "Cowsay",
-            "I found an automatic repair path: %s."
-            % strategy,
+            automatic_repair_success_message(repair),
             "com",
         )
     runtime.side_notes.append(applied_repair.note)
@@ -1642,6 +2090,25 @@ def preflight_idat_crc_only_patch(
     return defer_wrong_crc(runtime, tools)
 
 
+def save_clean_idat_crc_only_patch_before_other_errors(
+    runtime: WrongCrcRuntime,
+    tools: relics.WrongCrcTools,
+) -> tuple[bool, Any] | None:
+    if tools.chunk != b"IDAT":
+        return None
+
+    validation = validate_idat_crc_only_patch(runtime, tools)
+    if not validation.can_save:
+        return None
+
+    runtime.candy(
+        "Cowsay",
+        "The IDAT CRC-only patch validates cleanly even with the other finding still visible.",
+        "good",
+    )
+    return save_wrong_crc(runtime, tools)
+
+
 def wrong_crc_visible_other_errors(runtime: WrongCrcRuntime, finding: Any) -> tuple[Any, ...]:
     return tuple(
         pandora_finding
@@ -1731,6 +2198,10 @@ def apply_wrong_crc(
         return final_wrong_crc_question(runtime, decision.finding, chkd, tools)
 
     if decision.action == "ask_other_errors_first":
+        clean_idat_crc_patch = save_clean_idat_crc_only_patch_before_other_errors(runtime, tools)
+        if clean_idat_crc_patch is not None:
+            return clean_idat_crc_patch
+
         visible_other_error_count = len(wrong_crc_visible_other_errors(runtime, decision.finding))
         other_error_count = visible_other_error_count or decision.other_error_count
         plural = "s" if other_error_count > 1 else ""
@@ -2200,6 +2671,56 @@ def stop_before_libpng_for_unresolved_findings(
         runtime.side_notes.append(note)
         return True, runtime.write_clone(duplicate_repair.data.hex(), note)
 
+    splt_payload_repair = fixit_felix.splt_payload_cleanup(png_bytes, findings)
+    if isinstance(splt_payload_repair, png.SpltPayloadRepairPlan):
+        return _apply_splt_payload_plan_before_libpng(runtime, splt_payload_repair)
+
+    trns_repair = fixit_felix.trns_length(png_bytes, findings)
+    if isinstance(trns_repair, png.TrnsTransparencyRepairPlan):
+        return _apply_trns_transparency_plan_before_libpng(runtime, trns_repair)
+    if trns_repair is not None:
+        note = fixit_felix.repair_note(trns_repair)
+        runtime.candy(
+            "Cowsay",
+            "I found invalid tRNS transparency metadata, so I am repairing it before libpng gets the final word.",
+            "com",
+        )
+        runtime.side_notes.append(note)
+        return True, runtime.write_clone(trns_repair.data.hex(), note)
+
+    ster_mode_repair = fixit_felix.ster_mode(png_bytes, findings)
+    if ster_mode_repair is not None:
+        note = fixit_felix.repair_note(ster_mode_repair)
+        runtime.candy(
+            "Cowsay",
+            "I found an invalid sTER stereo-layout mode, so I am normalizing it before libpng gets the final word.",
+            "com",
+        )
+        runtime.side_notes.append(note)
+        return True, runtime.write_clone(ster_mode_repair.data.hex(), note)
+
+    time_value_repair = fixit_felix.time_value_range(png_bytes, findings)
+    if time_value_repair is not None:
+        note = fixit_felix.repair_note(time_value_repair)
+        runtime.candy(
+            "Cowsay",
+            "I found impossible tIME timestamp values, so I am normalizing them before libpng gets the final word.",
+            "com",
+        )
+        runtime.side_notes.append(note)
+        return True, runtime.write_clone(time_value_repair.data.hex(), note)
+
+    text_null_repair = fixit_felix.text_null_bytes(png_bytes, findings)
+    if text_null_repair is not None:
+        note = fixit_felix.repair_note(text_null_repair)
+        runtime.candy(
+            "Cowsay",
+            "I found null bytes inside tEXt metadata, so I am removing them before libpng gets the final word.",
+            "com",
+        )
+        runtime.side_notes.append(note)
+        return True, runtime.write_clone(text_null_repair.data.hex(), note)
+
     idat_interruption_repair = fixit_felix.idat_interruption_cleanup(png_bytes, findings)
     if isinstance(idat_interruption_repair, png.IdatInterruptionRepairPlan):
         should_return, result = _apply_idat_interruption_plan_before_libpng(
@@ -2485,7 +3006,7 @@ def no_next_has_idat_evidence(
 
 def handle_no_next_missing_idat_terminal(
     runtime: NoNextChunkRuntime,
-) -> tuple[bool, None]:
+) -> tuple[bool, Any]:
     runtime.candy(
         "Cowsay",
         "No IDAT chunk, no image stream. This is not a repair job, this is PNG paperwork with the picture missing.",

@@ -135,6 +135,29 @@ def configure_parser(parser: Any) -> Any:
         help="Run UltimateMegaSuperLineFeedBruteForce without a candidate budget.",
         action="store_true",
     )
+    parser.add_argument(
+        "--ultimate-linefeed-reference",
+        dest="ULTIMATE_LINEFEED_REFERENCE",
+        help="Optional local PNG reference used to rank ultimate line-feed candidates.",
+        default=None,
+        metavar="PATH",
+    )
+    parser.add_argument(
+        "--ultimate-linefeed-preview-timeout",
+        dest="ULTIMATE_LINEFEED_PREVIEW_TIMEOUT",
+        help="Seconds to show each live valid ultimate line-feed candidate preview; 0 disables live previews.",
+        type=float,
+        default=5.0,
+        metavar="SECONDS",
+    )
+    parser.add_argument(
+        "--ultimate-linefeed-resume",
+        dest="ULTIMATE_LINEFEED_RESUME",
+        help="How UltimateMegaSuperLineFeedBruteForce handles an existing progress checkpoint.",
+        choices=("ask", "auto", "never", "reset"),
+        default="ask",
+        metavar="MODE",
+    )
     return parser
 
 
@@ -171,6 +194,18 @@ def ultimate_linefeed_budget_error(
         return None
     if ultimate_linefeed_budget is not None and ultimate_linefeed_budget < 1:
         return "--ultimate-linefeed-budget arguments must be greater than zero."
+    return None
+
+
+def ultimate_linefeed_preview_timeout_error(timeout: float | int | None) -> str | None:
+    if timeout is not None and float(timeout) < 0:
+        return "--ultimate-linefeed-preview-timeout arguments must be zero or greater."
+    return None
+
+
+def ultimate_linefeed_resume_error(mode: str | None) -> str | None:
+    if str(mode or "ask").strip().lower() not in ("ask", "auto", "never", "reset"):
+        return "--ultimate-linefeed-resume must be one of: ask, auto, never, reset."
     return None
 
 

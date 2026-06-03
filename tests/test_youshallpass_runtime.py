@@ -82,7 +82,7 @@ def test_youshallpass_runtime_uses_palette_and_splt_state():
 
 def test_youshallpass_runtime_uses_splt_duplicate_names():
     calls = []
-    payload = "70616c0008" + ("01" * 13)
+    payload = "70616c0008" + ("01" * 6)
     state = chunk_state.ChunkInfoState(splt_name=["70616c"])
     runtime = build_runtime(calls, state=state)
 

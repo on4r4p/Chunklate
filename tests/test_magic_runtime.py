@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -26,6 +27,12 @@ def build_runtime(
     ask=None,
     preview_image=None,
     ultimate_linefeed_budget=None,
+    ultimate_linefeed_reference=None,
+    ultimate_linefeed_source=None,
+    ultimate_candidate_preview=None,
+    defer_linefeed_signature_repair=None,
+    prompt_candy=None,
+    clear_dialogue_pause=None,
 ):
     if side_notes is None:
         side_notes = []
@@ -56,7 +63,19 @@ def build_runtime(
         write_clone=lambda data, summary: calls.append(("write_clone", data, summary)) or "write-result",
         ask=ask,
         preview_image=preview_image or (lambda *args: calls.append(("preview", args))),
-        ultimate_linefeed_budget=ultimate_linefeed_budget or (lambda: 50000),
+        prompt_candy=prompt_candy,
+        clear_dialogue_pause=clear_dialogue_pause or (lambda *args: None),
+        ultimate_linefeed_budget=ultimate_linefeed_budget
+        or (
+            lambda estimate=None: magic_runtime.idat_bruteforce.ultimate_linefeed_budget_decision(
+                getattr(estimate, "total_combinations", 0),
+                "normal",
+            )
+        ),
+        ultimate_linefeed_reference=ultimate_linefeed_reference or (lambda: ""),
+        ultimate_source_path=ultimate_linefeed_source or (lambda: ""),
+        ultimate_candidate_preview=ultimate_candidate_preview,
+        defer_linefeed_signature_repair=defer_linefeed_signature_repair or (lambda *args: False),
     )
 
 
@@ -187,6 +206,25 @@ def test_find_header_magic_runtime_repairs_linefeed_conversion_with_clone():
     assert ("end",) not in calls
 
 
+def test_find_header_magic_runtime_repairs_inserted_crlf_conversion_with_clone():
+    calls = []
+    side_notes = []
+    runtime = build_runtime(calls, side_notes)
+    original = tiny_rgb_png()
+    corrupted = original.replace(b"\n", b"\r\n")
+
+    result = magic_runtime.run_find_magic(runtime, base_context(corrupted.hex()))
+
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert result == "write-result"
+    assert len(write_calls) == 1
+    assert bytes.fromhex(write_calls[0][1]) == original
+    assert validate_png_structure(bytes.fromhex(write_calls[0][1])).ok
+    assert "removed carriage returns inserted by CRLF conversion" in write_calls[0][2]
+    assert side_notes == [write_calls[0][2]]
+    assert ("end",) not in calls
+
+
 def test_find_header_magic_runtime_writes_linefeed_salvage_clone():
     calls = []
     side_notes = []
@@ -205,6 +243,83 @@ def test_find_header_magic_runtime_writes_linefeed_salvage_clone():
     assert "Line feed conversion evidence: IDAT chunk length overran the next chunk by 4 bytes" in write_calls[0][2]
     assert side_notes == [write_calls[0][2]]
     assert ("end",) not in calls
+
+
+def test_find_header_magic_runtime_can_defer_linefeed_signature_repair():
+    calls = []
+    side_notes = []
+    story_calls = []
+
+    def defer(data_bytes, sample_name, linefeed_pattern):
+        calls.append(("defer", len(data_bytes), sample_name, linefeed_pattern))
+        return True
+
+    runtime = build_runtime(
+        calls,
+        side_notes,
+        defer_linefeed_signature_repair=defer,
+    )
+    runtime = magic_runtime.FindMagicRuntime(
+        **{**runtime.__dict__, "chunk_story": lambda *args: story_calls.append(args)}
+    )
+    corrupted = linefeed_salvage_fixture()
+
+    result = magic_runtime.run_find_magic(runtime, base_context(corrupted.hex(), sample_name="6.bad.png"))
+
+    assert result == "checkpoint-result"
+    assert checkpoint_args(calls) == (
+        False,
+        False,
+        "FindMagic",
+        "PngSig",
+        ["-Found Magic"],
+        14,
+    )
+    assert story_calls == [("add", "PNG", 0, 14, 0)]
+    assert [call for call in calls if call[0] == "defer"] == [
+        ("defer", len(corrupted), "6.bad.png", "minor_linefeed_corruption")
+    ]
+    assert not [call for call in calls if call[0] == "write_clone"]
+    assert side_notes == [
+        "-FindMagic: line-feed signature repair deferred until the full chunk tour finishes."
+    ]
+
+
+def test_deferred_linefeed_signature_repair_writes_after_tour():
+    calls = []
+    side_notes = []
+    runtime = build_runtime(calls, side_notes)
+    corrupted = linefeed_salvage_fixture()
+
+    result = magic_runtime.run_deferred_linefeed_signature_repair(
+        runtime,
+        base_context(corrupted.hex(), sample_name="6.bad.png"),
+    )
+
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert result == "write-result"
+    assert write_calls
+    cowsay_messages = [
+        call[1][1]
+        for call in calls
+        if call[0] == "candy" and call[1][0] == "Cowsay" and len(call[1]) > 1
+    ]
+    cowsay_moods = [
+        call[1][2]
+        for call in calls
+        if call[0] == "candy" and call[1][0] == "Cowsay" and len(call[1]) > 2
+    ]
+    assert cowsay_moods[:5] == ["bad", "good", "good", "com", "good"]
+    assert any(
+        "Good thing I waited for the full chunk tour" in message
+        and "IDAT length overran the next chunk by 4 bytes" in message
+        for message in cowsay_messages
+    )
+    assert any(
+        "I shortened that chunk to 8188 bytes and rebuilt its PNG CRC" in message
+        for message in cowsay_messages
+    )
+    assert "Line feed conversion repair" in write_calls[0][2]
 
 
 def test_linefeed_chunk_evidence_requires_chunk_level_proof_for_idat_bruteforce():
@@ -340,10 +455,54 @@ def test_linefeed_full_bruteforce_passes_known_gap_to_super_probe():
     assert captured["known_gap_chunk_offset"] == realignment.chunk_offset
 
 
-def test_find_header_magic_runtime_can_choose_linefeed_heavy_probe():
+def test_linefeed_final_salvage_promotes_equal_scanline_pixel_repair():
+    calls = []
+    summary_lines = []
+    runtime = build_runtime(calls)
+    current = SimpleNamespace(
+        data=b"old-pixels",
+        recovered_scanlines=503,
+        total_scanlines=503,
+    )
+    salvage = SimpleNamespace(
+        data=b"better-pixels",
+        strategy="partial-idat-blackfill recovered 503/503 scanlines",
+        recovered_scanlines=503,
+        total_scanlines=503,
+    )
+    candidate = SimpleNamespace(data=b"candidate-png")
+    original_tolerant = magic_runtime.idat.rebuild_tolerant_idat_salvage
+    original_blackfill = magic_runtime.idat.rebuild_partial_idat_blackfill
+
+    try:
+        magic_runtime.idat.rebuild_tolerant_idat_salvage = lambda data: None
+        magic_runtime.idat.rebuild_partial_idat_blackfill = lambda data: salvage
+        repair = magic_runtime._linefeed_final_candidate_salvage(
+            runtime,
+            summary_lines,
+            magic_runtime.SUPER_MEGA_LINEFEED_FORCE,
+            candidate,
+            current,
+        )
+    finally:
+        magic_runtime.idat.rebuild_tolerant_idat_salvage = original_tolerant
+        magic_runtime.idat.rebuild_partial_idat_blackfill = original_blackfill
+
+    assert repair is salvage
+    assert "final IDAT salvage after SuperMegaLineFeedForceOfDeath" in summary_lines[0]
+    assert any(
+        call[0] == "candy"
+        and call[1][0] == "Cowsay"
+        and "Final IDAT salvage pass after SuperMegaLineFeedForceOfDeath kept 503/503 scanlines" in call[1][1]
+        and call[1][2] == "good"
+        for call in calls
+    )
+
+
+def test_find_header_magic_runtime_can_launch_supermega_directly_after_salvage():
     calls = []
     side_notes = []
-    answers = [True, True, False]
+    answers = [True, False]
     original_super_mega = magic_runtime.idat_bruteforce.probe_super_mega_linefeed_force_of_death
 
     def fast_super_mega(data, **kwargs):
@@ -376,25 +535,19 @@ def test_find_header_magic_runtime_can_choose_linefeed_heavy_probe():
 
     write_calls = [call for call in calls if call[0] == "write_clone"]
     assert result == "write-result"
-    assert ("ask", ("LineFeed Heavy Probe", "linefeed-cr-insert-0-495")) in calls
     assert (
         "ask",
-        ("SuperMegaLineFeedForceOfDeath", "super-mega-linefeed-force-of-death-0x3ee9-503"),
+        ("SuperMegaLineFeedForceOfDeath", "super-mega-linefeed-force-of-death-0x3ee9-495"),
     ) in calls
     assert (
         "ask",
         ("UltimateMegaSuperLineFeedBruteForce", "ultimate-mega-super-linefeed-bruteforce-0x3ee9-503"),
     ) in calls
-    assert not [
-        call
-        for call in calls
-        if call == ("ask", ("LineFeed Heavy Probe", "linefeed-cr-insert-1-503"))
-    ]
-    assert ("candy", ("Title", "LineFeed Heavy Probe")) in calls
     assert ("candy", ("Title", "SuperMegaLineFeedForceOfDeath")) in calls
     assert len(write_calls) == 1
     assert validate_png_structure(bytes.fromhex(write_calls[0][1])).ok
-    assert "IDAT line-feed probe: strategy=linefeed-cr-insert" in write_calls[0][2]
+    assert "using SuperMegaLineFeedForceOfDeath directly from chunk-level IDAT evidence" in write_calls[0][2]
+    assert "legacy narrow" not in write_calls[0][2]
     assert "SuperMegaLineFeedForceOfDeath: anchor=0x3ee9; search=" in write_calls[0][2]
     assert "pre_error_backtrack=0x" in write_calls[0][2]
     assert "phase4-heavy-byte-window phase" in write_calls[0][2]
@@ -404,18 +557,9 @@ def test_find_header_magic_runtime_can_choose_linefeed_heavy_probe():
     assert [call for call in calls if call[0] == "loadingbar"]
     assert not [call for call in calls if call[0] == "minibar"]
     preview_calls = [call for call in calls if call[0] == "preview"]
-    assert len(preview_calls) == 3
-    assert preview_calls[0][1][1] == "LineFeed_IDAT_00_495_of_503"
-    assert preview_calls[1][1][1] == "LineFeed_IDAT_01_503_of_503"
-    assert preview_calls[2][1][1] == "UltimateMegaSuperLineFeedBruteForce_Before"
-    assert calls.index(preview_calls[0]) < calls.index(("ask", ("LineFeed Heavy Probe", "linefeed-cr-insert-0-495")))
-    assert calls.index(preview_calls[1]) < calls.index(
-        (
-            "ask",
-            ("SuperMegaLineFeedForceOfDeath", "super-mega-linefeed-force-of-death-0x3ee9-503"),
-        )
-    )
-    assert calls.index(preview_calls[2]) < calls.index(
+    assert len(preview_calls) == 1
+    assert preview_calls[0][1][1] == "UltimateMegaSuperLineFeedBruteForce_Before"
+    assert calls.index(preview_calls[0]) < calls.index(
         (
             "ask",
             ("UltimateMegaSuperLineFeedBruteForce", "ultimate-mega-super-linefeed-bruteforce-0x3ee9-503"),
@@ -423,6 +567,44 @@ def test_find_header_magic_runtime_can_choose_linefeed_heavy_probe():
     )
     assert side_notes == [write_calls[0][2]]
     assert ("end",) not in calls
+
+
+def test_find_header_magic_runtime_can_decline_direct_supermega():
+    calls = []
+    side_notes = []
+    answers = [False]
+
+    def ask(*args, **kwargs):
+        calls.append(("ask", args, kwargs))
+        return answers.pop(0)
+
+    runtime = build_runtime(calls, side_notes, ask=ask)
+    corrupted = linefeed_salvage_fixture()
+
+    result = magic_runtime.run_find_magic(runtime, base_context(corrupted.hex()))
+
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert result == "write-result"
+    assert [
+        call
+        for call in calls
+        if call[0] == "ask" and call[1][0] == "SuperMegaLineFeedForceOfDeath"
+    ]
+    cowsay_messages = [
+        call[1][1]
+        for call in calls
+        if call[0] == "candy" and call[1][0] == "Cowsay" and len(call[1]) > 1
+    ]
+    preview_calls = [call for call in calls if call[0] == "preview"]
+    assert any("I can write a valid partial IDAT salvage" in message for message in cowsay_messages)
+    assert any("chunk-level evidence that line-feed damage reached IDAT" in message for message in cowsay_messages)
+    assert not any("Current IDAT repair preview" in message for message in cowsay_messages)
+    assert not preview_calls
+    assert any("IDAT line-feed evidence is strong enough" in message for message in cowsay_messages)
+    assert not any("Legacy narrow" in message for message in cowsay_messages)
+    assert "using SuperMegaLineFeedForceOfDeath directly from chunk-level IDAT evidence" in write_calls[0][2]
+    assert "legacy narrow" not in write_calls[0][2]
+    assert "SuperMegaLineFeedForceOfDeath: user declined the wider IDAT line-feed brute force" in write_calls[0][2]
 
 
 def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
@@ -476,7 +658,15 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
         calls.append(("ask", args, kwargs))
         return answers.pop(0)
 
-    runtime = build_runtime(calls, side_notes, ask=ask, ultimate_linefeed_budget=lambda: 1234)
+    live_preview = lambda *args: calls.append(("live_preview", args))
+    runtime = build_runtime(
+        calls,
+        side_notes,
+        ask=ask,
+        ultimate_linefeed_budget=lambda: 1234,
+        ultimate_candidate_preview=live_preview,
+        clear_dialogue_pause=lambda *args: calls.append(("clear_dialogue_pause", args)),
+    )
     corrupted = linefeed_salvage_fixture()
 
     magic_runtime.idat_bruteforce.probe_super_mega_linefeed_force_of_death = fast_super_mega
@@ -497,6 +687,8 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
     assert ultimate_asks
     assert ultimate_asks[0][2] == {"skipauto": True}
     assert ("candy", ("Title", "UltimateMegaSuperLineFeedBruteForce")) in calls
+    ultimate_kwargs = [call[1] for call in calls if call[0] == "ultimate_kwargs"][0]
+    assert ultimate_kwargs["candidate_preview"] is live_preview
     ultimate_prompt_calls = [
         call
         for call in calls
@@ -508,17 +700,187 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
             or "original Adler" in str(call[1][1])
             or "--ultimate-linefeed-budget" in str(call[1][1])
             or "--ultimate-linefeed-unbounded" in str(call[1][1])
+            or "budget no jutsu" in str(call[1][1])
         )
     ]
-    assert [call[1][2] for call in ultimate_prompt_calls] == ["bad", "bad", "com", "com", "com"]
+    assert [call[1][2] for call in ultimate_prompt_calls] == ["bad", "bad", "com", "com"]
     ultimate_prompt_text = " ".join(str(call[1][1]) for call in ultimate_prompt_calls)
-    assert "--ultimate-linefeed-budget 1000000000000" in ultimate_prompt_text
+    assert "--ultimate-linefeed-budget N" in ultimate_prompt_text
     assert "--ultimate-linefeed-unbounded" in ultimate_prompt_text
+    budget_selected_calls = [
+        call
+        for call in calls
+        if call[0] == "candy"
+        and call[1][0] == "Cowsay"
+        and "Ultimate budget selected:" in str(call[1][1])
+    ]
+    assert len(budget_selected_calls) == 1
+    assert "selected budget: 1,234" in str(budget_selected_calls[0][1][1])
+    assert "possible combinations:" not in str(budget_selected_calls[0][1][1])
+    ultimate_kwargs = next(call[1] for call in calls if call[0] == "ultimate_kwargs")
+    assert ultimate_kwargs["budget"] == 1234
+    assert ultimate_kwargs["reference_path"] == ""
     assert [call for call in calls if call[0] == "loadingbar"]
+    opening_index = next(
+        index
+        for index, call in enumerate(calls)
+        if call[0] == "candy"
+        and call[1][0] == "Cowsay"
+        and "Opening the forbidden line-feed combinatorics vault no jutsu" in str(call[1][1])
+    )
+    ultimate_call_index = next(
+        index for index, call in enumerate(calls) if call[0] == "ultimate_kwargs"
+    )
+    assert any(
+        opening_index < index < ultimate_call_index
+        for index, call in enumerate(calls)
+        if call[0] == "clear_dialogue_pause"
+    )
     assert [call for call in calls if call[0] == "ultimate_kwargs"][0][1]["budget"] == 1234
     assert "UltimateMegaSuperLineFeedBruteForce: start=0x3ee9" in write_calls[0][2]
     assert "test budget" in write_calls[0][2]
     assert side_notes == [write_calls[0][2]]
+
+
+def test_ultimate_linefeed_direct_resume_skips_find_magic_tour():
+    calls = []
+    side_notes = []
+    original_ultimate = magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce
+
+    def fake_ultimate(data, **kwargs):
+        calls.append(("ultimate_kwargs", kwargs))
+        before = magic_runtime.idat.analyze_idat_stream(data)
+        return magic_runtime.idat_bruteforce.UltimateLinefeedProbeResult(
+            before,
+            None,
+            kwargs.get("target_adler"),
+            kwargs.get("start_offset"),
+            1,
+            4,
+            (kwargs.get("start_offset") or 0,),
+            0,
+            1,
+            1,
+            0,
+            1,
+            kwargs.get("checkpoint_path", ""),
+            False,
+            reason="direct resume test",
+        )
+
+    corrupted = linefeed_salvage_fixture()
+    linefeed = repair_linefeed_conversion(corrupted, allow_partial=True)
+    realignment = magic_runtime.repair_overlong_chunk_length_to_next_header(linefeed.data)
+    with tempfile.TemporaryDirectory() as directory:
+        source_path = Path(directory) / "_UltimateMegaSuperLineFeedBruteForce.Source.png"
+        source_path.write_bytes(realignment.data)
+        runtime = build_runtime(
+            calls,
+            side_notes,
+            ultimate_linefeed_budget=lambda estimate=None: 10,
+            ultimate_linefeed_source=lambda: str(source_path),
+        )
+
+        magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce = fake_ultimate
+        try:
+            result = magic_runtime.run_ultimate_linefeed_direct_resume(
+                runtime,
+                base_context(corrupted.hex(), sample_name="6.bad.png"),
+            )
+        finally:
+            magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce = original_ultimate
+
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert result == "write-result"
+    assert write_calls
+    assert validate_png_structure(bytes.fromhex(write_calls[0][1])).ok
+    assert ("candy", ("Title", "Ultimate line-feed resume:")) in calls
+    assert ("candy", ("Title", "Looking for magic header:")) not in calls
+    ultimate_kwargs = [call[1] for call in calls if call[0] == "ultimate_kwargs"][0]
+    assert ultimate_kwargs["super_result"] is None
+    assert ultimate_kwargs["resume_progress"] is True
+    assert ultimate_kwargs["start_offset"] is not None
+    assert side_notes == [write_calls[0][2]]
+
+
+def test_ultimate_linefeed_direct_resume_without_source_snapshot_falls_back():
+    calls = []
+    runtime = build_runtime(calls, ultimate_linefeed_source=lambda: "missing-source.png")
+
+    result = magic_runtime.run_ultimate_linefeed_direct_resume(
+        runtime,
+        base_context(linefeed_salvage_fixture().hex(), sample_name="6.bad.png"),
+    )
+
+    assert result is None
+    assert not [call for call in calls if call[0] == "write_clone"]
+    fallback_calls = [
+        call
+        for call in calls
+        if call[0] == "candy"
+        and call[1][0] == "Cowsay"
+        and (
+            "no clean Ultimate source snapshot yet" in str(call[1][1])
+            or "finish the file tour before resuming Ultimate" in str(call[1][1])
+        )
+    ]
+    assert fallback_calls == [
+        (
+            "candy",
+            (
+                "Cowsay",
+                "I found a resume checkpoint, but no clean Ultimate source snapshot yet.",
+                "bad",
+            ),
+        ),
+        (
+            "candy",
+            (
+                "Cowsay",
+                "I will finish the file tour before resuming Ultimate.",
+                "com",
+            ),
+        ),
+    ]
+
+
+def test_ultimate_budget_plan_uses_prompt_candy_without_dialogue_pause():
+    calls = []
+    runtime = build_runtime(
+        calls,
+        prompt_candy=lambda *args: calls.append(("prompt_candy", args)),
+        clear_dialogue_pause=lambda *args: calls.append(("clear_dialogue_pause", args)),
+    )
+    estimate = SimpleNamespace(
+        operation_count=641,
+        max_depth=4,
+        total_combinations=7_012_540_641,
+    )
+    decision = magic_runtime.idat_bruteforce.ultimate_linefeed_budget_decision(
+        estimate.total_combinations,
+        "inception",
+    )
+
+    magic_runtime._emit_ultimate_budget_plan(runtime, estimate, decision, "checkpoint.jsonl")
+
+    assert calls == [
+        (
+            "prompt_candy",
+            (
+                "Cowsay",
+                "Ultimate budget selected:\n"
+                "mode: inception\n"
+                "selected budget: 3,506,270,321\n"
+                "coverage: 50.0000 %\n"
+                "rough ETA @ 100 candidates/s: 1y 40d\n"
+                "chunky forecast: Multi-year archaeology, but with pixels.\n"
+                "checkpoint: enabled\n"
+                "progress: disabled",
+                "com",
+            ),
+        ),
+        ("clear_dialogue_pause", ()),
+    ]
 
 
 def test_find_magic_runtime_too_low_without_known_chunks_ends_with_note():
@@ -560,6 +922,8 @@ def test_find_magic_runtime_too_low_prepends_magic_before_nearest_chunk():
 def build_namespace(calls, side_notes):
     return {
         "Candy": lambda *args: calls.append(("candy", args)),
+        "Prompt_Candy": lambda *args: calls.append(("prompt_candy", args)),
+        "Clear_Terminal_Dialogue_Pause": lambda *args: calls.append(("clear_dialogue_pause", args)),
         "PRINT": lambda message: calls.append(("emit", message)),
         "CheckPoint": lambda *args: calls.append(("checkpoint", args)),
         "TheEnd": lambda: calls.append(("end",)),
@@ -631,7 +995,19 @@ def main():
         ("Header cut", test_find_header_magic_runtime_cut_at_signature_routes_checkpoint),
         ("Header deep search", test_find_header_magic_runtime_deep_search_checkpoint),
         ("Header linefeed repair", test_find_header_magic_runtime_repairs_linefeed_conversion_with_clone),
+        (
+            "Header inserted CRLF repair",
+            test_find_header_magic_runtime_repairs_inserted_crlf_conversion_with_clone,
+        ),
         ("Header linefeed salvage", test_find_header_magic_runtime_writes_linefeed_salvage_clone),
+        (
+            "Header linefeed deferred",
+            test_find_header_magic_runtime_can_defer_linefeed_signature_repair,
+        ),
+        (
+            "Header linefeed deferred apply",
+            test_deferred_linefeed_signature_repair_writes_after_tour,
+        ),
         (
             "Header linefeed evidence guard",
             test_linefeed_chunk_evidence_requires_chunk_level_proof_for_idat_bruteforce,
@@ -648,8 +1024,31 @@ def main():
             "Header linefeed known gap to SuperMega",
             test_linefeed_full_bruteforce_passes_known_gap_to_super_probe,
         ),
-        ("Header linefeed heavy probe", test_find_header_magic_runtime_can_choose_linefeed_heavy_probe),
+        (
+            "Header linefeed final salvage promotion",
+            test_linefeed_final_salvage_promotes_equal_scanline_pixel_repair,
+        ),
+        (
+            "Header linefeed direct SuperMega",
+            test_find_header_magic_runtime_can_launch_supermega_directly_after_salvage,
+        ),
+        (
+            "Header linefeed decline direct SuperMega",
+            test_find_header_magic_runtime_can_decline_direct_supermega,
+        ),
         ("Header linefeed ultimate probe", test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe),
+        (
+            "Header linefeed ultimate direct resume",
+            test_ultimate_linefeed_direct_resume_skips_find_magic_tour,
+        ),
+        (
+            "Header linefeed ultimate direct resume fallback",
+            test_ultimate_linefeed_direct_resume_without_source_snapshot_falls_back,
+        ),
+        (
+            "Header linefeed ultimate budget no pause",
+            test_ultimate_budget_plan_uses_prompt_candy_without_dialogue_pause,
+        ),
         ("Single candidate", test_find_magic_runtime_single_candidate_cuts_at_best_magic),
         ("No known chunks", test_find_magic_runtime_too_low_without_known_chunks_ends_with_note),
         ("Prepend nearest", test_find_magic_runtime_too_low_prepends_magic_before_nearest_chunk),

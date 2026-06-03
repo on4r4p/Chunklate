@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import tempfile
 import zlib
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ if str(ROOT) not in sys.path:
 
 from chunklate import fixit_felix
 from chunklate import fixit_felix_runtime
+from chunklate import idat
 from chunklate import messages
 from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks, validate_png_structure
 
@@ -24,6 +26,40 @@ def valid_png_bytes():
         + build_png_chunk(b"IDAT", idat)
         + IEND_CHUNK
     )
+
+
+def zero_dimension_missing_idat_bytes():
+    ihdr = b"\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00"
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"gAMA", (100000).to_bytes(4, "big"))
+    )
+
+
+def zero_scanline_blackfill_repair():
+    ihdr = b"\x00\x00\x00\x01\x00\x00\x00\x02\x08\x02\x00\x00\x00"
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"IDAT", zlib.compress(b""))
+        + IEND_CHUNK
+    )
+    repair = idat.rebuild_partial_idat_blackfill(original)
+    assert repair is not None
+    assert repair.recovered_scanlines == 0
+    return repair
+
+
+def truncate_idat_1_fixture_bytes():
+    for path in (
+        ROOT / "brokenjavapngsuite" / "truncate_idat_1.png",
+        ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "truncate_idat_1.png",
+        ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "truncate_idat_1.png",
+    ):
+        if path.exists():
+            return path.read_bytes()
+    raise FileNotFoundError("truncate_idat_1.png fixture not found")
 
 
 def png_with_split_idat(interrupter: bytes = b"heRB"):
@@ -50,6 +86,30 @@ def plte_too_many_entries_fixture_bytes():
     return (ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "plte_too_many_entries.png").read_bytes()
 
 
+def splt_duplicate_name_fixture_bytes():
+    return (ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "splt_duplicate_name.png").read_bytes()
+
+
+def splt_sample_depth_fixture_bytes():
+    return (ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "splt_sample_depth.png").read_bytes()
+
+
+def ster_mode_fixture_bytes():
+    return (ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "ster_mode.png").read_bytes()
+
+
+def text_trailing_null_fixture_bytes():
+    return (ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "text_trailing_null.png").read_bytes()
+
+
+def trns_too_many_entries_fixture_bytes():
+    return (ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "trns_too_many_entries.png").read_bytes()
+
+
+def time_value_range_fixture_bytes():
+    return (ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "time_value_range.png").read_bytes()
+
+
 def test_apply_repair_records_note_and_writes_clone():
     side_notes = []
     writes = []
@@ -70,12 +130,34 @@ def test_apply_repair_records_note_and_writes_clone():
     assert candy_calls == [
         (
             "Cowsay",
-            "I found an automatic repair path: unit-test-repair.",
+            "I found an automatic repair path: unit-test-repair. I am writing a separate clone with that change, leaving the original file untouched.",
             "com",
         )
     ]
     assert side_notes == ["-FixItFelix:unit-test-repair."]
     assert writes == [("6669786564", "-unit-test-repair.")]
+
+
+def test_automatic_repair_success_message_explains_private_compression():
+    repair = SimpleNamespace(
+        strategy="converted private gzip compression method to standard zlib IDAT",
+    )
+
+    message = fixit_felix_runtime.automatic_repair_success_message(repair)
+
+    assert "IHDR compression byte is private" in message
+    assert "standard zlib" in message
+
+
+def test_automatic_repair_success_message_prefers_trns_over_plte_wording():
+    repair = SimpleNamespace(
+        strategy="trimmed indexed tRNS length from 200 to PLTE entry count 173 and rebuilt CRC",
+    )
+
+    message = fixit_felix_runtime.automatic_repair_success_message(repair)
+
+    assert "transparency metadata" in message
+    assert "selected tRNS branch" in message
 
 
 def test_apply_repair_offers_tkinter_controls_after_empty_plte_preview():
@@ -298,6 +380,295 @@ def test_apply_repair_can_remove_safe_to_copy_idat_interruption_when_move_declin
     ]
     assert side_notes == [
         "-FixItFelix:removed safe-to-copy IDAT-interrupting ancillary chunk(s): heRb."
+    ]
+
+
+def test_apply_repair_prompts_to_repair_malformed_duplicate_splt():
+    original = splt_duplicate_name_fixture_bytes()
+    repair = fixit_felix.splt_payload_cleanup(
+        original,
+        [
+            "GetInfo_Error_0:-Wrong Red sPLT length",
+            "GetInfo_Error_1:-sPLT can be used multiple times but cannot share the same name.",
+        ],
+    )
+    side_notes = []
+    writes = []
+    questions = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: None,
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+        question=lambda **kwargs: questions.append(kwargs) or True,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert questions == [
+        {
+            "id": "sPLT Payload Repair:-Try to repair malformed/duplicate sPLT chunk(s)?",
+            "idhash": "sPLT-payload:sPLT,sPLT",
+        }
+    ]
+    fixed_data = bytes.fromhex(writes[0][0])
+    assert validate_png_structure(fixed_data).ok
+    assert [chunk.data for chunk in iter_chunks(fixed_data) if chunk.chunk_type == b"sPLT"] == [
+        b"Lemonade\x00\x08\x00\x00\x00\xff\x00\x00",
+        b"Lemonade-2\x00\x08\x00\x00\x00\xff\x00\x00",
+    ]
+    assert side_notes == ["-FixItFelix:repaired malformed/duplicate sPLT chunk(s)."]
+
+
+def test_apply_repair_can_remove_malformed_duplicate_splt_when_repair_declined():
+    original = splt_duplicate_name_fixture_bytes()
+    repair = fixit_felix.splt_payload_cleanup(
+        original,
+        [
+            "GetInfo_Error_0:-Wrong Red sPLT length",
+            "GetInfo_Error_1:-sPLT can be used multiple times but cannot share the same name.",
+        ],
+    )
+    side_notes = []
+    writes = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: None,
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+        question=lambda **_kwargs: False,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    fixed_data = bytes.fromhex(writes[0][0])
+    assert validate_png_structure(fixed_data).ok
+    assert b"sPLT" not in [chunk.chunk_type for chunk in iter_chunks(fixed_data)]
+    assert side_notes == ["-FixItFelix:removed malformed/duplicate sPLT chunk(s)."]
+
+
+def test_apply_repair_prompts_to_remove_all_transparent_overlong_trns_alpha_table():
+    original = trns_too_many_entries_fixture_bytes()
+    repair = fixit_felix.trns_length(
+        original,
+        ["GetInfo_Error_0:-tRNS Alpha indexes palettes entries must not be superior to PLTE entries"],
+    )
+    side_notes = []
+    writes = []
+    questions = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: None,
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+        question=lambda **kwargs: questions.append(kwargs) or True,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert questions == [
+        {
+            "id": (
+                "tRNS Indexed Alpha Removal:-Trimmed tRNS would make every PLTE entry "
+                "transparent. Remove tRNS instead?"
+            ),
+            "idhash": "tRNS-transparency:tRNS",
+        }
+    ]
+    fixed_data = bytes.fromhex(writes[0][0])
+    assert validate_png_structure(fixed_data).ok
+    assert b"tRNS" not in [chunk.chunk_type for chunk in iter_chunks(fixed_data)]
+    assert side_notes == ["-FixItFelix:removed overlong indexed tRNS chunk."]
+
+
+def test_apply_repair_can_trim_overlong_trns_when_removal_declined():
+    original = trns_too_many_entries_fixture_bytes()
+    repair = fixit_felix.trns_length(
+        original,
+        ["GetInfo_Error_0:-tRNS Alpha indexes palettes entries must not be superior to PLTE entries"],
+    )
+    side_notes = []
+    writes = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: None,
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+        question=lambda **_kwargs: False,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    fixed_data = bytes.fromhex(writes[0][0])
+    assert validate_png_structure(fixed_data).ok
+    trns = next(chunk for chunk in iter_chunks(fixed_data) if chunk.chunk_type == b"tRNS")
+    assert trns.length == 173
+    assert side_notes == [
+        "-FixItFelix:trimmed indexed tRNS length from 200 to PLTE entry count 173 and rebuilt CRC."
+    ]
+
+
+def test_apply_repair_prompts_before_zero_scanline_blackfill_and_declines_placeholder():
+    repair = zero_scanline_blackfill_repair()
+    side_notes = []
+    writes = []
+    questions = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: None,
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+        question=lambda **kwargs: questions.append(kwargs) or False,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is None
+    assert writes == []
+    assert questions == [
+        {
+            "id": "IDAT Zero Scanline Blackfill:-No readable IDAT scanlines. Write all-black placeholder anyway?",
+            "idhash": ("IDAT-zero-blackfill", 1, 2, 8, 2),
+            "skipauto": True,
+        }
+    ]
+    assert side_notes == [
+        "-FixItFelix:skipped all-black placeholder because IDAT recovered 0/2 scanlines."
+    ]
+
+
+def test_apply_repair_can_write_zero_scanline_blackfill_when_confirmed():
+    repair = zero_scanline_blackfill_repair()
+    side_notes = []
+    writes = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: None,
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+        question=lambda **_kwargs: True,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert len(writes) == 1
+    fixed_data = bytes.fromhex(writes[0][0])
+    assert validate_png_structure(fixed_data).ok
+    assert side_notes == [
+        "-FixItFelix:partial-idat-blackfill recovered 0/2 scanlines.\n"
+        "-FixItFelix:Selected IHDR 1x2, bit depth 8, color type 2."
+    ]
+
+
+def test_apply_repair_offers_local_idat_donor_before_black_placeholder():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        broken_dir = root / "brokenjavapngsuite"
+        donor_dir = root / "schaik-javapng-samples"
+        broken_dir.mkdir()
+        donor_dir.mkdir()
+        broken_path = broken_dir / "truncate_idat_1.png"
+        donor_path = donor_dir / "basn0g01.png"
+        broken_data = truncate_idat_1_fixture_bytes()
+        donor_data = (ROOT / "schaik-javapng-samples" / "basn0g01.png").read_bytes()
+        broken_path.write_bytes(broken_data)
+        donor_path.write_bytes(donor_data)
+
+        repair = idat.rebuild_partial_idat_blackfill(broken_data)
+        assert repair is not None
+        assert repair.recovered_scanlines == 0
+
+        side_notes = []
+        writes = []
+        questions = []
+        runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+            side_notes=side_notes,
+            candy=lambda *args: None,
+            write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+            question=lambda **kwargs: questions.append(kwargs) or True,
+            data_hex=broken_data.hex(),
+            file_origin=str(broken_path),
+        )
+
+        result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert len(writes) == 1
+    fixed_data = bytes.fromhex(writes[0][0])
+    assert validate_png_structure(fixed_data).ok
+    fixed_stream = b"".join(
+        chunk.data for chunk in iter_chunks(fixed_data) if chunk.chunk_type == b"IDAT"
+    )
+    donor_stream = b"".join(
+        chunk.data for chunk in iter_chunks(donor_data) if chunk.chunk_type == b"IDAT"
+    )
+    assert zlib.decompress(fixed_stream) == zlib.decompress(donor_stream)
+    assert questions == [
+        {
+            "id": (
+                "IDAT donor repair:-No readable IDAT scanlines. Replace IDAT with "
+                "local donor %s?"
+                % donor_path
+            ),
+            "idhash": (
+                "IDAT-donor",
+                str(donor_path),
+                32,
+                32,
+                1,
+                0,
+            ),
+            "skipauto": True,
+        }
+    ]
+    assert side_notes == [
+        "-FixItFelix:idat-donor-basn0g01.\n"
+        "-FixItFelix:Selected IHDR 32x32, bit depth 1, color type 0. "
+        "-FixItFelix:IDAT donor: %s." % donor_path
+    ]
+
+
+def test_apply_repair_offers_synthetic_idat_when_no_local_donor_exists():
+    broken_data = truncate_idat_1_fixture_bytes()
+    repair = idat.rebuild_partial_idat_blackfill(broken_data)
+    assert repair is not None
+    assert repair.recovered_scanlines == 0
+
+    side_notes = []
+    writes = []
+    questions = []
+    original_candidates = fixit_felix_runtime._candidate_idat_donor_paths
+    fixit_felix_runtime._candidate_idat_donor_paths = lambda _file_origin: ()
+    try:
+        runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+            side_notes=side_notes,
+            candy=lambda *args: None,
+            write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+            question=lambda **kwargs: questions.append(kwargs) or True,
+            data_hex=broken_data.hex(),
+            file_origin="truncate_idat_1.png",
+        )
+
+        result = fixit_felix_runtime.apply_repair(runtime, repair)
+    finally:
+        fixit_felix_runtime._candidate_idat_donor_paths = original_candidates
+
+    assert result is True
+    assert len(writes) == 1
+    fixed_data = bytes.fromhex(writes[0][0])
+    assert validate_png_structure(fixed_data).ok
+    stream = b"".join(chunk.data for chunk in iter_chunks(fixed_data) if chunk.chunk_type == b"IDAT")
+    assert zlib.decompress(stream) != b"\x00" * 160
+    assert questions == [
+        {
+            "id": "IDAT synthetic repair:-No original scanlines. Build synthetic diagnostic IDAT?",
+            "idhash": ("IDAT-synthetic", 32, 32, 1, 0),
+            "skipauto": True,
+        }
+    ]
+    assert side_notes == [
+        "-FixItFelix:idat-synthetic-diagnostic.\n"
+        "-FixItFelix:Selected IHDR 32x32, bit depth 1, color type 0. "
+        "-FixItFelix:synthetic IDAT pattern: diagnostic; original pixels were not recoverable."
     ]
 
 
@@ -1298,6 +1669,59 @@ def test_apply_wrong_crc_other_errors_defers_to_chunk_story():
     ]
 
 
+def test_apply_wrong_crc_other_errors_saves_clean_idat_crc_only_patch():
+    calls = []
+    finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    fixture = (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "xcsn0g01.png").read_bytes()
+    idat_chunk = next(chunk for chunk in iter_chunks(fixture) if chunk.chunk_type == b"IDAT")
+    crc_start = (idat_chunk.offset + 8 + idat_chunk.length) * 2
+    crc_end = crc_start + 8
+    replacement_crc = idat_chunk.computed_crc.to_bytes(4, "big").hex()
+    old_crc = idat_chunk.crc.to_bytes(4, "big").hex()
+    runtime = wrong_crc_runtime(
+        calls,
+        pandora_box={
+            finding: {chkd + "0": replacement_crc},
+            "CheckLength_Error_0:-No NextChunk": {},
+        },
+        data_hex=fixture.hex(),
+    )
+    tools = wrong_crc_tools(
+        chunk=b"IDAT",
+        offset=hex(idat_chunk.offset + 8 + idat_chunk.length),
+        start=crc_start,
+        end=crc_end,
+        replacement_crc=replacement_crc,
+    )
+    tools.old_crc = old_crc
+
+    result = fixit_felix_runtime.apply_wrong_crc(
+        runtime,
+        fixit_felix.WrongCrcDecision("ask_other_errors_first", finding, 1),
+        chkd,
+        tools,
+    )
+
+    assert result == (True, "saved")
+    assert not [call for call in calls if call[0] == "question"]
+    save_calls = [call for call in calls if call[0] == "save_clone"]
+    assert save_calls == [
+        (
+            "save_clone",
+            (
+                replacement_crc,
+                crc_start,
+                crc_end,
+                "-Found Chunk[b'IDAT'] has Wrong Crc at offset: %s\n"
+                "-Replaced with: %s old value was: %s"
+                % (hex(idat_chunk.offset + 8 + idat_chunk.length), replacement_crc, old_crc),
+            ),
+            {},
+        )
+    ]
+
+
 def test_apply_wrong_crc_already_in_cornucopia_uses_debug_emit_without_tools():
     calls = []
     finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
@@ -1779,6 +2203,7 @@ def no_next_runtime(
     *,
     pandora_box=None,
     data_hex="",
+    question_result=True,
     crc_offset=0,
     bad_missplaced=False,
     eof=False,
@@ -1802,7 +2227,7 @@ def no_next_runtime(
         fixit_felix_runtime.NoNextChunkRuntime(
             emit=record("emit"),
             candy=record("candy", "colored"),
-            question=record("question", True),
+            question=record("question", question_result),
             side_notes=side_notes,
             pandora_box=pandora_box if pandora_box is not None else {},
             sample="sample.png",
@@ -1835,6 +2260,147 @@ def no_next_runtime(
         side_notes,
         state,
     )
+
+
+def test_stop_before_libpng_repairs_splt_invalid_sample_depth():
+    calls = []
+    original = splt_sample_depth_fixture_bytes()
+    runtime, side_notes, _state = no_next_runtime(calls, data_hex=original.hex())
+
+    should_return, result = fixit_felix_runtime.stop_before_libpng_for_unresolved_findings(
+        runtime,
+        ("GetInfo_Error_0:-Sample depth is not correct it must be 8 or 16",),
+    )
+
+    assert should_return is True
+    assert result == "write-result"
+    question_calls = [call for call in calls if call[0] == "question"]
+    assert question_calls == [
+        (
+            "question",
+            (),
+            {
+                "id": "sPLT Payload Repair:-Try to repair malformed/duplicate sPLT chunk(s)?",
+                "idhash": "sPLT-payload:sPLT",
+            },
+        )
+    ]
+    write_call = next(call for call in calls if call[0] == "write_clone")
+    fixed_data = bytes.fromhex(write_call[1][0])
+    assert validate_png_structure(fixed_data).ok
+    assert [chunk.data for chunk in iter_chunks(fixed_data) if chunk.chunk_type == b"sPLT"] == [
+        b"Bad suggestion\x00\x08\x00\x00\x00\xff\x00\x00"
+    ]
+    assert side_notes == [
+        "-Stopped before libpng: unresolved findings remain: GetInfo_Error_0:-Sample depth is not correct it must be 8 or 16.",
+        "-FixItFelix:repaired malformed/duplicate sPLT chunk(s).",
+    ]
+
+
+def test_stop_before_libpng_prompts_to_remove_all_transparent_overlong_trns_alpha_table():
+    calls = []
+    original = trns_too_many_entries_fixture_bytes()
+    runtime, side_notes, _state = no_next_runtime(calls, data_hex=original.hex())
+
+    should_return, result = fixit_felix_runtime.stop_before_libpng_for_unresolved_findings(
+        runtime,
+        ("GetInfo_Error_0:-tRNS Alpha indexes palettes entries must not be superior to PLTE entries",),
+    )
+
+    assert should_return is True
+    assert result == "write-result"
+    question_calls = [call for call in calls if call[0] == "question"]
+    assert question_calls == [
+        (
+            "question",
+            (),
+            {
+                "id": (
+                    "tRNS Indexed Alpha Removal:-Trimmed tRNS would make every PLTE entry "
+                    "transparent. Remove tRNS instead?"
+                ),
+                "idhash": "tRNS-transparency:tRNS",
+            },
+        )
+    ]
+    write_call = next(call for call in calls if call[0] == "write_clone")
+    fixed_data = bytes.fromhex(write_call[1][0])
+    assert validate_png_structure(fixed_data).ok
+    assert b"tRNS" not in [chunk.chunk_type for chunk in iter_chunks(fixed_data)]
+    assert side_notes == [
+        "-Stopped before libpng: unresolved findings remain: GetInfo_Error_0:-tRNS Alpha indexes palettes entries must not be superior to PLTE entries.",
+        "-FixItFelix:removed overlong indexed tRNS chunk.",
+    ]
+
+
+def test_stop_before_libpng_repairs_ster_invalid_mode():
+    calls = []
+    original = ster_mode_fixture_bytes()
+    runtime, side_notes, _state = no_next_runtime(calls, data_hex=original.hex())
+
+    should_return, result = fixit_felix_runtime.stop_before_libpng_for_unresolved_findings(
+        runtime,
+        ("GetInfo_Error_0:-sTER should be 0 or 1",),
+    )
+
+    assert should_return is True
+    assert result == "write-result"
+    write_call = next(call for call in calls if call[0] == "write_clone")
+    fixed_data = bytes.fromhex(write_call[1][0])
+    assert validate_png_structure(fixed_data).ok
+    ster = next(chunk for chunk in iter_chunks(fixed_data) if chunk.chunk_type == b"sTER")
+    assert ster.data == b"\x00"
+    assert side_notes == [
+        "-Stopped before libpng: unresolved findings remain: GetInfo_Error_0:-sTER should be 0 or 1.",
+        "-FixItFelix:normalized sTER mode from 02 to 00 and rebuilt CRC.",
+    ]
+
+
+def test_stop_before_libpng_repairs_text_null_bytes():
+    calls = []
+    original = text_trailing_null_fixture_bytes()
+    runtime, side_notes, _state = no_next_runtime(calls, data_hex=original.hex())
+
+    should_return, result = fixit_felix_runtime.stop_before_libpng_for_unresolved_findings(
+        runtime,
+        ("GetInfo_Error_0:-tEXt text must not contain null bytes",),
+    )
+
+    assert should_return is True
+    assert result == "write-result"
+    write_call = next(call for call in calls if call[0] == "write_clone")
+    fixed_data = bytes.fromhex(write_call[1][0])
+    assert validate_png_structure(fixed_data).ok
+    text = next(chunk for chunk in iter_chunks(fixed_data) if chunk.chunk_type == b"tEXt")
+    assert text.data == b"Title\x00PngSuite"
+    assert side_notes == [
+        "-Stopped before libpng: unresolved findings remain: GetInfo_Error_0:-tEXt text must not contain null bytes.",
+        "-FixItFelix:removed 1 null byte(s) from tEXt text payload and rebuilt CRC.",
+    ]
+
+
+def test_stop_before_libpng_repairs_time_value_range():
+    calls = []
+    original = time_value_range_fixture_bytes()
+    runtime, side_notes, _state = no_next_runtime(calls, data_hex=original.hex())
+
+    should_return, result = fixit_felix_runtime.stop_before_libpng_for_unresolved_findings(
+        runtime,
+        ("GetInfo_Error_0:-Month value is not valid 0",),
+    )
+
+    assert should_return is True
+    assert result == "write-result"
+    write_call = next(call for call in calls if call[0] == "write_clone")
+    fixed_data = bytes.fromhex(write_call[1][0])
+    assert validate_png_structure(fixed_data).ok
+    time = next(chunk for chunk in iter_chunks(fixed_data) if chunk.chunk_type == b"tIME")
+    assert time.data == bytes.fromhex("07d001010c2238")
+    assert time.crc_ok
+    assert side_notes == [
+        "-Stopped before libpng: unresolved findings remain: GetInfo_Error_0:-Month value is not valid 0.",
+        "-FixItFelix:normalized tIME from 2000-00-01 12:34:56 to 2000-01-01 12:34:56 and rebuilt CRC.",
+    ]
 
 
 def test_apply_no_next_false_positive_iend_runs_libpng_after_marking_eof():
@@ -2417,6 +2983,43 @@ def test_apply_no_next_without_idat_evidence_stops_terminally():
     )
 
 
+def test_apply_no_next_zero_dimension_missing_idat_stops_terminally():
+    calls = []
+    finding = "CheckLength_Error_0:-No NextChunk"
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        data_hex=zero_dimension_missing_idat_bytes().hex(),
+        pandora_box={finding: {"gAMA_Tool_0": b"gAMA"}},
+        chunks_history=(b"IHDR", b"gAMA"),
+    )
+
+    result = fixit_felix_runtime.apply_no_next_chunk(
+        runtime,
+        fixit_felix.NoNextChunkDecision("ask_length_probe", b"gAMA", b"gAMA", "4"),
+        finding,
+        "gAMA_Tool_",
+        no_next_tools(chunk_type=b"gAMA", chunk_length="4", previous_chunk=b"IHDR"),
+    )
+
+    assert result == (False, None)
+    assert side_notes == [
+        "-Critical Chunk b'IDAT' is Missing",
+        "-Terminal PNG error: no IDAT chunk found; no image data to repair.",
+    ]
+    assert state["eof"] is True
+    assert ("set_skip_bad_no_next_chunk", (True,), {}) in calls
+    assert ("set_eof", (True,), {}) in calls
+    assert calls[-1] == ("the_end", (), {})
+    assert not [call for call in calls if call[0] == "question"]
+    assert not [call for call in calls if call[0] == "write_clone"]
+    assert any(
+        call[0] == "candy"
+        and call[1][0] == "Cowsay"
+        and "No IDAT chunk, no image stream" in call[1][1]
+        for call in calls
+    )
+
+
 def test_apply_no_next_raw_idat_bytes_keep_length_probe_available():
     calls = []
     finding = "CheckLength_Error_0:-No NextChunk"
@@ -2963,6 +3566,14 @@ def main():
     checks = [
         ("Apply repair records note and writes clone", test_apply_repair_records_note_and_writes_clone),
         (
+            "Automatic repair success explains private compression",
+            test_automatic_repair_success_message_explains_private_compression,
+        ),
+        (
+            "Automatic repair success prefers tRNS wording",
+            test_automatic_repair_success_message_prefers_trns_over_plte_wording,
+        ),
+        (
             "Apply repair moves IDAT interruption after prompt",
             test_apply_repair_prompts_to_move_idat_interruption_before_writing_clone,
         ),
@@ -2985,6 +3596,38 @@ def main():
         (
             "Apply repair offers oversized black PLTE Tkinter controls",
             test_apply_repair_offers_tkinter_controls_after_oversized_black_plte_preview,
+        ),
+        (
+            "Apply repair prompts to repair malformed duplicate sPLT",
+            test_apply_repair_prompts_to_repair_malformed_duplicate_splt,
+        ),
+        (
+            "Apply repair removes malformed duplicate sPLT when declined",
+            test_apply_repair_can_remove_malformed_duplicate_splt_when_repair_declined,
+        ),
+        (
+            "Apply repair prompts to remove all-transparent overlong tRNS",
+            test_apply_repair_prompts_to_remove_all_transparent_overlong_trns_alpha_table,
+        ),
+        (
+            "Apply repair trims overlong tRNS when removal declined",
+            test_apply_repair_can_trim_overlong_trns_when_removal_declined,
+        ),
+        (
+            "Apply repair declines zero-scanline blackfill",
+            test_apply_repair_prompts_before_zero_scanline_blackfill_and_declines_placeholder,
+        ),
+        (
+            "Apply repair confirms zero-scanline blackfill",
+            test_apply_repair_can_write_zero_scanline_blackfill_when_confirmed,
+        ),
+        (
+            "Apply repair offers local IDAT donor",
+            test_apply_repair_offers_local_idat_donor_before_black_placeholder,
+        ),
+        (
+            "Apply repair offers synthetic IDAT without donor",
+            test_apply_repair_offers_synthetic_idat_when_no_local_donor_exists,
         ),
         (
             "Apply repair prompts before unproven cHRM inference",
@@ -3060,6 +3703,10 @@ def main():
         ),
         ("Apply wrong CRC other errors defers", test_apply_wrong_crc_other_errors_defers_to_chunk_story),
         (
+            "Apply wrong CRC saves clean IDAT CRC with other errors",
+            test_apply_wrong_crc_other_errors_saves_clean_idat_crc_only_patch,
+        ),
+        (
             "Apply wrong CRC Cornucopia debug path",
             test_apply_wrong_crc_already_in_cornucopia_uses_debug_emit_without_tools,
         ),
@@ -3101,6 +3748,26 @@ def main():
             test_apply_wrong_chunk_name_rejects_missing_tools_for_action,
         ),
         ("Apply wrong chunk name rejects unknown action", test_apply_wrong_chunk_name_rejects_unknown_action),
+        (
+            "Stop before libpng repairs sPLT invalid sample depth",
+            test_stop_before_libpng_repairs_splt_invalid_sample_depth,
+        ),
+        (
+            "Stop before libpng prompts to remove all-transparent overlong tRNS",
+            test_stop_before_libpng_prompts_to_remove_all_transparent_overlong_trns_alpha_table,
+        ),
+        (
+            "Stop before libpng repairs sTER invalid mode",
+            test_stop_before_libpng_repairs_ster_invalid_mode,
+        ),
+        (
+            "Stop before libpng repairs tEXt null bytes",
+            test_stop_before_libpng_repairs_text_null_bytes,
+        ),
+        (
+            "Stop before libpng repairs tIME value range",
+            test_stop_before_libpng_repairs_time_value_range,
+        ),
         (
             "Apply no-next false positive runs libpng",
             test_apply_no_next_false_positive_iend_runs_libpng_after_marking_eof,
@@ -3150,6 +3817,10 @@ def main():
         ),
         ("Apply no-next length probe routes nearby", test_apply_no_next_ask_length_probe_routes_to_nearby_chunk),
         ("Apply no-next without IDAT evidence ends", test_apply_no_next_without_idat_evidence_stops_terminally),
+        (
+            "Apply no-next zero-dimension missing IDAT ends",
+            test_apply_no_next_zero_dimension_missing_idat_stops_terminally,
+        ),
         (
             "Apply no-next raw IDAT keeps probe",
             test_apply_no_next_raw_idat_bytes_keep_length_probe_available,

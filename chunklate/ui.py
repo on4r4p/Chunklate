@@ -631,6 +631,9 @@ def loadingbar_fish_speed(fishs: int) -> int:
     return max(1, len(str(fish_count)) - 2)
 
 
+HUGE_LOADINGBAR_ANIMATION_THRESHOLD = 1_000_000
+
+
 def loadingbar_progress(
     fishs: int,
     fishsize: int,
@@ -645,6 +648,8 @@ def loadingbar_progress(
         current_loop = min(max(0, int(loop)), fishs)
         if current_loop >= fishs:
             fish_pos = visible_fish_end
+        elif fishs >= HUGE_LOADINGBAR_ANIMATION_THRESHOLD and current_loop > 0:
+            fish_pos = (fish_pos + 1) % (visible_fish_end + 1)
         else:
             fish_speed = loadingbar_fish_speed(fishs)
             animated_loop = (current_loop * fish_speed) % fishs
@@ -675,6 +680,10 @@ def run_loadingbar_from_namespace(
     loop: int,
     build: bool,
 ) -> None:
+    clear_dialogue_pause = namespace.get("Clear_Terminal_Dialogue_Pause")
+    if callable(clear_dialogue_pause):
+        clear_dialogue_pause()
+
     if build:
         built = build_loadingbar_frames(
             fishs,

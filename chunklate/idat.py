@@ -105,6 +105,38 @@ class PartialIdatBlackfillRepair:
 
 
 @dataclass(frozen=True)
+class IdatDonorRepair:
+    data: bytes
+    strategy: str
+    donor_label: str
+    donor_path: str
+    width: int
+    height: int
+    bit_depth: int
+    color_type: int
+
+
+@dataclass(frozen=True)
+class SyntheticIdatRepair:
+    data: bytes
+    strategy: str
+    synthetic_pattern: str
+    width: int
+    height: int
+    bit_depth: int
+    color_type: int
+
+
+@dataclass(frozen=True)
+class TruncatedIdatNormalization:
+    data: bytes
+    declared_length: int
+    available_length: int
+    chunk_offset: int
+    missing_bytes: int
+
+
+@dataclass(frozen=True)
 class TolerantScanlineSalvage:
     filtered_scanlines: bytes
     recovered_scanlines: int
@@ -243,6 +275,216 @@ def _count_usable_scanlines(decompressed: bytes, scanline_size: int, height: int
         usable_scanlines += 1
 
     return complete_scanlines, usable_scanlines
+
+
+def _adam7_pass_scanline_sizes(width: int, height: int, bit_depth: int, color_type: int) -> tuple[int, ...] | None:
+    passes = (
+        (0, 0, 8, 8),
+        (4, 0, 8, 8),
+        (0, 4, 4, 8),
+        (2, 0, 4, 4),
+        (0, 2, 2, 4),
+        (1, 0, 2, 2),
+        (0, 1, 1, 2),
+    )
+    scanline_sizes: list[int] = []
+    for x_start, y_start, x_step, y_step in passes:
+        pass_width = 0 if width <= x_start else (width - x_start + x_step - 1) // x_step
+        pass_height = 0 if height <= y_start else (height - y_start + y_step - 1) // y_step
+        if pass_width == 0 or pass_height == 0:
+            continue
+        scanline_size = png.png_scanline_size(pass_width, bit_depth, color_type)
+        if scanline_size is None:
+            return None
+        scanline_sizes.extend([scanline_size] * pass_height)
+    return tuple(scanline_sizes)
+
+
+def _count_usable_variable_scanlines(decompressed: bytes, scanline_sizes: tuple[int, ...]) -> tuple[int, int, int]:
+    offset = 0
+    complete_scanlines = 0
+    usable_scanlines = 0
+    recovered_size = 0
+    for scanline_size in scanline_sizes:
+        if len(decompressed) - offset < scanline_size:
+            break
+        complete_scanlines += 1
+        if decompressed[offset] not in range(5):
+            break
+        offset += scanline_size
+        recovered_size = offset
+        usable_scanlines += 1
+    return complete_scanlines, usable_scanlines, recovered_size
+
+
+def _idat_stream(chunks: list[png.PngChunk]) -> bytes:
+    return b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
+
+
+def _first_chunk_payload(chunks: list[png.PngChunk], chunk_type: bytes) -> bytes | None:
+    for chunk in chunks:
+        if chunk.chunk_type == chunk_type:
+            return chunk.data
+    return None
+
+
+def _safe_donor_strategy_label(label: str) -> str:
+    stem = label.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    if stem.lower().endswith(".png"):
+        stem = stem[:-4]
+    safe = "".join(char if char.isalnum() or char in "._-" else "_" for char in stem)
+    safe = safe.strip("._-")
+    return safe[:64] or "local"
+
+
+def _scaled_sample(value: int, maximum_input: int, bit_depth: int) -> int:
+    if maximum_input <= 0:
+        return 0
+    return (value * ((1 << bit_depth) - 1)) // maximum_input
+
+
+def _pack_subbyte_samples(samples: list[int], bit_depth: int) -> bytes:
+    samples_per_byte = 8 // bit_depth
+    mask = (1 << bit_depth) - 1
+    out = bytearray()
+    current = 0
+    filled = 0
+    for sample in samples:
+        shift = 8 - bit_depth - (filled * bit_depth)
+        current |= (sample & mask) << shift
+        filled += 1
+        if filled == samples_per_byte:
+            out.append(current)
+            current = 0
+            filled = 0
+    if filled:
+        out.append(current)
+    return bytes(out)
+
+
+def _encode_png_samples(samples: list[int], bit_depth: int) -> bytes:
+    if bit_depth < 8:
+        return _pack_subbyte_samples(samples, bit_depth)
+    if bit_depth == 8:
+        return bytes(samples)
+    if bit_depth == 16:
+        return b"".join(sample.to_bytes(2, "big") for sample in samples)
+    raise ValueError("unsupported PNG bit depth")
+
+
+def _diagnostic_value(x: int, y: int, width: int, height: int, maximum: int) -> int:
+    denominator = max(1, width + height - 2)
+    return ((x + y) * maximum) // denominator
+
+
+def _synthetic_pixel_samples(
+    *,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    bit_depth: int,
+    color_type: int,
+    palette_entries: int,
+) -> list[int] | None:
+    max_sample = (1 << bit_depth) - 1
+    if color_type == 0:
+        return [_diagnostic_value(x, y, width, height, max_sample)]
+    if color_type == 2:
+        return [
+            _scaled_sample(x, width - 1, bit_depth),
+            _scaled_sample(y, height - 1, bit_depth),
+            _diagnostic_value(x, y, width, height, max_sample),
+        ]
+    if color_type == 3:
+        max_index = min(max_sample, palette_entries - 1)
+        if max_index < 0:
+            return None
+        return [_diagnostic_value(x, y, width, height, max_index)]
+    if color_type == 4:
+        return [
+            _diagnostic_value(x, y, width, height, max_sample),
+            max_sample,
+        ]
+    if color_type == 6:
+        return [
+            _scaled_sample(x, width - 1, bit_depth),
+            _scaled_sample(y, height - 1, bit_depth),
+            _diagnostic_value(x, y, width, height, max_sample),
+            max_sample,
+        ]
+    return None
+
+
+def _synthetic_diagnostic_scanlines(
+    *,
+    width: int,
+    height: int,
+    bit_depth: int,
+    color_type: int,
+    palette_entries: int = 0,
+) -> bytes | None:
+    rows = bytearray()
+    for y in range(height):
+        samples: list[int] = []
+        for x in range(width):
+            pixel = _synthetic_pixel_samples(
+                x=x,
+                y=y,
+                width=width,
+                height=height,
+                bit_depth=bit_depth,
+                color_type=color_type,
+                palette_entries=palette_entries,
+            )
+            if pixel is None:
+                return None
+            samples.extend(pixel)
+        rows.append(0)
+        try:
+            rows.extend(_encode_png_samples(samples, bit_depth))
+        except ValueError:
+            return None
+    return bytes(rows)
+
+
+def normalize_truncated_idat_at_eof(data: bytes) -> TruncatedIdatNormalization | None:
+    if not data.startswith(png.PNG_SIGNATURE):
+        return None
+
+    fixed = bytearray(png.PNG_SIGNATURE)
+    pos = len(png.PNG_SIGNATURE)
+    while pos + 8 <= len(data):
+        chunk_offset = pos
+        declared_length = struct.unpack("!I", data[pos : pos + 4])[0]
+        chunk_type = data[pos + 4 : pos + 8]
+        payload_start = pos + 8
+        payload_end = payload_start + declared_length
+        crc_end = payload_end + 4
+
+        if crc_end <= len(data):
+            fixed.extend(data[pos:crc_end])
+            pos = crc_end
+            continue
+
+        if chunk_type != b"IDAT":
+            return None
+
+        available_payload = data[payload_start:]
+        if len(available_payload) >= declared_length:
+            return None
+
+        fixed.extend(png.build_png_chunk(b"IDAT", available_payload))
+        fixed.extend(png.IEND_CHUNK)
+        return TruncatedIdatNormalization(
+            data=bytes(fixed),
+            declared_length=declared_length,
+            available_length=len(available_payload),
+            chunk_offset=chunk_offset,
+            missing_bytes=declared_length - len(available_payload),
+        )
+
+    return None
 
 
 def _tolerant_filter0_scanlines(
@@ -593,13 +835,21 @@ def analyze_partial_idat(data: bytes) -> PartialIdatAnalysis:
         return PartialIdatAnalysis(False, False, reason="IHDR width/height must be positive")
     if compression != 0 or filter_method != 0:
         return PartialIdatAnalysis(False, False, reason="unsupported IHDR compression/filter method")
-    if interlace != 0:
-        return PartialIdatAnalysis(False, False, reason="interlaced PNG is not supported")
     if not png.valid_png_color_depth(bit_depth, color_type):
         return PartialIdatAnalysis(False, False, reason="unsupported bit depth/color type")
 
-    scanline_size = png.png_scanline_size(width, bit_depth, color_type)
-    if scanline_size is None:
+    scanline_sizes: tuple[int, ...]
+    if interlace == 0:
+        scanline_size = png.png_scanline_size(width, bit_depth, color_type)
+        if scanline_size is None:
+            return PartialIdatAnalysis(False, False, reason="could not compute scanline size")
+        scanline_sizes = tuple([scanline_size] * height)
+    elif interlace == 1:
+        scanline_sizes = _adam7_pass_scanline_sizes(width, height, bit_depth, color_type) or ()
+        scanline_size = 0
+    else:
+        return PartialIdatAnalysis(False, False, reason="unsupported IHDR interlace method")
+    if not scanline_sizes:
         return PartialIdatAnalysis(False, False, reason="could not compute scanline size")
 
     idat_stream = b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
@@ -607,15 +857,19 @@ def analyze_partial_idat(data: bytes) -> PartialIdatAnalysis:
         return PartialIdatAnalysis(False, False, reason="IDAT stream is missing")
 
     decompressed, zlib_complete, error = _decompress_until_error(idat_stream)
-    expected_size = scanline_size * height
-    complete_scanlines, usable_scanlines = _count_usable_scanlines(decompressed, scanline_size, height)
-
-    recovered_size = usable_scanlines * scanline_size
+    expected_size = sum(scanline_sizes)
+    if interlace == 0:
+        complete_scanlines, usable_scanlines = _count_usable_scanlines(decompressed, scanline_size, height)
+        recovered_size = usable_scanlines * scanline_size
+        total_scanlines = height
+    else:
+        complete_scanlines, usable_scanlines, recovered_size = _count_usable_variable_scanlines(decompressed, scanline_sizes)
+        total_scanlines = len(scanline_sizes)
     complete = (
         zlib_complete
         and error == ""
         and len(decompressed) == expected_size
-        and usable_scanlines == height
+        and usable_scanlines == total_scanlines
     )
 
     return PartialIdatAnalysis(
@@ -653,9 +907,23 @@ def rebuild_partial_idat_blackfill(data: bytes) -> PartialIdatBlackfillRepair | 
     except png.PngFormatError:
         return None
 
-    black_scanline = b"\x00" + (b"\x00" * (analysis.scanline_size - 1))
-    blackfill_count = analysis.height - analysis.usable_scanlines
-    rebuilt_scanlines = analysis.recovered_scanlines + (black_scanline * blackfill_count)
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    ihdr_values = _parse_ihdr(ihdr)
+    if ihdr_values is None:
+        return None
+    _width, _height, bit_depth, color_type, _compression, _filter_method, interlace = ihdr_values
+    if interlace == 0:
+        scanline_sizes = tuple([analysis.scanline_size] * analysis.height)
+    else:
+        scanline_sizes = _adam7_pass_scanline_sizes(analysis.width, analysis.height, bit_depth, color_type) or ()
+    if not scanline_sizes:
+        return None
+
+    blackfill_scanlines = b"".join(
+        b"\x00" + (b"\x00" * (scanline_size - 1))
+        for scanline_size in scanline_sizes[analysis.usable_scanlines :]
+    )
+    rebuilt_scanlines = analysis.recovered_scanlines + blackfill_scanlines
     rebuilt_idat = zlib.compress(rebuilt_scanlines)
 
     fixed = bytearray(png.PNG_SIGNATURE)
@@ -671,8 +939,200 @@ def rebuild_partial_idat_blackfill(data: bytes) -> PartialIdatBlackfillRepair | 
     return PartialIdatBlackfillRepair(
         data=bytes(fixed),
         strategy="partial-idat-blackfill recovered %s/%s scanlines"
-        % (analysis.usable_scanlines, analysis.height),
+        % (analysis.usable_scanlines, len(scanline_sizes)),
         recovered_scanlines=analysis.usable_scanlines,
+        total_scanlines=len(scanline_sizes),
+        width=analysis.width,
+        height=analysis.height,
+        bit_depth=analysis.bit_depth,
+        color_type=analysis.color_type,
+    )
+
+
+def rebuild_idat_from_donor(
+    data: bytes,
+    donor_data: bytes,
+    *,
+    donor_label: str = "local",
+    donor_path: str = "",
+) -> IdatDonorRepair | None:
+    source_analysis = analyze_partial_idat(data)
+    if (
+        not source_analysis.supported
+        or source_analysis.complete
+        or source_analysis.usable_scanlines != 0
+    ):
+        return None
+
+    donor_analysis = analyze_partial_idat(donor_data)
+    if (
+        not donor_analysis.supported
+        or not donor_analysis.complete
+        or donor_analysis.width != source_analysis.width
+        or donor_analysis.height != source_analysis.height
+        or donor_analysis.bit_depth != source_analysis.bit_depth
+        or donor_analysis.color_type != source_analysis.color_type
+    ):
+        return None
+
+    try:
+        source_chunks = list(png.iter_chunks(data))
+        donor_chunks = list(png.iter_chunks(donor_data))
+    except png.PngFormatError:
+        return None
+
+    source_ihdr = next((chunk for chunk in source_chunks if chunk.chunk_type == b"IHDR"), None)
+    donor_ihdr = next((chunk for chunk in donor_chunks if chunk.chunk_type == b"IHDR"), None)
+    if source_ihdr is None or donor_ihdr is None or source_ihdr.data != donor_ihdr.data:
+        return None
+
+    if source_analysis.color_type == 3:
+        source_plte = _first_chunk_payload(source_chunks, b"PLTE")
+        donor_plte = _first_chunk_payload(donor_chunks, b"PLTE")
+        if source_plte is None or source_plte != donor_plte:
+            return None
+
+    donor_stream = _idat_stream(donor_chunks)
+    if not donor_stream:
+        return None
+
+    try:
+        donor_scanlines = zlib.decompress(donor_stream)
+    except zlib.error:
+        return None
+
+    usable = _count_usable_scanlines(
+        donor_scanlines,
+        source_analysis.scanline_size,
+        source_analysis.height,
+    )[1]
+    if len(donor_scanlines) != source_analysis.expected_size or usable != source_analysis.height:
+        return None
+
+    fixed = bytearray(png.PNG_SIGNATURE)
+    idat_written = False
+    for chunk in source_chunks:
+        if chunk.chunk_type == b"IDAT":
+            if not idat_written:
+                fixed.extend(png.build_png_chunk(b"IDAT", donor_stream))
+                idat_written = True
+            continue
+        fixed.extend(png.build_png_chunk(chunk.chunk_type, chunk.data))
+
+    if not idat_written:
+        return None
+
+    fixed_data = bytes(fixed)
+    if not png.validate_png_structure(fixed_data).ok:
+        return None
+
+    strategy_label = _safe_donor_strategy_label(donor_label)
+    return IdatDonorRepair(
+        data=fixed_data,
+        strategy="idat-donor-%s" % strategy_label,
+        donor_label=donor_label,
+        donor_path=donor_path,
+        width=source_analysis.width,
+        height=source_analysis.height,
+        bit_depth=source_analysis.bit_depth,
+        color_type=source_analysis.color_type,
+    )
+
+
+def rebuild_synthetic_idat(data: bytes, *, pattern: str = "diagnostic") -> SyntheticIdatRepair | None:
+    if pattern != "diagnostic":
+        return None
+
+    analysis = analyze_partial_idat(data)
+    if not analysis.supported or analysis.complete or analysis.usable_scanlines != 0:
+        return None
+
+    try:
+        chunks = list(png.iter_chunks(data))
+    except png.PngFormatError:
+        return None
+
+    palette_entries = 0
+    if analysis.color_type == 3:
+        plte_payload = _first_chunk_payload(chunks, b"PLTE")
+        if plte_payload is None or len(plte_payload) < 3 or len(plte_payload) % 3 != 0:
+            return None
+        palette_entries = len(plte_payload) // 3
+
+    scanlines = _synthetic_diagnostic_scanlines(
+        width=analysis.width,
+        height=analysis.height,
+        bit_depth=analysis.bit_depth,
+        color_type=analysis.color_type,
+        palette_entries=palette_entries,
+    )
+    if scanlines is None or len(scanlines) != analysis.expected_size:
+        return None
+
+    fixed = bytearray(png.PNG_SIGNATURE)
+    idat_written = False
+    rebuilt_idat = zlib.compress(scanlines)
+    for chunk in chunks:
+        if chunk.chunk_type == b"IDAT":
+            if not idat_written:
+                fixed.extend(png.build_png_chunk(b"IDAT", rebuilt_idat))
+                idat_written = True
+            continue
+        fixed.extend(png.build_png_chunk(chunk.chunk_type, chunk.data))
+
+    if not idat_written:
+        return None
+
+    fixed_data = bytes(fixed)
+    if not png.validate_png_structure(fixed_data).ok:
+        return None
+
+    return SyntheticIdatRepair(
+        data=fixed_data,
+        strategy="idat-synthetic-diagnostic",
+        synthetic_pattern=pattern,
+        width=analysis.width,
+        height=analysis.height,
+        bit_depth=analysis.bit_depth,
+        color_type=analysis.color_type,
+    )
+
+
+def rebuild_zero_scanline_placeholder(data: bytes) -> PartialIdatBlackfillRepair | None:
+    analysis = analyze_partial_idat(data)
+    if not analysis.supported or analysis.complete or analysis.usable_scanlines != 0:
+        return None
+
+    try:
+        chunks = list(png.iter_chunks(data))
+    except png.PngFormatError:
+        return None
+
+    placeholder_scanline = b"\x00" * analysis.scanline_size
+    rebuilt_scanlines = placeholder_scanline * analysis.height
+    rebuilt_idat = zlib.compress(rebuilt_scanlines)
+
+    fixed = bytearray(png.PNG_SIGNATURE)
+    idat_written = False
+    for chunk in chunks:
+        if chunk.chunk_type == b"IDAT":
+            if not idat_written:
+                fixed.extend(png.build_png_chunk(b"IDAT", rebuilt_idat))
+                idat_written = True
+            continue
+        fixed.extend(png.build_png_chunk(chunk.chunk_type, chunk.data))
+
+    if not idat_written:
+        return None
+
+    fixed_data = bytes(fixed)
+    if not png.validate_png_structure(fixed_data).ok:
+        return None
+
+    return PartialIdatBlackfillRepair(
+        data=fixed_data,
+        strategy="zero-scanline-placeholder recovered 0/%s scanlines" % analysis.height,
+        recovered_scanlines=0,
         total_scanlines=analysis.height,
         width=analysis.width,
         height=analysis.height,

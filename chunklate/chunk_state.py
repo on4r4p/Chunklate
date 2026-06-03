@@ -105,6 +105,15 @@ class ChunkInfoState:
         self.idat_bytes_len_history = []
         self.idat_avg_len = ""
 
+    def reset_splt(self) -> None:
+        self.splt_name = []
+        self.splt_depth = []
+        self.splt_red = []
+        self.splt_green = []
+        self.splt_blue = []
+        self.splt_alpha = []
+        self.splt_freq = []
+
     def apply_ihdr(self, info: chunk_info.IhdrInfo) -> None:
         self.ihdr_width = info.width
         self.ihdr_height = info.height

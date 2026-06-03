@@ -71,10 +71,8 @@ def _question_context_label(question_id: Any, offset: Any) -> str:
 
 def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
     label = _question_display_name(question_id)
-    if "LineFeed Heavy Probe" in str(question_id):
-        return "Question: Should i try the heavier line-feed brute force?"
     if "SuperMegaLineFeedForceOfDeath" in str(question_id):
-        return "Question: Should i launch SuperMegaLineFeedForceOfDeath, the full IDAT line-feed brute force?"
+        return "Question: Should I push the IDAT line-feed recovery further?"
     if "UltimateMegaSuperLineFeedBruteForce" in str(question_id):
         return "Question: Should I open the forbidden line-feed combinatorics vault no jutsu?"
     if "IHDR CRC Brute Force" in str(question_id):
@@ -94,6 +92,14 @@ def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
         )
     if "hIST Optional Metadata Removal" in str(question_id):
         return "Question: Should i remove the optional hIST chunk(s), or keep them as-is?"
+    if "sPLT Payload Repair" in str(question_id):
+        return "Question: Should i try to repair the malformed/duplicate sPLT chunk(s)? Say no to remove them instead."
+    if "IDAT donor repair" in str(question_id):
+        return "Question: Option 1, use the local donor IDAT for this clone?"
+    if "IDAT synthetic repair" in str(question_id):
+        return "Question: Option 2, build a synthetic diagnostic IDAT? This is not the original image."
+    if "IDAT Zero Scanline Blackfill" in str(question_id):
+        return "Question: Option 3, write an all-zero placeholder PNG?"
     if skipauto:
         return "Question: Should i stop this brute force branch and save the current candidate?"
     if "IDAT Heavy Probe" in str(question_id):

@@ -27,6 +27,11 @@ def test_question_closes_active_preview_after_answer():
     preview = FakePreview()
     original_preview = Chunklate.ACTIVE_PREVIEW_IMAGE
     original_ask_question = Chunklate.question_runtime.ask_question
+    original_pause_state = (
+        Chunklate.DIALOGUE_PAUSE_STATE.pending,
+        Chunklate.DIALOGUE_PAUSE_STATE.paused_in_group,
+        Chunklate.DIALOGUE_PAUSE_STATE.rendering_dialogue,
+    )
 
     def fake_ask_question(_runtime, _id, _idhash, *, skipauto=False):
         return True
@@ -34,13 +39,24 @@ def test_question_closes_active_preview_after_answer():
     try:
         Chunklate.ACTIVE_PREVIEW_IMAGE = preview
         Chunklate.question_runtime.ask_question = fake_ask_question
+        Chunklate.DIALOGUE_PAUSE_STATE.pending = True
+        Chunklate.DIALOGUE_PAUSE_STATE.paused_in_group = True
+        Chunklate.DIALOGUE_PAUSE_STATE.rendering_dialogue = True
 
-        assert Chunklate.Question("LineFeed Heavy Probe", "preview-close-test") is True
+        assert Chunklate.Question("SuperMegaLineFeedForceOfDeath", "preview-close-test") is True
         assert preview.closed == 1
         assert Chunklate.ACTIVE_PREVIEW_IMAGE is None
+        assert Chunklate.DIALOGUE_PAUSE_STATE.pending is False
+        assert Chunklate.DIALOGUE_PAUSE_STATE.paused_in_group is False
+        assert Chunklate.DIALOGUE_PAUSE_STATE.rendering_dialogue is False
     finally:
         Chunklate.ACTIVE_PREVIEW_IMAGE = original_preview
         Chunklate.question_runtime.ask_question = original_ask_question
+        (
+            Chunklate.DIALOGUE_PAUSE_STATE.pending,
+            Chunklate.DIALOGUE_PAUSE_STATE.paused_in_group,
+            Chunklate.DIALOGUE_PAUSE_STATE.rendering_dialogue,
+        ) = original_pause_state
 
 
 def test_open_final_image_skips_structurally_invalid_png(tmp_path, monkeypatch):
@@ -71,6 +87,104 @@ def test_preview_repair_image_skips_structurally_invalid_png(monkeypatch):
 
     assert Chunklate.Preview_Repair_Image(b"not a png", "invalid-preview") is None
     assert calls == []
+
+
+def test_ultimate_linefeed_candidate_preview_times_out_and_closes(tmp_path, monkeypatch):
+    original = tmp_path / "01.png"
+    original.write_bytes(VALID_FIXTURE.read_bytes())
+    sleeps = []
+
+    class FakeOpenResult:
+        success = True
+        opener = "feh"
+        error = None
+
+        def __init__(self):
+            self.closed = 0
+
+        def close(self):
+            self.closed += 1
+            return True
+
+    opened = []
+    previous = (
+        Chunklate.FILE_Origin,
+        Chunklate.FILE_DIR,
+        Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT,
+        Chunklate.ACTIVE_PREVIEW_IMAGE,
+    )
+
+    monkeypatch.setattr(Chunklate.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(Chunklate, "PRINT", lambda message: None)
+    monkeypatch.setattr(Chunklate, "Candy", lambda *args: "%s")
+    monkeypatch.setattr(Chunklate.time, "sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr(
+        Chunklate.image_viewer,
+        "open_image",
+        lambda path: opened.append(FakeOpenResult()) or opened[-1],
+    )
+
+    try:
+        Chunklate.FILE_Origin = str(original)
+        Chunklate.FILE_DIR = str(tmp_path / "out")
+        Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT = 1.5
+        Chunklate.ACTIVE_PREVIEW_IMAGE = None
+        candidate = SimpleNamespace(
+            data=VALID_FIXTURE.read_bytes(),
+            after=SimpleNamespace(
+                usable_scanlines=1,
+                height=1,
+                adler_status="adler_mismatch",
+            ),
+        )
+
+        result = Chunklate.Ultimate_Linefeed_Candidate_Preview(candidate, 42, 100)
+
+        assert result is opened[0]
+        assert sleeps == [1.5]
+        assert opened[0].closed == 1
+        assert Chunklate.ACTIVE_PREVIEW_IMAGE is None
+    finally:
+        (
+            Chunklate.FILE_Origin,
+            Chunklate.FILE_DIR,
+            Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT,
+            Chunklate.ACTIVE_PREVIEW_IMAGE,
+        ) = previous
+
+
+def test_ultimate_linefeed_candidate_preview_timeout_zero_disables(tmp_path, monkeypatch):
+    calls = []
+    previous = (
+        Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT,
+        Chunklate.ACTIVE_PREVIEW_IMAGE,
+    )
+
+    monkeypatch.setattr(
+        Chunklate.image_viewer,
+        "open_image",
+        lambda path: calls.append(path),
+    )
+
+    try:
+        Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT = 0
+        candidate = SimpleNamespace(
+            data=VALID_FIXTURE.read_bytes(),
+            after=SimpleNamespace(
+                usable_scanlines=1,
+                height=1,
+                adler_status="adler_mismatch",
+            ),
+        )
+
+        assert Chunklate.Ultimate_Linefeed_Candidate_Preview(candidate, 42, 100) is None
+        assert calls == []
+        assert Chunklate.ACTIVE_PREVIEW_IMAGE is previous[1]
+    finally:
+        (
+            Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT,
+            Chunklate.ACTIVE_PREVIEW_IMAGE,
+        ) = previous
 
 
 def test_current_display_image_path_uses_original_when_no_clone_exists(tmp_path):

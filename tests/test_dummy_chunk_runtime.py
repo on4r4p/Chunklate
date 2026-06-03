@@ -2,6 +2,7 @@
 import binascii
 import struct
 import sys
+import tempfile
 import zlib
 from pathlib import Path
 
@@ -11,7 +12,18 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import dummy_chunk_runtime
-from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, validate_png_structure
+from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks, validate_png_structure
+
+
+def fixture_bytes(name):
+    for path in (
+        ROOT / "brokenjavapngsuite" / name,
+        ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / name,
+        ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / name,
+    ):
+        if path.exists():
+            return path.read_bytes()
+    raise FileNotFoundError("%s fixture not found" % name)
 
 
 def rgb_ihdr(width=1, height=1):
@@ -25,6 +37,9 @@ def build_runtime(
     side_notes=None,
     debug=False,
     pause_debug=False,
+    question=None,
+    file_origin="",
+    write_clone=None,
 ):
     side_notes = [] if side_notes is None else side_notes
 
@@ -78,6 +93,9 @@ def build_runtime(
         repair_note=repair_note,
         debug=debug,
         pause_debug=pause_debug,
+        question=question,
+        file_origin=file_origin,
+        write_clone=write_clone,
     )
 
 
@@ -206,12 +224,114 @@ def test_dummy_chunk_runtime_keeps_idat_todo_path():
     assert not [call for call in calls if call[0] == "checkpoint"]
 
 
+def test_dummy_chunk_runtime_repairs_truncated_idat_before_missing_iend_with_donor():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        broken_dir = root / "brokenjavapngsuite"
+        donor_dir = root / "schaik-javapng-samples"
+        broken_dir.mkdir()
+        donor_dir.mkdir()
+        broken_path = broken_dir / "truncate_zlib.png"
+        donor_path = donor_dir / "ch2n3p08.png"
+        broken_data = fixture_bytes("truncate_zlib.png")
+        donor_data = (ROOT / "schaik-javapng-samples" / "ch2n3p08.png").read_bytes()
+        broken_path.write_bytes(broken_data)
+        donor_path.write_bytes(donor_data)
+        calls = []
+        questions = []
+        side_notes = []
+        writes = []
+        runtime = build_runtime(
+            calls,
+            data_hex=broken_data.hex(),
+            side_notes=side_notes,
+            question=lambda **kwargs: questions.append(kwargs) or True,
+            file_origin=str(broken_path),
+            write_clone=lambda data_hex, info: writes.append((data_hex, info)) or "write-result",
+        )
+
+        result = dummy_chunk_runtime.run_dummy_chunk(
+            runtime,
+            b"IEND",
+            len(broken_data),
+            len(broken_data) * 2,
+            len(broken_data) * 2,
+            "CheckLength_Error_0:-No NextChunk",
+        )
+
+    assert result == "write-result"
+    assert not [call for call in calls if call[0] == "checkpoint"]
+    assert len(writes) == 1
+    assert writes[0][1] == "-idat-donor-ch2n3p08."
+    fixed_data = bytes.fromhex(writes[0][0])
+    assert validate_png_structure(fixed_data).ok
+    fixed_stream = b"".join(
+        chunk.data for chunk in iter_chunks(fixed_data) if chunk.chunk_type == b"IDAT"
+    )
+    donor_stream = b"".join(
+        chunk.data for chunk in iter_chunks(donor_data) if chunk.chunk_type == b"IDAT"
+    )
+    assert fixed_stream == donor_stream
+    assert questions == [
+        {
+            "id": "IDAT donor repair:-Truncated IDAT. Replace IDAT with local donor %s?"
+            % donor_path,
+            "idhash": ("IDAT-donor", str(donor_path), 32, 32, 8, 3),
+            "skipauto": True,
+        }
+    ]
+    assert any("declared 433 byte(s), but only 24 byte(s)" in note for note in side_notes)
+    assert any("bounded IDAT brute force found no complete zlib stream" in note for note in side_notes)
+    assert side_notes[-1] == "repair-note:idat-donor-ch2n3p08"
+
+
+def test_dummy_chunk_runtime_repairs_truncated_adam7_idat_before_missing_iend():
+    broken_data = fixture_bytes("truncate_zlib_2.png")
+    calls = []
+    questions = []
+    side_notes = []
+    writes = []
+    runtime = build_runtime(
+        calls,
+        data_hex=broken_data.hex(),
+        side_notes=side_notes,
+        file_origin="truncate_zlib_2.png",
+        write_clone=lambda data_hex, info: writes.append((data_hex, info)) or "write-result",
+    )
+
+    result = dummy_chunk_runtime.run_dummy_chunk(
+        runtime,
+        b"IEND",
+        len(broken_data),
+        len(broken_data) * 2,
+        len(broken_data) * 2,
+        "CheckLength_Error_0:-No NextChunk",
+    )
+
+    assert result == "write-result"
+    assert questions == []
+    assert len(writes) == 1
+    assert writes[0][1] == "-partial-idat-blackfill recovered 113/131 scanlines."
+    fixed_data = bytes.fromhex(writes[0][0])
+    assert validate_png_structure(fixed_data).ok
+    assert any("declared 8119 byte(s), but only 6004 byte(s)" in note for note in side_notes)
+    assert side_notes[-1] == "repair-note:partial-idat-blackfill recovered 113/131 scanlines"
+
+
 def main():
     checks = [
         ("Strict IHDR repair", test_dummy_chunk_runtime_routes_strict_ihdr_repair),
         ("Complete IEND tail", test_dummy_chunk_runtime_completes_iend_tail),
         ("Legacy IHDR fallback/debug", test_dummy_chunk_runtime_keeps_legacy_ihdr_fallback_and_debug),
         ("IDAT TODO path", test_dummy_chunk_runtime_keeps_idat_todo_path),
+        (
+            "Truncated IDAT donor before IEND",
+            test_dummy_chunk_runtime_repairs_truncated_idat_before_missing_iend_with_donor,
+        ),
+        (
+            "Truncated Adam7 IDAT blackfill before IEND",
+            test_dummy_chunk_runtime_repairs_truncated_adam7_idat_before_missing_iend,
+        ),
     ]
 
     print("Running dummy chunk runtime tests")

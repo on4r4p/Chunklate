@@ -106,7 +106,7 @@ Chunklate follows this high-level flow:
 
 `chunklate/idat.py`
 : IDAT stream analysis and the `partial-idat-blackfill` salvage path for
-  non-interlaced PNGs.
+  non-interlaced and Adam7 PNGs.
 
 `chunklate/bruteforce.py`
 : Candidate generation, byte edit modes, scan windows, ETA helpers, and
@@ -182,15 +182,15 @@ Chunklate follows this high-level flow:
 
 ## IDAT Salvage
 
-`partial-idat-blackfill` is an explicit salvage repair. When a non-interlaced
+`partial-idat-blackfill` is an explicit salvage repair. When a
 PNG has a partially readable IDAT zlib stream, Chunklate can keep complete
-scanlines recovered before the zlib failure, fill the remaining scanlines with
-black or transparent bytes, recompress a new IDAT stream, and rebuild a valid
-PNG. It is a salvage image, not a reconstruction of unknown image content.
+filtered scanlines recovered before the zlib failure, fill the remaining
+non-interlaced or Adam7 pass scanlines with black or transparent bytes,
+recompress a new IDAT stream, and rebuild a valid PNG. It is a salvage image,
+not a reconstruction of unknown image content.
 
 Current limits:
 
-- Adam7/interlaced PNGs are not handled by this path.
 - Partial scanlines are discarded.
 - Missing image content is filled, not guessed.
 

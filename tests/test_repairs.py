@@ -86,7 +86,7 @@ def run_chunklate_repair(fixture_name, tmp_path, max_saves):
             str(max_saves),
         ],
         cwd=tmp_path,
-        input="yes\n" * 20,
+        input="yes\n" * 200,
         capture_output=True,
         text=True,
         timeout=10,

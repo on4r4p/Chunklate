@@ -52,7 +52,7 @@ def test_chunk_info_state_tracks_idat_sequence_and_reset():
 def test_chunk_info_state_applies_palette_and_suggested_palette():
     state = chunk_state.ChunkInfoState()
     plte = chunk_info.parse_plte("000102030405", ihdr_depth="8")
-    splt = chunk_info.parse_splt("70616c0008" + ("01" * 13))
+    splt = chunk_info.parse_splt("70616c0008" + ("01" * 6))
 
     state.apply_plte(plte)
     state.apply_splt(splt)
@@ -64,6 +64,22 @@ def test_chunk_info_state_applies_palette_and_suggested_palette():
     assert state.splt_name == ["70616c"]
     assert state.splt_depth == ["8"]
     assert state.splt_entry_count() == len(splt.red) * 4
+
+
+def test_chunk_info_state_resets_suggested_palette():
+    state = chunk_state.ChunkInfoState()
+    splt = chunk_info.parse_splt("70616c0008" + ("01" * 6))
+    state.apply_splt(splt)
+
+    state.reset_splt()
+
+    assert state.splt_name == []
+    assert state.splt_depth == []
+    assert state.splt_red == []
+    assert state.splt_green == []
+    assert state.splt_blue == []
+    assert state.splt_alpha == []
+    assert state.splt_freq == []
 
 
 def test_chunk_info_state_accepts_legacy_field_sync():
@@ -223,6 +239,7 @@ def main():
         ("IHDR fields", test_chunk_info_state_applies_ihdr_fields),
         ("IDAT sequence", test_chunk_info_state_tracks_idat_sequence_and_reset),
         ("palette fields", test_chunk_info_state_applies_palette_and_suggested_palette),
+        ("sPLT reset", test_chunk_info_state_resets_suggested_palette),
         ("legacy field sync", test_chunk_info_state_accepts_legacy_field_sync),
         ("tRNS and pCAL fields", test_chunk_info_state_applies_trns_and_pcal),
         (

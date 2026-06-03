@@ -12,7 +12,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chunklate import cli, main_runtime, messages, runtime_state
+from chunklate import (
+    cli,
+    chunk_state,
+    chunk_state_runtime,
+    main_runtime,
+    messages,
+    output,
+    runtime_state,
+)
 
 
 class ExitReached(Exception):
@@ -45,6 +53,9 @@ def args(**updates):
         "COLOR_MODE": "auto",
         "ULTIMATE_LINEFEED_BUDGET": None,
         "ULTIMATE_LINEFEED_UNBOUNDED": False,
+        "ULTIMATE_LINEFEED_REFERENCE": None,
+        "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT": 5.0,
+        "ULTIMATE_LINEFEED_RESUME": "ask",
     }
     values.update(updates)
     return SimpleNamespace(**values)
@@ -64,12 +75,14 @@ def build_runtime(calls, *, exit_raises=True):
         path_is_dir=lambda path: False,
         list_dir=lambda path: [],
         remove_tree=lambda path: calls.append(("remove_tree", path)),
+        remove_file=lambda path: calls.append(("remove_file", path)),
         abspath=lambda path: "/abs/" + path,
         join=lambda *parts: "/".join(parts),
         stderr="stderr",
         asker=lambda prompt: "no",
         candy=lambda *args: calls.append(("candy", args)),
         emit=lambda message: calls.append(("emit", message)),
+        clear_dialogue_pause=lambda: calls.append(("clear_dialogue_pause",)),
     )
 
 
@@ -123,6 +136,7 @@ def test_build_main_runtime_helpers_wire_callbacks():
         path_is_dir=lambda path: False,
         list_dir=lambda path: [],
         remove_tree=lambda path: calls.append(("remove_tree", path)),
+        remove_file=lambda path: calls.append(("remove_file", path)),
         abspath=lambda path: "/abs/" + path,
         join=lambda *parts: "/".join(parts),
         stderr="stderr",
@@ -198,6 +212,8 @@ def test_apply_main_cli_options_builds_initial_state():
         crash=False,
         ultimate_linefeed_budget=None,
         ultimate_linefeed_unbounded=False,
+        ultimate_linefeed_preview_timeout=5.0,
+        ultimate_linefeed_resume="ask",
     )
     assert ("makedirs", "/abs/out/", {"exist_ok": True}) in calls
 
@@ -281,6 +297,40 @@ def test_apply_main_cli_options_exits_on_bad_ultimate_linefeed_budget():
     assert ("exit", 1) in calls
 
 
+def test_apply_main_cli_options_exits_on_bad_ultimate_preview_timeout():
+    calls = []
+
+    try:
+        apply_options(calls, args(ULTIMATE_LINEFEED_PREVIEW_TIMEOUT=-0.1))
+    except ExitReached as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("bad ultimate preview timeout should exit")
+
+    assert (
+        "print",
+        "--ultimate-linefeed-preview-timeout arguments must be zero or greater.",
+    ) in calls
+    assert ("exit", 1) in calls
+
+
+def test_apply_main_cli_options_exits_on_bad_ultimate_resume_mode():
+    calls = []
+
+    try:
+        apply_options(calls, args(ULTIMATE_LINEFEED_RESUME="bad"))
+    except ExitReached as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("bad ultimate resume mode should exit")
+
+    assert (
+        "print",
+        "--ultimate-linefeed-resume must be one of: ask, auto, never, reset.",
+    ) in calls
+    assert ("exit", 1) in calls
+
+
 def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
     state = main_runtime.MainCliOptionsState(
         file_origin="sample.png",
@@ -304,6 +354,9 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         crash=9,
         ultimate_linefeed_budget=1234,
         ultimate_linefeed_unbounded=True,
+        ultimate_linefeed_reference="ref.png",
+        ultimate_linefeed_preview_timeout=1.5,
+        ultimate_linefeed_resume="auto",
     )
 
     assert main_runtime.legacy_globals_from_main_cli_options(state) == {
@@ -326,6 +379,9 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         "CRASH": 9,
         "ULTIMATE_LINEFEED_BUDGET": 1234,
         "ULTIMATE_LINEFEED_UNBOUNDED": True,
+        "ULTIMATE_LINEFEED_REFERENCE": "ref.png",
+        "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT": 1.5,
+        "ULTIMATE_LINEFEED_RESUME": "auto",
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
     }
 
@@ -373,6 +429,9 @@ def test_apply_main_cli_options_from_namespace_updates_legacy_globals():
     assert namespace["CRASH"] is False
     assert namespace["ULTIMATE_LINEFEED_BUDGET"] is None
     assert namespace["ULTIMATE_LINEFEED_UNBOUNDED"] is False
+    assert namespace["ULTIMATE_LINEFEED_REFERENCE"] is None
+    assert namespace["ULTIMATE_LINEFEED_PREVIEW_TIMEOUT"] == 5.0
+    assert namespace["ULTIMATE_LINEFEED_RESUME"] == "ask"
     assert namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] is True
     assert calls == [("makedirs", "/abs/out/", {"exist_ok": True})]
 
@@ -428,6 +487,38 @@ def test_reset_main_loop_state_uses_fresh_history_containers_each_time():
     assert namespace["Chunks_History"] is not first_history
     assert namespace["PandoraBox"] == {}
     assert namespace["PandoraBox"] is not first_pandora
+
+
+def test_reset_main_loop_state_clears_splt_state_between_repair_passes():
+    state = chunk_state.ChunkInfoState()
+    state.set_splt_legacy(
+        names=["7369782d63756265"],
+        depths=["16"],
+        red=["00"],
+        green=["00"],
+        blue=["00"],
+        alpha=["ff"],
+        freq=["00"],
+    )
+    namespace = {}
+
+    def sync(section):
+        chunk_state_runtime.sync_state_to_legacy(namespace, state, section)
+
+    main_runtime.reset_main_loop_state(
+        main_runtime.MainLoopResetRuntime(
+            namespace=namespace,
+            reset_chunk_info_idat=state.reset_idat,
+            sync_chunk_info_legacy_state=sync,
+            banner=lambda mode: None,
+            reset_chunk_info_splt=state.reset_splt,
+        )
+    )
+
+    assert state.splt_name == []
+    assert state.splt_entry_count() == 0
+    assert namespace["sPLT_Name"] == []
+    assert namespace["sPLT_Red"] == []
 
 
 def test_run_main_clear_screen_preserves_startup_skip():
@@ -606,6 +697,51 @@ def build_chunk_walk_runtime(calls, namespace):
     )
 
 
+def build_sequence_chunk_walk_runtime(calls, namespace, sequence):
+    offsets = sorted(sequence)
+    next_offsets = {
+        offset: offsets[index + 1] if index + 1 < len(offsets) else offset + 16
+        for index, offset in enumerate(offsets)
+    }
+
+    def chunk_by_chunk(offset):
+        chunk = sequence[offset]
+        namespace.update(
+            {
+                "Orig_CD": "orig-data",
+                "Orig_CL": "orig-len",
+                "Orig_CT": chunk,
+                "Chunks_History": [chunk],
+                "Raw_Data": b"data",
+                "Raw_Type": chunk,
+                "Raw_Crc": b"crc!",
+                "Raw_Length": b"len!",
+                "Show_Must_Go_On": False,
+                "Have_A_KitKat": False,
+            }
+        )
+        calls.append(("chunk_by_chunk", (offset,)))
+
+    def callback(name):
+        def inner(*args):
+            calls.append((name, args))
+            if name == "fix_it_felix":
+                namespace["Show_Must_Go_On"] = True
+
+        return inner
+
+    return main_runtime.MainChunkWalkRuntime(
+        namespace=namespace,
+        chunk_by_chunk=chunk_by_chunk,
+        check_length=callback("check_length"),
+        check_chunk_name=callback("check_chunk_name"),
+        get_info=callback("get_info"),
+        checksum=callback("checksum"),
+        fix_it_felix=callback("fix_it_felix"),
+        next_chunk_offset=lambda offset, *_args: next_offsets[offset],
+    )
+
+
 def test_run_main_chunk_walk_returns_without_offset():
     calls = []
     namespace = chunk_namespace()
@@ -703,10 +839,189 @@ def test_run_main_chunk_walk_defers_ihdr_value_repair_until_file_tour_ends():
         "candy",
         (
             "Cowsay",
-            "I found an IHDR value problem, but the chunk road is still walkable. I am finishing the file tour before Felix touches it.",
+            "I found repairable problems, but the chunk road is still walkable. I am finishing the file tour before Felix touches it.",
             "com",
         ),
     ) in calls
+
+
+def test_run_main_chunk_walk_defers_generic_findings_until_iend_even_with_immediate_flags():
+    scenarios = [
+        (
+            "crc",
+            {"Checksum_Error_0:-Wrong Crc b'IDAT'": {}},
+            {"Bad_Crc": True},
+        ),
+        (
+            "bad-current-name",
+            {"CheckChunkName_Error_0:-Bad Current Name b'BDAT'": {}},
+            {"Bad_Current_Name": True},
+        ),
+        (
+            "plte-order",
+            {"CheckChunkOrder_Error_0:-PLTE is misplaced and must appear before IDAT": {}},
+            {"Bad_Missplaced": True},
+        ),
+    ]
+
+    for label, pandora_box, flags in scenarios:
+        calls = []
+        namespace = chunk_namespace(
+            PandoraBox=pandora_box,
+            Candy=lambda *args: calls.append(("candy", args)),
+            **flags,
+        )
+        runtime = build_sequence_chunk_walk_runtime(
+            calls,
+            namespace,
+            {
+                0: b"IHDR",
+                16: b"IDAT",
+                32: b"IEND",
+            },
+        )
+
+        state = main_runtime.run_main_chunk_walk(
+            runtime,
+            main_runtime.MainChunkWalkContext(offset=0, data_hex="0" * 48),
+        )
+
+        assert state == main_runtime.MainChunkWalkState(offset=48), label
+        assert [call for call in calls if call[0] == "fix_it_felix"] == [
+            ("fix_it_felix", (b"IEND",))
+        ], label
+        iend_checksum_index = calls.index(("checksum", (b"IEND", b"data", b"crc!")))
+        fix_index = calls.index(("fix_it_felix", (b"IEND",)))
+        assert iend_checksum_index < fix_index, label
+        assert [call for call in calls if call[0] == "candy"] == [
+            (
+                "candy",
+                (
+                    "Cowsay",
+                    "I found repairable problems, but the chunk road is still walkable. I am finishing the file tour before Felix touches it.",
+                    "com",
+                ),
+            )
+        ], label
+
+
+def test_run_main_chunk_walk_allows_felix_on_non_iend_no_next_chunk_boundary():
+    calls = []
+    namespace = chunk_namespace(
+        PandoraBox={"CheckLength_Error_0:-No NextChunk after IDAT": {}},
+        Bad_No_Next_Chunk=True,
+        Candy=lambda *args: calls.append(("candy", args)),
+    )
+    runtime = build_sequence_chunk_walk_runtime(
+        calls,
+        namespace,
+        {
+            0: b"IDAT",
+        },
+    )
+
+    state = main_runtime.run_main_chunk_walk(
+        runtime,
+        main_runtime.MainChunkWalkContext(offset=0, data_hex="0" * 16),
+    )
+
+    assert state == main_runtime.MainChunkWalkState(offset=16)
+    assert [call for call in calls if call[0] == "fix_it_felix"] == [
+        ("fix_it_felix", (b"IDAT",))
+    ]
+    assert [call for call in calls if call[0] == "candy"] == []
+
+
+def test_run_main_chunk_walk_defers_felix_when_find_magic_repair_is_pending():
+    calls = []
+    namespace = chunk_namespace(
+        PandoraBox={"CheckLength_Error_0:-No NextChunk": {}},
+        Bad_No_Next_Chunk=True,
+        DEFERRED_LINEFEED_SIGNATURE_REPAIR={"data_bytes": b"png"},
+        Candy=lambda *args: calls.append(("candy", args)),
+    )
+    runtime = build_sequence_chunk_walk_runtime(
+        calls,
+        namespace,
+        {
+            0: b"IDAT",
+        },
+    )
+
+    state = main_runtime.run_main_chunk_walk(
+        runtime,
+        main_runtime.MainChunkWalkContext(offset=0, data_hex="0" * 16),
+    )
+
+    assert state == main_runtime.MainChunkWalkState(offset=16)
+    assert [call for call in calls if call[0] == "fix_it_felix"] == []
+
+
+def test_run_main_chunk_walk_defers_private_compression_repair_until_after_idat():
+    calls = []
+    sequence = {
+        0: b"IHDR",
+        16: b"IDAT",
+        32: b"IEND",
+    }
+    namespace = chunk_namespace(
+        PandoraBox={
+            "GetInfo_Error_0:-IHDR Compression Algorithms : Wrong value must be 0. StructIndex:5": {}
+        },
+        Candy=lambda *args: calls.append(("candy", args)),
+    )
+
+    def chunk_by_chunk(offset):
+        chunk = sequence[offset]
+        namespace.update(
+            {
+                "Orig_CD": "orig-data",
+                "Orig_CL": "orig-len",
+                "Orig_CT": chunk,
+                "Chunks_History": [chunk],
+                "Raw_Data": b"data",
+                "Raw_Type": chunk,
+                "Raw_Crc": b"crc!",
+                "Raw_Length": b"len!",
+                "Show_Must_Go_On": False,
+                "Have_A_KitKat": False,
+            }
+        )
+        calls.append(("chunk_by_chunk", (offset,)))
+
+    def callback(name):
+        def inner(*args):
+            calls.append((name, args))
+            if name == "fix_it_felix":
+                namespace["Show_Must_Go_On"] = True
+
+        return inner
+
+    runtime = main_runtime.MainChunkWalkRuntime(
+        namespace=namespace,
+        chunk_by_chunk=chunk_by_chunk,
+        check_length=callback("check_length"),
+        check_chunk_name=callback("check_chunk_name"),
+        get_info=callback("get_info"),
+        checksum=callback("checksum"),
+        fix_it_felix=callback("fix_it_felix"),
+        next_chunk_offset=lambda offset, *_args: {0: 16, 16: 32, 32: 48}[offset],
+    )
+
+    state = main_runtime.run_main_chunk_walk(
+        runtime,
+        main_runtime.MainChunkWalkContext(offset=0, data_hex="0" * 48),
+    )
+
+    assert state == main_runtime.MainChunkWalkState(offset=48)
+    assert [call for call in calls if call[0] == "fix_it_felix"] == [
+        ("fix_it_felix", (b"IEND",))
+    ]
+    idat_checksum_index = calls.index(("checksum", (b"IDAT", b"data", b"crc!")))
+    iend_checksum_index = calls.index(("checksum", (b"IEND", b"data", b"crc!")))
+    fix_index = calls.index(("fix_it_felix", (b"IEND",)))
+    assert idat_checksum_index < fix_index
+    assert iend_checksum_index < fix_index
 
 
 def test_run_main_chunk_walk_stops_when_kitkat_breaks():
@@ -808,6 +1123,83 @@ def test_run_main_loop_once_from_namespace_resets_loads_and_walks_sample():
     assert namespace["Have_A_KitKat"] is False
 
 
+def test_run_main_loop_once_applies_deferred_find_magic_repair_after_chunk_walk():
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    namespace = {}
+
+    def chunk_by_chunk(offset):
+        calls.append(("chunk_by_chunk", offset))
+        namespace.update(
+            {
+                "Orig_CD": "orig-data",
+                "Orig_CL": "orig-len",
+                "Orig_CT": b"IHDR",
+                "Chunks_History": [b"PNG"],
+                "Raw_Data": "raw-data",
+                "Raw_Type": "raw-type",
+                "Raw_Crc": "raw-crc",
+                "Raw_Length": "raw-len",
+                "Show_Must_Go_On": False,
+                "Have_A_KitKat": False,
+            }
+        )
+
+    def apply_deferred():
+        calls.append(("apply_deferred",))
+        namespace["SAVE_COUNT"] += 1
+
+    def fix_it_felix(chunk):
+        calls.append(("fix_it_felix", chunk))
+        namespace["Show_Must_Go_On"] = True
+
+    namespace.update(
+        {
+            "sys": SimpleNamespace(
+                stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+                exit=lambda code: calls.append(("exit", code)),
+            ),
+            "os": os,
+            "CLEAR": False,
+            "FirStart": True,
+            "CHUNK_INFO_STATE": SimpleNamespace(
+                reset_idat=lambda: calls.append(("reset_idat",))
+            ),
+            "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+            "Chunklate": lambda mode: calls.append(("banner", mode)),
+            "Sample": sample_path,
+            "CLONESWAR": False,
+            "SAVE_COUNT": 0,
+            "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+            "PRINT": lambda message: calls.append(("emit", message)),
+            "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+            "FindMagic": lambda: calls.append(("find_magic",)) or 0,
+            "ChunkbyChunk": chunk_by_chunk,
+            "CheckLength": lambda *args: calls.append(("check_length", args)),
+            "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+            "GetInfo": lambda *args: calls.append(("get_info", args)),
+            "Checksum": lambda *args: calls.append(("checksum", args)),
+            "FixItFelix": fix_it_felix,
+            "Apply_Deferred_FindMagic_Repair": apply_deferred,
+            "Clear_Deferred_FindMagic_Repair": lambda: calls.append(("clear_deferred",)),
+        }
+    )
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState()
+    assert calls.index(("chunk_by_chunk", 0)) < calls.index(("apply_deferred",))
+    assert calls.index(("checksum", ("raw-type", "raw-data", "raw-crc"))) < calls.index(("apply_deferred",))
+    assert ("clear_deferred",) not in calls
+    assert namespace["SAVE_COUNT"] == 1
+
+
 def test_run_main_loop_once_counts_clone_written_by_find_magic():
     calls = []
     with tempfile.NamedTemporaryFile(delete=False) as handle:
@@ -835,6 +1227,7 @@ def test_run_main_loop_once_counts_clone_written_by_find_magic():
         "SAVE_COUNT": 0,
         "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
         "PRINT": lambda message: calls.append(("emit", message)),
+        "Clear_Terminal_Dialogue_Pause": lambda: calls.append(("clear_dialogue_pause",)),
         "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
         "FindMagic": find_magic,
         "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
@@ -1011,6 +1404,7 @@ def test_run_main_loop_once_asks_output_cleanup_after_banner():
         "SAVE_COUNT": 0,
         "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
         "PRINT": lambda message: calls.append(("emit", message)),
+        "Clear_Terminal_Dialogue_Pause": lambda: calls.append(("clear_dialogue_pause",)),
         "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
         "FindMagic": find_magic,
         "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
@@ -1046,6 +1440,408 @@ def test_run_main_loop_once_asks_output_cleanup_after_banner():
     assert ("find_magic",) in calls
 
 
+def test_run_main_loop_once_skips_output_cleanup_when_ultimate_resume_is_accepted():
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    original_input = builtins.input
+
+    def answer_resume(prompt):
+        calls.append(("input", prompt))
+        return "1"
+
+    def find_magic():
+        calls.append(("find_magic",))
+        namespace["SAVE_COUNT"] += 1
+        return None
+
+    progress_name = main_runtime.ULTIMATE_LINEFEED_PROGRESS_NAME
+    fake_os = SimpleNamespace(
+        name="posix",
+        system=lambda command: calls.append(("system", command)),
+        makedirs=lambda path, **kwargs: calls.append(("makedirs", path, kwargs)),
+        listdir=lambda path: calls.append(("listdir", path)) or [progress_name, "old.png"],
+        path=SimpleNamespace(
+            basename=os.path.basename,
+            exists=lambda path: calls.append(("exists", path)) or True,
+            isdir=lambda path: calls.append(("isdir", path)) or True,
+            abspath=lambda path: "/abs/" + path,
+            join=lambda *parts: "/".join(parts),
+        ),
+        remove=lambda path: calls.append(("remove_file", path)),
+    )
+
+    namespace = {
+        "sys": SimpleNamespace(
+            stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+            exit=lambda code: calls.append(("exit", code)),
+        ),
+        "os": fake_os,
+        "shutil": SimpleNamespace(rmtree=lambda path: calls.append(("remove_tree", path))),
+        "CLEAR": False,
+        "FirStart": True,
+        "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+        "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+        "Chunklate": lambda mode: calls.append(("banner", mode)),
+        "FILE_Origin": sample_path,
+        "FILE_DIR": "/out/",
+        "OUTPUT_FOLDER_CLEANUP_PENDING": True,
+        "ULTIMATE_LINEFEED_RESUME": "ask",
+        "Sample": sample_path,
+        "CLONESWAR": False,
+        "SAVE_COUNT": 0,
+        "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Clear_Terminal_Dialogue_Pause": lambda: calls.append(("clear_dialogue_pause",)),
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "FindMagic": find_magic,
+        "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+        "CheckLength": lambda *args: calls.append(("check_length", args)),
+        "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+        "GetInfo": lambda *args: calls.append(("get_info", args)),
+        "Checksum": lambda *args: calls.append(("checksum", args)),
+        "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+    }
+
+    builtins.input = answer_resume
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        builtins.input = original_input
+        os.unlink(sample_path)
+
+    folder = "/out/Folder_%s" % os.path.basename(sample_path)
+    assert state == main_runtime.MainLoopIterationState()
+    assert namespace["ULTIMATE_LINEFEED_RESUME_DECISION"] == "resume"
+    assert namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] is False
+    assert ("remove_tree", folder) not in calls
+    assert ("input", "-Delete existing output folder '%s'? (yes/no): " % folder) not in calls
+    assert ("input", "-Ultimate line-feed resume choice [1 resume]: ") in calls
+    assert ("clear_dialogue_pause",) in calls
+    resume_prompt_calls = [
+        call
+        for call in calls
+        if call[0] == "candy"
+        and call[1][0] == "Cowsay"
+        and (
+            "UltimateMegaSuperLineFeedBruteForce checkpoint" in str(call[1][1])
+            or "clean Ultimate source snapshot" in str(call[1][1])
+            or "1. resume\n2. ignore once" in str(call[1][1])
+        )
+    ]
+    assert resume_prompt_calls == [
+        (
+            "candy",
+            (
+                "Cowsay",
+                "I found an UltimateMegaSuperLineFeedBruteForce checkpoint in this folder. I can resume from it instead of wiping the output.",
+                "good",
+            ),
+        ),
+        (
+            "candy",
+            (
+                "Cowsay",
+                "If a clean Ultimate source snapshot exists, I can jump straight back; otherwise I will finish the file tour first.",
+                "com",
+            ),
+        ),
+        (
+            "candy",
+            (
+                "Cowsay",
+                "1. resume\n2. ignore once\n3. reset checkpoints\n4. abort",
+                "com",
+            ),
+        ),
+    ]
+    assert ("find_magic",) in calls
+
+
+def test_run_main_loop_once_skips_output_cleanup_for_candidate_checkpoint_only():
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    original_input = builtins.input
+
+    def answer_resume(prompt):
+        calls.append(("input", prompt))
+        return "1"
+
+    checkpoint_name = main_runtime.ULTIMATE_LINEFEED_CHECKPOINT_NAME
+    fake_os = SimpleNamespace(
+        name="posix",
+        system=lambda command: calls.append(("system", command)),
+        makedirs=lambda path, **kwargs: calls.append(("makedirs", path, kwargs)),
+        listdir=lambda path: calls.append(("listdir", path)) or [checkpoint_name, "old.png"],
+        path=SimpleNamespace(
+            basename=os.path.basename,
+            exists=lambda path: calls.append(("exists", path)) or True,
+            isdir=lambda path: calls.append(("isdir", path)) or True,
+            abspath=lambda path: "/abs/" + path,
+            join=lambda *parts: "/".join(parts),
+        ),
+        remove=lambda path: calls.append(("remove_file", path)),
+    )
+
+    namespace = {
+        "sys": SimpleNamespace(
+            stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+            exit=lambda code: calls.append(("exit", code)),
+        ),
+        "os": fake_os,
+        "shutil": SimpleNamespace(rmtree=lambda path: calls.append(("remove_tree", path))),
+        "CLEAR": False,
+        "FirStart": True,
+        "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+        "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+        "Chunklate": lambda mode: calls.append(("banner", mode)),
+        "FILE_Origin": sample_path,
+        "FILE_DIR": "/out/",
+        "OUTPUT_FOLDER_CLEANUP_PENDING": True,
+        "ULTIMATE_LINEFEED_RESUME": "ask",
+        "Sample": sample_path,
+        "CLONESWAR": False,
+        "SAVE_COUNT": 0,
+        "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Clear_Terminal_Dialogue_Pause": lambda: calls.append(("clear_dialogue_pause",)),
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "FindMagic": lambda: calls.append(("find_magic",)) or None,
+        "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+        "CheckLength": lambda *args: calls.append(("check_length", args)),
+        "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+        "GetInfo": lambda *args: calls.append(("get_info", args)),
+        "Checksum": lambda *args: calls.append(("checksum", args)),
+        "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+    }
+
+    builtins.input = answer_resume
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        builtins.input = original_input
+        os.unlink(sample_path)
+
+    folder = "/out/Folder_%s" % os.path.basename(sample_path)
+    assert state == main_runtime.MainLoopIterationState(should_return=True)
+    assert namespace["ULTIMATE_LINEFEED_RESUME_DECISION"] == "resume"
+    assert namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] is False
+    assert ("remove_tree", folder) not in calls
+    assert ("input", "-Delete existing output folder '%s'? (yes/no): " % folder) not in calls
+    assert ("input", "-Ultimate line-feed resume choice [1 resume]: ") in calls
+    assert ("clear_dialogue_pause",) in calls
+
+
+def test_run_main_loop_once_directly_resumes_ultimate_before_find_magic():
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    checkpoint_name = main_runtime.ULTIMATE_LINEFEED_CHECKPOINT_NAME
+    fake_os = SimpleNamespace(
+        name="posix",
+        system=lambda command: calls.append(("system", command)),
+        makedirs=lambda path, **kwargs: calls.append(("makedirs", path, kwargs)),
+        listdir=lambda path: calls.append(("listdir", path)) or [checkpoint_name],
+        path=SimpleNamespace(
+            basename=os.path.basename,
+            exists=lambda path: calls.append(("exists", path)) or True,
+            isdir=lambda path: calls.append(("isdir", path)) or True,
+            abspath=lambda path: "/abs/" + path,
+            join=lambda *parts: "/".join(parts),
+        ),
+        remove=lambda path: calls.append(("remove_file", path)),
+    )
+
+    def direct_resume():
+        calls.append(("direct_resume",))
+        namespace["SAVE_COUNT"] += 1
+        return "direct-result"
+
+    namespace = {
+        "sys": SimpleNamespace(
+            stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+            exit=lambda code: calls.append(("exit", code)),
+        ),
+        "os": fake_os,
+        "shutil": SimpleNamespace(rmtree=lambda path: calls.append(("remove_tree", path))),
+        "CLEAR": False,
+        "FirStart": True,
+        "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+        "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+        "Chunklate": lambda mode: calls.append(("banner", mode)),
+        "FILE_Origin": sample_path,
+        "FILE_DIR": "/out/",
+        "OUTPUT_FOLDER_CLEANUP_PENDING": True,
+        "ULTIMATE_LINEFEED_RESUME": "auto",
+        "Sample": sample_path,
+        "CLONESWAR": False,
+        "SAVE_COUNT": 0,
+        "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Clear_Terminal_Dialogue_Pause": lambda: calls.append(("clear_dialogue_pause",)),
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "Prepare_Immediate_Summary": lambda: calls.append(("prepare_summary",)),
+        "Run_Ultimate_Linefeed_Direct_Resume": direct_resume,
+        "FindMagic": lambda: calls.append(("find_magic",)) or 0,
+        "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+        "CheckLength": lambda *args: calls.append(("check_length", args)),
+        "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+        "GetInfo": lambda *args: calls.append(("get_info", args)),
+        "Checksum": lambda *args: calls.append(("checksum", args)),
+        "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+    }
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState()
+    assert namespace["ULTIMATE_LINEFEED_RESUME_DECISION"] == "resume"
+    assert namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] is False
+    assert ("prepare_summary",) in calls
+    assert ("direct_resume",) in calls
+    assert ("find_magic",) not in calls
+    assert not [call for call in calls if call[0] == "chunk_by_chunk"]
+
+
+def test_run_main_loop_once_checks_existing_output_before_summary_preparation():
+    calls = []
+    folders = {}
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    folder = output.clone_folder(sample_path, "/out/")
+
+    def prepare_summary():
+        calls.append(("prepare_summary",))
+        folders[folder] = ["Summary_Of_%s" % Path(sample_path).stem]
+
+    def find_magic():
+        calls.append(("find_magic",))
+        namespace["SAVE_COUNT"] += 1
+        return None
+
+    fake_os = SimpleNamespace(
+        name="posix",
+        system=lambda command: calls.append(("system", command)),
+        makedirs=lambda path, **kwargs: calls.append(("makedirs", path, kwargs)),
+        listdir=lambda path: calls.append(("listdir", path)) or list(folders.get(path, [])),
+        path=SimpleNamespace(
+            basename=os.path.basename,
+            exists=lambda path: calls.append(("exists", path)) or path in folders,
+            isdir=lambda path: calls.append(("isdir", path)) or path in folders,
+            abspath=lambda path: "/abs/" + path,
+            join=lambda *parts: "/".join(parts),
+        ),
+    )
+
+    namespace = {
+        "sys": SimpleNamespace(
+            stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+            exit=lambda code: calls.append(("exit", code)),
+        ),
+        "os": fake_os,
+        "shutil": SimpleNamespace(rmtree=lambda path: calls.append(("remove_tree", path))),
+        "CLEAR": False,
+        "FirStart": True,
+        "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+        "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+        "Chunklate": lambda mode: calls.append(("banner", mode)),
+        "FILE_Origin": sample_path,
+        "FILE_DIR": "/out/",
+        "OUTPUT_FOLDER_CLEANUP_PENDING": True,
+        "Sample": sample_path,
+        "CLONESWAR": False,
+        "SAVE_COUNT": 0,
+        "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "Prepare_Immediate_Summary": prepare_summary,
+        "FindMagic": find_magic,
+        "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+        "CheckLength": lambda *args: calls.append(("check_length", args)),
+        "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+        "GetInfo": lambda *args: calls.append(("get_info", args)),
+        "Checksum": lambda *args: calls.append(("checksum", args)),
+        "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+    }
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState()
+    assert calls.index(("exists", folder)) < calls.index(("prepare_summary",))
+    assert ("input", "-Delete existing output folder '%s'? (yes/no): " % folder) not in calls
+    assert ("remove_tree", folder) not in calls
+    assert folders[folder] == ["Summary_Of_%s" % Path(sample_path).stem]
+    assert ("find_magic",) in calls
+
+
+def assert_run_main_loop_once_does_not_prepare_summary_when_sample_load_fails(tmp_path):
+    calls = []
+    missing_sample = str(tmp_path / "missing.png")
+    folder = output.clone_folder(missing_sample, "/out/")
+
+    namespace = {
+        "sys": SimpleNamespace(
+            stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+            exit=lambda code: calls.append(("exit", code)),
+        ),
+        "os": os,
+        "CLEAR": False,
+        "FirStart": True,
+        "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+        "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+        "Chunklate": lambda mode: calls.append(("banner", mode)),
+        "FILE_Origin": missing_sample,
+        "FILE_DIR": "/out/",
+        "OUTPUT_FOLDER_CLEANUP_PENDING": False,
+        "Sample": missing_sample,
+        "CLONESWAR": False,
+        "SAVE_COUNT": 0,
+        "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "Prepare_Immediate_Summary": lambda: calls.append(("prepare_summary", folder)),
+        "FindMagic": lambda: calls.append(("find_magic",)) or None,
+        "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+        "CheckLength": lambda *args: calls.append(("check_length", args)),
+        "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+        "GetInfo": lambda *args: calls.append(("get_info", args)),
+        "Checksum": lambda *args: calls.append(("checksum", args)),
+        "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+    }
+
+    state = main_runtime.run_main_loop_once_from_namespace(namespace)
+
+    assert state == main_runtime.MainLoopIterationState(should_return=True)
+    assert ("exit", 1) in calls
+    assert ("prepare_summary", folder) not in calls
+    assert ("find_magic",) not in calls
+
+
+def test_run_main_loop_once_does_not_prepare_summary_when_sample_load_fails(tmp_path):
+    assert_run_main_loop_once_does_not_prepare_summary_when_sample_load_fails(tmp_path)
+
+
+def run_main_loop_once_missing_sample_summary_check():
+    with tempfile.TemporaryDirectory() as directory:
+        assert_run_main_loop_once_does_not_prepare_summary_when_sample_load_fails(
+            Path(directory)
+        )
+
+
 def main():
     checks = [
         ("main cleanup boundary", test_chunklate_main_has_no_direct_global_wiring_and_no_dead_reached_end_comment),
@@ -1056,10 +1852,23 @@ def main():
         ("help without args", test_apply_main_cli_options_prints_help_without_args),
         ("missing filename", test_apply_main_cli_options_exits_without_filename),
         ("bad max saves", test_apply_main_cli_options_exits_on_bad_max_saves),
+        ("bad ultimate budget", test_apply_main_cli_options_exits_on_bad_ultimate_linefeed_budget),
+        (
+            "bad ultimate preview timeout",
+            test_apply_main_cli_options_exits_on_bad_ultimate_preview_timeout,
+        ),
+        (
+            "bad ultimate resume mode",
+            test_apply_main_cli_options_exits_on_bad_ultimate_resume_mode,
+        ),
         ("legacy globals", test_legacy_globals_from_main_cli_options_maps_runtime_flags),
         ("namespace CLI options", test_apply_main_cli_options_from_namespace_updates_legacy_globals),
         ("loop reset state", test_reset_main_loop_state_updates_legacy_globals_and_preserves_local_tmp_fixihdr),
         ("loop reset fresh containers", test_reset_main_loop_state_uses_fresh_history_containers_each_time),
+        (
+            "loop reset sPLT state",
+            test_reset_main_loop_state_clears_splt_state_between_repair_passes,
+        ),
         ("clear screen startup", test_run_main_clear_screen_preserves_startup_skip),
         ("clear screen posix", test_run_main_clear_screen_writes_ansi_reset_on_posix_after_startup),
         ("clear screen windows", test_run_main_clear_screen_calls_cls_on_windows_after_startup),
@@ -1070,11 +1879,51 @@ def main():
         ("chunk walk no offset", test_run_main_chunk_walk_returns_without_offset),
         ("chunk walk order", test_run_main_chunk_walk_runs_legacy_callback_order_and_updates_offset),
         ("chunk walk defers IHDR value repair", test_run_main_chunk_walk_defers_ihdr_value_repair_until_file_tour_ends),
+        (
+            "chunk walk defers generic findings",
+            test_run_main_chunk_walk_defers_generic_findings_until_iend_even_with_immediate_flags,
+        ),
+        (
+            "chunk walk no-next boundary",
+            test_run_main_chunk_walk_allows_felix_on_non_iend_no_next_chunk_boundary,
+        ),
+        (
+            "chunk walk deferred FindMagic blocks Felix",
+            test_run_main_chunk_walk_defers_felix_when_find_magic_repair_is_pending,
+        ),
+        (
+            "chunk walk defers private compression repair",
+            test_run_main_chunk_walk_defers_private_compression_repair_until_after_idat,
+        ),
         ("chunk walk kitkat", test_run_main_chunk_walk_stops_when_kitkat_breaks),
         ("main loop namespace", test_run_main_loop_once_from_namespace_resets_loads_and_walks_sample),
+        (
+            "main loop deferred FindMagic repair",
+            test_run_main_loop_once_applies_deferred_find_magic_repair_after_chunk_walk,
+        ),
         ("main loop counts FindMagic clone", test_run_main_loop_once_counts_clone_written_by_find_magic),
         ("main loop opens final image on clean no-clone exit", test_run_main_loop_once_opens_valid_final_image_when_no_clone_written),
         ("main loop cleanup after banner", test_run_main_loop_once_asks_output_cleanup_after_banner),
+        (
+            "main loop ultimate resume skips cleanup",
+            test_run_main_loop_once_skips_output_cleanup_when_ultimate_resume_is_accepted,
+        ),
+        (
+            "main loop ultimate candidate checkpoint skips cleanup",
+            test_run_main_loop_once_skips_output_cleanup_for_candidate_checkpoint_only,
+        ),
+        (
+            "main loop ultimate direct resume",
+            test_run_main_loop_once_directly_resumes_ultimate_before_find_magic,
+        ),
+        (
+            "main loop cleanup before summary",
+            test_run_main_loop_once_checks_existing_output_before_summary_preparation,
+        ),
+        (
+            "main loop load failure before summary",
+            run_main_loop_once_missing_sample_summary_check,
+        ),
     ]
 
     print("Running main runtime tests")

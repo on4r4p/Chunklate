@@ -236,6 +236,34 @@ def test_checkpoint_action_decision_handles_pcal_out_of_place_warning():
     assert decision.return_value == "LibpngCheck"
 
 
+def test_checkpoint_action_decision_handles_splt_out_of_place_warning():
+    decision = checkpoint.action_decision(
+        error=True,
+        function="LibpngCheck",
+        chunk="LibpngCheck",
+        info="libpng warning: sPLT: out of place",
+        toolkit=(),
+    )
+
+    assert decision.action == "fix_it_felix_return"
+    assert decision.flags == {"Bad_Libpng": True}
+    assert decision.return_value == "LibpngCheck"
+
+
+def test_checkpoint_action_decision_handles_scal_format_warning():
+    decision = checkpoint.action_decision(
+        error=True,
+        function="LibpngCheck",
+        chunk="LibpngCheck",
+        info="libpng warning: sCAL: bad width format",
+        toolkit=(),
+    )
+
+    assert decision.action == "fix_it_felix_return"
+    assert decision.flags == {"Bad_Libpng": True}
+    assert decision.return_value == "LibpngCheck"
+
+
 def test_checkpoint_action_decision_handles_libpng_warning_classification():
     known_warning = checkpoint.action_decision(
         error=True,
@@ -441,6 +469,14 @@ def main():
         (
             "Checkpoint action handles pCAL out-of-place warning",
             test_checkpoint_action_decision_handles_pcal_out_of_place_warning,
+        ),
+        (
+            "Checkpoint action handles sPLT out-of-place warning",
+            test_checkpoint_action_decision_handles_splt_out_of_place_warning,
+        ),
+        (
+            "Checkpoint action handles sCAL format warning",
+            test_checkpoint_action_decision_handles_scal_format_warning,
         ),
         ("Checkpoint action handles libpng warning classification", test_checkpoint_action_decision_handles_libpng_warning_classification),
         ("Checkpoint action handles chunk name fixes", test_checkpoint_action_decision_handles_chunk_name_fixes),

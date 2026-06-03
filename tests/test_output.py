@@ -107,6 +107,31 @@ def test_immediate_summary_notes_flushes_each_append_and_summarise_does_not_dupl
     assert list(notes) == []
 
 
+def test_summary_reset_truncates_stale_existing_summary(tmp_path):
+    summary = tmp_path / "Folder_sample" / "Summary_Of_sample"
+    summary.parent.mkdir(exist_ok=True)
+    summary.write_text("old summary text that must disappear\n" * 5, encoding="utf-8")
+    namespace = {
+        "Sample_Name": "sample.png",
+        "MAXCHAR": 80,
+        "SideNotes": [],
+        "FILE_Origin": "sample.png",
+        "FILE_DIR": str(tmp_path),
+        "Candy": lambda kind, color, value: "<%s:%s>" % (color, value),
+        "Summary_Header": True,
+    }
+
+    notes = output.ensure_immediate_summary_notes(namespace)
+    notes.append("fresh-note")
+    output.run_summarise_from_namespace(namespace, "fresh-result", False)
+
+    text = summary.read_text(encoding="utf-8")
+    assert "old summary text" not in text
+    assert "001. Note: fresh-note" in text
+    assert "002. Result: fresh-result" in text
+    assert namespace["Summary_File_Reset"] is True
+
+
 def test_strip_ansi_removes_terminal_color_artifacts():
     assert output.strip_ansi("\033[1;37;49mwhite\033[m") == "white"
 
@@ -350,6 +375,10 @@ def main():
         (
             "Immediate summary notes",
             lambda: test_immediate_summary_notes_flushes_each_append_and_summarise_does_not_duplicate(tmp_path),
+        ),
+        (
+            "Summary reset truncates stale file",
+            lambda: test_summary_reset_truncates_stale_existing_summary(tmp_path),
         ),
         ("Strip ANSI", test_strip_ansi_removes_terminal_color_artifacts),
         ("Debug trace body keeps relevant lines", test_debug_trace_body_keeps_only_relevant_clean_debug_lines),

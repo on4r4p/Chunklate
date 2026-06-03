@@ -101,6 +101,33 @@ CANDIDATE_CASES: tuple[CandidateCase, ...] = (
         ("IHDR size have to always be 13 bytes",),
     ),
     CandidateCase(
+        "private_compression_method.png",
+        f"{BROKEN_SUITE}/private_compression_method.png",
+        CANDIDATE_FOR_STRICT_REPAIR,
+        (
+            "IHDR Compression Algorithms",
+            "converted private bzip2 compression method to standard zlib IDAT",
+        ),
+    ),
+    CandidateCase(
+        "private_filter_type.png",
+        f"{BROKEN_SUITE}/private_filter_type.png",
+        CANDIDATE_FOR_STRICT_REPAIR,
+        (
+            "bad adaptive filter value",
+            "idat-filter0-normalize replaced 1 invalid scanline filter bytes",
+        ),
+    ),
+    CandidateCase(
+        "sbit_sample_depth.png",
+        f"{BROKEN_SUITE}/sbit_sample_depth.png",
+        CANDIDATE_FOR_STRICT_REPAIR,
+        (
+            "sBit red value",
+            "normalized sBIT sample depths from ff0505 to 080505",
+        ),
+    ),
+    CandidateCase(
         "truncate_idat_0.png",
         f"{BROKEN_SUITE}/truncate_idat_0.png",
         UNSUPPORTED,

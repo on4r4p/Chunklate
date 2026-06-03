@@ -219,6 +219,8 @@ def libpng_check_decision(
             "known incorrect sRGB profile",
             "hIST: out of place",
             "pCAL: out of place",
+            "sPLT: out of place",
+            "sCAL:",
         )
         if any(warning in info for warning in actionable_warnings):
             return CheckPointActionDecision(

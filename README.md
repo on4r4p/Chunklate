@@ -1,4 +1,4 @@
-![Alt Text](https://github.com/on4r4p/Chunklate/blob/ctf/Chunklate.gif)
+ ![Alt Text](https://github.com/on4r4p/Chunklate/blob/ctf/Chunklate.gif)
 
 ## Description
 
@@ -145,7 +145,4 @@ input.
 ## In Memory Of Glenn Randers-Pehrson
 
 ![Glenn Randers-Pehrson](https://i.postimg.cc/yN5YTWwH/image.png)
-
-Thank you, Glenn Randers-Pehrson (April 30, 1941 - October 2018), for the
-advice you gave me, and for the guidance that kept helping me even after your
-death.
+(April 30, 1941 - October 2018)

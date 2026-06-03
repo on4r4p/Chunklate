@@ -89,6 +89,7 @@ AFTER_PLTE = (b"tRNS", b"hIST", b"bKGD")
 BEFORE_IDAT = (
     b"PNG",
     b"sPLT",
+    b"sTER",
     b"sBIT",
     b"pHYs",
     b"tRNS",
@@ -104,6 +105,7 @@ BEFORE_IDAT = (
 BEFORE_IDAT2 = (
     b"IHDR",
     b"sPLT",
+    b"sTER",
     b"sBIT",
     b"pHYs",
     b"tRNS",
@@ -153,6 +155,8 @@ LIBPNG_ERR = (
     "known incorrect sRGB profile",
     "hIST: out of place",
     "pCAL: out of place",
+    "sPLT: out of place",
+    "sCAL:",
 )
 
 

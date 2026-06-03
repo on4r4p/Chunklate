@@ -259,6 +259,57 @@ def test_question_runtime_names_hist_optional_removal_prompt():
     ) in calls
 
 
+def test_question_runtime_names_splt_payload_repair_prompt():
+    runtime, calls = runtime_from(answers=["yes"])
+
+    assert question_runtime.ask_question(
+        runtime,
+        "sPLT Payload Repair:-Try to repair malformed/duplicate sPLT chunk(s)?",
+        ("sPLT", "payload"),
+    ) is True
+
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "Question: Should i try to repair the malformed/duplicate sPLT chunk(s)? Say no to remove them instead.",
+            "com",
+        ),
+        {},
+    ) in calls
+
+
+def test_question_runtime_names_zero_scanline_idat_option_prompts():
+    runtime, calls = runtime_from(answers=["yes", "yes", "yes"])
+
+    assert question_runtime.ask_question(
+        runtime,
+        "IDAT donor repair:-No readable IDAT scanlines. Replace IDAT with local donor sample.png?",
+        ("IDAT-donor", "sample.png"),
+        skipauto=True,
+    ) is True
+    assert question_runtime.ask_question(
+        runtime,
+        "IDAT synthetic repair:-No original scanlines. Build synthetic diagnostic IDAT?",
+        ("IDAT-synthetic", 32, 32, 1, 0),
+        skipauto=True,
+    ) is True
+    assert question_runtime.ask_question(
+        runtime,
+        "IDAT Zero Scanline Blackfill:-No readable IDAT scanlines. Write all-black placeholder anyway?",
+        ("IDAT-zero-blackfill", 32, 32, 1, 0),
+        skipauto=True,
+    ) is True
+
+    prompts = [call[1][1] for call in calls if call[0] == "candy" and call[1][:1] == ("Cowsay",)]
+    assert "Question: Option 1, use the local donor IDAT for this clone?" in prompts
+    assert (
+        "Question: Option 2, build a synthetic diagnostic IDAT? This is not the original image."
+        in prompts
+    )
+    assert "Question: Option 3, write an all-zero placeholder PNG?" in prompts
+
+
 def test_question_runtime_names_super_mega_linefeed_force_prompt():
     runtime, calls = runtime_from(answers=["yes"])
 
@@ -272,7 +323,7 @@ def test_question_runtime_names_super_mega_linefeed_force_prompt():
         "candy",
         (
             "Cowsay",
-            "Question: Should i launch SuperMegaLineFeedForceOfDeath, the full IDAT line-feed brute force?",
+            "Question: Should I push the IDAT line-feed recovery further?",
             "com",
         ),
         {},
@@ -405,6 +456,11 @@ def main():
             test_question_runtime_names_idat_interruption_prompts_and_skips_auto,
         ),
         ("hIST optional removal prompt", test_question_runtime_names_hist_optional_removal_prompt),
+        ("sPLT payload repair prompt", test_question_runtime_names_splt_payload_repair_prompt),
+        (
+            "Zero-scanline IDAT option prompts",
+            test_question_runtime_names_zero_scanline_idat_option_prompts,
+        ),
         ("SuperMegaLineFeedForceOfDeath prompt", test_question_runtime_names_super_mega_linefeed_force_prompt),
         (
             "UltimateMegaSuperLineFeedBruteForce prompt",

@@ -14,6 +14,10 @@ CLONE_STUDY_PHRASES = (
     "Round two: same mystery, sharper notes.",
     "I picked up the new clone. Let me see what changed.",
 )
+ULTIMATE_LINEFEED_CHECKPOINT_NAME = "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"
+ULTIMATE_LINEFEED_PROGRESS_NAME = "_UltimateMegaSuperLineFeedBruteForce.progress.json"
+ULTIMATE_LINEFEED_SOURCE_NAME = "_UltimateMegaSuperLineFeedBruteForce.Source.png"
+ULTIMATE_LINEFEED_RESUME_MODES = ("ask", "auto", "never", "reset")
 
 
 @dataclass(frozen=True)
@@ -25,15 +29,18 @@ class MainCliOptionsRuntime:
     path_is_dir: Callable[[str], bool]
     list_dir: Callable[[str], list[str]]
     remove_tree: Callable[[str], Any]
+    remove_file: Callable[[str], Any]
     abspath: Callable[[str], str]
     join: Callable[..., str]
     stderr: Any
     asker: Callable[[str], str] = builtins.input
     candy: Callable[..., Any] = lambda *args, **kwargs: None
     emit: Callable[[str], Any] = print
+    clear_dialogue_pause: Callable[[], Any] = lambda: None
     parse_legacy_unknown_options: Callable = cli.parse_legacy_unknown_options
     max_saves_error: Callable = cli.max_saves_error
     ultimate_linefeed_budget_error: Callable = cli.ultimate_linefeed_budget_error
+    ultimate_linefeed_preview_timeout_error: Callable = cli.ultimate_linefeed_preview_timeout_error
     output_file_dir: Callable = cli.output_file_dir
     runtime_flags_from_args: Callable = cli.runtime_flags_from_args
     clone_folder: Callable[[str, str], str] = output.clone_folder
@@ -51,6 +58,9 @@ class MainCliOptionsState:
     crash: Any
     ultimate_linefeed_budget: int | None = None
     ultimate_linefeed_unbounded: bool = False
+    ultimate_linefeed_reference: str | None = None
+    ultimate_linefeed_preview_timeout: float = 5.0
+    ultimate_linefeed_resume: str = "ask"
 
 
 @dataclass(frozen=True)
@@ -59,6 +69,7 @@ class MainLoopResetRuntime:
     reset_chunk_info_idat: Callable[[], Any]
     sync_chunk_info_legacy_state: Callable[[str], Any]
     banner: Callable[[int], Any]
+    reset_chunk_info_splt: Callable[[], Any] | None = None
     scan_reset_values: Callable = runtime_state.main_loop_scan_reset_values
     error_reset_values: Callable = runtime_state.main_loop_error_reset_values
     history_reset_values: Callable = runtime_state.main_loop_history_reset_values
@@ -154,12 +165,14 @@ def build_cli_options_runtime(
     path_is_dir: Callable[[str], bool],
     list_dir: Callable[[str], list[str]],
     remove_tree: Callable[[str], Any],
+    remove_file: Callable[[str], Any],
     abspath: Callable[[str], str],
     join: Callable[..., str],
     stderr: Any,
     asker: Callable[[str], str] = builtins.input,
     candy: Callable[..., Any] = lambda *args, **kwargs: None,
     emit: Callable[[str], Any] = print,
+    clear_dialogue_pause: Callable[[], Any] = lambda: None,
 ) -> MainCliOptionsRuntime:
     return MainCliOptionsRuntime(
         print_error=print_error,
@@ -169,12 +182,14 @@ def build_cli_options_runtime(
         path_is_dir=path_is_dir,
         list_dir=list_dir,
         remove_tree=remove_tree,
+        remove_file=remove_file,
         abspath=abspath,
         join=join,
         stderr=stderr,
         asker=asker,
         candy=candy,
         emit=emit,
+        clear_dialogue_pause=clear_dialogue_pause,
     )
 
 
@@ -187,12 +202,14 @@ def build_cli_options_runtime_from_namespace(namespace: dict[str, Any]) -> MainC
         path_is_dir=namespace["os"].path.isdir,
         list_dir=namespace["os"].listdir,
         remove_tree=namespace["shutil"].rmtree,
+        remove_file=getattr(namespace["os"], "remove", lambda path: None),
         abspath=namespace["os"].path.abspath,
         join=namespace["os"].path.join,
         stderr=namespace["sys"].stderr,
         asker=builtins.input,
         candy=namespace["Candy"],
         emit=namespace["PRINT"],
+        clear_dialogue_pause=namespace.get("Clear_Terminal_Dialogue_Pause", lambda: None),
     )
 
 
@@ -202,12 +219,14 @@ def build_loop_reset_runtime(
     reset_chunk_info_idat: Callable[[], Any],
     sync_chunk_info_legacy_state: Callable[[str], Any],
     banner: Callable[[int], Any],
+    reset_chunk_info_splt: Callable[[], Any] | None = None,
 ) -> MainLoopResetRuntime:
     return MainLoopResetRuntime(
         namespace=namespace,
         reset_chunk_info_idat=reset_chunk_info_idat,
         sync_chunk_info_legacy_state=sync_chunk_info_legacy_state,
         banner=banner,
+        reset_chunk_info_splt=reset_chunk_info_splt,
     )
 
 
@@ -217,6 +236,7 @@ def build_loop_reset_runtime_from_namespace(namespace: dict[str, Any]) -> MainLo
         reset_chunk_info_idat=namespace["CHUNK_INFO_STATE"].reset_idat,
         sync_chunk_info_legacy_state=namespace["Sync_Chunk_Info_Legacy_State"],
         banner=namespace["Chunklate"],
+        reset_chunk_info_splt=getattr(namespace["CHUNK_INFO_STATE"], "reset_splt", None),
     )
 
 
@@ -370,6 +390,179 @@ def offer_existing_output_folder_cleanup(
     )
 
 
+def ultimate_linefeed_folder_paths(
+    runtime: MainCliOptionsRuntime,
+    *,
+    file_origin: str,
+    file_dir: str,
+) -> tuple[str, str, str, str]:
+    folder = runtime.clone_folder(file_origin, file_dir)
+    return (
+        folder,
+        runtime.join(folder, ULTIMATE_LINEFEED_CHECKPOINT_NAME),
+        runtime.join(folder, ULTIMATE_LINEFEED_PROGRESS_NAME),
+        runtime.join(folder, ULTIMATE_LINEFEED_SOURCE_NAME),
+    )
+
+
+def _remove_existing_file(runtime: MainCliOptionsRuntime, path: str) -> None:
+    if not runtime.path_exists(path):
+        return
+    try:
+        runtime.remove_file(path)
+    except OSError:
+        return
+
+
+def reset_ultimate_linefeed_resume_files(
+    runtime: MainCliOptionsRuntime,
+    *,
+    file_origin: str,
+    file_dir: str,
+) -> None:
+    _folder, checkpoint_path, progress_path, source_path = ultimate_linefeed_folder_paths(
+        runtime,
+        file_origin=file_origin,
+        file_dir=file_dir,
+    )
+    _remove_existing_file(runtime, progress_path)
+    _remove_existing_file(runtime, checkpoint_path)
+    _remove_existing_file(runtime, source_path)
+
+
+def _ultimate_linefeed_resume_evidence_exists(
+    runtime: MainCliOptionsRuntime,
+    folder: str,
+    checkpoint_path: str,
+    progress_path: str,
+    source_path: str,
+) -> bool:
+    if runtime.path_exists(folder) and runtime.path_is_dir(folder):
+        try:
+            names = set(runtime.list_dir(folder))
+            return (
+                ULTIMATE_LINEFEED_PROGRESS_NAME in names
+                or ULTIMATE_LINEFEED_CHECKPOINT_NAME in names
+                or ULTIMATE_LINEFEED_SOURCE_NAME in names
+            )
+        except OSError:
+            return False
+    return (
+        runtime.path_exists(progress_path)
+        or runtime.path_exists(checkpoint_path)
+        or runtime.path_exists(source_path)
+    )
+
+
+def _resume_answer(value: Any) -> str | None:
+    normalized = str(value).strip().lower()
+    if normalized in ("1", "resume", "r", "yes", "y"):
+        return "resume"
+    if normalized in ("2", "ignore", "i", "no", "n"):
+        return "ignore"
+    if normalized in ("3", "reset"):
+        return "reset"
+    if normalized in ("4", "abort", "quit", "q"):
+        return "abort"
+    return None
+
+
+def ask_ultimate_linefeed_resume(runtime: MainCliOptionsRuntime, progress_path: str) -> str:
+    runtime.candy(
+        "Cowsay",
+        "I found an UltimateMegaSuperLineFeedBruteForce checkpoint in this folder. I can resume from it instead of wiping the output.",
+        "good",
+    )
+    runtime.candy(
+        "Cowsay",
+        "If a clean Ultimate source snapshot exists, I can jump straight back; otherwise I will finish the file tour first.",
+        "com",
+    )
+    runtime.candy(
+        "Cowsay",
+        "1. resume\n2. ignore once\n3. reset checkpoints\n4. abort",
+        "com",
+    )
+    prompt = "-Ultimate line-feed resume choice [1 resume]: "
+    while True:
+        try:
+            answer = runtime.asker(prompt)
+        except EOFError:
+            runtime.clear_dialogue_pause()
+            return "resume"
+        if str(answer).strip() == "":
+            runtime.clear_dialogue_pause()
+            return "resume"
+        decision = _resume_answer(answer)
+        if decision is not None:
+            runtime.clear_dialogue_pause()
+            return decision
+        runtime.emit("-Enter 1, 2, 3, or 4.")
+
+
+def predecide_ultimate_linefeed_resume_from_namespace(namespace: dict[str, Any]) -> None:
+    if "os" not in namespace or "shutil" not in namespace:
+        return
+    mode = str(namespace.get("ULTIMATE_LINEFEED_RESUME", "ask") or "ask").strip().lower()
+    if mode not in ULTIMATE_LINEFEED_RESUME_MODES:
+        mode = "ask"
+    runtime = build_cli_options_runtime_from_namespace(namespace)
+    folder, checkpoint_path, progress_path, source_path = ultimate_linefeed_folder_paths(
+        runtime,
+        file_origin=namespace["FILE_Origin"],
+        file_dir=namespace["FILE_DIR"],
+    )
+    namespace["ULTIMATE_LINEFEED_CHECKPOINT_PATH"] = checkpoint_path
+    namespace["ULTIMATE_LINEFEED_PROGRESS_PATH"] = progress_path
+    namespace["ULTIMATE_LINEFEED_SOURCE_PATH"] = source_path
+
+    if mode == "reset":
+        reset_ultimate_linefeed_resume_files(
+            runtime,
+            file_origin=namespace["FILE_Origin"],
+            file_dir=namespace["FILE_DIR"],
+        )
+        namespace["ULTIMATE_LINEFEED_RESUME_DECISION"] = "reset"
+        return
+    if mode == "never":
+        namespace["ULTIMATE_LINEFEED_RESUME_DECISION"] = "never"
+        return
+    if not _ultimate_linefeed_resume_evidence_exists(
+        runtime,
+        folder,
+        checkpoint_path,
+        progress_path,
+        source_path,
+    ):
+        namespace["ULTIMATE_LINEFEED_RESUME_DECISION"] = "missing"
+        return
+
+    if mode == "auto":
+        namespace["ULTIMATE_LINEFEED_RESUME_DECISION"] = "resume"
+        namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] = False
+        runtime.candy(
+            "Cowsay",
+            "Ultimate checkpoint found. Auto-resume is enabled, so I am keeping the output folder intact.",
+            "good",
+        )
+        return
+
+    decision = ask_ultimate_linefeed_resume(runtime, progress_path)
+    namespace["ULTIMATE_LINEFEED_RESUME_DECISION"] = decision
+    if decision == "resume":
+        namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] = False
+        return
+    if decision == "reset":
+        reset_ultimate_linefeed_resume_files(
+            runtime,
+            file_origin=namespace["FILE_Origin"],
+            file_dir=namespace["FILE_DIR"],
+        )
+        return
+    if decision == "abort":
+        runtime.exit_process(130)
+
+
 def apply_main_cli_options(
     runtime: MainCliOptionsRuntime,
     args: Any,
@@ -409,12 +602,33 @@ def apply_main_cli_options(
         return None
     ultimate_linefeed_budget = getattr(args, "ULTIMATE_LINEFEED_BUDGET", None)
     ultimate_linefeed_unbounded = bool(getattr(args, "ULTIMATE_LINEFEED_UNBOUNDED", False))
+    ultimate_linefeed_reference = getattr(args, "ULTIMATE_LINEFEED_REFERENCE", None)
+    ultimate_linefeed_preview_timeout = float(
+        getattr(args, "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT", 5.0)
+    )
+    ultimate_linefeed_resume = str(
+        getattr(args, "ULTIMATE_LINEFEED_RESUME", "ask") or "ask"
+    ).strip().lower()
+    resume_error = cli.ultimate_linefeed_resume_error(
+        ultimate_linefeed_resume
+    )
+    if resume_error is not None:
+        runtime.print_error(resume_error)
+        runtime.exit_process(1)
+        return None
     ultimate_linefeed_budget_error = runtime.ultimate_linefeed_budget_error(
         ultimate_linefeed_budget,
         ultimate_linefeed_unbounded,
     )
     if ultimate_linefeed_budget_error is not None:
         runtime.print_error(ultimate_linefeed_budget_error)
+        runtime.exit_process(1)
+        return None
+    preview_timeout_error = runtime.ultimate_linefeed_preview_timeout_error(
+        ultimate_linefeed_preview_timeout
+    )
+    if preview_timeout_error is not None:
+        runtime.print_error(preview_timeout_error)
         runtime.exit_process(1)
         return None
 
@@ -438,6 +652,9 @@ def apply_main_cli_options(
         crash=crash,
         ultimate_linefeed_budget=ultimate_linefeed_budget,
         ultimate_linefeed_unbounded=ultimate_linefeed_unbounded,
+        ultimate_linefeed_reference=ultimate_linefeed_reference,
+        ultimate_linefeed_preview_timeout=ultimate_linefeed_preview_timeout,
+        ultimate_linefeed_resume=ultimate_linefeed_resume,
     )
 
 
@@ -463,6 +680,9 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "CRASH": options.crash,
         "ULTIMATE_LINEFEED_BUDGET": options.ultimate_linefeed_budget,
         "ULTIMATE_LINEFEED_UNBOUNDED": options.ultimate_linefeed_unbounded,
+        "ULTIMATE_LINEFEED_REFERENCE": options.ultimate_linefeed_reference,
+        "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT": options.ultimate_linefeed_preview_timeout,
+        "ULTIMATE_LINEFEED_RESUME": options.ultimate_linefeed_resume,
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
     }
 
@@ -501,6 +721,9 @@ def reset_main_loop_state(runtime: MainLoopResetRuntime) -> MainLoopResetState:
     runtime.namespace.update(runtime.history_reset_values())
     runtime.reset_chunk_info_idat()
     runtime.sync_chunk_info_legacy_state("idat")
+    if runtime.reset_chunk_info_splt is not None:
+        runtime.reset_chunk_info_splt()
+        runtime.sync_chunk_info_legacy_state("splt")
     runtime.banner(1)
 
     return MainLoopResetState(tmp_fix_ihdr=tmp_fix_ihdr)
@@ -617,39 +840,18 @@ def _is_iend_chunk(value: Any) -> bool:
     return str(value) == "IEND"
 
 
-def _has_deferred_ihdr_value_finding(pandora_box: Any) -> bool:
-    for finding in pandora_box:
-        text = str(finding)
-        if "GetInfo" not in text or "IHDR" not in text:
-            continue
-        if "Wrong bit depht" in text or "Wrong bit depth" in text:
-            return True
-        if "IHDR Color" in text or "IHDR Depht" in text:
-            return True
-    return False
-
-
-def _has_immediate_repair_flags(namespace: dict[str, Any]) -> bool:
-    immediate_flags = (
-        "Bad_Crc",
-        "Bad_Libpng",
-        "Bad_Current_Name",
-        "Bad_Next_Name",
-        "Bad_Ancillary",
-        "Bad_Next_Ancillary",
-        "Bad_No_Next_Chunk",
-        "Bad_Critical",
-        "Bad_Missplaced",
-    )
-    return any(bool(namespace.get(flag, False)) for flag in immediate_flags)
+def _fix_it_felix_repair_boundary_reached(namespace: dict[str, Any]) -> bool:
+    if _is_iend_chunk(namespace.get("Orig_CT")):
+        return True
+    return bool(namespace.get("Bad_No_Next_Chunk", False))
 
 
 def should_defer_fix_it_felix_until_file_tour(namespace: dict[str, Any]) -> bool:
-    if _is_iend_chunk(namespace.get("Orig_CT")):
+    if namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR"):
+        return True
+    if not namespace.get("PandoraBox", {}):
         return False
-    if not _has_deferred_ihdr_value_finding(namespace.get("PandoraBox", ())):
-        return False
-    return not _has_immediate_repair_flags(namespace)
+    return not _fix_it_felix_repair_boundary_reached(namespace)
 
 
 def maybe_explain_deferred_fix_it_felix(namespace: dict[str, Any]) -> None:
@@ -659,7 +861,7 @@ def maybe_explain_deferred_fix_it_felix(namespace: dict[str, Any]) -> None:
     if callable(candy):
         candy(
             "Cowsay",
-            "I found an IHDR value problem, but the chunk road is still walkable. I am finishing the file tour before Felix touches it.",
+            "I found repairable problems, but the chunk road is still walkable. I am finishing the file tour before Felix touches it.",
             "com",
         )
     namespace["DEFERRED_FIXIT_NOTICE_SHOWN"] = True
@@ -690,8 +892,6 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
     namespace["CLEAR_SCREEN_ACTIVE_THIS_PASS"] = clear_screen_state.cleared
 
     reset_main_loop_state(build_loop_reset_runtime_from_namespace(namespace))
-    namespace.get("Prepare_Immediate_Summary", lambda: None)()
-    run_pending_output_folder_cleanup_from_namespace(namespace)
 
     loaded_sample = load_main_sample(
         build_sample_runtime_from_namespace(namespace),
@@ -704,6 +904,14 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
         return MainLoopIterationState(should_return=True)
 
     sync_loaded_sample_to_namespace(namespace, loaded_sample)
+    predecide_ultimate_linefeed_resume_from_namespace(namespace)
+    run_pending_output_folder_cleanup_from_namespace(namespace)
+    namespace.get("Prepare_Immediate_Summary", lambda: None)()
+    if namespace.get("ULTIMATE_LINEFEED_RESUME_DECISION") == "resume":
+        direct_resume = namespace.get("Run_Ultimate_Linefeed_Direct_Resume", lambda: None)
+        direct_resume_result = direct_resume()
+        if direct_resume_result is not None:
+            return MainLoopIterationState()
     save_count_before = namespace["SAVE_COUNT"]
     offset = namespace["FindMagic"]()
     run_main_chunk_walk(
@@ -713,6 +921,10 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
             data_hex=namespace["DATAX"],
         ),
     )
+    if namespace["SAVE_COUNT"] == save_count_before:
+        namespace.get("Apply_Deferred_FindMagic_Repair", lambda: None)()
+    else:
+        namespace.get("Clear_Deferred_FindMagic_Repair", lambda: None)()
     if namespace["SAVE_COUNT"] == save_count_before:
         if has_unresolved_findings(namespace):
             explain_unimplemented_repair_route(namespace)

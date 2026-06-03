@@ -2,7 +2,9 @@
 import sys
 import struct
 import zlib
+import math
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,6 +61,39 @@ def split_bytes(data, *sizes):
         offset += size
     parts.append(data[offset:])
     return tuple(parts)
+
+
+def truncate_idat_1_fixture_bytes():
+    for path in (
+        ROOT / "brokenjavapngsuite" / "truncate_idat_1.png",
+        ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "truncate_idat_1.png",
+        ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "truncate_idat_1.png",
+    ):
+        if path.exists():
+            return path.read_bytes()
+    raise FileNotFoundError("truncate_idat_1.png fixture not found")
+
+
+def truncate_zlib_fixture_bytes():
+    for path in (
+        ROOT / "brokenjavapngsuite" / "truncate_zlib.png",
+        ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "truncate_zlib.png",
+        ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "truncate_zlib.png",
+    ):
+        if path.exists():
+            return path.read_bytes()
+    raise FileNotFoundError("truncate_zlib.png fixture not found")
+
+
+def truncate_zlib_2_fixture_bytes():
+    for path in (
+        ROOT / "brokenjavapngsuite" / "truncate_zlib_2.png",
+        ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "truncate_zlib_2.png",
+        ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "truncate_zlib_2.png",
+    ):
+        if path.exists():
+            return path.read_bytes()
+    raise FileNotFoundError("truncate_zlib_2.png fixture not found")
 
 
 def find_truncated_candidate(filtered, predicate, *, width=1, height=10):
@@ -263,15 +298,36 @@ def test_analyze_partial_idat_discards_partial_scanline_tail():
     assert analysis.recovered_scanlines == filtered[:len(analysis.recovered_scanlines)]
 
 
-def test_analyze_partial_idat_rejects_unsupported_interlace_before_repair_logic():
+def test_analyze_partial_idat_repairs_interlaced_stream_with_adam7_blackfill():
     filtered = b"\x00abc"
-    candidate = build_rgb_png(1, 1, filtered, interlace=1)
+    compressed = zlib.compress(filtered)
+    candidate = build_rgb_png(1, 1, filtered, idat_data=compressed[:-1], interlace=1)
     analysis = idat.analyze_partial_idat(candidate)
+    repair = idat.rebuild_partial_idat_blackfill(candidate)
 
-    assert analysis.supported is False
+    assert analysis.supported is True
     assert analysis.complete is False
-    assert analysis.reason == "interlaced PNG is not supported"
-    assert idat.rebuild_partial_idat_blackfill(candidate) is None
+    assert analysis.usable_scanlines == 1
+    assert repair is not None
+    assert repair.recovered_scanlines == 1
+    assert repair.total_scanlines == 1
+    assert validate_png_structure(repair.data).ok
+
+
+def test_rebuild_partial_idat_blackfill_repairs_truncated_adam7_fixture():
+    candidate = truncate_zlib_2_fixture_bytes()
+    normalized = idat.normalize_truncated_idat_at_eof(candidate)
+
+    assert normalized is not None
+    repair = idat.rebuild_partial_idat_blackfill(normalized.data)
+
+    assert repair is not None
+    assert repair.strategy == "partial-idat-blackfill recovered 113/131 scanlines"
+    assert repair.width == 91
+    assert repair.height == 69
+    assert repair.recovered_scanlines == 113
+    assert repair.total_scanlines == 131
+    assert validate_png_structure(repair.data).ok
 
 
 def test_analyze_partial_idat_reports_invalid_stream_without_scanlines():
@@ -326,6 +382,87 @@ def test_rebuild_partial_idat_blackfill_handles_valid_empty_stream():
     chunks = list(iter_chunks(repair.data))
     rebuilt_stream = b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
     assert zlib.decompress(rebuilt_stream) == b"\x00\x00\x00\x00" * 2
+
+
+def test_rebuild_idat_from_donor_replaces_zero_scanline_idat():
+    broken = truncate_idat_1_fixture_bytes()
+    donor = (ROOT / "schaik-javapng-samples" / "basn0g01.png").read_bytes()
+
+    repair = idat.rebuild_idat_from_donor(
+        broken,
+        donor,
+        donor_label="basn0g01.png",
+        donor_path="schaik-javapng-samples/basn0g01.png",
+    )
+
+    assert repair is not None
+    assert repair.strategy == "idat-donor-basn0g01"
+    assert repair.width == 32
+    assert repair.height == 32
+    assert validate_png_structure(repair.data).ok
+
+    fixed_stream = b"".join(
+        chunk.data for chunk in iter_chunks(repair.data) if chunk.chunk_type == b"IDAT"
+    )
+    donor_stream = b"".join(
+        chunk.data for chunk in iter_chunks(donor) if chunk.chunk_type == b"IDAT"
+    )
+    assert zlib.decompress(fixed_stream) == zlib.decompress(donor_stream)
+
+
+def test_rebuild_idat_from_donor_rejects_incompatible_shape():
+    broken = truncate_idat_1_fixture_bytes()
+    incompatible = build_rgb_png(1, 1, b"\x00abc")
+
+    assert idat.rebuild_idat_from_donor(broken, incompatible) is None
+
+
+def test_rebuild_synthetic_idat_builds_diagnostic_image_from_ihdr():
+    broken = truncate_idat_1_fixture_bytes()
+
+    repair = idat.rebuild_synthetic_idat(broken)
+
+    assert repair is not None
+    assert repair.strategy == "idat-synthetic-diagnostic"
+    assert repair.width == 32
+    assert repair.height == 32
+    assert validate_png_structure(repair.data).ok
+
+    stream = b"".join(chunk.data for chunk in iter_chunks(repair.data) if chunk.chunk_type == b"IDAT")
+    raw = zlib.decompress(stream)
+    assert len(raw) == 160
+    assert raw != b"\x00" * 160
+
+
+def test_normalize_truncated_idat_at_eof_rebuilds_analyzable_png():
+    broken = truncate_zlib_fixture_bytes()
+
+    normalized = idat.normalize_truncated_idat_at_eof(broken)
+
+    assert normalized is not None
+    assert normalized.declared_length == 433
+    assert normalized.available_length == 24
+    assert normalized.missing_bytes == 409
+    assert validate_png_structure(normalized.data, require_decodable_idat=False).ok
+    assert not validate_png_structure(normalized.data).ok
+    analysis = idat.analyze_partial_idat(normalized.data)
+    assert analysis.supported is True
+    assert analysis.usable_scanlines == 0
+
+
+def test_rebuild_zero_scanline_placeholder_handles_truncated_zlib_normalization():
+    broken = truncate_zlib_fixture_bytes()
+    normalized = idat.normalize_truncated_idat_at_eof(broken)
+    assert normalized is not None
+
+    repair = idat.rebuild_zero_scanline_placeholder(normalized.data)
+
+    assert repair is not None
+    assert repair.strategy == "zero-scanline-placeholder recovered 0/32 scanlines"
+    assert validate_png_structure(repair.data).ok
+    stream = b"".join(chunk.data for chunk in iter_chunks(repair.data) if chunk.chunk_type == b"IDAT")
+    raw = zlib.decompress(stream)
+    assert raw == b"\x00" * 1056
 
 
 def test_rebuild_tolerant_idat_salvage_keeps_rows_after_bad_filters():
@@ -591,6 +728,284 @@ def test_ultimate_linefeed_suspect_offsets_prioritize_error_and_linefeeds():
     assert any(bytes(compressed)[offset] == 0x0A for offset in offsets if offset < len(compressed))
 
 
+def test_ultimate_linefeed_estimate_counts_theoretical_combinations():
+    filtered = b"".join(b"\x00" + bytes((13, 10, row)) for row in range(20))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets[:2]):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 20, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+
+    estimate = idat_bruteforce.estimate_ultimate_linefeed_search(
+        corrupt,
+        start_offset=start_offset,
+        max_depth=4,
+        max_offsets=8,
+    )
+
+    assert estimate.operation_count > 0
+    assert estimate.suspect_offsets
+    assert estimate.total_combinations == sum(
+        math.comb(estimate.operation_count, depth)
+        for depth in range(1, min(estimate.operation_count, 4) + 1)
+    )
+
+
+def test_ultimate_linefeed_budget_modes_apply_divisors_without_upper_cap():
+    total = 7_012_540_641
+
+    assert idat_bruteforce.ultimate_linefeed_combination_count(5, 4) == 30
+    assert idat_bruteforce.ultimate_linefeed_budget_decision(total, "quick").budget == 70_126
+    assert idat_bruteforce.ultimate_linefeed_budget_decision(total, "normal").budget == 140_251
+    assert idat_bruteforce.ultimate_linefeed_budget_decision(total, "deep").budget == 701_255
+    assert idat_bruteforce.ultimate_linefeed_budget_decision(total, "very deep").budget == 7_012_541
+    assert idat_bruteforce.ultimate_linefeed_budget_decision(total, "very_deep").budget == 7_012_541
+    assert idat_bruteforce.ultimate_linefeed_budget_decision(total, "deeeeeeep").budget == 70_125_407
+    assert idat_bruteforce.ultimate_linefeed_budget_decision(total, "abyssal").budget == 701_254_065
+    assert idat_bruteforce.ultimate_linefeed_budget_decision(total, "inception").budget == 3_506_270_321
+    assert idat_bruteforce.ultimate_linefeed_budget_decision(100, "normal").budget == 100
+    assert idat_bruteforce.ultimate_linefeed_budget_decision(10**15, "deep").budget == 100_000_000_000
+
+    manual = idat_bruteforce.ultimate_linefeed_budget_decision(total, "manual", manual_budget=1234)
+    unbounded = idat_bruteforce.ultimate_linefeed_budget_decision(total, "unbounded")
+    aborted = idat_bruteforce.ultimate_linefeed_budget_decision(total, "abort")
+
+    assert manual.budget == 1234
+    assert unbounded.budget is None
+    assert unbounded.coverage == 100.0
+    assert aborted.aborted is True
+    try:
+        idat_bruteforce.ultimate_linefeed_budget_decision(total, "manual", manual_budget=0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("manual budget zero should be rejected")
+
+
+def test_ultimate_linefeed_preview_callback_only_receives_valid_complete_candidates():
+    calls = []
+    valid = SimpleNamespace(after=SimpleNamespace(supported=True, complete=True))
+    incomplete = SimpleNamespace(after=SimpleNamespace(supported=True, complete=False))
+    unsupported = SimpleNamespace(after=SimpleNamespace(supported=False, complete=True))
+
+    idat_bruteforce._preview_ultimate_candidate_if_valid(
+        valid,
+        12,
+        100,
+        lambda *args: calls.append(args),
+    )
+    idat_bruteforce._preview_ultimate_candidate_if_valid(
+        incomplete,
+        13,
+        100,
+        lambda *args: calls.append(args),
+    )
+    idat_bruteforce._preview_ultimate_candidate_if_valid(
+        unsupported,
+        14,
+        100,
+        lambda *args: calls.append(args),
+    )
+    idat_bruteforce._preview_ultimate_candidate_if_valid(
+        valid,
+        15,
+        100,
+        lambda *args: (_ for _ in ()).throw(RuntimeError("preview failed")),
+    )
+
+    assert calls == [(valid, 12, 100)]
+
+
+def test_ultimate_linefeed_progress_checkpoint_round_trips(tmp_path):
+    progress = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.progress.json"
+    operation_pool = (
+        idat_bruteforce.SuperMegaLinefeedOperation("ultimate-remove-cr", 4, b"\r", b""),
+    )
+    pool_hash = idat_bruteforce._ultimate_operation_pool_hash(operation_pool)
+
+    idat_bruteforce._write_ultimate_progress(
+        str(progress),
+        source_hash="source",
+        target_adler=123,
+        start_offset=7,
+        max_depth=4,
+        max_offsets=128,
+        operation_pool_hash=pool_hash,
+        focused_operation_pool_hash=pool_hash,
+        broad_operation_pool_hash=pool_hash,
+        phase="exhaustive",
+        depth=2,
+        pool_index=1,
+        combination_rank=42,
+        combination_indices=(4, 9),
+        tested_candidates=100,
+        pruned_candidates=12,
+        state_count=44,
+        budget=1000,
+    )
+
+    loaded, warning = idat_bruteforce._load_ultimate_progress(
+        str(progress),
+        source_hash="source",
+        target_adler=123,
+        start_offset=7,
+        max_depth=4,
+        max_offsets=128,
+        operation_pool_hash=pool_hash,
+        focused_operation_pool_hash=pool_hash,
+        broad_operation_pool_hash=pool_hash,
+    )
+    mismatched, mismatch_warning = idat_bruteforce._load_ultimate_progress(
+        str(progress),
+        source_hash="other",
+        target_adler=123,
+        start_offset=7,
+        max_depth=4,
+        max_offsets=128,
+        operation_pool_hash=pool_hash,
+        focused_operation_pool_hash=pool_hash,
+        broad_operation_pool_hash=pool_hash,
+    )
+
+    assert warning == ""
+    assert loaded is not None
+    assert loaded.phase == "exhaustive"
+    assert loaded.combination_rank == 42
+    assert loaded.combination_indices == (4, 9)
+    assert loaded.tested_candidates == 100
+    assert mismatched is None
+    assert "source_hash mismatch" in mismatch_warning
+
+
+def test_ultimate_linefeed_combination_indices_resume_without_restarting():
+    indices = list(idat_bruteforce._combination_indices_from(5, 2, (1, 3)))
+
+    assert indices == [(1, 3), (1, 4), (2, 3), (2, 4), (3, 4)]
+    assert idat_bruteforce._next_combination_indices((3, 4), 5, 2) is None
+    assert idat_bruteforce._combination_rank((1, 3), 5, 2) == 5
+
+
+def test_ultimate_linefeed_bruteforce_resumes_progress_checkpoint(tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row % 256)) for row in range(120))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 120, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+    checkpoint = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"
+    progress = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.progress.json"
+    before = idat.analyze_idat_stream(corrupt)
+    _chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    suspect_offsets = idat_bruteforce.ultimate_linefeed_suspect_offsets(
+        corrupt,
+        start_offset=start_offset,
+        max_offsets=64,
+    )
+    focused_pool = idat_bruteforce._ultimate_operation_pool(
+        root_stream,
+        suspect_offsets,
+        target_adler=before.stored_adler,
+        computed_adler=before.computed_adler,
+    )
+    broad_offsets = idat_bruteforce._ultimate_exhaustive_linefeed_offsets(
+        root_stream,
+        suspect_offsets=suspect_offsets,
+        anchor=start_offset,
+        max_offsets=max(64, min(len(root_stream), 64 * 8, 2048)),
+    )
+    broad_pool = idat_bruteforce._ultimate_operation_pool(
+        root_stream,
+        broad_offsets,
+        target_adler=before.stored_adler,
+        computed_adler=before.computed_adler,
+    )
+    merged_pool = idat_bruteforce._merge_ultimate_operations(focused_pool, broad_pool)
+    idat_bruteforce._write_ultimate_progress(
+        str(progress),
+        source_hash=idat_bruteforce._stream_state_key(root_stream),
+        target_adler=before.stored_adler,
+        start_offset=start_offset,
+        max_depth=2,
+        max_offsets=64,
+        operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(merged_pool),
+        focused_operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(focused_pool),
+        broad_operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(broad_pool),
+        phase="exhaustive",
+        depth=1,
+        pool_index=1,
+        combination_rank=10,
+        combination_indices=(10,),
+        tested_candidates=50,
+        pruned_candidates=5,
+        state_count=7,
+        budget=60,
+    )
+
+    probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        corrupt,
+        start_offset=start_offset,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+        max_depth=2,
+        max_offsets=64,
+        budget=60,
+        beam_width=1,
+    )
+
+    assert probe.progress_resumed is True
+    assert probe.progress_path == str(progress)
+    assert probe.tested_candidates == 60
+    assert probe.budget_exhausted is True
+
+
+def test_ultimate_linefeed_eta_uses_twenty_humor_buckets():
+    assert len(idat_bruteforce.ULTIMATE_LINEFEED_ETA_PHRASES) == 20
+    assert idat_bruteforce.ultimate_linefeed_eta(200, candidates_per_second=100) == (
+        idat_bruteforce.UltimateLinefeedEta(
+            candidates_per_second=100,
+            seconds=2.0,
+            duration="2s",
+            phrase="Barely enough time to look dramatic.",
+        )
+    )
+    assert idat_bruteforce.ultimate_linefeed_eta_duration(3_506_270_321 / 100) == "1y 40d"
+    assert idat_bruteforce.ultimate_linefeed_eta_phrase(10**19) == (
+        "We will be dead before this finishes... but who cares."
+    )
+    assert idat_bruteforce.ultimate_linefeed_eta(None).phrase == (
+        "No finish line. The fish has entered mythology."
+    )
+
+
+def test_ultimate_linefeed_universe_atom_comparison_lines():
+    lines = idat_bruteforce.ultimate_linefeed_universe_atom_comparison_lines(
+        7_012_540_641
+    )
+
+    assert lines == (
+        "known universe atoms: about 10^80",
+        "combination scale: about 1.43e70 times smaller",
+    )
+    assert idat_bruteforce.ultimate_linefeed_universe_atom_comparison_lines(0)[1] == (
+        "combination scale: no candidates estimated"
+    )
+    assert idat_bruteforce.ultimate_linefeed_universe_atom_comparison_lines(10**81)[1] == (
+        "combination scale: about 1e1 times larger"
+    )
+
+
 def test_ultimate_linefeed_bruteforce_recovers_multi_step_original_adler(tmp_path):
     filtered = b"".join(b"\x00" + bytes((13, 10, row)) for row in range(20))
     compressed = bytearray(zlib.compress(filtered, level=0))
@@ -718,7 +1133,32 @@ def test_ultimate_linefeed_bruteforce_keeps_plausible_result_without_original_ad
     assert probe.best is not None
     assert probe.best.after.complete is True
     assert probe.best.after.adler_status == "adler_mismatch"
+    assert probe.top_candidates
     assert "original Adler target was not recovered" in idat_bruteforce.ultimate_linefeed_probe_summary_line(probe)
+
+
+def test_ultimate_linefeed_visual_reference_scores_local_png(tmp_path):
+    clean = build_rgb_png(1, 1, b"\x00abc")
+    analysis = idat.analyze_idat_stream(clean)
+    candidate = idat_bruteforce.SuperMegaLinefeedCandidate(
+        clean,
+        (),
+        analysis,
+        analysis,
+    )
+    reference_path = tmp_path / "reference.png"
+    reference_path.write_bytes(clean)
+
+    reference_image, warning = idat_bruteforce._load_ultimate_reference_image(str(reference_path))
+    scored = idat_bruteforce._attach_ultimate_visual_score(candidate, reference_image)
+    missing_image, missing_warning = idat_bruteforce._load_ultimate_reference_image(
+        str(tmp_path / "missing.png")
+    )
+
+    assert warning == ""
+    assert scored.visual_score == 0.0
+    assert missing_image is None
+    assert "could not load visual reference" in missing_warning
 
 
 def test_ultimate_linefeed_bruteforce_spends_budget_when_no_terminal_match(tmp_path):
@@ -1219,8 +1659,12 @@ def main():
             test_analyze_partial_idat_discards_partial_scanline_tail,
         ),
         (
-            "Partial IDAT unsupported interlace",
-            test_analyze_partial_idat_rejects_unsupported_interlace_before_repair_logic,
+            "Partial IDAT Adam7 blackfill",
+            test_analyze_partial_idat_repairs_interlaced_stream_with_adam7_blackfill,
+        ),
+        (
+            "Partial IDAT truncate_zlib_2 Adam7 fixture",
+            test_rebuild_partial_idat_blackfill_repairs_truncated_adam7_fixture,
         ),
         (
             "Partial IDAT invalid stream",
@@ -1233,6 +1677,26 @@ def main():
         (
             "Partial IDAT blackfill empty valid stream",
             test_rebuild_partial_idat_blackfill_handles_valid_empty_stream,
+        ),
+        (
+            "IDAT donor repair",
+            test_rebuild_idat_from_donor_replaces_zero_scanline_idat,
+        ),
+        (
+            "IDAT donor incompatible shape",
+            test_rebuild_idat_from_donor_rejects_incompatible_shape,
+        ),
+        (
+            "IDAT synthetic diagnostic",
+            test_rebuild_synthetic_idat_builds_diagnostic_image_from_ihdr,
+        ),
+        (
+            "Truncated IDAT normalization",
+            test_normalize_truncated_idat_at_eof_rebuilds_analyzable_png,
+        ),
+        (
+            "Zero-scanline placeholder",
+            test_rebuild_zero_scanline_placeholder_handles_truncated_zlib_normalization,
         ),
         (
             "Partial IDAT tolerant salvage",
@@ -1261,6 +1725,22 @@ def main():
         (
             "Ultimate suspect offsets",
             test_ultimate_linefeed_suspect_offsets_prioritize_error_and_linefeeds,
+        ),
+        (
+            "Ultimate live preview callback",
+            test_ultimate_linefeed_preview_callback_only_receives_valid_complete_candidates,
+        ),
+        (
+            "Ultimate progress checkpoint",
+            test_ultimate_linefeed_progress_checkpoint_round_trips,
+        ),
+        (
+            "Ultimate combination resume indices",
+            test_ultimate_linefeed_combination_indices_resume_without_restarting,
+        ),
+        (
+            "Ultimate progress resume",
+            test_ultimate_linefeed_bruteforce_resumes_progress_checkpoint,
         ),
         (
             "Partial IDAT blackfill ignored cases",

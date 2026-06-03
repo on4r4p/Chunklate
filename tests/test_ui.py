@@ -288,6 +288,41 @@ def test_loadingbar_progress_moves_faster_for_large_budgets():
     assert progress == ui.LoadingbarProgress(text="006000/100000frame2>", fish_pos=2)
 
 
+def test_loadingbar_progress_animates_huge_budget_each_callback():
+    frames = [
+        "frame0>",
+        "frame1>",
+        "frame2>",
+        "frame3>",
+        "frame4>",
+    ]
+    first = ui.loadingbar_progress(
+        3_506_270_321,
+        10,
+        100,
+        frames,
+        fish_pos=0,
+        len_fish_list=4,
+    )
+    second = ui.loadingbar_progress(
+        3_506_270_321,
+        10,
+        200,
+        frames,
+        fish_pos=first.fish_pos,
+        len_fish_list=4,
+    )
+
+    assert first == ui.LoadingbarProgress(
+        text="0000000100/3506270321frame1>",
+        fish_pos=1,
+    )
+    assert second == ui.LoadingbarProgress(
+        text="0000000200/3506270321frame2>",
+        fish_pos=2,
+    )
+
+
 def test_loadingbar_progress_stops_at_last_visible_fish_frame():
     progress = ui.loadingbar_progress(
         500,
@@ -322,6 +357,22 @@ def test_run_loadingbar_from_namespace_builds_and_prints_progress():
     expected_position = round((250 / 500) * visible_fish_end)
     assert namespace["FishPos"] == expected_position
     assert calls == [("print", ("250/500" + namespace["ThksForTheFish"][expected_position] + "\033[K",), {"end": "\r"})]
+
+
+def test_run_loadingbar_from_namespace_clears_dialogue_pause_before_loader_output():
+    calls = []
+    namespace = {
+        "os": type("FakeOs", (), {"get_terminal_size": staticmethod(lambda fd: (24, 80))})(),
+        "print": lambda *args, **kwargs: calls.append(("print", args, kwargs)),
+        "Clear_Terminal_Dialogue_Pause": lambda: calls.append(("clear_dialogue_pause",)),
+    }
+
+    ui.run_loadingbar_from_namespace(namespace, 500, 3, 0, True)
+    ui.run_loadingbar_from_namespace(namespace, 500, 3, 100, False)
+
+    assert calls[0] == ("clear_dialogue_pause",)
+    assert calls[1] == ("clear_dialogue_pause",)
+    assert calls[2][0] == "print"
 
 
 def test_run_loadingbar_from_namespace_uses_print_fallback():
@@ -459,8 +510,10 @@ def main():
         ("Loadingbar progress ratio", test_loadingbar_progress_maps_position_to_budget_ratio),
         ("Loadingbar fish speed scales", test_loadingbar_fish_speed_scales_with_budget_digits),
         ("Loadingbar progress large budget speed", test_loadingbar_progress_moves_faster_for_large_budgets),
+        ("Loadingbar huge budget callback animation", test_loadingbar_progress_animates_huge_budget_each_callback),
         ("Loadingbar progress visible end", test_loadingbar_progress_stops_at_last_visible_fish_frame),
         ("Loadingbar namespace bridge", test_run_loadingbar_from_namespace_builds_and_prints_progress),
+        ("Loadingbar clears dialogue pause", test_run_loadingbar_from_namespace_clears_dialogue_pause_before_loader_output),
         ("Loadingbar print fallback", test_run_loadingbar_from_namespace_uses_print_fallback),
         ("Loadingbar terminal fallback", test_run_loadingbar_from_namespace_uses_terminal_fallback_on_non_tty),
         ("Chunklate Minibar clears line", test_chunklate_minibar_resets_by_indication_and_clears_line),

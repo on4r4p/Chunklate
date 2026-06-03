@@ -218,6 +218,21 @@ def append_summary_progress_note(namespace: Mapping[str, Any], note: Any) -> Non
         handle.write(summary_note_block(note, _next_summary_step(namespace)))
 
 
+def reset_summary_output_if_needed(namespace: dict[str, Any]) -> None:
+    if namespace.get("Summary_File_Reset") is True:
+        return
+    if "FILE_Origin" not in namespace or "FILE_DIR" not in namespace:
+        return
+
+    filename = summary_path(namespace["FILE_Origin"], namespace["FILE_DIR"])
+    with builtins.open(filename, "w", encoding="utf-8"):
+        pass
+    namespace["Summary_File_Reset"] = True
+    namespace["Summary_Header"] = True
+    namespace["Summary_Operations_Header"] = False
+    namespace["Summary_Step_Count"] = 0
+
+
 class ImmediateSummaryNotes(list):
     def __init__(self, namespace: Mapping[str, Any]):
         super().__init__()
@@ -235,6 +250,7 @@ class ImmediateSummaryNotes(list):
 
 
 def ensure_immediate_summary_notes(namespace: dict[str, Any]) -> ImmediateSummaryNotes:
+    reset_summary_output_if_needed(namespace)
     current = namespace.get("SideNotes", [])
     if isinstance(current, ImmediateSummaryNotes):
         return current
@@ -593,6 +609,7 @@ def run_summarise_from_namespace(
     infos: Any,
     summary_footer: bool = False,
 ) -> None:
+    reset_summary_output_if_needed(namespace)
     title = summary_title(namespace["MAXCHAR"])
     eof = summary_separator(
         "_,-=|S|u|m|m|a|r|y| |E|n|d|=-,_",

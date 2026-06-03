@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from contextlib import contextmanager
+import builtins
 import os
 import subprocess
 import sys
@@ -20,14 +21,18 @@ from chunklate.png import iter_chunks, validate_png_structure
 
 @contextmanager
 def patched_attrs(module, **attrs):
-    old_values = {name: getattr(module, name) for name in attrs}
+    missing = object()
+    old_values = {name: getattr(module, name, missing) for name in attrs}
     try:
         for name, value in attrs.items():
             setattr(module, name, value)
         yield
     finally:
         for name, value in old_values.items():
-            setattr(module, name, value)
+            if value is missing:
+                delattr(module, name)
+            else:
+                setattr(module, name, value)
 
 
 class FakeStdin:
@@ -64,6 +69,44 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "--no-color" in result.stdout
     assert "--ultimate-linefeed-budget" in result.stdout
     assert "--ultimate-linefeed-unbounded" in result.stdout
+    assert "--ultimate-linefeed-reference" in result.stdout
+    assert "--ultimate-linefeed-preview-timeout" in result.stdout
+    assert "--ultimate-linefeed-resume" in result.stdout
+
+
+def test_ultimate_linefeed_budget_prompt_supports_abort_choice():
+    calls = []
+    estimate = type(
+        "Estimate",
+        (),
+        {
+            "total_combinations": 1_000_000,
+            "operation_count": 12,
+            "max_depth": 4,
+        },
+    )()
+
+    with patched_attrs(
+        Chunklate,
+        ULTIMATE_LINEFEED_UNBOUNDED=False,
+        ULTIMATE_LINEFEED_BUDGET=None,
+        AUTO=False,
+        NODIALOGUE=False,
+        Prompt_Candy=lambda mode, text, mood=None: calls.append(("prompt", mode, text, mood)),
+        PRINT=lambda message: calls.append(("print", message)),
+        Candy=lambda *args: args,
+    ), patched_attrs(builtins, input=lambda _prompt: "10"):
+        decision = Chunklate.Ultimate_Linefeed_Budget(estimate)
+
+    assert decision.aborted is True
+    assert "Enter a number from 1 to 10." in calls[0][2]
+    assert "4. very deep       total / 1000" in calls[0][2]
+    assert "5. deeeeeeep       total / 100" in calls[0][2]
+    assert "6. abyssal         total / 10" in calls[0][2]
+    assert "7. inception       total / 2" in calls[0][2]
+    assert "8. no limit" in calls[0][2]
+    assert "9. manual          exact candidate budget" in calls[0][2]
+    assert "10. quit like a looser." in calls[0][2]
 
 
 def test_missing_file_argument_returns_usage_error():

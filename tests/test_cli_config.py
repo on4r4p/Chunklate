@@ -55,6 +55,9 @@ def test_configure_parser_preserves_legacy_options():
     assert "--max-saves N" in help_text
     assert "--ultimate-linefeed-budget N" in help_text
     assert "--ultimate-linefeed-unbounded" in help_text
+    assert "--ultimate-linefeed-reference PATH" in help_text
+    assert "--ultimate-linefeed-preview-timeout SECONDS" in help_text
+    assert "--ultimate-linefeed-resume MODE" in help_text
 
 
 def test_configure_parser_parses_runtime_arguments():
@@ -81,6 +84,12 @@ def test_configure_parser_parses_runtime_arguments():
             "--ultimate-linefeed-budget",
             "1234",
             "--ultimate-linefeed-unbounded",
+            "--ultimate-linefeed-reference",
+            "ref.png",
+            "--ultimate-linefeed-preview-timeout",
+            "1.5",
+            "--ultimate-linefeed-resume",
+            "auto",
         ]
     )
 
@@ -99,6 +108,9 @@ def test_configure_parser_parses_runtime_arguments():
     assert parsed.MAX_SAVES == 2
     assert parsed.ULTIMATE_LINEFEED_BUDGET == 1234
     assert parsed.ULTIMATE_LINEFEED_UNBOUNDED is True
+    assert parsed.ULTIMATE_LINEFEED_REFERENCE == "ref.png"
+    assert parsed.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT == 1.5
+    assert parsed.ULTIMATE_LINEFEED_RESUME == "auto"
 
 
 def test_ultimate_linefeed_budget_error_preserves_guardrail():
@@ -106,6 +118,28 @@ def test_ultimate_linefeed_budget_error_preserves_guardrail():
     assert cli.ultimate_linefeed_budget_error(1) is None
     assert cli.ultimate_linefeed_budget_error(0) == "--ultimate-linefeed-budget arguments must be greater than zero."
     assert cli.ultimate_linefeed_budget_error(0, ultimate_linefeed_unbounded=True) is None
+
+
+def test_ultimate_linefeed_preview_timeout_error_preserves_guardrail():
+    assert cli.ultimate_linefeed_preview_timeout_error(None) is None
+    assert cli.ultimate_linefeed_preview_timeout_error(0) is None
+    assert cli.ultimate_linefeed_preview_timeout_error(1.5) is None
+    assert (
+        cli.ultimate_linefeed_preview_timeout_error(-1)
+        == "--ultimate-linefeed-preview-timeout arguments must be zero or greater."
+    )
+
+
+def test_ultimate_linefeed_resume_error_preserves_guardrail():
+    assert cli.ultimate_linefeed_resume_error(None) is None
+    assert cli.ultimate_linefeed_resume_error("ask") is None
+    assert cli.ultimate_linefeed_resume_error("auto") is None
+    assert cli.ultimate_linefeed_resume_error("never") is None
+    assert cli.ultimate_linefeed_resume_error("reset") is None
+    assert (
+        cli.ultimate_linefeed_resume_error("bad")
+        == "--ultimate-linefeed-resume must be one of: ask, auto, never, reset."
+    )
 
 
 def test_parse_legacy_unknown_options_preserves_clone_and_crash():
@@ -235,6 +269,8 @@ def main():
         ("no-color flags", test_runtime_flags_preserves_no_color_mode),
         ("stfu debug-file flags", test_runtime_flags_stfu_keeps_debug_file_without_terminal_debug),
         ("stfu flags", test_runtime_flags_nodialogue_preserves_stfu_side_effects),
+        ("ultimate preview timeout validation", test_ultimate_linefeed_preview_timeout_error_preserves_guardrail),
+        ("ultimate resume validation", test_ultimate_linefeed_resume_error_preserves_guardrail),
     ]
 
     print("Running CLI config tests")

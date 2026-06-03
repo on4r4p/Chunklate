@@ -416,17 +416,158 @@ def Preview_Repair_Image(data, label):
 
 
 def Ultimate_Linefeed_Checkpoint_Path():
-    folder = output.ensure_clone_folder(FILE_Origin, FILE_DIR)
-    return os.path.join(folder, "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl")
+    return globals().get("ULTIMATE_LINEFEED_CHECKPOINT_PATH") or os.path.join(
+        output.ensure_clone_folder(FILE_Origin, FILE_DIR),
+        "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl",
+    )
 
 
-def Ultimate_Linefeed_Budget():
+def Ultimate_Linefeed_Progress_Path():
+    return globals().get("ULTIMATE_LINEFEED_PROGRESS_PATH") or os.path.join(
+        output.ensure_clone_folder(FILE_Origin, FILE_DIR),
+        "_UltimateMegaSuperLineFeedBruteForce.progress.json",
+    )
+
+
+def Ultimate_Linefeed_Source_Path():
+    return globals().get("ULTIMATE_LINEFEED_SOURCE_PATH") or os.path.join(
+        output.ensure_clone_folder(FILE_Origin, FILE_DIR),
+        "_UltimateMegaSuperLineFeedBruteForce.Source.png",
+    )
+
+
+def _Ultimate_Linefeed_Budget_Decision(mode, estimate, manual_budget=None):
+    total = int(getattr(estimate, "total_combinations", 0) or 0)
+    return magic_runtime.idat_bruteforce.ultimate_linefeed_budget_decision(
+        total,
+        mode,
+        manual_budget=manual_budget,
+    )
+
+
+def _Ultimate_Linefeed_Print_Budget_Menu(estimate):
+    total = int(getattr(estimate, "total_combinations", 0) or 0)
+    operations = int(getattr(estimate, "operation_count", 0) or 0)
+    depth = int(getattr(estimate, "max_depth", 0) or 0)
+    lines = [
+        "Ultimate budget no jutsu:",
+        "operations: %s" % format(operations, ","),
+        "max depth: %s" % depth,
+        "possible combinations: %s" % format(total, ","),
+        *magic_runtime.idat_bruteforce.ultimate_linefeed_universe_atom_comparison_lines(total),
+        "",
+        "Enter a number from 1 to 10.",
+        "",
+        "1. quick           total / 100000",
+        "2. normal          total / 50000",
+        "3. deep            total / 10000",
+        "4. very deep       total / 1000",
+        "5. deeeeeeep       total / 100",
+        "6. abyssal         total / 10",
+        "7. inception       total / 2",
+        "8. no limit",
+        "9. manual          exact candidate budget",
+        "10. quit like a looser.",
+    ]
+    Prompt_Candy("Cowsay", "\n".join(lines), "com")
+
+
+def _Ultimate_Linefeed_Manual_Budget():
+    while True:
+        try:
+            value = input("Exact candidate budget > ").strip()
+        except EOFError:
+            return None
+        try:
+            budget = int(value)
+        except ValueError:
+            PRINT(Candy("Color", "red", "-Budget must be a positive integer."))
+            continue
+        if budget > 0:
+            return budget
+        PRINT(Candy("Color", "red", "-Budget must be greater than zero."))
+
+
+def Ultimate_Linefeed_Budget(estimate=None):
     if globals().get("ULTIMATE_LINEFEED_UNBOUNDED", False):
-        return None
+        return _Ultimate_Linefeed_Budget_Decision("unbounded", estimate)
     budget = globals().get("ULTIMATE_LINEFEED_BUDGET", None)
     if budget is None:
-        return 100000
-    return int(budget)
+        if globals().get("AUTO", False) or globals().get("NODIALOGUE", False):
+            return _Ultimate_Linefeed_Budget_Decision("normal", estimate)
+        choices = {
+            "1": "quick",
+            "2": "normal",
+            "": "normal",
+            "3": "deep",
+            "4": "very_deep",
+            "5": "deeeeeeep",
+            "6": "abyssal",
+            "7": "inception",
+            "8": "unbounded",
+            "9": "manual",
+            "10": "abort",
+        }
+        while True:
+            _Ultimate_Linefeed_Print_Budget_Menu(estimate)
+            try:
+                choice = input("Ultimate budget choice number [2 normal] > ").strip().lower()
+            except EOFError:
+                choice = ""
+            mode = choices.get(choice)
+            if mode is None:
+                PRINT(Candy("Color", "red", "-Enter a number from 1 to 10."))
+                continue
+            if mode == "manual":
+                manual_budget = _Ultimate_Linefeed_Manual_Budget()
+                if manual_budget is None:
+                    return _Ultimate_Linefeed_Budget_Decision("normal", estimate)
+                return _Ultimate_Linefeed_Budget_Decision(
+                    "manual",
+                    estimate,
+                    manual_budget=manual_budget,
+                )
+            return _Ultimate_Linefeed_Budget_Decision(mode, estimate)
+    return magic_runtime.idat_bruteforce.UltimateLinefeedBudgetDecision(
+        "override",
+        int(budget),
+        coverage=magic_runtime.idat_bruteforce.ultimate_linefeed_budget_coverage(
+            int(getattr(estimate, "total_combinations", 0) or 0),
+            int(budget),
+        ),
+    )
+
+
+def Ultimate_Linefeed_Reference():
+    return str(globals().get("ULTIMATE_LINEFEED_REFERENCE", "") or "")
+
+
+def Ultimate_Linefeed_Candidate_Preview(candidate, tested, budget):
+    timeout = float(globals().get("ULTIMATE_LINEFEED_PREVIEW_TIMEOUT", 5.0) or 0.0)
+    if timeout <= 0:
+        return None
+
+    after = getattr(candidate, "after", None)
+    scanlines = getattr(after, "usable_scanlines", "unknown")
+    height = getattr(after, "height", "unknown")
+    adler_status = getattr(after, "adler_status", "adler_unknown")
+    label = "UltimateLive_%09d_%s_of_%s_%s" % (
+        int(tested),
+        scanlines,
+        height,
+        adler_status,
+    )
+    preview = Preview_Repair_Image(candidate.data, label)
+    if preview is None:
+        return None
+    if not getattr(preview, "success", False):
+        Close_Preview_Image()
+        return preview
+    try:
+        time.sleep(timeout)
+    finally:
+        Close_Preview_Image()
+    return preview
 
 
 def CheckPoint_Runtime():
@@ -889,6 +1030,27 @@ def FullChunkForcerNoCrc(
 
 
 
+def Deferred_Linefeed_Signature_Repair(data_bytes, sample_name, linefeed_pattern):
+    globals()["DEFERRED_LINEFEED_SIGNATURE_REPAIR"] = {
+        "data_bytes": data_bytes,
+        "sample_name": sample_name,
+        "linefeed_pattern": linefeed_pattern,
+    }
+    return True
+
+
+def Clear_Deferred_FindMagic_Repair():
+    globals()["DEFERRED_LINEFEED_SIGNATURE_REPAIR"] = None
+
+
+def Apply_Deferred_FindMagic_Repair():
+    return magic_runtime.run_deferred_linefeed_signature_repair_from_namespace(globals())
+
+
+def Run_Ultimate_Linefeed_Direct_Resume():
+    return magic_runtime.run_ultimate_linefeed_direct_resume_from_namespace(globals())
+
+
 def FindMagic():
     return magic_runtime.run_find_magic_from_namespace(globals())
 
@@ -960,6 +1122,9 @@ def DummyChunk_Runtime():
         repair_note=fixit_felix.repair_note,
         debug=DEBUG,
         pause_debug=PAUSEDEBUG,
+        question=Question,
+        file_origin=FILE_Origin,
+        write_clone=WriteClone,
     )
 
 
@@ -1107,6 +1272,7 @@ def Question(id=None,idhash=None, skipauto=False):
     try:
         return question_runtime.ask_question(runtime, id, idhash, skipauto=skipauto)
     finally:
+        Clear_Terminal_Dialogue_Pause()
         Close_Preview_Image()
 
 
@@ -1214,7 +1380,17 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
 
     CrcTools = None
     if CrcDecision.action != "already_in_cornucopia":
-        CrcTools = relics.wrong_crc_tools(PandoraBox[key], chkd)
+        try:
+            chkd = relics.resolve_tool_prefix(PandoraBox[key], chkd)
+            CrcTools = relics.wrong_crc_tools(PandoraBox[key], chkd)
+        except KeyError:
+            Candy(
+                "Cowsay",
+                "CRC repair data is missing for this malformed chunk. I will leave it to the chunk-name/length repair path.",
+                "com",
+            )
+            FixItFelix_Set_Skip_Bad_Crc(True)
+            return False, None
 
     return fixit_felix_runtime.apply_wrong_crc(
         FixItFelix_Wrong_Crc_Runtime(),
@@ -1364,6 +1540,7 @@ def FixItFelix_Apply_Repair(repair):
 def FixItFelix_Try_Automatic_Repair(name):
     global Bad_Libpng
 
+    repair_intent = fixit_felix.automatic_repair_intent(name, PandoraBox)
     repair = fixit_felix.automatic_repair(
         name,
         DATA_BYTES,
@@ -1374,7 +1551,17 @@ def FixItFelix_Try_Automatic_Repair(name):
         max_saves=MAX_SAVES,
     )
     if repair is None:
+        failure_explanation = fixit_felix.automatic_repair_failure_explanation(
+            name,
+            PandoraBox,
+        )
+        if failure_explanation is not None:
+            Candy("Cowsay", failure_explanation, "bad")
+            SideNotes.append("-FixItFelix:%s." % failure_explanation)
         return None
+
+    if repair_intent is not None:
+        Candy("Cowsay", repair_intent, "com")
 
     if name == "hist_out_of_place_cleanup":
         if NODIALOGUE:
@@ -1647,6 +1834,8 @@ USE_COLOR = os.name != "nt"
 CLONESWAR = False
 MAX_SAVES = None
 SAVE_COUNT = 0
+ULTIMATE_LINEFEED_PREVIEW_TIMEOUT = 5.0
+ULTIMATE_LINEFEED_RESUME = "ask"
 
 FishPos = 0
 LenFishList = 0

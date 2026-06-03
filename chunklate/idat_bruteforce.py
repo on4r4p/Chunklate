@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from decimal import Decimal
 import hashlib
 import itertools
 import json
 import math
 import os
+import signal
+import time
 import zlib
 from typing import Callable, Iterable
 
@@ -16,8 +19,24 @@ from . import png
 
 ProgressCallback = Callable[[int, int, bool], None]
 QueueProgressCallback = Callable[[str, int, int], None]
+UltimateCandidatePreviewCallback = Callable[["SuperMegaLinefeedCandidate", int, int], None]
 UNBOUNDED_PROGRESS_TOTAL = 10**12
 ULTIMATE_LINEFEED_PROGRESS_STEP = 100
+ULTIMATE_LINEFEED_MIN_BUDGET = 50_000
+ULTIMATE_LINEFEED_ETA_CANDIDATES_PER_SECOND = 100
+ULTIMATE_LINEFEED_BUDGET_DIVISORS = {
+    "quick": 100_000,
+    "normal": 50_000,
+    "deep": 10_000,
+    "very_deep": 1_000,
+    "deeeeeeep": 100,
+    "abyssal": 10,
+    "inception": 2,
+}
+ULTIMATE_LINEFEED_TOP_CANDIDATES = 5
+KNOWN_UNIVERSE_ATOM_ESTIMATE = 10**80
+KNOWN_UNIVERSE_ATOM_ESTIMATE_LABEL = "10^80"
+ULTIMATE_LINEFEED_PROGRESS_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -93,6 +112,7 @@ class SuperMegaLinefeedCandidate:
     parent_id: int | None = None
     source_offsets: tuple[int, ...] = ()
     score: tuple[int, ...] = ()
+    visual_score: float | None = None
 
 
 @dataclass(frozen=True)
@@ -159,10 +179,77 @@ class UltimateLinefeedProbeResult:
     budget_exhausted: bool
     strategy: str = "UltimateMegaSuperLineFeedBruteForce"
     reason: str = ""
+    top_candidates: tuple[SuperMegaLinefeedCandidate, ...] = ()
+    reference_path: str = ""
+    reference_warning: str = ""
+    progress_path: str = ""
+    progress_resumed: bool = False
+    progress_warning: str = ""
 
     @property
     def improved(self) -> bool:
         return self.best is not None
+
+
+@dataclass(frozen=True)
+class UltimateLinefeedSearchEstimate:
+    before: idat.IdatStreamAnalysis
+    target_adler: int | None
+    start_offset: int | None
+    max_depth: int
+    max_offsets: int
+    suspect_offsets: tuple[int, ...]
+    focused_operation_count: int
+    broad_operation_count: int
+    operation_count: int
+    total_combinations: int
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class UltimateLinefeedBudgetDecision:
+    mode: str
+    budget: int | None
+    divisor: int | None = None
+    coverage: float = 0.0
+    aborted: bool = False
+
+
+@dataclass(frozen=True)
+class UltimateLinefeedEta:
+    candidates_per_second: int
+    seconds: float | None
+    duration: str
+    phrase: str
+
+
+@dataclass(frozen=True)
+class UltimateLinefeedProgress:
+    path: str
+    source_hash: str
+    target_adler: int | None
+    start_offset: int | None
+    max_depth: int
+    max_offsets: int
+    operation_pool_hash: str
+    focused_operation_pool_hash: str
+    broad_operation_pool_hash: str
+    phase: str
+    depth: int
+    pool_index: int
+    combination_rank: int
+    combination_indices: tuple[int, ...] | None
+    tested_candidates: int
+    pruned_candidates: int
+    state_count: int
+    budget: int | None
+    timestamp: float
+
+
+class UltimateLinefeedInterrupted(Exception):
+    def __init__(self, progress_path: str):
+        self.progress_path = progress_path
+        super().__init__("UltimateMegaSuperLineFeedBruteForce interrupted; progress saved to %s" % progress_path)
 
 
 def analysis_score(analysis: idat.IdatStreamAnalysis) -> tuple[int, int, int, int, int]:
@@ -630,6 +717,185 @@ def _format_operation(operation: SuperMegaLinefeedOperation) -> str:
 
 def _stream_state_key(stream: bytes) -> str:
     return hashlib.blake2b(stream, digest_size=16).hexdigest()
+
+
+def ultimate_linefeed_combination_count(operation_count: int, max_depth: int = 4) -> int:
+    operation_count = max(0, int(operation_count))
+    max_depth = max(0, int(max_depth))
+    return sum(
+        math.comb(operation_count, depth)
+        for depth in range(1, min(operation_count, max_depth) + 1)
+    )
+
+
+def _format_decimal_scientific(value: Decimal) -> str:
+    if value <= 0:
+        return "0"
+    exponent = value.adjusted()
+    mantissa = value.scaleb(-exponent)
+    mantissa_text = format(mantissa, ".3g")
+    if "." in mantissa_text:
+        mantissa_text = mantissa_text.rstrip("0").rstrip(".")
+    return "%se%s" % (mantissa_text, exponent)
+
+
+def ultimate_linefeed_universe_atom_comparison_lines(
+    total_combinations: int,
+) -> tuple[str, str]:
+    total = max(0, int(total_combinations))
+    atom_label = KNOWN_UNIVERSE_ATOM_ESTIMATE_LABEL
+    atom_line = "known universe atoms: about %s" % atom_label
+    if total == 0:
+        return atom_line, "combination scale: no candidates estimated"
+    if total == KNOWN_UNIVERSE_ATOM_ESTIMATE:
+        return atom_line, "combination scale: roughly equal to that"
+    if total < KNOWN_UNIVERSE_ATOM_ESTIMATE:
+        factor = Decimal(KNOWN_UNIVERSE_ATOM_ESTIMATE) / Decimal(total)
+        return (
+            atom_line,
+            "combination scale: about %s times smaller"
+            % _format_decimal_scientific(factor),
+        )
+    factor = Decimal(total) / Decimal(KNOWN_UNIVERSE_ATOM_ESTIMATE)
+    return (
+        atom_line,
+        "combination scale: about %s times larger" % _format_decimal_scientific(factor),
+    )
+
+
+def ultimate_linefeed_budget_coverage(
+    total_combinations: int,
+    budget: int | None,
+) -> float:
+    total = max(0, int(total_combinations))
+    if total == 0:
+        return 0.0
+    if budget is None:
+        return 100.0
+    return min(100.0, max(0, int(budget)) * 100.0 / total)
+
+
+ULTIMATE_LINEFEED_ETA_PHRASES: tuple[tuple[int, str], ...] = (
+    (1, "Blink and it is gone. Pretend you suffered."),
+    (5, "Barely enough time to look dramatic."),
+    (15, "Fast enough to keep the coffee untouched."),
+    (30, "A tiny detour through the byte swamp."),
+    (60, "One minute-ish. The fish is stretching."),
+    (300, "A snack-sized brute force."),
+    (900, "Long enough to question your choices once."),
+    (1_800, "The terminal gets a small monologue."),
+    (3_600, "Coffee run territory."),
+    (7_200, "Two-hour anime arc, maybe shorter."),
+    (21_600, "Half-day dungeon crawl."),
+    (43_200, "This is a workday wearing a trench coat."),
+    (86_400, "Sleep might happen before the answer."),
+    (259_200, "Weekend plans are now negotiable."),
+    (604_800, "The fish filed a weekly report."),
+    (2_592_000, "Calendar damage detected."),
+    (31_536_000, "Seasonal brute force. Bring weather."),
+    (315_360_000, "Multi-year archaeology, but with pixels."),
+    (3_153_600_000, "We may be older, wiser, and still waiting."),
+    (10**18, "We will be dead before this finishes... but who cares."),
+)
+
+
+def ultimate_linefeed_eta_phrase(seconds: float | int | None) -> str:
+    if seconds is None:
+        return "No finish line. The fish has entered mythology."
+    value = max(0.0, float(seconds))
+    for threshold, phrase in ULTIMATE_LINEFEED_ETA_PHRASES:
+        if value <= threshold:
+            return phrase
+    return ULTIMATE_LINEFEED_ETA_PHRASES[-1][1]
+
+
+def ultimate_linefeed_eta_duration(seconds: float | int | None) -> str:
+    if seconds is None:
+        return "unbounded"
+    remaining = int(math.ceil(max(0.0, float(seconds))))
+    if remaining == 0:
+        return "0s"
+    units = (
+        ("y", 365 * 24 * 60 * 60),
+        ("d", 24 * 60 * 60),
+        ("h", 60 * 60),
+        ("m", 60),
+        ("s", 1),
+    )
+    parts: list[str] = []
+    for suffix, unit_seconds in units:
+        if remaining >= unit_seconds:
+            value = remaining // unit_seconds
+            remaining %= unit_seconds
+            parts.append("%s%s" % (value, suffix))
+        if len(parts) == 2:
+            break
+    return " ".join(parts) if parts else "<1s"
+
+
+def ultimate_linefeed_eta(
+    budget: int | None,
+    *,
+    candidates_per_second: int = ULTIMATE_LINEFEED_ETA_CANDIDATES_PER_SECOND,
+) -> UltimateLinefeedEta:
+    rate = max(1, int(candidates_per_second))
+    seconds = None if budget is None else max(0, int(budget)) / float(rate)
+    return UltimateLinefeedEta(
+        candidates_per_second=rate,
+        seconds=seconds,
+        duration=ultimate_linefeed_eta_duration(seconds),
+        phrase=ultimate_linefeed_eta_phrase(seconds),
+    )
+
+
+def ultimate_linefeed_budget_from_divisor(
+    total_combinations: int,
+    divisor: int,
+    *,
+    min_budget: int = ULTIMATE_LINEFEED_MIN_BUDGET,
+) -> int:
+    total = max(0, int(total_combinations))
+    if total == 0:
+        return 0
+    budget = math.ceil(total / max(1, int(divisor)))
+    return min(total, max(int(min_budget), budget))
+
+
+def ultimate_linefeed_budget_decision(
+    total_combinations: int,
+    mode: str = "normal",
+    *,
+    manual_budget: int | None = None,
+) -> UltimateLinefeedBudgetDecision:
+    normalized = str(mode or "normal").strip().lower().replace(" ", "_")
+    total = max(0, int(total_combinations))
+    if normalized in ("abort", "abandon", "quit"):
+        return UltimateLinefeedBudgetDecision("abort", None, aborted=True)
+    if normalized == "unbounded":
+        return UltimateLinefeedBudgetDecision(
+            "unbounded",
+            None,
+            coverage=ultimate_linefeed_budget_coverage(total, None),
+        )
+    if normalized == "manual":
+        if manual_budget is None or int(manual_budget) < 1:
+            raise ValueError("manual ultimate linefeed budget must be greater than zero")
+        budget = int(manual_budget)
+        return UltimateLinefeedBudgetDecision(
+            "manual",
+            budget,
+            coverage=ultimate_linefeed_budget_coverage(total, budget),
+        )
+    if normalized not in ULTIMATE_LINEFEED_BUDGET_DIVISORS:
+        raise ValueError("unknown ultimate linefeed budget mode: %s" % mode)
+    divisor = ULTIMATE_LINEFEED_BUDGET_DIVISORS[normalized]
+    budget = ultimate_linefeed_budget_from_divisor(total, divisor)
+    return UltimateLinefeedBudgetDecision(
+        normalized,
+        budget,
+        divisor=divisor,
+        coverage=ultimate_linefeed_budget_coverage(total, budget),
+    )
 
 
 def _weighted_offset(offsets: dict[int, int], stream: bytes, offset: int, weight: int) -> None:
@@ -1110,6 +1376,200 @@ def _load_ultimate_checkpoint(
     return loaded, visited, next_state_id, len(loaded)
 
 
+def ultimate_linefeed_progress_path_from_checkpoint(checkpoint_path: str) -> str:
+    if not checkpoint_path:
+        return ""
+    if checkpoint_path.endswith(".checkpoint.jsonl"):
+        return checkpoint_path[: -len(".checkpoint.jsonl")] + ".progress.json"
+    return checkpoint_path + ".progress.json"
+
+
+def _ultimate_operation_pool_hash(operation_pool: tuple[SuperMegaLinefeedOperation, ...]) -> str:
+    payload = json.dumps(
+        [_operation_to_json(operation) for operation in operation_pool],
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.blake2b(payload, digest_size=16).hexdigest()
+
+
+def _progress_target_matches(record: dict[str, object], key: str, expected: object) -> bool:
+    return record.get(key) == expected
+
+
+def _coerce_progress_indices(value: object) -> tuple[int, ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        return None
+    try:
+        return tuple(int(item) for item in value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _load_ultimate_progress(
+    progress_path: str,
+    *,
+    source_hash: str,
+    target_adler: int | None,
+    start_offset: int | None,
+    max_depth: int,
+    max_offsets: int,
+    operation_pool_hash: str,
+    focused_operation_pool_hash: str,
+    broad_operation_pool_hash: str,
+) -> tuple[UltimateLinefeedProgress | None, str]:
+    if not progress_path or not os.path.exists(progress_path):
+        return None, ""
+    try:
+        with open(progress_path, "r", encoding="utf-8") as file:
+            record = json.load(file)
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, "could not load ultimate progress checkpoint %s: %s" % (progress_path, exc)
+    if not isinstance(record, dict):
+        return None, "ultimate progress checkpoint %s is not a JSON object" % progress_path
+    expected = {
+        "version": ULTIMATE_LINEFEED_PROGRESS_VERSION,
+        "source_hash": source_hash,
+        "target_adler": target_adler,
+        "start_offset": start_offset,
+        "max_depth": max_depth,
+        "max_offsets": max_offsets,
+        "operation_pool_hash": operation_pool_hash,
+        "focused_operation_pool_hash": focused_operation_pool_hash,
+        "broad_operation_pool_hash": broad_operation_pool_hash,
+    }
+    for key, value in expected.items():
+        if not _progress_target_matches(record, key, value):
+            return None, "ultimate progress checkpoint %s does not match this run (%s mismatch)" % (progress_path, key)
+    try:
+        return (
+            UltimateLinefeedProgress(
+                progress_path,
+                source_hash,
+                target_adler,
+                start_offset,
+                max_depth,
+                max_offsets,
+                operation_pool_hash,
+                focused_operation_pool_hash,
+                broad_operation_pool_hash,
+                str(record.get("phase", "")),
+                int(record.get("depth", 0)),
+                int(record.get("pool_index", 0)),
+                int(record.get("combination_rank", 0)),
+                _coerce_progress_indices(record.get("combination_indices")),
+                int(record.get("tested_candidates", 0)),
+                int(record.get("pruned_candidates", 0)),
+                int(record.get("state_count", 1)),
+                None if record.get("budget") is None else int(record.get("budget", 0)),
+                float(record.get("timestamp", 0.0)),
+            ),
+            "",
+        )
+    except (TypeError, ValueError) as exc:
+        return None, "ultimate progress checkpoint %s has invalid fields: %s" % (progress_path, exc)
+
+
+def _write_ultimate_progress(
+    progress_path: str,
+    *,
+    source_hash: str,
+    target_adler: int | None,
+    start_offset: int | None,
+    max_depth: int,
+    max_offsets: int,
+    operation_pool_hash: str,
+    focused_operation_pool_hash: str,
+    broad_operation_pool_hash: str,
+    phase: str,
+    depth: int,
+    pool_index: int,
+    combination_rank: int,
+    combination_indices: tuple[int, ...] | None,
+    tested_candidates: int,
+    pruned_candidates: int,
+    state_count: int,
+    budget: int | None,
+) -> None:
+    if not progress_path:
+        return
+    try:
+        directory = os.path.dirname(progress_path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        tmp_path = progress_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as file:
+            json.dump(
+                {
+                    "version": ULTIMATE_LINEFEED_PROGRESS_VERSION,
+                    "source_hash": source_hash,
+                    "target_adler": target_adler,
+                    "start_offset": start_offset,
+                    "max_depth": max_depth,
+                    "max_offsets": max_offsets,
+                    "operation_pool_hash": operation_pool_hash,
+                    "focused_operation_pool_hash": focused_operation_pool_hash,
+                    "broad_operation_pool_hash": broad_operation_pool_hash,
+                    "phase": phase,
+                    "depth": depth,
+                    "pool_index": pool_index,
+                    "combination_rank": combination_rank,
+                    "combination_indices": None if combination_indices is None else list(combination_indices),
+                    "tested_candidates": tested_candidates,
+                    "pruned_candidates": pruned_candidates,
+                    "state_count": state_count,
+                    "budget": budget,
+                    "timestamp": time.time(),
+                },
+                file,
+                sort_keys=True,
+            )
+            file.write("\n")
+        os.replace(tmp_path, progress_path)
+    except OSError:
+        return
+
+
+def _next_combination_indices(indices: tuple[int, ...], n: int, r: int) -> tuple[int, ...] | None:
+    if r <= 0 or n < r:
+        return None
+    values = list(indices)
+    for position in range(r - 1, -1, -1):
+        if values[position] != position + n - r:
+            values[position] += 1
+            for next_position in range(position + 1, r):
+                values[next_position] = values[next_position - 1] + 1
+            return tuple(values)
+    return None
+
+
+def _combination_rank(indices: tuple[int, ...], n: int, r: int) -> int:
+    rank = 0
+    previous = -1
+    for position, value in enumerate(indices):
+        for candidate in range(previous + 1, value):
+            rank += math.comb(n - candidate - 1, r - position - 1)
+        previous = value
+    return rank
+
+
+def _combination_indices_from(
+    n: int,
+    r: int,
+    start_indices: tuple[int, ...] | None = None,
+) -> Iterable[tuple[int, ...]]:
+    if r <= 0 or n < r:
+        return
+    indices = tuple(range(r)) if start_indices is None else tuple(start_indices)
+    if len(indices) != r or any(index < 0 or index >= n for index in indices):
+        indices = tuple(range(r))
+    while indices is not None:
+        yield indices
+        indices = _next_combination_indices(indices, n, r)
+
+
 def _ultimate_mutations_for_offset(
     stream: bytes,
     offset: int,
@@ -1238,6 +1698,79 @@ def _merge_ultimate_operations(
     return tuple(merged)
 
 
+def estimate_ultimate_linefeed_search(
+    data: bytes,
+    *,
+    start_offset: int | None = None,
+    target_adler: int | None = None,
+    super_result: SuperMegaLinefeedProbeResult | None = None,
+    max_depth: int = 4,
+    max_offsets: int = 128,
+) -> UltimateLinefeedSearchEstimate:
+    before = idat.analyze_idat_stream(data)
+    if target_adler is None:
+        target_adler = before.stored_adler
+    empty = UltimateLinefeedSearchEstimate(
+        before,
+        target_adler,
+        start_offset,
+        max_depth,
+        max_offsets,
+        (),
+        0,
+        0,
+        0,
+        0,
+    )
+    if not before.supported:
+        return replace(empty, reason=before.reason)
+    try:
+        _chunks, root_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return replace(empty, reason=str(exc))
+    if not root_stream:
+        return replace(empty, reason="IDAT stream is missing")
+
+    suspect_offsets = ultimate_linefeed_suspect_offsets(
+        data,
+        start_offset=start_offset,
+        super_result=super_result,
+        max_offsets=max_offsets,
+    )
+    focused_operation_pool = _ultimate_operation_pool(
+        root_stream,
+        suspect_offsets,
+        target_adler=target_adler,
+        computed_adler=before.computed_adler,
+    )
+    broad_offsets = _ultimate_exhaustive_linefeed_offsets(
+        root_stream,
+        suspect_offsets=suspect_offsets,
+        anchor=start_offset,
+        max_offsets=max(max_offsets, min(len(root_stream), max_offsets * 8, 2048)),
+    )
+    broad_operation_pool = _ultimate_operation_pool(
+        root_stream,
+        broad_offsets,
+        target_adler=target_adler,
+        computed_adler=before.computed_adler,
+    )
+    operation_pool = _merge_ultimate_operations(focused_operation_pool, broad_operation_pool)
+    total = ultimate_linefeed_combination_count(len(operation_pool), max_depth)
+    return UltimateLinefeedSearchEstimate(
+        before,
+        target_adler,
+        start_offset,
+        max_depth,
+        max_offsets,
+        suspect_offsets,
+        len(focused_operation_pool),
+        len(broad_operation_pool),
+        len(operation_pool),
+        total,
+    )
+
+
 def _normalize_ultimate_operation_sequence(
     operations: tuple[SuperMegaLinefeedOperation, ...],
 ) -> tuple[SuperMegaLinefeedOperation, ...]:
@@ -1281,6 +1814,107 @@ def _ultimate_prune_reason(
     return None
 
 
+def _ultimate_prune_is_fatal(reason: str | None, depth: int) -> bool:
+    if reason is None:
+        return False
+    if reason in ("unsupported", "bad_zlib_header"):
+        return True
+    return depth > 2
+
+
+def _load_ultimate_reference_image(reference_path: str):
+    if not reference_path:
+        return None, ""
+    try:
+        from PIL import Image
+
+        image = Image.open(reference_path).convert("RGBA")
+        image.load()
+        return image, ""
+    except Exception as exc:  # pragma: no cover - exact Pillow failures vary.
+        return None, "could not load visual reference %s: %s" % (reference_path, exc)
+
+
+def _ultimate_visual_distance(candidate_data: bytes, reference_image) -> float | None:
+    if reference_image is None:
+        return None
+    try:
+        from io import BytesIO
+        from PIL import Image, ImageChops, ImageStat
+
+        candidate = Image.open(BytesIO(candidate_data)).convert("RGBA")
+        candidate.load()
+        if candidate.size != reference_image.size:
+            return float("inf")
+        diff = ImageChops.difference(candidate, reference_image)
+        return float(sum(ImageStat.Stat(diff).mean))
+    except Exception:
+        return None
+
+
+def _attach_ultimate_visual_score(
+    candidate: SuperMegaLinefeedCandidate,
+    reference_image,
+) -> SuperMegaLinefeedCandidate:
+    score = _ultimate_visual_distance(candidate.data, reference_image)
+    if score is None:
+        return candidate
+    return replace(candidate, visual_score=score)
+
+
+def _preview_ultimate_candidate_if_valid(
+    candidate: SuperMegaLinefeedCandidate,
+    tested: int,
+    progress_total: int,
+    candidate_preview: UltimateCandidatePreviewCallback | None,
+) -> None:
+    if candidate_preview is None:
+        return
+    if not candidate.after.supported or not candidate.after.complete:
+        return
+    try:
+        candidate_preview(candidate, tested, progress_total)
+    except Exception:
+        return
+
+
+def _ultimate_top_candidate_key(candidate: SuperMegaLinefeedCandidate) -> str:
+    return hashlib.blake2b(candidate.data, digest_size=16).hexdigest()
+
+
+def _ultimate_top_candidate_rank(candidate: SuperMegaLinefeedCandidate) -> tuple[object, ...]:
+    visual_score = candidate.visual_score
+    return (
+        0 if candidate.after.adler_status == "adler_match" else 1,
+        0 if candidate.after.complete else 1,
+        -candidate.after.usable_scanlines,
+        -candidate.after.complete_scanlines,
+        visual_score is None,
+        float("inf") if visual_score is None else visual_score,
+        -(candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations)))[0],
+        len(candidate.operations),
+        candidate.state_id,
+    )
+
+
+def _remember_ultimate_top_candidate(
+    candidates: tuple[SuperMegaLinefeedCandidate, ...],
+    candidate: SuperMegaLinefeedCandidate,
+    *,
+    limit: int = ULTIMATE_LINEFEED_TOP_CANDIDATES,
+) -> tuple[SuperMegaLinefeedCandidate, ...]:
+    if not candidate.after.supported:
+        return candidates
+    if not candidate.after.complete and candidate.after.usable_scanlines <= 0:
+        return candidates
+    by_key = {_ultimate_top_candidate_key(item): item for item in candidates}
+    key = _ultimate_top_candidate_key(candidate)
+    existing = by_key.get(key)
+    if existing is None or _ultimate_top_candidate_rank(candidate) < _ultimate_top_candidate_rank(existing):
+        by_key[key] = candidate
+    return tuple(sorted(by_key.values(), key=_ultimate_top_candidate_rank)[:limit])
+
+
 def probe_ultimate_mega_super_linefeed_bruteforce(
     data: bytes,
     *,
@@ -1292,9 +1926,14 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     beam_width: int = 32,
     max_offsets: int = 128,
     budget: int | None = 50000,
+    reference_path: str = "",
     progress: QueueProgressCallback | None = None,
+    candidate_preview: UltimateCandidatePreviewCallback | None = None,
+    progress_path: str = "",
+    resume_progress: bool = True,
 ) -> UltimateLinefeedProbeResult:
     strategy = "UltimateMegaSuperLineFeedBruteForce"
+    reference_image, reference_warning = _load_ultimate_reference_image(reference_path)
     budget_limit = None if budget is None else max(0, int(budget))
     progress_total = UNBOUNDED_PROGRESS_TOTAL if budget_limit is None else max(1, budget_limit)
     before = idat.analyze_idat_stream(data)
@@ -1372,6 +2011,30 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         max_offsets=max_offsets,
     )
     source_hash = _stream_state_key(root_stream)
+    focused_operation_pool = _ultimate_operation_pool(
+        root_stream,
+        suspect_offsets,
+        target_adler=target_adler,
+        computed_adler=before.computed_adler,
+    )
+    broad_offsets = _ultimate_exhaustive_linefeed_offsets(
+        root_stream,
+        suspect_offsets=suspect_offsets,
+        anchor=start_offset,
+        max_offsets=max(max_offsets, min(len(root_stream), max_offsets * 8, 2048)),
+    )
+    broad_operation_pool = _ultimate_operation_pool(
+        root_stream,
+        broad_offsets,
+        target_adler=target_adler,
+        computed_adler=before.computed_adler,
+    )
+    merged_operation_pool = _merge_ultimate_operations(focused_operation_pool, broad_operation_pool)
+    operation_pool_hash = _ultimate_operation_pool_hash(merged_operation_pool)
+    focused_operation_pool_hash = _ultimate_operation_pool_hash(focused_operation_pool)
+    broad_operation_pool_hash = _ultimate_operation_pool_hash(broad_operation_pool)
+    if not progress_path:
+        progress_path = ultimate_linefeed_progress_path_from_checkpoint(checkpoint_path)
     root_score = super_mega_linefeed_score(before, 0)
     root = SuperMegaLinefeedCandidate(
         data,
@@ -1391,11 +2054,17 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         before=before,
         target_adler=target_adler,
     )
+    checkpoint_candidates = [
+        _attach_ultimate_visual_score(candidate, reference_image)
+        for candidate in checkpoint_candidates
+    ]
     visited = {_stream_state_key(root_stream), *checkpoint_visited}
     frontier = checkpoint_candidates[-beam_width:] if checkpoint_candidates else [root]
     best: SuperMegaLinefeedCandidate | None = None
     best_score = root_score
+    top_candidates: tuple[SuperMegaLinefeedCandidate, ...] = ()
     for candidate in checkpoint_candidates:
+        top_candidates = _remember_ultimate_top_candidate(top_candidates, candidate)
         candidate_score = candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations))
         if candidate_score > best_score:
             best = candidate
@@ -1405,6 +2074,74 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     pruned = 0
     budget_exhausted = False
     reached_depth = 0
+    progress_warning = ""
+    progress_resume = None
+    if resume_progress:
+        progress_resume, progress_warning = _load_ultimate_progress(
+            progress_path,
+            source_hash=source_hash,
+            target_adler=target_adler,
+            start_offset=start_offset,
+            max_depth=max_depth,
+            max_offsets=max_offsets,
+            operation_pool_hash=operation_pool_hash,
+            focused_operation_pool_hash=focused_operation_pool_hash,
+            broad_operation_pool_hash=broad_operation_pool_hash,
+        )
+    if progress_resume is not None:
+        tested = max(tested, progress_resume.tested_candidates)
+        pruned = max(pruned, progress_resume.pruned_candidates)
+        next_state_id = max(next_state_id, progress_resume.state_count)
+        reached_depth = max(reached_depth, progress_resume.depth)
+        resumed_states += 1
+    current_phase = "frontier"
+    current_depth = reached_depth
+    current_pool_index = 0
+    current_combination_rank = 0
+    current_combination_indices: tuple[int, ...] | None = None
+
+    def save_progress_snapshot(
+        *,
+        phase: str | None = None,
+        depth: int | None = None,
+        pool_index: int | None = None,
+        combination_rank: int | None = None,
+        combination_indices: tuple[int, ...] | None = None,
+    ) -> None:
+        _write_ultimate_progress(
+            progress_path,
+            source_hash=source_hash,
+            target_adler=target_adler,
+            start_offset=start_offset,
+            max_depth=max_depth,
+            max_offsets=max_offsets,
+            operation_pool_hash=operation_pool_hash,
+            focused_operation_pool_hash=focused_operation_pool_hash,
+            broad_operation_pool_hash=broad_operation_pool_hash,
+            phase=current_phase if phase is None else phase,
+            depth=current_depth if depth is None else depth,
+            pool_index=current_pool_index if pool_index is None else pool_index,
+            combination_rank=current_combination_rank if combination_rank is None else combination_rank,
+            combination_indices=current_combination_indices if combination_indices is None else combination_indices,
+            tested_candidates=tested,
+            pruned_candidates=pruned,
+            state_count=next_state_id,
+            budget=budget_limit,
+        )
+
+    previous_sigint_handler = None
+    sigint_handler_installed = False
+
+    def save_then_interrupt(signum, frame):
+        save_progress_snapshot()
+        raise KeyboardInterrupt
+
+    try:
+        previous_sigint_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, save_then_interrupt)
+        sigint_handler_installed = True
+    except (OSError, ValueError):
+        sigint_handler_installed = False
 
     def budget_reached() -> bool:
         return budget_limit is not None and tested >= budget_limit
@@ -1421,6 +2158,8 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
 
     for depth in range(1, max(1, max_depth) + 1):
         reached_depth = depth
+        current_phase = "frontier"
+        current_depth = depth
         next_frontier: list[SuperMegaLinefeedCandidate] = []
         for parent in frontier:
             try:
@@ -1449,6 +2188,8 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                         tested == 1 or tested % ULTIMATE_LINEFEED_PROGRESS_STEP == 0
                     ):
                         progress(strategy, tested, progress_total)
+                    if tested == 1 or tested % ULTIMATE_LINEFEED_PROGRESS_STEP == 0:
+                        save_progress_snapshot(phase="frontier", depth=depth)
 
                     candidate = _candidate_from_stream(
                         parent,
@@ -1458,13 +2199,27 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                         target_adler=target_adler,
                         state_id=next_state_id,
                     )
+                    candidate = _attach_ultimate_visual_score(candidate, reference_image)
                     next_state_id += 1
+                    top_candidates = _remember_ultimate_top_candidate(top_candidates, candidate)
+                    _preview_ultimate_candidate_if_valid(
+                        candidate,
+                        tested,
+                        progress_total,
+                        candidate_preview,
+                    )
                     prune_reason = _ultimate_prune_reason(parent.after, candidate.after)
                     candidate_score = candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations))
-                    if prune_reason is not None and candidate.after.adler_status != "adler_match":
+                    if (
+                        _ultimate_prune_is_fatal(prune_reason, depth)
+                        and candidate.after.adler_status != "adler_match"
+                    ):
                         pruned += 1
                         continue
-                    if candidate_score <= (parent.score or super_mega_linefeed_score(parent.after, len(parent.operations))):
+                    if (
+                        depth > 2
+                        and candidate_score <= (parent.score or super_mega_linefeed_score(parent.after, len(parent.operations)))
+                    ):
                         pruned += 1
                         continue
 
@@ -1496,35 +2251,40 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         frontier = next_frontier[: max(1, beam_width)]
 
     if not terminal(best) and not budget_exhausted and (budget_limit is None or tested < budget_limit):
-        focused_operation_pool = _ultimate_operation_pool(
-            root_stream,
-            suspect_offsets,
-            target_adler=target_adler,
-            computed_adler=before.computed_adler,
-        )
-        broad_offsets = _ultimate_exhaustive_linefeed_offsets(
-            root_stream,
-            suspect_offsets=suspect_offsets,
-            anchor=start_offset,
-            max_offsets=max(max_offsets, min(len(root_stream), max_offsets * 8, 2048)),
-        )
-        broad_operation_pool = _ultimate_operation_pool(
-            root_stream,
-            broad_offsets,
-            target_adler=target_adler,
-            computed_adler=before.computed_adler,
-        )
         root_parent_score = root.score or super_mega_linefeed_score(root.after, 0)
         operation_pools = (
             focused_operation_pool,
-            _merge_ultimate_operations(focused_operation_pool, broad_operation_pool),
+            merged_operation_pool,
         )
-        for operation_pool in operation_pools:
+        for pool_index, operation_pool in enumerate(operation_pools):
+            if progress_resume is not None and progress_resume.phase == "exhaustive" and pool_index < progress_resume.pool_index:
+                continue
             if not operation_pool:
                 continue
             for depth in range(1, max(1, max_depth) + 1):
+                if (
+                    progress_resume is not None
+                    and progress_resume.phase == "exhaustive"
+                    and pool_index == progress_resume.pool_index
+                    and depth < progress_resume.depth
+                ):
+                    continue
                 reached_depth = max(reached_depth, depth)
-                for combination in itertools.combinations(operation_pool, depth):
+                current_phase = "exhaustive"
+                current_depth = depth
+                current_pool_index = pool_index
+                start_indices = None
+                if (
+                    progress_resume is not None
+                    and progress_resume.phase == "exhaustive"
+                    and pool_index == progress_resume.pool_index
+                    and depth == progress_resume.depth
+                ):
+                    start_indices = progress_resume.combination_indices
+                for indices in _combination_indices_from(len(operation_pool), depth, start_indices):
+                    current_combination_indices = indices
+                    current_combination_rank = _combination_rank(indices, len(operation_pool), depth)
+                    combination = tuple(operation_pool[index] for index in indices)
                     if budget_reached():
                         budget_exhausted = True
                         break
@@ -1545,6 +2305,15 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                         tested == 1 or tested % ULTIMATE_LINEFEED_PROGRESS_STEP == 0
                     ):
                         progress(strategy, tested, progress_total)
+                    next_indices = _next_combination_indices(indices, len(operation_pool), depth)
+                    if tested == 1 or tested % ULTIMATE_LINEFEED_PROGRESS_STEP == 0:
+                        save_progress_snapshot(
+                            phase="exhaustive",
+                            depth=depth,
+                            pool_index=pool_index,
+                            combination_rank=current_combination_rank + 1,
+                            combination_indices=next_indices,
+                        )
 
                     candidate_data = _rebuild_with_single_idat_stream(chunks, candidate_stream)
                     candidate_analysis = idat.analyze_idat_stream(
@@ -1564,10 +2333,21 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                         source_offsets=tuple(operation.stream_offset for operation in operations),
                         score=candidate_score,
                     )
+                    candidate = _attach_ultimate_visual_score(candidate, reference_image)
                     next_state_id += 1
+                    top_candidates = _remember_ultimate_top_candidate(top_candidates, candidate)
+                    _preview_ultimate_candidate_if_valid(
+                        candidate,
+                        tested,
+                        progress_total,
+                        candidate_preview,
+                    )
 
                     prune_reason = _ultimate_prune_reason(before, candidate.after)
-                    if prune_reason is not None and candidate.after.adler_status != "adler_match":
+                    if (
+                        _ultimate_prune_is_fatal(prune_reason, depth)
+                        and candidate.after.adler_status != "adler_match"
+                    ):
                         pruned += 1
                         continue
 
@@ -1580,7 +2360,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                             candidate=candidate,
                             depth=depth,
                         )
-                    elif candidate_score <= root_parent_score:
+                    elif depth > 2 and candidate_score <= root_parent_score:
                         pruned += 1
 
                     if terminal(best):
@@ -1593,6 +2373,9 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
 
     if progress is not None:
         progress(strategy, min(tested, progress_total), progress_total)
+    save_progress_snapshot(phase="complete", depth=reached_depth)
+    if sigint_handler_installed:
+        signal.signal(signal.SIGINT, previous_sigint_handler)
 
     reason = ""
     if best is None:
@@ -1619,6 +2402,12 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         budget_exhausted,
         strategy,
         reason,
+        top_candidates=top_candidates,
+        reference_path=reference_path,
+        reference_warning=reference_warning,
+        progress_path=progress_path,
+        progress_resumed=progress_resume is not None,
+        progress_warning=progress_warning,
     )
 
 
@@ -2732,10 +3521,20 @@ def ultimate_linefeed_probe_summary_line(result: UltimateLinefeedProbeResult) ->
     )
     if result.checkpoint_path:
         line += "; checkpoint=%s" % result.checkpoint_path
+    if result.progress_path:
+        line += "; progress=%s" % result.progress_path
+    if result.progress_resumed:
+        line += "; progress resumed"
     if result.best is not None:
         line += "; best_score=%s" % (
             result.best.score or super_mega_linefeed_score(result.best.after, len(result.best.operations)),
         )
+    if result.top_candidates:
+        line += "; top_candidates=%s" % len(result.top_candidates)
+    if result.reference_warning:
+        line += "; reference_warning=%s" % result.reference_warning
+    if result.progress_warning:
+        line += "; progress_warning=%s" % result.progress_warning
     if result.budget_exhausted:
         line += "; budget exhausted"
     if result.reason:
@@ -2754,7 +3553,7 @@ def ultimate_linefeed_candidate_summary_line(candidate: SuperMegaLinefeedCandida
     operations = ", ".join(_format_operation(operation) for operation in candidate.operations)
     if len(operations) > 240:
         operations = operations[:237] + "..."
-    return (
+    line = (
         "-UltimateMegaSuperLineFeedBruteForce candidate: state=%s parent=%s; operations=%s; "
         "status %s -> %s; adler %s -> %s (stored=%s computed=%s); crc=%s; "
         "scanlines %s/%s -> %s/%s; decompressed %s/%s -> %s/%s; error_offset %s -> %s."
@@ -2781,6 +3580,9 @@ def ultimate_linefeed_candidate_summary_line(candidate: SuperMegaLinefeedCandida
             candidate.after.error_offset,
         )
     )
+    if candidate.visual_score is not None:
+        line = line[:-1] + "; visual_score=%.4f." % candidate.visual_score
+    return line
 
 
 def candidate_summary_line(candidate: IdatDeflateCandidate) -> str:

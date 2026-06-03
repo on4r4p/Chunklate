@@ -11,7 +11,7 @@ if str(ROOT) not in sys.path:
 
 import Chunklate
 from chunklate import fixit_felix
-from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk
+from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks
 
 
 def valid_png_bytes():
@@ -235,6 +235,75 @@ def test_wrong_crc_already_in_cornucopia_does_not_require_pandora_tools():
     assert should_return is False
     assert result is None
     assert printed[-1] == "-Cornucopia is True"
+
+
+def test_wrong_crc_uses_recorded_tool_prefix_when_deferred_until_iend():
+    reset_fixit_globals()
+    key = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    fixture = (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "xcsn0g01.png").read_bytes()
+    idat = next(chunk for chunk in iter_chunks(fixture) if chunk.chunk_type == b"IDAT")
+    crc_start = (idat.offset + 8 + idat.length) * 2
+    crc_end = crc_start + 8
+    old_crc = idat.crc.to_bytes(4, "big").hex()
+    replacement_crc = idat.computed_crc.to_bytes(4, "big").hex()
+    Chunklate.DATAX = fixture.hex()
+    Chunklate.PandoraBox = {
+        key: {
+            "IDAT_Tool_0": replacement_crc,
+            "IDAT_Tool_1": crc_start,
+            "IDAT_Tool_2": crc_end,
+            "IDAT_Tool_3": b"IDAT",
+            "IDAT_Tool_4": hex(idat.offset + 8 + idat.length),
+            "IDAT_Tool_5": old_crc,
+            "IDAT_Tool_6": idat.length,
+            "IDAT_Tool_7": idat.offset + 8,
+        }
+    }
+    save_calls = []
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        Question=lambda **kwargs: True,
+        SaveClone=lambda *args: save_calls.append(args) or "saved",
+    ):
+        should_return, result = Chunklate.FixItFelix_Wrong_Crc(key, "IEND_Tool_", 1)
+
+    assert should_return is True
+    assert result == "saved"
+    assert save_calls == [
+        (
+            replacement_crc,
+            crc_start,
+            crc_end,
+            (
+                "-Found Chunk[b'IDAT'] has Wrong Crc at offset: %s\n"
+                % hex(idat.offset + 8 + idat.length)
+            )
+            + "-Replaced with: %s old value was: %s" % (replacement_crc, old_crc),
+        )
+    ]
+
+
+def test_wrong_crc_missing_tools_defers_malformed_chunk_without_keyerror():
+    reset_fixit_globals()
+    key = "Checksum_Error_0:Wrong Crc b'\\x00\\x00IE'"
+    chkd = "\x00\x00IE_Tool_"
+    candy_calls = []
+    Chunklate.PandoraBox = {key: {}}
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: candy_calls.append(args) or "",
+    ):
+        should_return, result = Chunklate.FixItFelix_Wrong_Crc(key, chkd, 2)
+
+    assert should_return is False
+    assert result is None
+    assert Chunklate.Skip_Bad_Crc is True
+    assert any("CRC repair data is missing" in call[1] for call in candy_calls)
 
 
 def test_wrong_chunk_name_length_probe_accept_routes_to_nearby_chunk():
@@ -906,6 +975,14 @@ def main():
         (
             "Wrong CRC already in Cornucopia does not need Pandora tools",
             test_wrong_crc_already_in_cornucopia_does_not_require_pandora_tools,
+        ),
+        (
+            "Wrong CRC uses recorded tool prefix after defer",
+            test_wrong_crc_uses_recorded_tool_prefix_when_deferred_until_iend,
+        ),
+        (
+            "Wrong CRC missing tools defers malformed chunk",
+            test_wrong_crc_missing_tools_defers_malformed_chunk_without_keyerror,
         ),
         (
             "Wrong chunk name length probe accepts NearbyChunk",

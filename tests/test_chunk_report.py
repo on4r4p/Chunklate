@@ -102,7 +102,7 @@ def test_render_palette_groups_report_counts():
 
 
 def test_render_splt_reports_name_and_component_counts():
-    info = chunk_info.parse_splt("70616c0008" + ("01" * 13))
+    info = chunk_info.parse_splt("70616c0008" + ("01" * 6))
 
     assert collect(
         chunk_report.render_splt,
