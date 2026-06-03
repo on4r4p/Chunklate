@@ -373,6 +373,7 @@ def Open_Final_Image(path, emit=None):
 
 ACTIVE_PREVIEW_IMAGE = None
 LAST_PROGRESS_LINE = ""
+PREVIEW_OUTPUT_FOLDER = "Bruteforce_Previews"
 
 
 def Close_Preview_Image():
@@ -407,7 +408,9 @@ def Preview_Repair_Image(data, label, *, show=True, emit=None):
         char if char.isalnum() or char in ("-", "_", ".") else "_"
         for char in str(label)
     )
-    path = os.path.join(folder, "_Preview_%s.png" % safe_label)
+    preview_folder = os.path.join(folder, PREVIEW_OUTPUT_FOLDER)
+    os.makedirs(preview_folder, exist_ok=True)
+    path = os.path.join(preview_folder, "_Preview_%s.png" % safe_label)
     with open(path, "wb") as file:
         file.write(preview_bytes)
 

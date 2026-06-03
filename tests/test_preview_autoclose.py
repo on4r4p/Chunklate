@@ -89,6 +89,44 @@ def test_preview_repair_image_skips_structurally_invalid_png(monkeypatch):
     assert calls == []
 
 
+def test_preview_repair_image_saves_inside_preview_subfolder(tmp_path, monkeypatch):
+    original = tmp_path / "01.png"
+    original.write_bytes(VALID_FIXTURE.read_bytes())
+    previous = (
+        Chunklate.FILE_Origin,
+        Chunklate.FILE_DIR,
+        Chunklate.ACTIVE_PREVIEW_IMAGE,
+    )
+
+    monkeypatch.setattr(Chunklate, "PRINT", lambda message: None)
+    monkeypatch.setattr(Chunklate, "Candy", lambda *args: "%s")
+
+    try:
+        Chunklate.FILE_Origin = str(original)
+        Chunklate.FILE_DIR = str(tmp_path / "out")
+        Chunklate.ACTIVE_PREVIEW_IMAGE = None
+
+        result = Chunklate.Preview_Repair_Image(
+            VALID_FIXTURE.read_bytes(),
+            "preview/subfolder",
+            show=False,
+        )
+
+        assert result is not None
+        preview_path = Path(result.path)
+        clone_folder = tmp_path / "out" / "Folder_01"
+        assert preview_path.exists()
+        assert preview_path.parent == clone_folder / Chunklate.PREVIEW_OUTPUT_FOLDER
+        assert preview_path.name == "_Preview_preview_subfolder.png"
+        assert not list(clone_folder.glob("_Preview_*.png"))
+    finally:
+        (
+            Chunklate.FILE_Origin,
+            Chunklate.FILE_DIR,
+            Chunklate.ACTIVE_PREVIEW_IMAGE,
+        ) = previous
+
+
 def test_ultimate_linefeed_candidate_preview_times_out_and_closes(tmp_path, monkeypatch):
     original = tmp_path / "01.png"
     original.write_bytes(VALID_FIXTURE.read_bytes())
