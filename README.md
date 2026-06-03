@@ -142,7 +142,8 @@ contains only `IHDR`, `gAMA`, and `IEND`, are classified as impossible to
 repair when no `IDAT` exists. There are no source pixels to recover from that
 input.
 
-## In Memory Of Glenn Randers-Pehrson
+### In Memory Of Glenn Randers-Pehrson
 
 ![Glenn Randers-Pehrson](https://i.postimg.cc/yN5YTWwH/image.png)
+
 (April 30, 1941 - October 2018)
