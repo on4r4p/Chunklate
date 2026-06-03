@@ -22,6 +22,7 @@ QueueProgressCallback = Callable[[str, int, int], None]
 UltimateCandidatePreviewCallback = Callable[["SuperMegaLinefeedCandidate", int, int], None]
 UNBOUNDED_PROGRESS_TOTAL = 10**12
 ULTIMATE_LINEFEED_PROGRESS_STEP = 100
+ULTIMATE_LINEFEED_PROGRESS_INTERVAL_SECONDS = 2.0
 ULTIMATE_LINEFEED_MIN_BUDGET = 50_000
 ULTIMATE_LINEFEED_ETA_CANDIDATES_PER_SECOND = 100
 ULTIMATE_LINEFEED_BUDGET_DIVISORS = {
@@ -2099,6 +2100,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     current_pool_index = 0
     current_combination_rank = 0
     current_combination_indices: tuple[int, ...] | None = None
+    last_progress_at = time.monotonic()
 
     def save_progress_snapshot(
         *,
@@ -2146,6 +2148,17 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     def budget_reached() -> bool:
         return budget_limit is not None and tested >= budget_limit
 
+    def progress_snapshot_due() -> bool:
+        nonlocal last_progress_at
+        if tested == 1 or tested % ULTIMATE_LINEFEED_PROGRESS_STEP == 0:
+            last_progress_at = time.monotonic()
+            return True
+        now = time.monotonic()
+        if now - last_progress_at >= ULTIMATE_LINEFEED_PROGRESS_INTERVAL_SECONDS:
+            last_progress_at = now
+            return True
+        return False
+
     def terminal(candidate: SuperMegaLinefeedCandidate | None) -> bool:
         if candidate is None or not candidate.after.complete:
             return False
@@ -2155,6 +2168,8 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
 
     if progress is not None:
         progress(strategy, 0, progress_total)
+        if tested > 0:
+            progress(strategy, min(tested, progress_total), progress_total)
 
     for depth in range(1, max(1, max_depth) + 1):
         reached_depth = depth
@@ -2184,11 +2199,10 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                     visited.add(stream_hash)
                     tested += 1
 
-                    if progress is not None and (
-                        tested == 1 or tested % ULTIMATE_LINEFEED_PROGRESS_STEP == 0
-                    ):
+                    emit_progress = progress_snapshot_due()
+                    if progress is not None and emit_progress:
                         progress(strategy, tested, progress_total)
-                    if tested == 1 or tested % ULTIMATE_LINEFEED_PROGRESS_STEP == 0:
+                    if emit_progress:
                         save_progress_snapshot(phase="frontier", depth=depth)
 
                     candidate = _candidate_from_stream(
@@ -2301,12 +2315,11 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
 
                     visited.add(stream_hash)
                     tested += 1
-                    if progress is not None and (
-                        tested == 1 or tested % ULTIMATE_LINEFEED_PROGRESS_STEP == 0
-                    ):
+                    emit_progress = progress_snapshot_due()
+                    if progress is not None and emit_progress:
                         progress(strategy, tested, progress_total)
                     next_indices = _next_combination_indices(indices, len(operation_pool), depth)
-                    if tested == 1 or tested % ULTIMATE_LINEFEED_PROGRESS_STEP == 0:
+                    if emit_progress:
                         save_progress_snapshot(
                             phase="exhaustive",
                             depth=depth,

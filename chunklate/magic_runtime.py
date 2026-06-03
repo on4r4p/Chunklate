@@ -437,7 +437,11 @@ def _linefeed_queue_progress(runtime: FindMagicRuntime):
             return
         total = max(1, int(budget))
         try:
-            runtime.loadingbar(total, len(str(total)), tested, tested == 0)
+            if tested == 0:
+                runtime.loadingbar(total, len(str(total)), 0, True)
+                runtime.loadingbar(total, len(str(total)), 0, False)
+            else:
+                runtime.loadingbar(total, len(str(total)), tested, False)
         except (OSError, IndexError):
             disabled = True
             return

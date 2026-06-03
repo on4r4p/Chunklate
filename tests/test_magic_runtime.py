@@ -742,6 +742,23 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
     assert side_notes == [write_calls[0][2]]
 
 
+def test_linefeed_queue_progress_draws_zero_state_after_build():
+    calls = []
+    runtime = SimpleNamespace(
+        loadingbar=lambda total, size, tested, build: calls.append(
+            (total, size, tested, build)
+        )
+    )
+
+    progress = magic_runtime._linefeed_queue_progress(runtime)
+    progress("UltimateMegaSuperLineFeedBruteForce", 0, 701254065)
+
+    assert calls == [
+        (701254065, 9, 0, True),
+        (701254065, 9, 0, False),
+    ]
+
+
 def test_ultimate_linefeed_direct_resume_skips_find_magic_tour():
     calls = []
     side_notes = []
@@ -1037,6 +1054,7 @@ def main():
             test_find_header_magic_runtime_can_decline_direct_supermega,
         ),
         ("Header linefeed ultimate probe", test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe),
+        ("Ultimate progress zero draw", test_linefeed_queue_progress_draws_zero_state_after_build),
         (
             "Header linefeed ultimate direct resume",
             test_ultimate_linefeed_direct_resume_skips_find_magic_tour,
