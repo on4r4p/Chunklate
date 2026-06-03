@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import sys
 import struct
 import zlib
@@ -968,6 +969,86 @@ def test_ultimate_linefeed_bruteforce_resumes_progress_checkpoint(tmp_path):
     assert probe.progress_path == str(progress)
     assert probe.tested_candidates == 60
     assert probe.budget_exhausted is True
+
+
+def test_ultimate_linefeed_probe_draws_progress_before_checkpoint_load(tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row)) for row in range(8))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    del compressed[crlf_offsets[0]]
+    corrupt = build_rgb_png(1, 8, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+    calls = []
+    original_load = idat_bruteforce._load_ultimate_checkpoint
+
+    def fake_load(*args, **kwargs):
+        assert calls == [("UltimateMegaSuperLineFeedBruteForce", 0, 1)]
+        return [], set(), 1, 0
+
+    try:
+        idat_bruteforce._load_ultimate_checkpoint = fake_load
+        idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+            corrupt,
+            start_offset=start_offset,
+            checkpoint_path=str(tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"),
+            max_depth=1,
+            max_offsets=2,
+            budget=0,
+            progress=lambda *args: calls.append(args),
+        )
+    finally:
+        idat_bruteforce._load_ultimate_checkpoint = original_load
+
+
+def test_load_ultimate_checkpoint_emits_resume_progress(tmp_path):
+    clean = build_rgb_png(1, 1, b"\x00abc")
+    before = idat.analyze_idat_stream(clean)
+    chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(clean)
+    source_hash = idat_bruteforce._stream_state_key(root_stream)
+    checkpoint = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"
+    operations = (
+        idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 0, b"", b"\r"),
+        idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 1, b"", b"\r"),
+    )
+    with open(checkpoint, "w", encoding="utf-8") as file:
+        for state_id, operation in enumerate(operations, start=1):
+            file.write(
+                json.dumps(
+                    {
+                        "source_hash": source_hash,
+                        "state_id": state_id,
+                        "operations": [idat_bruteforce._operation_to_json(operation)],
+                    }
+                )
+                + "\n"
+            )
+
+    calls = []
+    original_monotonic = idat_bruteforce.time.monotonic
+    ticks = iter((0.0, 3.0, 6.0, 9.0))
+    try:
+        idat_bruteforce.time.monotonic = lambda: next(ticks, 9.0)
+        loaded, _visited, _next_state_id, resumed = idat_bruteforce._load_ultimate_checkpoint(
+            str(checkpoint),
+            source_hash=source_hash,
+            root_stream=root_stream,
+            chunks=chunks,
+            before=before,
+            target_adler=before.stored_adler,
+            progress=lambda *args: calls.append(args),
+            progress_total=100,
+        )
+    finally:
+        idat_bruteforce.time.monotonic = original_monotonic
+
+    assert len(loaded) == 2
+    assert resumed == 2
+    assert calls[0] == ("UltimateMegaSuperLineFeedBruteForce", 1, 100)
+    assert calls[-1] == ("UltimateMegaSuperLineFeedBruteForce", 2, 100)
 
 
 def test_ultimate_linefeed_eta_uses_twenty_humor_buckets():

@@ -1318,6 +1318,9 @@ def _load_ultimate_checkpoint(
     chunks: tuple[png.PngChunk, ...],
     before: idat.IdatStreamAnalysis,
     target_adler: int | None,
+    progress: QueueProgressCallback | None = None,
+    progress_total: int = 0,
+    progress_stage: str = "UltimateMegaSuperLineFeedBruteForce",
 ) -> tuple[list[SuperMegaLinefeedCandidate], set[str], int, int]:
     if not checkpoint_path or not os.path.exists(checkpoint_path):
         return [], set(), 1, 0
@@ -1325,6 +1328,22 @@ def _load_ultimate_checkpoint(
     loaded: list[SuperMegaLinefeedCandidate] = []
     visited: set[str] = set()
     next_state_id = 1
+    last_progress_at = time.monotonic()
+
+    def emit_load_progress(force: bool = False) -> None:
+        nonlocal last_progress_at
+        if progress is None:
+            return
+        now = time.monotonic()
+        if not force and now - last_progress_at < ULTIMATE_LINEFEED_PROGRESS_INTERVAL_SECONDS:
+            return
+        last_progress_at = now
+        progress(
+            progress_stage,
+            min(len(loaded), max(1, int(progress_total))),
+            max(1, int(progress_total)),
+        )
+
     try:
         with open(checkpoint_path, "r", encoding="utf-8") as file:
             for line in file:
@@ -1371,9 +1390,11 @@ def _load_ultimate_checkpoint(
                         score=score,
                     )
                 )
+                emit_load_progress()
     except OSError:
         return [], set(), 1, 0
 
+    emit_load_progress(force=bool(loaded))
     return loaded, visited, next_state_id, len(loaded)
 
 
@@ -2047,6 +2068,8 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         source_offsets=(),
         score=root_score,
     )
+    if progress is not None:
+        progress(strategy, 0, progress_total)
     checkpoint_candidates, checkpoint_visited, next_state_id, resumed_states = _load_ultimate_checkpoint(
         checkpoint_path,
         source_hash=source_hash,
@@ -2054,6 +2077,9 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         chunks=chunks,
         before=before,
         target_adler=target_adler,
+        progress=progress,
+        progress_total=progress_total,
+        progress_stage=strategy,
     )
     checkpoint_candidates = [
         _attach_ultimate_visual_score(candidate, reference_image)
@@ -2166,10 +2192,8 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             return True
         return candidate.after.adler_status == "adler_match"
 
-    if progress is not None:
-        progress(strategy, 0, progress_total)
-        if tested > 0:
-            progress(strategy, min(tested, progress_total), progress_total)
+    if progress is not None and tested > 0:
+        progress(strategy, min(tested, progress_total), progress_total)
 
     for depth in range(1, max(1, max_depth) + 1):
         reached_depth = depth
