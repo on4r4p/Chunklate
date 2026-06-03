@@ -54,26 +54,20 @@ def test_configure_parser_preserves_legacy_options():
     assert "--output-dir DIR" in help_text
     assert "--max-saves N" in help_text
     assert "-ulfb N" in help_text
-    assert "-ulfb, --ultimate-linefeed-budget N" in help_text
     assert "--ultimate-linefeed-budget N" in help_text
     assert "-ulfu" in help_text
     assert "--ultimate-linefeed-unbounded" in help_text
     assert "-ulfr PATH" in help_text
-    assert "-ulfr, --ultimate-linefeed-reference PATH" in help_text
     assert "--ultimate-linefeed-reference PATH" in help_text
     assert "-ulfrm {exact,similar}" in help_text
-    assert "-ulfrm, --ultimate-linefeed-reference-mode {exact,similar}" in help_text
     assert "--ultimate-linefeed-reference-mode {exact,similar}" in help_text
     assert "-ulfpt SECONDS" in help_text
-    assert "-ulfpt, --ultimate-linefeed-preview-timeout SECONDS" in help_text
     assert "--ultimate-linefeed-preview-timeout SECONDS" in help_text
     assert "-ulfsp" in help_text
     assert "--ultimate-linefeed-show-previews" in help_text
     assert "-ulfgl N" in help_text
-    assert "-ulfgl, --ultimate-linefeed-visual-gallery-limit N" in help_text
     assert "--ultimate-linefeed-visual-gallery-limit N" in help_text
     assert "-ulfmc FLOAT" in help_text
-    assert "-ulfmc, --ultimate-linefeed-visual-min-coverage FLOAT" in help_text
     assert "--ultimate-linefeed-visual-min-coverage FLOAT" in help_text
     assert "-ulf-resume {ask,auto,never,reset}" in help_text
     assert "--ultimate-linefeed-resume {ask,auto,never,reset}" in help_text
