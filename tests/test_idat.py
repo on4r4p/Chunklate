@@ -1415,7 +1415,6 @@ def test_ultimate_linefeed_visual_gallery_limit_zero_disables_gallery(tmp_path):
 
 
 def test_ultimate_linefeed_sigint_flushes_visual_gallery(tmp_path):
-    import os
     import signal
 
     filtered = b"\x00abc" + b"\x00def"
@@ -1440,18 +1439,38 @@ def test_ultimate_linefeed_sigint_flushes_visual_gallery(tmp_path):
     )
     sent = False
     positive_progress_calls = 0
+    captured_handler = {"handler": None}
 
     def progress(_stage, tested, _budget):
         nonlocal positive_progress_calls, sent
         if tested >= 1:
             positive_progress_calls += 1
-        if positive_progress_calls >= 2 and not sent:
+        if (
+            positive_progress_calls >= 2
+            and captured_handler["handler"] is not None
+            and not sent
+        ):
             sent = True
-            os.kill(os.getpid(), signal.SIGINT)
+            captured_handler["handler"](signal.SIGINT, None)
 
-    original_handler = signal.getsignal(signal.SIGINT)
+    original_signal = idat_bruteforce.signal.signal
+    original_getsignal = idat_bruteforce.signal.getsignal
+
+    def fake_getsignal(signum):
+        if signum == signal.SIGINT:
+            return original_getsignal(signum)
+        return original_getsignal(signum)
+
+    def fake_signal(signum, handler):
+        if signum == signal.SIGINT:
+            captured_handler["handler"] = handler
+            return original_getsignal(signum)
+        return original_signal(signum, handler)
+
     interrupted = False
     try:
+        idat_bruteforce.signal.getsignal = fake_getsignal
+        idat_bruteforce.signal.signal = fake_signal
         idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
             corrupt,
             start_offset=idat_bruteforce.first_idat_problem_stream_offset(corrupt),
@@ -1466,7 +1485,8 @@ def test_ultimate_linefeed_sigint_flushes_visual_gallery(tmp_path):
     except KeyboardInterrupt:
         interrupted = True
     finally:
-        signal.signal(signal.SIGINT, original_handler)
+        idat_bruteforce.signal.getsignal = original_getsignal
+        idat_bruteforce.signal.signal = original_signal
 
     assert interrupted is True
     assert progress_path.exists()
