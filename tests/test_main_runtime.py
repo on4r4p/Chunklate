@@ -55,6 +55,7 @@ def args(**updates):
         "ULTIMATE_LINEFEED_UNBOUNDED": False,
         "ULTIMATE_LINEFEED_REFERENCE": None,
         "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT": 5.0,
+        "ULTIMATE_LINEFEED_SHOW_PREVIEWS": False,
         "ULTIMATE_LINEFEED_RESUME": "ask",
     }
     values.update(updates)
@@ -213,6 +214,7 @@ def test_apply_main_cli_options_builds_initial_state():
         ultimate_linefeed_budget=None,
         ultimate_linefeed_unbounded=False,
         ultimate_linefeed_preview_timeout=5.0,
+        ultimate_linefeed_show_previews=False,
         ultimate_linefeed_resume="ask",
     )
     assert ("makedirs", "/abs/out/", {"exist_ok": True}) in calls
@@ -356,6 +358,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         ultimate_linefeed_unbounded=True,
         ultimate_linefeed_reference="ref.png",
         ultimate_linefeed_preview_timeout=1.5,
+        ultimate_linefeed_show_previews=True,
         ultimate_linefeed_resume="auto",
     )
 
@@ -381,6 +384,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         "ULTIMATE_LINEFEED_UNBOUNDED": True,
         "ULTIMATE_LINEFEED_REFERENCE": "ref.png",
         "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT": 1.5,
+        "ULTIMATE_LINEFEED_SHOW_PREVIEWS": True,
         "ULTIMATE_LINEFEED_RESUME": "auto",
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
     }
@@ -431,6 +435,7 @@ def test_apply_main_cli_options_from_namespace_updates_legacy_globals():
     assert namespace["ULTIMATE_LINEFEED_UNBOUNDED"] is False
     assert namespace["ULTIMATE_LINEFEED_REFERENCE"] is None
     assert namespace["ULTIMATE_LINEFEED_PREVIEW_TIMEOUT"] == 5.0
+    assert namespace["ULTIMATE_LINEFEED_SHOW_PREVIEWS"] is False
     assert namespace["ULTIMATE_LINEFEED_RESUME"] == "ask"
     assert namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] is True
     assert calls == [("makedirs", "/abs/out/", {"exist_ok": True})]

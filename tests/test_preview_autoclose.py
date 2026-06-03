@@ -111,6 +111,7 @@ def test_ultimate_linefeed_candidate_preview_times_out_and_closes(tmp_path, monk
         Chunklate.FILE_Origin,
         Chunklate.FILE_DIR,
         Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT,
+        Chunklate.ULTIMATE_LINEFEED_SHOW_PREVIEWS,
         Chunklate.ACTIVE_PREVIEW_IMAGE,
     )
 
@@ -128,6 +129,7 @@ def test_ultimate_linefeed_candidate_preview_times_out_and_closes(tmp_path, monk
         Chunklate.FILE_Origin = str(original)
         Chunklate.FILE_DIR = str(tmp_path / "out")
         Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT = 1.5
+        Chunklate.ULTIMATE_LINEFEED_SHOW_PREVIEWS = True
         Chunklate.ACTIVE_PREVIEW_IMAGE = None
         candidate = SimpleNamespace(
             data=VALID_FIXTURE.read_bytes(),
@@ -149,25 +151,42 @@ def test_ultimate_linefeed_candidate_preview_times_out_and_closes(tmp_path, monk
             Chunklate.FILE_Origin,
             Chunklate.FILE_DIR,
             Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT,
+            Chunklate.ULTIMATE_LINEFEED_SHOW_PREVIEWS,
             Chunklate.ACTIVE_PREVIEW_IMAGE,
         ) = previous
 
 
-def test_ultimate_linefeed_candidate_preview_timeout_zero_disables(tmp_path, monkeypatch):
+def test_ultimate_linefeed_candidate_preview_saves_without_opening_by_default(tmp_path, monkeypatch):
     calls = []
+    original = tmp_path / "01.png"
+    original.write_bytes(VALID_FIXTURE.read_bytes())
     previous = (
+        Chunklate.FILE_Origin,
+        Chunklate.FILE_DIR,
         Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT,
+        Chunklate.ULTIMATE_LINEFEED_SHOW_PREVIEWS,
         Chunklate.ACTIVE_PREVIEW_IMAGE,
     )
 
     monkeypatch.setattr(
+        Chunklate,
+        "print",
+        lambda *args, **kwargs: calls.append(("print", args, kwargs)),
+        raising=False,
+    )
+    monkeypatch.setattr(Chunklate, "Candy", lambda *args: "%s")
+    monkeypatch.setattr(
         Chunklate.image_viewer,
         "open_image",
-        lambda path: calls.append(path),
+        lambda path: calls.append(("open", path)),
     )
 
     try:
+        Chunklate.FILE_Origin = str(original)
+        Chunklate.FILE_DIR = str(tmp_path / "out")
         Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT = 0
+        Chunklate.ULTIMATE_LINEFEED_SHOW_PREVIEWS = False
+        Chunklate.ACTIVE_PREVIEW_IMAGE = None
         candidate = SimpleNamespace(
             data=VALID_FIXTURE.read_bytes(),
             after=SimpleNamespace(
@@ -177,12 +196,20 @@ def test_ultimate_linefeed_candidate_preview_timeout_zero_disables(tmp_path, mon
             ),
         )
 
-        assert Chunklate.Ultimate_Linefeed_Candidate_Preview(candidate, 42, 100) is None
-        assert calls == []
-        assert Chunklate.ACTIVE_PREVIEW_IMAGE is previous[1]
+        result = Chunklate.Ultimate_Linefeed_Candidate_Preview(candidate, 42, 100)
+
+        assert result is not None
+        assert result.opened is False
+        assert Path(result.path).exists()
+        assert not any(call[0] == "open" for call in calls)
+        assert any(call[0] == "print" for call in calls)
+        assert Chunklate.ACTIVE_PREVIEW_IMAGE is None
     finally:
         (
+            Chunklate.FILE_Origin,
+            Chunklate.FILE_DIR,
             Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT,
+            Chunklate.ULTIMATE_LINEFEED_SHOW_PREVIEWS,
             Chunklate.ACTIVE_PREVIEW_IMAGE,
         ) = previous
 

@@ -679,7 +679,7 @@ def run_loadingbar_from_namespace(
     fishsize: int,
     loop: int,
     build: bool,
-) -> None:
+) -> LoadingbarProgress | None:
     clear_dialogue_pause = namespace.get("Clear_Terminal_Dialogue_Pause")
     if callable(clear_dialogue_pause):
         clear_dialogue_pause()
@@ -693,7 +693,7 @@ def run_loadingbar_from_namespace(
         namespace["ThksForTheFish"] = built.frames
         namespace["LenFishList"] = built.len_fish_list
         namespace["FishPos"] = built.fish_pos
-        return
+        return None
 
     progress = loadingbar_progress(
         fishs,
@@ -705,3 +705,4 @@ def run_loadingbar_from_namespace(
     )
     namespace["FishPos"] = progress.fish_pos
     namespace.get("print", print)(progress.text + "\033[K", end="\r")
+    return progress

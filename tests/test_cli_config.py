@@ -57,6 +57,7 @@ def test_configure_parser_preserves_legacy_options():
     assert "--ultimate-linefeed-unbounded" in help_text
     assert "--ultimate-linefeed-reference PATH" in help_text
     assert "--ultimate-linefeed-preview-timeout SECONDS" in help_text
+    assert "--ultimate-linefeed-show-previews" in help_text
     assert "--ultimate-linefeed-resume MODE" in help_text
 
 
@@ -88,6 +89,7 @@ def test_configure_parser_parses_runtime_arguments():
             "ref.png",
             "--ultimate-linefeed-preview-timeout",
             "1.5",
+            "--ultimate-linefeed-show-previews",
             "--ultimate-linefeed-resume",
             "auto",
         ]
@@ -110,6 +112,7 @@ def test_configure_parser_parses_runtime_arguments():
     assert parsed.ULTIMATE_LINEFEED_UNBOUNDED is True
     assert parsed.ULTIMATE_LINEFEED_REFERENCE == "ref.png"
     assert parsed.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT == 1.5
+    assert parsed.ULTIMATE_LINEFEED_SHOW_PREVIEWS is True
     assert parsed.ULTIMATE_LINEFEED_RESUME == "auto"
 
 

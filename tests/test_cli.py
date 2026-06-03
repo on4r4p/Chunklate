@@ -71,6 +71,7 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "--ultimate-linefeed-unbounded" in result.stdout
     assert "--ultimate-linefeed-reference" in result.stdout
     assert "--ultimate-linefeed-preview-timeout" in result.stdout
+    assert "--ultimate-linefeed-show-previews" in result.stdout
     assert "--ultimate-linefeed-resume" in result.stdout
 
 

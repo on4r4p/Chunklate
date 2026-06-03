@@ -60,6 +60,7 @@ class MainCliOptionsState:
     ultimate_linefeed_unbounded: bool = False
     ultimate_linefeed_reference: str | None = None
     ultimate_linefeed_preview_timeout: float = 5.0
+    ultimate_linefeed_show_previews: bool = False
     ultimate_linefeed_resume: str = "ask"
 
 
@@ -606,6 +607,9 @@ def apply_main_cli_options(
     ultimate_linefeed_preview_timeout = float(
         getattr(args, "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT", 5.0)
     )
+    ultimate_linefeed_show_previews = bool(
+        getattr(args, "ULTIMATE_LINEFEED_SHOW_PREVIEWS", False)
+    )
     ultimate_linefeed_resume = str(
         getattr(args, "ULTIMATE_LINEFEED_RESUME", "ask") or "ask"
     ).strip().lower()
@@ -654,6 +658,7 @@ def apply_main_cli_options(
         ultimate_linefeed_unbounded=ultimate_linefeed_unbounded,
         ultimate_linefeed_reference=ultimate_linefeed_reference,
         ultimate_linefeed_preview_timeout=ultimate_linefeed_preview_timeout,
+        ultimate_linefeed_show_previews=ultimate_linefeed_show_previews,
         ultimate_linefeed_resume=ultimate_linefeed_resume,
     )
 
@@ -682,6 +687,7 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "ULTIMATE_LINEFEED_UNBOUNDED": options.ultimate_linefeed_unbounded,
         "ULTIMATE_LINEFEED_REFERENCE": options.ultimate_linefeed_reference,
         "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT": options.ultimate_linefeed_preview_timeout,
+        "ULTIMATE_LINEFEED_SHOW_PREVIEWS": options.ultimate_linefeed_show_previews,
         "ULTIMATE_LINEFEED_RESUME": options.ultimate_linefeed_resume,
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
     }

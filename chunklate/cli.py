@@ -145,10 +145,16 @@ def configure_parser(parser: Any) -> Any:
     parser.add_argument(
         "--ultimate-linefeed-preview-timeout",
         dest="ULTIMATE_LINEFEED_PREVIEW_TIMEOUT",
-        help="Seconds to show each live valid ultimate line-feed candidate preview; 0 disables live previews.",
+        help="Seconds to keep each opened live ultimate preview visible when --ultimate-linefeed-show-previews is set.",
         type=float,
         default=5.0,
         metavar="SECONDS",
+    )
+    parser.add_argument(
+        "--ultimate-linefeed-show-previews",
+        dest="ULTIMATE_LINEFEED_SHOW_PREVIEWS",
+        help="Open live valid ultimate line-feed candidate previews during brute force; files are still saved without this.",
+        action="store_true",
     )
     parser.add_argument(
         "--ultimate-linefeed-resume",

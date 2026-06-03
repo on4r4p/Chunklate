@@ -487,6 +487,32 @@ def test_chunklate_print_finishes_active_progress_line_before_output():
     ]
 
 
+def test_chunklate_loader_message_redraws_active_progress_line():
+    calls = []
+
+    def fake_print(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    with patched_attrs(
+        Chunklate,
+        print=fake_print,
+        MAXCHAR=80,
+        NODIALOGUE=False,
+        DEBUGFILE=False,
+        PROGRESS_LINE_ACTIVE=True,
+        LAST_PROGRESS_LINE="000200/001000><(((º>",
+    ):
+        Chunklate.PRINT_With_Loader_Redraw("-Preview image : out.png")
+
+        assert Chunklate.PROGRESS_LINE_ACTIVE is True
+
+    assert calls == [
+        (("\r\033[K",), {"end": ""}),
+        (("-Preview image : out.png",), {}),
+        (("000200/001000><(((º>\033[K",), {"end": "\r"}),
+    ]
+
+
 def main():
     checks = [
         ("Colorize ANSI colors", test_colorize_preserves_legacy_ansi_colors),
@@ -519,6 +545,7 @@ def main():
         ("Chunklate Minibar clears line", test_chunklate_minibar_resets_by_indication_and_clears_line),
         ("Chunklate Minibar keeps counter animation", test_chunklate_minibar_keeps_animation_when_counter_changes),
         ("Chunklate PRINT finishes progress", test_chunklate_print_finishes_active_progress_line_before_output),
+        ("Chunklate loader message redraw", test_chunklate_loader_message_redraws_active_progress_line),
     ]
 
     print("Running UI tests")

@@ -350,7 +350,8 @@ def Has_Unresolved_Findings():
     return bool(PandoraBox)
 
 
-def Open_Final_Image(path):
+def Open_Final_Image(path, emit=None):
+    emit = PRINT if emit is None else emit
     if not sys.stdout.isatty():
         return None
     try:
@@ -359,18 +360,19 @@ def Open_Final_Image(path):
     except (OSError, ValueError):
         validation = None
     if validation is None or not validation.ok:
-        PRINT(Candy("Color", "yellow", "-Not opening image automatically: PNG structure is not valid."))
+        emit(Candy("Color", "yellow", "-Not opening image automatically: PNG structure is not valid."))
         return None
 
     result = image_viewer.open_image(path)
     if result.success:
-        PRINT(Candy("Color", "green", "-Opening image with : %s") % result.opener)
+        emit(Candy("Color", "green", "-Opening image with : %s") % result.opener)
     else:
-        PRINT(Candy("Color", "yellow", "-Could not open image automatically: %s") % result.error)
+        emit(Candy("Color", "yellow", "-Could not open image automatically: %s") % result.error)
     return result
 
 
 ACTIVE_PREVIEW_IMAGE = None
+LAST_PROGRESS_LINE = ""
 
 
 def Close_Preview_Image():
@@ -389,16 +391,15 @@ def Close_Preview_Image():
         return False
 
 
-def Preview_Repair_Image(data, label):
+def Preview_Repair_Image(data, label, *, show=True, emit=None):
     global ACTIVE_PREVIEW_IMAGE
 
+    emit = PRINT if emit is None else emit
     Close_Preview_Image()
-    if not sys.stdout.isatty():
-        return None
     preview_bytes = output.clone_bytes(data)
     validation = validate_png_structure(preview_bytes)
     if not validation.ok:
-        PRINT(Candy("Color", "yellow", "-Preview skipped: PNG structure is not valid."))
+        emit(Candy("Color", "yellow", "-Preview skipped: PNG structure is not valid."))
         return None
 
     folder = output.ensure_clone_folder(FILE_Origin, FILE_DIR)
@@ -410,8 +411,12 @@ def Preview_Repair_Image(data, label):
     with open(path, "wb") as file:
         file.write(preview_bytes)
 
-    PRINT(Candy("Color", "green", "-Preview image : %s") % path)
-    ACTIVE_PREVIEW_IMAGE = Open_Final_Image(path)
+    emit(Candy("Color", "green", "-Preview image : %s") % path)
+    if not show:
+        return types.SimpleNamespace(success=False, path=path, opened=False)
+    ACTIVE_PREVIEW_IMAGE = Open_Final_Image(path, emit=emit)
+    if ACTIVE_PREVIEW_IMAGE is None:
+        return types.SimpleNamespace(success=False, path=path, opened=False)
     return ACTIVE_PREVIEW_IMAGE
 
 
@@ -544,8 +549,7 @@ def Ultimate_Linefeed_Reference():
 
 def Ultimate_Linefeed_Candidate_Preview(candidate, tested, budget):
     timeout = float(globals().get("ULTIMATE_LINEFEED_PREVIEW_TIMEOUT", 5.0) or 0.0)
-    if timeout <= 0:
-        return None
+    show_preview = bool(globals().get("ULTIMATE_LINEFEED_SHOW_PREVIEWS", False))
 
     after = getattr(candidate, "after", None)
     scanlines = getattr(after, "usable_scanlines", "unknown")
@@ -557,14 +561,22 @@ def Ultimate_Linefeed_Candidate_Preview(candidate, tested, budget):
         height,
         adler_status,
     )
-    preview = Preview_Repair_Image(candidate.data, label)
+    preview = Preview_Repair_Image(
+        candidate.data,
+        label,
+        show=show_preview,
+        emit=PRINT_With_Loader_Redraw,
+    )
     if preview is None:
         return None
+    if not show_preview:
+        return preview
     if not getattr(preview, "success", False):
         Close_Preview_Image()
         return preview
     try:
-        time.sleep(timeout)
+        if timeout > 0:
+            time.sleep(timeout)
     finally:
         Close_Preview_Image()
     return preview
@@ -774,17 +786,40 @@ def Minibar(Indication=""):
 
 def Loadingbar(fishs, fishsize, loop, build):
     global PROGRESS_LINE_ACTIVE
+    global LAST_PROGRESS_LINE
     result = ui.run_loadingbar_from_namespace(globals(), fishs, fishsize, loop, build)
     if not build:
+        if result is not None:
+            LAST_PROGRESS_LINE = result.text
         PROGRESS_LINE_ACTIVE = True
     return result
 
 
-def Finish_Progress_Line():
+def Finish_Progress_Line(*, clear=False):
     global PROGRESS_LINE_ACTIVE
     if PROGRESS_LINE_ACTIVE:
-        print("")
+        if clear:
+            print("\r\033[K", end="")
+        else:
+            print("")
         PROGRESS_LINE_ACTIVE = False
+
+
+def Redraw_Progress_Line():
+    global PROGRESS_LINE_ACTIVE
+    if LAST_PROGRESS_LINE:
+        print(LAST_PROGRESS_LINE + "\033[K", end="\r")
+        PROGRESS_LINE_ACTIVE = True
+
+
+def PRINT_With_Loader_Redraw(msg):
+    was_active = PROGRESS_LINE_ACTIVE
+    Finish_Progress_Line(clear=True)
+    if DEBUGFILE is True:
+        DebugNotes.append(msg)
+    ui.emit_printable_message(print, msg, max_columns=MAXCHAR, no_dialogue=NODIALOGUE)
+    if was_active:
+        Redraw_Progress_Line()
 
 
 def Sumform(waitforit, switch):
@@ -1835,6 +1870,7 @@ CLONESWAR = False
 MAX_SAVES = None
 SAVE_COUNT = 0
 ULTIMATE_LINEFEED_PREVIEW_TIMEOUT = 5.0
+ULTIMATE_LINEFEED_SHOW_PREVIEWS = False
 ULTIMATE_LINEFEED_RESUME = "ask"
 
 FishPos = 0
