@@ -14,9 +14,18 @@ CLONE_STUDY_PHRASES = (
     "Round two: same mystery, sharper notes.",
     "I picked up the new clone. Let me see what changed.",
 )
-ULTIMATE_LINEFEED_CHECKPOINT_NAME = "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"
-ULTIMATE_LINEFEED_PROGRESS_NAME = "_UltimateMegaSuperLineFeedBruteForce.progress.json"
-ULTIMATE_LINEFEED_SOURCE_NAME = "_UltimateMegaSuperLineFeedBruteForce.Source.png"
+ULTIMATE_LINEFEED_CHECKPOINT_NAME = "_ULF.checkpoint.jsonl"
+ULTIMATE_LINEFEED_PROGRESS_NAME = "_ULF.progress.json"
+ULTIMATE_LINEFEED_SOURCE_NAME = "_ULF.Source.png"
+LEGACY_ULTIMATE_LINEFEED_CHECKPOINT_NAMES = (
+    "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl",
+)
+LEGACY_ULTIMATE_LINEFEED_PROGRESS_NAMES = (
+    "_UltimateMegaSuperLineFeedBruteForce.progress.json",
+)
+LEGACY_ULTIMATE_LINEFEED_SOURCE_NAMES = (
+    "_UltimateMegaSuperLineFeedBruteForce.Source.png",
+)
 ULTIMATE_LINEFEED_RESUME_MODES = ("ask", "auto", "never", "reset")
 
 
@@ -41,6 +50,7 @@ class MainCliOptionsRuntime:
     max_saves_error: Callable = cli.max_saves_error
     ultimate_linefeed_budget_error: Callable = cli.ultimate_linefeed_budget_error
     ultimate_linefeed_preview_timeout_error: Callable = cli.ultimate_linefeed_preview_timeout_error
+    ultimate_linefeed_reference_mode_error: Callable = cli.ultimate_linefeed_reference_mode_error
     ultimate_linefeed_visual_gallery_limit_error: Callable = cli.ultimate_linefeed_visual_gallery_limit_error
     ultimate_linefeed_visual_min_coverage_error: Callable = cli.ultimate_linefeed_visual_min_coverage_error
     output_file_dir: Callable = cli.output_file_dir
@@ -61,6 +71,7 @@ class MainCliOptionsState:
     ultimate_linefeed_budget: int | None = None
     ultimate_linefeed_unbounded: bool = False
     ultimate_linefeed_reference: str | None = None
+    ultimate_linefeed_reference_mode: str = "exact"
     ultimate_linefeed_preview_timeout: float = 5.0
     ultimate_linefeed_show_previews: bool = False
     ultimate_linefeed_visual_gallery_limit: int = 100
@@ -402,12 +413,46 @@ def ultimate_linefeed_folder_paths(
     file_dir: str,
 ) -> tuple[str, str, str, str]:
     folder = runtime.clone_folder(file_origin, file_dir)
+    checkpoint_path = _preferred_ultimate_resume_path(
+        runtime,
+        folder,
+        ULTIMATE_LINEFEED_CHECKPOINT_NAME,
+        LEGACY_ULTIMATE_LINEFEED_CHECKPOINT_NAMES,
+    )
+    progress_path = _preferred_ultimate_resume_path(
+        runtime,
+        folder,
+        ULTIMATE_LINEFEED_PROGRESS_NAME,
+        LEGACY_ULTIMATE_LINEFEED_PROGRESS_NAMES,
+    )
+    source_path = _preferred_ultimate_resume_path(
+        runtime,
+        folder,
+        ULTIMATE_LINEFEED_SOURCE_NAME,
+        LEGACY_ULTIMATE_LINEFEED_SOURCE_NAMES,
+    )
     return (
         folder,
-        runtime.join(folder, ULTIMATE_LINEFEED_CHECKPOINT_NAME),
-        runtime.join(folder, ULTIMATE_LINEFEED_PROGRESS_NAME),
-        runtime.join(folder, ULTIMATE_LINEFEED_SOURCE_NAME),
+        checkpoint_path,
+        progress_path,
+        source_path,
     )
+
+
+def _preferred_ultimate_resume_path(
+    runtime: MainCliOptionsRuntime,
+    folder: str,
+    preferred_name: str,
+    legacy_names: tuple[str, ...],
+) -> str:
+    preferred_path = runtime.join(folder, preferred_name)
+    if runtime.path_exists(preferred_path):
+        return preferred_path
+    for name in legacy_names:
+        legacy_path = runtime.join(folder, name)
+        if runtime.path_exists(legacy_path):
+            return legacy_path
+    return preferred_path
 
 
 def _remove_existing_file(runtime: MainCliOptionsRuntime, path: str) -> None:
@@ -425,14 +470,33 @@ def reset_ultimate_linefeed_resume_files(
     file_origin: str,
     file_dir: str,
 ) -> None:
-    _folder, checkpoint_path, progress_path, source_path = ultimate_linefeed_folder_paths(
+    for path in _ultimate_linefeed_resume_paths(
         runtime,
         file_origin=file_origin,
         file_dir=file_dir,
+    ):
+        _remove_existing_file(runtime, path)
+
+
+def _ultimate_linefeed_resume_names() -> tuple[str, ...]:
+    return (
+        ULTIMATE_LINEFEED_PROGRESS_NAME,
+        ULTIMATE_LINEFEED_CHECKPOINT_NAME,
+        ULTIMATE_LINEFEED_SOURCE_NAME,
+        *LEGACY_ULTIMATE_LINEFEED_PROGRESS_NAMES,
+        *LEGACY_ULTIMATE_LINEFEED_CHECKPOINT_NAMES,
+        *LEGACY_ULTIMATE_LINEFEED_SOURCE_NAMES,
     )
-    _remove_existing_file(runtime, progress_path)
-    _remove_existing_file(runtime, checkpoint_path)
-    _remove_existing_file(runtime, source_path)
+
+
+def _ultimate_linefeed_resume_paths(
+    runtime: MainCliOptionsRuntime,
+    *,
+    file_origin: str,
+    file_dir: str,
+) -> tuple[str, ...]:
+    folder = runtime.clone_folder(file_origin, file_dir)
+    return tuple(runtime.join(folder, name) for name in _ultimate_linefeed_resume_names())
 
 
 def _ultimate_linefeed_resume_evidence_exists(
@@ -445,11 +509,7 @@ def _ultimate_linefeed_resume_evidence_exists(
     if runtime.path_exists(folder) and runtime.path_is_dir(folder):
         try:
             names = set(runtime.list_dir(folder))
-            return (
-                ULTIMATE_LINEFEED_PROGRESS_NAME in names
-                or ULTIMATE_LINEFEED_CHECKPOINT_NAME in names
-                or ULTIMATE_LINEFEED_SOURCE_NAME in names
-            )
+            return any(name in names for name in _ultimate_linefeed_resume_names())
         except OSError:
             return False
     return (
@@ -608,6 +668,9 @@ def apply_main_cli_options(
     ultimate_linefeed_budget = getattr(args, "ULTIMATE_LINEFEED_BUDGET", None)
     ultimate_linefeed_unbounded = bool(getattr(args, "ULTIMATE_LINEFEED_UNBOUNDED", False))
     ultimate_linefeed_reference = getattr(args, "ULTIMATE_LINEFEED_REFERENCE", None)
+    ultimate_linefeed_reference_mode = str(
+        getattr(args, "ULTIMATE_LINEFEED_REFERENCE_MODE", "exact") or "exact"
+    ).strip().lower()
     ultimate_linefeed_preview_timeout = float(
         getattr(args, "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT", 5.0)
     )
@@ -636,6 +699,13 @@ def apply_main_cli_options(
     )
     if ultimate_linefeed_budget_error is not None:
         runtime.print_error(ultimate_linefeed_budget_error)
+        runtime.exit_process(1)
+        return None
+    reference_mode_error = runtime.ultimate_linefeed_reference_mode_error(
+        ultimate_linefeed_reference_mode
+    )
+    if reference_mode_error is not None:
+        runtime.print_error(reference_mode_error)
         runtime.exit_process(1)
         return None
     preview_timeout_error = runtime.ultimate_linefeed_preview_timeout_error(
@@ -681,6 +751,7 @@ def apply_main_cli_options(
         ultimate_linefeed_budget=ultimate_linefeed_budget,
         ultimate_linefeed_unbounded=ultimate_linefeed_unbounded,
         ultimate_linefeed_reference=ultimate_linefeed_reference,
+        ultimate_linefeed_reference_mode=ultimate_linefeed_reference_mode,
         ultimate_linefeed_preview_timeout=ultimate_linefeed_preview_timeout,
         ultimate_linefeed_show_previews=ultimate_linefeed_show_previews,
         ultimate_linefeed_visual_gallery_limit=ultimate_linefeed_visual_gallery_limit,
@@ -712,6 +783,7 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "ULTIMATE_LINEFEED_BUDGET": options.ultimate_linefeed_budget,
         "ULTIMATE_LINEFEED_UNBOUNDED": options.ultimate_linefeed_unbounded,
         "ULTIMATE_LINEFEED_REFERENCE": options.ultimate_linefeed_reference,
+        "ULTIMATE_LINEFEED_REFERENCE_MODE": options.ultimate_linefeed_reference_mode,
         "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT": options.ultimate_linefeed_preview_timeout,
         "ULTIMATE_LINEFEED_SHOW_PREVIEWS": options.ultimate_linefeed_show_previews,
         "ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT": options.ultimate_linefeed_visual_gallery_limit,

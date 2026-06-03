@@ -54,6 +54,7 @@ def args(**updates):
         "ULTIMATE_LINEFEED_BUDGET": None,
         "ULTIMATE_LINEFEED_UNBOUNDED": False,
         "ULTIMATE_LINEFEED_REFERENCE": None,
+        "ULTIMATE_LINEFEED_REFERENCE_MODE": "exact",
         "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT": 5.0,
         "ULTIMATE_LINEFEED_SHOW_PREVIEWS": False,
         "ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT": 100,
@@ -87,6 +88,72 @@ def build_runtime(calls, *, exit_raises=True):
         emit=lambda message: calls.append(("emit", message)),
         clear_dialogue_pause=lambda: calls.append(("clear_dialogue_pause",)),
     )
+
+
+def test_ultimate_linefeed_paths_use_short_names_with_legacy_resume_fallback():
+    calls = []
+    existing: set[str] = set()
+    folder = "/out/Folder_sample"
+    runtime = main_runtime.MainCliOptionsRuntime(
+        **{
+            **build_runtime(calls).__dict__,
+            "path_exists": lambda path: path in existing,
+            "join": lambda *parts: "/".join(parts),
+            "clone_folder": lambda file_origin, file_dir: folder,
+        }
+    )
+    legacy_checkpoint = folder + "/" + main_runtime.LEGACY_ULTIMATE_LINEFEED_CHECKPOINT_NAMES[0]
+    legacy_progress = folder + "/" + main_runtime.LEGACY_ULTIMATE_LINEFEED_PROGRESS_NAMES[0]
+    short_checkpoint = folder + "/" + main_runtime.ULTIMATE_LINEFEED_CHECKPOINT_NAME
+
+    existing.update({legacy_checkpoint, legacy_progress})
+    paths = main_runtime.ultimate_linefeed_folder_paths(
+        runtime,
+        file_origin="sample.png",
+        file_dir="/out",
+    )
+
+    assert paths == (
+        folder,
+        legacy_checkpoint,
+        legacy_progress,
+        folder + "/" + main_runtime.ULTIMATE_LINEFEED_SOURCE_NAME,
+    )
+
+    existing.add(short_checkpoint)
+    paths = main_runtime.ultimate_linefeed_folder_paths(
+        runtime,
+        file_origin="sample.png",
+        file_dir="/out",
+    )
+
+    assert paths[1] == short_checkpoint
+
+
+def test_reset_ultimate_linefeed_resume_files_removes_short_and_legacy_names():
+    calls = []
+    folder = "/out/Folder_sample"
+    names = main_runtime._ultimate_linefeed_resume_names()
+    existing = {folder + "/" + name for name in names}
+    runtime = main_runtime.MainCliOptionsRuntime(
+        **{
+            **build_runtime(calls).__dict__,
+            "path_exists": lambda path: path in existing,
+            "remove_file": lambda path: calls.append(("remove_file", path)),
+            "join": lambda *parts: "/".join(parts),
+            "clone_folder": lambda file_origin, file_dir: folder,
+        }
+    )
+
+    main_runtime.reset_ultimate_linefeed_resume_files(
+        runtime,
+        file_origin="sample.png",
+        file_dir="/out",
+    )
+
+    assert [call[1] for call in calls if call[0] == "remove_file"] == [
+        folder + "/" + name for name in names
+    ]
 
 
 def apply_options(calls, parsed_args=None, unknown=(), argv_len=2):
@@ -337,6 +404,23 @@ def test_apply_main_cli_options_exits_on_bad_ultimate_resume_mode():
     assert ("exit", 1) in calls
 
 
+def test_apply_main_cli_options_exits_on_bad_ultimate_reference_mode():
+    calls = []
+
+    try:
+        apply_options(calls, args(ULTIMATE_LINEFEED_REFERENCE_MODE="bad"))
+    except ExitReached as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("bad ultimate reference mode should exit")
+
+    assert (
+        "print",
+        "--ultimate-linefeed-reference-mode must be one of: exact, similar.",
+    ) in calls
+    assert ("exit", 1) in calls
+
+
 def test_apply_main_cli_options_exits_on_bad_ultimate_visual_gallery_limit():
     calls = []
 
@@ -395,6 +479,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         ultimate_linefeed_budget=1234,
         ultimate_linefeed_unbounded=True,
         ultimate_linefeed_reference="ref.png",
+        ultimate_linefeed_reference_mode="similar",
         ultimate_linefeed_preview_timeout=1.5,
         ultimate_linefeed_show_previews=True,
         ultimate_linefeed_visual_gallery_limit=77,
@@ -423,6 +508,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         "ULTIMATE_LINEFEED_BUDGET": 1234,
         "ULTIMATE_LINEFEED_UNBOUNDED": True,
         "ULTIMATE_LINEFEED_REFERENCE": "ref.png",
+        "ULTIMATE_LINEFEED_REFERENCE_MODE": "similar",
         "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT": 1.5,
         "ULTIMATE_LINEFEED_SHOW_PREVIEWS": True,
         "ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT": 77,
@@ -476,6 +562,7 @@ def test_apply_main_cli_options_from_namespace_updates_legacy_globals():
     assert namespace["ULTIMATE_LINEFEED_BUDGET"] is None
     assert namespace["ULTIMATE_LINEFEED_UNBOUNDED"] is False
     assert namespace["ULTIMATE_LINEFEED_REFERENCE"] is None
+    assert namespace["ULTIMATE_LINEFEED_REFERENCE_MODE"] == "exact"
     assert namespace["ULTIMATE_LINEFEED_PREVIEW_TIMEOUT"] == 5.0
     assert namespace["ULTIMATE_LINEFEED_SHOW_PREVIEWS"] is False
     assert namespace["ULTIMATE_LINEFEED_RESUME"] == "ask"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from argparse import SUPPRESS
 from dataclasses import dataclass
 from typing import Any
 
@@ -122,63 +123,210 @@ def configure_parser(parser: Any) -> Any:
         metavar="N",
     )
     parser.add_argument(
+        "-ulfb",
         "--ultimate-linefeed-budget",
         dest="ULTIMATE_LINEFEED_BUDGET",
-        help="Maximum candidates for UltimateMegaSuperLineFeedBruteForce.",
+        help="Ultimate candidate limit.",
         type=int,
         default=None,
         metavar="N",
     )
     parser.add_argument(
+        "-ulfu",
         "--ultimate-linefeed-unbounded",
         dest="ULTIMATE_LINEFEED_UNBOUNDED",
-        help="Run UltimateMegaSuperLineFeedBruteForce without a candidate budget.",
+        help="No Ultimate candidate limit.",
         action="store_true",
     )
     parser.add_argument(
+        "-ulfr",
         "--ultimate-linefeed-reference",
         dest="ULTIMATE_LINEFEED_REFERENCE",
-        help="Optional local PNG reference used to rank ultimate line-feed candidates.",
+        help="Reference PNG used to rank Ultimate candidates.",
         default=None,
         metavar="PATH",
     )
     parser.add_argument(
+        "-ulfrm",
+        "--ultimate-linefeed-reference-mode",
+        dest="ULTIMATE_LINEFEED_REFERENCE_MODE",
+        help="Scoring: exact=same PNG, similar=layout.",
+        choices=("exact", "similar"),
+        default="exact",
+        metavar="{exact,similar}",
+    )
+    parser.add_argument(
+        "-ulfpt",
         "--ultimate-linefeed-preview-timeout",
         dest="ULTIMATE_LINEFEED_PREVIEW_TIMEOUT",
-        help="Seconds to keep each opened live ultimate preview visible when --ultimate-linefeed-show-previews is set.",
+        help="Seconds to keep live previews open.",
         type=float,
         default=5.0,
         metavar="SECONDS",
     )
     parser.add_argument(
+        "-ulfsp",
         "--ultimate-linefeed-show-previews",
         dest="ULTIMATE_LINEFEED_SHOW_PREVIEWS",
-        help="Open live valid ultimate line-feed candidate previews during brute force; files are still saved without this.",
+        help="Open live Ultimate candidate previews.",
         action="store_true",
     )
     parser.add_argument(
+        "-ulfgl",
         "--ultimate-linefeed-visual-gallery-limit",
         dest="ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT",
-        help="Maximum rebuilt visual candidates kept by UltimateMegaSuperLineFeedBruteForce.",
+        help="Saved visual candidate count.",
         type=int,
         default=100,
         metavar="N",
     )
     parser.add_argument(
+        "-ulfmc",
         "--ultimate-linefeed-visual-min-coverage",
         dest="ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE",
-        help="Minimum usable scanline coverage for rebuilt visual gallery candidates.",
+        help="Minimum gallery scanline coverage, 0..1.",
         type=float,
         default=0.95,
         metavar="FLOAT",
     )
     parser.add_argument(
+        "-ulf-resume",
         "--ultimate-linefeed-resume",
         dest="ULTIMATE_LINEFEED_RESUME",
-        help="How UltimateMegaSuperLineFeedBruteForce handles an existing progress checkpoint.",
+        help="Resume policy for Ultimate checkpoints.",
         choices=("ask", "auto", "never", "reset"),
         default="ask",
-        metavar="MODE",
+        metavar="{ask,auto,never,reset}",
+    )
+    parser.add_argument(
+        "--ulfb",
+        dest="ULTIMATE_LINEFEED_BUDGET",
+        type=int,
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="N",
+    )
+    parser.add_argument(
+        "--ulfu",
+        dest="ULTIMATE_LINEFEED_UNBOUNDED",
+        action="store_true",
+        default=SUPPRESS,
+        help=SUPPRESS,
+    )
+    parser.add_argument(
+        "--ulfr",
+        dest="ULTIMATE_LINEFEED_REFERENCE",
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="PATH",
+    )
+    parser.add_argument(
+        "--ulfrm",
+        dest="ULTIMATE_LINEFEED_REFERENCE_MODE",
+        choices=("exact", "similar"),
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="{exact,similar}",
+    )
+    parser.add_argument(
+        "--ulfpt",
+        dest="ULTIMATE_LINEFEED_PREVIEW_TIMEOUT",
+        type=float,
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="SECONDS",
+    )
+    parser.add_argument(
+        "--ulfsp",
+        dest="ULTIMATE_LINEFEED_SHOW_PREVIEWS",
+        action="store_true",
+        default=SUPPRESS,
+        help=SUPPRESS,
+    )
+    parser.add_argument(
+        "--ulfgl",
+        dest="ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT",
+        type=int,
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="N",
+    )
+    parser.add_argument(
+        "--ulfmc",
+        dest="ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE",
+        type=float,
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="FLOAT",
+    )
+    parser.add_argument(
+        "--ulf-resume",
+        dest="ULTIMATE_LINEFEED_RESUME",
+        choices=("ask", "auto", "never", "reset"),
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="{ask,auto,never,reset}",
+    )
+    parser.add_argument(
+        "--ulf-budget",
+        dest="ULTIMATE_LINEFEED_BUDGET",
+        type=int,
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="N",
+    )
+    parser.add_argument(
+        "--ulf-unbounded",
+        dest="ULTIMATE_LINEFEED_UNBOUNDED",
+        action="store_true",
+        default=SUPPRESS,
+        help=SUPPRESS,
+    )
+    parser.add_argument(
+        "--ulf-reference",
+        dest="ULTIMATE_LINEFEED_REFERENCE",
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="PATH",
+    )
+    parser.add_argument(
+        "--ulf-reference-mode",
+        dest="ULTIMATE_LINEFEED_REFERENCE_MODE",
+        choices=("exact", "similar"),
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="{exact,similar}",
+    )
+    parser.add_argument(
+        "--ulf-preview-timeout",
+        dest="ULTIMATE_LINEFEED_PREVIEW_TIMEOUT",
+        type=float,
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="SECONDS",
+    )
+    parser.add_argument(
+        "--ulf-show-previews",
+        dest="ULTIMATE_LINEFEED_SHOW_PREVIEWS",
+        action="store_true",
+        default=SUPPRESS,
+        help=SUPPRESS,
+    )
+    parser.add_argument(
+        "--ulf-gallery-limit",
+        dest="ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT",
+        type=int,
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="N",
+    )
+    parser.add_argument(
+        "--ulf-min-coverage",
+        dest="ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE",
+        type=float,
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="FLOAT",
     )
     return parser
 
@@ -222,6 +370,12 @@ def ultimate_linefeed_budget_error(
 def ultimate_linefeed_preview_timeout_error(timeout: float | int | None) -> str | None:
     if timeout is not None and float(timeout) < 0:
         return "--ultimate-linefeed-preview-timeout arguments must be zero or greater."
+    return None
+
+
+def ultimate_linefeed_reference_mode_error(mode: str | None) -> str | None:
+    if str(mode or "exact").strip().lower() not in ("exact", "similar"):
+        return "--ultimate-linefeed-reference-mode must be one of: exact, similar."
     return None
 
 

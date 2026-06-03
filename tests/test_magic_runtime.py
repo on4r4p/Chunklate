@@ -28,6 +28,7 @@ def build_runtime(
     preview_image=None,
     ultimate_linefeed_budget=None,
     ultimate_linefeed_reference=None,
+    ultimate_linefeed_reference_mode=None,
     ultimate_linefeed_source=None,
     ultimate_visual_gallery_limit=None,
     ultimate_visual_min_coverage=None,
@@ -75,6 +76,7 @@ def build_runtime(
             )
         ),
         ultimate_linefeed_reference=ultimate_linefeed_reference or (lambda: ""),
+        ultimate_linefeed_reference_mode=ultimate_linefeed_reference_mode or (lambda: "exact"),
         ultimate_source_path=ultimate_linefeed_source or (lambda: ""),
         ultimate_visual_gallery_limit=ultimate_visual_gallery_limit
         or (lambda: magic_runtime.idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT),
@@ -244,9 +246,12 @@ def test_find_header_magic_runtime_writes_linefeed_salvage_clone():
     assert len(write_calls) == 1
     assert validate_png_structure(bytes.fromhex(write_calls[0][1])).ok
     assert "validation error after CR restoration" in write_calls[0][2]
-    assert "partial-idat-tolerant-row-salvage decoded 495/503 scanlines" in write_calls[0][2]
-    assert "reused previous row for 8 bad filter rows" in write_calls[0][2]
-    assert "Line feed conversion evidence: IDAT chunk length overran the next chunk by 4 bytes" in write_calls[0][2]
+    assert "marker-chain reconstructed visible IHDR/IDAT/IEND headers" in write_calls[0][2]
+    assert "IDAT chunk preserved byte-for-byte where CRC already matched" in write_calls[0][2]
+    assert "IDAT CRC rebuilt for marker-chain chunk(s): IDAT@0x202d" in write_calls[0][2]
+    assert "partial-idat-tolerant-row-salvage decoded 498/503 scanlines" in write_calls[0][2]
+    assert "reused previous row for 5 bad filter rows" in write_calls[0][2]
+    assert "original Adler not recovered after marker-chain" in write_calls[0][2]
     assert side_notes == [write_calls[0][2]]
     assert ("end",) not in calls
 
@@ -315,17 +320,22 @@ def test_deferred_linefeed_signature_repair_writes_after_tour():
         for call in calls
         if call[0] == "candy" and call[1][0] == "Cowsay" and len(call[1]) > 2
     ]
-    assert cowsay_moods[:5] == ["bad", "good", "good", "com", "good"]
+    assert cowsay_moods[:4] == ["bad", "good", "good", "com"]
     assert any(
-        "Good thing I waited for the full chunk tour" in message
-        and "IDAT length overran the next chunk by 4 bytes" in message
+        "I rebuilt the visible IDAT marker chain before brute force" in message
+        and "498/503 scanlines" in message
         for message in cowsay_messages
     )
     assert any(
-        "I shortened that chunk to 8188 bytes and rebuilt its PNG CRC" in message
+        "I preserved the already-valid IDAT chunks" in message
+        for message in cowsay_messages
+    )
+    assert any(
+        "rebuilt-Adler visual salvage" in message
         for message in cowsay_messages
     )
     assert "Line feed conversion repair" in write_calls[0][2]
+    assert "marker-chain reconstructed visible IHDR/IDAT/IEND headers" in write_calls[0][2]
 
 
 def test_linefeed_chunk_evidence_requires_chunk_level_proof_for_idat_bruteforce():
@@ -543,11 +553,11 @@ def test_find_header_magic_runtime_can_launch_supermega_directly_after_salvage()
     assert result == "write-result"
     assert (
         "ask",
-        ("SuperMegaLineFeedForceOfDeath", "super-mega-linefeed-force-of-death-0x3ee9-495"),
+        ("SuperMegaLineFeedForceOfDeath", "super-mega-linefeed-force-of-death-0x3ee9-498"),
     ) in calls
     assert (
         "ask",
-        ("UltimateMegaSuperLineFeedBruteForce", "ultimate-mega-super-linefeed-bruteforce-0x3ee9-503"),
+        ("UltimateMegaSuperLineFeedBruteForce", "ultimate-mega-super-linefeed-bruteforce-0x3ee9-500"),
     ) in calls
     assert ("candy", ("Title", "SuperMegaLineFeedForceOfDeath")) in calls
     assert len(write_calls) == 1
@@ -558,7 +568,8 @@ def test_find_header_magic_runtime_can_launch_supermega_directly_after_salvage()
     assert "pre_error_backtrack=0x" in write_calls[0][2]
     assert "phase4-heavy-byte-window phase" in write_calls[0][2]
     assert "UltimateMegaSuperLineFeedBruteForce: user declined" in write_calls[0][2]
-    assert "partial-idat-blackfill recovered 503/503 scanlines" in write_calls[0][2]
+    assert "final IDAT salvage after SuperMegaLineFeedForceOfDeath" in write_calls[0][2]
+    assert "partial-idat-tolerant-row-salvage decoded 500/503 scanlines" in write_calls[0][2]
     assert "SuperMegaLineFeedForceOfDeath" in write_calls[0][2]
     assert [call for call in calls if call[0] == "loadingbar"]
     assert not [call for call in calls if call[0] == "minibar"]
@@ -568,7 +579,7 @@ def test_find_header_magic_runtime_can_launch_supermega_directly_after_salvage()
     assert calls.index(preview_calls[0]) < calls.index(
         (
             "ask",
-            ("UltimateMegaSuperLineFeedBruteForce", "ultimate-mega-super-linefeed-bruteforce-0x3ee9-503"),
+            ("UltimateMegaSuperLineFeedBruteForce", "ultimate-mega-super-linefeed-bruteforce-0x3ee9-500"),
         )
     )
     assert side_notes == [write_calls[0][2]]
@@ -602,8 +613,9 @@ def test_find_header_magic_runtime_can_decline_direct_supermega():
         if call[0] == "candy" and call[1][0] == "Cowsay" and len(call[1]) > 1
     ]
     preview_calls = [call for call in calls if call[0] == "preview"]
-    assert any("I can write a valid partial IDAT salvage" in message for message in cowsay_messages)
-    assert any("chunk-level evidence that line-feed damage reached IDAT" in message for message in cowsay_messages)
+    assert any("I rebuilt the visible IDAT marker chain before brute force" in message for message in cowsay_messages)
+    assert any("I preserved the already-valid IDAT chunks" in message for message in cowsay_messages)
+    assert any("IDAT line-feed evidence is strong enough" in message for message in cowsay_messages)
     assert not any("Current IDAT repair preview" in message for message in cowsay_messages)
     assert not preview_calls
     assert any("IDAT line-feed evidence is strong enough" in message for message in cowsay_messages)
@@ -705,16 +717,16 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
         and (
             "UltimateMegaSuperLineFeedBruteForce is the last basement door" in str(call[1][1])
             or "several billion years" in str(call[1][1])
-            or "original Adler" in str(call[1][1])
-            or "--ultimate-linefeed-budget" in str(call[1][1])
-            or "--ultimate-linefeed-unbounded" in str(call[1][1])
+            or "If I recover the original Adler" in str(call[1][1])
+            or "-ulfb" in str(call[1][1])
+            or "-ulfu" in str(call[1][1])
             or "budget no jutsu" in str(call[1][1])
         )
     ]
     assert [call[1][2] for call in ultimate_prompt_calls] == ["bad", "bad", "com", "com"]
     ultimate_prompt_text = " ".join(str(call[1][1]) for call in ultimate_prompt_calls)
-    assert "--ultimate-linefeed-budget N" in ultimate_prompt_text
-    assert "--ultimate-linefeed-unbounded" in ultimate_prompt_text
+    assert "-ulfb N" in ultimate_prompt_text
+    assert "-ulfu" in ultimate_prompt_text
     budget_selected_calls = [
         call
         for call in calls
@@ -728,6 +740,7 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
     ultimate_kwargs = next(call[1] for call in calls if call[0] == "ultimate_kwargs")
     assert ultimate_kwargs["budget"] == 1234
     assert ultimate_kwargs["reference_path"] == ""
+    assert ultimate_kwargs["reference_mode"] == "exact"
     assert ultimate_kwargs["visual_gallery_limit"] == 77
     assert ultimate_kwargs["visual_min_coverage"] == 0.8
     assert [call for call in calls if call[0] == "loadingbar"]
@@ -799,7 +812,7 @@ def test_ultimate_linefeed_direct_resume_skips_find_magic_tour():
     linefeed = repair_linefeed_conversion(corrupted, allow_partial=True)
     realignment = magic_runtime.repair_overlong_chunk_length_to_next_header(linefeed.data)
     with tempfile.TemporaryDirectory() as directory:
-        source_path = Path(directory) / "_UltimateMegaSuperLineFeedBruteForce.Source.png"
+        source_path = Path(directory) / "_ULF.Source.png"
         source_path.write_bytes(realignment.data)
         runtime = build_runtime(
             calls,
@@ -908,6 +921,34 @@ def test_ultimate_budget_plan_uses_prompt_candy_without_dialogue_pause():
         ),
         ("clear_dialogue_pause", ()),
     ]
+
+
+def test_ultimate_budget_plan_unbounded_eta_uses_joke_line():
+    calls = []
+    runtime = build_runtime(
+        calls,
+        prompt_candy=lambda *args: calls.append(("prompt_candy", args)),
+        clear_dialogue_pause=lambda *args: calls.append(("clear_dialogue_pause", args)),
+    )
+    estimate = SimpleNamespace(
+        operation_count=641,
+        max_depth=4,
+        total_combinations=7_012_540_641,
+    )
+    decision = magic_runtime.idat_bruteforce.ultimate_linefeed_budget_decision(
+        estimate.total_combinations,
+        "unbounded",
+    )
+
+    magic_runtime._emit_ultimate_budget_plan(runtime, estimate, decision, "checkpoint.jsonl")
+
+    text = calls[0][1][1]
+    assert "mode: no limit" in text
+    assert "selected budget: unbounded" in text
+    assert (
+        "rough ETA @ 100 candidates/s: unbounded "
+        "(13 billion years, I'm kidding... but not that much)"
+    ) in text
 
 
 def test_find_magic_runtime_too_low_without_known_chunks_ends_with_note():

@@ -68,13 +68,24 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "--max-saves" in result.stdout
     assert "--no-color" in result.stdout
     assert "--ultimate-linefeed-budget" in result.stdout
+    assert "-ulfb" in result.stdout
     assert "--ultimate-linefeed-unbounded" in result.stdout
+    assert "-ulfu" in result.stdout
     assert "--ultimate-linefeed-reference" in result.stdout
+    assert "-ulfr" in result.stdout
+    assert "--ultimate-linefeed-reference-mode" in result.stdout
+    assert "-ulfrm" in result.stdout
     assert "--ultimate-linefeed-preview-timeout" in result.stdout
+    assert "-ulfpt" in result.stdout
     assert "--ultimate-linefeed-show-previews" in result.stdout
+    assert "-ulfsp" in result.stdout
     assert "--ultimate-linefeed-visual-gallery-limit" in result.stdout
+    assert "-ulfgl" in result.stdout
     assert "--ultimate-linefeed-visual-min-coverage" in result.stdout
+    assert "-ulfmc" in result.stdout
     assert "--ultimate-linefeed-resume" in result.stdout
+    assert "-ulf-resume" in result.stdout
+    assert "--ulf-budget" not in result.stdout
 
 
 def test_ultimate_linefeed_budget_prompt_supports_abort_choice():
@@ -195,6 +206,20 @@ def test_runtime_dependency_check_reports_missing_cv2_install_command():
     assert ".venv/bin/python" in normalized or ".venv/Scripts/python.exe" in normalized
 
 
+def test_runtime_dependency_check_reports_missing_imagehash_install_command():
+    with patched_attrs(
+        Chunklate,
+        imagehash=None,
+        MISSING_IMPORT_ERRORS={"ImageHash": ModuleNotFoundError("No module named 'imagehash'")},
+    ):
+        missing = Chunklate.Missing_Runtime_Dependencies()
+        text = Chunklate.Format_Missing_Runtime_Dependencies(missing)
+
+    error = next(error for package, _, error in missing if package == "ImageHash")
+    assert ("ImageHash", "imagehash", error) in missing
+    assert "- ImageHash (import imagehash)" in text
+
+
 def test_runtime_dependency_message_uses_windows_paths_and_tkinter_guidance():
     missing = (("python3-tk", "tkinter", ModuleNotFoundError("No module named 'tkinter'")),)
 
@@ -296,6 +321,7 @@ def main():
         ("Valid PNG exits successfully with optional libpng fallback", test_valid_png_exits_successfully_with_optional_libpng_fallback),
         ("Empty PLTE repairs in default mode", test_plte_empty_repairs_in_default_interactive_mode),
         ("Runtime dependency check reports cv2", test_runtime_dependency_check_reports_missing_cv2_install_command),
+        ("Runtime dependency check reports imagehash", test_runtime_dependency_check_reports_missing_imagehash_install_command),
         ("Runtime dependency check reports Windows tkinter", test_runtime_dependency_message_uses_windows_paths_and_tkinter_guidance),
         ("Dependency prompt runs bootstrap", test_dependency_install_prompt_runs_bootstrap_when_user_accepts),
         ("Dependency prompt skips noninteractive", test_dependency_install_prompt_does_not_run_in_noninteractive_mode),

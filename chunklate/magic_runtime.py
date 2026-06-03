@@ -12,6 +12,7 @@ from .png import (
     detect_png_signature_recovery,
     legacy_find_magic_checkpoint_args,
     repair_linefeed_conversion,
+    repair_idat_marker_chain_from_visible_headers,
     repair_overlong_chunk_length_to_next_header,
 )
 
@@ -65,6 +66,7 @@ class FindMagicRuntime:
         )
     )
     ultimate_linefeed_reference: LegacyCall = lambda *args, **kwargs: ""
+    ultimate_linefeed_reference_mode: LegacyCall = lambda *args, **kwargs: "exact"
     ultimate_visual_gallery_limit: LegacyCall = (
         lambda *args, **kwargs: idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT
     )
@@ -154,6 +156,180 @@ def _linefeed_salvage_summary(realignment, salvage) -> str:
             "-Line feed conversion repair: %s."
             % salvage.strategy,
         ]
+    )
+
+
+def _linefeed_reused_row_count(strategy: str) -> int:
+    marker = "reused previous row for "
+    if marker not in strategy:
+        return 0
+    tail = strategy.split(marker, 1)[1]
+    digits = []
+    for char in tail:
+        if not char.isdigit():
+            break
+        digits.append(char)
+    if not digits:
+        return 0
+    return int("".join(digits))
+
+
+def _linefeed_marker_chain_structural_repair(marker_repair):
+    analysis = idat.analyze_idat_stream(
+        marker_repair.data,
+        source_kind="candidate_from_original",
+        crc_provenance="rebuilt_by_chunklate",
+    )
+    if not analysis.complete:
+        return None
+    return idat.PartialIdatBlackfillRepair(
+        data=marker_repair.data,
+        strategy=(
+            "idat-marker-chain-complete recovered %s/%s scanlines with rebuilt PNG CRCs"
+            % (analysis.usable_scanlines, analysis.height)
+        ),
+        recovered_scanlines=analysis.usable_scanlines,
+        total_scanlines=analysis.height,
+        width=analysis.width,
+        height=analysis.height,
+        bit_depth=analysis.bit_depth,
+        color_type=analysis.color_type,
+    )
+
+
+def _linefeed_marker_chain_visual_repair(marker_repair):
+    analysis = idat.analyze_idat_stream(
+        marker_repair.data,
+        source_kind="candidate_from_original",
+        crc_provenance="rebuilt_by_chunklate",
+    )
+    repair = (
+        _linefeed_marker_chain_structural_repair(marker_repair)
+        or idat.rebuild_tolerant_idat_salvage(marker_repair.data)
+        or idat.rebuild_partial_idat_blackfill(marker_repair.data)
+    )
+    return analysis, repair
+
+
+def _linefeed_marker_chain_score(marker_repair, analysis, repair) -> tuple[int, ...]:
+    reused_rows = _linefeed_reused_row_count(getattr(repair, "strategy", ""))
+    extra_bytes = max(0, int(analysis.decompressed_size) - int(analysis.expected_size))
+    return (
+        1 if analysis.adler_status == "adler_match" else 0,
+        int(repair.recovered_scanlines),
+        1 if analysis.complete else 0,
+        -reused_rows,
+        -extra_bytes,
+        -int(marker_repair.changed_chunk_count),
+        len(marker_repair.preserved_chunks),
+    )
+
+
+def _linefeed_best_marker_chain_candidate(marker_repairs):
+    best = None
+    best_score: tuple[int, ...] | None = None
+    for marker_repair in marker_repairs:
+        analysis, repair = _linefeed_marker_chain_visual_repair(marker_repair)
+        if repair is None:
+            continue
+        score = _linefeed_marker_chain_score(marker_repair, analysis, repair)
+        if best_score is None or score > best_score:
+            best = (marker_repair, analysis, repair)
+            best_score = score
+    return best
+
+
+def _linefeed_marker_chain_summary(marker_repair, analysis, repair) -> str:
+    lines = [
+        "-Line feed conversion repair: marker-chain reconstructed visible IHDR/IDAT/IEND headers: %s."
+        % marker_repair.strategy
+    ]
+    if marker_repair.preserved_chunks:
+        lines.append(
+            "-Line feed conversion repair: IDAT chunk preserved byte-for-byte where CRC already matched: %s."
+            % ", ".join(marker_repair.preserved_chunks)
+        )
+    if marker_repair.rebuilt_crc_chunks:
+        lines.append(
+            "-Line feed conversion repair: IDAT CRC rebuilt for marker-chain chunk(s): %s."
+            % ", ".join(marker_repair.rebuilt_crc_chunks)
+        )
+    if marker_repair.declared_payload_chunks:
+        lines.append(
+            "-Line feed conversion repair: kept declared IDAT payload bytes before rebuilding CRC: %s."
+            % ", ".join(marker_repair.declared_payload_chunks)
+        )
+    if marker_repair.shortened_chunks:
+        lines.append(
+            "-Line feed conversion repair: shortened IDAT payload to the next visible marker before rebuilding CRC: %s."
+            % ", ".join(marker_repair.shortened_chunks)
+        )
+    if marker_repair.suspected_payload_markers:
+        lines.append(
+            "-Line feed conversion repair: ignored marker-looking bytes inside the visible IDAT payload: %s."
+            % ", ".join(marker_repair.suspected_payload_markers)
+        )
+    if repair.data != marker_repair.data:
+        lines.append(
+            "-Line feed conversion repair: visual salvage recompressed scanlines with rebuilt Adler: %s."
+            % repair.strategy
+        )
+    else:
+        lines.append("-Line feed conversion repair: marker-chain output kept the repaired IDAT stream.")
+    if analysis.adler_status != "adler_match":
+        lines.append(
+            "-Line feed conversion repair: original Adler not recovered after marker-chain; keeping rebuilt-Adler visual salvage."
+        )
+    return "\n".join(lines)
+
+
+def _linefeed_marker_chain_alternative(
+    runtime: FindMagicRuntime,
+    repair,
+    base_summary: str,
+) -> LinefeedAlternative | None:
+    marker_repairs = repair_idat_marker_chain_from_visible_headers(repair.data)
+    best = _linefeed_best_marker_chain_candidate(marker_repairs)
+    if best is None:
+        return None
+    marker_repair, analysis, visual_repair = best
+    marker_summary = _linefeed_marker_chain_summary(marker_repair, analysis, visual_repair)
+    _cowsay(
+        runtime,
+        (
+            "I rebuilt the visible IDAT marker chain before brute force. "
+            "The best visual salvage is now %s/%s scanlines."
+        )
+        % (visual_repair.recovered_scanlines, visual_repair.total_scanlines),
+        "good",
+    )
+    if marker_repair.preserved_chunks:
+        _cowsay(
+            runtime,
+            "I preserved the already-valid IDAT chunks and only rebuilt the suspect marker-chain segment.",
+            "good",
+        )
+    if analysis.adler_status != "adler_match":
+        _cowsay(
+            runtime,
+            "The original Adler still does not match, so this is a rebuilt-Adler visual salvage.",
+            "com",
+        )
+
+    alternative = _linefeed_supermega_probe_alternative(
+        runtime,
+        marker_repair.data,
+        visual_repair,
+        marker_summary,
+    )
+    if alternative is not None:
+        return LinefeedAlternative(
+            alternative.repair,
+            "\n".join((base_summary, alternative.summary)),
+        )
+    return LinefeedAlternative(
+        visual_repair,
+        "\n".join((base_summary, marker_summary)),
     )
 
 
@@ -437,7 +613,7 @@ def _ask_ultimate_linefeed_bruteforce(
     )
     _cowsay(
         runtime,
-        "For exact control, use --ultimate-linefeed-budget N, --ultimate-linefeed-unbounded, or the budget no jutsu prompt.",
+        "For exact control, use -ulfb N, -ulfu, or the budget no jutsu prompt.",
         "com",
     )
     return _ask_runtime_question(
@@ -601,6 +777,14 @@ def _ultimate_linefeed_reference(runtime: FindMagicRuntime) -> str:
         return ""
 
 
+def _ultimate_linefeed_reference_mode(runtime: FindMagicRuntime) -> str:
+    try:
+        mode = str(runtime.ultimate_linefeed_reference_mode() or "exact").strip().lower()
+    except (OSError, TypeError, ValueError):
+        mode = "exact"
+    return mode if mode in ("exact", "similar") else "exact"
+
+
 def _ultimate_visual_gallery_limit(runtime: FindMagicRuntime) -> int:
     try:
         return max(0, int(runtime.ultimate_visual_gallery_limit()))
@@ -614,6 +798,18 @@ def _ultimate_visual_min_coverage(runtime: FindMagicRuntime) -> float:
     except (OSError, TypeError, ValueError):
         return idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE
     return min(1.0, max(0.0, value))
+
+
+def _ultimate_eta_line(eta: idat_bruteforce.UltimateLinefeedEta) -> str:
+    if eta.duration == "unbounded":
+        return (
+            "rough ETA @ %s candidates/s: unbounded "
+            "(13 billion years, I'm kidding... but not that much)"
+        ) % _format_count(eta.candidates_per_second)
+    return "rough ETA @ %s candidates/s: %s" % (
+        _format_count(eta.candidates_per_second),
+        eta.duration,
+    )
 
 
 def _emit_ultimate_budget_plan(
@@ -642,8 +838,7 @@ def _emit_ultimate_budget_plan(
         "mode: %s" % mode_label,
         "selected budget: %s" % selected,
         "coverage: %.4f %%" % decision.coverage,
-        "rough ETA @ %s candidates/s: %s"
-        % (_format_count(eta.candidates_per_second), eta.duration),
+        _ultimate_eta_line(eta),
         "chunky forecast: %s" % eta.phrase,
         "checkpoint: %s" % ("enabled" if checkpoint_path else "disabled"),
         "progress: %s" % (progress_path if progress_path else "disabled"),
@@ -768,6 +963,7 @@ def _linefeed_run_ultimate_probe(
             checkpoint_path=checkpoint_path,
             budget=budget_decision.budget,
             reference_path=_ultimate_linefeed_reference(runtime),
+            reference_mode=_ultimate_linefeed_reference_mode(runtime),
             progress=_linefeed_queue_progress(runtime),
             candidate_preview=runtime.ultimate_candidate_preview,
             progress_path=progress_path,
@@ -1012,6 +1208,18 @@ def _handle_linefeed_signature_repair(
         )
         summary = _linefeed_repair_summary(repair)
         if repair.validation_errors:
+            marker_alternative = _linefeed_marker_chain_alternative(
+                runtime,
+                repair,
+                summary,
+            )
+            if marker_alternative is not None:
+                runtime.side_notes.append(marker_alternative.summary)
+                return runtime.write_clone(
+                    marker_alternative.repair.data.hex(),
+                    marker_alternative.summary,
+                )
+
             realignment = repair_overlong_chunk_length_to_next_header(repair.data)
             salvage = (
                 idat.rebuild_tolerant_idat_salvage(realignment.data)
@@ -1591,6 +1799,10 @@ def build_find_magic_runtime_from_namespace(
             ),
         ),
         ultimate_linefeed_reference=namespace.get("Ultimate_Linefeed_Reference", lambda *args, **kwargs: ""),
+        ultimate_linefeed_reference_mode=namespace.get(
+            "Ultimate_Linefeed_Reference_Mode",
+            lambda *args, **kwargs: namespace.get("ULTIMATE_LINEFEED_REFERENCE_MODE", "exact"),
+        ),
         ultimate_visual_gallery_limit=namespace.get(
             "Ultimate_Linefeed_Visual_Gallery_Limit",
             lambda *args, **kwargs: namespace.get(

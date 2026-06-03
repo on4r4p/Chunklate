@@ -272,6 +272,22 @@ class ChunkLengthRealignmentRepair:
 
 
 @dataclass(frozen=True)
+class IdatMarkerChainRepair:
+    data: bytes
+    strategy: str
+    preserved_chunks: tuple[str, ...]
+    rebuilt_chunks: tuple[str, ...]
+    shortened_chunks: tuple[str, ...]
+    declared_payload_chunks: tuple[str, ...]
+    rebuilt_crc_chunks: tuple[str, ...]
+    suspected_payload_markers: tuple[str, ...]
+
+    @property
+    def changed_chunk_count(self) -> int:
+        return len(self.rebuilt_chunks)
+
+
+@dataclass(frozen=True)
 class LinefeedPayloadPatch:
     chunk_type: bytes
     chunk_offset: int
@@ -2109,6 +2125,346 @@ def repair_overlong_chunk_length_to_next_header(
         return None
 
     return None
+
+
+@dataclass(frozen=True)
+class _VisibleChunkMarker:
+    offset: int
+    length: int
+    chunk_type: bytes
+
+    @property
+    def data_start(self) -> int:
+        return self.offset + 8
+
+    @property
+    def declared_data_end(self) -> int:
+        return self.data_start + self.length
+
+    @property
+    def declared_crc_end(self) -> int:
+        return self.declared_data_end + 4
+
+    @property
+    def label(self) -> str:
+        return _chunk_marker_label(self.chunk_type, self.offset)
+
+
+@dataclass(frozen=True)
+class _MarkerChainSegment:
+    data: bytes
+    preserved: bool
+    rebuilt_crc: bool
+    shortened: bool
+    declared_payload: bool
+    label: str
+    strategy: str
+
+
+def _chunk_marker_label(chunk_type: bytes, offset: int) -> str:
+    return "%s@0x%x" % (chunk_type.decode("ascii", errors="replace"), offset)
+
+
+def _visible_chunk_markers(data: bytes, signature_offset: int) -> tuple[_VisibleChunkMarker, ...]:
+    stream_start = signature_offset + len(PNG_SIGNATURE)
+    markers: list[_VisibleChunkMarker] = []
+    for chunk_type in (b"IHDR", b"IDAT", b"IEND"):
+        search_from = stream_start
+        while True:
+            type_offset = data.find(chunk_type, search_from)
+            if type_offset < 0:
+                break
+            offset = type_offset - 4
+            search_from = type_offset + 1
+            if offset < stream_start or offset + 8 > len(data):
+                continue
+            length = int.from_bytes(data[offset : offset + 4], "big")
+            data_start = offset + 8
+            if chunk_type == b"IHDR":
+                if length != 13 or data_start + length > len(data):
+                    continue
+                if not png_chunk_data_is_coherent(chunk_type, data[data_start : data_start + length]):
+                    continue
+            elif chunk_type == b"IEND":
+                if length != 0:
+                    continue
+            elif length < 1 or data_start > len(data) or length > len(data):
+                continue
+            markers.append(_VisibleChunkMarker(offset, length, chunk_type))
+    return tuple(sorted(set(markers), key=lambda marker: marker.offset))
+
+
+def _primary_visible_idat_chain(
+    markers: tuple[_VisibleChunkMarker, ...],
+    signature_offset: int,
+) -> tuple[_VisibleChunkMarker, ...]:
+    stream_start = signature_offset + len(PNG_SIGNATURE)
+    ihdr = next(
+        (
+            marker
+            for marker in markers
+            if marker.chunk_type == b"IHDR" and marker.offset == stream_start
+        ),
+        None,
+    )
+    if ihdr is None:
+        ihdr = next((marker for marker in markers if marker.chunk_type == b"IHDR"), None)
+    if ihdr is None:
+        return ()
+
+    iend = next(
+        (
+            marker
+            for marker in markers
+            if marker.chunk_type == b"IEND" and marker.offset > ihdr.offset
+        ),
+        None,
+    )
+    if iend is None:
+        return ()
+
+    idats = tuple(
+        marker
+        for marker in markers
+        if marker.chunk_type == b"IDAT" and ihdr.offset < marker.offset < iend.offset
+    )
+    if not idats:
+        return ()
+    return (ihdr, *idats, iend)
+
+
+def _preserved_marker_segment(
+    data: bytes,
+    marker: _VisibleChunkMarker,
+    next_offset: int,
+) -> _MarkerChainSegment | None:
+    if marker.declared_crc_end != next_offset:
+        return None
+    chunk = chunk_at(data, marker.offset)
+    if chunk is None or not chunk.crc_ok:
+        return None
+    return _MarkerChainSegment(
+        data=data[marker.offset:next_offset],
+        preserved=True,
+        rebuilt_crc=False,
+        shortened=False,
+        declared_payload=False,
+        label=marker.label,
+        strategy="preserved_crc_ok",
+    )
+
+
+def _declared_payload_marker_segment(
+    data: bytes,
+    marker: _VisibleChunkMarker,
+    next_offset: int,
+) -> _MarkerChainSegment | None:
+    if marker.chunk_type != b"IDAT":
+        return None
+    if marker.declared_data_end != next_offset:
+        return None
+    payload = data[marker.data_start:next_offset]
+    if len(payload) != marker.length:
+        return None
+    rebuilt_crc = zlib.crc32(marker.chunk_type + payload) & 0xFFFFFFFF
+    return _MarkerChainSegment(
+        data=build_png_chunk(marker.chunk_type, payload),
+        preserved=False,
+        rebuilt_crc=True,
+        shortened=False,
+        declared_payload=True,
+        label=marker.label,
+        strategy="preserve_declared_payload_rebuild_crc",
+    )
+
+
+def _shortened_marker_segment(
+    data: bytes,
+    marker: _VisibleChunkMarker,
+    next_offset: int,
+    *,
+    max_overrun: int,
+) -> _MarkerChainSegment | None:
+    if marker.chunk_type != b"IDAT":
+        return None
+    overrun = marker.declared_crc_end - next_offset
+    if overrun < 1 or overrun > max_overrun:
+        return None
+    new_data_end = next_offset - 4
+    if new_data_end <= marker.data_start:
+        return None
+    new_length = new_data_end - marker.data_start
+    if new_length >= marker.length:
+        return None
+    payload = data[marker.data_start:new_data_end]
+    if len(payload) != new_length:
+        return None
+    return _MarkerChainSegment(
+        data=build_png_chunk(marker.chunk_type, payload),
+        preserved=False,
+        rebuilt_crc=True,
+        shortened=True,
+        declared_payload=False,
+        label=marker.label,
+        strategy="shorten_to_next_marker",
+    )
+
+
+def _marker_segment_alternatives(
+    data: bytes,
+    marker: _VisibleChunkMarker,
+    next_marker: _VisibleChunkMarker,
+    *,
+    max_overrun: int,
+) -> tuple[_MarkerChainSegment, ...]:
+    alternatives: list[_MarkerChainSegment] = []
+    preserved = _preserved_marker_segment(data, marker, next_marker.offset)
+    if preserved is not None:
+        alternatives.append(preserved)
+    declared_payload = _declared_payload_marker_segment(data, marker, next_marker.offset)
+    if declared_payload is not None:
+        alternatives.append(declared_payload)
+    shortened = _shortened_marker_segment(
+        data,
+        marker,
+        next_marker.offset,
+        max_overrun=max_overrun,
+    )
+    if shortened is not None:
+        alternatives.append(shortened)
+    return tuple(alternatives)
+
+
+def _iend_marker_segment(data: bytes, marker: _VisibleChunkMarker) -> _MarkerChainSegment | None:
+    end = marker.offset + 12
+    if end > len(data):
+        return None
+    chunk = chunk_at(data, marker.offset)
+    if chunk is not None and chunk.crc_ok and chunk.length == 0:
+        return _MarkerChainSegment(
+            data=data[marker.offset:end],
+            preserved=True,
+            rebuilt_crc=False,
+            shortened=False,
+            declared_payload=False,
+            label=marker.label,
+            strategy="preserved_crc_ok",
+        )
+    return _MarkerChainSegment(
+        data=IEND_CHUNK,
+        preserved=False,
+        rebuilt_crc=True,
+        shortened=False,
+        declared_payload=False,
+        label=marker.label,
+        strategy="rebuilt_iend_crc",
+    )
+
+
+def _build_marker_chain_repair(
+    segments: tuple[_MarkerChainSegment, ...],
+    *,
+    suspected_payload_markers: tuple[str, ...],
+) -> IdatMarkerChainRepair | None:
+    candidate = PNG_SIGNATURE + b"".join(segment.data for segment in segments)
+    try:
+        chunks = tuple(iter_chunks(candidate, signature_offset=0))
+    except PngFormatError:
+        return None
+    if not chunks or chunks[-1].chunk_type != b"IEND":
+        return None
+    if chunks[-1].offset + 12 + chunks[-1].length != len(candidate):
+        return None
+    if any(not chunk.crc_ok for chunk in chunks):
+        return None
+
+    preserved = tuple(segment.label for segment in segments if segment.preserved)
+    rebuilt = tuple(segment.label for segment in segments if not segment.preserved)
+    shortened = tuple(segment.label for segment in segments if segment.shortened)
+    declared_payload = tuple(segment.label for segment in segments if segment.declared_payload)
+    rebuilt_crc = tuple(segment.label for segment in segments if segment.rebuilt_crc)
+    strategy_parts: list[str] = ["idat-marker-chain"]
+    if declared_payload:
+        strategy_parts.append("preserved declared IDAT payload and rebuilt CRC")
+    if shortened:
+        strategy_parts.append("shortened IDAT payload to next marker and rebuilt CRC")
+    if preserved:
+        strategy_parts.append("preserved %s chunk(s) byte-for-byte" % len(preserved))
+
+    return IdatMarkerChainRepair(
+        data=candidate,
+        strategy="; ".join(strategy_parts),
+        preserved_chunks=preserved,
+        rebuilt_chunks=rebuilt,
+        shortened_chunks=shortened,
+        declared_payload_chunks=declared_payload,
+        rebuilt_crc_chunks=rebuilt_crc,
+        suspected_payload_markers=suspected_payload_markers,
+    )
+
+
+def repair_idat_marker_chain_from_visible_headers(
+    data: bytes,
+    *,
+    max_overrun: int = 16,
+    max_candidates: int = 8,
+) -> tuple[IdatMarkerChainRepair, ...]:
+    signature_offset = find_signature_offset(data)
+    if signature_offset < 0:
+        return ()
+
+    markers = _visible_chunk_markers(data, signature_offset)
+    chain = _primary_visible_idat_chain(markers, signature_offset)
+    if len(chain) < 3:
+        return ()
+
+    per_segment: list[tuple[_MarkerChainSegment, ...]] = []
+    for index, marker in enumerate(chain[:-1]):
+        alternatives = _marker_segment_alternatives(
+            data,
+            marker,
+            chain[index + 1],
+            max_overrun=max_overrun,
+        )
+        if not alternatives:
+            return ()
+        per_segment.append(alternatives)
+
+    iend = _iend_marker_segment(data, chain[-1])
+    if iend is None:
+        return ()
+    per_segment.append((iend,))
+
+    suspected_payload_markers = tuple(
+        marker.label
+        for marker in markers
+        if marker not in chain and chain[0].offset < marker.offset < chain[-1].offset
+    )
+    repairs: list[IdatMarkerChainRepair] = []
+
+    def walk(index: int, selected: tuple[_MarkerChainSegment, ...]) -> None:
+        if len(repairs) >= max_candidates:
+            return
+        if index == len(per_segment):
+            repair = _build_marker_chain_repair(
+                selected,
+                suspected_payload_markers=suspected_payload_markers,
+            )
+            if repair is not None and repair.data not in {item.data for item in repairs}:
+                repairs.append(repair)
+            return
+        for segment in per_segment[index]:
+            walk(index + 1, (*selected, segment))
+
+    walk(0, ())
+    repairs.sort(
+        key=lambda repair: (
+            len(repair.rebuilt_chunks),
+            -len(repair.preserved_chunks),
+            len(repair.shortened_chunks),
+        )
+    )
+    return tuple(repairs)
 
 
 def png_chunk_data_is_coherent(chunk_type: bytes, chunk_data: bytes) -> bool:

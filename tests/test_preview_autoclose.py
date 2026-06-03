@@ -99,7 +99,11 @@ def test_preview_repair_image_saves_inside_preview_subfolder(tmp_path, monkeypat
     )
 
     monkeypatch.setattr(Chunklate, "PRINT", lambda message: None)
-    monkeypatch.setattr(Chunklate, "Candy", lambda *args: "%s")
+    monkeypatch.setattr(
+        Chunklate,
+        "Candy",
+        lambda *args: args[2] if args and args[0] == "Color" else "%s",
+    )
 
     try:
         Chunklate.FILE_Origin = str(original)
@@ -150,12 +154,18 @@ def test_ultimate_linefeed_candidate_preview_times_out_and_closes(tmp_path, monk
         Chunklate.FILE_DIR,
         Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT,
         Chunklate.ULTIMATE_LINEFEED_SHOW_PREVIEWS,
+        Chunklate.ULTIMATE_LINEFEED_LIVE_PREVIEW_FOLDER_REPORTED,
         Chunklate.ACTIVE_PREVIEW_IMAGE,
     )
 
     monkeypatch.setattr(Chunklate.sys.stdout, "isatty", lambda: True)
     monkeypatch.setattr(Chunklate, "PRINT", lambda message: None)
-    monkeypatch.setattr(Chunklate, "Candy", lambda *args: "%s")
+    monkeypatch.setattr(Chunklate, "PRINT_With_Loader_Redraw", lambda message: None)
+    monkeypatch.setattr(
+        Chunklate,
+        "Candy",
+        lambda *args: args[2] if args and args[0] == "Color" else "%s",
+    )
     monkeypatch.setattr(Chunklate.time, "sleep", lambda seconds: sleeps.append(seconds))
     monkeypatch.setattr(
         Chunklate.image_viewer,
@@ -168,6 +178,7 @@ def test_ultimate_linefeed_candidate_preview_times_out_and_closes(tmp_path, monk
         Chunklate.FILE_DIR = str(tmp_path / "out")
         Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT = 1.5
         Chunklate.ULTIMATE_LINEFEED_SHOW_PREVIEWS = True
+        Chunklate.ULTIMATE_LINEFEED_LIVE_PREVIEW_FOLDER_REPORTED = ""
         Chunklate.ACTIVE_PREVIEW_IMAGE = None
         candidate = SimpleNamespace(
             data=VALID_FIXTURE.read_bytes(),
@@ -190,6 +201,7 @@ def test_ultimate_linefeed_candidate_preview_times_out_and_closes(tmp_path, monk
             Chunklate.FILE_DIR,
             Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT,
             Chunklate.ULTIMATE_LINEFEED_SHOW_PREVIEWS,
+            Chunklate.ULTIMATE_LINEFEED_LIVE_PREVIEW_FOLDER_REPORTED,
             Chunklate.ACTIVE_PREVIEW_IMAGE,
         ) = previous
 
@@ -203,6 +215,7 @@ def test_ultimate_linefeed_candidate_preview_saves_without_opening_by_default(tm
         Chunklate.FILE_DIR,
         Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT,
         Chunklate.ULTIMATE_LINEFEED_SHOW_PREVIEWS,
+        Chunklate.ULTIMATE_LINEFEED_LIVE_PREVIEW_FOLDER_REPORTED,
         Chunklate.ACTIVE_PREVIEW_IMAGE,
     )
 
@@ -212,7 +225,16 @@ def test_ultimate_linefeed_candidate_preview_saves_without_opening_by_default(tm
         lambda *args, **kwargs: calls.append(("print", args, kwargs)),
         raising=False,
     )
-    monkeypatch.setattr(Chunklate, "Candy", lambda *args: "%s")
+    monkeypatch.setattr(
+        Chunklate,
+        "Candy",
+        lambda *args: args[2] if args and args[0] == "Color" else "%s",
+    )
+    monkeypatch.setattr(
+        Chunklate,
+        "PRINT_With_Loader_Redraw",
+        lambda message: calls.append(("print", message)),
+    )
     monkeypatch.setattr(
         Chunklate.image_viewer,
         "open_image",
@@ -224,6 +246,7 @@ def test_ultimate_linefeed_candidate_preview_saves_without_opening_by_default(tm
         Chunklate.FILE_DIR = str(tmp_path / "out")
         Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT = 0
         Chunklate.ULTIMATE_LINEFEED_SHOW_PREVIEWS = False
+        Chunklate.ULTIMATE_LINEFEED_LIVE_PREVIEW_FOLDER_REPORTED = ""
         Chunklate.ACTIVE_PREVIEW_IMAGE = None
         candidate = SimpleNamespace(
             data=VALID_FIXTURE.read_bytes(),
@@ -235,12 +258,18 @@ def test_ultimate_linefeed_candidate_preview_saves_without_opening_by_default(tm
         )
 
         result = Chunklate.Ultimate_Linefeed_Candidate_Preview(candidate, 42, 100)
+        second = Chunklate.Ultimate_Linefeed_Candidate_Preview(candidate, 43, 100)
 
         assert result is not None
+        assert second is not None
         assert result.opened is False
+        assert second.opened is False
         assert Path(result.path).exists()
+        assert Path(second.path).exists()
         assert not any(call[0] == "open" for call in calls)
-        assert any(call[0] == "print" for call in calls)
+        printed = [call[1] for call in calls if call[0] == "print"]
+        assert len([message for message in printed if "-Preview folder :" in message]) == 1
+        assert not any("-Preview image :" in message for message in printed)
         assert Chunklate.ACTIVE_PREVIEW_IMAGE is None
     finally:
         (
@@ -248,6 +277,7 @@ def test_ultimate_linefeed_candidate_preview_saves_without_opening_by_default(tm
             Chunklate.FILE_DIR,
             Chunklate.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT,
             Chunklate.ULTIMATE_LINEFEED_SHOW_PREVIEWS,
+            Chunklate.ULTIMATE_LINEFEED_LIVE_PREVIEW_FOLDER_REPORTED,
             Chunklate.ACTIVE_PREVIEW_IMAGE,
         ) = previous
 

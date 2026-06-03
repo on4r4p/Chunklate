@@ -29,6 +29,7 @@ ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT = 100
 ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE = 0.95
 ULTIMATE_LINEFEED_VISUAL_PROGRESS_VERSION = 1
 ULTIMATE_LINEFEED_VISUAL_PREVIEW_FOLDER = ("Bruteforce_Previews", "VisualCandidates")
+ULTIMATE_LINEFEED_REFERENCE_MODES = ("exact", "similar")
 ULTIMATE_LINEFEED_BUDGET_DIVISORS = {
     "quick": 100_000,
     "normal": 50_000,
@@ -118,6 +119,8 @@ class SuperMegaLinefeedCandidate:
     source_offsets: tuple[int, ...] = ()
     score: tuple[int, ...] = ()
     visual_score: float | None = None
+    visual_score_kind: str = ""
+    matched_patch_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -201,6 +204,7 @@ class UltimateLinefeedProbeResult:
     reason: str = ""
     top_candidates: tuple[SuperMegaLinefeedCandidate, ...] = ()
     reference_path: str = ""
+    reference_mode: str = "exact"
     reference_warning: str = ""
     progress_path: str = ""
     progress_resumed: bool = False
@@ -245,6 +249,32 @@ class UltimateLinefeedEta:
     seconds: float | None
     duration: str
     phrase: str
+
+
+@dataclass(frozen=True)
+class UltimateVisualScore:
+    score: float | None
+    kind: str = ""
+    matched_patch_count: int = 0
+
+
+@dataclass(frozen=True)
+class UltimatePatchFeature:
+    index: int
+    edge_density: float
+    contrast: float
+    ahash: tuple[bool, ...]
+    dhash: tuple[bool, ...]
+    info: float
+
+
+@dataclass(frozen=True)
+class UltimateVisualReference:
+    image: object | None
+    mode: str
+    gray: object | None = None
+    edges: object | None = None
+    patches: tuple[UltimatePatchFeature, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1890,31 +1920,318 @@ def _load_ultimate_reference_image(reference_path: str):
         return None, "could not load visual reference %s: %s" % (reference_path, exc)
 
 
-def _ultimate_visual_distance(candidate_data: bytes, reference_image) -> float | None:
-    if reference_image is None:
-        return None
-    try:
-        from io import BytesIO
-        from PIL import Image, ImageChops, ImageStat
+def _coerce_ultimate_reference_mode(reference_mode: object) -> str:
+    mode = str(reference_mode or "exact").strip().lower()
+    return mode if mode in ULTIMATE_LINEFEED_REFERENCE_MODES else "exact"
 
-        candidate = Image.open(BytesIO(candidate_data)).convert("RGBA")
-        candidate.load()
-        if candidate.size != reference_image.size:
-            return float("inf")
-        diff = ImageChops.difference(candidate, reference_image)
-        return float(sum(ImageStat.Stat(diff).mean))
+
+def _pil_lanczos_filter():
+    try:
+        from PIL import Image
+
+        return getattr(getattr(Image, "Resampling", Image), "LANCZOS")
     except Exception:
-        return None
+        return 1
+
+
+def _decode_ultimate_rgba_image(candidate_data: bytes):
+    from io import BytesIO
+    from PIL import Image
+
+    image = Image.open(BytesIO(candidate_data)).convert("RGBA")
+    image.load()
+    return image
+
+
+def _ultimate_exact_visual_score(candidate_data: bytes, reference_image) -> UltimateVisualScore:
+    if isinstance(reference_image, UltimateVisualReference):
+        reference_image = reference_image.image
+    if reference_image is None:
+        return UltimateVisualScore(None)
+    try:
+        from PIL import ImageChops, ImageStat
+
+        candidate = _decode_ultimate_rgba_image(candidate_data)
+        if candidate.size != reference_image.size:
+            return UltimateVisualScore(float("inf"), "exact_rgba", 0)
+        diff = ImageChops.difference(candidate, reference_image)
+        return UltimateVisualScore(float(sum(ImageStat.Stat(diff).mean)), "exact_rgba", 0)
+    except Exception:
+        return UltimateVisualScore(None)
+
+
+def _resize_ultimate_gray(image, *, max_size: int = 256):
+    width, height = image.size
+    if width <= 0 or height <= 0:
+        return image.convert("L")
+    scale = min(1.0, float(max_size) / float(max(width, height)))
+    new_size = (max(1, int(round(width * scale))), max(1, int(round(height * scale))))
+    return image.convert("L").resize(new_size, _pil_lanczos_filter())
+
+
+def _ultimate_hash_bits(values: list[int]) -> tuple[bool, ...]:
+    if not values:
+        return ()
+    average = sum(values) / len(values)
+    return tuple(value >= average for value in values)
+
+
+def _ultimate_image_values(image) -> list[int]:
+    if hasattr(image, "get_flattened_data"):
+        return list(image.get_flattened_data())
+    return list(image.getdata())
+
+
+def _ultimate_ahash_bits(image, *, size: int = 8) -> tuple[bool, ...]:
+    small = image.convert("L").resize((size, size), _pil_lanczos_filter())
+    return _ultimate_hash_bits(_ultimate_image_values(small))
+
+
+def _ultimate_dhash_bits(image, *, size: int = 8) -> tuple[bool, ...]:
+    small = image.convert("L").resize((size + 1, size), _pil_lanczos_filter())
+    pixels = _ultimate_image_values(small)
+    bits: list[bool] = []
+    for y in range(size):
+        row = y * (size + 1)
+        for x in range(size):
+            bits.append(pixels[row + x] > pixels[row + x + 1])
+    return tuple(bits)
+
+
+def _ultimate_hamming_ratio(left: tuple[bool, ...], right: tuple[bool, ...]) -> float:
+    if not left or not right:
+        return 1.0
+    count = min(len(left), len(right))
+    if count <= 0:
+        return 1.0
+    distance = sum(1 for index in range(count) if left[index] != right[index])
+    return distance / count
+
+
+def _ultimate_edge_image(gray):
+    from PIL import ImageFilter, ImageOps
+
+    return ImageOps.autocontrast(gray.filter(ImageFilter.FIND_EDGES))
+
+
+def _ultimate_patch_features(gray, *, grid: int = 8) -> tuple[UltimatePatchFeature, ...]:
+    from PIL import ImageStat
+
+    width, height = gray.size
+    if width <= 0 or height <= 0:
+        return ()
+    features: list[UltimatePatchFeature] = []
+    index = 0
+    for row in range(grid):
+        top = row * height // grid
+        bottom = max(top + 1, (row + 1) * height // grid)
+        for column in range(grid):
+            left = column * width // grid
+            right = max(left + 1, (column + 1) * width // grid)
+            patch = gray.crop((left, top, min(width, right), min(height, bottom)))
+            edge = _ultimate_edge_image(patch)
+            edge_density = min(1.0, max(0.0, ImageStat.Stat(edge).mean[0] / 255.0))
+            contrast = min(1.0, max(0.0, ImageStat.Stat(patch).stddev[0] / 128.0))
+            info = min(1.0, max(0.0, edge_density * 0.6 + contrast * 0.4))
+            features.append(
+                UltimatePatchFeature(
+                    index=index,
+                    edge_density=edge_density,
+                    contrast=contrast,
+                    ahash=_ultimate_ahash_bits(patch),
+                    dhash=_ultimate_dhash_bits(patch),
+                    info=info,
+                )
+            )
+            index += 1
+    return tuple(features)
+
+
+def _ultimate_patch_distance(
+    candidate: UltimatePatchFeature,
+    reference: UltimatePatchFeature,
+) -> float:
+    return (
+        0.45 * _ultimate_hamming_ratio(candidate.dhash, reference.dhash)
+        + 0.35 * _ultimate_hamming_ratio(candidate.ahash, reference.ahash)
+        + 0.10 * abs(candidate.edge_density - reference.edge_density)
+        + 0.10 * abs(candidate.contrast - reference.contrast)
+    )
+
+
+def _ultimate_auto_patch_score(
+    candidate_features: tuple[UltimatePatchFeature, ...],
+    reference_features: tuple[UltimatePatchFeature, ...],
+    *,
+    limit: int = 12,
+) -> tuple[float, int]:
+    pairs: list[tuple[float, float, int, int]] = []
+    informative_candidates = [feature for feature in candidate_features if feature.info >= 0.02]
+    informative_references = [feature for feature in reference_features if feature.info >= 0.02]
+    for candidate in informative_candidates:
+        for reference in informative_references:
+            distance = _ultimate_patch_distance(candidate, reference)
+            min_info = min(candidate.info, reference.info)
+            pairs.append((distance - 0.08 * min_info, distance, candidate.index, reference.index))
+    pairs.sort()
+
+    used_candidates: set[int] = set()
+    used_references: set[int] = set()
+    selected_distances: list[float] = []
+    for _rank, distance, candidate_index, reference_index in pairs:
+        if candidate_index in used_candidates or reference_index in used_references:
+            continue
+        used_candidates.add(candidate_index)
+        used_references.add(reference_index)
+        selected_distances.append(distance)
+        if len(selected_distances) >= limit:
+            break
+    if not selected_distances:
+        return 100.0, 0
+    return 100.0 * (sum(selected_distances) / len(selected_distances)), len(selected_distances)
+
+
+def _ultimate_projection_score(candidate_edges, reference_edges) -> float:
+    size = 64
+    left = candidate_edges.resize((size, size), _pil_lanczos_filter())
+    right = reference_edges.resize((size, size), _pil_lanczos_filter())
+    left_values = _ultimate_image_values(left)
+    right_values = _ultimate_image_values(right)
+
+    def rows(values: list[int]) -> list[float]:
+        return [
+            sum(values[row * size : (row + 1) * size]) / float(size * 255)
+            for row in range(size)
+        ]
+
+    def columns(values: list[int]) -> list[float]:
+        return [
+            sum(values[column + row * size] for row in range(size)) / float(size * 255)
+            for column in range(size)
+        ]
+
+    row_distance = sum(abs(a - b) for a, b in zip(rows(left_values), rows(right_values))) / size
+    column_distance = sum(abs(a - b) for a, b in zip(columns(left_values), columns(right_values))) / size
+    return 100.0 * ((row_distance + column_distance) / 2.0)
+
+
+def _ultimate_global_layout_score(candidate_edges, reference_edges) -> float:
+    return 100.0 * (
+        0.5
+        * _ultimate_hamming_ratio(
+            _ultimate_ahash_bits(candidate_edges, size=16),
+            _ultimate_ahash_bits(reference_edges, size=16),
+        )
+        + 0.5
+        * _ultimate_hamming_ratio(
+            _ultimate_dhash_bits(candidate_edges, size=16),
+            _ultimate_dhash_bits(reference_edges, size=16),
+        )
+    )
+
+
+def _ultimate_global_hash_score(candidate_gray, reference_gray) -> float:
+    try:
+        import imagehash
+
+        left = imagehash.phash(candidate_gray.resize((256, 256), _pil_lanczos_filter()))
+        right = imagehash.phash(reference_gray.resize((256, 256), _pil_lanczos_filter()))
+        hash_bits = getattr(getattr(left, "hash", None), "size", 64) or 64
+        return 100.0 * float(left - right) / float(hash_bits)
+    except Exception:
+        return 100.0 * _ultimate_hamming_ratio(
+            _ultimate_ahash_bits(candidate_gray, size=16),
+            _ultimate_ahash_bits(reference_gray, size=16),
+        )
+
+
+def _ultimate_similar_visual_score(candidate_data: bytes, reference_image) -> UltimateVisualScore:
+    reference = reference_image
+    if isinstance(reference_image, UltimateVisualReference):
+        reference = reference_image.image
+    if reference is None:
+        return UltimateVisualScore(None)
+    try:
+        candidate = _decode_ultimate_rgba_image(candidate_data)
+        candidate_gray = _resize_ultimate_gray(candidate)
+        if isinstance(reference_image, UltimateVisualReference) and reference_image.gray is not None:
+            reference_gray = reference_image.gray
+            reference_edges = reference_image.edges or _ultimate_edge_image(reference_gray)
+            reference_patches = reference_image.patches
+        else:
+            reference_gray = _resize_ultimate_gray(reference)
+            reference_edges = _ultimate_edge_image(reference_gray)
+            reference_patches = _ultimate_patch_features(reference_gray)
+        candidate_edges = _ultimate_edge_image(candidate_gray)
+        patch_score, matched_count = _ultimate_auto_patch_score(
+            _ultimate_patch_features(candidate_gray),
+            reference_patches,
+        )
+        layout_score = _ultimate_global_layout_score(candidate_edges, reference_edges)
+        projection_score = _ultimate_projection_score(candidate_edges, reference_edges)
+        hash_score = _ultimate_global_hash_score(candidate_gray, reference_gray)
+        score = (
+            0.50 * patch_score
+            + 0.25 * layout_score
+            + 0.15 * projection_score
+            + 0.10 * hash_score
+        )
+        return UltimateVisualScore(float(score), "similar_auto_patch", matched_count)
+    except Exception:
+        return UltimateVisualScore(None)
+
+
+def _ultimate_visual_reference(reference_image, *, reference_mode: str) -> UltimateVisualReference:
+    mode = _coerce_ultimate_reference_mode(reference_mode)
+    if reference_image is None:
+        return UltimateVisualReference(None, mode)
+    if mode != "similar":
+        return UltimateVisualReference(reference_image, mode)
+    try:
+        gray = _resize_ultimate_gray(reference_image)
+        edges = _ultimate_edge_image(gray)
+        patches = _ultimate_patch_features(gray)
+        return UltimateVisualReference(reference_image, mode, gray=gray, edges=edges, patches=patches)
+    except Exception:
+        return UltimateVisualReference(reference_image, mode)
+
+
+def _ultimate_visual_score(
+    candidate_data: bytes,
+    reference_image,
+    *,
+    reference_mode: str = "exact",
+) -> UltimateVisualScore:
+    if isinstance(reference_image, UltimateVisualReference):
+        reference_mode = reference_image.mode
+    if _coerce_ultimate_reference_mode(reference_mode) == "similar":
+        return _ultimate_similar_visual_score(candidate_data, reference_image)
+    return _ultimate_exact_visual_score(candidate_data, reference_image)
+
+
+def _ultimate_visual_distance(candidate_data: bytes, reference_image) -> float | None:
+    return _ultimate_exact_visual_score(candidate_data, reference_image).score
 
 
 def _attach_ultimate_visual_score(
     candidate: SuperMegaLinefeedCandidate,
     reference_image,
+    *,
+    reference_mode: str = "exact",
 ) -> SuperMegaLinefeedCandidate:
-    score = _ultimate_visual_distance(candidate.data, reference_image)
-    if score is None:
+    score = _ultimate_visual_score(
+        candidate.data,
+        reference_image,
+        reference_mode=reference_mode,
+    )
+    if score.score is None:
         return candidate
-    return replace(candidate, visual_score=score)
+    return replace(
+        candidate,
+        visual_score=score.score,
+        visual_score_kind=score.kind,
+        matched_patch_count=score.matched_patch_count,
+    )
 
 
 def _preview_ultimate_candidate_if_valid(
@@ -1939,6 +2256,18 @@ def _ultimate_top_candidate_key(candidate: SuperMegaLinefeedCandidate) -> str:
 
 def _ultimate_top_candidate_rank(candidate: SuperMegaLinefeedCandidate) -> tuple[object, ...]:
     visual_score = candidate.visual_score
+    candidate_score = candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations))
+    if visual_score is not None:
+        return (
+            0 if candidate.after.adler_status == "adler_match" else 1,
+            float(visual_score),
+            0 if candidate.after.complete else 1,
+            -candidate.after.usable_scanlines,
+            -candidate.after.complete_scanlines,
+            -candidate_score[0],
+            len(candidate.operations),
+            candidate.state_id,
+        )
     return (
         0 if candidate.after.adler_status == "adler_match" else 1,
         0 if candidate.after.complete else 1,
@@ -1946,7 +2275,7 @@ def _ultimate_top_candidate_rank(candidate: SuperMegaLinefeedCandidate) -> tuple
         -candidate.after.complete_scanlines,
         visual_score is None,
         float("inf") if visual_score is None else visual_score,
-        -(candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations)))[0],
+        -candidate_score[0],
         len(candidate.operations),
         candidate.state_id,
     )
@@ -2015,6 +2344,21 @@ def _ultimate_visual_candidate_rank(
     error_offset = candidate.after.error_offset if candidate.after.error_offset is not None else -1
     visual_rank = 1_000_000_000_000.0 if visual_score is None else float(visual_score)
     score = candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations))
+    if visual_score is not None:
+        return (
+            0 if candidate.after.adler_status == "adler_match" else 1,
+            visual_rank,
+            -coverage,
+            -candidate.after.usable_scanlines,
+            -candidate.after.complete_scanlines,
+            status_rank,
+            adler_rank,
+            expected_delta,
+            -error_offset,
+            len(candidate.operations),
+            tuple(-value for value in score),
+            candidate.state_id,
+        )
     return (
         -candidate.after.usable_scanlines,
         -candidate.after.complete_scanlines,
@@ -2036,6 +2380,7 @@ def _ultimate_visual_candidate_from_candidate(
     *,
     tested: int,
     reference_image,
+    reference_mode: str,
     min_coverage: float,
 ) -> UltimateVisualCandidate | None:
     if not candidate.after.supported:
@@ -2052,10 +2397,19 @@ def _ultimate_visual_candidate_from_candidate(
     if repair is None:
         return None
 
-    visual_score = _ultimate_visual_distance(repair.data, reference_image)
+    visual_score = _ultimate_visual_score(
+        repair.data,
+        reference_image,
+        reference_mode=reference_mode,
+    )
     scored_candidate = (
-        replace(candidate, visual_score=visual_score)
-        if visual_score is not None
+        replace(
+            candidate,
+            visual_score=visual_score.score,
+            visual_score_kind=visual_score.kind,
+            matched_patch_count=visual_score.matched_patch_count,
+        )
+        if visual_score.score is not None
         else candidate
     )
     preview_hash = hashlib.blake2b(repair.data, digest_size=16).hexdigest()
@@ -2074,7 +2428,7 @@ def _ultimate_visual_candidate_from_candidate(
         rank=_ultimate_visual_candidate_rank(
             scored_candidate,
             coverage=coverage,
-            visual_score=visual_score,
+            visual_score=visual_score.score,
         ),
         coverage=coverage,
         tested_candidates=max(0, int(tested)),
@@ -2089,6 +2443,7 @@ def _remember_ultimate_visual_candidate(
     reference_image,
     min_coverage: float,
     limit: int,
+    reference_mode: str = "exact",
 ) -> tuple[UltimateVisualCandidate, ...]:
     if limit <= 0:
         return candidates
@@ -2096,6 +2451,7 @@ def _remember_ultimate_visual_candidate(
         candidate,
         tested=tested,
         reference_image=reference_image,
+        reference_mode=reference_mode,
         min_coverage=min_coverage,
     )
     if visual_candidate is None:
@@ -2182,6 +2538,8 @@ def _ultimate_visual_candidate_to_json(
         "score": list(candidate.candidate.score),
         "rank": [_jsonable_rank_value(value) for value in candidate.rank],
         "visual_score": candidate.candidate.visual_score,
+        "visual_score_kind": candidate.candidate.visual_score_kind,
+        "matched_patch_count": candidate.candidate.matched_patch_count,
         "visual_hash": candidate.visual_hash,
         "scanline_hash": candidate.scanline_hash,
         "operation_hash": candidate.operation_hash,
@@ -2208,6 +2566,7 @@ def _write_ultimate_visual_gallery(
     candidates: tuple[UltimateVisualCandidate, ...],
     *,
     limit: int,
+    reference_mode: str = "exact",
     source_hash: str = "",
     phase: str = "",
     depth: int = 0,
@@ -2237,6 +2596,7 @@ def _write_ultimate_visual_gallery(
         record = {
             "version": ULTIMATE_LINEFEED_VISUAL_PROGRESS_VERSION,
             "source_hash": source_hash,
+            "reference_mode": _coerce_ultimate_reference_mode(reference_mode),
             "phase": phase,
             "depth": depth,
             "tested_candidates": tested_candidates,
@@ -2273,6 +2633,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     max_offsets: int = 128,
     budget: int | None = 50000,
     reference_path: str = "",
+    reference_mode: str = "exact",
     progress: QueueProgressCallback | None = None,
     candidate_preview: UltimateCandidatePreviewCallback | None = None,
     progress_path: str = "",
@@ -2282,9 +2643,11 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     visual_gallery_path: str = "",
 ) -> UltimateLinefeedProbeResult:
     strategy = "UltimateMegaSuperLineFeedBruteForce"
+    reference_mode = _coerce_ultimate_reference_mode(reference_mode)
     visual_gallery_limit = _coerce_ultimate_visual_gallery_limit(visual_gallery_limit)
     visual_min_coverage = _coerce_ultimate_visual_min_coverage(visual_min_coverage)
     reference_image, reference_warning = _load_ultimate_reference_image(reference_path)
+    reference_context = _ultimate_visual_reference(reference_image, reference_mode=reference_mode)
     budget_limit = None if budget is None else max(0, int(budget))
     progress_total = UNBOUNDED_PROGRESS_TOTAL if budget_limit is None else max(1, budget_limit)
     if not progress_path:
@@ -2310,6 +2673,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             False,
             strategy,
             before.reason,
+            reference_mode=reference_mode,
             progress_path=progress_path,
             visual_gallery_path=visual_gallery_path,
             visual_gallery_limit=visual_gallery_limit,
@@ -2338,6 +2702,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                 False,
                 strategy,
                 "IDAT stream is already complete with matching Adler",
+                reference_mode=reference_mode,
                 progress_path=progress_path,
                 visual_gallery_path=visual_gallery_path,
                 visual_gallery_limit=visual_gallery_limit,
@@ -2363,6 +2728,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             False,
             strategy,
             str(exc),
+            reference_mode=reference_mode,
             progress_path=progress_path,
             visual_gallery_path=visual_gallery_path,
             visual_gallery_limit=visual_gallery_limit,
@@ -2424,7 +2790,11 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         progress_stage=strategy,
     )
     checkpoint_candidates = [
-        _attach_ultimate_visual_score(candidate, reference_image)
+        _attach_ultimate_visual_score(
+            candidate,
+            reference_context,
+            reference_mode=reference_mode,
+        )
         for candidate in checkpoint_candidates
     ]
     visited = {_stream_state_key(root_stream), *checkpoint_visited}
@@ -2442,7 +2812,8 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             visual_candidates,
             candidate,
             tested=tested_count,
-            reference_image=reference_image,
+            reference_image=reference_context,
+            reference_mode=reference_mode,
             min_coverage=visual_min_coverage,
             limit=visual_gallery_limit,
         )
@@ -2529,6 +2900,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                 visual_gallery_path,
                 visual_candidates,
                 limit=visual_gallery_limit,
+                reference_mode=reference_mode,
                 source_hash=source_hash,
                 phase=snapshot_phase,
                 depth=snapshot_depth,
@@ -2617,7 +2989,11 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                         target_adler=target_adler,
                         state_id=next_state_id,
                     )
-                    candidate = _attach_ultimate_visual_score(candidate, reference_image)
+                    candidate = _attach_ultimate_visual_score(
+                        candidate,
+                        reference_context,
+                        reference_mode=reference_mode,
+                    )
                     next_state_id += 1
                     top_candidates = _remember_ultimate_top_candidate(top_candidates, candidate)
                     remember_visual_candidate(candidate, tested)
@@ -2751,7 +3127,11 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                         source_offsets=tuple(operation.stream_offset for operation in operations),
                         score=candidate_score,
                     )
-                    candidate = _attach_ultimate_visual_score(candidate, reference_image)
+                    candidate = _attach_ultimate_visual_score(
+                        candidate,
+                        reference_context,
+                        reference_mode=reference_mode,
+                    )
                     next_state_id += 1
                     top_candidates = _remember_ultimate_top_candidate(top_candidates, candidate)
                     remember_visual_candidate(candidate, tested)
@@ -2823,6 +3203,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         reason,
         top_candidates=top_candidates,
         reference_path=reference_path,
+        reference_mode=reference_mode,
         reference_warning=reference_warning,
         progress_path=progress_path,
         progress_resumed=progress_resume is not None,
@@ -3948,6 +4329,8 @@ def ultimate_linefeed_probe_summary_line(result: UltimateLinefeedProbeResult) ->
         line += "; progress=%s" % result.progress_path
     if result.progress_resumed:
         line += "; progress resumed"
+    if result.reference_path:
+        line += "; reference_mode=%s" % result.reference_mode
     if result.best is not None:
         line += "; best_score=%s" % (
             result.best.score or super_mega_linefeed_score(result.best.after, len(result.best.operations)),
@@ -4013,7 +4396,12 @@ def ultimate_linefeed_candidate_summary_line(candidate: SuperMegaLinefeedCandida
         )
     )
     if candidate.visual_score is not None:
-        line = line[:-1] + "; visual_score=%.4f." % candidate.visual_score
+        visual_note = "; visual_score=%.4f" % candidate.visual_score
+        if candidate.visual_score_kind:
+            visual_note += " kind=%s" % candidate.visual_score_kind
+        if candidate.matched_patch_count:
+            visual_note += " matched_patches=%s" % candidate.matched_patch_count
+        line = line[:-1] + visual_note + "."
     return line
 
 
@@ -4035,6 +4423,10 @@ def ultimate_visual_candidate_summary_line(candidate: UltimateVisualCandidate) -
     )
     if candidate.candidate.visual_score is not None:
         line += "; visual_score=%.4f" % candidate.candidate.visual_score
+        if candidate.candidate.visual_score_kind:
+            line += "; visual_score_kind=%s" % candidate.candidate.visual_score_kind
+        if candidate.candidate.matched_patch_count:
+            line += "; matched_patches=%s" % candidate.candidate.matched_patch_count
     if candidate.preview_path:
         line += "; preview=%s" % candidate.preview_path
     return line + "."

@@ -392,7 +392,7 @@ def Close_Preview_Image():
         return False
 
 
-def Preview_Repair_Image(data, label, *, show=True, emit=None):
+def Preview_Repair_Image(data, label, *, show=True, emit=None, announce=True):
     global ACTIVE_PREVIEW_IMAGE
 
     emit = PRINT if emit is None else emit
@@ -414,7 +414,8 @@ def Preview_Repair_Image(data, label, *, show=True, emit=None):
     with open(path, "wb") as file:
         file.write(preview_bytes)
 
-    emit(Candy("Color", "green", "-Preview image : %s") % path)
+    if announce:
+        emit(Candy("Color", "green", "-Preview image : %s") % path)
     if not show:
         return types.SimpleNamespace(success=False, path=path, opened=False)
     ACTIVE_PREVIEW_IMAGE = Open_Final_Image(path, emit=emit)
@@ -426,21 +427,21 @@ def Preview_Repair_Image(data, label, *, show=True, emit=None):
 def Ultimate_Linefeed_Checkpoint_Path():
     return globals().get("ULTIMATE_LINEFEED_CHECKPOINT_PATH") or os.path.join(
         output.ensure_clone_folder(FILE_Origin, FILE_DIR),
-        "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl",
+        "_ULF.checkpoint.jsonl",
     )
 
 
 def Ultimate_Linefeed_Progress_Path():
     return globals().get("ULTIMATE_LINEFEED_PROGRESS_PATH") or os.path.join(
         output.ensure_clone_folder(FILE_Origin, FILE_DIR),
-        "_UltimateMegaSuperLineFeedBruteForce.progress.json",
+        "_ULF.progress.json",
     )
 
 
 def Ultimate_Linefeed_Source_Path():
     return globals().get("ULTIMATE_LINEFEED_SOURCE_PATH") or os.path.join(
         output.ensure_clone_folder(FILE_Origin, FILE_DIR),
-        "_UltimateMegaSuperLineFeedBruteForce.Source.png",
+        "_ULF.Source.png",
     )
 
 
@@ -550,6 +551,11 @@ def Ultimate_Linefeed_Reference():
     return str(globals().get("ULTIMATE_LINEFEED_REFERENCE", "") or "")
 
 
+def Ultimate_Linefeed_Reference_Mode():
+    mode = str(globals().get("ULTIMATE_LINEFEED_REFERENCE_MODE", "exact") or "exact").strip().lower()
+    return mode if mode in ("exact", "similar") else "exact"
+
+
 def Ultimate_Linefeed_Visual_Gallery_Limit():
     return int(globals().get("ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT", 100) or 0)
 
@@ -558,9 +564,22 @@ def Ultimate_Linefeed_Visual_Min_Coverage():
     return float(globals().get("ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE", 0.95) or 0.0)
 
 
+def Ultimate_Linefeed_Live_Preview_Folder():
+    return os.path.join(output.ensure_clone_folder(FILE_Origin, FILE_DIR), PREVIEW_OUTPUT_FOLDER)
+
+
+def Announce_Ultimate_Linefeed_Live_Preview_Folder(preview_folder):
+    global ULTIMATE_LINEFEED_LIVE_PREVIEW_FOLDER_REPORTED
+    if ULTIMATE_LINEFEED_LIVE_PREVIEW_FOLDER_REPORTED == preview_folder:
+        return
+    ULTIMATE_LINEFEED_LIVE_PREVIEW_FOLDER_REPORTED = preview_folder
+    PRINT_With_Loader_Redraw(Candy("Color", "green", "-Preview folder : %s") % preview_folder)
+
+
 def Ultimate_Linefeed_Candidate_Preview(candidate, tested, budget):
     timeout = float(globals().get("ULTIMATE_LINEFEED_PREVIEW_TIMEOUT", 5.0) or 0.0)
     show_preview = bool(globals().get("ULTIMATE_LINEFEED_SHOW_PREVIEWS", False))
+    Announce_Ultimate_Linefeed_Live_Preview_Folder(Ultimate_Linefeed_Live_Preview_Folder())
 
     after = getattr(candidate, "after", None)
     scanlines = getattr(after, "usable_scanlines", "unknown")
@@ -576,7 +595,8 @@ def Ultimate_Linefeed_Candidate_Preview(candidate, tested, budget):
         candidate.data,
         label,
         show=show_preview,
-        emit=PRINT_With_Loader_Redraw,
+        emit=lambda _message: None,
+        announce=False,
     )
     if preview is None:
         return None
@@ -1882,9 +1902,11 @@ MAX_SAVES = None
 SAVE_COUNT = 0
 ULTIMATE_LINEFEED_PREVIEW_TIMEOUT = 5.0
 ULTIMATE_LINEFEED_SHOW_PREVIEWS = False
+ULTIMATE_LINEFEED_REFERENCE_MODE = "exact"
 ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT = 100
 ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE = 0.95
 ULTIMATE_LINEFEED_RESUME = "ask"
+ULTIMATE_LINEFEED_LIVE_PREVIEW_FOLDER_REPORTED = ""
 
 FishPos = 0
 LenFishList = 0

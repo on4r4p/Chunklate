@@ -19,6 +19,7 @@ from chunklate.png import (
     PNG_SIGNATURE,
     build_png_chunk,
     iter_chunks,
+    repair_idat_marker_chain_from_visible_headers,
     repair_linefeed_conversion,
     repair_overlong_chunk_length_to_next_header,
     validate_png_structure,
@@ -52,6 +53,44 @@ def dynamic_header_corrupt_png():
     original = compressed[3]
     compressed[3] ^= 1 << 5
     return build_rgb_png(1, 100, filtered, idat_data=bytes(compressed)), 3, original
+
+
+def visual_scope_png(width=96, height=64, *, variant="scope"):
+    from io import BytesIO
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+    draw = ImageDraw.Draw(image)
+    if variant == "scope":
+        for x in range(0, width, max(1, width // 8)):
+            draw.line((x, 0, x, height), fill=(55, 55, 55, 255))
+        for y in range(0, height, max(1, height // 6)):
+            draw.line((0, y, width, y), fill=(45, 45, 45, 255))
+        draw.rectangle((width * 3 // 4, 4, width - 4, height * 3 // 4), outline=(180, 180, 180, 255))
+        draw.line((0, height * 3 // 4, width, height * 3 // 4), fill=(255, 180, 0, 255))
+        draw.line(
+            (
+                width // 6,
+                height * 2 // 3,
+                width // 4,
+                height // 4,
+                width // 2,
+                height // 4,
+                width * 5 // 8,
+                height * 2 // 3,
+            ),
+            fill=(210, 210, 0, 255),
+            width=2,
+        )
+        draw.line((width // 9, height // 3, width // 9, height * 5 // 6), fill=(0, 220, 220, 255), width=2)
+        draw.line((width * 4 // 5, height // 5, width * 4 // 5, height * 5 // 6), fill=(220, 0, 220, 255), width=2)
+    else:
+        for index in range(0, min(width, height), 7):
+            draw.line((0, index, width, height - index), fill=(180, 20, 20, 255), width=2)
+        draw.ellipse((width // 3, height // 3, width * 2 // 3, height * 2 // 3), outline=(20, 180, 20, 255), width=3)
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
 
 
 def split_bytes(data, *sizes):
@@ -493,6 +532,67 @@ def test_rebuild_tolerant_idat_salvage_keeps_rows_after_bad_filters():
     assert len(rebuilt_filtered) == 503 * 2401
     assert {rebuilt_filtered[row * 2401] for row in range(503)} == {0}
     assert rebuilt_filtered[145 * 2401 : 146 * 2401] == rebuilt_filtered[144 * 2401 : 145 * 2401]
+
+
+def test_idat_marker_chain_repair_preserves_valid_idat_chunks_byte_for_byte():
+    linefeed = repair_linefeed_conversion(
+        (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "linefeedcorruption3.png").read_bytes(),
+        allow_partial=True,
+    )
+    assert linefeed is not None
+
+    repairs = repair_idat_marker_chain_from_visible_headers(linefeed.data)
+
+    assert repairs
+    best = repairs[0]
+    assert "IDAT@0x21" in best.preserved_chunks
+    assert "IDAT@0x202d" in best.rebuilt_chunks
+    assert validate_png_structure(best.data, require_decodable_idat=False).ok
+
+    repaired_first_idat = next(chunk for chunk in iter_chunks(best.data) if chunk.chunk_type == b"IDAT")
+    original_first_idat = linefeed.data[
+        repaired_first_idat.offset : repaired_first_idat.offset + 12 + repaired_first_idat.length
+    ]
+    rebuilt_first_idat = best.data[
+        repaired_first_idat.offset : repaired_first_idat.offset + 12 + repaired_first_idat.length
+    ]
+
+    assert rebuilt_first_idat == original_first_idat
+
+
+def test_idat_marker_chain_repair_generates_declared_payload_and_shorten_variants():
+    linefeed = repair_linefeed_conversion(
+        (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "linefeedcorruption3.png").read_bytes(),
+        allow_partial=True,
+    )
+    assert linefeed is not None
+
+    repairs = repair_idat_marker_chain_from_visible_headers(linefeed.data)
+
+    assert len(repairs) == 2
+    assert any(repair.declared_payload_chunks == ("IDAT@0x202d",) for repair in repairs)
+    assert any(repair.shortened_chunks == ("IDAT@0x202d",) for repair in repairs)
+    assert all("XBt" not in ",".join(repair.rebuilt_chunks) for repair in repairs)
+    assert all(validate_png_structure(repair.data, require_decodable_idat=False).ok for repair in repairs)
+
+
+def test_idat_marker_chain_fixture_prefers_declared_payload_visual_salvage():
+    linefeed = repair_linefeed_conversion(
+        (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "linefeedcorruption3.png").read_bytes(),
+        allow_partial=True,
+    )
+    assert linefeed is not None
+
+    repairs = repair_idat_marker_chain_from_visible_headers(linefeed.data)
+    declared = next(repair for repair in repairs if repair.declared_payload_chunks)
+    shortened = next(repair for repair in repairs if repair.shortened_chunks)
+    declared_salvage = idat.rebuild_tolerant_idat_salvage(declared.data)
+    shortened_salvage = idat.rebuild_tolerant_idat_salvage(shortened.data)
+
+    assert declared_salvage is not None
+    assert shortened_salvage is not None
+    assert declared_salvage.recovered_scanlines == 498
+    assert shortened_salvage.recovered_scanlines == 495
 
 
 def test_idat_linefeed_cr_insert_probe_improves_salvage_candidate():
@@ -939,6 +1039,80 @@ def test_ultimate_visual_gallery_limit_evicts_worst_candidate():
     assert gallery[0].candidate.after.usable_scanlines == 3
 
 
+def test_ultimate_visual_gallery_reference_rank_beats_scanline_count():
+    filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
+    partial = build_rgb_png(1, 3, filtered, idat_data=zlib.compress(filtered[:8]))
+    partial_analysis = idat.analyze_idat_stream(partial)
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    full = build_rgb_png(1, 3, filtered, idat_data=bytes(compressed))
+    full_analysis = idat.analyze_idat_stream(full)
+    visually_close = idat_bruteforce.SuperMegaLinefeedCandidate(
+        partial,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        partial_analysis,
+        partial_analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(partial_analysis, 1),
+        visual_score=0.0,
+    )
+    visually_bad_full = idat_bruteforce.SuperMegaLinefeedCandidate(
+        full,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 8, b"", b"\r"),),
+        full_analysis,
+        full_analysis,
+        state_id=2,
+        score=idat_bruteforce.super_mega_linefeed_score(full_analysis, 1),
+        visual_score=100.0,
+    )
+
+    close_rank = idat_bruteforce._ultimate_visual_candidate_rank(
+        visually_close,
+        coverage=visually_close.after.usable_scanlines / visually_close.after.height,
+        visual_score=visually_close.visual_score,
+    )
+    bad_full_rank = idat_bruteforce._ultimate_visual_candidate_rank(
+        visually_bad_full,
+        coverage=visually_bad_full.after.usable_scanlines / visually_bad_full.after.height,
+        visual_score=visually_bad_full.visual_score,
+    )
+
+    assert close_rank < bad_full_rank
+
+
+def test_ultimate_top_candidates_reference_rank_beats_scanline_count():
+    filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
+    partial = build_rgb_png(1, 3, filtered, idat_data=zlib.compress(filtered[:8]))
+    partial_analysis = idat.analyze_idat_stream(partial)
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    full = build_rgb_png(1, 3, filtered, idat_data=bytes(compressed))
+    full_analysis = idat.analyze_idat_stream(full)
+    visually_close = idat_bruteforce.SuperMegaLinefeedCandidate(
+        partial,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        partial_analysis,
+        partial_analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(partial_analysis, 1),
+        visual_score=0.0,
+    )
+    visually_bad_full = idat_bruteforce.SuperMegaLinefeedCandidate(
+        full,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 8, b"", b"\r"),),
+        full_analysis,
+        full_analysis,
+        state_id=2,
+        score=idat_bruteforce.super_mega_linefeed_score(full_analysis, 1),
+        visual_score=100.0,
+    )
+
+    top = idat_bruteforce._remember_ultimate_top_candidate((), visually_bad_full, limit=1)
+    top = idat_bruteforce._remember_ultimate_top_candidate(top, visually_close, limit=1)
+
+    assert top[0].state_id == 1
+
+
 def test_ultimate_visual_gallery_write_removes_obsolete_previews(tmp_path):
     filtered = b"\x00abc" + b"\x00def"
     compressed = bytearray(zlib.compress(filtered))
@@ -971,6 +1145,7 @@ def test_ultimate_visual_gallery_write_removes_obsolete_previews(tmp_path):
         str(gallery_path),
         gallery,
         limit=1,
+        reference_mode="similar",
         source_hash="source",
         phase="complete",
         depth=1,
@@ -986,7 +1161,10 @@ def test_ultimate_visual_gallery_write_removes_obsolete_previews(tmp_path):
     assert validate_png_structure(previews[0].read_bytes()).ok
     record = json.loads(gallery_path.read_text(encoding="utf-8"))
     assert record["preview_count"] == 1
+    assert record["reference_mode"] == "similar"
     assert record["candidates"][0]["preview_kind"] == "rebuilt_adler_preview"
+    assert "visual_score_kind" in record["candidates"][0]
+    assert "matched_patch_count" in record["candidates"][0]
 
 
 def test_ultimate_linefeed_progress_checkpoint_round_trips(tmp_path):
@@ -1519,8 +1697,43 @@ def test_ultimate_linefeed_visual_reference_scores_local_png(tmp_path):
 
     assert warning == ""
     assert scored.visual_score == 0.0
+    assert scored.visual_score_kind == "exact_rgba"
+    assert scored.matched_patch_count == 0
     assert missing_image is None
     assert "could not load visual reference" in missing_warning
+
+
+def test_ultimate_linefeed_similar_reference_scores_different_sizes(tmp_path):
+    reference_path = tmp_path / "reference.png"
+    reference_path.write_bytes(visual_scope_png(96, 64, variant="scope"))
+    reference_image, warning = idat_bruteforce._load_ultimate_reference_image(str(reference_path))
+
+    similar = visual_scope_png(160, 96, variant="scope")
+    unrelated = visual_scope_png(160, 96, variant="unrelated")
+    similar_score = idat_bruteforce._ultimate_visual_score(
+        similar,
+        reference_image,
+        reference_mode="similar",
+    )
+    unrelated_score = idat_bruteforce._ultimate_visual_score(
+        unrelated,
+        reference_image,
+        reference_mode="similar",
+    )
+    exact_score = idat_bruteforce._ultimate_visual_score(
+        similar,
+        reference_image,
+        reference_mode="exact",
+    )
+
+    assert warning == ""
+    assert similar_score.kind == "similar_auto_patch"
+    assert similar_score.matched_patch_count > 0
+    assert similar_score.score is not None
+    assert unrelated_score.score is not None
+    assert similar_score.score < unrelated_score.score
+    assert exact_score.kind == "exact_rgba"
+    assert math.isinf(exact_score.score)
 
 
 def test_ultimate_linefeed_bruteforce_spends_budget_when_no_terminal_match(tmp_path):
@@ -2065,6 +2278,18 @@ def main():
             test_rebuild_tolerant_idat_salvage_keeps_rows_after_bad_filters,
         ),
         (
+            "IDAT marker-chain preserves chunks",
+            test_idat_marker_chain_repair_preserves_valid_idat_chunks_byte_for_byte,
+        ),
+        (
+            "IDAT marker-chain variants",
+            test_idat_marker_chain_repair_generates_declared_payload_and_shorten_variants,
+        ),
+        (
+            "IDAT marker-chain fixture ranking",
+            test_idat_marker_chain_fixture_prefers_declared_payload_visual_salvage,
+        ),
+        (
             "IDAT linefeed CR insert probe",
             test_idat_linefeed_cr_insert_probe_improves_salvage_candidate,
         ),
@@ -2103,6 +2328,14 @@ def main():
         (
             "Ultimate progress resume",
             test_ultimate_linefeed_bruteforce_resumes_progress_checkpoint,
+        ),
+        (
+            "Ultimate visual reference rank",
+            test_ultimate_visual_gallery_reference_rank_beats_scanline_count,
+        ),
+        (
+            "Ultimate top reference rank",
+            test_ultimate_top_candidates_reference_rank_beats_scanline_count,
         ),
         (
             "Partial IDAT blackfill ignored cases",

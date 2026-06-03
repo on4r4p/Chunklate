@@ -35,7 +35,8 @@
   and run heavier line-feed brute force probes when requested.
 - Keep a bounded visual gallery for ultimate line-feed brute-force candidates,
   including high-coverage `bad_adler` reconstructions whose original zlib
-  trailer still does not match.
+  trailer still does not match. A local reference can rank candidates with exact
+  pixel distance or generic similar-image patch/hash scoring.
 - Repair PNG text metadata damage, including `tEXt` null bytes, `iTXt`
   keyword/compression fields, and `zTXt` compression method or zlib data-format
   byte errors.
@@ -70,14 +71,11 @@ Current CLI:
 
     usage: Chunklate.py [-h] [-f FILE] [-c] [-p] [-d] [-df] [-dp] [-ep] [-sp]
                         [-stfu] [-a] [--no-color] [--output-dir DIR]
-                        [--max-saves N] [--ultimate-linefeed-budget N]
-                        [--ultimate-linefeed-unbounded]
-                        [--ultimate-linefeed-reference PATH]
-                        [--ultimate-linefeed-preview-timeout SECONDS]
-                        [--ultimate-linefeed-show-previews]
-                        [--ultimate-linefeed-visual-gallery-limit N]
-                        [--ultimate-linefeed-visual-min-coverage FLOAT]
-                        [--ultimate-linefeed-resume MODE]
+                        [--max-saves N] [-ulfb N] [-ulfu]
+                        [-ulfr PATH] [-ulfrm {exact,similar}]
+                        [-ulfpt SECONDS] [-ulfsp] [-ulfgl N]
+                        [-ulfmc FLOAT]
+                        [-ulf-resume {ask,auto,never,reset}]
 
     options:
       -h, --help            show this help message and exit
@@ -96,31 +94,24 @@ Current CLI:
       --no-color            Disable terminal colors.
       --output-dir DIR      Directory where Folder_* repair outputs are written.
       --max-saves N         Exit successfully after writing N repaired files.
-      --ultimate-linefeed-budget N
-                            Maximum candidates for
-                            UltimateMegaSuperLineFeedBruteForce.
-      --ultimate-linefeed-unbounded
-                            Run UltimateMegaSuperLineFeedBruteForce without a
-                            candidate budget.
-      --ultimate-linefeed-reference PATH
-                            Optional local PNG reference used to rank ultimate
-                            line-feed candidates.
-      --ultimate-linefeed-preview-timeout SECONDS
-                            Seconds to keep each opened live ultimate preview
-                            visible when --ultimate-linefeed-show-previews is set.
-      --ultimate-linefeed-show-previews
-                            Open live valid ultimate line-feed candidate previews
-                            during brute force; files are still saved without
-                            this.
-      --ultimate-linefeed-visual-gallery-limit N
-                            Maximum rebuilt visual candidates kept by
-                            UltimateMegaSuperLineFeedBruteForce.
-      --ultimate-linefeed-visual-min-coverage FLOAT
-                            Minimum usable scanline coverage for rebuilt visual
-                            gallery candidates.
-      --ultimate-linefeed-resume MODE
-                            How UltimateMegaSuperLineFeedBruteForce handles an
-                            existing progress checkpoint.
+      -ulfb, --ultimate-linefeed-budget N
+                            Ultimate candidate limit.
+      -ulfu, --ultimate-linefeed-unbounded
+                            No Ultimate candidate limit.
+      -ulfr, --ultimate-linefeed-reference PATH
+                            Reference PNG used to rank Ultimate candidates.
+      -ulfrm, --ultimate-linefeed-reference-mode {exact,similar}
+                            Scoring: exact=same PNG, similar=layout.
+      -ulfpt, --ultimate-linefeed-preview-timeout SECONDS
+                            Seconds to keep live previews open.
+      -ulfsp, --ultimate-linefeed-show-previews
+                            Open live Ultimate candidate previews.
+      -ulfgl, --ultimate-linefeed-visual-gallery-limit N
+                            Saved visual candidate count.
+      -ulfmc, --ultimate-linefeed-visual-min-coverage FLOAT
+                            Minimum gallery scanline coverage, 0..1.
+      -ulf-resume {ask,auto,never,reset}, --ultimate-linefeed-resume {ask,auto,never,reset}
+                            Resume policy for Ultimate checkpoints.
 
 ## Development
 
@@ -175,6 +166,15 @@ faithfully reconstructed.
 Current v1 limits: partial rows are discarded, and PNG filter reconstruction is
 not guessed beyond the complete filtered scanlines already recovered from zlib.
 
+Before the heavy SuperMega/Ultimate line-feed probes, Chunklate now tries a
+deterministic IDAT marker-chain repair when the PNG signature is damaged but
+visible `IHDR`/`IDAT`/`IEND` headers remain. This path preserves IDAT chunks
+byte-for-byte when their length, payload, and CRC already match, tests bounded
+boundary hypotheses only on the suspect IDAT segment, and recalculates PNG CRCs
+for rebuilt chunks. If the original Adler still does not match, the output is
+reported as a rebuilt-Adler visual salvage rather than an original stream
+recovery.
+
 `UltimateMegaSuperLineFeedBruteForce` also maintains a separate visual
 candidate gallery. This is not the resume checkpoint and it is not a complete
 log of every candidate tested. It keeps the best bounded set of visually useful
@@ -191,13 +191,22 @@ recovered.
 The gallery writes:
 
     Folder_x.bad/Bruteforce_Previews/VisualCandidates/
-    Folder_x.bad/_UltimateMegaSuperLineFeedBruteForce.visual.json
+    Folder_x.bad/_ULF.visual.json
+
+Ultimate resume artifacts use short names now:
+
+    Folder_x.bad/_ULF.checkpoint.jsonl
+    Folder_x.bad/_ULF.progress.json
+    Folder_x.bad/_ULF.Source.png
+
+Older `_UltimateMegaSuperLineFeedBruteForce.*` resume files are still accepted
+when resuming an existing run.
 
 When the gallery reaches its limit, better-ranked candidates still replace the
 current worst entry. The limit only bounds the saved gallery size. Without
-`--ultimate-linefeed-reference`, ranking uses structural signals and diversity
-hashes from recovered scanlines and operations; with a reference PNG, Chunklate
-also adds a pixel-distance `visual_score`.
+`-ulfr`, ranking uses structural signals and diversity hashes from
+recovered scanlines and operations; with a reference PNG, Chunklate also adds a
+pixel-distance `visual_score`.
 
 Files like `x00n0g01.png`, where `IHDR` is `0x0`, or `xdtn0g01.png`, which
 contains only `IHDR`, `gAMA`, and `IEND`, are classified as impossible to

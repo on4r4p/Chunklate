@@ -53,14 +53,46 @@ def test_configure_parser_preserves_legacy_options():
     assert "--no-color" in help_text
     assert "--output-dir DIR" in help_text
     assert "--max-saves N" in help_text
+    assert "-ulfb N" in help_text
+    assert "-ulfb, --ultimate-linefeed-budget N" in help_text
     assert "--ultimate-linefeed-budget N" in help_text
+    assert "-ulfu" in help_text
     assert "--ultimate-linefeed-unbounded" in help_text
+    assert "-ulfr PATH" in help_text
+    assert "-ulfr, --ultimate-linefeed-reference PATH" in help_text
     assert "--ultimate-linefeed-reference PATH" in help_text
+    assert "-ulfrm {exact,similar}" in help_text
+    assert "-ulfrm, --ultimate-linefeed-reference-mode {exact,similar}" in help_text
+    assert "--ultimate-linefeed-reference-mode {exact,similar}" in help_text
+    assert "-ulfpt SECONDS" in help_text
+    assert "-ulfpt, --ultimate-linefeed-preview-timeout SECONDS" in help_text
     assert "--ultimate-linefeed-preview-timeout SECONDS" in help_text
+    assert "-ulfsp" in help_text
     assert "--ultimate-linefeed-show-previews" in help_text
+    assert "-ulfgl N" in help_text
+    assert "-ulfgl, --ultimate-linefeed-visual-gallery-limit N" in help_text
     assert "--ultimate-linefeed-visual-gallery-limit N" in help_text
+    assert "-ulfmc FLOAT" in help_text
+    assert "-ulfmc, --ultimate-linefeed-visual-min-coverage FLOAT" in help_text
     assert "--ultimate-linefeed-visual-min-coverage FLOAT" in help_text
-    assert "--ultimate-linefeed-resume MODE" in help_text
+    assert "-ulf-resume {ask,auto,never,reset}" in help_text
+    assert "--ultimate-linefeed-resume {ask,auto,never,reset}" in help_text
+    assert "--ulf-budget" not in help_text
+    assert "--ulf-unbounded" not in help_text
+    assert "--ulf-reference " not in help_text
+    assert "--ulf-reference-mode" not in help_text
+    assert "--ulf-preview-timeout" not in help_text
+    assert "--ulf-show-previews" not in help_text
+    assert "--ulf-gallery-limit" not in help_text
+    assert "--ulf-min-coverage" not in help_text
+    assert "--ulfb" not in help_text
+    assert "--ulfu" not in help_text
+    assert "--ulfr" not in help_text
+    assert "--ulfrm" not in help_text
+    assert "--ulfpt" not in help_text
+    assert "--ulfsp" not in help_text
+    assert "--ulfgl" not in help_text
+    assert "--ulfmc" not in help_text
 
 
 def test_configure_parser_parses_runtime_arguments():
@@ -84,19 +116,21 @@ def test_configure_parser_parses_runtime_arguments():
             "out",
             "--max-saves",
             "2",
-            "--ultimate-linefeed-budget",
+            "-ulfb",
             "1234",
-            "--ultimate-linefeed-unbounded",
-            "--ultimate-linefeed-reference",
+            "-ulfu",
+            "-ulfr",
             "ref.png",
-            "--ultimate-linefeed-preview-timeout",
+            "-ulfrm",
+            "similar",
+            "-ulfpt",
             "1.5",
-            "--ultimate-linefeed-show-previews",
-            "--ultimate-linefeed-visual-gallery-limit",
+            "-ulfsp",
+            "-ulfgl",
             "100",
-            "--ultimate-linefeed-visual-min-coverage",
+            "-ulfmc",
             "0.9",
-            "--ultimate-linefeed-resume",
+            "-ulf-resume",
             "auto",
         ]
     )
@@ -117,11 +151,44 @@ def test_configure_parser_parses_runtime_arguments():
     assert parsed.ULTIMATE_LINEFEED_BUDGET == 1234
     assert parsed.ULTIMATE_LINEFEED_UNBOUNDED is True
     assert parsed.ULTIMATE_LINEFEED_REFERENCE == "ref.png"
+    assert parsed.ULTIMATE_LINEFEED_REFERENCE_MODE == "similar"
     assert parsed.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT == 1.5
     assert parsed.ULTIMATE_LINEFEED_SHOW_PREVIEWS is True
     assert parsed.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT == 100
     assert parsed.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE == 0.9
     assert parsed.ULTIMATE_LINEFEED_RESUME == "auto"
+
+
+def test_hidden_legacy_ulf_aliases_still_parse():
+    parser = cli.configure_parser(ArgumentParser())
+
+    parsed = parser.parse_args(
+        [
+            "--ulf-budget",
+            "1234",
+            "--ulf-unbounded",
+            "--ulf-reference",
+            "ref.png",
+            "--ulf-reference-mode",
+            "similar",
+            "--ulf-preview-timeout",
+            "1.5",
+            "--ulf-show-previews",
+            "--ulf-gallery-limit",
+            "100",
+            "--ulf-min-coverage",
+            "0.9",
+        ]
+    )
+
+    assert parsed.ULTIMATE_LINEFEED_BUDGET == 1234
+    assert parsed.ULTIMATE_LINEFEED_UNBOUNDED is True
+    assert parsed.ULTIMATE_LINEFEED_REFERENCE == "ref.png"
+    assert parsed.ULTIMATE_LINEFEED_REFERENCE_MODE == "similar"
+    assert parsed.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT == 1.5
+    assert parsed.ULTIMATE_LINEFEED_SHOW_PREVIEWS is True
+    assert parsed.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT == 100
+    assert parsed.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE == 0.9
 
 
 def test_ultimate_linefeed_budget_error_preserves_guardrail():
@@ -156,6 +223,16 @@ def test_ultimate_linefeed_visual_gallery_errors_preserve_guardrails():
     assert (
         cli.ultimate_linefeed_visual_min_coverage_error(1.1)
         == "--ultimate-linefeed-visual-min-coverage arguments must be between 0 and 1."
+    )
+
+
+def test_ultimate_linefeed_reference_mode_error_preserves_guardrail():
+    assert cli.ultimate_linefeed_reference_mode_error(None) is None
+    assert cli.ultimate_linefeed_reference_mode_error("exact") is None
+    assert cli.ultimate_linefeed_reference_mode_error("similar") is None
+    assert (
+        cli.ultimate_linefeed_reference_mode_error("bad")
+        == "--ultimate-linefeed-reference-mode must be one of: exact, similar."
     )
 
 
