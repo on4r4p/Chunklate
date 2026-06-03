@@ -823,6 +823,172 @@ def test_ultimate_linefeed_preview_callback_only_receives_valid_complete_candida
     assert calls == [(valid, 12, 100)]
 
 
+def test_rebuild_visual_idat_preview_recompresses_full_bad_adler_candidate():
+    filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 3, filtered, idat_data=bytes(compressed))
+
+    before = idat.analyze_idat_stream(corrupt)
+    repair = idat.rebuild_visual_idat_preview(corrupt)
+
+    assert before.status == "bad_adler"
+    assert before.usable_scanlines == 3
+    assert repair is not None
+    assert repair.strategy.startswith("rebuilt_adler_preview")
+    assert validate_png_structure(repair.data).ok
+    rebuilt = idat.analyze_idat_stream(repair.data)
+    assert rebuilt.complete is True
+    assert rebuilt.adler_status == "adler_match"
+    assert zlib.decompress(
+        b"".join(chunk.data for chunk in iter_chunks(repair.data) if chunk.chunk_type == b"IDAT")
+    ) == filtered
+
+
+def test_ultimate_visual_gallery_keeps_equal_score_distinct_operations():
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+    analysis = idat.analyze_idat_stream(corrupt)
+    first = idat_bruteforce.SuperMegaLinefeedCandidate(
+        corrupt,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        analysis,
+        analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(analysis, 1),
+    )
+    second = idat_bruteforce.SuperMegaLinefeedCandidate(
+        corrupt,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-remove-cr", 8, b"\r", b""),),
+        analysis,
+        analysis,
+        state_id=2,
+        score=idat_bruteforce.super_mega_linefeed_score(analysis, 1),
+    )
+
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        (),
+        first,
+        tested=10,
+        reference_image=None,
+        min_coverage=0.95,
+        limit=100,
+    )
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        gallery,
+        second,
+        tested=11,
+        reference_image=None,
+        min_coverage=0.95,
+        limit=100,
+    )
+
+    assert len(gallery) == 2
+    assert {item.operation_hash for item in gallery} == {
+        idat_bruteforce._ultimate_operation_hash(first.operations),
+        idat_bruteforce._ultimate_operation_hash(second.operations),
+    }
+
+
+def test_ultimate_visual_gallery_limit_evicts_worst_candidate():
+    filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
+    partial = build_rgb_png(1, 3, filtered, idat_data=zlib.compress(filtered[:8]))
+    partial_analysis = idat.analyze_idat_stream(partial)
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    full = build_rgb_png(1, 3, filtered, idat_data=bytes(compressed))
+    full_analysis = idat.analyze_idat_stream(full)
+    worse = idat_bruteforce.SuperMegaLinefeedCandidate(
+        partial,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        partial_analysis,
+        partial_analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(partial_analysis, 1),
+    )
+    better = idat_bruteforce.SuperMegaLinefeedCandidate(
+        full,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 8, b"", b"\r"),),
+        full_analysis,
+        full_analysis,
+        state_id=2,
+        score=idat_bruteforce.super_mega_linefeed_score(full_analysis, 1),
+    )
+
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        (),
+        worse,
+        tested=10,
+        reference_image=None,
+        min_coverage=0.0,
+        limit=1,
+    )
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        gallery,
+        better,
+        tested=11,
+        reference_image=None,
+        min_coverage=0.0,
+        limit=1,
+    )
+
+    assert len(gallery) == 1
+    assert gallery[0].candidate.state_id == 2
+    assert gallery[0].candidate.after.usable_scanlines == 3
+
+
+def test_ultimate_visual_gallery_write_removes_obsolete_previews(tmp_path):
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+    analysis = idat.analyze_idat_stream(corrupt)
+    candidate = idat_bruteforce.SuperMegaLinefeedCandidate(
+        corrupt,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        analysis,
+        analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(analysis, 1),
+    )
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        (),
+        candidate,
+        tested=10,
+        reference_image=None,
+        min_coverage=0.95,
+        limit=100,
+    )
+    gallery_path = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.visual.json"
+    preview_dir = tmp_path / "Bruteforce_Previews" / "VisualCandidates"
+    preview_dir.mkdir(parents=True)
+    stale = preview_dir / "_VisualCandidate_999_stale.png"
+    stale.write_bytes(b"stale")
+
+    written, count = idat_bruteforce._write_ultimate_visual_gallery(
+        str(gallery_path),
+        gallery,
+        limit=1,
+        source_hash="source",
+        phase="complete",
+        depth=1,
+        tested_candidates=10,
+        state_count=2,
+    )
+
+    previews = list(preview_dir.glob("_VisualCandidate_*.png"))
+    assert count == 1
+    assert len(written) == 1
+    assert not stale.exists()
+    assert len(previews) == 1
+    assert validate_png_structure(previews[0].read_bytes()).ok
+    record = json.loads(gallery_path.read_text(encoding="utf-8"))
+    assert record["preview_count"] == 1
+    assert record["candidates"][0]["preview_kind"] == "rebuilt_adler_preview"
+
+
 def test_ultimate_linefeed_progress_checkpoint_round_trips(tmp_path):
     progress = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.progress.json"
     operation_pool = (
@@ -1215,7 +1381,102 @@ def test_ultimate_linefeed_bruteforce_keeps_plausible_result_without_original_ad
     assert probe.best.after.complete is True
     assert probe.best.after.adler_status == "adler_mismatch"
     assert probe.top_candidates
+    assert probe.visual_candidates
+    assert probe.visual_preview_count <= probe.visual_gallery_limit
+    assert probe.visual_gallery_path.endswith(".visual.json")
+    assert validate_png_structure(probe.visual_candidates[0].preview_data).ok
     assert "original Adler target was not recovered" in idat_bruteforce.ultimate_linefeed_probe_summary_line(probe)
+
+
+def test_ultimate_linefeed_visual_gallery_limit_zero_disables_gallery(tmp_path):
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+    checkpoint = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"
+
+    probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        corrupt,
+        start_offset=len(compressed) - 4,
+        checkpoint_path=str(checkpoint),
+        max_depth=1,
+        max_offsets=16,
+        budget=256,
+        beam_width=4,
+        visual_gallery_limit=0,
+    )
+
+    assert probe.best is not None
+    assert probe.visual_gallery_limit == 0
+    assert probe.visual_gallery_path == ""
+    assert probe.visual_candidates == ()
+    assert probe.visual_preview_count == 0
+    assert not (tmp_path / "_UltimateMegaSuperLineFeedBruteForce.visual.json").exists()
+
+
+def test_ultimate_linefeed_sigint_flushes_visual_gallery(tmp_path):
+    import os
+    import signal
+
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+    checkpoint = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"
+    progress_path = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.progress.json"
+    visual_path = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.visual.json"
+    _chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "source_hash": idat_bruteforce._stream_state_key(root_stream),
+                "state_id": 1,
+                "parent_id": 0,
+                "operations": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    sent = False
+    positive_progress_calls = 0
+
+    def progress(_stage, tested, _budget):
+        nonlocal positive_progress_calls, sent
+        if tested >= 1:
+            positive_progress_calls += 1
+        if positive_progress_calls >= 2 and not sent:
+            sent = True
+            os.kill(os.getpid(), signal.SIGINT)
+
+    original_handler = signal.getsignal(signal.SIGINT)
+    interrupted = False
+    try:
+        idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+            corrupt,
+            start_offset=idat_bruteforce.first_idat_problem_stream_offset(corrupt),
+            checkpoint_path=str(checkpoint),
+            progress_path=str(progress_path),
+            max_depth=2,
+            max_offsets=16,
+            budget=4,
+            beam_width=1,
+            progress=progress,
+        )
+    except KeyboardInterrupt:
+        interrupted = True
+    finally:
+        signal.signal(signal.SIGINT, original_handler)
+
+    assert interrupted is True
+    assert progress_path.exists()
+    assert visual_path.exists()
+    record = json.loads(visual_path.read_text(encoding="utf-8"))
+    assert record["preview_count"] > 0
+    preview_dir = tmp_path / "Bruteforce_Previews" / "VisualCandidates"
+    previews = list(preview_dir.glob("_VisualCandidate_*.png"))
+    assert previews
+    assert validate_png_structure(previews[0].read_bytes()).ok
 
 
 def test_ultimate_linefeed_visual_reference_scores_local_png(tmp_path):

@@ -29,6 +29,8 @@ def build_runtime(
     ultimate_linefeed_budget=None,
     ultimate_linefeed_reference=None,
     ultimate_linefeed_source=None,
+    ultimate_visual_gallery_limit=None,
+    ultimate_visual_min_coverage=None,
     ultimate_candidate_preview=None,
     defer_linefeed_signature_repair=None,
     prompt_candy=None,
@@ -74,6 +76,10 @@ def build_runtime(
         ),
         ultimate_linefeed_reference=ultimate_linefeed_reference or (lambda: ""),
         ultimate_source_path=ultimate_linefeed_source or (lambda: ""),
+        ultimate_visual_gallery_limit=ultimate_visual_gallery_limit
+        or (lambda: magic_runtime.idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT),
+        ultimate_visual_min_coverage=ultimate_visual_min_coverage
+        or (lambda: magic_runtime.idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE),
         ultimate_candidate_preview=ultimate_candidate_preview,
         defer_linefeed_signature_repair=defer_linefeed_signature_repair or (lambda *args: False),
     )
@@ -664,6 +670,8 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
         side_notes,
         ask=ask,
         ultimate_linefeed_budget=lambda: 1234,
+        ultimate_visual_gallery_limit=lambda: 77,
+        ultimate_visual_min_coverage=lambda: 0.8,
         ultimate_candidate_preview=live_preview,
         clear_dialogue_pause=lambda *args: calls.append(("clear_dialogue_pause", args)),
     )
@@ -720,6 +728,8 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
     ultimate_kwargs = next(call[1] for call in calls if call[0] == "ultimate_kwargs")
     assert ultimate_kwargs["budget"] == 1234
     assert ultimate_kwargs["reference_path"] == ""
+    assert ultimate_kwargs["visual_gallery_limit"] == 77
+    assert ultimate_kwargs["visual_min_coverage"] == 0.8
     assert [call for call in calls if call[0] == "loadingbar"]
     opening_index = next(
         index

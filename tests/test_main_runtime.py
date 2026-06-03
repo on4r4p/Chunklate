@@ -56,6 +56,8 @@ def args(**updates):
         "ULTIMATE_LINEFEED_REFERENCE": None,
         "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT": 5.0,
         "ULTIMATE_LINEFEED_SHOW_PREVIEWS": False,
+        "ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT": 100,
+        "ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE": 0.95,
         "ULTIMATE_LINEFEED_RESUME": "ask",
     }
     values.update(updates)
@@ -215,6 +217,8 @@ def test_apply_main_cli_options_builds_initial_state():
         ultimate_linefeed_unbounded=False,
         ultimate_linefeed_preview_timeout=5.0,
         ultimate_linefeed_show_previews=False,
+        ultimate_linefeed_visual_gallery_limit=100,
+        ultimate_linefeed_visual_min_coverage=0.95,
         ultimate_linefeed_resume="ask",
     )
     assert ("makedirs", "/abs/out/", {"exist_ok": True}) in calls
@@ -333,6 +337,40 @@ def test_apply_main_cli_options_exits_on_bad_ultimate_resume_mode():
     assert ("exit", 1) in calls
 
 
+def test_apply_main_cli_options_exits_on_bad_ultimate_visual_gallery_limit():
+    calls = []
+
+    try:
+        apply_options(calls, args(ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT=-1))
+    except ExitReached as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("bad ultimate visual gallery limit should exit")
+
+    assert (
+        "print",
+        "--ultimate-linefeed-visual-gallery-limit arguments must be zero or greater.",
+    ) in calls
+    assert ("exit", 1) in calls
+
+
+def test_apply_main_cli_options_exits_on_bad_ultimate_visual_min_coverage():
+    calls = []
+
+    try:
+        apply_options(calls, args(ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE=1.5))
+    except ExitReached as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("bad ultimate visual min coverage should exit")
+
+    assert (
+        "print",
+        "--ultimate-linefeed-visual-min-coverage arguments must be between 0 and 1.",
+    ) in calls
+    assert ("exit", 1) in calls
+
+
 def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
     state = main_runtime.MainCliOptionsState(
         file_origin="sample.png",
@@ -359,6 +397,8 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         ultimate_linefeed_reference="ref.png",
         ultimate_linefeed_preview_timeout=1.5,
         ultimate_linefeed_show_previews=True,
+        ultimate_linefeed_visual_gallery_limit=77,
+        ultimate_linefeed_visual_min_coverage=0.8,
         ultimate_linefeed_resume="auto",
     )
 
@@ -385,6 +425,8 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         "ULTIMATE_LINEFEED_REFERENCE": "ref.png",
         "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT": 1.5,
         "ULTIMATE_LINEFEED_SHOW_PREVIEWS": True,
+        "ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT": 77,
+        "ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE": 0.8,
         "ULTIMATE_LINEFEED_RESUME": "auto",
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
     }

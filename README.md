@@ -33,6 +33,9 @@
 - Repair known bad sRGB/iCCP profile chunks and zero-value `gAMA`.
 - Repair line-feed conversion damage, including NUL-stripped line-feed samples,
   and run heavier line-feed brute force probes when requested.
+- Keep a bounded visual gallery for ultimate line-feed brute-force candidates,
+  including high-coverage `bad_adler` reconstructions whose original zlib
+  trailer still does not match.
 - Repair PNG text metadata damage, including `tEXt` null bytes, `iTXt`
   keyword/compression fields, and `zTXt` compression method or zlib data-format
   byte errors.
@@ -66,23 +69,58 @@ Or run it directly from the repository:
 Current CLI:
 
     usage: Chunklate.py [-h] [-f FILE] [-c] [-p] [-d] [-df] [-dp] [-ep] [-sp]
-                       [-stfu] [-a] [--no-color]
-                       [--output-dir DIR] [--max-saves N]
+                        [-stfu] [-a] [--no-color] [--output-dir DIR]
+                        [--max-saves N] [--ultimate-linefeed-budget N]
+                        [--ultimate-linefeed-unbounded]
+                        [--ultimate-linefeed-reference PATH]
+                        [--ultimate-linefeed-preview-timeout SECONDS]
+                        [--ultimate-linefeed-show-previews]
+                        [--ultimate-linefeed-visual-gallery-limit N]
+                        [--ultimate-linefeed-visual-min-coverage FLOAT]
+                        [--ultimate-linefeed-resume MODE]
 
-    optional arguments:
+    options:
       -h, --help            show this help message and exit
-      -f FILE, --file FILE  File path.
+      -f, --file FILE       File path.
       -c, --CLEAR, --clear  CLEAR screen at each saves.
       -p, --pause           Pause at each saves.
       -d, --debug           Debug stuffs.
+      -df, --debug-file     Append debug output to the normal summary file.
       -dp, --pause-debug    Pause at Debug stuffs.
       -ep, --pause-error    Pause at errors.
-      -sp, --pause-dialogue Pause at dialogues.
-      -stfu, --shut-the-fuck-up Show minimal output.
+      -sp, --pause-dialogue
+                            Pause at dialogues.
+      -stfu, --shut-the-fuck-up
+                            Show minimal output.
       -a, --auto            Auto Choose action.
       --no-color            Disable terminal colors.
       --output-dir DIR      Directory where Folder_* repair outputs are written.
       --max-saves N         Exit successfully after writing N repaired files.
+      --ultimate-linefeed-budget N
+                            Maximum candidates for
+                            UltimateMegaSuperLineFeedBruteForce.
+      --ultimate-linefeed-unbounded
+                            Run UltimateMegaSuperLineFeedBruteForce without a
+                            candidate budget.
+      --ultimate-linefeed-reference PATH
+                            Optional local PNG reference used to rank ultimate
+                            line-feed candidates.
+      --ultimate-linefeed-preview-timeout SECONDS
+                            Seconds to keep each opened live ultimate preview
+                            visible when --ultimate-linefeed-show-previews is set.
+      --ultimate-linefeed-show-previews
+                            Open live valid ultimate line-feed candidate previews
+                            during brute force; files are still saved without
+                            this.
+      --ultimate-linefeed-visual-gallery-limit N
+                            Maximum rebuilt visual candidates kept by
+                            UltimateMegaSuperLineFeedBruteForce.
+      --ultimate-linefeed-visual-min-coverage FLOAT
+                            Minimum usable scanline coverage for rebuilt visual
+                            gallery candidates.
+      --ultimate-linefeed-resume MODE
+                            How UltimateMegaSuperLineFeedBruteForce handles an
+                            existing progress checkpoint.
 
 ## Development
 
@@ -136,6 +174,30 @@ faithfully reconstructed.
 
 Current v1 limits: partial rows are discarded, and PNG filter reconstruction is
 not guessed beyond the complete filtered scanlines already recovered from zlib.
+
+`UltimateMegaSuperLineFeedBruteForce` also maintains a separate visual
+candidate gallery. This is not the resume checkpoint and it is not a complete
+log of every candidate tested. It keeps the best bounded set of visually useful
+candidates, defaulting to 100 entries with at least 95% usable scanline
+coverage. A full `bad_adler` candidate can therefore be saved even when the
+candidate's original zlib Adler trailer still mismatches.
+
+Gallery previews are rebuilt PNGs: Chunklate recompresses the recovered
+scanlines into a fresh IDAT stream with a rebuilt Adler trailer and marks the
+artifact as `rebuilt_adler_preview`. These files are previews for visual
+inspection, not proof that the original compressed stream or original Adler was
+recovered.
+
+The gallery writes:
+
+    Folder_x.bad/Bruteforce_Previews/VisualCandidates/
+    Folder_x.bad/_UltimateMegaSuperLineFeedBruteForce.visual.json
+
+When the gallery reaches its limit, better-ranked candidates still replace the
+current worst entry. The limit only bounds the saved gallery size. Without
+`--ultimate-linefeed-reference`, ranking uses structural signals and diversity
+hashes from recovered scanlines and operations; with a reference PNG, Chunklate
+also adds a pixel-distance `visual_score`.
 
 Files like `x00n0g01.png`, where `IHDR` is `0x0`, or `xdtn0g01.png`, which
 contains only `IHDR`, `gAMA`, and `IEND`, are classified as impossible to

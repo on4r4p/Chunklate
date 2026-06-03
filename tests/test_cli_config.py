@@ -58,6 +58,8 @@ def test_configure_parser_preserves_legacy_options():
     assert "--ultimate-linefeed-reference PATH" in help_text
     assert "--ultimate-linefeed-preview-timeout SECONDS" in help_text
     assert "--ultimate-linefeed-show-previews" in help_text
+    assert "--ultimate-linefeed-visual-gallery-limit N" in help_text
+    assert "--ultimate-linefeed-visual-min-coverage FLOAT" in help_text
     assert "--ultimate-linefeed-resume MODE" in help_text
 
 
@@ -90,6 +92,10 @@ def test_configure_parser_parses_runtime_arguments():
             "--ultimate-linefeed-preview-timeout",
             "1.5",
             "--ultimate-linefeed-show-previews",
+            "--ultimate-linefeed-visual-gallery-limit",
+            "100",
+            "--ultimate-linefeed-visual-min-coverage",
+            "0.9",
             "--ultimate-linefeed-resume",
             "auto",
         ]
@@ -113,6 +119,8 @@ def test_configure_parser_parses_runtime_arguments():
     assert parsed.ULTIMATE_LINEFEED_REFERENCE == "ref.png"
     assert parsed.ULTIMATE_LINEFEED_PREVIEW_TIMEOUT == 1.5
     assert parsed.ULTIMATE_LINEFEED_SHOW_PREVIEWS is True
+    assert parsed.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT == 100
+    assert parsed.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE == 0.9
     assert parsed.ULTIMATE_LINEFEED_RESUME == "auto"
 
 
@@ -130,6 +138,24 @@ def test_ultimate_linefeed_preview_timeout_error_preserves_guardrail():
     assert (
         cli.ultimate_linefeed_preview_timeout_error(-1)
         == "--ultimate-linefeed-preview-timeout arguments must be zero or greater."
+    )
+
+
+def test_ultimate_linefeed_visual_gallery_errors_preserve_guardrails():
+    assert cli.ultimate_linefeed_visual_gallery_limit_error(None) is None
+    assert cli.ultimate_linefeed_visual_gallery_limit_error(0) is None
+    assert cli.ultimate_linefeed_visual_gallery_limit_error(100) is None
+    assert (
+        cli.ultimate_linefeed_visual_gallery_limit_error(-1)
+        == "--ultimate-linefeed-visual-gallery-limit arguments must be zero or greater."
+    )
+    assert cli.ultimate_linefeed_visual_min_coverage_error(None) is None
+    assert cli.ultimate_linefeed_visual_min_coverage_error(0) is None
+    assert cli.ultimate_linefeed_visual_min_coverage_error(1) is None
+    assert cli.ultimate_linefeed_visual_min_coverage_error(0.95) is None
+    assert (
+        cli.ultimate_linefeed_visual_min_coverage_error(1.1)
+        == "--ultimate-linefeed-visual-min-coverage arguments must be between 0 and 1."
     )
 
 

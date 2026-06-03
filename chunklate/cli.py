@@ -157,6 +157,22 @@ def configure_parser(parser: Any) -> Any:
         action="store_true",
     )
     parser.add_argument(
+        "--ultimate-linefeed-visual-gallery-limit",
+        dest="ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT",
+        help="Maximum rebuilt visual candidates kept by UltimateMegaSuperLineFeedBruteForce.",
+        type=int,
+        default=100,
+        metavar="N",
+    )
+    parser.add_argument(
+        "--ultimate-linefeed-visual-min-coverage",
+        dest="ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE",
+        help="Minimum usable scanline coverage for rebuilt visual gallery candidates.",
+        type=float,
+        default=0.95,
+        metavar="FLOAT",
+    )
+    parser.add_argument(
         "--ultimate-linefeed-resume",
         dest="ULTIMATE_LINEFEED_RESUME",
         help="How UltimateMegaSuperLineFeedBruteForce handles an existing progress checkpoint.",
@@ -206,6 +222,18 @@ def ultimate_linefeed_budget_error(
 def ultimate_linefeed_preview_timeout_error(timeout: float | int | None) -> str | None:
     if timeout is not None and float(timeout) < 0:
         return "--ultimate-linefeed-preview-timeout arguments must be zero or greater."
+    return None
+
+
+def ultimate_linefeed_visual_gallery_limit_error(limit: int | None) -> str | None:
+    if limit is not None and int(limit) < 0:
+        return "--ultimate-linefeed-visual-gallery-limit arguments must be zero or greater."
+    return None
+
+
+def ultimate_linefeed_visual_min_coverage_error(coverage: float | int | None) -> str | None:
+    if coverage is not None and not 0.0 <= float(coverage) <= 1.0:
+        return "--ultimate-linefeed-visual-min-coverage arguments must be between 0 and 1."
     return None
 
 

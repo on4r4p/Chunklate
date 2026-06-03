@@ -65,6 +65,12 @@ class FindMagicRuntime:
         )
     )
     ultimate_linefeed_reference: LegacyCall = lambda *args, **kwargs: ""
+    ultimate_visual_gallery_limit: LegacyCall = (
+        lambda *args, **kwargs: idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT
+    )
+    ultimate_visual_min_coverage: LegacyCall = (
+        lambda *args, **kwargs: idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE
+    )
     ultimate_candidate_preview: LegacyCall | None = None
     ultimate_interrupt_cleanup: LegacyCall = lambda *args, **kwargs: None
     defer_linefeed_signature_repair: LegacyCall = lambda *args, **kwargs: False
@@ -206,6 +212,21 @@ def _ultimate_linefeed_probe_summary(probe, repair=None) -> tuple[str, ...]:
             "-%s top candidates saved for preview: %s."
             % (probe.strategy, len(probe.top_candidates))
         )
+    if getattr(probe, "visual_gallery_limit", 0) > 0:
+        lines.append(
+            "-%s visual candidates kept: %s/%s."
+            % (
+                probe.strategy,
+                len(getattr(probe, "visual_candidates", ())),
+                probe.visual_gallery_limit,
+            )
+        )
+        if getattr(probe, "visual_candidates", ()):
+            lines.append(
+                idat_bruteforce.ultimate_visual_candidate_summary_line(
+                    probe.visual_candidates[0]
+                )
+            )
     if repair is not None:
         lines.append("-Line feed conversion repair: %s." % repair.strategy)
     return tuple(lines)
@@ -580,6 +601,21 @@ def _ultimate_linefeed_reference(runtime: FindMagicRuntime) -> str:
         return ""
 
 
+def _ultimate_visual_gallery_limit(runtime: FindMagicRuntime) -> int:
+    try:
+        return max(0, int(runtime.ultimate_visual_gallery_limit()))
+    except (OSError, TypeError, ValueError):
+        return idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT
+
+
+def _ultimate_visual_min_coverage(runtime: FindMagicRuntime) -> float:
+    try:
+        value = float(runtime.ultimate_visual_min_coverage())
+    except (OSError, TypeError, ValueError):
+        return idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE
+    return min(1.0, max(0.0, value))
+
+
 def _emit_ultimate_budget_plan(
     runtime: FindMagicRuntime,
     estimate: idat_bruteforce.UltimateLinefeedSearchEstimate,
@@ -736,6 +772,8 @@ def _linefeed_run_ultimate_probe(
             candidate_preview=runtime.ultimate_candidate_preview,
             progress_path=progress_path,
             resume_progress=_ultimate_linefeed_should_resume(runtime),
+            visual_gallery_limit=_ultimate_visual_gallery_limit(runtime),
+            visual_min_coverage=_ultimate_visual_min_coverage(runtime),
         )
     except (KeyboardInterrupt, idat_bruteforce.UltimateLinefeedInterrupted):
         runtime.ultimate_interrupt_cleanup()
@@ -1553,6 +1591,20 @@ def build_find_magic_runtime_from_namespace(
             ),
         ),
         ultimate_linefeed_reference=namespace.get("Ultimate_Linefeed_Reference", lambda *args, **kwargs: ""),
+        ultimate_visual_gallery_limit=namespace.get(
+            "Ultimate_Linefeed_Visual_Gallery_Limit",
+            lambda *args, **kwargs: namespace.get(
+                "ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT",
+                idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT,
+            ),
+        ),
+        ultimate_visual_min_coverage=namespace.get(
+            "Ultimate_Linefeed_Visual_Min_Coverage",
+            lambda *args, **kwargs: namespace.get(
+                "ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE",
+                idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE,
+            ),
+        ),
         ultimate_candidate_preview=namespace.get("Ultimate_Linefeed_Candidate_Preview"),
         ultimate_interrupt_cleanup=namespace.get("Close_Preview_Image", lambda *args, **kwargs: None),
         defer_linefeed_signature_repair=namespace.get(

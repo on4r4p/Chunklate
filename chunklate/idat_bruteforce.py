@@ -25,6 +25,10 @@ ULTIMATE_LINEFEED_PROGRESS_STEP = 100
 ULTIMATE_LINEFEED_PROGRESS_INTERVAL_SECONDS = 2.0
 ULTIMATE_LINEFEED_MIN_BUDGET = 50_000
 ULTIMATE_LINEFEED_ETA_CANDIDATES_PER_SECOND = 100
+ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT = 100
+ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE = 0.95
+ULTIMATE_LINEFEED_VISUAL_PROGRESS_VERSION = 1
+ULTIMATE_LINEFEED_VISUAL_PREVIEW_FOLDER = ("Bruteforce_Previews", "VisualCandidates")
 ULTIMATE_LINEFEED_BUDGET_DIVISORS = {
     "quick": 100_000,
     "normal": 50_000,
@@ -163,6 +167,21 @@ class SuperMegaLinefeedProbeResult:
 
 
 @dataclass(frozen=True)
+class UltimateVisualCandidate:
+    candidate: SuperMegaLinefeedCandidate
+    preview_data: bytes
+    preview_strategy: str
+    visual_hash: str
+    scanline_hash: str
+    operation_hash: str
+    diversity_key: str
+    rank: tuple[object, ...]
+    coverage: float
+    tested_candidates: int
+    preview_path: str = ""
+
+
+@dataclass(frozen=True)
 class UltimateLinefeedProbeResult:
     before: idat.IdatStreamAnalysis
     best: SuperMegaLinefeedCandidate | None
@@ -186,6 +205,10 @@ class UltimateLinefeedProbeResult:
     progress_path: str = ""
     progress_resumed: bool = False
     progress_warning: str = ""
+    visual_candidates: tuple[UltimateVisualCandidate, ...] = ()
+    visual_gallery_path: str = ""
+    visual_preview_count: int = 0
+    visual_gallery_limit: int = ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT
 
     @property
     def improved(self) -> bool:
@@ -1406,6 +1429,16 @@ def ultimate_linefeed_progress_path_from_checkpoint(checkpoint_path: str) -> str
     return checkpoint_path + ".progress.json"
 
 
+def ultimate_linefeed_visual_gallery_path_from_progress(progress_path: str) -> str:
+    if not progress_path:
+        return ""
+    if progress_path.endswith(".progress.json"):
+        return progress_path[: -len(".progress.json")] + ".visual.json"
+    if progress_path.endswith(".checkpoint.jsonl"):
+        return progress_path[: -len(".checkpoint.jsonl")] + ".visual.json"
+    return progress_path + ".visual.json"
+
+
 def _ultimate_operation_pool_hash(operation_pool: tuple[SuperMegaLinefeedOperation, ...]) -> str:
     payload = json.dumps(
         [_operation_to_json(operation) for operation in operation_pool],
@@ -1937,6 +1970,297 @@ def _remember_ultimate_top_candidate(
     return tuple(sorted(by_key.values(), key=_ultimate_top_candidate_rank)[:limit])
 
 
+def _coerce_ultimate_visual_gallery_limit(value: object) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT
+
+
+def _coerce_ultimate_visual_min_coverage(value: object) -> float:
+    try:
+        coverage = float(value)
+    except (TypeError, ValueError):
+        return ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE
+    return min(1.0, max(0.0, coverage))
+
+
+def _ultimate_operation_hash(operations: tuple[SuperMegaLinefeedOperation, ...]) -> str:
+    payload = json.dumps(
+        [_operation_to_json(operation) for operation in operations],
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.blake2b(payload, digest_size=12).hexdigest()
+
+
+def _ultimate_visual_candidate_rank(
+    candidate: SuperMegaLinefeedCandidate,
+    *,
+    coverage: float,
+    visual_score: float | None,
+) -> tuple[object, ...]:
+    status_rank = {
+        "complete": 0,
+        "bad_adler": 1,
+        "partial": 2,
+    }.get(candidate.after.status, 9)
+    adler_rank = {
+        "adler_match": 0,
+        "adler_rebuilt": 1,
+        "adler_mismatch": 2,
+        "adler_unknown": 3,
+    }.get(candidate.after.adler_status, 9)
+    expected_delta = abs(candidate.after.decompressed_size - candidate.after.expected_size)
+    error_offset = candidate.after.error_offset if candidate.after.error_offset is not None else -1
+    visual_rank = 1_000_000_000_000.0 if visual_score is None else float(visual_score)
+    score = candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations))
+    return (
+        -candidate.after.usable_scanlines,
+        -candidate.after.complete_scanlines,
+        -coverage,
+        status_rank,
+        adler_rank,
+        visual_score is None,
+        visual_rank,
+        expected_delta,
+        -error_offset,
+        len(candidate.operations),
+        tuple(-value for value in score),
+        candidate.state_id,
+    )
+
+
+def _ultimate_visual_candidate_from_candidate(
+    candidate: SuperMegaLinefeedCandidate,
+    *,
+    tested: int,
+    reference_image,
+    min_coverage: float,
+) -> UltimateVisualCandidate | None:
+    if not candidate.after.supported:
+        return None
+    if candidate.after.status not in ("complete", "bad_adler", "partial"):
+        return None
+    if candidate.after.height <= 0:
+        return None
+    coverage = candidate.after.usable_scanlines / candidate.after.height
+    if coverage < min_coverage:
+        return None
+
+    repair = idat.rebuild_visual_idat_preview(candidate.data)
+    if repair is None:
+        return None
+
+    visual_score = _ultimate_visual_distance(repair.data, reference_image)
+    scored_candidate = (
+        replace(candidate, visual_score=visual_score)
+        if visual_score is not None
+        else candidate
+    )
+    preview_hash = hashlib.blake2b(repair.data, digest_size=16).hexdigest()
+    scanline_source = candidate.after.recovered_scanlines or repair.data
+    scanline_hash = hashlib.blake2b(scanline_source, digest_size=16).hexdigest()
+    operation_hash = _ultimate_operation_hash(candidate.operations)
+    diversity_key = "%s:%s" % (scanline_hash, operation_hash)
+    return UltimateVisualCandidate(
+        candidate=scored_candidate,
+        preview_data=repair.data,
+        preview_strategy=repair.strategy,
+        visual_hash=preview_hash,
+        scanline_hash=scanline_hash,
+        operation_hash=operation_hash,
+        diversity_key=diversity_key,
+        rank=_ultimate_visual_candidate_rank(
+            scored_candidate,
+            coverage=coverage,
+            visual_score=visual_score,
+        ),
+        coverage=coverage,
+        tested_candidates=max(0, int(tested)),
+    )
+
+
+def _remember_ultimate_visual_candidate(
+    candidates: tuple[UltimateVisualCandidate, ...],
+    candidate: SuperMegaLinefeedCandidate,
+    *,
+    tested: int,
+    reference_image,
+    min_coverage: float,
+    limit: int,
+) -> tuple[UltimateVisualCandidate, ...]:
+    if limit <= 0:
+        return candidates
+    visual_candidate = _ultimate_visual_candidate_from_candidate(
+        candidate,
+        tested=tested,
+        reference_image=reference_image,
+        min_coverage=min_coverage,
+    )
+    if visual_candidate is None:
+        return candidates
+
+    by_key = {item.diversity_key: item for item in candidates}
+    existing = by_key.get(visual_candidate.diversity_key)
+    if existing is None or visual_candidate.rank < existing.rank:
+        by_key[visual_candidate.diversity_key] = visual_candidate
+    return tuple(sorted(by_key.values(), key=lambda item: item.rank)[:limit])
+
+
+def _ultimate_visual_preview_dir(gallery_path: str) -> str:
+    return os.path.join(os.path.dirname(gallery_path), *ULTIMATE_LINEFEED_VISUAL_PREVIEW_FOLDER)
+
+
+def _safe_ultimate_visual_filename_part(value: object) -> str:
+    safe = "".join(
+        char if char.isalnum() or char in ("-", "_", ".") else "_"
+        for char in str(value)
+    )
+    safe = safe.strip("._-")
+    return safe[:96] or "candidate"
+
+
+def _ultimate_visual_preview_name(index: int, candidate: UltimateVisualCandidate) -> str:
+    after = candidate.candidate.after
+    return (
+        "_VisualCandidate_%03d_tested_%09d_state_%09d_%s_of_%s_%s_%s.png"
+        % (
+            index,
+            candidate.tested_candidates,
+            candidate.candidate.state_id,
+            after.usable_scanlines,
+            after.height,
+            _safe_ultimate_visual_filename_part(after.status),
+            "rebuilt_adler_preview",
+        )
+    )
+
+
+def _jsonable_rank_value(value: object) -> object:
+    if isinstance(value, tuple):
+        return [_jsonable_rank_value(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _ultimate_visual_candidate_to_json(
+    candidate: UltimateVisualCandidate,
+    *,
+    base_dir: str,
+) -> dict[str, object]:
+    preview_path = candidate.preview_path
+    preview_label = preview_path
+    if preview_path:
+        try:
+            preview_label = os.path.relpath(preview_path, base_dir)
+        except ValueError:
+            preview_label = preview_path
+    after = candidate.candidate.after
+    return {
+        "state_id": candidate.candidate.state_id,
+        "parent_id": candidate.candidate.parent_id,
+        "tested_candidates": candidate.tested_candidates,
+        "status": after.status,
+        "adler_status": after.adler_status,
+        "preview_kind": "rebuilt_adler_preview",
+        "preview_strategy": candidate.preview_strategy,
+        "preview_path": preview_label,
+        "usable_scanlines": after.usable_scanlines,
+        "complete_scanlines": after.complete_scanlines,
+        "total_scanlines": after.height,
+        "coverage": candidate.coverage,
+        "decompressed_size": after.decompressed_size,
+        "expected_size": after.expected_size,
+        "error_offset": after.error_offset,
+        "operation_count": len(candidate.candidate.operations),
+        "operations": [
+            _operation_to_json(operation)
+            for operation in candidate.candidate.operations
+        ],
+        "score": list(candidate.candidate.score),
+        "rank": [_jsonable_rank_value(value) for value in candidate.rank],
+        "visual_score": candidate.candidate.visual_score,
+        "visual_hash": candidate.visual_hash,
+        "scanline_hash": candidate.scanline_hash,
+        "operation_hash": candidate.operation_hash,
+        "diversity_key": candidate.diversity_key,
+    }
+
+
+def _remove_stale_ultimate_visual_previews(preview_dir: str) -> None:
+    try:
+        names = os.listdir(preview_dir)
+    except OSError:
+        return
+    for name in names:
+        if not name.startswith("_VisualCandidate_") or not name.endswith(".png"):
+            continue
+        try:
+            os.remove(os.path.join(preview_dir, name))
+        except OSError:
+            continue
+
+
+def _write_ultimate_visual_gallery(
+    gallery_path: str,
+    candidates: tuple[UltimateVisualCandidate, ...],
+    *,
+    limit: int,
+    source_hash: str = "",
+    phase: str = "",
+    depth: int = 0,
+    tested_candidates: int = 0,
+    state_count: int = 0,
+) -> tuple[tuple[UltimateVisualCandidate, ...], int]:
+    if limit <= 0 or not gallery_path:
+        return candidates, 0
+    try:
+        base_dir = os.path.dirname(gallery_path)
+        if base_dir:
+            os.makedirs(base_dir, exist_ok=True)
+        preview_dir = _ultimate_visual_preview_dir(gallery_path)
+        os.makedirs(preview_dir, exist_ok=True)
+        _remove_stale_ultimate_visual_previews(preview_dir)
+
+        written: list[UltimateVisualCandidate] = []
+        for index, candidate in enumerate(candidates[:limit], start=1):
+            preview_path = os.path.join(
+                preview_dir,
+                _ultimate_visual_preview_name(index, candidate),
+            )
+            with open(preview_path, "wb") as file:
+                file.write(candidate.preview_data)
+            written.append(replace(candidate, preview_path=preview_path))
+
+        record = {
+            "version": ULTIMATE_LINEFEED_VISUAL_PROGRESS_VERSION,
+            "source_hash": source_hash,
+            "phase": phase,
+            "depth": depth,
+            "tested_candidates": tested_candidates,
+            "state_count": state_count,
+            "limit": limit,
+            "preview_count": len(written),
+            "preview_kind": "rebuilt_adler_preview",
+            "preview_directory": os.path.relpath(preview_dir, base_dir) if base_dir else preview_dir,
+            "timestamp": time.time(),
+            "candidates": [
+                _ultimate_visual_candidate_to_json(candidate, base_dir=base_dir)
+                for candidate in written
+            ],
+        }
+        tmp_path = gallery_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as file:
+            json.dump(record, file, sort_keys=True, indent=2)
+            file.write("\n")
+        os.replace(tmp_path, gallery_path)
+        return tuple(written), len(written)
+    except OSError:
+        return candidates, 0
+
+
 def probe_ultimate_mega_super_linefeed_bruteforce(
     data: bytes,
     *,
@@ -1953,11 +2277,20 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     candidate_preview: UltimateCandidatePreviewCallback | None = None,
     progress_path: str = "",
     resume_progress: bool = True,
+    visual_gallery_limit: int = ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT,
+    visual_min_coverage: float = ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE,
+    visual_gallery_path: str = "",
 ) -> UltimateLinefeedProbeResult:
     strategy = "UltimateMegaSuperLineFeedBruteForce"
+    visual_gallery_limit = _coerce_ultimate_visual_gallery_limit(visual_gallery_limit)
+    visual_min_coverage = _coerce_ultimate_visual_min_coverage(visual_min_coverage)
     reference_image, reference_warning = _load_ultimate_reference_image(reference_path)
     budget_limit = None if budget is None else max(0, int(budget))
     progress_total = UNBOUNDED_PROGRESS_TOTAL if budget_limit is None else max(1, budget_limit)
+    if not progress_path:
+        progress_path = ultimate_linefeed_progress_path_from_checkpoint(checkpoint_path)
+    if not visual_gallery_path and visual_gallery_limit > 0:
+        visual_gallery_path = ultimate_linefeed_visual_gallery_path_from_progress(progress_path)
     before = idat.analyze_idat_stream(data)
     if not before.supported:
         return UltimateLinefeedProbeResult(
@@ -1977,6 +2310,9 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             False,
             strategy,
             before.reason,
+            progress_path=progress_path,
+            visual_gallery_path=visual_gallery_path,
+            visual_gallery_limit=visual_gallery_limit,
         )
     if target_adler is None:
         target_adler = before.stored_adler
@@ -2002,6 +2338,9 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                 False,
                 strategy,
                 "IDAT stream is already complete with matching Adler",
+                progress_path=progress_path,
+                visual_gallery_path=visual_gallery_path,
+                visual_gallery_limit=visual_gallery_limit,
             )
 
     try:
@@ -2024,6 +2363,9 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             False,
             strategy,
             str(exc),
+            progress_path=progress_path,
+            visual_gallery_path=visual_gallery_path,
+            visual_gallery_limit=visual_gallery_limit,
         )
 
     suspect_offsets = ultimate_linefeed_suspect_offsets(
@@ -2090,8 +2432,27 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     best: SuperMegaLinefeedCandidate | None = None
     best_score = root_score
     top_candidates: tuple[SuperMegaLinefeedCandidate, ...] = ()
+    visual_candidates: tuple[UltimateVisualCandidate, ...] = ()
+    visual_preview_count = 0
+    visual_gallery_dirty = False
+
+    def remember_visual_candidate(candidate: SuperMegaLinefeedCandidate, tested_count: int) -> None:
+        nonlocal visual_candidates, visual_gallery_dirty
+        updated = _remember_ultimate_visual_candidate(
+            visual_candidates,
+            candidate,
+            tested=tested_count,
+            reference_image=reference_image,
+            min_coverage=visual_min_coverage,
+            limit=visual_gallery_limit,
+        )
+        if updated != visual_candidates:
+            visual_candidates = updated
+            visual_gallery_dirty = True
+
     for candidate in checkpoint_candidates:
         top_candidates = _remember_ultimate_top_candidate(top_candidates, candidate)
+        remember_visual_candidate(candidate, 0)
         candidate_score = candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations))
         if candidate_score > best_score:
             best = candidate
@@ -2136,6 +2497,9 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         combination_rank: int | None = None,
         combination_indices: tuple[int, ...] | None = None,
     ) -> None:
+        nonlocal visual_candidates, visual_preview_count, visual_gallery_dirty
+        snapshot_phase = current_phase if phase is None else phase
+        snapshot_depth = current_depth if depth is None else depth
         _write_ultimate_progress(
             progress_path,
             source_hash=source_hash,
@@ -2146,8 +2510,8 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             operation_pool_hash=operation_pool_hash,
             focused_operation_pool_hash=focused_operation_pool_hash,
             broad_operation_pool_hash=broad_operation_pool_hash,
-            phase=current_phase if phase is None else phase,
-            depth=current_depth if depth is None else depth,
+            phase=snapshot_phase,
+            depth=snapshot_depth,
             pool_index=current_pool_index if pool_index is None else pool_index,
             combination_rank=current_combination_rank if combination_rank is None else combination_rank,
             combination_indices=current_combination_indices if combination_indices is None else combination_indices,
@@ -2156,6 +2520,22 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             state_count=next_state_id,
             budget=budget_limit,
         )
+        if (
+            visual_gallery_limit > 0
+            and visual_gallery_path
+            and (visual_gallery_dirty or snapshot_phase == "complete")
+        ):
+            visual_candidates, visual_preview_count = _write_ultimate_visual_gallery(
+                visual_gallery_path,
+                visual_candidates,
+                limit=visual_gallery_limit,
+                source_hash=source_hash,
+                phase=snapshot_phase,
+                depth=snapshot_depth,
+                tested_candidates=tested,
+                state_count=next_state_id,
+            )
+            visual_gallery_dirty = False
 
     previous_sigint_handler = None
     sigint_handler_installed = False
@@ -2240,6 +2620,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                     candidate = _attach_ultimate_visual_score(candidate, reference_image)
                     next_state_id += 1
                     top_candidates = _remember_ultimate_top_candidate(top_candidates, candidate)
+                    remember_visual_candidate(candidate, tested)
                     _preview_ultimate_candidate_if_valid(
                         candidate,
                         tested,
@@ -2373,6 +2754,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                     candidate = _attach_ultimate_visual_score(candidate, reference_image)
                     next_state_id += 1
                     top_candidates = _remember_ultimate_top_candidate(top_candidates, candidate)
+                    remember_visual_candidate(candidate, tested)
                     _preview_ultimate_candidate_if_valid(
                         candidate,
                         tested,
@@ -2445,6 +2827,10 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         progress_path=progress_path,
         progress_resumed=progress_resume is not None,
         progress_warning=progress_warning,
+        visual_candidates=visual_candidates,
+        visual_gallery_path=visual_gallery_path,
+        visual_preview_count=visual_preview_count,
+        visual_gallery_limit=visual_gallery_limit,
     )
 
 
@@ -3568,6 +3954,15 @@ def ultimate_linefeed_probe_summary_line(result: UltimateLinefeedProbeResult) ->
         )
     if result.top_candidates:
         line += "; top_candidates=%s" % len(result.top_candidates)
+    if result.visual_gallery_limit > 0:
+        line += "; visual_candidates=%s/%s" % (
+            len(result.visual_candidates),
+            result.visual_gallery_limit,
+        )
+        if result.visual_preview_count:
+            line += "; visual_previews=%s" % result.visual_preview_count
+        if result.visual_gallery_path:
+            line += "; visual_gallery=%s" % result.visual_gallery_path
     if result.reference_warning:
         line += "; reference_warning=%s" % result.reference_warning
     if result.progress_warning:
@@ -3620,6 +4015,29 @@ def ultimate_linefeed_candidate_summary_line(candidate: SuperMegaLinefeedCandida
     if candidate.visual_score is not None:
         line = line[:-1] + "; visual_score=%.4f." % candidate.visual_score
     return line
+
+
+def ultimate_visual_candidate_summary_line(candidate: UltimateVisualCandidate) -> str:
+    after = candidate.candidate.after
+    line = (
+        "-%s best visual candidate: %s/%s %s rebuilt_adler_preview; "
+        "adler=%s; state=%s; tested=%s; hash=%s"
+        % (
+            "UltimateMegaSuperLineFeedBruteForce",
+            after.usable_scanlines,
+            after.height,
+            after.status,
+            after.adler_status,
+            candidate.candidate.state_id,
+            candidate.tested_candidates,
+            candidate.visual_hash,
+        )
+    )
+    if candidate.candidate.visual_score is not None:
+        line += "; visual_score=%.4f" % candidate.candidate.visual_score
+    if candidate.preview_path:
+        line += "; preview=%s" % candidate.preview_path
+    return line + "."
 
 
 def candidate_summary_line(candidate: IdatDeflateCandidate) -> str:

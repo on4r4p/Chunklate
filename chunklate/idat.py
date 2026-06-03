@@ -949,6 +949,68 @@ def rebuild_partial_idat_blackfill(data: bytes) -> PartialIdatBlackfillRepair | 
     )
 
 
+def rebuild_visual_idat_preview(data: bytes) -> PartialIdatBlackfillRepair | None:
+    analysis = analyze_partial_idat(data)
+    if not analysis.supported or analysis.usable_scanlines <= 0:
+        return None
+
+    try:
+        chunks = list(png.iter_chunks(data))
+    except png.PngFormatError:
+        return None
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    ihdr_values = _parse_ihdr(ihdr)
+    if ihdr_values is None:
+        return None
+    _width, _height, bit_depth, color_type, _compression, _filter_method, interlace = ihdr_values
+    if interlace == 0:
+        scanline_sizes = tuple([analysis.scanline_size] * analysis.height)
+    elif interlace == 1:
+        scanline_sizes = _adam7_pass_scanline_sizes(analysis.width, analysis.height, bit_depth, color_type) or ()
+    else:
+        return None
+    if not scanline_sizes:
+        return None
+
+    blackfill_scanlines = b"".join(
+        b"\x00" + (b"\x00" * (scanline_size - 1))
+        for scanline_size in scanline_sizes[analysis.usable_scanlines :]
+    )
+    rebuilt_scanlines = analysis.recovered_scanlines + blackfill_scanlines
+    if len(rebuilt_scanlines) != analysis.expected_size:
+        return None
+    rebuilt_idat = zlib.compress(rebuilt_scanlines)
+
+    fixed = bytearray(png.PNG_SIGNATURE)
+    idat_written = False
+    for chunk in chunks:
+        if chunk.chunk_type == b"IDAT":
+            if not idat_written:
+                fixed.extend(png.build_png_chunk(b"IDAT", rebuilt_idat))
+                idat_written = True
+            continue
+        fixed.extend(png.build_png_chunk(chunk.chunk_type, chunk.data))
+
+    if not idat_written:
+        return None
+    fixed_data = bytes(fixed)
+    if not png.validate_png_structure(fixed_data).ok:
+        return None
+
+    return PartialIdatBlackfillRepair(
+        data=fixed_data,
+        strategy="rebuilt_adler_preview recovered %s/%s scanlines"
+        % (analysis.usable_scanlines, len(scanline_sizes)),
+        recovered_scanlines=analysis.usable_scanlines,
+        total_scanlines=len(scanline_sizes),
+        width=analysis.width,
+        height=analysis.height,
+        bit_depth=analysis.bit_depth,
+        color_type=analysis.color_type,
+    )
+
+
 def rebuild_idat_from_donor(
     data: bytes,
     donor_data: bytes,

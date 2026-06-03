@@ -550,6 +550,14 @@ def Ultimate_Linefeed_Reference():
     return str(globals().get("ULTIMATE_LINEFEED_REFERENCE", "") or "")
 
 
+def Ultimate_Linefeed_Visual_Gallery_Limit():
+    return int(globals().get("ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT", 100) or 0)
+
+
+def Ultimate_Linefeed_Visual_Min_Coverage():
+    return float(globals().get("ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE", 0.95) or 0.0)
+
+
 def Ultimate_Linefeed_Candidate_Preview(candidate, tested, budget):
     timeout = float(globals().get("ULTIMATE_LINEFEED_PREVIEW_TIMEOUT", 5.0) or 0.0)
     show_preview = bool(globals().get("ULTIMATE_LINEFEED_SHOW_PREVIEWS", False))
@@ -1874,6 +1882,8 @@ MAX_SAVES = None
 SAVE_COUNT = 0
 ULTIMATE_LINEFEED_PREVIEW_TIMEOUT = 5.0
 ULTIMATE_LINEFEED_SHOW_PREVIEWS = False
+ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT = 100
+ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE = 0.95
 ULTIMATE_LINEFEED_RESUME = "ask"
 
 FishPos = 0
