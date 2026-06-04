@@ -14,6 +14,12 @@ EDITOR_CANVAS_MARGIN = 32
 FULL_REGION = (0.0, 0.0, 1.0, 1.0)
 
 
+def _hidden_tmp_path(path: str) -> str:
+    directory, filename = os.path.split(path)
+    tmp_name = ".%s.tmp" % (filename or "chunklate")
+    return os.path.join(directory, tmp_name) if directory else tmp_name
+
+
 @dataclass(frozen=True)
 class ReferenceRegionEditorResult:
     saved: bool
@@ -153,7 +159,7 @@ def _write_region_mapping(
         reference_hash=idat_bruteforce._ultimate_image_hash_from_image(reference_image),
         regions=regions,
     )
-    tmp_path = path + ".tmp"
+    tmp_path = _hidden_tmp_path(path)
     with open(tmp_path, "w", encoding="utf-8") as file:
         json.dump(record, file, sort_keys=True, indent=2)
         file.write("\n")
@@ -176,6 +182,8 @@ def open_ultimate_reference_region_editor(
         tk = tkinter_module or tk
         ImageTk = image_tk_module or ImageTk
         candidate_image, candidate_bytes = _load_image(candidate_path, fallback_data=candidate_data)
+        if candidate_data:
+            candidate_bytes = candidate_data
         reference_image, _reference_bytes = _load_image(reference_path)
     except Exception as exc:
         return ReferenceRegionEditorResult(False, output_path, "reference region editor unavailable: %s" % exc)

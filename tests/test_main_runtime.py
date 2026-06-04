@@ -136,6 +136,7 @@ def test_reset_ultimate_linefeed_resume_files_removes_short_and_legacy_names():
     calls = []
     folder = "/out/Folder_sample"
     names = main_runtime._ultimate_linefeed_resume_names()
+    assert main_runtime.ULTIMATE_LINEFEED_SOURCE_RAW_NAME in names
     existing = {folder + "/" + name for name in names}
     runtime = main_runtime.MainCliOptionsRuntime(
         **{

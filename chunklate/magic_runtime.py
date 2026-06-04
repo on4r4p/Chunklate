@@ -26,6 +26,12 @@ SUPER_MEGA_LINEFEED_FORCE = "SuperMegaLineFeedForceOfDeath"
 ULTIMATE_LINEFEED_FORCE = "UltimateMegaSuperLineFeedBruteForce"
 
 
+def _hidden_tmp_path(path: str) -> str:
+    directory, filename = os.path.split(path)
+    tmp_name = ".%s.tmp" % (filename or "chunklate")
+    return os.path.join(directory, tmp_name) if directory else tmp_name
+
+
 @dataclass(frozen=True)
 class FindMagicContext:
     data_bytes: bytes
@@ -683,7 +689,54 @@ def _ultimate_linefeed_source_path(runtime: FindMagicRuntime, checkpoint_path: s
         return value
     if checkpoint_path.endswith(".checkpoint.jsonl"):
         return checkpoint_path[: -len(".checkpoint.jsonl")] + ".Source.png"
+    if not checkpoint_path:
+        return ""
     return checkpoint_path + ".Source.png"
+
+
+def _ultimate_linefeed_raw_source_path(checkpoint_path: str, source_path: str = "") -> str:
+    if checkpoint_path.endswith(".checkpoint.jsonl"):
+        return checkpoint_path[: -len(".checkpoint.jsonl")] + ".Source.raw"
+    if source_path.endswith(".Source.png"):
+        return source_path[: -len(".Source.png")] + ".Source.raw"
+    if not checkpoint_path:
+        return ""
+    return checkpoint_path + ".Source.raw"
+
+
+def _source_snapshot_preview_data(data: bytes) -> bytes:
+    def preview_from(candidate: bytes) -> bytes | None:
+        return ultimate_reference_ui._source_preview_data(candidate)
+
+    preview = preview_from(data)
+    if preview is not None:
+        return preview
+    try:
+        linefeed = repair_linefeed_conversion(data, allow_partial=True)
+    except Exception:
+        linefeed = None
+    if linefeed is not None:
+        preview = preview_from(linefeed.data)
+        if preview is not None:
+            return preview
+        try:
+            realigned = repair_overlong_chunk_length_to_next_header(linefeed.data)
+        except Exception:
+            realigned = None
+        if realigned is not None:
+            preview = preview_from(realigned.data)
+            if preview is not None:
+                return preview
+        try:
+            marker_repairs = repair_idat_marker_chain_from_visible_headers(linefeed.data)
+        except Exception:
+            marker_repairs = ()
+        for marker_repair in marker_repairs or ():
+            preview = preview_from(marker_repair.data)
+            if preview is not None:
+                return preview
+        return linefeed.data
+    return data
 
 
 def _write_ultimate_source_snapshot(path: str, data: bytes) -> bool:
@@ -693,7 +746,23 @@ def _write_ultimate_source_snapshot(path: str, data: bytes) -> bool:
         directory = os.path.dirname(path)
         if directory:
             os.makedirs(directory, exist_ok=True)
-        tmp_path = path + ".tmp"
+        tmp_path = _hidden_tmp_path(path)
+        with open(tmp_path, "wb") as file:
+            file.write(_source_snapshot_preview_data(data))
+        os.replace(tmp_path, path)
+        return True
+    except OSError:
+        return False
+
+
+def _write_ultimate_raw_source_snapshot(path: str, data: bytes) -> bool:
+    if not path:
+        return False
+    try:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        tmp_path = _hidden_tmp_path(path)
         with open(tmp_path, "wb") as file:
             file.write(data)
         os.replace(tmp_path, path)
@@ -1053,6 +1122,8 @@ def _linefeed_run_ultimate_probe(
     checkpoint_path = _ultimate_linefeed_checkpoint_path(runtime)
     progress_path = _ultimate_linefeed_progress_path(runtime, checkpoint_path)
     source_path = _ultimate_linefeed_source_path(runtime, checkpoint_path)
+    raw_source_path = _ultimate_linefeed_raw_source_path(checkpoint_path, source_path)
+    _write_ultimate_raw_source_snapshot(raw_source_path, source_data)
     if _write_ultimate_source_snapshot(source_path, source_data):
         summary_lines.append("-%s: source snapshot saved at %s." % (ULTIMATE_LINEFEED_FORCE, source_path))
     reference_regions_path = _prepare_ultimate_reference_regions(
@@ -1451,7 +1522,11 @@ def run_deferred_linefeed_signature_repair(runtime: FindMagicRuntime, context: F
 def run_ultimate_linefeed_direct_resume(runtime: FindMagicRuntime, context: FindMagicContext) -> Any:
     checkpoint_path = _ultimate_linefeed_checkpoint_path(runtime)
     source_path = _ultimate_linefeed_source_path(runtime, checkpoint_path)
-    source_data = _read_ultimate_source_snapshot(source_path)
+    raw_source_path = _ultimate_linefeed_raw_source_path(checkpoint_path, source_path)
+    source_data = (
+        _read_ultimate_source_snapshot(raw_source_path)
+        or _read_ultimate_source_snapshot(source_path)
+    )
     if source_data is None:
         _cowsay(
             runtime,

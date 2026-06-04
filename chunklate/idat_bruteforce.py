@@ -47,6 +47,12 @@ KNOWN_UNIVERSE_ATOM_ESTIMATE_LABEL = "10^80"
 ULTIMATE_LINEFEED_PROGRESS_VERSION = 1
 
 
+def _hidden_tmp_path(path: str) -> str:
+    directory, filename = os.path.split(path)
+    tmp_name = ".%s.tmp" % (filename or "chunklate")
+    return os.path.join(directory, tmp_name) if directory else tmp_name
+
+
 @dataclass(frozen=True)
 class IdatDeflateCandidate:
     data: bytes
@@ -1608,7 +1614,7 @@ def _write_ultimate_progress(
         directory = os.path.dirname(progress_path)
         if directory:
             os.makedirs(directory, exist_ok=True)
-        tmp_path = progress_path + ".tmp"
+        tmp_path = _hidden_tmp_path(progress_path)
         with open(tmp_path, "w", encoding="utf-8") as file:
             json.dump(
                 {
@@ -2945,7 +2951,7 @@ def _write_ultimate_visual_gallery(
                 for candidate in written
             ],
         }
-        tmp_path = gallery_path + ".tmp"
+        tmp_path = _hidden_tmp_path(gallery_path)
         with open(tmp_path, "w", encoding="utf-8") as file:
             json.dump(record, file, sort_keys=True, indent=2)
             file.write("\n")

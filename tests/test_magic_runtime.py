@@ -127,6 +127,31 @@ def linefeed_salvage_fixture():
     return (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "linefeedcorruption3.png").read_bytes()
 
 
+def test_ultimate_source_snapshot_writes_decodable_preview_and_raw_bytes(tmp_path):
+    source_data = linefeed_salvage_fixture()
+    source_path = tmp_path / "_ULF.Source.png"
+    raw_path = tmp_path / "_ULF.Source.raw"
+
+    assert magic_runtime._write_ultimate_source_snapshot(str(source_path), source_data) is True
+    assert magic_runtime._write_ultimate_raw_source_snapshot(str(raw_path), source_data) is True
+
+    image, identity = magic_runtime.ultimate_reference_ui._load_image(str(source_path))
+    assert image.size[0] > 0
+    assert image.size[1] > 0
+    assert identity != source_data
+    assert raw_path.read_bytes() == source_data
+
+
+def test_ultimate_source_snapshot_path_requires_checkpoint():
+    runtime = build_runtime([])
+
+    source_path = magic_runtime._ultimate_linefeed_source_path(runtime, "")
+    raw_path = magic_runtime._ultimate_linefeed_raw_source_path("", source_path)
+
+    assert source_path == ""
+    assert raw_path == ""
+
+
 def checkpoint_args(calls):
     matches = [call[1] for call in calls if call[0] == "checkpoint"]
     assert len(matches) == 1
