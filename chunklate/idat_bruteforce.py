@@ -195,6 +195,14 @@ class UltimateVisualCandidate:
 
 
 @dataclass(frozen=True)
+class UltimateVisualBackfillCandidate:
+    candidate: SuperMegaLinefeedCandidate
+    tested_candidates: int
+    structural_rank: tuple[object, ...]
+    coverage: float
+
+
+@dataclass(frozen=True)
 class UltimateLinefeedProbeResult:
     before: idat.IdatStreamAnalysis
     best: SuperMegaLinefeedCandidate | None
@@ -2954,6 +2962,131 @@ def _ultimate_visual_candidate_from_candidate(
     )
 
 
+def _ultimate_visual_candidate_basic_coverage(
+    candidate: SuperMegaLinefeedCandidate,
+    *,
+    min_coverage: float,
+) -> float | None:
+    if not candidate.after.supported:
+        return None
+    if candidate.after.status not in ("complete", "bad_adler", "partial"):
+        return None
+    if candidate.after.height <= 0:
+        return None
+    coverage = candidate.after.usable_scanlines / candidate.after.height
+    if coverage < min_coverage:
+        return None
+    return coverage
+
+
+def _ultimate_visual_backfill_key(candidate: SuperMegaLinefeedCandidate) -> str:
+    return hashlib.blake2b(candidate.data, digest_size=16).hexdigest()
+
+
+def _ultimate_visual_backfill_rank(item: UltimateVisualBackfillCandidate) -> tuple[object, ...]:
+    return (
+        item.structural_rank,
+        item.tested_candidates,
+        item.candidate.state_id,
+    )
+
+
+def _remember_ultimate_visual_backfill_candidate(
+    candidates: tuple[UltimateVisualBackfillCandidate, ...],
+    candidate: SuperMegaLinefeedCandidate,
+    *,
+    tested: int,
+    min_coverage: float,
+    limit: int,
+) -> tuple[UltimateVisualBackfillCandidate, ...]:
+    by_key = {_ultimate_visual_backfill_key(item.candidate): item for item in candidates}
+    _remember_ultimate_visual_backfill_candidate_inplace(
+        by_key,
+        candidate,
+        tested=tested,
+        min_coverage=min_coverage,
+        limit=limit,
+    )
+    return tuple(sorted(by_key.values(), key=_ultimate_visual_backfill_rank))
+
+
+def _remember_ultimate_visual_backfill_candidate_inplace(
+    candidates_by_key: dict[str, UltimateVisualBackfillCandidate],
+    candidate: SuperMegaLinefeedCandidate,
+    *,
+    tested: int,
+    min_coverage: float,
+    limit: int,
+) -> bool:
+    if limit <= 0:
+        return False
+    coverage = _ultimate_visual_candidate_basic_coverage(
+        candidate,
+        min_coverage=min_coverage,
+    )
+    if coverage is None:
+        return False
+    structural_rank = _ultimate_visual_candidate_structural_rank(
+        candidate,
+        coverage=coverage,
+    )
+    backfill = UltimateVisualBackfillCandidate(
+        candidate=candidate,
+        tested_candidates=max(0, int(tested)),
+        structural_rank=structural_rank,
+        coverage=coverage,
+    )
+    key = _ultimate_visual_backfill_key(candidate)
+    existing = candidates_by_key.get(key)
+    updated = False
+    if existing is None or _ultimate_visual_backfill_rank(backfill) < _ultimate_visual_backfill_rank(existing):
+        candidates_by_key[key] = backfill
+        updated = True
+    pool_limit = max(1, int(limit)) * 4
+    if len(candidates_by_key) > pool_limit:
+        kept = sorted(candidates_by_key.items(), key=lambda item: _ultimate_visual_backfill_rank(item[1]))[
+            :pool_limit
+        ]
+        candidates_by_key.clear()
+        candidates_by_key.update(kept)
+        updated = True
+    return updated
+
+
+def _fill_ultimate_visual_gallery_from_backfill(
+    candidates: tuple[UltimateVisualCandidate, ...],
+    backfill_candidates: tuple[UltimateVisualBackfillCandidate, ...],
+    *,
+    reference_image,
+    reference_mode: str,
+    min_coverage: float,
+    limit: int,
+) -> tuple[UltimateVisualCandidate, ...]:
+    if limit <= 0 or len(candidates) >= max(1, int(limit)):
+        return candidates
+    by_key = {item.diversity_key: item for item in candidates}
+    seen_data = {_ultimate_visual_backfill_key(item.candidate) for item in candidates}
+    for backfill in sorted(backfill_candidates, key=_ultimate_visual_backfill_rank):
+        if len(by_key) >= max(1, int(limit)):
+            break
+        if _ultimate_visual_backfill_key(backfill.candidate) in seen_data:
+            continue
+        visual_candidate = _ultimate_visual_candidate_from_candidate(
+            backfill.candidate,
+            tested=backfill.tested_candidates,
+            reference_image=reference_image,
+            reference_mode=reference_mode,
+            min_coverage=min_coverage,
+        )
+        seen_data.add(_ultimate_visual_backfill_key(backfill.candidate))
+        if visual_candidate is None:
+            continue
+        existing = by_key.get(visual_candidate.diversity_key)
+        if existing is None or visual_candidate.rank < existing.rank:
+            by_key[visual_candidate.diversity_key] = visual_candidate
+    return tuple(sorted(by_key.values(), key=lambda item: item.rank)[:limit])
+
+
 def _remember_ultimate_visual_candidate(
     candidates: tuple[UltimateVisualCandidate, ...],
     candidate: SuperMegaLinefeedCandidate,
@@ -2966,14 +3099,11 @@ def _remember_ultimate_visual_candidate(
 ) -> tuple[UltimateVisualCandidate, ...]:
     if limit <= 0:
         return candidates
-    if not candidate.after.supported:
-        return candidates
-    if candidate.after.status not in ("complete", "bad_adler", "partial"):
-        return candidates
-    if candidate.after.height <= 0:
-        return candidates
-    coverage = candidate.after.usable_scanlines / candidate.after.height
-    if coverage < min_coverage:
+    coverage = _ultimate_visual_candidate_basic_coverage(
+        candidate,
+        min_coverage=min_coverage,
+    )
+    if coverage is None:
         return candidates
     candidate_structural_rank = _ultimate_visual_candidate_structural_rank(
         candidate,
@@ -3162,6 +3292,7 @@ def _write_ultimate_visual_gallery(
             "tested_candidates": tested_candidates,
             "state_count": state_count,
             "limit": limit,
+            "visual_gallery_limit": limit,
             "preview_count": len(written),
             "preview_kind": "rebuilt_adler_preview",
             "preview_directory": os.path.relpath(preview_dir, base_dir) if base_dir else preview_dir,
@@ -3403,11 +3534,12 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     best_score = root_score
     top_candidates: tuple[SuperMegaLinefeedCandidate, ...] = ()
     visual_candidates: tuple[UltimateVisualCandidate, ...] = ()
+    visual_backfill_candidates: dict[str, UltimateVisualBackfillCandidate] = {}
     visual_preview_count = 0
     visual_gallery_dirty = False
 
     def remember_visual_candidate(candidate: SuperMegaLinefeedCandidate, tested_count: int) -> None:
-        nonlocal visual_candidates, visual_gallery_dirty
+        nonlocal visual_backfill_candidates, visual_candidates, visual_gallery_dirty
         updated = _remember_ultimate_visual_candidate(
             visual_candidates,
             candidate,
@@ -3420,6 +3552,14 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         if updated != visual_candidates:
             visual_candidates = updated
             visual_gallery_dirty = True
+        elif len(visual_candidates) < max(1, visual_gallery_limit):
+            _remember_ultimate_visual_backfill_candidate_inplace(
+                visual_backfill_candidates,
+                candidate,
+                tested=tested_count,
+                min_coverage=visual_min_coverage,
+                limit=visual_gallery_limit,
+            )
 
     for candidate in checkpoint_seed_candidates:
         top_candidates = _remember_ultimate_top_candidate(top_candidates, candidate)
@@ -3479,6 +3619,24 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             state_count=next_state_id,
             budget=budget_limit,
         )
+        if (
+            visual_gallery_limit > 0
+            and visual_gallery_path
+            and (snapshot_phase == "complete" or force_visual)
+            and visual_backfill_candidates
+            and len(visual_candidates) < visual_gallery_limit
+        ):
+            filled = _fill_ultimate_visual_gallery_from_backfill(
+                visual_candidates,
+                tuple(visual_backfill_candidates.values()),
+                reference_image=reference_context,
+                reference_mode=reference_mode,
+                min_coverage=visual_min_coverage,
+                limit=visual_gallery_limit,
+            )
+            if filled != visual_candidates:
+                visual_candidates = filled
+                visual_gallery_dirty = True
         if (
             visual_gallery_limit > 0
             and visual_gallery_path

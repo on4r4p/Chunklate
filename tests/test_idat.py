@@ -1096,6 +1096,68 @@ def test_ultimate_visual_gallery_skips_structural_downgrade_before_limit(monkeyp
     assert calls == []
 
 
+def test_ultimate_visual_gallery_backfills_lower_tier_on_forced_flush():
+    filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    full = build_rgb_png(1, 3, filtered, idat_data=bytes(compressed))
+    full_analysis = idat.analyze_idat_stream(full)
+    partial = build_rgb_png(1, 3, filtered, idat_data=zlib.compress(filtered[:8]))
+    partial_analysis = idat.analyze_idat_stream(partial)
+    better = idat_bruteforce.SuperMegaLinefeedCandidate(
+        full,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 8, b"", b"\r"),),
+        full_analysis,
+        full_analysis,
+        state_id=2,
+        score=idat_bruteforce.super_mega_linefeed_score(full_analysis, 1),
+    )
+    weaker = idat_bruteforce.SuperMegaLinefeedCandidate(
+        partial,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        partial_analysis,
+        partial_analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(partial_analysis, 1),
+    )
+
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        (),
+        better,
+        tested=10,
+        reference_image=None,
+        min_coverage=0.0,
+        limit=3,
+    )
+    skipped = idat_bruteforce._remember_ultimate_visual_candidate(
+        gallery,
+        weaker,
+        tested=11,
+        reference_image=None,
+        min_coverage=0.0,
+        limit=3,
+    )
+    backfill = idat_bruteforce._remember_ultimate_visual_backfill_candidate(
+        (),
+        weaker,
+        tested=11,
+        min_coverage=0.0,
+        limit=3,
+    )
+    filled = idat_bruteforce._fill_ultimate_visual_gallery_from_backfill(
+        skipped,
+        backfill,
+        reference_image=None,
+        reference_mode="exact",
+        min_coverage=0.0,
+        limit=3,
+    )
+
+    assert skipped == gallery
+    assert len(filled) == 2
+    assert [candidate.candidate.state_id for candidate in filled] == [2, 1]
+
+
 def test_ultimate_visual_gallery_structure_beats_reference_rank():
     filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
     partial = build_rgb_png(1, 3, filtered, idat_data=zlib.compress(filtered[:8]))
@@ -1280,6 +1342,8 @@ def test_ultimate_visual_gallery_write_removes_obsolete_previews(tmp_path):
     record = json.loads(gallery_path.read_text(encoding="utf-8"))
     assert record["preview_count"] == 1
     assert record["reference_mode"] == "similar"
+    assert record["limit"] == 1
+    assert record["visual_gallery_limit"] == 1
     assert record["reference_regions_path"] == "Folder_x.bad/_ULF.reference_regions.json"
     assert record["candidates"][0]["preview_kind"] == "rebuilt_adler_preview"
     assert "visual_score_kind" in record["candidates"][0]

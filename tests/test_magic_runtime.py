@@ -777,6 +777,7 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
     ]
     assert len(budget_selected_calls) == 1
     assert "selected budget: 1,234" in str(budget_selected_calls[0][1][1])
+    assert "visual gallery cap: 77 saved candidates" in str(budget_selected_calls[0][1][1])
     assert "possible combinations:" not in str(budget_selected_calls[0][1][1])
     ultimate_kwargs = next(call[1] for call in calls if call[0] == "ultimate_kwargs")
     assert ultimate_kwargs["budget"] == 1234

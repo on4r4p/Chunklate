@@ -1033,6 +1033,7 @@ def _emit_ultimate_budget_plan(
     decision: idat_bruteforce.UltimateLinefeedBudgetDecision,
     checkpoint_path: str,
     progress_path: str = "",
+    visual_gallery_limit: int | None = None,
 ) -> None:
     selected = "unbounded" if decision.budget is None else _format_count(decision.budget)
     eta = idat_bruteforce.ultimate_linefeed_eta(decision.budget)
@@ -1058,6 +1059,8 @@ def _emit_ultimate_budget_plan(
         "checkpoint: %s" % ("enabled" if checkpoint_path else "disabled"),
         "progress: %s" % (progress_path if progress_path else "disabled"),
     ]
+    if visual_gallery_limit is not None:
+        lines.append("visual gallery cap: %s saved candidates" % _format_count(visual_gallery_limit))
     if runtime.prompt_candy is not None:
         runtime.prompt_candy("Cowsay", "\n".join(lines), "com")
         runtime.clear_dialogue_pause()
@@ -1169,7 +1172,15 @@ def _linefeed_run_ultimate_probe(
         source_path=source_path,
         checkpoint_path=checkpoint_path,
     )
-    _emit_ultimate_budget_plan(runtime, estimate, budget_decision, checkpoint_path, progress_path)
+    visual_gallery_limit = _ultimate_visual_gallery_limit(runtime)
+    _emit_ultimate_budget_plan(
+        runtime,
+        estimate,
+        budget_decision,
+        checkpoint_path,
+        progress_path,
+        visual_gallery_limit,
+    )
     runtime.candy("Title", ULTIMATE_LINEFEED_FORCE)
     _cowsay(
         runtime,
@@ -1202,7 +1213,7 @@ def _linefeed_run_ultimate_probe(
             candidate_preview=runtime.ultimate_candidate_preview,
             progress_path=progress_path,
             resume_progress=_ultimate_linefeed_should_resume(runtime),
-            visual_gallery_limit=_ultimate_visual_gallery_limit(runtime),
+            visual_gallery_limit=visual_gallery_limit,
             visual_min_coverage=_ultimate_visual_min_coverage(runtime),
         )
     except (KeyboardInterrupt, idat_bruteforce.UltimateLinefeedInterrupted):
