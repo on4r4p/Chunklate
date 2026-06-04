@@ -198,7 +198,7 @@ on the left and the reference image on the right. If the reference dimensions
 differ, Chunklate resizes that reference once to the candidate IHDR size before
 ROI scoring.
 
-![Ultimate similar reference ROI editor](https://i.ibb.co/6J78wJtR/Screenshot-From-2026-06-04-03-41-05.png)
+![Ultimate similar reference ROI editor](https://i.ibb.co/Gf3TGjsW/image.png)
 
 Typical run:
 
