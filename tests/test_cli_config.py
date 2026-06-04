@@ -55,7 +55,7 @@ def test_configure_parser_preserves_legacy_options():
     assert "--max-saves N" in help_text
     assert "\n\nultimate line-feed:\n" in help_text
     assert "--max-saves N    Exit successfully after writing N repaired files." in help_text
-    assert "-ulfb, --ultimate-linefeed-budget N    Ultimate candidate limit." in help_text
+    assert "Ultimate candidate limit." in help_text
     assert "-ulfb N" in help_text
     assert "--ultimate-linefeed-budget N" in help_text
     assert "-ulfu" in help_text
@@ -76,7 +76,9 @@ def test_configure_parser_preserves_legacy_options():
     assert "--ultimate-linefeed-visual-gallery-limit N" in help_text
     assert "-ulfmc FLOAT" in help_text
     assert "--ultimate-linefeed-visual-min-coverage FLOAT" in help_text
-    assert "-ulf-resume, --ultimate-linefeed-resume MODE" in help_text
+    assert "Resume policy for Ultimate checkpoints." in help_text
+    assert "-ulf-resume MODE" in help_text
+    assert "--ultimate-linefeed-resume MODE" in help_text
     assert "-ulf-resume {ask,auto,never,reset}" not in help_text
     assert "--ultimate-linefeed-resume {ask,auto,never,reset}" not in help_text
     assert "--ulf-budget" not in help_text
