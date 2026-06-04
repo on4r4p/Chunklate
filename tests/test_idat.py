@@ -1039,6 +1039,63 @@ def test_ultimate_visual_gallery_limit_evicts_worst_candidate():
     assert gallery[0].candidate.after.usable_scanlines == 3
 
 
+def test_ultimate_visual_gallery_skips_structural_downgrade_before_limit(monkeypatch):
+    filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    full = build_rgb_png(1, 3, filtered, idat_data=bytes(compressed))
+    full_analysis = idat.analyze_idat_stream(full)
+    partial = build_rgb_png(1, 3, filtered, idat_data=zlib.compress(filtered[:8]))
+    partial_analysis = idat.analyze_idat_stream(partial)
+    better = idat_bruteforce.SuperMegaLinefeedCandidate(
+        full,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 8, b"", b"\r"),),
+        full_analysis,
+        full_analysis,
+        state_id=2,
+        score=idat_bruteforce.super_mega_linefeed_score(full_analysis, 1),
+    )
+    worse = idat_bruteforce.SuperMegaLinefeedCandidate(
+        partial,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        partial_analysis,
+        partial_analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(partial_analysis, 1),
+    )
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        (),
+        better,
+        tested=10,
+        reference_image=None,
+        min_coverage=0.0,
+        limit=100,
+    )
+    calls = []
+
+    def fail_if_scored(*args, **kwargs):
+        calls.append((args, kwargs))
+        return None
+
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "_ultimate_visual_candidate_from_candidate",
+        fail_if_scored,
+    )
+
+    updated = idat_bruteforce._remember_ultimate_visual_candidate(
+        gallery,
+        worse,
+        tested=11,
+        reference_image=None,
+        min_coverage=0.0,
+        limit=100,
+    )
+
+    assert updated == gallery
+    assert calls == []
+
+
 def test_ultimate_visual_gallery_structure_beats_reference_rank():
     filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
     partial = build_rgb_png(1, 3, filtered, idat_data=zlib.compress(filtered[:8]))

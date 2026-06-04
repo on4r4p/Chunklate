@@ -856,6 +856,50 @@ def test_prime_ultimate_linefeed_minibar_draws_unbounded_placeholder():
     ]
 
 
+def test_ultimate_linefeed_resume_message_uses_frontier_phase(tmp_path):
+    progress_path = tmp_path / "_ULF.progress.json"
+    progress_path.write_text(json.dumps({"phase": "frontier"}), encoding="utf-8")
+
+    message = magic_runtime._ultimate_linefeed_resume_message(str(progress_path), "")
+
+    assert "frontier" in message
+    assert "saved cursor" not in message
+
+
+def test_ultimate_linefeed_resume_message_uses_exhaustive_phase(tmp_path):
+    progress_path = tmp_path / "_ULF.progress.json"
+    progress_path.write_text(json.dumps({"phase": "exhaustive"}), encoding="utf-8")
+
+    message = magic_runtime._ultimate_linefeed_resume_message(str(progress_path), "")
+
+    assert "exhaustive vault" in message
+    assert "frontier" not in message
+
+
+def test_ultimate_linefeed_resume_message_handles_complete_phase(tmp_path):
+    progress_path = tmp_path / "_ULF.progress.json"
+    progress_path.write_text(json.dumps({"phase": "complete"}), encoding="utf-8")
+
+    message = magic_runtime._ultimate_linefeed_resume_message(str(progress_path), "")
+
+    assert "already marked this search complete" in message
+
+
+def test_ultimate_linefeed_resume_message_falls_back_to_checkpoint(tmp_path):
+    progress_path = tmp_path / "_ULF.progress.json"
+    checkpoint_path = tmp_path / "_ULF.checkpoint.jsonl"
+    progress_path.write_text("{", encoding="utf-8")
+    checkpoint_path.write_text("", encoding="utf-8")
+
+    message = magic_runtime._ultimate_linefeed_resume_message(
+        str(progress_path),
+        str(checkpoint_path),
+    )
+
+    assert "useful candidates" in message
+    assert "frontier" not in message
+
+
 def _write_roi_mapping(path, source_data, reference_path):
     reference_image, _warning = magic_runtime.idat_bruteforce._load_ultimate_reference_image(
         str(reference_path)

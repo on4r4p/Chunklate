@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, MutableSequence
 from dataclasses import dataclass
+import json
 import os
 from typing import Any
 
@@ -678,6 +679,27 @@ def _prime_ultimate_linefeed_minibar(runtime: FindMagicRuntime, budget: int | No
         return
 
 
+def _ultimate_linefeed_resume_message(progress_path: str, checkpoint_path: str) -> str:
+    phase = ""
+    if progress_path and os.path.exists(progress_path):
+        try:
+            with open(progress_path, "r", encoding="utf-8") as file:
+                record = json.load(file)
+            if isinstance(record, dict):
+                phase = str(record.get("phase", "")).strip().lower()
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            phase = ""
+    if phase == "frontier":
+        return "Resume checkpoint found. I am rebuilding the useful frontier before the fish counter starts moving."
+    if phase == "exhaustive":
+        return "Resume checkpoint found. I am jumping back into the exhaustive vault from the saved cursor."
+    if phase == "complete":
+        return "Resume checkpoint found. The previous Ultimate run already marked this search complete."
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        return "Resume checkpoint found. I am rebuilding the useful candidates before the fish counter starts moving."
+    return ""
+
+
 def _ultimate_linefeed_checkpoint_path(runtime: FindMagicRuntime) -> str:
     try:
         return str(runtime.ultimate_checkpoint_path() or "")
@@ -1154,19 +1176,15 @@ def _linefeed_run_ultimate_probe(
         "Opening the forbidden line-feed combinatorics vault no jutsu. I brought a checkpoint, because hope is not a persistence format.",
         "com",
     )
-    if _ultimate_linefeed_should_resume(runtime) and (
-        os.path.exists(progress_path) or os.path.exists(checkpoint_path)
-    ):
-        _cowsay(
-            runtime,
-            "Resume checkpoint found. I am rebuilding the useful frontier before the fish counter starts moving.",
-            "com",
-        )
-        _cowsay(
-            runtime,
-            "Please don't Panic!",
-            "bad",
-        )
+    if _ultimate_linefeed_should_resume(runtime):
+        resume_message = _ultimate_linefeed_resume_message(progress_path, checkpoint_path)
+        if resume_message:
+            _cowsay(runtime, resume_message, "com")
+            _cowsay(
+                runtime,
+                "Please don't Panic!",
+                "bad",
+            )
     _prime_ultimate_linefeed_minibar(runtime, budget_decision.budget)
     runtime.clear_dialogue_pause()
     try:
