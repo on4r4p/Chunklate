@@ -36,7 +36,8 @@
 - Keep a bounded visual gallery for ultimate line-feed brute-force candidates,
   including high-coverage `bad_adler` reconstructions whose original zlib
   trailer still does not match. A local reference can rank candidates with exact
-  pixel distance or generic similar-image patch/hash scoring.
+  pixel distance, generic similar-image patch/hash scoring, or manual ROI
+  scoring for related-but-not-identical screenshots.
 - Repair PNG text metadata damage, including `tEXt` null bytes, `iTXt`
   keyword/compression fields, and `zTXt` compression method or zlib data-format
   byte errors.
@@ -69,49 +70,38 @@ Or run it directly from the repository:
 
 Current CLI:
 
-    usage: Chunklate.py [-h] [-f FILE] [-c] [-p] [-d] [-df] [-dp] [-ep] [-sp]
-                        [-stfu] [-a] [--no-color] [--output-dir DIR]
-                        [--max-saves N] [-ulfb N] [-ulfu]
-                        [-ulfr PATH] [-ulfrm {exact,similar}]
-                        [-ulfpt SECONDS] [-ulfsp] [-ulfgl N]
-                        [-ulfmc FLOAT]
-                        [-ulf-resume {ask,auto,never,reset}]
+    usage: Chunklate.py [-h] [-f FILE] [-c] [-p] [-d] [-df] [-dp] [-ep] [-sp] [-stfu] [-a] [--no-color] [--output-dir DIR] [--max-saves N]
+                        [-ulfb N] [-ulfu] [-ulfr PATH] [-ulfrm {exact,similar}] [-ulfroi PATH] [-ulfroi-edit] [-ulfpt SECONDS] [-ulfsp]
+                        [-ulfgl N] [-ulfmc FLOAT] [-ulf-resume MODE]
 
     options:
-      -h, --help            show this help message and exit
-      -f, --file FILE       File path.
-      -c, --CLEAR, --clear  CLEAR screen at each saves.
-      -p, --pause           Pause at each saves.
-      -d, --debug           Debug stuffs.
-      -df, --debug-file     Append debug output to the normal summary file.
+      -h, --help    show this help message and exit
+      -f, --file FILE    File path.
+      -c, --CLEAR, --clear    CLEAR screen at each saves.
+      -p, --pause    Pause at each saves.
+      -d, --debug    Debug stuffs.
+      -df, --debug-file    Append debug output to the normal summary file.
       -dp, --pause-debug    Pause at Debug stuffs.
       -ep, --pause-error    Pause at errors.
-      -sp, --pause-dialogue
-                            Pause at dialogues.
-      -stfu, --shut-the-fuck-up
-                            Show minimal output.
-      -a, --auto            Auto Choose action.
-      --no-color            Disable terminal colors.
-      --output-dir DIR      Directory where Folder_* repair outputs are written.
-      --max-saves N         Exit successfully after writing N repaired files.
-      -ulfb, --ultimate-linefeed-budget N
-                            Ultimate candidate limit.
-      -ulfu, --ultimate-linefeed-unbounded
-                            No Ultimate candidate limit.
-      -ulfr, --ultimate-linefeed-reference PATH
-                            Reference PNG used to rank Ultimate candidates.
-      -ulfrm, --ultimate-linefeed-reference-mode {exact,similar}
-                            Scoring: exact=same PNG, similar=layout.
-      -ulfpt, --ultimate-linefeed-preview-timeout SECONDS
-                            Seconds to keep live previews open.
-      -ulfsp, --ultimate-linefeed-show-previews
-                            Open live Ultimate candidate previews.
-      -ulfgl, --ultimate-linefeed-visual-gallery-limit N
-                            Saved visual candidate count.
-      -ulfmc, --ultimate-linefeed-visual-min-coverage FLOAT
-                            Minimum gallery scanline coverage, 0..1.
-      -ulf-resume {ask,auto,never,reset}, --ultimate-linefeed-resume {ask,auto,never,reset}
-                            Resume policy for Ultimate checkpoints.
+      -sp, --pause-dialogue    Pause at dialogues.
+      -stfu, --shut-the-fuck-up    Show minimal output.
+      -a, --auto    Auto Choose action.
+      --no-color    Disable terminal colors.
+      --output-dir DIR    Directory where Folder_* repair outputs are written.
+      --max-saves N    Exit successfully after writing N repaired files.
+
+    ultimate line-feed:
+      -ulfb, --ultimate-linefeed-budget N    Ultimate candidate limit.
+      -ulfu, --ultimate-linefeed-unbounded    No Ultimate candidate limit.
+      -ulfr, --ultimate-linefeed-reference PATH    Reference PNG used to rank Ultimate candidates.
+      -ulfrm, --ultimate-linefeed-reference-mode {exact,similar}    Scoring: exact=same PNG, similar=layout.
+      -ulfroi, --ultimate-linefeed-reference-regions PATH    ROI JSON for similar reference scoring.
+      -ulfroi-edit, --ultimate-linefeed-reference-region-editor    Open the ROI editor before Ultimate.
+      -ulfpt, --ultimate-linefeed-preview-timeout SECONDS    Seconds to keep live previews open.
+      -ulfsp, --ultimate-linefeed-show-previews    Open live Ultimate candidate previews.
+      -ulfgl, --ultimate-linefeed-visual-gallery-limit N    Saved visual candidate count.
+      -ulfmc, --ultimate-linefeed-visual-min-coverage FLOAT    Minimum gallery scanline coverage, 0..1.
+      -ulf-resume, --ultimate-linefeed-resume MODE    Resume policy for Ultimate checkpoints.
 
 ## Development
 
@@ -197,7 +187,36 @@ When the gallery reaches its limit, better-ranked candidates still replace the
 current worst entry. The limit only bounds the saved gallery size. Without
 `-ulfr`, ranking uses structural signals and diversity hashes from
 recovered scanlines and operations; with a reference PNG, Chunklate also adds a
-pixel-distance `visual_score`.
+pixel-distance or similar-layout `visual_score`. The visual score is only a
+tie-break after structural quality, so a lower-scanline candidate should not
+beat a more complete candidate only because it resembles the reference.
+
+For similar references that are not the same image, manual ROI scoring can be
+used with `-ulfr REF.png -ulfrm similar`. If no ROI JSON exists in interactive
+mode, Chunklate opens a small Tkinter editor with the Ultimate source snapshot
+on the left and the reference image on the right.
+
+![Ultimate similar reference ROI editor](https://i.ibb.co/6J78wJtR/Screenshot-From-2026-06-04-03-41-05.png)
+
+Typical run:
+
+    python Chunklate.py -c -df -sp -f brokenjavapngsuite/6.bad.png -ulfrm similar -ulfr David/3.ok.png -ulfgl 500
+
+The ROI editor supports:
+
+- Paired rectangles: draw one rectangle on each image when the regions are known
+  to correspond.
+- `Add Single Rectangle`: save one region on only one image. Chunklate searches
+  for the closest matching region on the other image during visual scoring.
+- `Draw Same Rectangle`: copy the current rectangle to the same normalized
+  position on the other image.
+- Edge clamping: selections can start outside the displayed image; if most of
+  the dragged area overlaps the image, only the inside portion is kept.
+
+The mapping is saved as `Folder_x.bad/_ULF.reference_regions.json`, or at the
+path provided by `-ulfroi`. Manual ROI scoring is still only a visual tie-break:
+Adler matches and structural completeness stay stronger than resemblance to a
+reference.
 
 Files like `x00n0g01.png`, where `IHDR` is `0x0`, or `xdtn0g01.png`, which
 contains only `IHDR`, `gAMA`, and `IEND`, are classified as impossible to

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from contextlib import contextmanager
+from argparse import ArgumentParser
 import builtins
 import os
 import subprocess
@@ -75,6 +76,10 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "-ulfr" in result.stdout
     assert "--ultimate-linefeed-reference-mode" in result.stdout
     assert "-ulfrm" in result.stdout
+    assert "--ultimate-linefeed-reference-regions" in result.stdout
+    assert "-ulfroi" in result.stdout
+    assert "--ultimate-linefeed-reference-region-editor" in result.stdout
+    assert "-ulfroi-edit" in result.stdout
     assert "--ultimate-linefeed-preview-timeout" in result.stdout
     assert "-ulfpt" in result.stdout
     assert "--ultimate-linefeed-show-previews" in result.stdout
@@ -121,6 +126,22 @@ def test_ultimate_linefeed_budget_prompt_supports_abort_choice():
     assert "8. no limit" in calls[0][2]
     assert "9. manual          exact candidate budget" in calls[0][2]
     assert "10. quit like a looser." in calls[0][2]
+
+
+def test_ultimate_linefeed_reference_roi_cli_aliases_parse():
+    parser = Chunklate.cli.configure_parser(ArgumentParser())
+    args = parser.parse_args(
+        [
+            "-f",
+            "sample.png",
+            "-ulfroi",
+            "regions.json",
+            "-ulfroi-edit",
+        ]
+    )
+
+    assert args.ULTIMATE_LINEFEED_REFERENCE_REGIONS == "regions.json"
+    assert args.ULTIMATE_LINEFEED_REFERENCE_REGION_EDITOR is True
 
 
 def test_missing_file_argument_returns_usage_error():

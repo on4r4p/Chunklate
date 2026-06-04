@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -29,6 +30,10 @@ def build_runtime(
     ultimate_linefeed_budget=None,
     ultimate_linefeed_reference=None,
     ultimate_linefeed_reference_mode=None,
+    ultimate_linefeed_reference_regions=None,
+    ultimate_linefeed_reference_region_editor=None,
+    ultimate_linefeed_reference_region_editor_run=None,
+    ultimate_linefeed_interactive=None,
     ultimate_linefeed_source=None,
     ultimate_visual_gallery_limit=None,
     ultimate_visual_min_coverage=None,
@@ -77,6 +82,17 @@ def build_runtime(
         ),
         ultimate_linefeed_reference=ultimate_linefeed_reference or (lambda: ""),
         ultimate_linefeed_reference_mode=ultimate_linefeed_reference_mode or (lambda: "exact"),
+        ultimate_linefeed_reference_regions=ultimate_linefeed_reference_regions or (lambda: ""),
+        ultimate_linefeed_reference_region_editor=ultimate_linefeed_reference_region_editor or (lambda: False),
+        ultimate_linefeed_reference_region_editor_run=ultimate_linefeed_reference_region_editor_run
+        or (
+            lambda *args, **kwargs: magic_runtime.ultimate_reference_ui.ReferenceRegionEditorResult(
+                False,
+                str(args[2]) if len(args) > 2 else "",
+                "editor not wired",
+            )
+        ),
+        ultimate_linefeed_interactive=ultimate_linefeed_interactive or (lambda: True),
         ultimate_source_path=ultimate_linefeed_source or (lambda: ""),
         ultimate_visual_gallery_limit=ultimate_visual_gallery_limit
         or (lambda: magic_runtime.idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT),
@@ -780,6 +796,126 @@ def test_linefeed_queue_progress_draws_zero_state_after_build():
         (701254065, 9, 0, True),
         (701254065, 9, 0, False),
     ]
+
+
+def _write_roi_mapping(path, source_data, reference_path):
+    reference_image, _warning = magic_runtime.idat_bruteforce._load_ultimate_reference_image(
+        str(reference_path)
+    )
+    record = magic_runtime.idat_bruteforce.build_ultimate_reference_regions_record(
+        candidate_size=(1, 1),
+        reference_size=(1, 1),
+        candidate_hash=magic_runtime.idat_bruteforce._ultimate_image_hash_from_bytes(source_data),
+        reference_hash=magic_runtime.idat_bruteforce._ultimate_image_hash_from_image(reference_image),
+        regions=(
+            magic_runtime.idat_bruteforce.UltimateReferenceRegion(
+                candidate_region=(0.0, 0.0, 1.0, 1.0),
+                reference_region=(0.0, 0.0, 1.0, 1.0),
+                weight=1.0,
+                label="full",
+            ),
+        ),
+    )
+    path.write_text(json.dumps(record), encoding="utf-8")
+
+
+def test_ultimate_reference_regions_editor_opens_when_missing(tmp_path):
+    calls = []
+    source_data = tiny_rgb_png()
+    source_path = tmp_path / "_ULF.Source.png"
+    reference_path = tmp_path / "reference.png"
+    regions_path = tmp_path / "_ULF.reference_regions.json"
+    source_path.write_bytes(source_data)
+    reference_path.write_bytes(source_data)
+
+    def editor(source, reference, output, **kwargs):
+        calls.append(("editor", source, reference, output, kwargs.get("source_data")))
+        _write_roi_mapping(Path(output), source_data, reference_path)
+        return magic_runtime.ultimate_reference_ui.ReferenceRegionEditorResult(
+            True,
+            output,
+            region_count=1,
+        )
+
+    runtime = build_runtime(
+        calls,
+        ultimate_linefeed_reference=lambda: str(reference_path),
+        ultimate_linefeed_reference_mode=lambda: "similar",
+        ultimate_linefeed_reference_regions=lambda: str(regions_path),
+        ultimate_linefeed_reference_region_editor_run=editor,
+    )
+
+    result = magic_runtime._prepare_ultimate_reference_regions(
+        runtime,
+        source_data=source_data,
+        source_path=str(source_path),
+        checkpoint_path=str(tmp_path / "_ULF.checkpoint.jsonl"),
+    )
+
+    assert result == str(regions_path)
+    editor_call = next(call for call in calls if call[0] == "editor")
+    assert editor_call[1:4] == (str(source_path), str(reference_path), str(regions_path))
+
+
+def test_ultimate_reference_regions_existing_mapping_skips_editor(tmp_path):
+    calls = []
+    source_data = tiny_rgb_png()
+    source_path = tmp_path / "_ULF.Source.png"
+    reference_path = tmp_path / "reference.png"
+    regions_path = tmp_path / "_ULF.reference_regions.json"
+    source_path.write_bytes(source_data)
+    reference_path.write_bytes(source_data)
+    _write_roi_mapping(regions_path, source_data, reference_path)
+
+    runtime = build_runtime(
+        calls,
+        ultimate_linefeed_reference=lambda: str(reference_path),
+        ultimate_linefeed_reference_mode=lambda: "similar",
+        ultimate_linefeed_reference_regions=lambda: str(regions_path),
+        ultimate_linefeed_reference_region_editor_run=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("editor should not open")
+        ),
+    )
+
+    result = magic_runtime._prepare_ultimate_reference_regions(
+        runtime,
+        source_data=source_data,
+        source_path=str(source_path),
+        checkpoint_path=str(tmp_path / "_ULF.checkpoint.jsonl"),
+    )
+
+    assert result == str(regions_path)
+
+
+def test_ultimate_reference_regions_noninteractive_falls_back_to_auto_patch(tmp_path):
+    calls = []
+    source_data = tiny_rgb_png()
+    source_path = tmp_path / "_ULF.Source.png"
+    reference_path = tmp_path / "reference.png"
+    source_path.write_bytes(source_data)
+    reference_path.write_bytes(source_data)
+    runtime = build_runtime(
+        calls,
+        ultimate_linefeed_reference=lambda: str(reference_path),
+        ultimate_linefeed_reference_mode=lambda: "similar",
+        ultimate_linefeed_interactive=lambda: False,
+        ultimate_linefeed_reference_region_editor_run=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("editor should not open")
+        ),
+    )
+
+    result = magic_runtime._prepare_ultimate_reference_regions(
+        runtime,
+        source_data=source_data,
+        source_path=str(source_path),
+        checkpoint_path=str(tmp_path / "_ULF.checkpoint.jsonl"),
+    )
+
+    assert result == ""
+    assert any(
+        call[0] == "candy" and "auto-patch" in str(call[1][1])
+        for call in calls
+    )
 
 
 def test_ultimate_linefeed_direct_resume_skips_find_magic_tour():

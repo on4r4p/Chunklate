@@ -53,6 +53,9 @@ def test_configure_parser_preserves_legacy_options():
     assert "--no-color" in help_text
     assert "--output-dir DIR" in help_text
     assert "--max-saves N" in help_text
+    assert "\n\nultimate line-feed:\n" in help_text
+    assert "--max-saves N    Exit successfully after writing N repaired files." in help_text
+    assert "-ulfb, --ultimate-linefeed-budget N    Ultimate candidate limit." in help_text
     assert "-ulfb N" in help_text
     assert "--ultimate-linefeed-budget N" in help_text
     assert "-ulfu" in help_text
@@ -61,6 +64,10 @@ def test_configure_parser_preserves_legacy_options():
     assert "--ultimate-linefeed-reference PATH" in help_text
     assert "-ulfrm {exact,similar}" in help_text
     assert "--ultimate-linefeed-reference-mode {exact,similar}" in help_text
+    assert "-ulfroi PATH" in help_text
+    assert "--ultimate-linefeed-reference-regions PATH" in help_text
+    assert "-ulfroi-edit" in help_text
+    assert "--ultimate-linefeed-reference-region-editor" in help_text
     assert "-ulfpt SECONDS" in help_text
     assert "--ultimate-linefeed-preview-timeout SECONDS" in help_text
     assert "-ulfsp" in help_text
@@ -69,12 +76,15 @@ def test_configure_parser_preserves_legacy_options():
     assert "--ultimate-linefeed-visual-gallery-limit N" in help_text
     assert "-ulfmc FLOAT" in help_text
     assert "--ultimate-linefeed-visual-min-coverage FLOAT" in help_text
-    assert "-ulf-resume {ask,auto,never,reset}" in help_text
-    assert "--ultimate-linefeed-resume {ask,auto,never,reset}" in help_text
+    assert "-ulf-resume, --ultimate-linefeed-resume MODE" in help_text
+    assert "-ulf-resume {ask,auto,never,reset}" not in help_text
+    assert "--ultimate-linefeed-resume {ask,auto,never,reset}" not in help_text
     assert "--ulf-budget" not in help_text
     assert "--ulf-unbounded" not in help_text
     assert "--ulf-reference " not in help_text
     assert "--ulf-reference-mode" not in help_text
+    assert "--ulf-reference-regions" not in help_text
+    assert "--ulf-reference-region-editor" not in help_text
     assert "--ulf-preview-timeout" not in help_text
     assert "--ulf-show-previews" not in help_text
     assert "--ulf-gallery-limit" not in help_text
@@ -83,6 +93,8 @@ def test_configure_parser_preserves_legacy_options():
     assert "--ulfu" not in help_text
     assert "--ulfr" not in help_text
     assert "--ulfrm" not in help_text
+    assert "--ulfroi" not in help_text
+    assert "--ulfroi-edit" not in help_text
     assert "--ulfpt" not in help_text
     assert "--ulfsp" not in help_text
     assert "--ulfgl" not in help_text

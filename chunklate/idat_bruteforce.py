@@ -30,6 +30,8 @@ ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE = 0.95
 ULTIMATE_LINEFEED_VISUAL_PROGRESS_VERSION = 1
 ULTIMATE_LINEFEED_VISUAL_PREVIEW_FOLDER = ("Bruteforce_Previews", "VisualCandidates")
 ULTIMATE_LINEFEED_REFERENCE_MODES = ("exact", "similar")
+ULTIMATE_LINEFEED_REFERENCE_REGION_NAME = "_ULF.reference_regions.json"
+ULTIMATE_LINEFEED_REFERENCE_REGION_VERSION = 1
 ULTIMATE_LINEFEED_BUDGET_DIVISORS = {
     "quick": 100_000,
     "normal": 50_000,
@@ -205,6 +207,7 @@ class UltimateLinefeedProbeResult:
     top_candidates: tuple[SuperMegaLinefeedCandidate, ...] = ()
     reference_path: str = ""
     reference_mode: str = "exact"
+    reference_regions_path: str = ""
     reference_warning: str = ""
     progress_path: str = ""
     progress_resumed: bool = False
@@ -269,12 +272,33 @@ class UltimatePatchFeature:
 
 
 @dataclass(frozen=True)
+class UltimateReferenceRegion:
+    candidate_region: tuple[float, float, float, float]
+    reference_region: tuple[float, float, float, float]
+    weight: float = 1.0
+    label: str = ""
+    match_mode: str = "paired"
+
+
+@dataclass(frozen=True)
+class UltimateReferenceRegions:
+    path: str = ""
+    candidate_size: tuple[int, int] = (0, 0)
+    reference_size: tuple[int, int] = (0, 0)
+    candidate_hash: str = ""
+    reference_hash: str = ""
+    regions: tuple[UltimateReferenceRegion, ...] = ()
+    warning: str = ""
+
+
+@dataclass(frozen=True)
 class UltimateVisualReference:
     image: object | None
     mode: str
     gray: object | None = None
     edges: object | None = None
     patches: tuple[UltimatePatchFeature, ...] = ()
+    regions: UltimateReferenceRegions | None = None
 
 
 @dataclass(frozen=True)
@@ -1925,6 +1949,209 @@ def _coerce_ultimate_reference_mode(reference_mode: object) -> str:
     return mode if mode in ULTIMATE_LINEFEED_REFERENCE_MODES else "exact"
 
 
+def _ultimate_image_hash_from_bytes(data: bytes) -> str:
+    return hashlib.blake2b(data, digest_size=16).hexdigest()
+
+
+def _ultimate_image_hash_from_image(image) -> str:
+    try:
+        rgba = image.convert("RGBA")
+        payload = json.dumps(
+            {"mode": "RGBA", "size": list(rgba.size)},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8") + rgba.tobytes()
+        return hashlib.blake2b(payload, digest_size=16).hexdigest()
+    except Exception:
+        return ""
+
+
+def _ultimate_png_size_from_bytes(data: bytes) -> tuple[int, int]:
+    if not data:
+        return (0, 0)
+    try:
+        from io import BytesIO
+        from PIL import Image
+
+        with Image.open(BytesIO(data)) as image:
+            return tuple(int(value) for value in image.size)
+    except Exception:
+        return (0, 0)
+
+
+def _coerce_ultimate_region(values: object) -> tuple[float, float, float, float] | None:
+    if not isinstance(values, (list, tuple)) or len(values) != 4:
+        return None
+    try:
+        x0, y0, x1, y1 = (float(value) for value in values)
+    except (TypeError, ValueError):
+        return None
+    left = min(x0, x1)
+    right = max(x0, x1)
+    top = min(y0, y1)
+    bottom = max(y0, y1)
+    left = min(1.0, max(0.0, left))
+    right = min(1.0, max(0.0, right))
+    top = min(1.0, max(0.0, top))
+    bottom = min(1.0, max(0.0, bottom))
+    if right - left <= 0.001 or bottom - top <= 0.001:
+        return None
+    return (left, top, right, bottom)
+
+
+def _coerce_ultimate_region_size(values: object) -> tuple[int, int]:
+    if not isinstance(values, (list, tuple)) or len(values) != 2:
+        return (0, 0)
+    try:
+        width, height = (int(value) for value in values)
+    except (TypeError, ValueError):
+        return (0, 0)
+    return (max(0, width), max(0, height))
+
+
+def _ultimate_reference_hash_from_record(record: dict[str, object], key: str) -> str:
+    section = record.get(key)
+    if isinstance(section, dict):
+        return str(section.get("hash", "") or "")
+    return str(record.get("%s_hash" % key, "") or "")
+
+
+def _ultimate_reference_size_from_record(record: dict[str, object], key: str) -> tuple[int, int]:
+    section = record.get(key)
+    if isinstance(section, dict):
+        return _coerce_ultimate_region_size(section.get("size"))
+    return _coerce_ultimate_region_size(record.get("%s_size" % key))
+
+
+def _ultimate_reference_regions_from_record(
+    record: dict[str, object],
+    *,
+    path: str = "",
+) -> tuple[UltimateReferenceRegions | None, str]:
+    try:
+        version = int(record.get("version", 0) or 0)
+    except (TypeError, ValueError):
+        version = 0
+    if version != ULTIMATE_LINEFEED_REFERENCE_REGION_VERSION:
+        return None, "reference region mapping has unsupported version %s" % version
+
+    items = record.get("regions", ())
+    if not isinstance(items, list):
+        return None, "reference region mapping has no valid regions list"
+
+    regions: list[UltimateReferenceRegion] = []
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            continue
+        candidate_region = _coerce_ultimate_region(item.get("candidate_region"))
+        reference_region = _coerce_ultimate_region(item.get("reference_region"))
+        if candidate_region is None or reference_region is None:
+            continue
+        try:
+            weight = float(item.get("weight", 1.0))
+        except (TypeError, ValueError):
+            weight = 1.0
+        if weight <= 0:
+            weight = 1.0
+        label = str(item.get("label", "") or "ROI %s" % index)
+        match_mode = str(item.get("match_mode", "") or "paired")
+        if match_mode not in {"paired", "search_candidate", "search_reference"}:
+            match_mode = "paired"
+        regions.append(
+            UltimateReferenceRegion(
+                candidate_region=candidate_region,
+                reference_region=reference_region,
+                weight=weight,
+                label=label,
+                match_mode=match_mode,
+            )
+        )
+    if not regions:
+        return None, "reference region mapping is empty"
+
+    mapping = UltimateReferenceRegions(
+        path=path,
+        candidate_size=_ultimate_reference_size_from_record(record, "candidate"),
+        reference_size=_ultimate_reference_size_from_record(record, "reference"),
+        candidate_hash=_ultimate_reference_hash_from_record(record, "candidate"),
+        reference_hash=_ultimate_reference_hash_from_record(record, "reference"),
+        regions=tuple(regions),
+    )
+    return mapping, ""
+
+
+def load_ultimate_reference_regions(
+    path: str,
+    *,
+    candidate_data: bytes = b"",
+    reference_image=None,
+) -> tuple[UltimateReferenceRegions | None, str]:
+    if not path:
+        return None, ""
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            record = json.load(file)
+    except OSError as exc:
+        return None, "could not load reference regions %s: %s" % (path, exc)
+    except json.JSONDecodeError as exc:
+        return None, "reference region mapping is not valid JSON: %s" % exc
+    if not isinstance(record, dict):
+        return None, "reference region mapping is not an object"
+
+    mapping, warning = _ultimate_reference_regions_from_record(record, path=path)
+    if mapping is None:
+        return None, warning
+
+    warnings: list[str] = []
+    if candidate_data:
+        actual_hash = _ultimate_image_hash_from_bytes(candidate_data)
+        actual_size = _ultimate_png_size_from_bytes(candidate_data)
+        if mapping.candidate_hash and mapping.candidate_hash != actual_hash:
+            warnings.append("candidate snapshot hash differs from the ROI mapping")
+        if mapping.candidate_size != (0, 0) and actual_size != (0, 0) and mapping.candidate_size != actual_size:
+            warnings.append("candidate snapshot size differs from the ROI mapping")
+    if reference_image is not None:
+        actual_hash = _ultimate_image_hash_from_image(reference_image)
+        actual_size = tuple(int(value) for value in getattr(reference_image, "size", (0, 0)))
+        if mapping.reference_hash and actual_hash and mapping.reference_hash != actual_hash:
+            warnings.append("reference image hash differs from the ROI mapping")
+        if mapping.reference_size != (0, 0) and actual_size != (0, 0) and mapping.reference_size != actual_size:
+            warnings.append("reference image size differs from the ROI mapping")
+
+    return replace(mapping, warning="; ".join(warnings)), "; ".join(warnings)
+
+
+def build_ultimate_reference_regions_record(
+    *,
+    candidate_size: tuple[int, int],
+    reference_size: tuple[int, int],
+    candidate_hash: str,
+    reference_hash: str,
+    regions: tuple[UltimateReferenceRegion, ...],
+) -> dict[str, object]:
+    return {
+        "version": ULTIMATE_LINEFEED_REFERENCE_REGION_VERSION,
+        "candidate": {
+            "size": [int(candidate_size[0]), int(candidate_size[1])],
+            "hash": str(candidate_hash or ""),
+        },
+        "reference": {
+            "size": [int(reference_size[0]), int(reference_size[1])],
+            "hash": str(reference_hash or ""),
+        },
+        "regions": [
+            {
+                "candidate_region": [float(value) for value in region.candidate_region],
+                "reference_region": [float(value) for value in region.reference_region],
+                "weight": float(region.weight),
+                "label": region.label,
+                "match_mode": region.match_mode,
+            }
+            for region in regions
+        ],
+    }
+
+
 def _pil_lanczos_filter():
     try:
         from PIL import Image
@@ -2145,9 +2372,123 @@ def _ultimate_global_hash_score(candidate_gray, reference_gray) -> float:
         )
 
 
+def _ultimate_crop_region(image, region: tuple[float, float, float, float]):
+    width, height = image.size
+    left = max(0, min(width - 1, int(round(region[0] * width))))
+    top = max(0, min(height - 1, int(round(region[1] * height))))
+    right = max(left + 1, min(width, int(round(region[2] * width))))
+    bottom = max(top + 1, min(height, int(round(region[3] * height))))
+    return image.crop((left, top, right, bottom))
+
+
+def _ultimate_roi_pair_score(candidate_crop, reference_crop) -> float:
+    size = (96, 96)
+    candidate_gray = candidate_crop.convert("L").resize(size, _pil_lanczos_filter())
+    reference_gray = reference_crop.convert("L").resize(size, _pil_lanczos_filter())
+    candidate_edges = _ultimate_edge_image(candidate_gray)
+    reference_edges = _ultimate_edge_image(reference_gray)
+    patch_score, _matched = _ultimate_auto_patch_score(
+        _ultimate_patch_features(candidate_gray, grid=4),
+        _ultimate_patch_features(reference_gray, grid=4),
+        limit=8,
+    )
+    layout_score = _ultimate_global_layout_score(candidate_edges, reference_edges)
+    projection_score = _ultimate_projection_score(candidate_edges, reference_edges)
+    hash_score = _ultimate_global_hash_score(candidate_gray, reference_gray)
+    return float(
+        0.40 * layout_score
+        + 0.25 * projection_score
+        + 0.25 * hash_score
+        + 0.10 * patch_score
+    )
+
+
+def _ultimate_search_regions(
+    window: tuple[float, float],
+    *,
+    steps: int = 7,
+) -> tuple[tuple[float, float, float, float], ...]:
+    width = min(1.0, max(0.02, float(window[0])))
+    height = min(1.0, max(0.02, float(window[1])))
+    x_span = max(0.0, 1.0 - width)
+    y_span = max(0.0, 1.0 - height)
+    x_steps = 1 if x_span <= 0.0001 else max(2, steps)
+    y_steps = 1 if y_span <= 0.0001 else max(2, steps)
+    xs = [0.0] if x_steps == 1 else [x_span * index / float(x_steps - 1) for index in range(x_steps)]
+    ys = [0.0] if y_steps == 1 else [y_span * index / float(y_steps - 1) for index in range(y_steps)]
+    return tuple((x, y, x + width, y + height) for y in ys for x in xs)
+
+
+def _ultimate_best_region_search_score(
+    target_image,
+    probe_crop,
+    probe_region: tuple[float, float, float, float],
+) -> float:
+    window = (
+        max(0.02, probe_region[2] - probe_region[0]),
+        max(0.02, probe_region[3] - probe_region[1]),
+    )
+    best_score: float | None = None
+    for target_region in _ultimate_search_regions(window):
+        target_crop = _ultimate_crop_region(target_image, target_region)
+        score = _ultimate_roi_pair_score(target_crop, probe_crop)
+        if best_score is None or score < best_score:
+            best_score = score
+    return float(best_score if best_score is not None else 100.0)
+
+
+def _ultimate_manual_roi_visual_score(
+    candidate_data: bytes,
+    reference_image: UltimateVisualReference,
+) -> UltimateVisualScore:
+    reference = reference_image.image
+    regions = reference_image.regions
+    if reference is None or regions is None or not regions.regions:
+        return UltimateVisualScore(None)
+    try:
+        candidate = _decode_ultimate_rgba_image(candidate_data)
+        weighted_total = 0.0
+        weight_total = 0.0
+        matched_count = 0
+        for region in regions.regions:
+            candidate_crop = _ultimate_crop_region(candidate, region.candidate_region)
+            reference_crop = _ultimate_crop_region(reference, region.reference_region)
+            weight = max(0.0, float(region.weight))
+            if weight <= 0:
+                continue
+            if region.match_mode == "search_candidate":
+                score = _ultimate_best_region_search_score(
+                    candidate,
+                    reference_crop,
+                    region.reference_region,
+                )
+            elif region.match_mode == "search_reference":
+                score = _ultimate_best_region_search_score(
+                    reference,
+                    candidate_crop,
+                    region.candidate_region,
+                )
+            else:
+                score = _ultimate_roi_pair_score(candidate_crop, reference_crop)
+            weighted_total += score * weight
+            weight_total += weight
+            matched_count += 1
+        if matched_count <= 0 or weight_total <= 0:
+            return UltimateVisualScore(None)
+        return UltimateVisualScore(
+            weighted_total / weight_total,
+            "similar_manual_roi",
+            matched_count,
+        )
+    except Exception:
+        return UltimateVisualScore(None)
+
+
 def _ultimate_similar_visual_score(candidate_data: bytes, reference_image) -> UltimateVisualScore:
     reference = reference_image
     if isinstance(reference_image, UltimateVisualReference):
+        if reference_image.regions is not None and reference_image.regions.regions:
+            return _ultimate_manual_roi_visual_score(candidate_data, reference_image)
         reference = reference_image.image
     if reference is None:
         return UltimateVisualScore(None)
@@ -2181,7 +2522,12 @@ def _ultimate_similar_visual_score(candidate_data: bytes, reference_image) -> Ul
         return UltimateVisualScore(None)
 
 
-def _ultimate_visual_reference(reference_image, *, reference_mode: str) -> UltimateVisualReference:
+def _ultimate_visual_reference(
+    reference_image,
+    *,
+    reference_mode: str,
+    reference_regions: UltimateReferenceRegions | None = None,
+) -> UltimateVisualReference:
     mode = _coerce_ultimate_reference_mode(reference_mode)
     if reference_image is None:
         return UltimateVisualReference(None, mode)
@@ -2191,9 +2537,16 @@ def _ultimate_visual_reference(reference_image, *, reference_mode: str) -> Ultim
         gray = _resize_ultimate_gray(reference_image)
         edges = _ultimate_edge_image(gray)
         patches = _ultimate_patch_features(gray)
-        return UltimateVisualReference(reference_image, mode, gray=gray, edges=edges, patches=patches)
+        return UltimateVisualReference(
+            reference_image,
+            mode,
+            gray=gray,
+            edges=edges,
+            patches=patches,
+            regions=reference_regions,
+        )
     except Exception:
-        return UltimateVisualReference(reference_image, mode)
+        return UltimateVisualReference(reference_image, mode, regions=reference_regions)
 
 
 def _ultimate_visual_score(
@@ -2257,22 +2610,15 @@ def _ultimate_top_candidate_key(candidate: SuperMegaLinefeedCandidate) -> str:
 def _ultimate_top_candidate_rank(candidate: SuperMegaLinefeedCandidate) -> tuple[object, ...]:
     visual_score = candidate.visual_score
     candidate_score = candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations))
-    if visual_score is not None:
-        return (
-            0 if candidate.after.adler_status == "adler_match" else 1,
-            float(visual_score),
-            0 if candidate.after.complete else 1,
-            -candidate.after.usable_scanlines,
-            -candidate.after.complete_scanlines,
-            -candidate_score[0],
-            len(candidate.operations),
-            candidate.state_id,
-        )
     return (
         0 if candidate.after.adler_status == "adler_match" else 1,
         0 if candidate.after.complete else 1,
         -candidate.after.usable_scanlines,
         -candidate.after.complete_scanlines,
+        -candidate_score[1] if len(candidate_score) > 1 else 0,
+        -candidate_score[4] if len(candidate_score) > 4 else 0,
+        abs(candidate.after.decompressed_size - candidate.after.expected_size),
+        -(candidate.after.error_offset if candidate.after.error_offset is not None else -1),
         visual_score is None,
         float("inf") if visual_score is None else visual_score,
         -candidate_score[0],
@@ -2344,31 +2690,17 @@ def _ultimate_visual_candidate_rank(
     error_offset = candidate.after.error_offset if candidate.after.error_offset is not None else -1
     visual_rank = 1_000_000_000_000.0 if visual_score is None else float(visual_score)
     score = candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations))
-    if visual_score is not None:
-        return (
-            0 if candidate.after.adler_status == "adler_match" else 1,
-            visual_rank,
-            -coverage,
-            -candidate.after.usable_scanlines,
-            -candidate.after.complete_scanlines,
-            status_rank,
-            adler_rank,
-            expected_delta,
-            -error_offset,
-            len(candidate.operations),
-            tuple(-value for value in score),
-            candidate.state_id,
-        )
     return (
+        0 if candidate.after.adler_status == "adler_match" else 1,
         -candidate.after.usable_scanlines,
         -candidate.after.complete_scanlines,
         -coverage,
         status_rank,
         adler_rank,
-        visual_score is None,
-        visual_rank,
         expected_delta,
         -error_offset,
+        visual_score is None,
+        visual_rank,
         len(candidate.operations),
         tuple(-value for value in score),
         candidate.state_id,
@@ -2567,6 +2899,7 @@ def _write_ultimate_visual_gallery(
     *,
     limit: int,
     reference_mode: str = "exact",
+    reference_regions_path: str = "",
     source_hash: str = "",
     phase: str = "",
     depth: int = 0,
@@ -2597,6 +2930,7 @@ def _write_ultimate_visual_gallery(
             "version": ULTIMATE_LINEFEED_VISUAL_PROGRESS_VERSION,
             "source_hash": source_hash,
             "reference_mode": _coerce_ultimate_reference_mode(reference_mode),
+            "reference_regions_path": reference_regions_path,
             "phase": phase,
             "depth": depth,
             "tested_candidates": tested_candidates,
@@ -2634,6 +2968,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     budget: int | None = 50000,
     reference_path: str = "",
     reference_mode: str = "exact",
+    reference_regions_path: str = "",
     progress: QueueProgressCallback | None = None,
     candidate_preview: UltimateCandidatePreviewCallback | None = None,
     progress_path: str = "",
@@ -2647,7 +2982,20 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     visual_gallery_limit = _coerce_ultimate_visual_gallery_limit(visual_gallery_limit)
     visual_min_coverage = _coerce_ultimate_visual_min_coverage(visual_min_coverage)
     reference_image, reference_warning = _load_ultimate_reference_image(reference_path)
-    reference_context = _ultimate_visual_reference(reference_image, reference_mode=reference_mode)
+    reference_regions = None
+    if reference_mode == "similar" and reference_image is not None and reference_regions_path:
+        reference_regions, regions_warning = load_ultimate_reference_regions(
+            reference_regions_path,
+            candidate_data=data,
+            reference_image=reference_image,
+        )
+        if regions_warning:
+            reference_warning = "; ".join(item for item in (reference_warning, regions_warning) if item)
+    reference_context = _ultimate_visual_reference(
+        reference_image,
+        reference_mode=reference_mode,
+        reference_regions=reference_regions,
+    )
     budget_limit = None if budget is None else max(0, int(budget))
     progress_total = UNBOUNDED_PROGRESS_TOTAL if budget_limit is None else max(1, budget_limit)
     if not progress_path:
@@ -2674,6 +3022,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             strategy,
             before.reason,
             reference_mode=reference_mode,
+            reference_regions_path=reference_regions_path,
             progress_path=progress_path,
             visual_gallery_path=visual_gallery_path,
             visual_gallery_limit=visual_gallery_limit,
@@ -2703,6 +3052,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                 strategy,
                 "IDAT stream is already complete with matching Adler",
                 reference_mode=reference_mode,
+                reference_regions_path=reference_regions_path,
                 progress_path=progress_path,
                 visual_gallery_path=visual_gallery_path,
                 visual_gallery_limit=visual_gallery_limit,
@@ -2729,6 +3079,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             strategy,
             str(exc),
             reference_mode=reference_mode,
+            reference_regions_path=reference_regions_path,
             progress_path=progress_path,
             visual_gallery_path=visual_gallery_path,
             visual_gallery_limit=visual_gallery_limit,
@@ -2901,6 +3252,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                 visual_candidates,
                 limit=visual_gallery_limit,
                 reference_mode=reference_mode,
+                reference_regions_path=reference_regions_path,
                 source_hash=source_hash,
                 phase=snapshot_phase,
                 depth=snapshot_depth,
@@ -3204,6 +3556,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         top_candidates=top_candidates,
         reference_path=reference_path,
         reference_mode=reference_mode,
+        reference_regions_path=reference_regions_path,
         reference_warning=reference_warning,
         progress_path=progress_path,
         progress_resumed=progress_resume is not None,
@@ -4331,6 +4684,8 @@ def ultimate_linefeed_probe_summary_line(result: UltimateLinefeedProbeResult) ->
         line += "; progress resumed"
     if result.reference_path:
         line += "; reference_mode=%s" % result.reference_mode
+    if result.reference_regions_path:
+        line += "; reference_regions=%s" % result.reference_regions_path
     if result.best is not None:
         line += "; best_score=%s" % (
             result.best.score or super_mega_linefeed_score(result.best.after, len(result.best.operations)),

@@ -1039,7 +1039,7 @@ def test_ultimate_visual_gallery_limit_evicts_worst_candidate():
     assert gallery[0].candidate.after.usable_scanlines == 3
 
 
-def test_ultimate_visual_gallery_reference_rank_beats_scanline_count():
+def test_ultimate_visual_gallery_structure_beats_reference_rank():
     filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
     partial = build_rgb_png(1, 3, filtered, idat_data=zlib.compress(filtered[:8]))
     partial_analysis = idat.analyze_idat_stream(partial)
@@ -1077,10 +1077,10 @@ def test_ultimate_visual_gallery_reference_rank_beats_scanline_count():
         visual_score=visually_bad_full.visual_score,
     )
 
-    assert close_rank < bad_full_rank
+    assert bad_full_rank < close_rank
 
 
-def test_ultimate_top_candidates_reference_rank_beats_scanline_count():
+def test_ultimate_top_candidates_structure_beats_reference_rank():
     filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
     partial = build_rgb_png(1, 3, filtered, idat_data=zlib.compress(filtered[:8]))
     partial_analysis = idat.analyze_idat_stream(partial)
@@ -1108,6 +1108,37 @@ def test_ultimate_top_candidates_reference_rank_beats_scanline_count():
     )
 
     top = idat_bruteforce._remember_ultimate_top_candidate((), visually_bad_full, limit=1)
+    top = idat_bruteforce._remember_ultimate_top_candidate(top, visually_close, limit=1)
+
+    assert top[0].state_id == 2
+
+
+def test_ultimate_top_candidates_reference_rank_breaks_structural_ties():
+    filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 3, filtered, idat_data=bytes(compressed))
+    analysis = idat.analyze_idat_stream(corrupt)
+    visually_close = idat_bruteforce.SuperMegaLinefeedCandidate(
+        corrupt,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        analysis,
+        analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(analysis, 1),
+        visual_score=0.0,
+    )
+    visually_bad = idat_bruteforce.SuperMegaLinefeedCandidate(
+        corrupt,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 8, b"", b"\r"),),
+        analysis,
+        analysis,
+        state_id=2,
+        score=idat_bruteforce.super_mega_linefeed_score(analysis, 1),
+        visual_score=100.0,
+    )
+
+    top = idat_bruteforce._remember_ultimate_top_candidate((), visually_bad, limit=1)
     top = idat_bruteforce._remember_ultimate_top_candidate(top, visually_close, limit=1)
 
     assert top[0].state_id == 1
@@ -1146,6 +1177,7 @@ def test_ultimate_visual_gallery_write_removes_obsolete_previews(tmp_path):
         gallery,
         limit=1,
         reference_mode="similar",
+        reference_regions_path="Folder_x.bad/_ULF.reference_regions.json",
         source_hash="source",
         phase="complete",
         depth=1,
@@ -1162,6 +1194,7 @@ def test_ultimate_visual_gallery_write_removes_obsolete_previews(tmp_path):
     record = json.loads(gallery_path.read_text(encoding="utf-8"))
     assert record["preview_count"] == 1
     assert record["reference_mode"] == "similar"
+    assert record["reference_regions_path"] == "Folder_x.bad/_ULF.reference_regions.json"
     assert record["candidates"][0]["preview_kind"] == "rebuilt_adler_preview"
     assert "visual_score_kind" in record["candidates"][0]
     assert "matched_patch_count" in record["candidates"][0]
@@ -1734,6 +1767,152 @@ def test_ultimate_linefeed_similar_reference_scores_different_sizes(tmp_path):
     assert similar_score.score < unrelated_score.score
     assert exact_score.kind == "exact_rgba"
     assert math.isinf(exact_score.score)
+
+
+def test_ultimate_reference_regions_loads_clamped_schema(tmp_path):
+    reference_path = tmp_path / "reference.png"
+    source = visual_scope_png(96, 64, variant="scope")
+    reference_path.write_bytes(source)
+    reference_image, _warning = idat_bruteforce._load_ultimate_reference_image(str(reference_path))
+    record = {
+        "version": idat_bruteforce.ULTIMATE_LINEFEED_REFERENCE_REGION_VERSION,
+        "candidate": {
+            "size": [96, 64],
+            "hash": idat_bruteforce._ultimate_image_hash_from_bytes(source),
+        },
+        "reference": {
+            "size": [96, 64],
+            "hash": idat_bruteforce._ultimate_image_hash_from_image(reference_image),
+        },
+        "regions": [
+            {
+                "candidate_region": [-1.0, 0.1, 0.7, 1.5],
+                "reference_region": [0.0, 0.0, 1.0, 1.0],
+                "weight": 2,
+                "label": "scope",
+                "match_mode": "search_candidate",
+            }
+        ],
+    }
+    regions_path = tmp_path / "_ULF.reference_regions.json"
+    regions_path.write_text(json.dumps(record), encoding="utf-8")
+
+    mapping, warning = idat_bruteforce.load_ultimate_reference_regions(
+        str(regions_path),
+        candidate_data=source,
+        reference_image=reference_image,
+    )
+
+    assert warning == ""
+    assert mapping is not None
+    assert mapping.regions[0].candidate_region == (0.0, 0.1, 0.7, 1.0)
+    assert mapping.regions[0].reference_region == (0.0, 0.0, 1.0, 1.0)
+    assert mapping.regions[0].weight == 2.0
+    assert mapping.regions[0].match_mode == "search_candidate"
+
+
+def test_ultimate_linefeed_similar_manual_roi_scores_region_pairs(tmp_path):
+    reference = visual_scope_png(96, 64, variant="scope")
+    similar = visual_scope_png(160, 96, variant="scope")
+    unrelated = visual_scope_png(160, 96, variant="unrelated")
+    reference_path = tmp_path / "reference.png"
+    reference_path.write_bytes(reference)
+    reference_image, _warning = idat_bruteforce._load_ultimate_reference_image(str(reference_path))
+    regions = idat_bruteforce.UltimateReferenceRegions(
+        path=str(tmp_path / "_ULF.reference_regions.json"),
+        regions=(
+            idat_bruteforce.UltimateReferenceRegion(
+                candidate_region=(0.0, 0.0, 1.0, 1.0),
+                reference_region=(0.0, 0.0, 1.0, 1.0),
+                weight=1.0,
+                label="scope",
+            ),
+        ),
+    )
+    context = idat_bruteforce._ultimate_visual_reference(
+        reference_image,
+        reference_mode="similar",
+        reference_regions=regions,
+    )
+
+    similar_score = idat_bruteforce._ultimate_visual_score(
+        similar,
+        context,
+        reference_mode="similar",
+    )
+    unrelated_score = idat_bruteforce._ultimate_visual_score(
+        unrelated,
+        context,
+        reference_mode="similar",
+    )
+
+    assert similar_score.kind == "similar_manual_roi"
+    assert similar_score.matched_patch_count == 1
+    assert similar_score.score is not None
+    assert unrelated_score.score is not None
+    assert similar_score.score < unrelated_score.score
+
+
+def test_ultimate_linefeed_similar_manual_roi_searches_single_reference_region(tmp_path):
+    from io import BytesIO
+    from PIL import Image, ImageDraw
+
+    def band_png(width, height, *, band_top, noise=False):
+        image = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+        draw = ImageDraw.Draw(image)
+        if noise:
+            for index in range(0, max(width, height), 5):
+                draw.line((0, index, width, height - index), fill=(180, 20, 20, 255), width=2)
+        else:
+            top = int(height * band_top)
+            bottom = min(height - 1, top + max(4, height // 8))
+            draw.rectangle((0, top, width - 1, bottom), fill=(230, 230, 0, 255))
+            for x in range(0, width, max(1, width // 8)):
+                draw.line((x, top, x, bottom), fill=(90, 90, 0, 255), width=1)
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    reference = band_png(96, 64, band_top=0.78)
+    similar = band_png(160, 96, band_top=0.24)
+    unrelated = band_png(160, 96, band_top=0.24, noise=True)
+    reference_path = tmp_path / "reference.png"
+    reference_path.write_bytes(reference)
+    reference_image, _warning = idat_bruteforce._load_ultimate_reference_image(str(reference_path))
+    regions = idat_bruteforce.UltimateReferenceRegions(
+        path=str(tmp_path / "_ULF.reference_regions.json"),
+        regions=(
+            idat_bruteforce.UltimateReferenceRegion(
+                candidate_region=(0.0, 0.0, 1.0, 1.0),
+                reference_region=(0.0, 0.72, 1.0, 0.95),
+                weight=1.0,
+                label="single reference band",
+                match_mode="search_candidate",
+            ),
+        ),
+    )
+    context = idat_bruteforce._ultimate_visual_reference(
+        reference_image,
+        reference_mode="similar",
+        reference_regions=regions,
+    )
+
+    similar_score = idat_bruteforce._ultimate_visual_score(
+        similar,
+        context,
+        reference_mode="similar",
+    )
+    unrelated_score = idat_bruteforce._ultimate_visual_score(
+        unrelated,
+        context,
+        reference_mode="similar",
+    )
+
+    assert similar_score.kind == "similar_manual_roi"
+    assert similar_score.matched_patch_count == 1
+    assert similar_score.score is not None
+    assert unrelated_score.score is not None
+    assert similar_score.score < unrelated_score.score
 
 
 def test_ultimate_linefeed_bruteforce_spends_budget_when_no_terminal_match(tmp_path):
@@ -2331,11 +2510,12 @@ def main():
         ),
         (
             "Ultimate visual reference rank",
-            test_ultimate_visual_gallery_reference_rank_beats_scanline_count,
+            test_ultimate_visual_gallery_structure_beats_reference_rank,
         ),
         (
             "Ultimate top reference rank",
-            test_ultimate_top_candidates_reference_rank_beats_scanline_count,
+            test_ultimate_top_candidates_structure_beats_reference_rank,
+            test_ultimate_top_candidates_reference_rank_breaks_structural_ties,
         ),
         (
             "Partial IDAT blackfill ignored cases",

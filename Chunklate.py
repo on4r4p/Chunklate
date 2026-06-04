@@ -90,7 +90,7 @@ except ImportError as exc:
     MISSING_IMPORT_ERRORS["colorama"] = exc
     colorama = None
 
-from chunklate import ancillary, ancillary_runtime, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, image_viewer, libpng_check, libpng_runtime, magic_runtime, main_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, platform_runtime, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, writer, writer_runtime, youshallpass_runtime
+from chunklate import ancillary, ancillary_runtime, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, image_viewer, libpng_check, libpng_runtime, magic_runtime, main_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, platform_runtime, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, ultimate_reference_ui, writer, writer_runtime, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -554,6 +554,23 @@ def Ultimate_Linefeed_Reference():
 def Ultimate_Linefeed_Reference_Mode():
     mode = str(globals().get("ULTIMATE_LINEFEED_REFERENCE_MODE", "exact") or "exact").strip().lower()
     return mode if mode in ("exact", "similar") else "exact"
+
+
+def Ultimate_Linefeed_Reference_Regions():
+    return str(globals().get("ULTIMATE_LINEFEED_REFERENCE_REGIONS", "") or "")
+
+
+def Ultimate_Linefeed_Reference_Region_Editor():
+    return bool(globals().get("ULTIMATE_LINEFEED_REFERENCE_REGION_EDITOR", False))
+
+
+def Ultimate_Linefeed_Reference_Region_Editor_Run(source_path, reference_path, regions_path, source_data=b""):
+    return ultimate_reference_ui.open_ultimate_reference_region_editor(
+        source_path,
+        reference_path,
+        regions_path,
+        candidate_data=source_data,
+    )
 
 
 def Ultimate_Linefeed_Visual_Gallery_Limit():
@@ -1903,6 +1920,8 @@ SAVE_COUNT = 0
 ULTIMATE_LINEFEED_PREVIEW_TIMEOUT = 5.0
 ULTIMATE_LINEFEED_SHOW_PREVIEWS = False
 ULTIMATE_LINEFEED_REFERENCE_MODE = "exact"
+ULTIMATE_LINEFEED_REFERENCE_REGIONS = ""
+ULTIMATE_LINEFEED_REFERENCE_REGION_EDITOR = False
 ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT = 100
 ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE = 0.95
 ULTIMATE_LINEFEED_RESUME = "ask"

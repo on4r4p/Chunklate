@@ -7,6 +7,7 @@ from typing import Any
 
 from . import idat
 from . import idat_bruteforce
+from . import ultimate_reference_ui
 from . import chunk_scanner
 from .png import (
     detect_png_signature_recovery,
@@ -67,6 +68,16 @@ class FindMagicRuntime:
     )
     ultimate_linefeed_reference: LegacyCall = lambda *args, **kwargs: ""
     ultimate_linefeed_reference_mode: LegacyCall = lambda *args, **kwargs: "exact"
+    ultimate_linefeed_reference_regions: LegacyCall = lambda *args, **kwargs: ""
+    ultimate_linefeed_reference_region_editor: LegacyCall = lambda *args, **kwargs: False
+    ultimate_linefeed_reference_region_editor_run: LegacyCall = (
+        lambda *args, **kwargs: ultimate_reference_ui.ReferenceRegionEditorResult(
+            False,
+            str(args[2]) if len(args) > 2 else "",
+            "reference region editor is not wired",
+        )
+    )
+    ultimate_linefeed_interactive: LegacyCall = lambda *args, **kwargs: True
     ultimate_visual_gallery_limit: LegacyCall = (
         lambda *args, **kwargs: idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT
     )
@@ -785,6 +796,104 @@ def _ultimate_linefeed_reference_mode(runtime: FindMagicRuntime) -> str:
     return mode if mode in ("exact", "similar") else "exact"
 
 
+def _ultimate_linefeed_reference_regions(runtime: FindMagicRuntime) -> str:
+    try:
+        return str(runtime.ultimate_linefeed_reference_regions() or "")
+    except (OSError, TypeError, ValueError):
+        return ""
+
+
+def _ultimate_linefeed_reference_region_editor_enabled(runtime: FindMagicRuntime) -> bool:
+    try:
+        return bool(runtime.ultimate_linefeed_reference_region_editor())
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def _ultimate_linefeed_is_interactive(runtime: FindMagicRuntime) -> bool:
+    try:
+        return bool(runtime.ultimate_linefeed_interactive())
+    except (OSError, TypeError, ValueError):
+        return True
+
+
+def _ultimate_linefeed_default_reference_regions_path(checkpoint_path: str) -> str:
+    folder = os.path.dirname(checkpoint_path)
+    if not folder:
+        return idat_bruteforce.ULTIMATE_LINEFEED_REFERENCE_REGION_NAME
+    return os.path.join(folder, idat_bruteforce.ULTIMATE_LINEFEED_REFERENCE_REGION_NAME)
+
+
+def _ultimate_linefeed_reference_regions_path(
+    runtime: FindMagicRuntime,
+    checkpoint_path: str,
+) -> str:
+    explicit = _ultimate_linefeed_reference_regions(runtime)
+    return explicit or _ultimate_linefeed_default_reference_regions_path(checkpoint_path)
+
+
+def _ultimate_linefeed_regions_file_is_valid(path: str) -> bool:
+    if not path or not os.path.exists(path):
+        return False
+    mapping, _warning = idat_bruteforce.load_ultimate_reference_regions(path)
+    return mapping is not None and bool(mapping.regions)
+
+
+def _prepare_ultimate_reference_regions(
+    runtime: FindMagicRuntime,
+    *,
+    source_data: bytes,
+    source_path: str,
+    checkpoint_path: str,
+) -> str:
+    reference_path = _ultimate_linefeed_reference(runtime)
+    reference_mode = _ultimate_linefeed_reference_mode(runtime)
+    if reference_mode != "similar" or not reference_path:
+        return ""
+
+    regions_path = _ultimate_linefeed_reference_regions_path(runtime, checkpoint_path)
+    force_editor = _ultimate_linefeed_reference_region_editor_enabled(runtime)
+    if not force_editor and _ultimate_linefeed_regions_file_is_valid(regions_path):
+        return regions_path
+
+    if not _ultimate_linefeed_is_interactive(runtime):
+        _cowsay(
+            runtime,
+            "No manual ROI mapping is ready. I will use similar auto-patch scoring for this run.",
+            "com",
+        )
+        return ""
+
+    _cowsay(
+        runtime,
+        "I need matching reference regions before similar scoring can be trusted.",
+        "com",
+    )
+    result = runtime.ultimate_linefeed_reference_region_editor_run(
+        source_path,
+        reference_path,
+        regions_path,
+        source_data=source_data,
+    )
+    warning = str(getattr(result, "warning", "") or "")
+    if warning:
+        _cowsay(runtime, warning, "com")
+    if bool(getattr(result, "saved", False)) and _ultimate_linefeed_regions_file_is_valid(regions_path):
+        _cowsay(
+            runtime,
+            "Manual ROI mapping saved. Similar scoring will use your paired rectangles.",
+            "good",
+        )
+        return regions_path
+
+    _cowsay(
+        runtime,
+        "No manual ROI mapping was saved. I will fall back to similar auto-patch scoring.",
+        "com",
+    )
+    return ""
+
+
 def _ultimate_visual_gallery_limit(runtime: FindMagicRuntime) -> int:
     try:
         return max(0, int(runtime.ultimate_visual_gallery_limit()))
@@ -946,6 +1055,12 @@ def _linefeed_run_ultimate_probe(
     source_path = _ultimate_linefeed_source_path(runtime, checkpoint_path)
     if _write_ultimate_source_snapshot(source_path, source_data):
         summary_lines.append("-%s: source snapshot saved at %s." % (ULTIMATE_LINEFEED_FORCE, source_path))
+    reference_regions_path = _prepare_ultimate_reference_regions(
+        runtime,
+        source_data=source_data,
+        source_path=source_path,
+        checkpoint_path=checkpoint_path,
+    )
     _emit_ultimate_budget_plan(runtime, estimate, budget_decision, checkpoint_path, progress_path)
     runtime.candy("Title", ULTIMATE_LINEFEED_FORCE)
     _cowsay(
@@ -964,6 +1079,7 @@ def _linefeed_run_ultimate_probe(
             budget=budget_decision.budget,
             reference_path=_ultimate_linefeed_reference(runtime),
             reference_mode=_ultimate_linefeed_reference_mode(runtime),
+            reference_regions_path=reference_regions_path,
             progress=_linefeed_queue_progress(runtime),
             candidate_preview=runtime.ultimate_candidate_preview,
             progress_path=progress_path,
@@ -1803,6 +1919,24 @@ def build_find_magic_runtime_from_namespace(
             "Ultimate_Linefeed_Reference_Mode",
             lambda *args, **kwargs: namespace.get("ULTIMATE_LINEFEED_REFERENCE_MODE", "exact"),
         ),
+        ultimate_linefeed_reference_regions=namespace.get(
+            "Ultimate_Linefeed_Reference_Regions",
+            lambda *args, **kwargs: namespace.get("ULTIMATE_LINEFEED_REFERENCE_REGIONS", ""),
+        ),
+        ultimate_linefeed_reference_region_editor=namespace.get(
+            "Ultimate_Linefeed_Reference_Region_Editor",
+            lambda *args, **kwargs: namespace.get("ULTIMATE_LINEFEED_REFERENCE_REGION_EDITOR", False),
+        ),
+        ultimate_linefeed_reference_region_editor_run=namespace.get(
+            "Ultimate_Linefeed_Reference_Region_Editor_Run",
+            lambda *args, **kwargs: ultimate_reference_ui.ReferenceRegionEditorResult(
+                False,
+                str(args[2]) if len(args) > 2 else "",
+                "reference region editor is not wired",
+            ),
+        ),
+        ultimate_linefeed_interactive=lambda *args, **kwargs: not namespace.get("AUTO", False)
+        and not namespace.get("NODIALOGUE", False),
         ultimate_visual_gallery_limit=namespace.get(
             "Ultimate_Linefeed_Visual_Gallery_Limit",
             lambda *args, **kwargs: namespace.get(

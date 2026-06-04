@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argparse import SUPPRESS
+from argparse import HelpFormatter, SUPPRESS
 from dataclasses import dataclass
 from typing import Any
 
@@ -32,6 +32,38 @@ class ClearScreenDecision:
     fir_start: bool
 
 
+class ChunklateHelpFormatter(HelpFormatter):
+    def __init__(self, prog: str):
+        super().__init__(prog, max_help_position=72, width=140)
+
+    def _format_action(self, action):
+        if action.help is SUPPRESS:
+            return ""
+        invocation = self._format_action_invocation(action)
+        if not action.help:
+            return "%*s%s\n" % (self._current_indent, "", invocation)
+
+        help_text = self._expand_help(action)
+        available_width = max(
+            40,
+            self._width - self._current_indent - len(invocation) - 4,
+        )
+        help_lines = self._split_lines(help_text, available_width)
+        if not help_lines:
+            return "%*s%s\n" % (self._current_indent, "", invocation)
+
+        lines = [
+            "%*s%s    %s\n"
+            % (self._current_indent, "", invocation, help_lines[0])
+        ]
+        continuation = " " * (self._current_indent + len(invocation) + 4)
+        lines.extend("%s%s\n" % (continuation, line) for line in help_lines[1:])
+
+        for subaction in self._iter_indented_subactions(action):
+            lines.append(self._format_action(subaction))
+        return "".join(lines)
+
+
 def clear_screen_decision(*, clear: bool, fir_start: bool, os_name: str) -> ClearScreenDecision:
     if clear is not True:
         return ClearScreenDecision(None, fir_start)
@@ -45,6 +77,7 @@ def clear_screen_decision(*, clear: bool, fir_start: bool, os_name: str) -> Clea
 
 
 def configure_parser(parser: Any) -> Any:
+    parser.formatter_class = ChunklateHelpFormatter
     parser.add_argument(
         "-f", "--file", dest="FILENAME", help="File path.", default=None, metavar="FILE"
     )
@@ -122,7 +155,8 @@ def configure_parser(parser: Any) -> Any:
         default=None,
         metavar="N",
     )
-    parser.add_argument(
+    ultimate = parser.add_argument_group("ultimate line-feed")
+    ultimate.add_argument(
         "-ulfb",
         "--ultimate-linefeed-budget",
         dest="ULTIMATE_LINEFEED_BUDGET",
@@ -131,14 +165,14 @@ def configure_parser(parser: Any) -> Any:
         default=None,
         metavar="N",
     )
-    parser.add_argument(
+    ultimate.add_argument(
         "-ulfu",
         "--ultimate-linefeed-unbounded",
         dest="ULTIMATE_LINEFEED_UNBOUNDED",
         help="No Ultimate candidate limit.",
         action="store_true",
     )
-    parser.add_argument(
+    ultimate.add_argument(
         "-ulfr",
         "--ultimate-linefeed-reference",
         dest="ULTIMATE_LINEFEED_REFERENCE",
@@ -146,7 +180,7 @@ def configure_parser(parser: Any) -> Any:
         default=None,
         metavar="PATH",
     )
-    parser.add_argument(
+    ultimate.add_argument(
         "-ulfrm",
         "--ultimate-linefeed-reference-mode",
         dest="ULTIMATE_LINEFEED_REFERENCE_MODE",
@@ -155,7 +189,22 @@ def configure_parser(parser: Any) -> Any:
         default="exact",
         metavar="{exact,similar}",
     )
-    parser.add_argument(
+    ultimate.add_argument(
+        "-ulfroi",
+        "--ultimate-linefeed-reference-regions",
+        dest="ULTIMATE_LINEFEED_REFERENCE_REGIONS",
+        help="ROI JSON for similar reference scoring.",
+        default=None,
+        metavar="PATH",
+    )
+    ultimate.add_argument(
+        "-ulfroi-edit",
+        "--ultimate-linefeed-reference-region-editor",
+        dest="ULTIMATE_LINEFEED_REFERENCE_REGION_EDITOR",
+        help="Open the ROI editor before Ultimate.",
+        action="store_true",
+    )
+    ultimate.add_argument(
         "-ulfpt",
         "--ultimate-linefeed-preview-timeout",
         dest="ULTIMATE_LINEFEED_PREVIEW_TIMEOUT",
@@ -164,14 +213,14 @@ def configure_parser(parser: Any) -> Any:
         default=5.0,
         metavar="SECONDS",
     )
-    parser.add_argument(
+    ultimate.add_argument(
         "-ulfsp",
         "--ultimate-linefeed-show-previews",
         dest="ULTIMATE_LINEFEED_SHOW_PREVIEWS",
         help="Open live Ultimate candidate previews.",
         action="store_true",
     )
-    parser.add_argument(
+    ultimate.add_argument(
         "-ulfgl",
         "--ultimate-linefeed-visual-gallery-limit",
         dest="ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT",
@@ -180,7 +229,7 @@ def configure_parser(parser: Any) -> Any:
         default=100,
         metavar="N",
     )
-    parser.add_argument(
+    ultimate.add_argument(
         "-ulfmc",
         "--ultimate-linefeed-visual-min-coverage",
         dest="ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE",
@@ -189,14 +238,14 @@ def configure_parser(parser: Any) -> Any:
         default=0.95,
         metavar="FLOAT",
     )
-    parser.add_argument(
+    ultimate.add_argument(
         "-ulf-resume",
         "--ultimate-linefeed-resume",
         dest="ULTIMATE_LINEFEED_RESUME",
         help="Resume policy for Ultimate checkpoints.",
         choices=("ask", "auto", "never", "reset"),
         default="ask",
-        metavar="{ask,auto,never,reset}",
+        metavar="MODE",
     )
     parser.add_argument(
         "--ulfb",
@@ -227,6 +276,20 @@ def configure_parser(parser: Any) -> Any:
         default=SUPPRESS,
         help=SUPPRESS,
         metavar="{exact,similar}",
+    )
+    parser.add_argument(
+        "--ulfroi",
+        dest="ULTIMATE_LINEFEED_REFERENCE_REGIONS",
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="PATH",
+    )
+    parser.add_argument(
+        "--ulfroi-edit",
+        dest="ULTIMATE_LINEFEED_REFERENCE_REGION_EDITOR",
+        action="store_true",
+        default=SUPPRESS,
+        help=SUPPRESS,
     )
     parser.add_argument(
         "--ulfpt",
@@ -296,6 +359,20 @@ def configure_parser(parser: Any) -> Any:
         default=SUPPRESS,
         help=SUPPRESS,
         metavar="{exact,similar}",
+    )
+    parser.add_argument(
+        "--ulf-reference-regions",
+        dest="ULTIMATE_LINEFEED_REFERENCE_REGIONS",
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="PATH",
+    )
+    parser.add_argument(
+        "--ulf-reference-region-editor",
+        dest="ULTIMATE_LINEFEED_REFERENCE_REGION_EDITOR",
+        action="store_true",
+        default=SUPPRESS,
+        help=SUPPRESS,
     )
     parser.add_argument(
         "--ulf-preview-timeout",

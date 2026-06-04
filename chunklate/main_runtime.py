@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import cli, messages, output, runtime_state
+from .png import repair_idat_marker_chain_from_visible_headers, repair_linefeed_conversion
 
 
 CLONE_STUDY_PHRASES = (
@@ -72,6 +73,8 @@ class MainCliOptionsState:
     ultimate_linefeed_unbounded: bool = False
     ultimate_linefeed_reference: str | None = None
     ultimate_linefeed_reference_mode: str = "exact"
+    ultimate_linefeed_reference_regions: str | None = None
+    ultimate_linefeed_reference_region_editor: bool = False
     ultimate_linefeed_preview_timeout: float = 5.0
     ultimate_linefeed_show_previews: bool = False
     ultimate_linefeed_visual_gallery_limit: int = 100
@@ -671,6 +674,14 @@ def apply_main_cli_options(
     ultimate_linefeed_reference_mode = str(
         getattr(args, "ULTIMATE_LINEFEED_REFERENCE_MODE", "exact") or "exact"
     ).strip().lower()
+    ultimate_linefeed_reference_regions = getattr(
+        args,
+        "ULTIMATE_LINEFEED_REFERENCE_REGIONS",
+        None,
+    )
+    ultimate_linefeed_reference_region_editor = bool(
+        getattr(args, "ULTIMATE_LINEFEED_REFERENCE_REGION_EDITOR", False)
+    )
     ultimate_linefeed_preview_timeout = float(
         getattr(args, "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT", 5.0)
     )
@@ -752,6 +763,8 @@ def apply_main_cli_options(
         ultimate_linefeed_unbounded=ultimate_linefeed_unbounded,
         ultimate_linefeed_reference=ultimate_linefeed_reference,
         ultimate_linefeed_reference_mode=ultimate_linefeed_reference_mode,
+        ultimate_linefeed_reference_regions=ultimate_linefeed_reference_regions,
+        ultimate_linefeed_reference_region_editor=ultimate_linefeed_reference_region_editor,
         ultimate_linefeed_preview_timeout=ultimate_linefeed_preview_timeout,
         ultimate_linefeed_show_previews=ultimate_linefeed_show_previews,
         ultimate_linefeed_visual_gallery_limit=ultimate_linefeed_visual_gallery_limit,
@@ -784,6 +797,8 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "ULTIMATE_LINEFEED_UNBOUNDED": options.ultimate_linefeed_unbounded,
         "ULTIMATE_LINEFEED_REFERENCE": options.ultimate_linefeed_reference,
         "ULTIMATE_LINEFEED_REFERENCE_MODE": options.ultimate_linefeed_reference_mode,
+        "ULTIMATE_LINEFEED_REFERENCE_REGIONS": options.ultimate_linefeed_reference_regions,
+        "ULTIMATE_LINEFEED_REFERENCE_REGION_EDITOR": options.ultimate_linefeed_reference_region_editor,
         "ULTIMATE_LINEFEED_PREVIEW_TIMEOUT": options.ultimate_linefeed_preview_timeout,
         "ULTIMATE_LINEFEED_SHOW_PREVIEWS": options.ultimate_linefeed_show_previews,
         "ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT": options.ultimate_linefeed_visual_gallery_limit,
@@ -952,8 +967,61 @@ def _fix_it_felix_repair_boundary_reached(namespace: dict[str, Any]) -> bool:
     return bool(namespace.get("Bad_No_Next_Chunk", False))
 
 
+def _deferred_linefeed_repair_boundary_reached(namespace: dict[str, Any]) -> bool:
+    return _is_iend_chunk(namespace.get("Orig_CT")) or bool(namespace.get("EOF", False))
+
+
+def _deferred_linefeed_visible_marker_tour_reached_iend(namespace: dict[str, Any]) -> bool:
+    deferred = namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR")
+    if not isinstance(deferred, dict):
+        return False
+    data_bytes = deferred.get("data_bytes") or namespace.get("DATA_BYTES")
+    if not isinstance(data_bytes, bytes):
+        return False
+    try:
+        repair = repair_linefeed_conversion(data_bytes, allow_partial=True)
+    except Exception:
+        return False
+    if repair is None:
+        return False
+    try:
+        marker_repairs = repair_idat_marker_chain_from_visible_headers(repair.data)
+    except Exception:
+        return False
+    if not marker_repairs:
+        return False
+    if namespace.get("DEFERRED_LINEFEED_VISIBLE_TOUR_SHOWN") is not True:
+        candy = namespace.get("Candy")
+        if callable(candy):
+            candy(
+                "Cowsay",
+                "The normal chunk walk hit line-feed drift, so I checked the visible marker road before repairing.",
+                "com",
+            )
+            candy(
+                "Cowsay",
+                "Visible marker tour reached IEND. Now the deferred line-feed repair is allowed.",
+                "good",
+            )
+        namespace.setdefault("SideNotes", []).append(
+            "-FindMagic: visible line-feed marker tour reached IEND before deferred repair."
+        )
+        namespace["DEFERRED_LINEFEED_VISIBLE_TOUR_SHOWN"] = True
+    return True
+
+
+def deferred_linefeed_repair_is_ready(namespace: dict[str, Any]) -> bool:
+    if _deferred_linefeed_repair_boundary_reached(namespace):
+        return True
+    return _deferred_linefeed_visible_marker_tour_reached_iend(namespace)
+
+
 def should_defer_fix_it_felix_until_file_tour(namespace: dict[str, Any]) -> bool:
     if namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR"):
+        if _deferred_linefeed_repair_boundary_reached(namespace):
+            return False
+        if namespace.get("Bad_No_Next_Chunk", False):
+            return _deferred_linefeed_visible_marker_tour_reached_iend(namespace)
         return True
     if not namespace.get("PandoraBox", {}):
         return False
@@ -975,6 +1043,13 @@ def maybe_explain_deferred_fix_it_felix(namespace: dict[str, Any]) -> None:
 
 def has_unresolved_findings(namespace: dict[str, Any]) -> bool:
     return bool(namespace.get("PandoraBox", {}))
+
+
+def chunk_walk_reached_end(state: MainChunkWalkState, data_hex: str) -> bool:
+    try:
+        return state.offset is not None and int(state.offset) >= len(data_hex)
+    except (TypeError, ValueError):
+        return False
 
 
 def explain_unimplemented_repair_route(namespace: dict[str, Any]) -> None:
@@ -1020,15 +1095,20 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
             return MainLoopIterationState()
     save_count_before = namespace["SAVE_COUNT"]
     offset = namespace["FindMagic"]()
-    run_main_chunk_walk(
+    walk_state = run_main_chunk_walk(
         build_chunk_walk_runtime_from_namespace(namespace),
         MainChunkWalkContext(
             offset=offset,
             data_hex=namespace["DATAX"],
         ),
     )
+    walk_finished = chunk_walk_reached_end(walk_state, namespace["DATAX"])
     if namespace["SAVE_COUNT"] == save_count_before:
-        namespace.get("Apply_Deferred_FindMagic_Repair", lambda: None)()
+        if walk_finished and (
+            not namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR")
+            or deferred_linefeed_repair_is_ready(namespace)
+        ):
+            namespace.get("Apply_Deferred_FindMagic_Repair", lambda: None)()
     else:
         namespace.get("Clear_Deferred_FindMagic_Repair", lambda: None)()
     if namespace["SAVE_COUNT"] == save_count_before:
