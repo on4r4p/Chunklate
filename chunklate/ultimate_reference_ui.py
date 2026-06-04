@@ -12,6 +12,10 @@ from . import idat_bruteforce
 
 EDITOR_CANVAS_MARGIN = 32
 FULL_REGION = (0.0, 0.0, 1.0, 1.0)
+ROI_CANDIDATE_OUTLINE = "yellow"
+ROI_REFERENCE_OUTLINE = "cyan"
+ROI_NEGATIVE_OUTLINE = "#ff4d4d"
+ROI_HOVER_DELAY_MS = 500
 
 
 def _hidden_tmp_path(path: str) -> str:
@@ -26,6 +30,44 @@ class ReferenceRegionEditorResult:
     path: str
     warning: str = ""
     region_count: int = 0
+
+
+def describe_reference_region(
+    region: idat_bruteforce.UltimateReferenceRegion,
+    side: str,
+) -> str:
+    label = region.label or "ROI"
+    mode = idat_bruteforce._coerce_ultimate_roi_match_mode(region.match_mode)
+    if mode == "negative":
+        return "%s: negative ROI. Candidate noise and artifacts should stay low here." % label
+    if mode == "single":
+        return "%s: single ROI. Candidate area is compared to the pre-Ultimate snapshot." % label
+    if mode == "search":
+        if region.candidate_region == FULL_REGION:
+            return "%s: search ROI. This reference pattern is searched anywhere in the candidate." % label
+        if region.reference_region == FULL_REGION:
+            return "%s: search ROI. This source pattern is searched anywhere in the reference." % label
+        return "%s: search ROI. Best matching area is searched on the other image." % label
+    if region.candidate_region == region.reference_region:
+        return "%s: paired ROI. Same normalized position, with a tiny candidate shift allowed." % label
+    return "%s: paired ROI. Source and reference rectangles are compared, with a tiny candidate shift allowed." % label
+
+
+def point_in_bbox(
+    point: tuple[float, float],
+    bbox: tuple[float, float, float, float],
+) -> bool:
+    x, y = point
+    left, top, right, bottom = bbox
+    return left <= x <= right and top <= y <= bottom
+
+
+def has_unsaved_region_state(
+    region_count: int,
+    candidate_pending: object | None,
+    reference_pending: object | None,
+) -> bool:
+    return region_count > 0 or candidate_pending is not None or reference_pending is not None
 
 
 def normalize_display_bbox(
@@ -177,6 +219,7 @@ def open_ultimate_reference_region_editor(
 ) -> ReferenceRegionEditorResult:
     try:
         import tkinter as tk
+        from tkinter import messagebox
         from PIL import ImageTk
 
         tk = tkinter_module or tk
@@ -204,6 +247,12 @@ def open_ultimate_reference_region_editor(
         start: dict[str, tuple[float, float] | None] = {"candidate": None, "reference": None}
         drag_item: dict[str, Any] = {"candidate": None, "reference": None}
         pairs: list[idat_bruteforce.UltimateReferenceRegion] = []
+        redo_stack: list[idat_bruteforce.UltimateReferenceRegion] = []
+        roi_hover_regions: dict[str, list[tuple[tuple[float, float, float, float], str]]] = {
+            "candidate": [],
+            "reference": [],
+        }
+        roi_hover: dict[str, Any] = {"after": None, "message": ""}
         side_state: dict[str, dict[str, Any]] = {
             "candidate": {
                 "image": candidate_image,
@@ -264,6 +313,81 @@ def open_ultimate_reference_region_editor(
         def canvas_for(side: str):
             return candidate_canvas if side == "candidate" else reference_canvas
 
+        def add_tooltip(widget, text: str) -> None:
+            tip = {"window": None}
+
+            def show(_event=None) -> None:
+                if tip["window"] is not None:
+                    return
+                try:
+                    x = widget.winfo_rootx() + 12
+                    y = widget.winfo_rooty() + widget.winfo_height() + 8
+                    window = tk.Toplevel(widget)
+                    window.wm_overrideredirect(True)
+                    window.wm_geometry("+%d+%d" % (x, y))
+                    label = tk.Label(
+                        window,
+                        text=text,
+                        justify="left",
+                        background="#ffffe0",
+                        relief="solid",
+                        borderwidth=1,
+                        padx=6,
+                        pady=3,
+                    )
+                    label.pack()
+                    tip["window"] = window
+                except Exception:
+                    tip["window"] = None
+
+            def hide(_event=None) -> None:
+                window = tip.get("window")
+                tip["window"] = None
+                if window is not None:
+                    try:
+                        window.destroy()
+                    except Exception:
+                        pass
+
+            widget.bind("<Enter>", show)
+            widget.bind("<Leave>", hide)
+
+        def cancel_roi_hover() -> None:
+            after_id = roi_hover.get("after")
+            roi_hover["after"] = None
+            roi_hover["message"] = ""
+            if after_id is not None:
+                try:
+                    root.after_cancel(after_id)
+                except Exception:
+                    pass
+
+        def schedule_roi_hover(message: str) -> None:
+            cancel_roi_hover()
+            roi_hover["message"] = message
+
+            def show_message() -> None:
+                roi_hover["after"] = None
+                if roi_hover.get("message") == message:
+                    status.config(text=message)
+
+            try:
+                roi_hover["after"] = root.after(ROI_HOVER_DELAY_MS, show_message)
+            except Exception:
+                status.config(text=message)
+
+        def clear_redo_stack() -> None:
+            redo_stack.clear()
+
+        def canvas_motion(side: str, event) -> None:
+            point = (float(event.x), float(event.y))
+            for bbox, message in reversed(roi_hover_regions[side]):
+                if point_in_bbox(point, bbox):
+                    if roi_hover.get("message") != message:
+                        schedule_roi_hover(message)
+                    return
+            cancel_roi_hover()
+
         def region_to_canvas_bbox(
             side: str,
             region: tuple[float, float, float, float],
@@ -281,6 +405,7 @@ def open_ultimate_reference_region_editor(
         def redraw_side(side: str) -> None:
             canvas = canvas_for(side)
             state = side_state[side]
+            cancel_roi_hover()
             width = int(canvas.winfo_width())
             height = int(canvas.winfo_height())
             if width <= 1:
@@ -314,14 +439,27 @@ def open_ultimate_reference_region_editor(
                 canvas.itemconfigure(state["image_item"], image=photo)
             canvas.tag_lower(state["image_item"])
             canvas.delete("roi")
-            outline = "yellow" if side == "candidate" else "cyan"
+            roi_hover_regions[side].clear()
+            outline = ROI_CANDIDATE_OUTLINE if side == "candidate" else ROI_REFERENCE_OUTLINE
             for region in pairs:
-                if region.match_mode == "search_candidate" and side == "candidate":
+                mode = idat_bruteforce._coerce_ultimate_roi_match_mode(region.match_mode)
+                if mode == "search" and side == "candidate" and region.candidate_region == FULL_REGION:
                     continue
-                if region.match_mode == "search_reference" and side == "reference":
+                if mode in {"search", "single", "negative"} and side == "reference" and region.reference_region == FULL_REGION:
+                    continue
+                if mode in {"single", "negative"} and side == "reference":
                     continue
                 roi = region.candidate_region if side == "candidate" else region.reference_region
-                canvas.create_rectangle(*region_to_canvas_bbox(side, roi), outline=outline, width=2, tags=("roi",))
+                item_outline = ROI_NEGATIVE_OUTLINE if mode == "negative" else outline
+                bbox = region_to_canvas_bbox(side, roi)
+                canvas.create_rectangle(
+                    *bbox,
+                    outline=item_outline,
+                    width=2,
+                    tags=("roi",),
+                )
+                message = describe_reference_region(region, side)
+                roi_hover_regions[side].append((bbox, message))
             if pending.get(side) is not None:
                 canvas.create_rectangle(
                     *region_to_canvas_bbox(side, pending[side]),
@@ -343,6 +481,7 @@ def open_ultimate_reference_region_editor(
                 status.config(text="Now draw the matching rectangle on the %s, or use Same rectangle." % waiting_for)
                 return False
             label = "ROI %s" % (len(pairs) + 1)
+            clear_redo_stack()
             pairs.append(
                 idat_bruteforce.UltimateReferenceRegion(
                     candidate_region=candidate_region,
@@ -354,9 +493,35 @@ def open_ultimate_reference_region_editor(
             )
             pending["candidate"] = None
             pending["reference"] = None
-            status.config(text="%s saved. Draw another region or press Save." % label)
+            status.config(text="%s saved as paired ROI." % label)
             redraw_all()
             return True
+
+        def ask_single_rectangle_mode(side: str) -> str | None:
+            try:
+                if side == "reference":
+                    answer = messagebox.askyesnocancel(
+                        "Single reference rectangle",
+                        "Keep the same normalized position in the candidate?\n\n"
+                        "Yes: compare the same area.\n"
+                        "No: search this reference pattern in the whole candidate.",
+                        parent=root,
+                    )
+                else:
+                    answer = messagebox.askyesnocancel(
+                        "Single source rectangle",
+                        "Compare this source area to the pre-Ultimate snapshot?\n\n"
+                        "Yes: compare the same source area.\n"
+                        "No: search this source pattern in the whole reference.",
+                        parent=root,
+                    )
+            except Exception:
+                answer = True
+            if answer is None:
+                return None
+            if side == "reference":
+                return "paired" if answer else "search"
+            return "single" if answer else "search"
 
         def begin(side: str, event) -> None:
             pending[side] = None
@@ -365,7 +530,7 @@ def open_ultimate_reference_region_editor(
             canvas = canvas_for(side)
             if drag_item[side] is not None:
                 canvas.delete(drag_item[side])
-            color = "yellow" if side == "candidate" else "cyan"
+            color = ROI_CANDIDATE_OUTLINE if side == "candidate" else ROI_REFERENCE_OUTLINE
             drag_item[side] = canvas.create_rectangle(
                 event.x,
                 event.y,
@@ -404,11 +569,15 @@ def open_ultimate_reference_region_editor(
             redraw_all()
 
         candidate_canvas.bind("<ButtonPress-1>", lambda event: begin("candidate", event))
+        candidate_canvas.bind("<Motion>", lambda event: canvas_motion("candidate", event))
         candidate_canvas.bind("<B1-Motion>", lambda event: drag("candidate", event))
         candidate_canvas.bind("<ButtonRelease-1>", lambda event: end("candidate", event))
+        candidate_canvas.bind("<Leave>", lambda _event: cancel_roi_hover())
         reference_canvas.bind("<ButtonPress-1>", lambda event: begin("reference", event))
+        reference_canvas.bind("<Motion>", lambda event: canvas_motion("reference", event))
         reference_canvas.bind("<B1-Motion>", lambda event: drag("reference", event))
         reference_canvas.bind("<ButtonRelease-1>", lambda event: end("reference", event))
+        reference_canvas.bind("<Leave>", lambda _event: cancel_roi_hover())
         candidate_canvas.bind("<Configure>", lambda _event: redraw_all())
         reference_canvas.bind("<Configure>", lambda _event: redraw_all())
 
@@ -430,40 +599,112 @@ def open_ultimate_reference_region_editor(
                 return
             label = "ROI %s" % (len(pairs) + 1)
             if reference_region is not None:
-                pairs.append(
-                    idat_bruteforce.UltimateReferenceRegion(
-                        candidate_region=FULL_REGION,
-                        reference_region=reference_region,
-                        weight=1.0,
-                        label=label,
-                        match_mode="search_candidate",
+                mode = ask_single_rectangle_mode("reference")
+                if mode is None:
+                    status.config(text="Single rectangle kept pending.")
+                    redraw_all()
+                    return
+                if mode == "paired":
+                    clear_redo_stack()
+                    pairs.append(
+                        idat_bruteforce.UltimateReferenceRegion(
+                            candidate_region=reference_region,
+                            reference_region=reference_region,
+                            weight=1.0,
+                            label=label,
+                            match_mode="paired",
+                        )
                     )
-                )
+                    message = "%s saved as same-position paired ROI." % label
+                else:
+                    clear_redo_stack()
+                    pairs.append(
+                        idat_bruteforce.UltimateReferenceRegion(
+                            candidate_region=FULL_REGION,
+                            reference_region=reference_region,
+                            weight=1.0,
+                            label=label,
+                            match_mode="search",
+                        )
+                    )
+                    message = "%s saved as whole-image search ROI." % label
             else:
-                pairs.append(
-                    idat_bruteforce.UltimateReferenceRegion(
-                        candidate_region=candidate_region,
-                        reference_region=FULL_REGION,
-                        weight=1.0,
-                        label=label,
-                        match_mode="search_reference",
+                mode = ask_single_rectangle_mode("candidate")
+                if mode is None:
+                    status.config(text="Single rectangle kept pending.")
+                    redraw_all()
+                    return
+                if mode == "search":
+                    clear_redo_stack()
+                    pairs.append(
+                        idat_bruteforce.UltimateReferenceRegion(
+                            candidate_region=candidate_region,
+                            reference_region=FULL_REGION,
+                            weight=1.0,
+                            label=label,
+                            match_mode="search",
+                        )
                     )
-                )
+                    message = "%s saved as whole-reference search ROI." % label
+                else:
+                    clear_redo_stack()
+                    pairs.append(
+                        idat_bruteforce.UltimateReferenceRegion(
+                            candidate_region=candidate_region,
+                            reference_region=FULL_REGION,
+                            weight=1.0,
+                            label=label,
+                            match_mode="single",
+                        )
+                    )
+                    message = "%s saved as single ROI." % label
             pending["candidate"] = None
             pending["reference"] = None
             redraw_all()
-            status.config(text="%s saved as a single-rectangle search ROI." % label)
+            status.config(text=message)
+
+        def add_negative_rectangle() -> None:
+            candidate_region = pending.get("candidate")
+            if candidate_region is None:
+                status.config(text="Draw one rectangle on the source first, then press Add Negative Rectangle.")
+                return
+            label = "ROI %s" % (len(pairs) + 1)
+            clear_redo_stack()
+            pairs.append(
+                idat_bruteforce.UltimateReferenceRegion(
+                    candidate_region=candidate_region,
+                    reference_region=FULL_REGION,
+                    weight=1.0,
+                    label=label,
+                    match_mode="negative",
+                )
+            )
+            pending["candidate"] = None
+            pending["reference"] = None
+            redraw_all()
+            status.config(text="%s saved as negative ROI." % label)
 
         def delete_last() -> None:
             if not pairs:
                 status.config(text="No saved region to delete.")
                 return
-            pairs.pop()
+            redo_stack.append(pairs.pop())
             redraw_all()
             status.config(text="Deleted last region.")
 
+        def redo_last() -> None:
+            if not redo_stack:
+                status.config(text="No deleted region to redo.")
+                return
+            pending["candidate"] = None
+            pending["reference"] = None
+            pairs.append(redo_stack.pop())
+            redraw_all()
+            status.config(text="Redid last deleted region.")
+
         def clear() -> None:
             pairs.clear()
+            redo_stack.clear()
             pending["candidate"] = None
             pending["reference"] = None
             candidate_canvas.delete("drag")
@@ -492,19 +733,57 @@ def open_ultimate_reference_region_editor(
             result["region_count"] = len(regions)
             root.destroy()
 
+        def confirm_discard_unsaved() -> bool:
+            if not has_unsaved_region_state(
+                len(pairs),
+                pending.get("candidate"),
+                pending.get("reference"),
+            ):
+                return True
+            try:
+                answer = messagebox.askyesno(
+                    "Discard ROI mapping?",
+                    "Close without saving the current ROI mapping?",
+                    parent=root,
+                )
+                return bool(answer)
+            except Exception:
+                return True
+
         def cancel() -> None:
+            if not confirm_discard_unsaved():
+                status.config(text="Close cancelled. Save the ROI mapping or keep editing.")
+                return
             result["saved"] = False
             result["warning"] = "reference region editor cancelled"
             root.destroy()
 
         buttons = tk.Frame(root)
         buttons.pack(fill="x", padx=8, pady=8)
-        tk.Button(buttons, text="Save", command=save).pack(side="left", padx=4)
-        tk.Button(buttons, text="Delete last", command=delete_last).pack(side="left", padx=4)
-        tk.Button(buttons, text="Clear", command=clear).pack(side="left", padx=4)
-        tk.Button(buttons, text="Add Single Rectangle", command=add_single_rectangle).pack(side="left", padx=4)
-        tk.Button(buttons, text="Draw Same Rectangle", command=same_rectangle).pack(side="left", padx=4)
-        tk.Button(buttons, text="Cancel", command=cancel).pack(side="right", padx=4)
+        save_button = tk.Button(buttons, text="Save", command=save)
+        delete_button = tk.Button(buttons, text="Delete last", command=delete_last)
+        redo_button = tk.Button(buttons, text="Redo", command=redo_last)
+        clear_button = tk.Button(buttons, text="Clear", command=clear)
+        single_button = tk.Button(buttons, text="Add Single Rectangle", command=add_single_rectangle)
+        same_button = tk.Button(buttons, text="Draw Same Rectangle", command=same_rectangle)
+        negative_button = tk.Button(buttons, text="Add Negative Rectangle", command=add_negative_rectangle)
+        cancel_button = tk.Button(buttons, text="Cancel", command=cancel)
+        save_button.pack(side="left", padx=4)
+        delete_button.pack(side="left", padx=4)
+        redo_button.pack(side="left", padx=4)
+        clear_button.pack(side="left", padx=4)
+        single_button.pack(side="left", padx=4)
+        same_button.pack(side="left", padx=4)
+        negative_button.pack(side="left", padx=4)
+        cancel_button.pack(side="right", padx=4)
+        add_tooltip(save_button, "Save the ROI mapping and close the editor.")
+        add_tooltip(delete_button, "Remove the last saved ROI.")
+        add_tooltip(redo_button, "Restore the last ROI removed with Delete last.")
+        add_tooltip(clear_button, "Remove every saved ROI and pending selection.")
+        add_tooltip(single_button, "Save one rectangle; choose same-position or whole-image search.")
+        add_tooltip(same_button, "Copy the pending rectangle to the same normalized position on the other image.")
+        add_tooltip(negative_button, "Save a source-side rectangle where candidate noise should stay low.")
+        add_tooltip(cancel_button, "Close without saving a new ROI mapping.")
         root.protocol("WM_DELETE_WINDOW", cancel)
         redraw_all()
         root.mainloop()

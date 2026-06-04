@@ -1190,6 +1190,48 @@ def test_ultimate_budget_plan_unbounded_eta_uses_joke_line():
     ) in text
 
 
+def test_ultimate_resume_budget_guard_rejects_low_override():
+    calls = []
+    runtime = build_runtime(
+        calls,
+        ultimate_linefeed_budget=lambda estimate=None: magic_runtime.idat_bruteforce.UltimateLinefeedBudgetDecision(
+            "override",
+            100,
+            coverage=1.0,
+        ),
+    )
+    estimate = SimpleNamespace(total_combinations=10_000)
+    progress = SimpleNamespace(tested_candidates=250)
+
+    decision = magic_runtime._ultimate_linefeed_budget_with_resume_guard(runtime, estimate, progress)
+
+    assert decision.aborted is True
+    assert decision.mode == "resume_budget_too_low"
+    assert any("already tested 250 candidates" in str(call) for call in calls)
+
+
+def test_ultimate_resume_budget_guard_bumps_auto_budget():
+    calls = []
+    runtime = build_runtime(
+        calls,
+        ultimate_linefeed_budget=lambda estimate=None: magic_runtime.idat_bruteforce.UltimateLinefeedBudgetDecision(
+            "normal",
+            100,
+            coverage=1.0,
+        ),
+        ultimate_linefeed_interactive=lambda: False,
+    )
+    estimate = SimpleNamespace(total_combinations=10_000)
+    progress = SimpleNamespace(tested_candidates=250)
+
+    decision = magic_runtime._ultimate_linefeed_budget_with_resume_guard(runtime, estimate, progress)
+
+    assert decision.aborted is False
+    assert decision.budget == 350
+    assert decision.mode == "normal"
+    assert any("bumped this auto run to 350 candidates" in str(call) for call in calls)
+
+
 def test_find_magic_runtime_too_low_without_known_chunks_ends_with_note():
     calls = []
     side_notes = []
@@ -1356,6 +1398,14 @@ def main():
         (
             "Header linefeed ultimate budget no pause",
             test_ultimate_budget_plan_uses_prompt_candy_without_dialogue_pause,
+        ),
+        (
+            "Header linefeed ultimate resume budget guard override",
+            test_ultimate_resume_budget_guard_rejects_low_override,
+        ),
+        (
+            "Header linefeed ultimate resume budget guard auto",
+            test_ultimate_resume_budget_guard_bumps_auto_budget,
         ),
         ("Single candidate", test_find_magic_runtime_single_candidate_cuts_at_best_magic),
         ("No known chunks", test_find_magic_runtime_too_low_without_known_chunks_ends_with_note),

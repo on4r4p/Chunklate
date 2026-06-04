@@ -1996,6 +1996,28 @@ def test_ultimate_linefeed_similar_reference_scores_different_sizes(tmp_path):
     assert math.isinf(exact_score.score)
 
 
+def test_ultimate_linefeed_similar_reference_resizes_once_to_ihdr_size(tmp_path):
+    reference_path = tmp_path / "reference.png"
+    reference_path.write_bytes(visual_scope_png(96, 64, variant="scope"))
+    reference_image, warning = idat_bruteforce._load_ultimate_reference_image(str(reference_path))
+    source_data = visual_scope_png(160, 96, variant="scope")
+
+    similar_context = idat_bruteforce._ultimate_visual_reference(
+        reference_image,
+        reference_mode="similar",
+        source_data=source_data,
+    )
+    exact_context = idat_bruteforce._ultimate_visual_reference(
+        reference_image,
+        reference_mode="exact",
+        source_data=source_data,
+    )
+
+    assert warning == ""
+    assert tuple(similar_context.image.size) == (160, 96)
+    assert tuple(exact_context.image.size) == (96, 64)
+
+
 def test_ultimate_reference_regions_loads_clamped_schema(tmp_path):
     reference_path = tmp_path / "reference.png"
     source = visual_scope_png(96, 64, variant="scope")
@@ -2035,7 +2057,7 @@ def test_ultimate_reference_regions_loads_clamped_schema(tmp_path):
     assert mapping.regions[0].candidate_region == (0.0, 0.1, 0.7, 1.0)
     assert mapping.regions[0].reference_region == (0.0, 0.0, 1.0, 1.0)
     assert mapping.regions[0].weight == 2.0
-    assert mapping.regions[0].match_mode == "search_candidate"
+    assert mapping.regions[0].match_mode == "search"
 
 
 def test_ultimate_linefeed_similar_manual_roi_scores_region_pairs(tmp_path):
@@ -2140,6 +2162,148 @@ def test_ultimate_linefeed_similar_manual_roi_searches_single_reference_region(t
     assert similar_score.score is not None
     assert unrelated_score.score is not None
     assert similar_score.score < unrelated_score.score
+
+
+def test_ultimate_linefeed_similar_manual_roi_search_handles_scale_change(tmp_path):
+    from io import BytesIO
+    from PIL import Image, ImageDraw
+
+    def marker_png(width, height, *, box):
+        image = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle(box, fill=(230, 230, 0, 255))
+        draw.line((box[0], box[1], box[2], box[3]), fill=(80, 80, 0, 255), width=2)
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    reference = marker_png(120, 90, box=(18, 18, 54, 54))
+    similar = marker_png(240, 180, box=(118, 88, 190, 160))
+    unrelated = marker_png(240, 180, box=(8, 8, 36, 36))
+    reference_path = tmp_path / "reference.png"
+    reference_path.write_bytes(reference)
+    reference_image, _warning = idat_bruteforce._load_ultimate_reference_image(str(reference_path))
+    regions = idat_bruteforce.UltimateReferenceRegions(
+        path=str(tmp_path / "_ULF.reference_regions.json"),
+        regions=(
+            idat_bruteforce.UltimateReferenceRegion(
+                candidate_region=(0.0, 0.0, 1.0, 1.0),
+                reference_region=(0.12, 0.12, 0.48, 0.60),
+                weight=1.0,
+                label="scaled marker",
+                match_mode="search",
+            ),
+        ),
+    )
+    context = idat_bruteforce._ultimate_visual_reference(
+        reference_image,
+        reference_mode="similar",
+        reference_regions=regions,
+    )
+
+    similar_score = idat_bruteforce._ultimate_visual_score(similar, context, reference_mode="similar")
+    unrelated_score = idat_bruteforce._ultimate_visual_score(unrelated, context, reference_mode="similar")
+
+    assert similar_score.score is not None
+    assert unrelated_score.score is not None
+    assert similar_score.score < unrelated_score.score
+
+
+def test_ultimate_linefeed_paired_roi_local_search_handles_small_shift():
+    from PIL import Image, ImageDraw
+
+    reference = Image.new("RGBA", (80, 60), (0, 0, 0, 255))
+    candidate = Image.new("RGBA", (80, 60), (0, 0, 0, 255))
+    ImageDraw.Draw(reference).rectangle((28, 20, 44, 36), fill=(230, 230, 0, 255))
+    ImageDraw.Draw(candidate).rectangle((34, 20, 50, 36), fill=(230, 230, 0, 255))
+    region = (0.30, 0.25, 0.60, 0.70)
+    reference_crop = idat_bruteforce._ultimate_crop_region(reference, region)
+    exact_score = idat_bruteforce._ultimate_roi_pair_score(
+        idat_bruteforce._ultimate_crop_region(candidate, region),
+        reference_crop,
+    )
+    shifted_score = idat_bruteforce._ultimate_paired_region_score(candidate, region, reference_crop)
+
+    assert shifted_score < exact_score
+
+
+def test_ultimate_linefeed_single_roi_uses_source_snapshot(tmp_path):
+    reference = visual_scope_png(96, 64, variant="scope")
+    source = visual_scope_png(96, 64, variant="scope")
+    similar = visual_scope_png(96, 64, variant="scope")
+    unrelated = visual_scope_png(96, 64, variant="unrelated")
+    reference_path = tmp_path / "reference.png"
+    reference_path.write_bytes(reference)
+    reference_image, _warning = idat_bruteforce._load_ultimate_reference_image(str(reference_path))
+    regions = idat_bruteforce.UltimateReferenceRegions(
+        path=str(tmp_path / "_ULF.reference_regions.json"),
+        regions=(
+            idat_bruteforce.UltimateReferenceRegion(
+                candidate_region=(0.0, 0.0, 1.0, 1.0),
+                reference_region=(0.0, 0.0, 1.0, 1.0),
+                weight=1.0,
+                label="source only",
+                match_mode="single",
+            ),
+        ),
+    )
+    context = idat_bruteforce._ultimate_visual_reference(
+        reference_image,
+        reference_mode="similar",
+        reference_regions=regions,
+        source_data=source,
+    )
+
+    similar_score = idat_bruteforce._ultimate_visual_score(similar, context, reference_mode="similar")
+    unrelated_score = idat_bruteforce._ultimate_visual_score(unrelated, context, reference_mode="similar")
+
+    assert similar_score.score is not None
+    assert unrelated_score.score is not None
+    assert similar_score.score < unrelated_score.score
+
+
+def test_ultimate_linefeed_negative_roi_penalizes_noisy_candidate(tmp_path):
+    from io import BytesIO
+    from PIL import Image, ImageDraw
+
+    def noise_png(noise=False):
+        image = Image.new("RGBA", (80, 60), (0, 0, 0, 255))
+        draw = ImageDraw.Draw(image)
+        if noise:
+            for index in range(0, 80, 4):
+                draw.line((index, 0, 80 - index // 2, 60), fill=(255, 255, 0, 255), width=1)
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    reference = visual_scope_png(80, 60, variant="scope")
+    reference_path = tmp_path / "reference.png"
+    reference_path.write_bytes(reference)
+    reference_image, _warning = idat_bruteforce._load_ultimate_reference_image(str(reference_path))
+    regions = idat_bruteforce.UltimateReferenceRegions(
+        path=str(tmp_path / "_ULF.reference_regions.json"),
+        regions=(
+            idat_bruteforce.UltimateReferenceRegion(
+                candidate_region=(0.0, 0.0, 1.0, 1.0),
+                reference_region=(0.0, 0.0, 1.0, 1.0),
+                weight=1.0,
+                label="quiet area",
+                match_mode="negative",
+            ),
+        ),
+    )
+    context = idat_bruteforce._ultimate_visual_reference(
+        reference_image,
+        reference_mode="similar",
+        reference_regions=regions,
+    )
+
+    clean_score = idat_bruteforce._ultimate_visual_score(noise_png(False), context, reference_mode="similar")
+    noisy_score = idat_bruteforce._ultimate_visual_score(noise_png(True), context, reference_mode="similar")
+
+    assert clean_score.score is not None
+    assert noisy_score.score is not None
+    assert clean_score.score < noisy_score.score
 
 
 def test_ultimate_linefeed_bruteforce_spends_budget_when_no_terminal_match(tmp_path):

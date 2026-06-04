@@ -887,6 +887,75 @@ def _ultimate_linefeed_budget(
         return _normal_ultimate_linefeed_budget(estimate)
 
 
+def _ultimate_resume_progress_for_budget_guard(
+    source_data: bytes,
+    progress_path: str,
+    *,
+    start_offset: int | None,
+    target_adler: int | None,
+    super_probe=None,
+) -> idat_bruteforce.UltimateLinefeedProgress | None:
+    progress, _warning = idat_bruteforce.load_ultimate_progress_for_source(
+        source_data,
+        progress_path,
+        start_offset=start_offset,
+        target_adler=target_adler,
+        super_result=super_probe,
+    )
+    return progress
+
+
+def _ultimate_linefeed_budget_with_resume_guard(
+    runtime: FindMagicRuntime,
+    estimate: idat_bruteforce.UltimateLinefeedSearchEstimate,
+    progress_resume: idat_bruteforce.UltimateLinefeedProgress | None,
+) -> idat_bruteforce.UltimateLinefeedBudgetDecision:
+    tested_floor = max(0, int(getattr(progress_resume, "tested_candidates", 0) or 0))
+    while True:
+        decision = _ultimate_linefeed_budget(runtime, estimate)
+        if decision.aborted or decision.budget is None or tested_floor <= 0:
+            return decision
+        if int(decision.budget) > tested_floor:
+            return decision
+        if decision.mode == "override":
+            _cowsay(
+                runtime,
+                "The resume checkpoint already tested %s candidates. Raise -ulfb above that number or use -ulfu."
+                % _format_count(tested_floor),
+                "bad",
+            )
+            return idat_bruteforce.UltimateLinefeedBudgetDecision(
+                "resume_budget_too_low",
+                decision.budget,
+                divisor=decision.divisor,
+                coverage=decision.coverage,
+                aborted=True,
+            )
+        if not _ultimate_linefeed_is_interactive(runtime):
+            bumped = tested_floor + idat_bruteforce.ULTIMATE_LINEFEED_PROGRESS_STEP
+            _cowsay(
+                runtime,
+                "The resume checkpoint is already past the selected budget, so I bumped this auto run to %s candidates."
+                % _format_count(bumped),
+                "com",
+            )
+            return idat_bruteforce.UltimateLinefeedBudgetDecision(
+                decision.mode,
+                bumped,
+                divisor=decision.divisor,
+                coverage=idat_bruteforce.ultimate_linefeed_budget_coverage(
+                    estimate.total_combinations,
+                    bumped,
+                ),
+            )
+        _cowsay(
+            runtime,
+            "The resume checkpoint already tested %s candidates. Choose a bigger budget or no limit."
+            % _format_count(tested_floor),
+            "bad",
+        )
+
+
 def _ultimate_linefeed_reference(runtime: FindMagicRuntime) -> str:
     try:
         return str(runtime.ultimate_linefeed_reference() or "")
@@ -1153,14 +1222,37 @@ def _linefeed_run_ultimate_probe(
         target_adler=target_adler,
         super_result=super_probe,
     )
-    budget_decision = _ultimate_linefeed_budget(runtime, estimate)
-    if budget_decision.aborted:
-        _cowsay(runtime, "%s abandoned by budget no jutsu quit option." % ULTIMATE_LINEFEED_FORCE, "com")
-        summary_lines.append("-%s: user abandoned the budget prompt." % ULTIMATE_LINEFEED_FORCE)
-        return LinefeedAlternative(current_repair, "\n".join(summary_lines))
-
     checkpoint_path = _ultimate_linefeed_checkpoint_path(runtime)
     progress_path = _ultimate_linefeed_progress_path(runtime, checkpoint_path)
+    progress_resume = (
+        _ultimate_resume_progress_for_budget_guard(
+            source_data,
+            progress_path,
+            start_offset=start_offset,
+            target_adler=target_adler,
+            super_probe=super_probe,
+        )
+        if _ultimate_linefeed_should_resume(runtime)
+        else None
+    )
+    budget_decision = _ultimate_linefeed_budget_with_resume_guard(runtime, estimate, progress_resume)
+    if budget_decision.aborted:
+        if budget_decision.mode == "resume_budget_too_low":
+            _cowsay(
+                runtime,
+                "%s was not launched because the selected budget is behind the resume checkpoint."
+                % ULTIMATE_LINEFEED_FORCE,
+                "com",
+            )
+            summary_lines.append(
+                "-%s: selected budget is lower than the resume checkpoint."
+                % ULTIMATE_LINEFEED_FORCE
+            )
+        else:
+            _cowsay(runtime, "%s abandoned by budget no jutsu quit option." % ULTIMATE_LINEFEED_FORCE, "com")
+            summary_lines.append("-%s: user abandoned the budget prompt." % ULTIMATE_LINEFEED_FORCE)
+        return LinefeedAlternative(current_repair, "\n".join(summary_lines))
+
     source_path = _ultimate_linefeed_source_path(runtime, checkpoint_path)
     raw_source_path = _ultimate_linefeed_raw_source_path(checkpoint_path, source_path)
     _write_ultimate_raw_source_snapshot(raw_source_path, source_data)

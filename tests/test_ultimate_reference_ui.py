@@ -10,6 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import ultimate_reference_ui
+from chunklate import idat_bruteforce
 from chunklate.png import PNG_SIGNATURE, build_png_chunk
 
 
@@ -49,6 +50,58 @@ def test_normalize_canvas_bbox_to_image_rejects_selection_mostly_outside_image()
     )
 
     assert region is None
+
+
+def test_describe_reference_region_explains_same_position_pair():
+    region = idat_bruteforce.UltimateReferenceRegion(
+        candidate_region=(0.1, 0.2, 0.3, 0.4),
+        reference_region=(0.1, 0.2, 0.3, 0.4),
+        label="ROI 4",
+        match_mode="paired",
+    )
+
+    message = ultimate_reference_ui.describe_reference_region(region, "candidate")
+
+    assert "ROI 4" in message
+    assert "paired ROI" in message
+    assert "Same normalized position" in message
+
+
+def test_describe_reference_region_explains_search_reference_pattern():
+    region = idat_bruteforce.UltimateReferenceRegion(
+        candidate_region=ultimate_reference_ui.FULL_REGION,
+        reference_region=(0.1, 0.2, 0.3, 0.4),
+        label="ROI 5",
+        match_mode="search",
+    )
+
+    message = ultimate_reference_ui.describe_reference_region(region, "reference")
+
+    assert "ROI 5" in message
+    assert "search ROI" in message
+    assert "reference pattern" in message
+    assert "candidate" in message
+
+
+def test_negative_roi_has_dedicated_outline_color():
+    assert ultimate_reference_ui.ROI_NEGATIVE_OUTLINE != ultimate_reference_ui.ROI_CANDIDATE_OUTLINE
+    assert ultimate_reference_ui.ROI_NEGATIVE_OUTLINE != ultimate_reference_ui.ROI_REFERENCE_OUTLINE
+
+
+def test_point_in_bbox_detects_inside_area_not_only_border():
+    bbox = (10.0, 20.0, 80.0, 90.0)
+
+    assert ultimate_reference_ui.point_in_bbox((40.0, 50.0), bbox)
+    assert ultimate_reference_ui.point_in_bbox((10.0, 20.0), bbox)
+    assert not ultimate_reference_ui.point_in_bbox((9.0, 50.0), bbox)
+    assert not ultimate_reference_ui.point_in_bbox((40.0, 91.0), bbox)
+
+
+def test_has_unsaved_region_state_tracks_saved_regions_and_pending_rectangles():
+    assert not ultimate_reference_ui.has_unsaved_region_state(0, None, None)
+    assert ultimate_reference_ui.has_unsaved_region_state(1, None, None)
+    assert ultimate_reference_ui.has_unsaved_region_state(0, (0.1, 0.1, 0.2, 0.2), None)
+    assert ultimate_reference_ui.has_unsaved_region_state(0, None, (0.1, 0.1, 0.2, 0.2))
 
 
 def test_reference_region_editor_reports_unavailable_images(tmp_path):

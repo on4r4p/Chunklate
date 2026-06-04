@@ -69,8 +69,8 @@ families:
   NUL-stripped line-feed structural reconstruction, and heavier line-feed brute
   force probes behind explicit prompts/budgets. Ultimate line-feed visual
   ranking can use exact references, automatic similar-layout scoring, or manual
-  paired ROI rectangles; visual scores only break ties after structural
-  scanline quality.
+  ROI modes (`paired`, `search`, `single`, `negative`); visual scores only break
+  ties after structural scanline quality.
 
 Known limits: a completely missing `IDAT` stream is not reconstructable from
 nothing. Files with no image stream, such as zero-dimension `x00n0g01.png` or

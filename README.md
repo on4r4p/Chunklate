@@ -194,7 +194,9 @@ beat a more complete candidate only because it resembles the reference.
 For similar references that are not the same image, manual ROI scoring can be
 used with `-ulfr REF.png -ulfrm similar`. If no ROI JSON exists in interactive
 mode, Chunklate opens a small Tkinter editor with the Ultimate source snapshot
-on the left and the reference image on the right.
+on the left and the reference image on the right. If the reference dimensions
+differ, Chunklate resizes that reference once to the candidate IHDR size before
+ROI scoring.
 
 ![Ultimate similar reference ROI editor](https://i.ibb.co/6J78wJtR/Screenshot-From-2026-06-04-03-41-05.png)
 
@@ -204,14 +206,28 @@ Typical run:
 
 The ROI editor supports:
 
-- Paired rectangles: draw one rectangle on each image when the regions are known
-  to correspond.
-- `Add Single Rectangle`: save one region on only one image. Chunklate searches
-  for the closest matching region on the other image during visual scoring.
+- `paired`: draw one rectangle on each image. Chunklate compares those regions,
+  allowing a small local shift on the candidate side.
+- `search`: draw one rectangle on the reference, then press
+  `Add Single Rectangle` and choose whole-image search. Chunklate searches for
+  the closest matching region in each candidate, including nearby scales for
+  different image sizes.
+- `single`: draw one rectangle on the source snapshot, then press
+  `Add Single Rectangle`. Chunklate compares that candidate region to the
+  pre-Ultimate source snapshot, without relying on the reference.
+- Same-position single reference: draw one rectangle on the reference, press
+  `Add Single Rectangle`, then choose same position. Chunklate compares the same
+  normalized area in the candidate and reference.
+- `negative`: draw one rectangle on the source snapshot, then press
+  `Add Negative Rectangle`. Chunklate penalizes noisy or artifact-heavy
+  candidates in that region.
 - `Draw Same Rectangle`: copy the current rectangle to the same normalized
   position on the other image.
 - Edge clamping: selections can start outside the displayed image; if most of
   the dragged area overlaps the image, only the inside portion is kept.
+- `Redo`: restore the last ROI removed with `Delete last`.
+- Hover editor buttons or pause over a drawn ROI for 0.5 seconds to see what it
+  does.
 
 The mapping is saved as `Folder_x.bad/_ULF.reference_regions.json`, or at the
 path provided by `-ulfroi`. Manual ROI scoring is still only a visual tie-break:
