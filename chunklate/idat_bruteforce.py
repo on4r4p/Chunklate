@@ -32,6 +32,7 @@ ULTIMATE_LINEFEED_VISUAL_PREVIEW_FOLDER = ("Bruteforce_Previews", "VisualCandida
 ULTIMATE_LINEFEED_REFERENCE_MODES = ("exact", "similar")
 ULTIMATE_LINEFEED_REFERENCE_REGION_NAME = "_ULF.reference_regions.json"
 ULTIMATE_LINEFEED_REFERENCE_REGION_VERSION = 1
+ULTIMATE_LINEFEED_CHECKPOINT_REHYDRATE_LIMIT = 256
 ULTIMATE_LINEFEED_BUDGET_DIVISORS = {
     "quick": 100_000,
     "normal": 50_000,
@@ -1404,14 +1405,17 @@ def _load_ultimate_checkpoint(
     progress: QueueProgressCallback | None = None,
     progress_total: int = 0,
     progress_stage: str = "UltimateMegaSuperLineFeedBruteForce",
+    candidate_limit: int | None = None,
+    beam_width: int = 8,
 ) -> tuple[list[SuperMegaLinefeedCandidate], set[str], int, int]:
     if not checkpoint_path or not os.path.exists(checkpoint_path):
         return [], set(), 1, 0
 
-    loaded: list[SuperMegaLinefeedCandidate] = []
+    entries: list[dict[str, object]] = []
     visited: set[str] = set()
     next_state_id = 1
     last_progress_at = time.monotonic()
+    processed = 0
 
     def emit_load_progress(force: bool = False) -> None:
         nonlocal last_progress_at
@@ -1423,7 +1427,7 @@ def _load_ultimate_checkpoint(
         last_progress_at = now
         progress(
             progress_stage,
-            min(len(loaded), max(1, int(progress_total))),
+            min(processed, max(1, int(progress_total))),
             max(1, int(progress_total)),
         )
 
@@ -1436,49 +1440,109 @@ def _load_ultimate_checkpoint(
                     continue
                 if record.get("source_hash") != source_hash:
                     continue
-                operations = tuple(
-                    operation
-                    for operation in (
-                        _operation_from_json(item)
-                        for item in record.get("operations", [])
-                    )
-                    if operation is not None
-                )
-                stream = _replay_operations(root_stream, operations)
-                if stream is None:
+                raw_stream_hash = record.get("stream_hash")
+                stream_hash = str(raw_stream_hash) if raw_stream_hash else ""
+                if stream_hash and stream_hash in visited:
                     continue
-                stream_hash = _stream_state_key(stream)
-                if stream_hash in visited:
-                    continue
-                visited.add(stream_hash)
+                if stream_hash:
+                    visited.add(stream_hash)
                 state_id = int(record.get("state_id", next_state_id))
                 next_state_id = max(next_state_id, state_id + 1)
-                candidate_data = _rebuild_with_single_idat_stream(chunks, stream)
-                analysis = idat.analyze_idat_stream(
-                    candidate_data,
-                    source_kind="candidate_from_original",
-                    crc_provenance="rebuilt_by_chunklate",
-                    target_adler=target_adler,
+                entries.append(
+                    {
+                        "index": len(entries),
+                        "record": record,
+                        "state_id": state_id,
+                        "stream_hash": stream_hash,
+                    }
                 )
-                score = super_mega_linefeed_score(analysis, len(operations))
-                loaded.append(
-                    SuperMegaLinefeedCandidate(
-                        candidate_data,
-                        operations,
-                        before,
-                        analysis,
-                        state_id=state_id,
-                        parent_id=record.get("parent_id"),
-                        source_offsets=tuple(operation.stream_offset for operation in operations),
-                        score=score,
-                    )
-                )
+                processed += 1
                 emit_load_progress()
     except OSError:
         return [], set(), 1, 0
 
-    emit_load_progress(force=bool(loaded))
-    return loaded, visited, next_state_id, len(loaded)
+    def record_rank(entry: dict[str, object]) -> tuple[object, ...]:
+        record = entry["record"]
+        if not isinstance(record, dict):
+            return (9, 9, 0, 0, (), int(entry.get("state_id", 0)))
+        raw_score = record.get("score", ())
+        try:
+            score = tuple(int(value) for value in raw_score) if isinstance(raw_score, list) else ()
+        except (TypeError, ValueError):
+            score = ()
+        try:
+            usable_scanlines = int(record.get("usable_scanlines", 0) or 0)
+        except (TypeError, ValueError):
+            usable_scanlines = 0
+        try:
+            error_offset = int(record.get("error_offset", -1) or -1)
+        except (TypeError, ValueError):
+            error_offset = -1
+        return (
+            0 if record.get("adler_status") == "adler_match" else 1,
+            0 if record.get("status") in ("complete", "bad_adler") else 1,
+            -usable_scanlines,
+            -error_offset,
+            tuple(-value for value in score),
+            int(entry.get("state_id", 0)),
+        )
+
+    selected_entries = entries
+    if candidate_limit is not None and int(candidate_limit) >= 0 and int(candidate_limit) < len(entries):
+        selected: dict[int, dict[str, object]] = {}
+        beam_count = max(1, int(beam_width))
+        for entry in entries[-beam_count:]:
+            selected[int(entry["index"])] = entry
+        for entry in sorted(entries, key=record_rank)[: int(candidate_limit)]:
+            selected[int(entry["index"])] = entry
+        selected_entries = [
+            entry
+            for entry in entries
+            if int(entry["index"]) in selected
+        ]
+
+    loaded: list[SuperMegaLinefeedCandidate] = []
+    for entry in selected_entries:
+        record = entry["record"]
+        if not isinstance(record, dict):
+            continue
+        operations = tuple(
+            operation
+            for operation in (
+                _operation_from_json(item)
+                for item in record.get("operations", [])
+            )
+            if operation is not None
+        )
+        stream = _replay_operations(root_stream, operations)
+        if stream is None:
+            continue
+        stream_hash = _stream_state_key(stream)
+        if stream_hash:
+            visited.add(stream_hash)
+        candidate_data = _rebuild_with_single_idat_stream(chunks, stream)
+        analysis = idat.analyze_idat_stream(
+            candidate_data,
+            source_kind="candidate_from_original",
+            crc_provenance="rebuilt_by_chunklate",
+            target_adler=target_adler,
+        )
+        score = super_mega_linefeed_score(analysis, len(operations))
+        loaded.append(
+            SuperMegaLinefeedCandidate(
+                candidate_data,
+                operations,
+                before,
+                analysis,
+                state_id=int(entry["state_id"]),
+                parent_id=record.get("parent_id"),
+                source_offsets=tuple(operation.stream_offset for operation in operations),
+                score=score,
+            )
+        )
+
+    emit_load_progress(force=bool(entries))
+    return loaded, visited, next_state_id, len(entries)
 
 
 def ultimate_linefeed_progress_path_from_checkpoint(checkpoint_path: str) -> str:
@@ -2651,6 +2715,39 @@ def _remember_ultimate_top_candidate(
     return tuple(sorted(by_key.values(), key=_ultimate_top_candidate_rank)[:limit])
 
 
+def _ultimate_checkpoint_rehydrate_limit(*, beam_width: int, visual_gallery_limit: int) -> int:
+    beam_count = max(1, int(beam_width))
+    _gallery_count = max(0, int(visual_gallery_limit))
+    return max(
+        beam_count,
+        ULTIMATE_LINEFEED_TOP_CANDIDATES,
+    )
+
+
+def _ultimate_checkpoint_seed_candidates(
+    candidates: tuple[SuperMegaLinefeedCandidate, ...],
+    *,
+    beam_width: int,
+    visual_gallery_limit: int,
+) -> tuple[SuperMegaLinefeedCandidate, ...]:
+    if not candidates:
+        return ()
+    beam_count = max(1, int(beam_width))
+    seed_limit = min(
+        len(candidates),
+        _ultimate_checkpoint_rehydrate_limit(
+            beam_width=beam_width,
+            visual_gallery_limit=visual_gallery_limit,
+        ),
+    )
+    selected: dict[int, SuperMegaLinefeedCandidate] = {}
+    for candidate in candidates[-beam_count:]:
+        selected[candidate.state_id] = candidate
+    for candidate in sorted(candidates, key=_ultimate_top_candidate_rank)[:seed_limit]:
+        selected[candidate.state_id] = candidate
+    return tuple(sorted(selected.values(), key=lambda candidate: candidate.state_id))
+
+
 def _coerce_ultimate_visual_gallery_limit(value: object) -> int:
     try:
         return max(0, int(value))
@@ -3122,6 +3219,20 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     broad_operation_pool_hash = _ultimate_operation_pool_hash(broad_operation_pool)
     if not progress_path:
         progress_path = ultimate_linefeed_progress_path_from_checkpoint(checkpoint_path)
+    progress_warning = ""
+    progress_resume = None
+    if resume_progress:
+        progress_resume, progress_warning = _load_ultimate_progress(
+            progress_path,
+            source_hash=source_hash,
+            target_adler=target_adler,
+            start_offset=start_offset,
+            max_depth=max_depth,
+            max_offsets=max_offsets,
+            operation_pool_hash=operation_pool_hash,
+            focused_operation_pool_hash=focused_operation_pool_hash,
+            broad_operation_pool_hash=broad_operation_pool_hash,
+        )
     root_score = super_mega_linefeed_score(before, 0)
     root = SuperMegaLinefeedCandidate(
         data,
@@ -3134,7 +3245,12 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         score=root_score,
     )
     if progress is not None:
-        progress(strategy, 0, progress_total)
+        resume_count = progress_resume.tested_candidates if progress_resume is not None else 0
+        progress(strategy, min(resume_count, progress_total), progress_total)
+    checkpoint_rehydrate_limit = _ultimate_checkpoint_rehydrate_limit(
+        beam_width=beam_width,
+        visual_gallery_limit=visual_gallery_limit,
+    )
     checkpoint_candidates, checkpoint_visited, next_state_id, resumed_states = _load_ultimate_checkpoint(
         checkpoint_path,
         source_hash=source_hash,
@@ -3145,17 +3261,21 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         progress=progress,
         progress_total=progress_total,
         progress_stage=strategy,
+        candidate_limit=checkpoint_rehydrate_limit,
+        beam_width=beam_width,
     )
-    checkpoint_candidates = [
-        _attach_ultimate_visual_score(
-            candidate,
-            reference_context,
-            reference_mode=reference_mode,
-        )
-        for candidate in checkpoint_candidates
-    ]
+    checkpoint_candidates = tuple(checkpoint_candidates)
+    checkpoint_seed_candidates = _ultimate_checkpoint_seed_candidates(
+        checkpoint_candidates,
+        beam_width=beam_width,
+        visual_gallery_limit=visual_gallery_limit,
+    )
     visited = {_stream_state_key(root_stream), *checkpoint_visited}
-    frontier = checkpoint_candidates[-beam_width:] if checkpoint_candidates else [root]
+    frontier = (
+        list(checkpoint_candidates[-max(1, beam_width) :])
+        if checkpoint_candidates
+        else [root]
+    )
     best: SuperMegaLinefeedCandidate | None = None
     best_score = root_score
     top_candidates: tuple[SuperMegaLinefeedCandidate, ...] = ()
@@ -3178,9 +3298,10 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             visual_candidates = updated
             visual_gallery_dirty = True
 
-    for candidate in checkpoint_candidates:
+    for candidate in checkpoint_seed_candidates:
         top_candidates = _remember_ultimate_top_candidate(top_candidates, candidate)
-        remember_visual_candidate(candidate, 0)
+        if progress_resume is None:
+            remember_visual_candidate(candidate, 0)
         candidate_score = candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations))
         if candidate_score > best_score:
             best = candidate
@@ -3190,20 +3311,6 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     pruned = 0
     budget_exhausted = False
     reached_depth = 0
-    progress_warning = ""
-    progress_resume = None
-    if resume_progress:
-        progress_resume, progress_warning = _load_ultimate_progress(
-            progress_path,
-            source_hash=source_hash,
-            target_adler=target_adler,
-            start_offset=start_offset,
-            max_depth=max_depth,
-            max_offsets=max_offsets,
-            operation_pool_hash=operation_pool_hash,
-            focused_operation_pool_hash=focused_operation_pool_hash,
-            broad_operation_pool_hash=broad_operation_pool_hash,
-        )
     if progress_resume is not None:
         tested = max(tested, progress_resume.tested_candidates)
         pruned = max(pruned, progress_resume.pruned_candidates)
@@ -3305,7 +3412,14 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     if progress is not None and tested > 0:
         progress(strategy, min(tested, progress_total), progress_total)
 
-    for depth in range(1, max(1, max_depth) + 1):
+    frontier_start_depth = 1
+    if progress_resume is not None:
+        if progress_resume.phase == "frontier":
+            frontier_start_depth = max(1, min(max(1, max_depth), progress_resume.depth))
+        elif progress_resume.phase in ("exhaustive", "complete"):
+            frontier_start_depth = max(1, max_depth) + 1
+
+    for depth in range(frontier_start_depth, max(1, max_depth) + 1):
         reached_depth = depth
         current_phase = "frontier"
         current_depth = depth

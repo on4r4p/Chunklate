@@ -644,23 +644,38 @@ def _ask_ultimate_linefeed_bruteforce(
 
 def _linefeed_queue_progress(runtime: FindMagicRuntime):
     disabled = False
+    built = False
 
     def progress(_stage: str, tested: int, budget: int) -> None:
-        nonlocal disabled
+        nonlocal built, disabled
         if disabled:
             return
         total = max(1, int(budget))
         try:
-            if tested == 0:
+            if not built:
                 runtime.loadingbar(total, len(str(total)), 0, True)
-                runtime.loadingbar(total, len(str(total)), 0, False)
-            else:
-                runtime.loadingbar(total, len(str(total)), tested, False)
+                built = True
+            runtime.loadingbar(total, len(str(total)), tested, False)
         except (OSError, IndexError):
             disabled = True
             return
 
     return progress
+
+
+def _ultimate_linefeed_progress_total(budget: int | None) -> int:
+    if budget is None:
+        return idat_bruteforce.UNBOUNDED_PROGRESS_TOTAL
+    return max(1, int(budget))
+
+
+def _prime_ultimate_linefeed_minibar(runtime: FindMagicRuntime, budget: int | None) -> None:
+    total = _ultimate_linefeed_progress_total(budget)
+    try:
+        runtime.loadingbar(total, len(str(total)), 0, True)
+        runtime.loadingbar(total, len(str(total)), 0, False)
+    except (OSError, IndexError):
+        return
 
 
 def _ultimate_linefeed_checkpoint_path(runtime: FindMagicRuntime) -> str:
@@ -1139,6 +1154,20 @@ def _linefeed_run_ultimate_probe(
         "Opening the forbidden line-feed combinatorics vault no jutsu. I brought a checkpoint, because hope is not a persistence format.",
         "com",
     )
+    if _ultimate_linefeed_should_resume(runtime) and (
+        os.path.exists(progress_path) or os.path.exists(checkpoint_path)
+    ):
+        _cowsay(
+            runtime,
+            "Resume checkpoint found. I am rebuilding the useful frontier before the fish counter starts moving.",
+            "com",
+        )
+        _cowsay(
+            runtime,
+            "Please don't Panic!",
+            "bad",
+        )
+    _prime_ultimate_linefeed_minibar(runtime, budget_decision.budget)
     runtime.clear_dialogue_pause()
     try:
         probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(

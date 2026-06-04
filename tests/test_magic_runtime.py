@@ -823,6 +823,39 @@ def test_linefeed_queue_progress_draws_zero_state_after_build():
     ]
 
 
+def test_linefeed_queue_progress_builds_before_resume_counter():
+    calls = []
+    runtime = SimpleNamespace(
+        loadingbar=lambda total, size, tested, build: calls.append(
+            (total, size, tested, build)
+        )
+    )
+
+    progress = magic_runtime._linefeed_queue_progress(runtime)
+    progress("UltimateMegaSuperLineFeedBruteForce", 3226, 1000000000000)
+
+    assert calls == [
+        (1000000000000, 13, 0, True),
+        (1000000000000, 13, 3226, False),
+    ]
+
+
+def test_prime_ultimate_linefeed_minibar_draws_unbounded_placeholder():
+    calls = []
+    runtime = SimpleNamespace(
+        loadingbar=lambda total, size, tested, build: calls.append(
+            (total, size, tested, build)
+        )
+    )
+
+    magic_runtime._prime_ultimate_linefeed_minibar(runtime, None)
+
+    assert calls == [
+        (1000000000000, 13, 0, True),
+        (1000000000000, 13, 0, False),
+    ]
+
+
 def _write_roi_mapping(path, source_data, reference_path):
     reference_image, _warning = magic_runtime.idat_bruteforce._load_ultimate_reference_image(
         str(reference_path)

@@ -1144,6 +1144,35 @@ def test_ultimate_top_candidates_reference_rank_breaks_structural_ties():
     assert top[0].state_id == 1
 
 
+def test_ultimate_checkpoint_seed_candidates_ignore_gallery_limit_on_resume():
+    filtered = b"\x00abc"
+    png_data = build_rgb_png(1, 1, filtered)
+    analysis = idat.analyze_idat_stream(png_data)
+    candidates = tuple(
+        idat_bruteforce.SuperMegaLinefeedCandidate(
+            png_data,
+            (),
+            analysis,
+            analysis,
+            state_id=index,
+            score=(0, 400 - index, 1, 1, 1, 0, 0, 0),
+        )
+        for index in range(400)
+    )
+
+    seeds = idat_bruteforce._ultimate_checkpoint_seed_candidates(
+        candidates,
+        beam_width=8,
+        visual_gallery_limit=1000,
+    )
+    seed_ids = {candidate.state_id for candidate in seeds}
+
+    assert len(seeds) == 16
+    assert set(range(8)).issubset(seed_ids)
+    assert set(range(392, 400)).issubset(seed_ids)
+    assert 300 not in seed_ids
+
+
 def test_ultimate_visual_gallery_write_removes_obsolete_previews(tmp_path):
     filtered = b"\x00abc" + b"\x00def"
     compressed = bytearray(zlib.compress(filtered))
@@ -1331,6 +1360,7 @@ def test_ultimate_linefeed_bruteforce_resumes_progress_checkpoint(tmp_path):
         budget=60,
     )
 
+    progress_calls = []
     probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
         corrupt,
         start_offset=start_offset,
@@ -1340,12 +1370,15 @@ def test_ultimate_linefeed_bruteforce_resumes_progress_checkpoint(tmp_path):
         max_offsets=64,
         budget=60,
         beam_width=1,
+        progress=lambda *args: progress_calls.append(args),
     )
 
     assert probe.progress_resumed is True
     assert probe.progress_path == str(progress)
     assert probe.tested_candidates == 60
     assert probe.budget_exhausted is True
+    assert progress_calls[0] == ("UltimateMegaSuperLineFeedBruteForce", 50, 60)
+    assert ("UltimateMegaSuperLineFeedBruteForce", 0, 60) not in progress_calls
 
 
 def test_ultimate_linefeed_probe_draws_progress_before_checkpoint_load(tmp_path):
@@ -1426,6 +1459,79 @@ def test_load_ultimate_checkpoint_emits_resume_progress(tmp_path):
     assert resumed == 2
     assert calls[0] == ("UltimateMegaSuperLineFeedBruteForce", 1, 100)
     assert calls[-1] == ("UltimateMegaSuperLineFeedBruteForce", 2, 100)
+
+
+def test_load_ultimate_checkpoint_limits_candidate_rebuild(tmp_path, monkeypatch):
+    filtered = dynamic_filtered_rows(100)
+    clean = build_rgb_png(1, 100, filtered)
+    before = idat.analyze_idat_stream(clean)
+    chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(clean)
+    source_hash = idat_bruteforce._stream_state_key(root_stream)
+    checkpoint = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"
+    with open(checkpoint, "w", encoding="utf-8") as file:
+        for state_id in range(20):
+            old_byte = root_stream[state_id : state_id + 1]
+            new_byte = bytes((old_byte[0] ^ 0x01,))
+            operation = idat_bruteforce.SuperMegaLinefeedOperation(
+                "bit-flip",
+                state_id,
+                old_byte,
+                new_byte,
+            )
+            stream = idat_bruteforce._replay_operations(root_stream, (operation,))
+            assert stream is not None
+            file.write(
+                json.dumps(
+                    {
+                        "source_hash": source_hash,
+                        "stream_hash": idat_bruteforce._stream_state_key(stream),
+                        "state_id": state_id,
+                        "operations": [idat_bruteforce._operation_to_json(operation)],
+                        "score": [0, 20 - state_id, state_id, state_id, 1, 0, 0, 0],
+                        "status": "bad_adler",
+                        "adler_status": "adler_mismatch",
+                        "usable_scanlines": 20 - state_id,
+                    }
+                )
+                + "\n"
+            )
+
+    calls = []
+    replay_calls = []
+    real_analyze = idat_bruteforce.idat.analyze_idat_stream
+    real_replay = idat_bruteforce._replay_operations
+
+    def counting_analyze(*args, **kwargs):
+        calls.append(args)
+        return real_analyze(*args, **kwargs)
+
+    def counting_replay(*args, **kwargs):
+        replay_calls.append(args)
+        return real_replay(*args, **kwargs)
+
+    monkeypatch.setattr(idat_bruteforce.idat, "analyze_idat_stream", counting_analyze)
+    monkeypatch.setattr(idat_bruteforce, "_replay_operations", counting_replay)
+    loaded, visited, next_state_id, resumed = idat_bruteforce._load_ultimate_checkpoint(
+        str(checkpoint),
+        source_hash=source_hash,
+        root_stream=root_stream,
+        chunks=chunks,
+        before=before,
+        target_adler=before.stored_adler,
+        candidate_limit=3,
+        beam_width=2,
+    )
+
+    loaded_ids = {candidate.state_id for candidate in loaded}
+    assert resumed == 20
+    assert len(visited) == 20
+    assert next_state_id == 20
+    assert len(loaded) == 5
+    assert len(calls) == 5
+    assert len(replay_calls) == 5
+    assert {18, 19}.issubset(loaded_ids)
+    assert {0, 1, 2}.issubset(loaded_ids)
+    assert 10 not in loaded_ids
 
 
 def test_ultimate_linefeed_eta_uses_twenty_humor_buckets():
