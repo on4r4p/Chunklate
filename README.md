@@ -200,7 +200,7 @@ on the left and the reference image on the right.
 
 Typical run:
 
-    python Chunklate.py -c -df -sp -f brokenjavapngsuite/6.bad.png -ulfrm similar -ulfr David/3.ok.png -ulfgl 500
+    python Chunklate.py -c -df -sp -f bad.png -ulfrm similar -ulfr REF.png -ulfgl 500
 
 The ROI editor supports:
 
