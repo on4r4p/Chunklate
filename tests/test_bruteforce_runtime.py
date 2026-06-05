@@ -179,7 +179,43 @@ def test_run_scan_preserves_twobytes_oldcrc_path():
     )
     assert result.to_brute == "00"
     assert [call[0] for call in calls].count("show_candidate") == 0
-    assert ("minibar", {"Indication": "0/2"}) in calls
+    assert ("minibar", {"Indication": "0/2"}) not in calls
+    assert (
+        "raw_print",
+        ("0/2 byte 1/1 .\033[K",),
+        {"end": "\r", "flush": True},
+    ) in calls
+
+
+def test_twobytes_progress_dots_line_fills_and_returns():
+    prefix = "0/256 byte 1/149210 "
+    start = bruteforce_runtime.twobytes_progress_dots_line(
+        prefix,
+        position=0,
+        terminal_width=len(prefix) + 6,
+    )
+    filled = bruteforce_runtime.twobytes_progress_dots_line(
+        prefix,
+        position=4 * 1024,
+        terminal_width=len(prefix) + 6,
+    )
+    returning = bruteforce_runtime.twobytes_progress_dots_line(
+        prefix,
+        position=7 * 1024,
+        terminal_width=len(prefix) + 6,
+    )
+
+    assert start == prefix + ".\033[K"
+    assert filled == prefix + ".....\033[K"
+    assert returning == prefix + "...\033[K"
+
+
+def test_twobytes_progress_dots_line_clamps_to_short_terminal_width():
+    assert bruteforce_runtime.twobytes_progress_dots_line(
+        "0/256 byte 1/149210 ",
+        position=0,
+        terminal_width=5,
+    ) == "0/256 byte 1/149210 \033[K"
 
 
 def test_run_scan_preserves_crash_resume_skip_and_reset():
@@ -210,6 +246,8 @@ def main():
         ("OldCrc scan", test_run_scan_preserves_oldcrc_path_without_viewer),
         ("Viewer scan", test_run_scan_preserves_viewer_acceptance_gate_and_diff),
         ("TwoBytes scan", test_run_scan_preserves_twobytes_oldcrc_path),
+        ("TwoBytes dots", test_twobytes_progress_dots_line_fills_and_returns),
+        ("TwoBytes short terminal", test_twobytes_progress_dots_line_clamps_to_short_terminal_width),
         ("Crash resume", test_run_scan_preserves_crash_resume_skip_and_reset),
     ]
 

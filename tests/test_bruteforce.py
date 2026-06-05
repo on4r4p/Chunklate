@@ -864,6 +864,12 @@ def test_twobytes_scan_has_window_preserves_legacy_loop_bounds():
     assert bruteforce.twobytes_scan_has_window("0011223344", 2, 0, matched) is False
 
 
+def test_twobytes_scan_position_count_reports_inner_window_size():
+    assert bruteforce.twobytes_scan_position_count("0011223344", 2) == 5
+    assert bruteforce.twobytes_scan_position_count("0011223344", 4) == 4
+    assert bruteforce.twobytes_scan_position_count("00", 4) == 0
+
+
 def test_run_twobytes_candidate_scan_accepts_direct_match():
     state = {"value": bruteforce.BruteForceMatchState()}
     attempts = []
@@ -1098,6 +1104,7 @@ def main():
         ("TwoBytes bonus candidates", test_iter_twobytes_bonus_data_preserves_legacy_skip_and_byte_range),
         ("TwoBytes bonus edit kind", test_twobytes_bonus_edit_kind_preserves_oldcrc_replace_bonus_quirk),
         ("TwoBytes scan window", test_twobytes_scan_has_window_preserves_legacy_loop_bounds),
+        ("TwoBytes scan position count", test_twobytes_scan_position_count_reports_inner_window_size),
         ("TwoBytes direct scan runner", test_run_twobytes_candidate_scan_accepts_direct_match),
         ("TwoBytes old CRC bonus runner", test_run_twobytes_candidate_scan_preserves_oldcrc_replace_bonus_quirk),
         ("TwoBytes bonus candidate data", test_twobytes_bonus_candidate_data_preserves_legacy_hex_replacement),

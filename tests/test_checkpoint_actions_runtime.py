@@ -209,6 +209,76 @@ def test_custom_brutus_resets_brute_level_and_relaunches():
     ) in calls
 
 
+def test_blackfill_twobytes_decline_keeps_existing_fallback():
+    calls = []
+    runtime, state, side_notes = build_runtime(calls, question_answers=(False,))
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "edit",
+        "TwoBytes",
+        "crc",
+        "length",
+        "FixItFelix partial IDAT blackfill",
+    )
+    decision = checkpoint.CheckPointActionDecision(
+        action="smash_brute_brawl_ask_twobytes_retry"
+    )
+
+    result = checkpoint_actions_runtime.apply_action_decision(
+        runtime,
+        decision,
+        "IDAT",
+        "-Bruteforcer has Failed",
+        toolkit,
+    )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 1
+    assert side_notes == [
+        "-CheckPoint: Keeping partial IDAT blackfill after SmashBruteBrawl decline."
+    ]
+    assert ("end", (), {}) not in calls
+    assert [call[0] for call in calls].count("candy") == 6
+
+
+def test_blackfill_smash_failure_keeps_existing_fallback():
+    calls = []
+    runtime, state, side_notes = build_runtime(calls)
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "edit",
+        "TwoBytes",
+        "crc",
+        "length",
+        "FixItFelix partial IDAT blackfill",
+    )
+    decision = checkpoint.CheckPointActionDecision(
+        action="smash_brute_brawl_keep_blackfill_fallback"
+    )
+
+    result = checkpoint_actions_runtime.apply_action_decision(
+        runtime,
+        decision,
+        "IDAT",
+        "-Bruteforcer has Failed",
+        toolkit,
+    )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 0
+    assert side_notes == [
+        "-CheckPoint: Keeping partial IDAT blackfill after SmashBruteBrawl failure."
+    ]
+    assert ("end", (), {}) not in calls
+    assert [call[0] for call in calls].count("candy") == 2
+
+
 def test_checkpoint_action_namespace_builder_wires_state_and_callbacks():
     calls = []
     checkpoint_rt = object()
@@ -246,6 +316,8 @@ def main():
         ("Reject unknown action", test_apply_action_decision_rejects_unknown_action),
         ("Preserve TwoBytes OldCrc retry", test_twobytes_retry_preserves_old_crc_route),
         ("Reset Custom Brutus retry", test_custom_brutus_resets_brute_level_and_relaunches),
+        ("Keep blackfill on TwoBytes decline", test_blackfill_twobytes_decline_keeps_existing_fallback),
+        ("Keep blackfill on SmashBruteBrawl failure", test_blackfill_smash_failure_keeps_existing_fallback),
         ("Namespace action runtime", test_checkpoint_action_namespace_builder_wires_state_and_callbacks),
     ]
 

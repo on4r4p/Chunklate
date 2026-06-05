@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, MutableSequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import shutil
 from typing import Any
 
 from . import bruteforce
@@ -67,6 +68,25 @@ class SmashBruteBrawlScanState:
     diff: str = ""
     crash: Any = False
     eta_seconds: int = 0
+
+
+TWOBYTES_PROGRESS_DOT_STEP = 1024
+
+
+def twobytes_progress_dots_line(
+    prefix: str,
+    *,
+    position: int,
+    terminal_width: int | None = None,
+) -> str:
+    width = terminal_width or shutil.get_terminal_size((80, 20)).columns
+    available = max(0, width - len(prefix) - 1)
+    if available <= 0:
+        return "%s\033[K" % prefix
+    cycle = available * 2
+    phase = (max(position, 0) // TWOBYTES_PROGRESS_DOT_STEP) % cycle
+    dot_count = phase + 1 if phase < available else cycle - phase
+    return "%s%s\033[K" % (prefix, "." * max(1, dot_count))
 
 
 def emit_debug_report(
@@ -244,6 +264,29 @@ def run_twobytes_scan_step(
     max_iter: int,
     loop_index: int,
 ) -> None:
+    def progress(*, position: int = 0, total: int = 0, bonus: bool = False) -> None:
+        if total <= 0:
+            runtime.raw_print(
+                twobytes_progress_dots_line(
+                    "%s/%s " % (loop_index, max_iter),
+                    position=position,
+                ),
+                end="\r",
+                flush=True,
+            )
+            return
+        if position not in (0, total - 1) and position % 1024 != 0:
+            return
+        suffix = " bonus" if bonus else ""
+        runtime.raw_print(
+            twobytes_progress_dots_line(
+                "%s/%s byte %s/%s%s " % (loop_index, max_iter, position + 1, total, suffix),
+                position=position,
+            ),
+            end="\r",
+            flush=True,
+        )
+
     bruteforce.run_twobytes_candidate_scan(
         to_brute=scan_state.to_brute,
         brute_bytes=brute_bytes,
@@ -273,7 +316,7 @@ def run_twobytes_scan_step(
             edit_kind=edit_kind,
             bonus=bonus,
         ),
-        progress=lambda: runtime.minibar(Indication="%s/%s" % (loop_index, max_iter)),
+        progress=progress,
         bonus_message=lambda: runtime.raw_print("-Bingo replace bonus stage"),
     )
 

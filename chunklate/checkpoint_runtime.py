@@ -825,6 +825,22 @@ def run_smash_brute_brawl_end_failed_noncustom(
     return False, None
 
 
+def run_smash_brute_brawl_keep_blackfill_fallback(
+    runtime: CheckPointRuntime,
+) -> tuple[bool, Any]:
+    runtime.candy(
+        "Cowsay",
+        "SmashBruteBrawl did not beat the blackfill fallback.",
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "Keeping the valid blackfill clone already saved.",
+        "good",
+    )
+    return False, None
+
+
 def ask_smash_brute_brawl_custom_brutus(runtime: CheckPointRuntime) -> Any:
     runtime.candy("Cowsay", "Too bad that was the easy way ..", "bad")
     runtime.candy("Cowsay", "Wanna try to bruteforce the entire chunk instead ?", "com")

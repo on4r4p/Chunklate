@@ -1350,6 +1350,144 @@ def test_ultimate_visual_gallery_write_removes_obsolete_previews(tmp_path):
     assert "matched_patch_count" in record["candidates"][0]
 
 
+def test_ultimate_visual_gallery_load_preserves_existing_resume_previews(tmp_path):
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+    analysis = idat.analyze_idat_stream(corrupt)
+    candidate = idat_bruteforce.SuperMegaLinefeedCandidate(
+        corrupt,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        analysis,
+        analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(analysis, 1),
+    )
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        (),
+        candidate,
+        tested=10,
+        reference_image=None,
+        min_coverage=0.95,
+        limit=10,
+    )
+    gallery_path = tmp_path / "_ULF.visual.json"
+    written, count = idat_bruteforce._write_ultimate_visual_gallery(
+        str(gallery_path),
+        gallery,
+        limit=10,
+        source_hash="source",
+        phase="complete",
+        tested_candidates=10,
+        state_count=2,
+    )
+
+    assert count == 1
+    assert Path(written[0].preview_path).exists()
+
+    restored = idat_bruteforce._load_ultimate_visual_gallery(
+        str(gallery_path),
+        source_hash="source",
+        limit=10,
+    )
+    assert len(restored) == 1
+    assert restored[0].preview_data == written[0].preview_data
+    assert idat_bruteforce._load_ultimate_visual_gallery(
+        str(gallery_path),
+        source_hash="other-source",
+        limit=10,
+    ) == ()
+
+    rewritten, rewritten_count = idat_bruteforce._write_ultimate_visual_gallery(
+        str(gallery_path),
+        restored,
+        limit=10,
+        source_hash="source",
+        phase="exhaustive",
+        tested_candidates=20,
+        state_count=3,
+    )
+
+    previews = list((tmp_path / "Bruteforce_Previews" / "VisualCandidates").glob("_VisualCandidate_*.png"))
+    assert rewritten_count == 1
+    assert len(rewritten) == 1
+    assert len(previews) == 1
+    assert validate_png_structure(previews[0].read_bytes()).ok
+    record = json.loads(gallery_path.read_text(encoding="utf-8"))
+    assert record["preview_count"] == 1
+    assert record["candidates"][0]["visual_hash"] == written[0].visual_hash
+
+
+def test_ultimate_visual_gallery_touch_updates_progress_without_cleaning_previews(tmp_path):
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+    analysis = idat.analyze_idat_stream(corrupt)
+    candidate = idat_bruteforce.SuperMegaLinefeedCandidate(
+        corrupt,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        analysis,
+        analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(analysis, 1),
+    )
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        (),
+        candidate,
+        tested=10,
+        reference_image=None,
+        min_coverage=0.95,
+        limit=10,
+    )
+    gallery_path = tmp_path / "_ULF.visual.json"
+    written, count = idat_bruteforce._write_ultimate_visual_gallery(
+        str(gallery_path),
+        gallery,
+        limit=10,
+        source_hash="source",
+        phase="exhaustive",
+        tested_candidates=10,
+        state_count=2,
+    )
+    preview_dir = tmp_path / "Bruteforce_Previews" / "VisualCandidates"
+    stale = preview_dir / "_VisualCandidate_999_stale.png"
+    stale.write_bytes(b"stale")
+
+    assert count == 1
+    assert Path(written[0].preview_path).exists()
+    assert idat_bruteforce._touch_ultimate_visual_gallery_progress(
+        str(gallery_path),
+        source_hash="source",
+        reference_mode="similar",
+        reference_regions_path="Folder_x.bad/_ULF.reference_regions.json",
+        phase="exhaustive",
+        depth=4,
+        tested_candidates=99,
+        state_count=123,
+        limit=10,
+    ) is True
+
+    record = json.loads(gallery_path.read_text(encoding="utf-8"))
+    assert record["tested_candidates"] == 99
+    assert record["state_count"] == 123
+    assert record["depth"] == 4
+    assert record["reference_mode"] == "similar"
+    assert record["reference_regions_path"] == "Folder_x.bad/_ULF.reference_regions.json"
+    assert record["preview_count"] == 1
+    assert record["candidates"][0]["visual_hash"] == written[0].visual_hash
+    assert Path(written[0].preview_path).exists()
+    assert stale.exists()
+
+    assert idat_bruteforce._touch_ultimate_visual_gallery_progress(
+        str(gallery_path),
+        source_hash="other-source",
+        tested_candidates=1000,
+    ) is False
+    assert json.loads(gallery_path.read_text(encoding="utf-8"))["tested_candidates"] == 99
+
+
 def test_ultimate_linefeed_progress_checkpoint_round_trips(tmp_path):
     progress = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.progress.json"
     operation_pool = (

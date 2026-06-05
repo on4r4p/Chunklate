@@ -95,6 +95,50 @@ def test_check_length_runtime_routes_missing_next_chunk_checkpoint():
     )
 
 
+def test_check_length_runtime_comments_on_first_huge_idat_length():
+    calls = []
+    ihdr = build_png_chunk(b"IHDR", b"\x00" * 13)
+    data = PNG_SIGNATURE + ihdr + build_png_chunk(b"IDAT", b"\x00" * 30000) + IEND_CHUNK
+
+    result = chunk_validation_runtime.run_check_length(
+        build_runtime(calls),
+        chunk_validation_runtime.CheckLengthContext(
+            data_bytes=data,
+            current_length_offset=(len(PNG_SIGNATURE) + len(ihdr)) * 2,
+            previous_chunk=b"IHDR",
+            idat_average_length=0,
+        ),
+        "",
+        "00007530",
+        b"IDAT",
+    )
+
+    assert result == "checkpoint-result"
+    assert any("Really!? That much ?" in str(call) for call in calls)
+
+
+def test_check_length_runtime_does_not_repeat_same_huge_idat_length():
+    calls = []
+    idat = build_png_chunk(b"IDAT", b"\x00" * 30000)
+    data = PNG_SIGNATURE + build_png_chunk(b"IHDR", b"\x00" * 13) + idat + idat + IEND_CHUNK
+
+    result = chunk_validation_runtime.run_check_length(
+        build_runtime(calls),
+        chunk_validation_runtime.CheckLengthContext(
+            data_bytes=data,
+            current_length_offset=(len(PNG_SIGNATURE) + len(build_png_chunk(b"IHDR", b"\x00" * 13)) + len(idat)) * 2,
+            previous_chunk=b"IDAT",
+            idat_average_length=30000,
+        ),
+        "",
+        "00007530",
+        b"IDAT",
+    )
+
+    assert result == "checkpoint-result"
+    assert not any("Really!? That much ?" in str(call) for call in calls)
+
+
 def test_checksum_runtime_valid_crc_records_chunk_story_and_checkpoint():
     calls = []
     chunk_type = b"IDAT"
@@ -275,6 +319,8 @@ def main():
     checks = [
         ("CheckLength found next", test_check_length_runtime_routes_found_next_chunk_checkpoint),
         ("CheckLength missing next", test_check_length_runtime_routes_missing_next_chunk_checkpoint),
+        ("CheckLength first huge IDAT", test_check_length_runtime_comments_on_first_huge_idat_length),
+        ("CheckLength repeated huge IDAT", test_check_length_runtime_does_not_repeat_same_huge_idat_length),
         ("Checksum valid", test_checksum_runtime_valid_crc_records_chunk_story_and_checkpoint),
         ("Checksum invalid", test_checksum_runtime_invalid_crc_routes_wrong_crc_checkpoint),
         ("CheckLength namespace bridge", test_check_length_namespace_bridge_preserves_legacy_context),

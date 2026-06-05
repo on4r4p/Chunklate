@@ -310,6 +310,21 @@ def test_question_runtime_names_zero_scanline_idat_option_prompts():
     assert "Question: Option 3, write an all-zero placeholder PNG?" in prompts
 
 
+def test_question_runtime_names_partial_blackfill_smash_prompt():
+    runtime, calls = runtime_from(answers=["yes"], auto=True)
+
+    assert question_runtime.ask_question(
+        runtime,
+        "IDAT partial blackfill:-Launch SmashBruteBrawl on the original IDAT after writing the blackfill clone?",
+        ("IDAT-partial-blackfill-smash", 33, 11, 1, 5, 1, 5),
+        skipauto=True,
+    ) is True
+
+    prompts = [call[1][1] for call in calls if call[0] == "candy" and call[1][:1] == ("Cowsay",)]
+    assert "Question: Should i launch SmashBruteBrawl to try to recover this bad boy?" in prompts
+    assert not any("stop this brute force branch" in prompt for prompt in prompts)
+
+
 def test_question_runtime_names_super_mega_linefeed_force_prompt():
     runtime, calls = runtime_from(answers=["yes"])
 
@@ -461,6 +476,7 @@ def main():
             "Zero-scanline IDAT option prompts",
             test_question_runtime_names_zero_scanline_idat_option_prompts,
         ),
+        ("Partial blackfill SmashBruteBrawl prompt", test_question_runtime_names_partial_blackfill_smash_prompt),
         ("SuperMegaLineFeedForceOfDeath prompt", test_question_runtime_names_super_mega_linefeed_force_prompt),
         (
             "UltimateMegaSuperLineFeedBruteForce prompt",

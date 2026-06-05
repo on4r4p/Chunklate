@@ -1115,6 +1115,10 @@ def test_checkpoint_runtime_runs_smash_brute_brawl_end_actions():
         False,
         None,
     )
+    assert checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(runtime) == (
+        False,
+        None,
+    )
     assert checkpoint_runtime.run_smash_brute_brawl_end_unhandled(runtime) == (False, None)
 
     assert [call[0] for call in calls] == [
@@ -1122,6 +1126,8 @@ def test_checkpoint_runtime_runs_smash_brute_brawl_end_actions():
         "smash_brute_brawl",
         "candy",
         "end",
+        "candy",
+        "candy",
         "end",
     ]
 

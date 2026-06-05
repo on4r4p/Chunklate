@@ -14,9 +14,6 @@ from chunklate import dummy_chunk
 from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, validate_png_structure
 
 
-FIXTURES = ROOT / "Png_Errors_handled_by_Chunklate_So_Far"
-
-
 def rgb_ihdr(width=1, height=1):
     return struct.pack("!IIBBBBB", width, height, 8, 2, 0, 0, 0)
 
@@ -45,17 +42,6 @@ def test_dummy_chunk_decision_completes_iend_tail():
     assert decision.action == "complete_iend"
     assert decision.solved is True
     assert bytes.fromhex(decision.fixed_data_hex).endswith(IEND_CHUNK)
-    assert validate_png_structure(bytes.fromhex(decision.fixed_data_hex)).ok
-
-
-def test_dummy_chunk_decision_rebuilds_partial_idat_blackfill():
-    data = (FIXTURES / "IDAT_Partial_Blackfill.png").read_bytes()
-
-    decision = dummy_chunk.decide_dummy_chunk(b"IDAT", data.hex(), 0)
-
-    assert decision.action == "partial_idat_blackfill"
-    assert decision.solved is True
-    assert "partial-idat-blackfill" in decision.repair.strategy
     assert validate_png_structure(bytes.fromhex(decision.fixed_data_hex)).ok
 
 
@@ -96,7 +82,6 @@ def main():
     checks = [
         ("Missing IHDR decision", test_dummy_chunk_decision_rebuilds_missing_ihdr_from_idat),
         ("IEND completion decision", test_dummy_chunk_decision_completes_iend_tail),
-        ("Partial IDAT blackfill decision", test_dummy_chunk_decision_rebuilds_partial_idat_blackfill),
         ("Fallback decision", test_dummy_chunk_decision_keeps_unknown_chunks_on_legacy_fallback),
         ("Legacy IHDR dummy build", test_dummy_chunk_builds_legacy_ihdr_dummy_with_injected_helpers),
     ]

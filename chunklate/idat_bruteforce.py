@@ -3615,6 +3615,151 @@ def _ultimate_visual_candidate_to_json(
     }
 
 
+def _json_rank_tuple(value: object) -> tuple[object, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(_json_rank_tuple(item) if isinstance(item, list) else item for item in value)
+
+
+def _json_int(value: object, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _json_float(value: object, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _json_optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _load_ultimate_visual_gallery(
+    gallery_path: str,
+    *,
+    source_hash: str,
+    limit: int,
+) -> tuple[UltimateVisualCandidate, ...]:
+    if limit <= 0 or not gallery_path or not os.path.exists(gallery_path):
+        return ()
+    try:
+        with open(gallery_path, "r", encoding="utf-8") as file:
+            record = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        return ()
+    if not isinstance(record, dict):
+        return ()
+    if str(record.get("source_hash", "")) != str(source_hash):
+        return ()
+
+    base_dir = os.path.dirname(gallery_path)
+    loaded: list[UltimateVisualCandidate] = []
+    raw_candidates = record.get("candidates", ())
+    if not isinstance(raw_candidates, list):
+        return ()
+
+    for item in raw_candidates:
+        if not isinstance(item, dict):
+            continue
+        preview_path = str(item.get("preview_path", ""))
+        if not preview_path:
+            continue
+        if not os.path.isabs(preview_path):
+            preview_path = os.path.join(base_dir, preview_path)
+        try:
+            with open(preview_path, "rb") as file:
+                preview_data = file.read()
+        except OSError:
+            continue
+
+        operations = tuple(
+            operation
+            for operation in (
+                _operation_from_json(operation_record)
+                for operation_record in item.get("operations", ())
+            )
+            if operation is not None
+        )
+        status = str(item.get("status", "partial"))
+        total_scanlines = _json_int(item.get("total_scanlines"), 0)
+        usable_scanlines = _json_int(item.get("usable_scanlines"), 0)
+        complete_scanlines = _json_int(item.get("complete_scanlines"), usable_scanlines)
+        analysis = idat.IdatStreamAnalysis(
+            supported=True,
+            complete=status in ("complete", "bad_adler"),
+            status=status,
+            height=total_scanlines,
+            expected_size=_json_int(item.get("expected_size"), 0),
+            decompressed_size=_json_int(item.get("decompressed_size"), 0),
+            complete_scanlines=complete_scanlines,
+            usable_scanlines=usable_scanlines,
+            error_offset=(
+                _json_int(item.get("error_offset"), -1)
+                if item.get("error_offset") is not None
+                else None
+            ),
+            adler_status=str(item.get("adler_status", "adler_unknown")),
+            source_kind="restored_visual_gallery",
+        )
+        raw_score = item.get("score", ())
+        score = tuple(_json_int(value) for value in raw_score) if isinstance(raw_score, list) else ()
+        candidate = SuperMegaLinefeedCandidate(
+            preview_data,
+            operations,
+            analysis,
+            analysis,
+            state_id=_json_int(item.get("state_id"), 0),
+            parent_id=(
+                _json_int(item.get("parent_id"), 0)
+                if item.get("parent_id") is not None
+                else None
+            ),
+            source_offsets=tuple(operation.stream_offset for operation in operations),
+            score=score,
+            visual_score=_json_optional_float(item.get("visual_score")),
+            visual_score_kind=str(item.get("visual_score_kind", "")),
+            matched_patch_count=_json_int(item.get("matched_patch_count"), 0),
+            visual_raw_score=_json_optional_float(item.get("visual_raw_score")),
+            visual_confidence=_json_optional_float(item.get("visual_confidence")),
+            visual_effective_score=_json_optional_float(item.get("visual_effective_score")),
+        )
+        preview_hash = hashlib.blake2b(preview_data, digest_size=16).hexdigest()
+        rank = _json_rank_tuple(item.get("rank"))
+        if not rank:
+            rank = _ultimate_visual_candidate_rank(
+                candidate,
+                coverage=_json_float(item.get("coverage"), 0.0),
+                visual_score=candidate.visual_score,
+            )
+        loaded.append(
+            UltimateVisualCandidate(
+                candidate=candidate,
+                preview_data=preview_data,
+                preview_strategy=str(item.get("preview_strategy", "")),
+                visual_hash=str(item.get("visual_hash") or preview_hash),
+                scanline_hash=str(item.get("scanline_hash") or preview_hash),
+                operation_hash=str(item.get("operation_hash") or _ultimate_operation_hash(operations)),
+                diversity_key=str(item.get("diversity_key") or preview_hash),
+                rank=rank,
+                coverage=_json_float(item.get("coverage"), 0.0),
+                tested_candidates=_json_int(item.get("tested_candidates"), 0),
+                preview_path=preview_path,
+            )
+        )
+
+    return tuple(sorted(loaded, key=lambda candidate: candidate.rank)[:limit])
+
+
 def _remove_stale_ultimate_visual_previews(preview_dir: str) -> None:
     try:
         names = os.listdir(preview_dir)
@@ -3690,6 +3835,51 @@ def _write_ultimate_visual_gallery(
         return tuple(written), len(written)
     except OSError:
         return candidates, 0
+
+
+def _touch_ultimate_visual_gallery_progress(
+    gallery_path: str,
+    *,
+    source_hash: str = "",
+    reference_mode: str = "exact",
+    reference_regions_path: str = "",
+    phase: str = "",
+    depth: int = 0,
+    tested_candidates: int = 0,
+    state_count: int = 0,
+    limit: int = ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT,
+) -> bool:
+    if limit <= 0 or not gallery_path or not os.path.exists(gallery_path):
+        return False
+    try:
+        with open(gallery_path, "r", encoding="utf-8") as file:
+            record = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(record, dict):
+        return False
+    if source_hash and str(record.get("source_hash", "")) != str(source_hash):
+        return False
+
+    record["reference_mode"] = _coerce_ultimate_reference_mode(reference_mode)
+    record["reference_regions_path"] = reference_regions_path
+    record["phase"] = phase
+    record["depth"] = depth
+    record["tested_candidates"] = tested_candidates
+    record["state_count"] = state_count
+    record["limit"] = limit
+    record["visual_gallery_limit"] = limit
+    record["timestamp"] = time.time()
+
+    try:
+        tmp_path = _hidden_tmp_path(gallery_path)
+        with open(tmp_path, "w", encoding="utf-8") as file:
+            json.dump(record, file, sort_keys=True, indent=2)
+            file.write("\n")
+        os.replace(tmp_path, gallery_path)
+    except OSError:
+        return False
+    return True
 
 
 def probe_ultimate_mega_super_linefeed_bruteforce(
@@ -3914,9 +4104,13 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     best: SuperMegaLinefeedCandidate | None = None
     best_score = root_score
     top_candidates: tuple[SuperMegaLinefeedCandidate, ...] = ()
-    visual_candidates: tuple[UltimateVisualCandidate, ...] = ()
+    visual_candidates: tuple[UltimateVisualCandidate, ...] = _load_ultimate_visual_gallery(
+        visual_gallery_path,
+        source_hash=source_hash,
+        limit=visual_gallery_limit,
+    )
     visual_backfill_candidates: dict[str, UltimateVisualBackfillCandidate] = {}
-    visual_preview_count = 0
+    visual_preview_count = len(visual_candidates)
     visual_gallery_dirty = False
 
     def remember_visual_candidate(candidate: SuperMegaLinefeedCandidate, tested_count: int) -> None:
@@ -3961,6 +4155,18 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         next_state_id = max(next_state_id, progress_resume.state_count)
         reached_depth = max(reached_depth, progress_resume.depth)
         resumed_states += 1
+        if visual_candidates and visual_gallery_path:
+            _touch_ultimate_visual_gallery_progress(
+                visual_gallery_path,
+                source_hash=source_hash,
+                reference_mode=reference_mode,
+                reference_regions_path=reference_regions_path,
+                phase=progress_resume.phase,
+                depth=progress_resume.depth,
+                tested_candidates=tested,
+                state_count=next_state_id,
+                limit=visual_gallery_limit,
+            )
     current_phase = "frontier"
     current_depth = reached_depth
     current_pool_index = 0
@@ -4043,6 +4249,23 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                 state_count=next_state_id,
             )
             visual_gallery_dirty = False
+        elif (
+            visual_gallery_limit > 0
+            and visual_gallery_path
+            and visual_candidates
+            and not visual_gallery_dirty
+        ):
+            _touch_ultimate_visual_gallery_progress(
+                visual_gallery_path,
+                source_hash=source_hash,
+                reference_mode=reference_mode,
+                reference_regions_path=reference_regions_path,
+                phase=snapshot_phase,
+                depth=snapshot_depth,
+                tested_candidates=tested,
+                state_count=next_state_id,
+                limit=visual_gallery_limit,
+            )
 
     previous_sigint_handler = None
     sigint_handler_installed = False

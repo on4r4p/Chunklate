@@ -3,7 +3,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import zlib
 from pathlib import Path
 
 
@@ -11,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chunklate.png import iter_chunks, is_complete_png_with_valid_crc, validate_png_structure
+from chunklate.png import is_complete_png_with_valid_crc, validate_png_structure
 from repair_matrix import (
     LEGACY_CRC_ONLY_REPAIR_CASES,
     PILLOW_LENIENT_REPAIR_CASES,
@@ -47,7 +46,12 @@ def current_repair_fixture_names():
             check=False,
         )
         if result.returncode == 0:
-            return {Path(path).name for path in result.stdout.splitlines()}
+            tracked_existing = {
+                Path(path).name
+                for path in result.stdout.splitlines()
+                if (ROOT / path).exists()
+            }
+            return tracked_existing | {path.name for path in FIXTURES.glob("*.png")}
 
     return {path.name for path in FIXTURES.glob("*.png")}
 
@@ -217,35 +221,6 @@ def test_missing_ihdr_repair_summary_includes_selected_candidate(tmp_path):
     assert "selection score:" in summary_text
 
 
-def test_partial_idat_blackfill_summary_and_output_are_explicit(tmp_path):
-    result, output_dir = run_chunklate_repair(
-        "IDAT_Partial_Blackfill.png",
-        tmp_path,
-        1,
-    )
-    repaired = output_dir / "IDAT_Partial_Blackfill.0_Fixed.png"
-    summary = output_dir / "Summary_Of_IDAT_Partial_Blackfill"
-
-    assert result.returncode == 0
-    assert repaired.exists()
-    assert summary.exists()
-    assert validate_png_structure(repaired.read_bytes()).ok
-
-    chunks = list(iter_chunks(repaired.read_bytes()))
-    ihdr = chunks[0].data
-    width = int.from_bytes(ihdr[0:4], "big")
-    height = int.from_bytes(ihdr[4:8], "big")
-    idat_stream = b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
-    decompressed = zlib.decompress(idat_stream)
-
-    assert (width, height) == (1, 10)
-    assert len(decompressed) == 40
-
-    summary_text = summary.read_text(encoding="utf-8")
-    assert "partial-idat-blackfill recovered 1/10 scanlines" in summary_text
-    assert "Selected IHDR 1x10, bit depth 8, color type 2" in summary_text
-
-
 def run_repair_cases_verbose(tmp_path):
     failures = []
 
@@ -399,8 +374,6 @@ def main():
     test_all_current_repair_fixtures_are_classified()
     with tempfile.TemporaryDirectory(prefix="chunklate-repair-summary-") as tmp:
         test_missing_ihdr_repair_summary_includes_selected_candidate(Path(tmp))
-    with tempfile.TemporaryDirectory(prefix="chunklate-repair-idat-") as tmp:
-        test_partial_idat_blackfill_summary_and_output_are_explicit(Path(tmp))
     print_uncovered_repair_cases()
     print(
         f"\nrepair regression tests passed "

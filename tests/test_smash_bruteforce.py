@@ -241,6 +241,36 @@ def test_legacy_namespace_entry_builds_bridge_and_syncs_legacy_state():
     )
 
 
+def test_legacy_namespace_entry_can_override_brute_level_for_one_run():
+    calls = []
+    namespace = build_namespace(calls)
+
+    def bridge(runtime, context):
+        calls.append(("bridge", runtime, context))
+        return "bridge-result"
+
+    result = smash_bruteforce.run_legacy_smash_brute_brawl_from_namespace(
+        namespace,
+        "broken.png",
+        "IDAT",
+        4,
+        16,
+        "Relics",
+        "Replace",
+        "TwoBytes",
+        True,
+        False,
+        False,
+        brute_level=0,
+        bridge=bridge,
+    )
+
+    assert result == "bridge-result"
+    assert namespace["Brute_LvL"] == 2
+    _name, _runtime, context = find_call(calls, "bridge")
+    assert context.brute_level == 0
+
+
 def test_legacy_namespace_entry_defaults_missing_diff():
     calls = []
     namespace = build_namespace(calls)

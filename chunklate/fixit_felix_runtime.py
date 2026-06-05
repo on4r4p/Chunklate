@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import binascii
 from dataclasses import dataclass
 from pathlib import Path
 import random
@@ -62,6 +63,7 @@ class AutomaticRepairRuntime:
     question: Callable[..., Any] | None = None
     preview_repair_image: Callable[..., Any] | None = None
     tk_manual_plte: Callable[..., Any] | None = None
+    smash_brute_brawl: Callable[..., Any] | None = None
     data_hex: str = ""
     pandora_box: Any = None
     get_spec: Callable[..., Any] | None = None
@@ -344,6 +346,7 @@ def build_automatic_repair_runtime_from_namespace(namespace: dict[str, Any]) -> 
         question=namespace["Question"],
         preview_repair_image=namespace.get("Preview_Repair_Image"),
         tk_manual_plte=namespace.get("Tk_Manual_Plte"),
+        smash_brute_brawl=namespace.get("SmashBruteBrawl"),
         data_hex=namespace["DATAX"],
         pandora_box=namespace["PandoraBox"],
         get_spec=namespace["GetSpec"],
@@ -590,6 +593,135 @@ def _zero_scanline_blackfill_needs_choice(repair: Any) -> bool:
         and getattr(repair, "recovered_scanlines", 0) == 0
         and getattr(repair, "total_scanlines", 0) > 0
     )
+
+
+def _partial_blackfill_bruteforce_can_help(repair: Any) -> bool:
+    return (
+        isinstance(repair, idat.PartialIdatBlackfillRepair)
+        and str(getattr(repair, "strategy", "")).startswith("partial-idat-blackfill")
+        and 0 < getattr(repair, "recovered_scanlines", 0) < getattr(repair, "total_scanlines", 0)
+    )
+
+
+def _source_data_from_runtime(runtime: AutomaticRepairRuntime) -> bytes | None:
+    if not runtime.data_hex:
+        return None
+    try:
+        return bytes.fromhex(runtime.data_hex)
+    except ValueError:
+        return None
+
+
+def _idat_bruteforce_target(source_data: bytes) -> png.PngChunk | None:
+    try:
+        chunks = tuple(png.iter_chunks(source_data))
+    except png.PngFormatError:
+        return None
+
+    idat_chunks = tuple(chunk for chunk in chunks if chunk.chunk_type == b"IDAT")
+    if not idat_chunks:
+        return None
+
+    analysis = idat.analyze_idat_stream(source_data)
+    error_index = analysis.error_idat_index
+    if error_index is not None and 1 <= error_index <= len(idat_chunks):
+        return idat_chunks[error_index - 1]
+
+    return idat_chunks[0]
+
+
+def _idat_original_crc_target(chunk: png.PngChunk) -> str | None:
+    actual_crc = binascii.crc32(chunk.chunk_type + chunk.data) & 0xFFFFFFFF
+    if actual_crc == chunk.crc:
+        return None
+    return chunk.crc.to_bytes(4, "big").hex()
+
+
+def _partial_blackfill_bruteforce_question(
+    runtime: AutomaticRepairRuntime,
+    repair: idat.PartialIdatBlackfillRepair,
+    target_chunk: png.PngChunk,
+) -> bool:
+    runtime.candy(
+        "Cowsay",
+        "The blackfill clone is a valid fallback: %s/%s scanlines are readable."
+        % (repair.recovered_scanlines, repair.total_scanlines),
+        "good",
+    )
+    runtime.candy(
+        "Cowsay",
+        "I can also launch SmashBruteBrawl on the original IDAT bytes, before accepting black rows as the final word.",
+        "com",
+    )
+    if runtime.question is None:
+        return False
+
+    return bool(
+        runtime.question(
+            id="IDAT partial blackfill:-Launch SmashBruteBrawl on the original IDAT after writing the blackfill clone?",
+            idhash=(
+                "IDAT-partial-blackfill-smash",
+                target_chunk.offset,
+                target_chunk.length,
+                repair.recovered_scanlines,
+                repair.total_scanlines,
+                repair.width,
+                repair.height,
+            ),
+            skipauto=True,
+        )
+    )
+
+
+def maybe_launch_partial_blackfill_bruteforce(
+    runtime: AutomaticRepairRuntime,
+    repair: Any,
+) -> bool:
+    if not _partial_blackfill_bruteforce_can_help(repair):
+        return False
+    if runtime.smash_brute_brawl is None:
+        return False
+
+    source_data = _source_data_from_runtime(runtime)
+    if source_data is None:
+        return False
+
+    target_chunk = _idat_bruteforce_target(source_data)
+    if target_chunk is None:
+        return False
+
+    if runtime.preview_repair_image is not None:
+        runtime.preview_repair_image(repair.data, "IDAT_Blackfill_Preview")
+
+    if not _partial_blackfill_bruteforce_question(runtime, repair, target_chunk):
+        return False
+
+    runtime.side_notes.append(
+        "-FixItFelix:launched SmashBruteBrawl on source IDAT after partial blackfill %s/%s."
+        % (repair.recovered_scanlines, repair.total_scanlines)
+    )
+    smash_kwargs: dict[str, Any] = {
+        "EditMode": "Replace",
+        "BfMode": "TwoBytes",
+        "BruteCrc": True,
+        "BruteLength": True,
+        "BruteLevel": 0,
+    }
+    old_crc = _idat_original_crc_target(target_chunk)
+    if old_crc is not None:
+        smash_kwargs["OldCrc"] = old_crc
+        runtime.side_notes.append("-FixItFelix: SmashBruteBrawl will use stored IDAT CRC as target.")
+    else:
+        runtime.side_notes.append("-FixItFelix: stored IDAT CRC already matches current bytes; using image probe.")
+    runtime.smash_brute_brawl(
+        runtime.file_origin or "IDAT",
+        "IDAT",
+        target_chunk.length,
+        target_chunk.offset * 2,
+        "FixItFelix partial IDAT blackfill",
+        **smash_kwargs,
+    )
+    return True
 
 
 def _dedupe_paths(paths: list[Path]) -> tuple[Path, ...]:
@@ -1405,6 +1537,7 @@ def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
         )
     runtime.side_notes.append(applied_repair.note)
     runtime.write_clone(applied_repair.data_hex, applied_repair.save_suffix)
+    maybe_launch_partial_blackfill_bruteforce(runtime, repair)
     return True
 
 

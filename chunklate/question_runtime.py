@@ -100,6 +100,8 @@ def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
         return "Question: Option 2, build a synthetic diagnostic IDAT? This is not the original image."
     if "IDAT Zero Scanline Blackfill" in str(question_id):
         return "Question: Option 3, write an all-zero placeholder PNG?"
+    if "IDAT partial blackfill" in str(question_id):
+        return "Question: Should i launch SmashBruteBrawl to try to recover this bad boy?"
     if skipauto:
         return "Question: Should i stop this brute force branch and save the current candidate?"
     if "IDAT Heavy Probe" in str(question_id):

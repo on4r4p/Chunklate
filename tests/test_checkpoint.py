@@ -397,6 +397,13 @@ def test_smash_brute_brawl_failure_decision_routes_retry_paths():
         brute_level=1,
         bf_mode="Bytes",
     )
+    blackfill_fallback = checkpoint.smash_brute_brawl_failure_decision(
+        info="-Bruteforcer has Failed",
+        chunk="IDAT",
+        brute_level=1,
+        bf_mode="TwoBytes",
+        from_error="FixItFelix partial IDAT blackfill",
+    )
     custom_brutus = checkpoint.smash_brute_brawl_failure_decision(
         info="-Bruteforcer has Failed",
         chunk="IDAT",
@@ -413,6 +420,7 @@ def test_smash_brute_brawl_failure_decision_routes_retry_paths():
     assert ihdr_retry.action == "smash_brute_brawl_retry_ihdr_harder"
     assert twobytes_retry.action == "smash_brute_brawl_ask_twobytes_retry"
     assert noncustom_end.action == "smash_brute_brawl_end_failed_noncustom"
+    assert blackfill_fallback.action == "smash_brute_brawl_keep_blackfill_fallback"
     assert custom_brutus.action == "smash_brute_brawl_ask_custom_brutus"
     assert unhandled.action == "smash_brute_brawl_end_unhandled"
 
@@ -434,9 +442,28 @@ def test_checkpoint_action_decision_handles_smash_brute_brawl_failures():
         toolkit=("sample.png", b"IDAT", 4, 100, "edit", "Custom", "crc", "length", "from-error"),
         brute_level=1,
     )
+    blackfill_fallback = checkpoint.action_decision(
+        error=True,
+        function="SmashBruteBrawl",
+        chunk="IDAT",
+        info="-Bruteforcer has Failed",
+        toolkit=(
+            "sample.png",
+            "IDAT",
+            4,
+            100,
+            "edit",
+            "TwoBytes",
+            "crc",
+            "length",
+            "FixItFelix partial IDAT blackfill",
+        ),
+        brute_level=1,
+    )
 
     assert ihdr_retry.action == "smash_brute_brawl_retry_ihdr_harder"
     assert custom_brutus.action == "smash_brute_brawl_ask_custom_brutus"
+    assert blackfill_fallback.action == "smash_brute_brawl_keep_blackfill_fallback"
 
 
 def main():

@@ -1080,6 +1080,7 @@ def SmashBruteBrawl(
     BruteCrc=True,
     BruteLength=True,
     OldCrc=False,
+    BruteLevel=None,
 ):
     return smash_bruteforce.run_legacy_smash_brute_brawl_from_namespace(
         globals(),
@@ -1093,6 +1094,7 @@ def SmashBruteBrawl(
         BruteCrc,
         BruteLength,
         OldCrc,
+        brute_level=BruteLevel,
     )
 
 

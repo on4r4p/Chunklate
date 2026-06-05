@@ -77,6 +77,7 @@ def run_legacy_smash_brute_brawl_from_namespace(
     brute_crc: bool = True,
     brute_length: bool = True,
     old_crc: Any = False,
+    brute_level: int | None = None,
     *,
     bridge: LegacyCall | None = None,
 ) -> Any:
@@ -155,7 +156,7 @@ def run_legacy_smash_brute_brawl_from_namespace(
             brute_crc=brute_crc,
             brute_length=brute_length,
             old_crc=old_crc,
-            brute_level=namespace["Brute_LvL"],
+            brute_level=namespace["Brute_LvL"] if brute_level is None else brute_level,
             crash=namespace["CRASH"],
             debug=namespace["DEBUG"],
             pause_debug=namespace["PAUSEDEBUG"],

@@ -142,7 +142,6 @@ unit/runtime tests before they are promoted to the strict fixture matrix below.
 | `IHDR_Missplaced.png` | IHDR placed after another chunk | move IHDR back to the first chunk position | 32x32 indexed |
 | `IEND_Missing.png` | missing IEND chunk | append IEND | 260x195 |
 | `IEND_Missing_And_Extra_Bytes.png` | missing IEND and trailing bytes | append IEND and remove extra bytes | 1920x1200 |
-| `IDAT_Partial_Blackfill.png` | partially readable IDAT stream | partial-idat-blackfill | partial IDAT blackfill |
 | `truncate_zlib_2.png` | truncated interlaced IDAT stream before missing IEND | partial-idat-blackfill | partial Adam7 IDAT blackfill |
 | `IncorrectSrgbProfile.png` | known bad sRGB/iCCP profile | remove bad color profile chunk | 272x170 without iCCP |
 | `Incorrect_Srgb_Profile.png` | known bad sRGB/iCCP profile | remove bad color profile chunk | 272x170 without iCCP |

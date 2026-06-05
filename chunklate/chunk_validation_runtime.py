@@ -90,6 +90,22 @@ def _chunky(runtime: ChunkValidationRuntime, value: str) -> Any:
     return runtime.candy("Chunky", value)
 
 
+def _should_comment_on_huge_length(
+    decision: Any,
+    context: CheckLengthContext,
+    chunk_type: bytes,
+) -> bool:
+    if not decision.is_huge:
+        return False
+    if (
+        chunk_type == b"IDAT"
+        and context.previous_chunk == b"IDAT"
+        and context.idat_average_length == decision.declared_length
+    ):
+        return False
+    return True
+
+
 def run_check_length(
     runtime: ChunkValidationRuntime,
     context: CheckLengthContext,
@@ -112,7 +128,7 @@ def run_check_length(
         "com",
     )
 
-    if decision.is_huge:
+    if _should_comment_on_huge_length(decision, context, chunk_type):
         runtime.candy("Cowsay", " Really!? That much ?", "com")
 
     if decision.idat_length_differs:

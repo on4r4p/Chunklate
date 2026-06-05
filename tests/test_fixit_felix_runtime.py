@@ -51,6 +51,23 @@ def zero_scanline_blackfill_repair():
     return repair
 
 
+def partial_scanline_blackfill_source_and_repair():
+    ihdr = b"\x00\x00\x00\x01\x00\x00\x00\x05\x08\x02\x00\x00\x00"
+    raw = b"".join(b"\x00" + bytes((value, value, value)) for value in range(5))
+    compressed = zlib.compress(raw, level=0)
+    for cut in range(2, len(compressed)):
+        source = (
+            PNG_SIGNATURE
+            + build_png_chunk(b"IHDR", ihdr)
+            + build_png_chunk(b"IDAT", compressed[:cut])
+            + IEND_CHUNK
+        )
+        repair = idat.rebuild_partial_idat_blackfill(source)
+        if repair is not None and 0 < repair.recovered_scanlines < repair.total_scanlines:
+            return source, repair
+    raise AssertionError("test fixture did not produce a partial IDAT blackfill")
+
+
 def truncate_idat_1_fixture_bytes():
     for path in (
         ROOT / "brokenjavapngsuite" / "truncate_idat_1.png",
@@ -557,6 +574,95 @@ def test_apply_repair_can_write_zero_scanline_blackfill_when_confirmed():
         "-FixItFelix:partial-idat-blackfill recovered 0/2 scanlines.\n"
         "-FixItFelix:Selected IHDR 1x2, bit depth 8, color type 2."
     ]
+
+
+def test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforce():
+    source, repair = partial_scanline_blackfill_source_and_repair()
+    idat_chunk = next(chunk for chunk in iter_chunks(source) if chunk.chunk_type == b"IDAT")
+    side_notes = []
+    writes = []
+    previews = []
+    questions = []
+    smash_calls = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: None,
+        write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+        question=lambda **kwargs: questions.append(kwargs) or True,
+        preview_repair_image=lambda *args: previews.append(args),
+        smash_brute_brawl=lambda *args, **kwargs: smash_calls.append((args, kwargs)),
+        data_hex=source.hex(),
+        file_origin="source-idat.png",
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert len(writes) == 1
+    assert bytes.fromhex(writes[0][0]) == repair.data
+    assert previews == [(repair.data, "IDAT_Blackfill_Preview")]
+    assert questions == [
+        {
+            "id": "IDAT partial blackfill:-Launch SmashBruteBrawl on the original IDAT after writing the blackfill clone?",
+            "idhash": (
+                "IDAT-partial-blackfill-smash",
+                idat_chunk.offset,
+                idat_chunk.length,
+                repair.recovered_scanlines,
+                repair.total_scanlines,
+                repair.width,
+                repair.height,
+            ),
+            "skipauto": True,
+        }
+    ]
+    assert smash_calls == [
+        (
+            (
+                "source-idat.png",
+                "IDAT",
+                idat_chunk.length,
+                idat_chunk.offset * 2,
+                "FixItFelix partial IDAT blackfill",
+            ),
+            {
+                "EditMode": "Replace",
+                "BfMode": "TwoBytes",
+                "BruteCrc": True,
+                "BruteLength": True,
+                "BruteLevel": 0,
+            },
+        )
+    ]
+    assert side_notes[-2:] == [
+        "-FixItFelix:launched SmashBruteBrawl on source IDAT after partial blackfill 1/5.",
+        "-FixItFelix: stored IDAT CRC already matches current bytes; using image probe.",
+    ]
+
+
+def test_partial_blackfill_bruteforce_uses_stored_crc_only_when_it_targets_original():
+    source, repair = partial_scanline_blackfill_source_and_repair()
+    idat_chunk = next(chunk for chunk in iter_chunks(source) if chunk.chunk_type == b"IDAT")
+    mutable = bytearray(source)
+    mutable[idat_chunk.offset + 8] ^= 0x01
+    smash_calls = []
+    side_notes = []
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: None,
+        write_clone=lambda *_args: None,
+        question=lambda **_kwargs: True,
+        smash_brute_brawl=lambda *args, **kwargs: smash_calls.append((args, kwargs)),
+        data_hex=bytes(mutable).hex(),
+        file_origin="source-idat.png",
+    )
+
+    result = fixit_felix_runtime.maybe_launch_partial_blackfill_bruteforce(runtime, repair)
+
+    assert result is True
+    assert smash_calls[0][1]["BruteLevel"] == 0
+    assert smash_calls[0][1]["OldCrc"] == idat_chunk.crc.to_bytes(4, "big").hex()
+    assert side_notes[-1] == "-FixItFelix: SmashBruteBrawl will use stored IDAT CRC as target."
 
 
 def test_apply_repair_offers_local_idat_donor_before_black_placeholder():
@@ -3347,6 +3453,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
         "WriteClone": callback("WriteClone"),
         "Preview_Repair_Image": callback("Preview_Repair_Image"),
         "Tk_Manual_Plte": callback("Tk_Manual_Plte"),
+        "SmashBruteBrawl": callback("SmashBruteBrawl"),
         "GetSpec": callback("GetSpec"),
         "Product": callback("Product"),
         "Loadingbar": callback("Loadingbar"),
@@ -3469,6 +3576,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert automatic.question is namespace["Question"]
     assert automatic.preview_repair_image is namespace["Preview_Repair_Image"]
     assert automatic.tk_manual_plte is namespace["Tk_Manual_Plte"]
+    assert automatic.smash_brute_brawl is namespace["SmashBruteBrawl"]
     assert automatic.data_hex == "001122"
     assert automatic.pandora_box is pandora_box
     assert automatic.get_spec is namespace["GetSpec"]
@@ -3620,6 +3728,14 @@ def main():
         (
             "Apply repair confirms zero-scanline blackfill",
             test_apply_repair_can_write_zero_scanline_blackfill_when_confirmed,
+        ),
+        (
+            "Apply repair offers SmashBruteBrawl after partial blackfill",
+            test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforce,
+        ),
+        (
+            "Partial blackfill uses stored CRC only when useful",
+            test_partial_blackfill_bruteforce_uses_stored_crc_only_when_it_targets_original,
         ),
         (
             "Apply repair offers local IDAT donor",

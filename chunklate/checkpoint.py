@@ -188,13 +188,19 @@ def action_decision(
 
     if function == "SmashBruteBrawl":
         bf_mode = None
+        from_error = None
         if "-Bruteforcer has Failed" in info and len(toolkit) > 5:
             bf_mode = toolkit[5]
+            if len(toolkit) > 9 and "OldCrc" in info:
+                from_error = toolkit[9]
+            elif len(toolkit) > 8:
+                from_error = toolkit[8]
         return smash_brute_brawl_decision(
             info=info,
             chunk=chunk,
             brute_level=brute_level,
             bf_mode=bf_mode,
+            from_error=from_error,
         )
 
     return CheckPointActionDecision()
@@ -280,6 +286,7 @@ def smash_brute_brawl_decision(
     chunk: Any = None,
     brute_level: int = 0,
     bf_mode: Any = None,
+    from_error: Any = None,
 ) -> CheckPointActionDecision:
     if "Corrupted Data has been replaced" in info:
         return CheckPointActionDecision(
@@ -298,6 +305,7 @@ def smash_brute_brawl_decision(
         chunk=chunk,
         brute_level=brute_level,
         bf_mode=bf_mode,
+        from_error=from_error,
     )
 
 
@@ -307,6 +315,7 @@ def smash_brute_brawl_failure_decision(
     chunk: Any,
     brute_level: int,
     bf_mode: Any,
+    from_error: Any = None,
 ) -> CheckPointActionDecision:
     if "-Bruteforcer has Failed" not in info:
         return CheckPointActionDecision("smash_brute_brawl_end_unhandled")
@@ -318,6 +327,8 @@ def smash_brute_brawl_failure_decision(
         return CheckPointActionDecision("smash_brute_brawl_ask_twobytes_retry")
 
     if bf_mode != "Custom":
+        if "FixItFelix partial IDAT blackfill" in str(from_error):
+            return CheckPointActionDecision("smash_brute_brawl_keep_blackfill_fallback")
         return CheckPointActionDecision("smash_brute_brawl_end_failed_noncustom")
 
     return CheckPointActionDecision("smash_brute_brawl_ask_custom_brutus")

@@ -174,6 +174,13 @@ def action_smash_brute_brawl_ask_twobytes_retry(runtime: CheckPointActionRuntime
 
 
 def smash_brute_brawl_handle_twobytes_decline(runtime: CheckPointActionRuntime, info, toolkit):
+    from_error = toolkit[9] if "OldCrc" in info and len(toolkit) > 9 else toolkit[8]
+    if "FixItFelix partial IDAT blackfill" in str(from_error):
+        runtime.side_notes.append("-CheckPoint: Keeping partial IDAT blackfill after SmashBruteBrawl decline.")
+        return checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(
+            runtime.checkpoint
+        )
+
     if toolkit[1] == b"IDAT" and runtime.ihdr_interlace == "1":
         answer = checkpoint_runtime.ask_smash_brute_brawl_dummy_idat_fallback(
             runtime.checkpoint
@@ -202,6 +209,13 @@ def smash_brute_brawl_handle_twobytes_decline(runtime: CheckPointActionRuntime, 
 def action_smash_brute_brawl_end_failed_noncustom(runtime: CheckPointActionRuntime, decision, chunk, info, toolkit):
     runtime.side_notes.append("-CheckPoint: %s" % info)
     return checkpoint_runtime.run_smash_brute_brawl_end_failed_noncustom(
+        runtime.checkpoint
+    )
+
+
+def action_smash_brute_brawl_keep_blackfill_fallback(runtime: CheckPointActionRuntime, decision, chunk, info, toolkit):
+    runtime.side_notes.append("-CheckPoint: Keeping partial IDAT blackfill after SmashBruteBrawl failure.")
+    return checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(
         runtime.checkpoint
     )
 
@@ -242,6 +256,7 @@ ACTION_HANDLERS = {
     "smash_brute_brawl_retry_ihdr_harder": action_smash_brute_brawl_retry_ihdr,
     "smash_brute_brawl_ask_twobytes_retry": action_smash_brute_brawl_ask_twobytes_retry,
     "smash_brute_brawl_end_failed_noncustom": action_smash_brute_brawl_end_failed_noncustom,
+    "smash_brute_brawl_keep_blackfill_fallback": action_smash_brute_brawl_keep_blackfill_fallback,
     "smash_brute_brawl_ask_custom_brutus": action_smash_brute_brawl_ask_custom_brutus,
     "smash_brute_brawl_end_unhandled": action_smash_brute_brawl_end_unhandled,
 }

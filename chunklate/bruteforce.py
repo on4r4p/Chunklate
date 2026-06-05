@@ -829,6 +829,25 @@ def twobytes_scan_has_window(
     )
 
 
+def twobytes_scan_position_count(to_brute: str, brute_hex_len: int) -> int:
+    if brute_hex_len <= 0 or brute_hex_len > len(to_brute):
+        return 0
+    return ((len(to_brute) - brute_hex_len) // 2) + 1
+
+
+def emit_twobytes_progress(
+    progress: Any,
+    *,
+    position: int,
+    total: int,
+    bonus: bool = False,
+) -> None:
+    try:
+        progress(position=position, total=total, bonus=bonus)
+    except TypeError:
+        progress()
+
+
 def run_twobytes_candidate_scan(
     *,
     to_brute: str,
@@ -847,9 +866,15 @@ def run_twobytes_candidate_scan(
 ) -> None:
     needle = 0
     brute_hex_len = len(brute_bytes.hex())
+    total_positions = twobytes_scan_position_count(to_brute, brute_hex_len)
 
     while twobytes_scan_has_window(to_brute, brute_hex_len, needle, get_state()):
-        progress()
+        current_position = needle // 2
+        emit_twobytes_progress(
+            progress,
+            position=current_position,
+            total=total_positions,
+        )
         direct_match = False
 
         for edit_kind in iter_twobytes_edit_kinds(edit_mode, chunk_name):
@@ -878,7 +903,12 @@ def run_twobytes_candidate_scan(
                     skipped_hex_offset=needle,
                     skipped_hex_len=brute_hex_len,
                 ):
-                    progress()
+                    emit_twobytes_progress(
+                        progress,
+                        position=current_position,
+                        total=total_positions,
+                        bonus=True,
+                    )
                     length_bytes = len(bonus_data).to_bytes(4, "big")
                     attempt = build_attempt(
                         length_bytes,
