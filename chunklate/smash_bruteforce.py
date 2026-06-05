@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, MutableSequence
 from dataclasses import dataclass
+import os
 from typing import Any
 
-from . import bruteforce, bruteforce_result, bruteforce_runtime, bruteforce_viewer
+from . import bruteforce, bruteforce_result, bruteforce_runtime, bruteforce_viewer, output, smash_checkpoint
 
 
 LegacyCall = Callable[..., Any]
@@ -63,6 +64,11 @@ class SmashBruteBrawlLegacyRuntime:
     run_scan: LegacyCall = bruteforce_runtime.run_scan
     show_candidate: LegacyCall = bruteforce_viewer.show_candidate
     run_result: LegacyCall = bruteforce_result.run_result
+    progress_path: str = ""
+    source_hash: str = ""
+    source_size: int = 0
+    source_path: str = ""
+    resume_record: dict[str, Any] | None = None
 
 
 def run_legacy_smash_brute_brawl_from_namespace(
@@ -86,17 +92,34 @@ def run_legacy_smash_brute_brawl_from_namespace(
 
     namespace["Candy"]("Title", "SmashBruteBrawl")
     namespace["Candy"]("Title", "Attempting Bruteforce To Repair Corrupted Chunk Data:")
-    try:
-        chunk_name = chunk_name.encode(errors="ignore")
-    except Exception as exc:
-        namespace["Betterror"](exc, "SmashBruteBrawl")
-        if namespace["DEBUG"] is True:
-            namespace["PRINT"](
-                namespace["Candy"]("Color", "red", "Error:%s")
-                % namespace["Candy"]("Color", "yellow", exc)
-            )
+    if isinstance(chunk_name, bytes):
+        pass
+    else:
+        try:
+            chunk_name = chunk_name.encode(errors="ignore")
+        except Exception as exc:
+            namespace["Betterror"](exc, "SmashBruteBrawl")
+            if namespace["DEBUG"] is True:
+                namespace["PRINT"](
+                    namespace["Candy"]("Color", "red", "Error:%s")
+                    % namespace["Candy"]("Color", "yellow", exc)
+                )
 
     namespace["TmpImgLst"] = []
+    progress_paths = smash_brute_brawl_progress_paths_from_namespace(namespace)
+    source_data = smash_brute_brawl_source_data_from_namespace(namespace)
+    source_hash = smash_checkpoint.source_hash(source_data) if source_data else ""
+    if source_data:
+        try:
+            smash_checkpoint.write_source_snapshot(progress_paths, source_data)
+        except OSError as exc:
+            namespace["PRINT"]("-SmashBruteBrawl checkpoint snapshot warning: %s" % exc)
+    resume_record = None
+    resume_decision = str(namespace.get("SMASH_BRUTE_BRAWL_RESUME_DECISION", "") or "").strip().lower()
+    if resume_decision == "resume":
+        resume_record, progress_warning = smash_checkpoint.load_json(progress_paths.progress_path)
+        if progress_warning:
+            namespace["PRINT"]("-%s" % progress_warning)
 
     def load_spec(request):
         return namespace["GetSpec"](
@@ -138,6 +161,11 @@ def run_legacy_smash_brute_brawl_from_namespace(
             side_notes=namespace["SideNotes"],
             pause=namespace["Pause"],
             sync_state=sync_legacy_state,
+            progress_path=progress_paths.progress_path,
+            source_hash=source_hash,
+            source_size=len(source_data),
+            source_path=progress_paths.source_raw_path,
+            resume_record=resume_record,
         ),
         SmashBruteBrawlLegacyContext(
             file=file,
@@ -161,6 +189,108 @@ def run_legacy_smash_brute_brawl_from_namespace(
             debug=namespace["DEBUG"],
             pause_debug=namespace["PAUSEDEBUG"],
         ),
+    )
+
+
+def smash_brute_brawl_progress_paths_from_namespace(namespace: dict[str, Any]) -> smash_checkpoint.SmashProgressPaths:
+    folder = namespace.get("SMASH_BRUTE_BRAWL_FOLDER")
+    if not folder:
+        folder = output.clone_folder(namespace.get("FILE_Origin", ""), namespace.get("FILE_DIR", ""))
+    os_module = namespace.get("os", os)
+    progress_path = namespace.get("SMASH_BRUTE_BRAWL_PROGRESS_PATH") or os_module.path.join(
+        folder,
+        smash_checkpoint.SMASH_PROGRESS_NAME,
+    )
+    source_raw_path = namespace.get("SMASH_BRUTE_BRAWL_SOURCE_RAW_PATH") or os_module.path.join(
+        folder,
+        smash_checkpoint.SMASH_SOURCE_RAW_NAME,
+    )
+    source_png_path = namespace.get("SMASH_BRUTE_BRAWL_SOURCE_PATH") or os_module.path.join(
+        folder,
+        smash_checkpoint.SMASH_SOURCE_NAME,
+    )
+    return smash_checkpoint.SmashProgressPaths(
+        folder=folder,
+        progress_path=progress_path,
+        source_raw_path=source_raw_path,
+        source_png_path=source_png_path,
+    )
+
+
+def smash_brute_brawl_source_data_from_namespace(namespace: dict[str, Any]) -> bytes:
+    data = namespace.get("DATA_BYTES", b"")
+    if isinstance(data, bytes):
+        return data
+    if isinstance(data, bytearray):
+        return bytes(data)
+    data_hex = namespace.get("DATAX", "")
+    if isinstance(data_hex, str) and data_hex:
+        try:
+            return bytes.fromhex(data_hex)
+        except ValueError:
+            return b""
+    return b""
+
+
+def _cowsay(namespace: dict[str, Any], text: str, mood: str = "com") -> None:
+    namespace.get("Candy", lambda *args, **kwargs: None)("Cowsay", text, mood)
+
+
+def run_smash_brute_brawl_direct_resume_from_namespace(namespace: dict[str, Any]) -> Any:
+    paths = smash_brute_brawl_progress_paths_from_namespace(namespace)
+    record, warning = smash_checkpoint.load_json(paths.progress_path)
+    if warning:
+        _cowsay(namespace, warning, "com")
+        return None
+    if not record:
+        return None
+    source_data = smash_checkpoint.load_source_snapshot(paths)
+    if source_data is None:
+        _cowsay(
+            namespace,
+            "I found a SmashBruteBrawl checkpoint, but no clean Smash source snapshot yet.",
+            "bad",
+        )
+        _cowsay(namespace, "I will finish the file tour before resuming SmashBruteBrawl.", "com")
+        return None
+    if record.get("source_hash") != smash_checkpoint.source_hash(source_data):
+        _cowsay(
+            namespace,
+            "The SmashBruteBrawl source snapshot does not match the progress checkpoint. I will finish the file tour first.",
+            "com",
+        )
+        return None
+    invocation = record.get("invocation")
+    if not isinstance(invocation, dict):
+        _cowsay(namespace, "The SmashBruteBrawl checkpoint has no runnable invocation.", "com")
+        return None
+
+    namespace["DATA_BYTES"] = source_data
+    namespace["DATAX"] = source_data.hex()
+    namespace["SMASH_BRUTE_BRAWL_RESUME_DECISION"] = "resume"
+    namespace["Candy"]("Title", "SmashBruteBrawl resume:")
+    _cowsay(
+        namespace,
+        "Resume accepted. I loaded the clean Smash source snapshot and I am jumping straight back to SmashBruteBrawl.",
+        "good",
+    )
+    chunk_name = bytes.fromhex(str(invocation.get("chunk_name_hex") or "")) or str(
+        invocation.get("chunk_name") or ""
+    ).encode(errors="ignore")
+    chunk_name_text = chunk_name.decode(errors="ignore")
+    return run_legacy_smash_brute_brawl_from_namespace(
+        namespace,
+        invocation.get("file") or namespace.get("FILE_Origin", ""),
+        chunk_name_text,
+        int(invocation.get("chunk_length") or 0),
+        int(invocation.get("data_offset") or 0),
+        invocation.get("from_error") or "SmashBruteBrawl resume",
+        str(invocation.get("edit_mode") or "Replace"),
+        str(invocation.get("bf_mode") or "Brutus"),
+        bool(invocation.get("brute_crc", True)),
+        bool(invocation.get("brute_length", True)),
+        invocation.get("old_crc") or False,
+        brute_level=int(invocation.get("brute_level") or 0),
     )
 
 
@@ -207,36 +337,50 @@ def run_legacy_smash_brute_brawl(
 
     runtime.register_image_viewers(runtime.image_show)
 
-    scan_result = runtime.run_scan(
-        bruteforce_runtime.SmashBruteBrawlRuntime(
-            load_spec=runtime.load_spec,
-            product=runtime.product,
-            loadingbar=runtime.loadingbar,
-            minibar=runtime.minibar,
-            show_candidate=show_png,
-            emit=runtime.emit,
-            pause=runtime.pause,
-            side_notes=runtime.side_notes,
-        ),
-        bruteforce_runtime.SmashBruteBrawlContext(
-            file=context.file,
-            chunk_name=context.chunk_name,
-            chunk_length=context.chunk_length,
-            data_offset=context.data_offset,
-            from_error=context.from_error,
-            data_hex=context.data_hex,
-            pandora_box=context.pandora_box,
-            edit_mode=context.edit_mode,
-            bf_mode=context.bf_mode,
-            brute_crc=context.brute_crc,
-            brute_length=context.brute_length,
-            old_crc=context.old_crc,
-            brute_level=context.brute_level,
-            crash=context.crash,
-            debug=context.debug,
-            pause_debug=context.pause_debug,
-        ),
-    )
+    try:
+        scan_result = runtime.run_scan(
+            bruteforce_runtime.SmashBruteBrawlRuntime(
+                load_spec=runtime.load_spec,
+                product=runtime.product,
+                loadingbar=runtime.loadingbar,
+                minibar=runtime.minibar,
+                show_candidate=show_png,
+                emit=runtime.emit,
+                pause=runtime.pause,
+                side_notes=runtime.side_notes,
+                progress_path=runtime.progress_path,
+                source_hash=runtime.source_hash,
+                source_size=runtime.source_size,
+                source_path=runtime.source_path,
+                resume_record=runtime.resume_record,
+            ),
+            bruteforce_runtime.SmashBruteBrawlContext(
+                file=context.file,
+                chunk_name=context.chunk_name,
+                chunk_length=context.chunk_length,
+                data_offset=context.data_offset,
+                from_error=context.from_error,
+                data_hex=context.data_hex,
+                pandora_box=context.pandora_box,
+                edit_mode=context.edit_mode,
+                bf_mode=context.bf_mode,
+                brute_crc=context.brute_crc,
+                brute_length=context.brute_length,
+                old_crc=context.old_crc,
+                brute_level=context.brute_level,
+                crash=context.crash,
+                debug=context.debug,
+                pause_debug=context.pause_debug,
+            ),
+        )
+    except smash_checkpoint.SmashBruteBrawlInterrupted as exc:
+        runtime.candy(
+            "Cowsay",
+            "SmashBruteBrawl stopped. I kept the progress checkpoint so the next run can resume: %s"
+            % exc.progress_path,
+            "com",
+        )
+        raise SystemExit(130)
 
     runtime.sync_state(
         scan_result.crash,

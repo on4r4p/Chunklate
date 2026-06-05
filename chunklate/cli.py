@@ -247,6 +247,16 @@ def configure_parser(parser: Any) -> Any:
         default="ask",
         metavar="MODE",
     )
+    smash = parser.add_argument_group("smash brute brawl")
+    smash.add_argument(
+        "-sbb-resume",
+        "--smashbrutebrawl-resume",
+        dest="SMASH_BRUTE_BRAWL_RESUME",
+        help="Resume policy for SmashBruteBrawl checkpoints.",
+        choices=("ask", "auto", "never", "reset"),
+        default="ask",
+        metavar="{ask,auto,never,reset}",
+    )
     parser.add_argument(
         "--ulfb",
         dest="ULTIMATE_LINEFEED_BUDGET",
@@ -471,6 +481,12 @@ def ultimate_linefeed_visual_min_coverage_error(coverage: float | int | None) ->
 def ultimate_linefeed_resume_error(mode: str | None) -> str | None:
     if str(mode or "ask").strip().lower() not in ("ask", "auto", "never", "reset"):
         return "--ultimate-linefeed-resume must be one of: ask, auto, never, reset."
+    return None
+
+
+def smash_brute_brawl_resume_error(mode: str | None) -> str | None:
+    if str(mode or "ask").strip().lower() not in ("ask", "auto", "never", "reset"):
+        return "--smashbrutebrawl-resume must be one of: ask, auto, never, reset."
     return None
 
 

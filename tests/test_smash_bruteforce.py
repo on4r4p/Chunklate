@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -7,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chunklate import bruteforce, bruteforce_runtime, bruteforce_viewer, smash_bruteforce
+from chunklate import bruteforce, bruteforce_runtime, bruteforce_viewer, smash_bruteforce, smash_checkpoint
 from types import SimpleNamespace
 
 
@@ -294,7 +295,7 @@ def test_legacy_namespace_entry_defaults_missing_diff():
     assert ("bridge", "") in calls
 
 
-def test_legacy_namespace_entry_preserves_bytes_chunk_name_error_path():
+def test_legacy_namespace_entry_preserves_bytes_chunk_name_without_error():
     calls = []
     namespace = build_namespace(calls)
     namespace["DEBUG"] = True
@@ -322,9 +323,9 @@ def test_legacy_namespace_entry_preserves_bytes_chunk_name_error_path():
     )
 
     assert result == "bridge-result"
-    assert ("betterror", "'bytes' object has no attribute 'encode'", "SmashBruteBrawl") in calls
     assert ("bridge", b"IDAT") in calls
-    assert any(call[0] == "emit" and "<red:Error:" in call[1] for call in calls)
+    assert not [call for call in calls if call[0] == "betterror"]
+    assert not [call for call in calls if call[0] == "emit" and "<red:Error:" in call[1]]
 
 
 def test_legacy_bridge_builds_scan_context_syncs_state_and_runs_result():
@@ -435,13 +436,95 @@ def test_legacy_bridge_wires_viewer_runtime_and_preserves_existing_diff_fallback
     assert result_context.tmp_image_paths == ("/tmp/saved.png",)
 
 
+def test_direct_resume_loads_source_snapshot_and_invocation():
+    calls = []
+    with tempfile.TemporaryDirectory() as directory:
+        folder = Path(directory)
+        source_data = b"not-a-png-but-clean-source"
+        paths = smash_checkpoint.SmashProgressPaths(
+            folder=str(folder),
+            progress_path=str(folder / smash_checkpoint.SMASH_PROGRESS_NAME),
+            source_raw_path=str(folder / smash_checkpoint.SMASH_SOURCE_RAW_NAME),
+            source_png_path=str(folder / smash_checkpoint.SMASH_SOURCE_NAME),
+        )
+        smash_checkpoint.write_source_snapshot(paths, source_data)
+        smash_checkpoint.atomic_write_json(
+            paths.progress_path,
+            {
+                "version": smash_checkpoint.SMASH_PROGRESS_VERSION,
+                "source_hash": smash_checkpoint.source_hash(source_data),
+                "source_size": len(source_data),
+                "timestamp": 1,
+                "invocation": {
+                    "file": "broken.png",
+                    "chunk_name": "IDAT",
+                    "chunk_name_hex": b"IDAT".hex(),
+                    "chunk_length": 4,
+                    "data_offset": 16,
+                    "from_error": "resume",
+                    "edit_mode": "Replace",
+                    "bf_mode": "Brutus",
+                    "brute_crc": True,
+                    "brute_length": False,
+                    "old_crc": "",
+                    "brute_level": 2,
+                },
+                "plan": {"candidate_space_hash": "hash"},
+                "cursor": {},
+                "counters": {},
+            },
+        )
+
+        namespace = {
+            "SMASH_BRUTE_BRAWL_FOLDER": str(folder),
+            "FILE_Origin": "broken.png",
+            "FILE_DIR": "",
+            "Candy": lambda *args: calls.append(("candy", args)),
+            "os": SimpleNamespace(path=__import__("os").path),
+        }
+
+        def bridge(namespace_arg, file, chunk_name, chunk_length, data_offset, from_error, *args, **kwargs):
+            calls.append(
+                (
+                    "bridge",
+                    namespace_arg["DATA_BYTES"],
+                    namespace_arg["DATAX"],
+                    file,
+                    chunk_name,
+                    chunk_length,
+                    data_offset,
+                    from_error,
+                    args,
+                    kwargs,
+                )
+            )
+            return "resume-result"
+
+        original = smash_bruteforce.run_legacy_smash_brute_brawl_from_namespace
+        smash_bruteforce.run_legacy_smash_brute_brawl_from_namespace = bridge
+        try:
+            result = smash_bruteforce.run_smash_brute_brawl_direct_resume_from_namespace(namespace)
+        finally:
+            smash_bruteforce.run_legacy_smash_brute_brawl_from_namespace = original
+
+    assert result == "resume-result"
+    bridge_call = find_call(calls, "bridge")
+    assert bridge_call[1] == source_data
+    assert bridge_call[2] == source_data.hex()
+    assert bridge_call[4] == "IDAT"
+    assert bridge_call[5] == 4
+    assert bridge_call[6] == 16
+    assert bridge_call[-1]["brute_level"] == 2
+
+
 def main():
     checks = [
         ("Namespace bridge", test_legacy_namespace_entry_builds_bridge_and_syncs_legacy_state),
         ("Namespace missing diff", test_legacy_namespace_entry_defaults_missing_diff),
-        ("Namespace bytes chunk", test_legacy_namespace_entry_preserves_bytes_chunk_name_error_path),
+        ("Namespace bytes chunk", test_legacy_namespace_entry_preserves_bytes_chunk_name_without_error),
         ("Bridge scan/result", test_legacy_bridge_builds_scan_context_syncs_state_and_runs_result),
         ("Bridge viewer/fallback", test_legacy_bridge_wires_viewer_runtime_and_preserves_existing_diff_fallback),
+        ("Direct resume snapshot", test_direct_resume_loads_source_snapshot_and_invocation),
     ]
 
     print("Running smash bruteforce bridge tests")

@@ -62,6 +62,7 @@ def args(**updates):
         "ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT": 100,
         "ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE": 0.95,
         "ULTIMATE_LINEFEED_RESUME": "ask",
+        "SMASH_BRUTE_BRAWL_RESUME": "ask",
     }
     values.update(updates)
     return SimpleNamespace(**values)
@@ -149,6 +150,33 @@ def test_reset_ultimate_linefeed_resume_files_removes_short_and_legacy_names():
     )
 
     main_runtime.reset_ultimate_linefeed_resume_files(
+        runtime,
+        file_origin="sample.png",
+        file_dir="/out",
+    )
+
+    assert [call[1] for call in calls if call[0] == "remove_file"] == [
+        folder + "/" + name for name in names
+    ]
+
+
+def test_reset_smash_brute_brawl_resume_files_removes_short_names():
+    calls = []
+    folder = "/out/Folder_sample"
+    names = main_runtime._smash_brute_brawl_resume_names()
+    assert main_runtime.SMASH_BRUTE_BRAWL_SOURCE_RAW_NAME in names
+    existing = {folder + "/" + name for name in names}
+    runtime = main_runtime.MainCliOptionsRuntime(
+        **{
+            **build_runtime(calls).__dict__,
+            "path_exists": lambda path: path in existing,
+            "remove_file": lambda path: calls.append(("remove_file", path)),
+            "join": lambda *parts: "/".join(parts),
+            "clone_folder": lambda file_origin, file_dir: folder,
+        }
+    )
+
+    main_runtime.reset_smash_brute_brawl_resume_files(
         runtime,
         file_origin="sample.png",
         file_dir="/out",
@@ -294,6 +322,7 @@ def test_apply_main_cli_options_builds_initial_state():
         ultimate_linefeed_visual_gallery_limit=100,
         ultimate_linefeed_visual_min_coverage=0.95,
         ultimate_linefeed_resume="ask",
+        smash_brute_brawl_resume="ask",
     )
     assert ("makedirs", "/abs/out/", {"exist_ok": True}) in calls
 
@@ -411,6 +440,23 @@ def test_apply_main_cli_options_exits_on_bad_ultimate_resume_mode():
     assert ("exit", 1) in calls
 
 
+def test_apply_main_cli_options_exits_on_bad_smash_brute_brawl_resume_mode():
+    calls = []
+
+    try:
+        apply_options(calls, args(SMASH_BRUTE_BRAWL_RESUME="bad"))
+    except ExitReached as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("bad SmashBruteBrawl resume mode should exit")
+
+    assert (
+        "print",
+        "--smashbrutebrawl-resume must be one of: ask, auto, never, reset.",
+    ) in calls
+    assert ("exit", 1) in calls
+
+
 def test_apply_main_cli_options_exits_on_bad_ultimate_reference_mode():
     calls = []
 
@@ -494,6 +540,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         ultimate_linefeed_visual_gallery_limit=77,
         ultimate_linefeed_visual_min_coverage=0.8,
         ultimate_linefeed_resume="auto",
+        smash_brute_brawl_resume="auto",
     )
 
     assert main_runtime.legacy_globals_from_main_cli_options(state) == {
@@ -525,6 +572,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         "ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT": 77,
         "ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE": 0.8,
         "ULTIMATE_LINEFEED_RESUME": "auto",
+        "SMASH_BRUTE_BRAWL_RESUME": "auto",
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
     }
 
@@ -579,6 +627,7 @@ def test_apply_main_cli_options_from_namespace_updates_legacy_globals():
     assert namespace["ULTIMATE_LINEFEED_PREVIEW_TIMEOUT"] == 5.0
     assert namespace["ULTIMATE_LINEFEED_SHOW_PREVIEWS"] is False
     assert namespace["ULTIMATE_LINEFEED_RESUME"] == "ask"
+    assert namespace["SMASH_BRUTE_BRAWL_RESUME"] == "ask"
     assert namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] is True
     assert calls == [("makedirs", "/abs/out/", {"exist_ok": True})]
 
@@ -2115,6 +2164,166 @@ def test_run_main_loop_once_directly_resumes_ultimate_before_find_magic():
     assert not [call for call in calls if call[0] == "chunk_by_chunk"]
 
 
+def test_run_main_loop_once_skips_output_cleanup_when_smash_resume_is_accepted():
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    original_input = builtins.input
+
+    def answer_resume(prompt):
+        calls.append(("input", prompt))
+        return "1"
+
+    def find_magic():
+        calls.append(("find_magic",))
+        namespace["SAVE_COUNT"] += 1
+        return None
+
+    progress_name = main_runtime.SMASH_BRUTE_BRAWL_PROGRESS_NAME
+    fake_os = SimpleNamespace(
+        name="posix",
+        system=lambda command: calls.append(("system", command)),
+        makedirs=lambda path, **kwargs: calls.append(("makedirs", path, kwargs)),
+        listdir=lambda path: calls.append(("listdir", path)) or [progress_name, "old.png"],
+        path=SimpleNamespace(
+            basename=os.path.basename,
+            exists=lambda path: calls.append(("exists", path)) or True,
+            isdir=lambda path: calls.append(("isdir", path)) or True,
+            abspath=lambda path: "/abs/" + path,
+            join=lambda *parts: "/".join(parts),
+        ),
+        remove=lambda path: calls.append(("remove_file", path)),
+    )
+
+    namespace = {
+        "sys": SimpleNamespace(
+            stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+            exit=lambda code: calls.append(("exit", code)),
+        ),
+        "os": fake_os,
+        "shutil": SimpleNamespace(rmtree=lambda path: calls.append(("remove_tree", path))),
+        "CLEAR": False,
+        "FirStart": True,
+        "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+        "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+        "Chunklate": lambda mode: calls.append(("banner", mode)),
+        "FILE_Origin": sample_path,
+        "FILE_DIR": "/out/",
+        "OUTPUT_FOLDER_CLEANUP_PENDING": True,
+        "ULTIMATE_LINEFEED_RESUME": "ask",
+        "SMASH_BRUTE_BRAWL_RESUME": "ask",
+        "Sample": sample_path,
+        "CLONESWAR": False,
+        "SAVE_COUNT": 0,
+        "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Clear_Terminal_Dialogue_Pause": lambda: calls.append(("clear_dialogue_pause",)),
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "FindMagic": find_magic,
+        "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+        "CheckLength": lambda *args: calls.append(("check_length", args)),
+        "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+        "GetInfo": lambda *args: calls.append(("get_info", args)),
+        "Checksum": lambda *args: calls.append(("checksum", args)),
+        "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+    }
+
+    builtins.input = answer_resume
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        builtins.input = original_input
+        os.unlink(sample_path)
+
+    folder = "/out/Folder_%s" % os.path.basename(sample_path)
+    assert state == main_runtime.MainLoopIterationState()
+    assert namespace["SMASH_BRUTE_BRAWL_RESUME_DECISION"] == "resume"
+    assert namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] is False
+    assert ("remove_tree", folder) not in calls
+    assert ("input", "-Delete existing output folder '%s'? (yes/no): " % folder) not in calls
+    assert ("input", "-SmashBruteBrawl resume choice [1 resume]: ") in calls
+    assert ("clear_dialogue_pause",) in calls
+    assert ("find_magic",) in calls
+
+
+def test_run_main_loop_once_directly_resumes_smash_before_find_magic():
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    progress_name = main_runtime.SMASH_BRUTE_BRAWL_PROGRESS_NAME
+    fake_os = SimpleNamespace(
+        name="posix",
+        system=lambda command: calls.append(("system", command)),
+        makedirs=lambda path, **kwargs: calls.append(("makedirs", path, kwargs)),
+        listdir=lambda path: calls.append(("listdir", path)) or [progress_name],
+        path=SimpleNamespace(
+            basename=os.path.basename,
+            exists=lambda path: calls.append(("exists", path)) or True,
+            isdir=lambda path: calls.append(("isdir", path)) or True,
+            abspath=lambda path: "/abs/" + path,
+            join=lambda *parts: "/".join(parts),
+        ),
+        remove=lambda path: calls.append(("remove_file", path)),
+    )
+
+    def direct_resume():
+        calls.append(("direct_resume",))
+        namespace["SAVE_COUNT"] += 1
+        return "direct-result"
+
+    namespace = {
+        "sys": SimpleNamespace(
+            stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+            exit=lambda code: calls.append(("exit", code)),
+        ),
+        "os": fake_os,
+        "shutil": SimpleNamespace(rmtree=lambda path: calls.append(("remove_tree", path))),
+        "CLEAR": False,
+        "FirStart": True,
+        "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+        "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+        "Chunklate": lambda mode: calls.append(("banner", mode)),
+        "FILE_Origin": sample_path,
+        "FILE_DIR": "/out/",
+        "OUTPUT_FOLDER_CLEANUP_PENDING": True,
+        "ULTIMATE_LINEFEED_RESUME": "ask",
+        "SMASH_BRUTE_BRAWL_RESUME": "auto",
+        "Sample": sample_path,
+        "CLONESWAR": False,
+        "SAVE_COUNT": 0,
+        "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Clear_Terminal_Dialogue_Pause": lambda: calls.append(("clear_dialogue_pause",)),
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "Prepare_Immediate_Summary": lambda: calls.append(("prepare_summary",)),
+        "Run_Smash_Brute_Brawl_Direct_Resume": direct_resume,
+        "FindMagic": lambda: calls.append(("find_magic",)) or 0,
+        "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+        "CheckLength": lambda *args: calls.append(("check_length", args)),
+        "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+        "GetInfo": lambda *args: calls.append(("get_info", args)),
+        "Checksum": lambda *args: calls.append(("checksum", args)),
+        "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+    }
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState()
+    assert namespace["SMASH_BRUTE_BRAWL_RESUME_DECISION"] == "resume"
+    assert namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] is False
+    assert ("prepare_summary",) in calls
+    assert ("direct_resume",) in calls
+    assert ("find_magic",) not in calls
+    assert not [call for call in calls if call[0] == "chunk_by_chunk"]
+
+
 def test_run_main_loop_once_checks_existing_output_before_summary_preparation():
     calls = []
     folders = {}
@@ -2249,6 +2458,18 @@ def main():
     checks = [
         ("main cleanup boundary", test_chunklate_main_has_no_direct_global_wiring_and_no_dead_reached_end_comment),
         ("runtime builders", test_build_main_runtime_helpers_wire_callbacks),
+        (
+            "ultimate linefeed resume paths",
+            test_ultimate_linefeed_paths_use_short_names_with_legacy_resume_fallback,
+        ),
+        (
+            "ultimate linefeed reset files",
+            test_reset_ultimate_linefeed_resume_files_removes_short_and_legacy_names,
+        ),
+        (
+            "SmashBruteBrawl reset files",
+            test_reset_smash_brute_brawl_resume_files_removes_short_names,
+        ),
         ("main options state", test_apply_main_cli_options_builds_initial_state),
         ("legacy clone/crash", test_apply_main_cli_options_preserves_legacy_unknown_clone_and_crash),
         ("invalid crash", test_apply_main_cli_options_exits_on_invalid_crash),
@@ -2263,6 +2484,10 @@ def main():
         (
             "bad ultimate resume mode",
             test_apply_main_cli_options_exits_on_bad_ultimate_resume_mode,
+        ),
+        (
+            "bad SmashBruteBrawl resume mode",
+            test_apply_main_cli_options_exits_on_bad_smash_brute_brawl_resume_mode,
         ),
         ("legacy globals", test_legacy_globals_from_main_cli_options_maps_runtime_flags),
         ("namespace CLI options", test_apply_main_cli_options_from_namespace_updates_legacy_globals),
@@ -2326,6 +2551,14 @@ def main():
         (
             "main loop ultimate direct resume",
             test_run_main_loop_once_directly_resumes_ultimate_before_find_magic,
+        ),
+        (
+            "main loop SmashBruteBrawl resume skips cleanup",
+            test_run_main_loop_once_skips_output_cleanup_when_smash_resume_is_accepted,
+        ),
+        (
+            "main loop SmashBruteBrawl direct resume",
+            test_run_main_loop_once_directly_resumes_smash_before_find_magic,
         ),
         (
             "main loop cleanup before summary",

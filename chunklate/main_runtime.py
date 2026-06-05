@@ -4,7 +4,7 @@ import builtins
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import cli, messages, output, runtime_state
+from . import cli, messages, output, runtime_state, smash_checkpoint
 from .png import repair_idat_marker_chain_from_visible_headers, repair_linefeed_conversion
 
 
@@ -29,6 +29,10 @@ LEGACY_ULTIMATE_LINEFEED_SOURCE_NAMES = (
     "_UltimateMegaSuperLineFeedBruteForce.Source.png",
 )
 ULTIMATE_LINEFEED_RESUME_MODES = ("ask", "auto", "never", "reset")
+SMASH_BRUTE_BRAWL_PROGRESS_NAME = smash_checkpoint.SMASH_PROGRESS_NAME
+SMASH_BRUTE_BRAWL_SOURCE_RAW_NAME = smash_checkpoint.SMASH_SOURCE_RAW_NAME
+SMASH_BRUTE_BRAWL_SOURCE_NAME = smash_checkpoint.SMASH_SOURCE_NAME
+SMASH_BRUTE_BRAWL_RESUME_MODES = smash_checkpoint.SMASH_RESUME_MODES
 
 
 @dataclass(frozen=True)
@@ -55,6 +59,7 @@ class MainCliOptionsRuntime:
     ultimate_linefeed_reference_mode_error: Callable = cli.ultimate_linefeed_reference_mode_error
     ultimate_linefeed_visual_gallery_limit_error: Callable = cli.ultimate_linefeed_visual_gallery_limit_error
     ultimate_linefeed_visual_min_coverage_error: Callable = cli.ultimate_linefeed_visual_min_coverage_error
+    smash_brute_brawl_resume_error: Callable = cli.smash_brute_brawl_resume_error
     output_file_dir: Callable = cli.output_file_dir
     runtime_flags_from_args: Callable = cli.runtime_flags_from_args
     clone_folder: Callable[[str, str], str] = output.clone_folder
@@ -81,6 +86,7 @@ class MainCliOptionsState:
     ultimate_linefeed_visual_gallery_limit: int = 100
     ultimate_linefeed_visual_min_coverage: float = 0.95
     ultimate_linefeed_resume: str = "ask"
+    smash_brute_brawl_resume: str = "ask"
 
 
 @dataclass(frozen=True)
@@ -633,6 +639,170 @@ def predecide_ultimate_linefeed_resume_from_namespace(namespace: dict[str, Any])
         runtime.exit_process(130)
 
 
+def smash_brute_brawl_folder_paths(
+    runtime: MainCliOptionsRuntime,
+    *,
+    file_origin: str,
+    file_dir: str,
+) -> tuple[str, str, str, str]:
+    folder = runtime.clone_folder(file_origin, file_dir)
+    return (
+        folder,
+        runtime.join(folder, SMASH_BRUTE_BRAWL_PROGRESS_NAME),
+        runtime.join(folder, SMASH_BRUTE_BRAWL_SOURCE_RAW_NAME),
+        runtime.join(folder, SMASH_BRUTE_BRAWL_SOURCE_NAME),
+    )
+
+
+def _smash_brute_brawl_resume_names() -> tuple[str, ...]:
+    return (
+        SMASH_BRUTE_BRAWL_PROGRESS_NAME,
+        SMASH_BRUTE_BRAWL_SOURCE_RAW_NAME,
+        SMASH_BRUTE_BRAWL_SOURCE_NAME,
+    )
+
+
+def _smash_brute_brawl_resume_paths(
+    runtime: MainCliOptionsRuntime,
+    *,
+    file_origin: str,
+    file_dir: str,
+) -> tuple[str, ...]:
+    folder = runtime.clone_folder(file_origin, file_dir)
+    return tuple(runtime.join(folder, name) for name in _smash_brute_brawl_resume_names())
+
+
+def reset_smash_brute_brawl_resume_files(
+    runtime: MainCliOptionsRuntime,
+    *,
+    file_origin: str,
+    file_dir: str,
+) -> None:
+    for path in _smash_brute_brawl_resume_paths(
+        runtime,
+        file_origin=file_origin,
+        file_dir=file_dir,
+    ):
+        _remove_existing_file(runtime, path)
+
+
+def _smash_brute_brawl_resume_evidence_exists(
+    runtime: MainCliOptionsRuntime,
+    folder: str,
+    progress_path: str,
+    source_raw_path: str,
+    source_path: str,
+) -> bool:
+    if runtime.path_exists(folder) and runtime.path_is_dir(folder):
+        try:
+            names = set(runtime.list_dir(folder))
+            return any(name in names for name in _smash_brute_brawl_resume_names())
+        except OSError:
+            return False
+    return (
+        runtime.path_exists(progress_path)
+        or runtime.path_exists(source_raw_path)
+        or runtime.path_exists(source_path)
+    )
+
+
+def ask_smash_brute_brawl_resume(runtime: MainCliOptionsRuntime, progress_path: str) -> str:
+    runtime.candy(
+        "Cowsay",
+        "I found a SmashBruteBrawl checkpoint in this folder. I can resume from it instead of wiping the output.",
+        "good",
+    )
+    runtime.candy(
+        "Cowsay",
+        "If a clean Smash source snapshot exists, I can jump straight back; otherwise I will finish the file tour first.",
+        "com",
+    )
+    runtime.candy(
+        "Cowsay",
+        "1. resume\n2. ignore once\n3. reset checkpoints\n4. abort",
+        "com",
+    )
+    prompt = "-SmashBruteBrawl resume choice [1 resume]: "
+    while True:
+        try:
+            answer = runtime.asker(prompt)
+        except EOFError:
+            runtime.clear_dialogue_pause()
+            return "resume"
+        if str(answer).strip() == "":
+            runtime.clear_dialogue_pause()
+            return "resume"
+        decision = _resume_answer(answer)
+        if decision is not None:
+            runtime.clear_dialogue_pause()
+            return decision
+        runtime.emit("-Enter 1, 2, 3, or 4.")
+
+
+def predecide_smash_brute_brawl_resume_from_namespace(namespace: dict[str, Any]) -> None:
+    if "os" not in namespace or "shutil" not in namespace:
+        return
+    mode = str(namespace.get("SMASH_BRUTE_BRAWL_RESUME", "ask") or "ask").strip().lower()
+    if mode not in SMASH_BRUTE_BRAWL_RESUME_MODES:
+        mode = "ask"
+    runtime = build_cli_options_runtime_from_namespace(namespace)
+    folder, progress_path, source_raw_path, source_path = smash_brute_brawl_folder_paths(
+        runtime,
+        file_origin=namespace["FILE_Origin"],
+        file_dir=namespace["FILE_DIR"],
+    )
+    namespace["SMASH_BRUTE_BRAWL_FOLDER"] = folder
+    namespace["SMASH_BRUTE_BRAWL_PROGRESS_PATH"] = progress_path
+    namespace["SMASH_BRUTE_BRAWL_SOURCE_RAW_PATH"] = source_raw_path
+    namespace["SMASH_BRUTE_BRAWL_SOURCE_PATH"] = source_path
+
+    if mode == "reset":
+        reset_smash_brute_brawl_resume_files(
+            runtime,
+            file_origin=namespace["FILE_Origin"],
+            file_dir=namespace["FILE_DIR"],
+        )
+        namespace["SMASH_BRUTE_BRAWL_RESUME_DECISION"] = "reset"
+        return
+    if mode == "never":
+        namespace["SMASH_BRUTE_BRAWL_RESUME_DECISION"] = "never"
+        return
+    if not _smash_brute_brawl_resume_evidence_exists(
+        runtime,
+        folder,
+        progress_path,
+        source_raw_path,
+        source_path,
+    ):
+        namespace["SMASH_BRUTE_BRAWL_RESUME_DECISION"] = "missing"
+        return
+
+    if mode == "auto":
+        namespace["SMASH_BRUTE_BRAWL_RESUME_DECISION"] = "resume"
+        namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] = False
+        runtime.candy(
+            "Cowsay",
+            "SmashBruteBrawl checkpoint found. Auto-resume is enabled, so I am keeping the output folder intact.",
+            "good",
+        )
+        return
+
+    decision = ask_smash_brute_brawl_resume(runtime, progress_path)
+    namespace["SMASH_BRUTE_BRAWL_RESUME_DECISION"] = decision
+    if decision == "resume":
+        namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] = False
+        return
+    if decision == "reset":
+        reset_smash_brute_brawl_resume_files(
+            runtime,
+            file_origin=namespace["FILE_Origin"],
+            file_dir=namespace["FILE_DIR"],
+        )
+        return
+    if decision == "abort":
+        runtime.exit_process(130)
+
+
 def apply_main_cli_options(
     runtime: MainCliOptionsRuntime,
     args: Any,
@@ -706,6 +876,16 @@ def apply_main_cli_options(
         runtime.print_error(resume_error)
         runtime.exit_process(1)
         return None
+    smash_brute_brawl_resume = str(
+        getattr(args, "SMASH_BRUTE_BRAWL_RESUME", "ask") or "ask"
+    ).strip().lower()
+    smash_resume_error = runtime.smash_brute_brawl_resume_error(
+        smash_brute_brawl_resume
+    )
+    if smash_resume_error is not None:
+        runtime.print_error(smash_resume_error)
+        runtime.exit_process(1)
+        return None
     ultimate_linefeed_budget_error = runtime.ultimate_linefeed_budget_error(
         ultimate_linefeed_budget,
         ultimate_linefeed_unbounded,
@@ -772,6 +952,7 @@ def apply_main_cli_options(
         ultimate_linefeed_visual_gallery_limit=ultimate_linefeed_visual_gallery_limit,
         ultimate_linefeed_visual_min_coverage=ultimate_linefeed_visual_min_coverage,
         ultimate_linefeed_resume=ultimate_linefeed_resume,
+        smash_brute_brawl_resume=smash_brute_brawl_resume,
     )
 
 
@@ -806,6 +987,7 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT": options.ultimate_linefeed_visual_gallery_limit,
         "ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE": options.ultimate_linefeed_visual_min_coverage,
         "ULTIMATE_LINEFEED_RESUME": options.ultimate_linefeed_resume,
+        "SMASH_BRUTE_BRAWL_RESUME": options.smash_brute_brawl_resume,
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
     }
 
@@ -1088,10 +1270,16 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
 
     sync_loaded_sample_to_namespace(namespace, loaded_sample)
     predecide_ultimate_linefeed_resume_from_namespace(namespace)
+    predecide_smash_brute_brawl_resume_from_namespace(namespace)
     run_pending_output_folder_cleanup_from_namespace(namespace)
     namespace.get("Prepare_Immediate_Summary", lambda: None)()
     if namespace.get("ULTIMATE_LINEFEED_RESUME_DECISION") == "resume":
         direct_resume = namespace.get("Run_Ultimate_Linefeed_Direct_Resume", lambda: None)
+        direct_resume_result = direct_resume()
+        if direct_resume_result is not None:
+            return MainLoopIterationState()
+    if namespace.get("SMASH_BRUTE_BRAWL_RESUME_DECISION") == "resume":
+        direct_resume = namespace.get("Run_Smash_Brute_Brawl_Direct_Resume", lambda: None)
         direct_resume_result = direct_resume()
         if direct_resume_result is not None:
             return MainLoopIterationState()

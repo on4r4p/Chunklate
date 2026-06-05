@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import json
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -22,7 +24,19 @@ class FakeClock:
         return current
 
 
-def build_runtime(calls, *, specs, product_values, viewer_results=None, side_notes=None):
+def build_runtime(
+    calls,
+    *,
+    specs,
+    product_values,
+    viewer_results=None,
+    side_notes=None,
+    progress_path="",
+    source_hash="",
+    source_size=0,
+    source_path="",
+    resume_record=None,
+):
     side_notes = [] if side_notes is None else side_notes
     viewer_results = [] if viewer_results is None else list(viewer_results)
 
@@ -63,6 +77,11 @@ def build_runtime(calls, *, specs, product_values, viewer_results=None, side_not
         side_notes=side_notes,
         raw_print=lambda *args, **kwargs: calls.append(("raw_print", args, kwargs)),
         now=FakeClock(),
+        progress_path=progress_path,
+        source_hash=source_hash,
+        source_size=source_size,
+        source_path=source_path,
+        resume_record=resume_record,
     )
 
 
@@ -241,6 +260,126 @@ def test_run_scan_preserves_crash_resume_skip_and_reset():
     assert ("loadingbar", 2, 1, 1, False) in calls
 
 
+def test_run_scan_writes_smash_progress_checkpoint():
+    calls = []
+    chunk_name = b"gAMA"
+    old_crc = bruteforce.chunk_crc(chunk_name, b"\x08").hex()
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,), (8,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            source_size=123,
+            source_path="/tmp/_SBB.Source.raw",
+        )
+
+        bruteforce_runtime.run_scan(
+            runtime,
+            base_context(chunk_name=chunk_name, old_crc=old_crc),
+        )
+
+        record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+
+    assert record["source_hash"] == "source-hash"
+    assert record["source_size"] == 123
+    assert record["invocation"]["chunk_name_hex"] == chunk_name.hex()
+    assert record["invocation"]["old_crc"] == old_crc
+    assert record["cursor"]["outer_index"] == 0
+    assert record["cursor"]["inner_index"] == 1
+    assert record["counters"]["tested_candidates"] == 2
+    assert record["plan"]["candidate_space_hash"]
+
+
+def test_run_scan_resumes_from_saved_inner_index_when_space_matches():
+    calls = []
+    chunk_name = b"gAMA"
+    old_crc = bruteforce.chunk_crc(chunk_name, b"\x08").hex()
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        first_runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,), (8,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            source_size=123,
+            source_path="/tmp/_SBB.Source.raw",
+        )
+        context = base_context(chunk_name=chunk_name, old_crc=old_crc)
+
+        bruteforce_runtime.run_scan(first_runtime, context)
+        resume_record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+
+        calls.clear()
+        second_runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,), (8,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            source_size=123,
+            source_path="/tmp/_SBB.Source.raw",
+            resume_record=resume_record,
+        )
+
+        result = bruteforce_runtime.run_scan(second_runtime, context)
+
+    assert result.state == bruteforce.BruteForceMatchState(
+        bingo=True,
+        replace_flag=True,
+    )
+    assert ("loadingbar", 2, 1, 0, False) not in calls
+    assert ("loadingbar", 2, 1, 1, False) in calls
+    assert any(
+        call == ("emit", "-SmashBruteBrawl resume checkpoint accepted at outer 0, inner 1.")
+        for call in calls
+    )
+
+
+def test_run_scan_restarts_when_brute_level_increases_search_space():
+    calls = []
+    chunk_name = b"gAMA"
+    old_crc = bruteforce.chunk_crc(chunk_name, b"\x08").hex()
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,), (8,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+        )
+        bruteforce_runtime.run_scan(
+            runtime,
+            base_context(chunk_name=chunk_name, old_crc=old_crc, brute_level=0),
+        )
+        resume_record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+
+        calls.clear()
+        next_runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,), (8,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            resume_record=resume_record,
+        )
+        bruteforce_runtime.run_scan(
+            next_runtime,
+            base_context(chunk_name=chunk_name, old_crc=old_crc, brute_level=1),
+        )
+
+    assert ("loadingbar", 2, 1, 0, False) in calls
+    assert any(
+        call[0] == "emit"
+        and "BruteLevel increased from 0 to 1" in call[1]
+        for call in calls
+    )
+
+
 def main():
     checks = [
         ("OldCrc scan", test_run_scan_preserves_oldcrc_path_without_viewer),
@@ -249,6 +388,9 @@ def main():
         ("TwoBytes dots", test_twobytes_progress_dots_line_fills_and_returns),
         ("TwoBytes short terminal", test_twobytes_progress_dots_line_clamps_to_short_terminal_width),
         ("Crash resume", test_run_scan_preserves_crash_resume_skip_and_reset),
+        ("Smash progress checkpoint", test_run_scan_writes_smash_progress_checkpoint),
+        ("Smash resume inner cursor", test_run_scan_resumes_from_saved_inner_index_when_space_matches),
+        ("Smash higher BruteLevel restart", test_run_scan_restarts_when_brute_level_increases_search_space),
     ]
 
     print("Running bruteforce runtime tests")

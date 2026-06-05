@@ -90,6 +90,8 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "-ulfmc" in result.stdout
     assert "--ultimate-linefeed-resume" in result.stdout
     assert "-ulf-resume" in result.stdout
+    assert "--smashbrutebrawl-resume" in result.stdout
+    assert "-sbb-resume" in result.stdout
     assert "--ulf-budget" not in result.stdout
 
 

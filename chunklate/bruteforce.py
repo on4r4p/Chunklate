@@ -796,16 +796,39 @@ def iter_twobytes_bonus_data(
     skipped_hex_offset: int,
     skipped_hex_len: int,
 ):
+    for _hex_offset, _value, bonus_data in iter_twobytes_bonus_data_with_cursor(
+        bonus_hex,
+        new_data_len,
+        skipped_hex_offset,
+        skipped_hex_len,
+    ):
+        yield bonus_data
+
+
+def iter_twobytes_bonus_data_with_cursor(
+    bonus_hex: str,
+    new_data_len: int,
+    skipped_hex_offset: int,
+    skipped_hex_len: int,
+    *,
+    start_hex_offset: int = 0,
+    start_value: int = 0,
+):
     n1 = 0
     n2 = 2
     while n1 <= new_data_len - (n2 - 1):
         if n1 == skipped_hex_offset:
             n1 += skipped_hex_len
             continue
+        if n1 < start_hex_offset:
+            n1 += 2
+            continue
 
         for hexa in range(0, 16**2):
+            if n1 == start_hex_offset and hexa < start_value:
+                continue
             bonus_byte = int(hexa).to_bytes(1, "big")
-            yield twobytes_bonus_candidate_data(bonus_hex, n1, bonus_byte)
+            yield n1, hexa, twobytes_bonus_candidate_data(bonus_hex, n1, bonus_byte)
 
         n1 += 2
 
@@ -863,8 +886,14 @@ def run_twobytes_candidate_scan(
     validate_attempt: Any,
     progress: Any,
     bonus_message: Any | None = None,
+    resume_position: int = 0,
+    resume_edit_kind_index: int = 0,
+    resume_stage: str = "",
+    resume_bonus_offset: int = 0,
+    resume_bonus_value: int = 0,
+    cursor_callback: Any | None = None,
 ) -> None:
-    needle = 0
+    needle = max(0, int(resume_position)) * 2
     brute_hex_len = len(brute_bytes.hex())
     total_positions = twobytes_scan_position_count(to_brute, brute_hex_len)
 
@@ -877,7 +906,17 @@ def run_twobytes_candidate_scan(
         )
         direct_match = False
 
-        for edit_kind in iter_twobytes_edit_kinds(edit_mode, chunk_name):
+        for edit_kind_index, edit_kind in enumerate(iter_twobytes_edit_kinds(edit_mode, chunk_name)):
+            if current_position == resume_position and edit_kind_index < resume_edit_kind_index:
+                continue
+            if cursor_callback is not None:
+                cursor_callback(
+                    byte_position=current_position,
+                    edit_kind_index=edit_kind_index,
+                    stage="direct",
+                    bonus_offset=0,
+                    bonus_value=0,
+                )
             candidate_data = twobytes_candidate_data(
                 to_brute,
                 brute_bytes,
@@ -897,12 +936,31 @@ def run_twobytes_candidate_scan(
                 break
 
             if brute_level > 0:
-                for bonus_data in iter_twobytes_bonus_data(
+                start_bonus_offset = 0
+                start_bonus_value = 0
+                if (
+                    current_position == resume_position
+                    and edit_kind_index == resume_edit_kind_index
+                    and str(resume_stage) == "bonus"
+                ):
+                    start_bonus_offset = max(0, int(resume_bonus_offset))
+                    start_bonus_value = max(0, int(resume_bonus_value))
+                for bonus_offset, bonus_value, bonus_data in iter_twobytes_bonus_data_with_cursor(
                     candidate_data.bonus_hex,
                     new_data_len=len(candidate_data.data),
                     skipped_hex_offset=needle,
                     skipped_hex_len=brute_hex_len,
+                    start_hex_offset=start_bonus_offset,
+                    start_value=start_bonus_value,
                 ):
+                    if cursor_callback is not None:
+                        cursor_callback(
+                            byte_position=current_position,
+                            edit_kind_index=edit_kind_index,
+                            stage="bonus",
+                            bonus_offset=bonus_offset,
+                            bonus_value=bonus_value,
+                        )
                     emit_twobytes_progress(
                         progress,
                         position=current_position,

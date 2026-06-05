@@ -1136,6 +1136,10 @@ def Run_Ultimate_Linefeed_Direct_Resume():
     return magic_runtime.run_ultimate_linefeed_direct_resume_from_namespace(globals())
 
 
+def Run_Smash_Brute_Brawl_Direct_Resume():
+    return smash_bruteforce.run_smash_brute_brawl_direct_resume_from_namespace(globals())
+
+
 def FindMagic():
     return magic_runtime.run_find_magic_from_namespace(globals())
 
@@ -1928,6 +1932,7 @@ ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT = 100
 ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE = 0.95
 ULTIMATE_LINEFEED_RESUME = "ask"
 ULTIMATE_LINEFEED_LIVE_PREVIEW_FOLDER_REPORTED = ""
+SMASH_BRUTE_BRAWL_RESUME = "ask"
 
 FishPos = 0
 LenFishList = 0
