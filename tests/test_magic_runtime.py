@@ -989,10 +989,11 @@ def test_ultimate_linefeed_resume_message_uses_fast_v2_exhaustive_phase(tmp_path
 
     assert "Fast resume" in message
     assert "Checkpoint archive scan skipped" in message
-    assert "attempted 4321" in message
+    assert "attempted 1700" in message
     assert "committed 1234" in message
     assert "pending shards: 2" in message
     assert "workers: 4" in message
+    assert "last confirmed shard cursor" in message
 
 
 def test_ultimate_linefeed_resume_message_handles_complete_phase(tmp_path):

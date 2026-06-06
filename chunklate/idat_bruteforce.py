@@ -419,19 +419,61 @@ def _ultimate_progress_shard_attempted(shard: dict[str, Any]) -> int:
     return max(0, next_rank - start_rank)
 
 
+def _normalize_ultimate_progress_shard(shard: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(shard)
+    try:
+        start_rank = int(normalized.get("start_rank", 0) or 0)
+    except (TypeError, ValueError):
+        start_rank = 0
+    try:
+        end_rank = int(normalized.get("end_rank", start_rank) or start_rank)
+    except (TypeError, ValueError):
+        end_rank = start_rank
+    end_rank = max(start_rank, end_rank)
+    try:
+        next_rank = int(normalized.get("next_rank", start_rank) or start_rank)
+    except (TypeError, ValueError):
+        next_rank = start_rank
+    if str(normalized.get("status", "")) == "done":
+        next_rank = end_rank
+    next_rank = min(max(start_rank, next_rank), end_rank)
+    confirmed = max(0, next_rank - start_rank)
+    normalized["start_rank"] = start_rank
+    normalized["end_rank"] = end_rank
+    normalized["next_rank"] = next_rank
+    try:
+        normalized["tested"] = max(int(normalized.get("tested", 0) or 0), confirmed)
+    except (TypeError, ValueError):
+        normalized["tested"] = confirmed
+    return normalized
+
+
+def _ultimate_progress_shards_attempted(shards: Iterable[dict[str, Any]]) -> int:
+    return sum(
+        _ultimate_progress_shard_attempted(_normalize_ultimate_progress_shard(shard))
+        for shard in shards
+        if isinstance(shard, dict)
+    )
+
+
 def ultimate_progress_attempted_floor(progress: UltimateLinefeedProgress | None) -> int:
     if progress is None:
         return 0
-    shard_attempted = sum(
-        _ultimate_progress_shard_attempted(shard)
-        for shard in getattr(progress, "shards", ())
-        if isinstance(shard, dict)
+    shard_records = tuple(
+        shard for shard in getattr(progress, "shards", ()) if isinstance(shard, dict)
     )
+    shard_attempted = _ultimate_progress_shards_attempted(shard_records)
     combination_rank = (
         max(0, int(getattr(progress, "combination_rank", 0) or 0))
         if getattr(progress, "phase", "") == "exhaustive"
         else 0
     )
+    if shard_records:
+        return max(
+            0,
+            int(getattr(progress, "tested_candidates", 0) or 0),
+            shard_attempted,
+        )
     return max(
         0,
         int(getattr(progress, "attempted_candidates", 0) or 0),
@@ -2203,6 +2245,16 @@ def _write_ultimate_progress(
     if not progress_path:
         return
     try:
+        normalized_shards = tuple(
+            _normalize_ultimate_progress_shard(shard)
+            for shard in shards
+            if isinstance(shard, dict)
+        )
+        confirmed_attempted = _ultimate_progress_shards_attempted(normalized_shards)
+        safe_attempted = max(
+            int(tested_candidates or 0),
+            confirmed_attempted if normalized_shards else int(attempted_candidates or 0),
+        )
         directory = os.path.dirname(progress_path)
         if directory:
             os.makedirs(directory, exist_ok=True)
@@ -2224,10 +2276,7 @@ def _write_ultimate_progress(
                     "combination_rank": combination_rank,
                     "combination_indices": None if combination_indices is None else list(combination_indices),
                     "tested_candidates": tested_candidates,
-                    "attempted_candidates": max(
-                        int(tested_candidates or 0),
-                        int(attempted_candidates or 0),
-                    ),
+                    "attempted_candidates": safe_attempted,
                     "pruned_candidates": pruned_candidates,
                     "state_count": state_count,
                     "budget": budget,
@@ -2236,7 +2285,7 @@ def _write_ultimate_progress(
             if int(parallel_workers or 0) > 1 or shards:
                 record["parallel_workers"] = max(0, int(parallel_workers or 0))
                 record["shard_size"] = max(0, int(shard_size or 0))
-                record["shards"] = list(shards)
+                record["shards"] = list(normalized_shards)
             json.dump(record, file, sort_keys=True)
             file.write("\n")
         os.replace(tmp_path, progress_path)
@@ -4767,6 +4816,25 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         nonlocal visual_candidates, visual_preview_count, visual_gallery_dirty
         snapshot_phase = current_phase if phase is None else phase
         snapshot_depth = current_depth if depth is None else depth
+        snapshot_shards = tuple(
+            sorted(
+                (
+                    _normalize_ultimate_progress_shard(shard)
+                    for shard in current_shards.values()
+                    if isinstance(shard, dict)
+                ),
+                key=lambda item: (
+                    int(item.get("pool_index", 0) or 0),
+                    int(item.get("depth", 0) or 0),
+                    int(item.get("start_rank", 0) or 0),
+                ),
+            )
+        )
+        confirmed_attempted = max(
+            tested,
+            _ultimate_progress_shards_attempted(snapshot_shards),
+            attempted_candidates if not snapshot_shards else 0,
+        )
         _write_ultimate_progress(
             progress_path,
             source_hash=source_hash,
@@ -4788,17 +4856,8 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             budget=budget_limit,
             parallel_workers=ultimate_workers,
             shard_size=ULTIMATE_LINEFEED_PARALLEL_SHARD_SIZE if ultimate_workers >= 2 else 0,
-            shards=tuple(
-                sorted(
-                    current_shards.values(),
-                    key=lambda item: (
-                        int(item.get("pool_index", 0) or 0),
-                        int(item.get("depth", 0) or 0),
-                        int(item.get("start_rank", 0) or 0),
-                    ),
-                )
-            ),
-            attempted_candidates=max(attempted_candidates, displayed_progress, tested),
+            shards=snapshot_shards,
+            attempted_candidates=confirmed_attempted,
         )
         if (
             visual_gallery_limit > 0
@@ -4905,6 +4964,8 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     def mark_running_shards_pending() -> None:
         for shard in current_shards.values():
             if str(shard.get("status", "")) == "running":
+                normalized = _normalize_ultimate_progress_shard(shard)
+                shard.update(normalized)
                 shard["status"] = "pending"
 
     def finalize_interrupted_run(*, restore_handler: bool = True) -> None:
@@ -4918,11 +4979,17 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             if restore_handler:
                 restore_sigint_handler()
 
-    def raise_if_interrupt_requested(*, restore_handler: bool = True) -> None:
+    def raise_if_interrupt_requested(
+        *,
+        restore_handler: bool = True,
+        before_finalize: Callable[[], None] | None = None,
+    ) -> None:
         if not interrupt_requested:
             return
         report_pending_interrupt_warning()
         request_parallel_stop()
+        if before_finalize is not None:
+            before_finalize()
         finalize_interrupted_run(restore_handler=restore_handler)
         raise UltimateLinefeedInterrupted(progress_path)
 
@@ -5102,6 +5169,9 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                 int(shard.get("end_rank", 0) or 0),
             )
 
+        for item in resumed_by_shard.values():
+            current_shards[shard_key(item)] = _normalize_ultimate_progress_shard(item)
+
         def shard_specs() -> Iterable[dict[str, Any]]:
             for pool_index, operation_pool in enumerate(operation_pools):
                 if progress_resume is not None and not resumed_by_shard:
@@ -5208,14 +5278,12 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         seen_returned_candidates: set[str] = set()
         inflight_progress: dict[str, tuple[int, int, int, int]] = {}
         parallel_progress_floor = ultimate_progress_attempted_floor(progress_resume)
-        parallel_attempted_since_floor = 0
 
         def parallel_display_total() -> int:
             return max(
                 tested,
-                parallel_progress_floor
-                + parallel_attempted_since_floor
-                + sum(max(item[0], item[3]) for item in inflight_progress.values()),
+                parallel_progress_floor,
+                _ultimate_progress_shards_attempted(current_shards.values()),
             )
 
         def remaining_budget() -> int | None:
@@ -5236,16 +5304,18 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                     exhausted_specs = True
                     break
                 shard = dict(shard)
+                original_next_rank = int(shard.get("next_rank", shard.get("start_rank", 0)) or 0)
                 if remaining is not None:
                     shard["end_rank"] = min(
                         int(shard["end_rank"]),
-                        int(shard["next_rank"]) + remaining,
+                        original_next_rank + remaining,
                     )
                 if int(shard["next_rank"]) >= int(shard["end_rank"]):
                     continue
                 key = shard_key(shard)
-                current_shards[key] = dict(shard, status="running")
-                reserved_ranks += int(shard["end_rank"]) - int(shard["next_rank"])
+                running_shard = _normalize_ultimate_progress_shard(dict(shard, status="running"))
+                current_shards[key] = running_shard
+                reserved_ranks += int(running_shard["end_rank"]) - int(running_shard["next_rank"])
                 futures[executor.submit(_ultimate_parallel_worker_run, shard)] = shard
 
         def drain_worker_progress() -> bool:
@@ -5281,6 +5351,11 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                         )
                     except (TypeError, ValueError):
                         shard["next_rank"] = next_rank
+                    confirmed = _ultimate_progress_shard_attempted(shard)
+                    try:
+                        shard["tested"] = max(int(shard.get("tested", 0) or 0), confirmed, live_tested)
+                    except (TypeError, ValueError):
+                        shard["tested"] = max(confirmed, live_tested)
                     shard["tested_live"] = live_tested
                     shard["pruned_live"] = live_pruned
                     shard["attempted_live"] = live_attempted
@@ -5296,28 +5371,34 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                 emit_ultimate_progress(parallel_display_total(), force=True)
             submit_more()
             while futures and not terminal(best):
-                raise_if_interrupt_requested(restore_handler=False)
+                raise_if_interrupt_requested(
+                    restore_handler=False,
+                    before_finalize=drain_worker_progress,
+                )
                 done, _pending = wait(
                     tuple(futures),
                     timeout=ULTIMATE_LINEFEED_PARALLEL_PROGRESS_POLL_SECONDS,
                     return_when=FIRST_COMPLETED,
                 )
-                raise_if_interrupt_requested(restore_handler=False)
+                raise_if_interrupt_requested(
+                    restore_handler=False,
+                    before_finalize=drain_worker_progress,
+                )
                 if not done:
                     drain_worker_progress()
-                    raise_if_interrupt_requested(restore_handler=False)
+                    raise_if_interrupt_requested(
+                        restore_handler=False,
+                        before_finalize=drain_worker_progress,
+                    )
                     continue
                 drain_worker_progress()
-                raise_if_interrupt_requested(restore_handler=False)
+                raise_if_interrupt_requested(
+                    restore_handler=False,
+                    before_finalize=drain_worker_progress,
+                )
                 for future in done:
                     shard = futures.pop(future)
                     inflight_progress.pop(shard_key(shard), None)
-                    try:
-                        submitted_next_rank = int(
-                            shard.get("next_rank", shard.get("start_rank", 0)) or 0
-                        )
-                    except (TypeError, ValueError):
-                        submitted_next_rank = 0
                     reserved_ranks = max(
                         0,
                         reserved_ranks - (int(shard["end_rank"]) - int(shard["next_rank"])),
@@ -5336,11 +5417,11 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                         )
                     result_shard = dict(result.shard)
                     result_shard["next_rank"] = int(result.next_rank)
-                    parallel_attempted_since_floor += max(
-                        0,
-                        int(result.next_rank) - submitted_next_rank,
+                    confirmed = _ultimate_progress_shard_attempted(result_shard)
+                    result_shard["tested"] = max(
+                        int(result_shard.get("tested", 0) or 0) + int(result.tested),
+                        confirmed,
                     )
-                    result_shard["tested"] = int(result_shard.get("tested", 0) or 0) + int(result.tested)
                     result_shard["pruned"] = int(result_shard.get("pruned", 0) or 0) + int(result.pruned)
                     result_shard["status"] = (
                         "error"
@@ -5382,7 +5463,10 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                             progress_total,
                             candidate_preview,
                         )
-                        raise_if_interrupt_requested(restore_handler=False)
+                        raise_if_interrupt_requested(
+                            restore_handler=False,
+                            before_finalize=drain_worker_progress,
+                        )
                         candidate_score = candidate.score or super_mega_linefeed_score(
                             candidate.after,
                             len(candidate.operations),
@@ -5417,6 +5501,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                     break
                 submit_more()
         except UltimateLinefeedInterrupted:
+            drain_worker_progress()
             _ultimate_shutdown_parallel_executor(
                 executor,
                 futures=futures,
@@ -5426,6 +5511,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             raise
         except KeyboardInterrupt:
             request_parallel_stop()
+            drain_worker_progress()
             _ultimate_shutdown_parallel_executor(
                 executor,
                 futures=futures,

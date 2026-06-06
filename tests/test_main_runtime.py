@@ -51,6 +51,7 @@ def args(**updates):
         "DEBUGFILE": False,
         "AUTO": False,
         "COLOR_MODE": "auto",
+        "GLOBAL_WORKERS": None,
         "ULTIMATE_LINEFEED_BUDGET": None,
         "ULTIMATE_LINEFEED_UNBOUNDED": False,
         "ULTIMATE_LINEFEED_REFERENCE": None,
@@ -491,6 +492,31 @@ def test_apply_main_cli_options_exits_on_bad_smash_workers():
         "--smashbrutebrawl-workers must be a non-negative integer, min, normal, max, or auto.",
     ) in calls
     assert ("exit", 1) in calls
+
+
+def test_apply_main_cli_options_global_workers_fill_ultimate_and_smash_defaults():
+    calls = []
+
+    state = apply_options(calls, args(GLOBAL_WORKERS="normal"))
+
+    assert state.ultimate_linefeed_workers == "normal"
+    assert state.smash_brute_brawl_workers == "normal"
+
+
+def test_apply_main_cli_options_specific_workers_override_global_workers():
+    calls = []
+
+    state = apply_options(
+        calls,
+        args(
+            GLOBAL_WORKERS="normal",
+            ULTIMATE_LINEFEED_WORKERS="3",
+            SMASH_BRUTE_BRAWL_WORKERS="max",
+        ),
+    )
+
+    assert state.ultimate_linefeed_workers == "3"
+    assert state.smash_brute_brawl_workers == "max"
 
 
 def test_apply_main_cli_options_exits_on_bad_ultimate_reference_mode():
@@ -1507,6 +1533,71 @@ def test_run_main_loop_once_applies_deferred_find_magic_repair_after_chunk_walk(
     assert state == main_runtime.MainLoopIterationState()
     assert calls.index(("chunk_by_chunk", 0)) < calls.index(("apply_deferred",))
     assert calls.index(("checksum", ("raw-type", "raw-data", "raw-crc"))) < calls.index(("apply_deferred",))
+    assert ("clear_deferred",) not in calls
+    assert namespace["SAVE_COUNT"] == 1
+
+
+def test_run_main_loop_once_applies_ready_deferred_even_when_offset_did_not_reach_buffer_end():
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG\n\x1a\ntrailing")
+        sample_path = handle.name
+
+    namespace = {}
+
+    def fake_chunk_walk(_runtime, _context):
+        calls.append(("chunk_walk",))
+        namespace["Orig_CT"] = b"IEND"
+        namespace["EOF"] = True
+        return main_runtime.MainChunkWalkState(offset=8)
+
+    def apply_deferred():
+        calls.append(("apply_deferred",))
+        namespace["SAVE_COUNT"] += 1
+
+    original_chunk_walk = main_runtime.run_main_chunk_walk
+    main_runtime.run_main_chunk_walk = fake_chunk_walk
+    namespace.update(
+        {
+            "sys": SimpleNamespace(
+                stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+                exit=lambda code: calls.append(("exit", code)),
+            ),
+            "os": os,
+            "CLEAR": False,
+            "FirStart": True,
+            "CHUNK_INFO_STATE": SimpleNamespace(
+                reset_idat=lambda: calls.append(("reset_idat",))
+            ),
+            "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+            "Chunklate": lambda mode: calls.append(("banner", mode)),
+            "Sample": sample_path,
+            "CLONESWAR": False,
+            "SAVE_COUNT": 0,
+            "DEFERRED_LINEFEED_SIGNATURE_REPAIR": {"data_bytes": b"\x89PNG\n\x1a\n"},
+            "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+            "PRINT": lambda message: calls.append(("emit", message)),
+            "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+            "FindMagic": lambda: calls.append(("find_magic",)) or 0,
+            "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+            "CheckLength": lambda *args: calls.append(("check_length", args)),
+            "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+            "GetInfo": lambda *args: calls.append(("get_info", args)),
+            "Checksum": lambda *args: calls.append(("checksum", args)),
+            "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+            "Apply_Deferred_FindMagic_Repair": apply_deferred,
+            "Clear_Deferred_FindMagic_Repair": lambda: calls.append(("clear_deferred",)),
+        }
+    )
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        main_runtime.run_main_chunk_walk = original_chunk_walk
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState()
+    assert ("apply_deferred",) in calls
     assert ("clear_deferred",) not in calls
     assert namespace["SAVE_COUNT"] == 1
 

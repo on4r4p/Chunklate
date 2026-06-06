@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argparse import HelpFormatter, SUPPRESS
+from argparse import Action, HelpFormatter, SUPPRESS
 from dataclasses import dataclass
 from typing import Any
 
@@ -36,6 +36,22 @@ class ChunklateHelpFormatter(HelpFormatter):
     def __init__(self, prog: str):
         super().__init__(prog, max_help_position=72, width=140)
 
+    def _format_action_invocation(self, action):
+        if (
+            getattr(action, "dest", None) == "ULTIMATE_LINEFEED_REFERENCE"
+            and action.option_strings == ["-ulfr"]
+        ):
+            return "-ulfr exact|similar PATH"
+        return super()._format_action_invocation(action)
+
+    def _format_args(self, action, default_metavar):
+        if (
+            getattr(action, "dest", None) == "ULTIMATE_LINEFEED_REFERENCE"
+            and action.option_strings == ["-ulfr"]
+        ):
+            return "exact|similar PATH"
+        return super()._format_args(action, default_metavar)
+
     def _format_action(self, action):
         if action.help is SUPPRESS:
             return ""
@@ -62,6 +78,19 @@ class ChunklateHelpFormatter(HelpFormatter):
         for subaction in self._iter_indented_subactions(action):
             lines.append(self._format_action(subaction))
         return "".join(lines)
+
+
+class UltimateLinefeedReferenceAction(Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        parts = values if isinstance(values, list) else [values]
+        if len(parts) == 1:
+            setattr(namespace, "ULTIMATE_LINEFEED_REFERENCE", parts[0])
+            return
+        if len(parts) == 2 and str(parts[0]).strip().lower() in ("exact", "similar"):
+            setattr(namespace, "ULTIMATE_LINEFEED_REFERENCE_MODE", str(parts[0]).strip().lower())
+            setattr(namespace, "ULTIMATE_LINEFEED_REFERENCE", parts[1])
+            return
+        parser.error(f"{option_string or '-ulfr'} expects PATH or exact|similar PATH.")
 
 
 def clear_screen_decision(*, clear: bool, fir_start: bool, os_name: str) -> ClearScreenDecision:
@@ -155,12 +184,19 @@ def configure_parser(parser: Any) -> Any:
         default=None,
         metavar="N",
     )
+    parser.add_argument(
+        "-workers",
+        dest="GLOBAL_WORKERS",
+        help="CPU workers for Ultimate and Smash: min, normal, max, or exact N.",
+        default=None,
+        metavar="min|normal|max|N",
+    )
     ultimate = parser.add_argument_group("ultimate line-feed")
     ultimate.add_argument(
         "-ulfb",
         "--ultimate-linefeed-budget",
         dest="ULTIMATE_LINEFEED_BUDGET",
-        help="Ultimate candidate limit.",
+        help=SUPPRESS,
         type=int,
         default=None,
         metavar="N",
@@ -169,22 +205,22 @@ def configure_parser(parser: Any) -> Any:
         "-ulfu",
         "--ultimate-linefeed-unbounded",
         dest="ULTIMATE_LINEFEED_UNBOUNDED",
-        help="No Ultimate candidate limit.",
+        help=SUPPRESS,
         action="store_true",
     )
     ultimate.add_argument(
         "-ulfr",
-        "--ultimate-linefeed-reference",
+        action=UltimateLinefeedReferenceAction,
         dest="ULTIMATE_LINEFEED_REFERENCE",
-        help="Reference PNG used to rank Ultimate candidates.",
+        help="Reference PNG and scoring mode for Ultimate candidates.",
+        nargs="+",
         default=None,
-        metavar="PATH",
+        metavar="exact|similar PATH",
     )
     ultimate.add_argument(
         "-ulfrm",
-        "--ultimate-linefeed-reference-mode",
         dest="ULTIMATE_LINEFEED_REFERENCE_MODE",
-        help="Scoring: exact=same PNG, similar=layout.",
+        help=SUPPRESS,
         choices=("exact", "similar"),
         default="exact",
         metavar="{exact,similar}",
@@ -193,13 +229,12 @@ def configure_parser(parser: Any) -> Any:
         "-ulfroi",
         "--ultimate-linefeed-reference-regions",
         dest="ULTIMATE_LINEFEED_REFERENCE_REGIONS",
-        help="ROI JSON for similar reference scoring.",
+        help=SUPPRESS,
         default=None,
         metavar="PATH",
     )
     ultimate.add_argument(
         "-ulfroi-edit",
-        "--ultimate-linefeed-reference-region-editor",
         dest="ULTIMATE_LINEFEED_REFERENCE_REGION_EDITOR",
         help="Open the ROI editor before Ultimate.",
         action="store_true",
@@ -208,21 +243,19 @@ def configure_parser(parser: Any) -> Any:
         "-ulfpt",
         "--ultimate-linefeed-preview-timeout",
         dest="ULTIMATE_LINEFEED_PREVIEW_TIMEOUT",
-        help="Seconds to keep live previews open.",
+        help=SUPPRESS,
         type=float,
         default=5.0,
         metavar="SECONDS",
     )
     ultimate.add_argument(
         "-ulfsp",
-        "--ultimate-linefeed-show-previews",
         dest="ULTIMATE_LINEFEED_SHOW_PREVIEWS",
         help="Open live Ultimate candidate previews.",
         action="store_true",
     )
     ultimate.add_argument(
         "-ulfgl",
-        "--ultimate-linefeed-visual-gallery-limit",
         dest="ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT",
         help="Saved visual candidate count.",
         type=int,
@@ -231,7 +264,6 @@ def configure_parser(parser: Any) -> Any:
     )
     ultimate.add_argument(
         "-ulfmc",
-        "--ultimate-linefeed-visual-min-coverage",
         dest="ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE",
         help="Minimum gallery scanline coverage, 0..1.",
         type=float,
@@ -242,7 +274,7 @@ def configure_parser(parser: Any) -> Any:
         "-ulf-resume",
         "--ultimate-linefeed-resume",
         dest="ULTIMATE_LINEFEED_RESUME",
-        help="Resume policy for Ultimate checkpoints.",
+        help=SUPPRESS,
         choices=("ask", "auto", "never", "reset"),
         default="ask",
         metavar="MODE",
@@ -251,7 +283,7 @@ def configure_parser(parser: Any) -> Any:
         "-ulfw",
         "--ultimate-linefeed-workers",
         dest="ULTIMATE_LINEFEED_WORKERS",
-        help="Ultimate CPU workers: 0=off, min, normal, max, or N.",
+        help=SUPPRESS,
         default=None,
         metavar="N|min|normal|max",
     )
@@ -260,7 +292,7 @@ def configure_parser(parser: Any) -> Any:
         "-sbb-resume",
         "--smashbrutebrawl-resume",
         dest="SMASH_BRUTE_BRAWL_RESUME",
-        help="Resume policy for SmashBruteBrawl checkpoints.",
+        help=SUPPRESS,
         choices=("ask", "auto", "never", "reset"),
         default="ask",
         metavar="{ask,auto,never,reset}",
@@ -269,9 +301,54 @@ def configure_parser(parser: Any) -> Any:
         "-sbbw",
         "--smashbrutebrawl-workers",
         dest="SMASH_BRUTE_BRAWL_WORKERS",
-        help="Smash CPU workers: 0=off, min, normal, max, auto, or N.",
+        help=SUPPRESS,
         default=None,
         metavar="N|min|normal|max|auto",
+    )
+    parser.add_argument(
+        "--ultimate-linefeed-reference",
+        dest="ULTIMATE_LINEFEED_REFERENCE",
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="PATH",
+    )
+    parser.add_argument(
+        "--ultimate-linefeed-reference-mode",
+        dest="ULTIMATE_LINEFEED_REFERENCE_MODE",
+        choices=("exact", "similar"),
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="{exact,similar}",
+    )
+    parser.add_argument(
+        "--ultimate-linefeed-reference-region-editor",
+        dest="ULTIMATE_LINEFEED_REFERENCE_REGION_EDITOR",
+        action="store_true",
+        default=SUPPRESS,
+        help=SUPPRESS,
+    )
+    parser.add_argument(
+        "--ultimate-linefeed-show-previews",
+        dest="ULTIMATE_LINEFEED_SHOW_PREVIEWS",
+        action="store_true",
+        default=SUPPRESS,
+        help=SUPPRESS,
+    )
+    parser.add_argument(
+        "--ultimate-linefeed-visual-gallery-limit",
+        dest="ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT",
+        type=int,
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="N",
+    )
+    parser.add_argument(
+        "--ultimate-linefeed-visual-min-coverage",
+        dest="ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE",
+        type=float,
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="FLOAT",
     )
     parser.add_argument(
         "--ulfb",

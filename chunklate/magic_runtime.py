@@ -785,15 +785,18 @@ def _ultimate_linefeed_resume_message(progress_path: str, checkpoint_path: str) 
                 phase = str(record.get("phase", "")).strip().lower()
                 version = int(record.get("version", 1) or 1)
                 tested = int(record.get("tested_candidates", 0) or 0)
-                attempted = max(
-                    tested,
-                    int(record.get("attempted_candidates", 0) or 0),
-                    sum(
-                        idat_bruteforce._ultimate_progress_shard_attempted(shard)
-                        for shard in record.get("shards", ())
-                        if isinstance(shard, dict)
-                    ),
+                shards = tuple(
+                    shard for shard in record.get("shards", ()) if isinstance(shard, dict)
                 )
+                shard_attempted = idat_bruteforce._ultimate_progress_shards_attempted(shards)
+                if shards and phase == "exhaustive" and version >= 2:
+                    attempted = max(tested, shard_attempted)
+                else:
+                    attempted = max(
+                        tested,
+                        int(record.get("attempted_candidates", 0) or 0),
+                        shard_attempted,
+                    )
                 workers = int(record.get("parallel_workers", 0) or 0)
                 pending_shards = sum(
                     1
@@ -808,7 +811,8 @@ def _ultimate_linefeed_resume_message(progress_path: str, checkpoint_path: str) 
         if version >= 2:
             return (
                 "Fast resume: using _ULF.progress.json cursor. Checkpoint archive scan skipped.\n"
-                "resume cursor: attempted %s; committed %s; pending shards: %s; workers: %s"
+                "resume cursor: attempted %s; committed %s; pending shards: %s; workers: %s\n"
+                "Resume uses the last confirmed shard cursor; no candidates are skipped."
                 % (attempted, tested, pending_shards, workers)
             )
         return "Resume checkpoint found. I am jumping back into the exhaustive vault from the saved cursor."

@@ -68,34 +68,35 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "--output-dir" in result.stdout
     assert "--max-saves" in result.stdout
     assert "--no-color" in result.stdout
-    assert "--ultimate-linefeed-budget" in result.stdout
-    assert "-ulfb" in result.stdout
-    assert "--ultimate-linefeed-unbounded" in result.stdout
-    assert "-ulfu" in result.stdout
-    assert "--ultimate-linefeed-reference" in result.stdout
-    assert "-ulfr" in result.stdout
-    assert "--ultimate-linefeed-reference-mode" in result.stdout
-    assert "-ulfrm" in result.stdout
-    assert "--ultimate-linefeed-reference-regions" in result.stdout
-    assert "-ulfroi" in result.stdout
-    assert "--ultimate-linefeed-reference-region-editor" in result.stdout
+    assert "-workers" in result.stdout
+    assert "--ultimate-linefeed-budget" not in result.stdout
+    assert "-ulfb" not in result.stdout
+    assert "--ultimate-linefeed-unbounded" not in result.stdout
+    assert "-ulfu" not in result.stdout
+    assert "--ultimate-linefeed-reference" not in result.stdout
+    assert "-ulfr exact|similar PATH" in result.stdout
+    assert "--ultimate-linefeed-reference-mode" not in result.stdout
+    assert "-ulfrm" not in result.stdout
+    assert "--ultimate-linefeed-reference-regions" not in result.stdout
+    assert "-ulfroi PATH" not in result.stdout
+    assert "--ultimate-linefeed-reference-region-editor" not in result.stdout
     assert "-ulfroi-edit" in result.stdout
-    assert "--ultimate-linefeed-preview-timeout" in result.stdout
-    assert "-ulfpt" in result.stdout
-    assert "--ultimate-linefeed-show-previews" in result.stdout
+    assert "--ultimate-linefeed-preview-timeout" not in result.stdout
+    assert "-ulfpt" not in result.stdout
+    assert "--ultimate-linefeed-show-previews" not in result.stdout
     assert "-ulfsp" in result.stdout
-    assert "--ultimate-linefeed-visual-gallery-limit" in result.stdout
+    assert "--ultimate-linefeed-visual-gallery-limit" not in result.stdout
     assert "-ulfgl" in result.stdout
-    assert "--ultimate-linefeed-visual-min-coverage" in result.stdout
+    assert "--ultimate-linefeed-visual-min-coverage" not in result.stdout
     assert "-ulfmc" in result.stdout
-    assert "--ultimate-linefeed-resume" in result.stdout
-    assert "-ulf-resume" in result.stdout
-    assert "--ultimate-linefeed-workers" in result.stdout
-    assert "-ulfw" in result.stdout
-    assert "--smashbrutebrawl-resume" in result.stdout
-    assert "-sbb-resume" in result.stdout
-    assert "--smashbrutebrawl-workers" in result.stdout
-    assert "-sbbw" in result.stdout
+    assert "--ultimate-linefeed-resume" not in result.stdout
+    assert "-ulf-resume" not in result.stdout
+    assert "--ultimate-linefeed-workers" not in result.stdout
+    assert "-ulfw" not in result.stdout
+    assert "--smashbrutebrawl-resume" not in result.stdout
+    assert "-sbb-resume" not in result.stdout
+    assert "--smashbrutebrawl-workers" not in result.stdout
+    assert "-sbbw" not in result.stdout
     assert "--ulf-budget" not in result.stdout
 
 
@@ -150,6 +151,18 @@ def test_ultimate_linefeed_reference_roi_cli_aliases_parse():
     assert args.ULTIMATE_LINEFEED_REFERENCE_REGION_EDITOR is True
 
 
+def test_ultimate_linefeed_combined_reference_cli_parses_mode_and_path():
+    parser = Chunklate.cli.configure_parser(ArgumentParser())
+
+    combined = parser.parse_args(["-f", "sample.png", "-ulfr", "similar", "ref.png"])
+    legacy = parser.parse_args(["-f", "sample.png", "-ulfr", "ref.png", "-ulfrm", "similar"])
+
+    assert combined.ULTIMATE_LINEFEED_REFERENCE == "ref.png"
+    assert combined.ULTIMATE_LINEFEED_REFERENCE_MODE == "similar"
+    assert legacy.ULTIMATE_LINEFEED_REFERENCE == "ref.png"
+    assert legacy.ULTIMATE_LINEFEED_REFERENCE_MODE == "similar"
+
+
 def test_ultimate_linefeed_workers_cli_parses_profiles_and_custom_count():
     parser = Chunklate.cli.configure_parser(ArgumentParser())
 
@@ -172,6 +185,22 @@ def test_smash_brute_brawl_workers_cli_parses_profiles_and_custom_count():
     assert profile_args.SMASH_BRUTE_BRAWL_WORKERS == "normal"
     assert custom_args.SMASH_BRUTE_BRAWL_WORKERS == "12"
     assert zero_args.SMASH_BRUTE_BRAWL_WORKERS == "0"
+
+
+def test_global_workers_cli_parses_without_exposing_specific_worker_flags():
+    parser = Chunklate.cli.configure_parser(ArgumentParser())
+
+    parsed = parser.parse_args(["-f", "sample.png", "-workers", "normal"])
+    specific = parser.parse_args(
+        ["-f", "sample.png", "-workers", "normal", "-ulfw", "3", "-sbbw", "max"]
+    )
+
+    assert parsed.GLOBAL_WORKERS == "normal"
+    assert parsed.ULTIMATE_LINEFEED_WORKERS is None
+    assert parsed.SMASH_BRUTE_BRAWL_WORKERS is None
+    assert specific.GLOBAL_WORKERS == "normal"
+    assert specific.ULTIMATE_LINEFEED_WORKERS == "3"
+    assert specific.SMASH_BRUTE_BRAWL_WORKERS == "max"
 
 
 def test_missing_file_argument_returns_usage_error():

@@ -53,34 +53,43 @@ def test_configure_parser_preserves_legacy_options():
     assert "--no-color" in help_text
     assert "--output-dir DIR" in help_text
     assert "--max-saves N" in help_text
+    assert "-workers min|normal|max|N" in help_text
+    assert "CPU workers for Ultimate and Smash" in help_text
     assert "\n\nultimate line-feed:\n" in help_text
     assert "--max-saves N    Exit successfully after writing N repaired files." in help_text
-    assert "Ultimate candidate limit." in help_text
-    assert "-ulfb N" in help_text
-    assert "--ultimate-linefeed-budget N" in help_text
-    assert "-ulfu" in help_text
-    assert "--ultimate-linefeed-unbounded" in help_text
-    assert "-ulfr PATH" in help_text
-    assert "--ultimate-linefeed-reference PATH" in help_text
-    assert "-ulfrm {exact,similar}" in help_text
-    assert "--ultimate-linefeed-reference-mode {exact,similar}" in help_text
-    assert "-ulfroi PATH" in help_text
-    assert "--ultimate-linefeed-reference-regions PATH" in help_text
+    assert "Ultimate candidate limit." not in help_text
+    assert "-ulfb N" not in help_text
+    assert "--ultimate-linefeed-budget N" not in help_text
+    assert "-ulfu" not in help_text
+    assert "--ultimate-linefeed-unbounded" not in help_text
+    assert "-ulfr exact|similar PATH" in help_text
+    assert "--ultimate-linefeed-reference PATH" not in help_text
+    assert "-ulfrm {exact,similar}" not in help_text
+    assert "--ultimate-linefeed-reference-mode {exact,similar}" not in help_text
+    assert "-ulfroi PATH" not in help_text
+    assert "--ultimate-linefeed-reference-regions PATH" not in help_text
     assert "-ulfroi-edit" in help_text
-    assert "--ultimate-linefeed-reference-region-editor" in help_text
-    assert "-ulfpt SECONDS" in help_text
-    assert "--ultimate-linefeed-preview-timeout SECONDS" in help_text
+    assert "--ultimate-linefeed-reference-region-editor" not in help_text
+    assert "-ulfpt SECONDS" not in help_text
+    assert "--ultimate-linefeed-preview-timeout SECONDS" not in help_text
     assert "-ulfsp" in help_text
-    assert "--ultimate-linefeed-show-previews" in help_text
+    assert "--ultimate-linefeed-show-previews" not in help_text
     assert "-ulfgl N" in help_text
-    assert "--ultimate-linefeed-visual-gallery-limit N" in help_text
+    assert "--ultimate-linefeed-visual-gallery-limit N" not in help_text
     assert "-ulfmc FLOAT" in help_text
-    assert "--ultimate-linefeed-visual-min-coverage FLOAT" in help_text
-    assert "Resume policy for Ultimate checkpoints." in help_text
-    assert "-ulf-resume MODE" in help_text
-    assert "--ultimate-linefeed-resume MODE" in help_text
+    assert "--ultimate-linefeed-visual-min-coverage FLOAT" not in help_text
+    assert "Resume policy for Ultimate checkpoints." not in help_text
+    assert "-ulf-resume MODE" not in help_text
+    assert "--ultimate-linefeed-resume MODE" not in help_text
     assert "-ulf-resume {ask,auto,never,reset}" not in help_text
     assert "--ultimate-linefeed-resume {ask,auto,never,reset}" not in help_text
+    assert "-ulfw" not in help_text
+    assert "--ultimate-linefeed-workers" not in help_text
+    assert "-sbbw" not in help_text
+    assert "--smashbrutebrawl-workers" not in help_text
+    assert "-sbb-resume" not in help_text
+    assert "--smashbrutebrawl-resume" not in help_text
+    assert "--ultimate-linefeed" not in help_text
     assert "--ulf-budget" not in help_text
     assert "--ulf-unbounded" not in help_text
     assert "--ulf-reference " not in help_text
@@ -124,13 +133,14 @@ def test_configure_parser_parses_runtime_arguments():
             "out",
             "--max-saves",
             "2",
+            "-workers",
+            "normal",
             "-ulfb",
             "1234",
             "-ulfu",
             "-ulfr",
-            "ref.png",
-            "-ulfrm",
             "similar",
+            "ref.png",
             "-ulfpt",
             "1.5",
             "-ulfsp",
@@ -156,6 +166,7 @@ def test_configure_parser_parses_runtime_arguments():
     assert parsed.NO_COLOR is True
     assert parsed.OUTPUT_DIR == "out"
     assert parsed.MAX_SAVES == 2
+    assert parsed.GLOBAL_WORKERS == "normal"
     assert parsed.ULTIMATE_LINEFEED_BUDGET == 1234
     assert parsed.ULTIMATE_LINEFEED_UNBOUNDED is True
     assert parsed.ULTIMATE_LINEFEED_REFERENCE == "ref.png"
@@ -197,6 +208,15 @@ def test_hidden_legacy_ulf_aliases_still_parse():
     assert parsed.ULTIMATE_LINEFEED_SHOW_PREVIEWS is True
     assert parsed.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT == 100
     assert parsed.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE == 0.9
+
+
+def test_legacy_short_reference_mode_flag_still_parses():
+    parser = cli.configure_parser(ArgumentParser())
+
+    parsed = parser.parse_args(["-ulfr", "ref.png", "-ulfrm", "similar"])
+
+    assert parsed.ULTIMATE_LINEFEED_REFERENCE == "ref.png"
+    assert parsed.ULTIMATE_LINEFEED_REFERENCE_MODE == "similar"
 
 
 def test_ultimate_linefeed_budget_error_preserves_guardrail():

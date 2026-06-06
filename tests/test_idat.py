@@ -949,8 +949,8 @@ def test_ultimate_progress_round_trips_parallel_shards(tmp_path):
     assert loaded.parallel_workers == 3
     assert loaded.shard_size == 50_000
     assert loaded.shards == (shard,)
-    assert loaded.attempted_candidates == 90_000
-    assert idat_bruteforce.ultimate_progress_attempted_floor(loaded) == 90_000
+    assert loaded.attempted_candidates == 25_000
+    assert idat_bruteforce.ultimate_progress_attempted_floor(loaded) == 25_000
 
 
 def test_ultimate_hidden_tmp_path_is_unique_per_write(tmp_path):
@@ -963,6 +963,62 @@ def test_ultimate_hidden_tmp_path_is_unique_per_write(tmp_path):
     assert first.endswith(".tmp")
     assert second.endswith(".tmp")
     assert str(tmp_path) in first
+
+
+def test_ultimate_progress_normalizes_pending_shard_cursor(tmp_path):
+    progress_path = str(tmp_path / "_ULF.progress.json")
+    idat_bruteforce._write_ultimate_progress(
+        progress_path,
+        source_hash="source",
+        target_adler=1234,
+        start_offset=42,
+        max_depth=4,
+        max_offsets=8,
+        operation_pool_hash="merged",
+        focused_operation_pool_hash="focused",
+        broad_operation_pool_hash="broad",
+        phase="exhaustive",
+        depth=3,
+        pool_index=1,
+        combination_rank=0,
+        combination_indices=None,
+        tested_candidates=0,
+        pruned_candidates=0,
+        state_count=1,
+        budget=None,
+        parallel_workers=8,
+        shard_size=50_000,
+        shards=(
+            {
+                "pool_index": 1,
+                "depth": 3,
+                "start_rank": 100_000,
+                "end_rank": 150_000,
+                "next_rank": 123_456,
+                "tested": 0,
+                "status": "running",
+            },
+        ),
+        attempted_candidates=16_000_000,
+    )
+
+    record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+
+    assert record["attempted_candidates"] == 23_456
+    assert record["shards"][0]["tested"] == 23_456
+    loaded, warning = idat_bruteforce._load_ultimate_progress(
+        progress_path,
+        source_hash="source",
+        target_adler=1234,
+        start_offset=42,
+        max_depth=4,
+        max_offsets=8,
+        operation_pool_hash="merged",
+        focused_operation_pool_hash="focused",
+        broad_operation_pool_hash="broad",
+    )
+    assert warning == ""
+    assert idat_bruteforce.ultimate_progress_attempted_floor(loaded) == 23_456
 
 
 def test_ultimate_parallel_worker_runs_shard_without_rank_holes():

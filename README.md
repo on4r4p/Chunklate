@@ -75,9 +75,7 @@ Or run it directly from the repository:
 Current CLI:
 
     usage: Chunklate.py [-h] [-f FILE] [-c] [-p] [-d] [-df] [-dp] [-ep] [-sp] [-stfu] [-a] [--no-color] [--output-dir DIR] [--max-saves N]
-                        [-ulfb N] [-ulfu] [-ulfr PATH] [-ulfrm {exact,similar}] [-ulfroi PATH] [-ulfroi-edit] [-ulfpt SECONDS] [-ulfsp]
-                        [-ulfgl N] [-ulfmc FLOAT] [-ulf-resume MODE] [-ulfw N|min|normal|max]
-                        [-sbb-resume {ask,auto,never,reset}] [-sbbw N|min|normal|max|auto]
+                        [-workers min|normal|max|N] [-ulfr exact|similar PATH] [-ulfroi-edit] [-ulfsp] [-ulfgl N] [-ulfmc FLOAT]
 
     options:
       -h, --help    show this help message and exit
@@ -94,24 +92,14 @@ Current CLI:
       --no-color    Disable terminal colors.
       --output-dir DIR    Directory where Folder_* repair outputs are written.
       --max-saves N    Exit successfully after writing N repaired files.
+      -workers min|normal|max|N    CPU workers for Ultimate and Smash: min, normal, max, or exact N.
 
     ultimate line-feed:
-      -ulfb, --ultimate-linefeed-budget N    Ultimate candidate limit.
-      -ulfu, --ultimate-linefeed-unbounded    No Ultimate candidate limit.
-      -ulfr, --ultimate-linefeed-reference PATH    Reference PNG used to rank Ultimate candidates.
-      -ulfrm, --ultimate-linefeed-reference-mode {exact,similar}    Scoring: exact=same PNG, similar=layout.
-      -ulfroi, --ultimate-linefeed-reference-regions PATH    ROI JSON for similar reference scoring.
-      -ulfroi-edit, --ultimate-linefeed-reference-region-editor    Open the ROI editor before Ultimate.
-      -ulfpt, --ultimate-linefeed-preview-timeout SECONDS    Seconds to keep live previews open.
-      -ulfsp, --ultimate-linefeed-show-previews    Open live Ultimate candidate previews.
-      -ulfgl, --ultimate-linefeed-visual-gallery-limit N    Saved visual candidate count.
-      -ulfmc, --ultimate-linefeed-visual-min-coverage FLOAT    Minimum gallery scanline coverage, 0..1.
-      -ulf-resume, --ultimate-linefeed-resume MODE    Resume policy for Ultimate checkpoints.
-      -ulfw, --ultimate-linefeed-workers N|min|normal|max    Ultimate CPU workers: 0/1 serial, profiles, or exact N.
-
-    smash brute brawl:
-      -sbb-resume, --smashbrutebrawl-resume {ask,auto,never,reset}    Resume policy for SmashBruteBrawl checkpoints.
-      -sbbw, --smashbrutebrawl-workers N|min|normal|max|auto    Smash CPU workers: 0/1 serial, profiles, auto, or exact N.
+      -ulfr exact|similar PATH    Reference PNG and scoring mode for Ultimate candidates.
+      -ulfroi-edit    Open the ROI editor before Ultimate.
+      -ulfsp    Open live Ultimate candidate previews.
+      -ulfgl N    Saved visual candidate count.
+      -ulfmc FLOAT    Minimum gallery scanline coverage, 0..1.
 
 ## Development
 
@@ -202,7 +190,7 @@ tie-break after structural quality, so a lower-scanline candidate should not
 beat a more complete candidate only because it resembles the reference.
 
 For similar references that are not the same image, manual ROI scoring can be
-used with `-ulfr REF.png -ulfrm similar`. If no ROI JSON exists in interactive
+used with `-ulfr similar REF.png`. If no ROI JSON exists in interactive
 mode, Chunklate opens a small Tkinter editor with the Ultimate source snapshot
 on the left and the reference image on the right. If the reference dimensions
 differ, Chunklate resizes that reference once to the candidate IHDR size before
@@ -212,7 +200,7 @@ ROI scoring.
 
 Typical run:
 
-    python Chunklate.py -c -df -sp -f bad.png -ulfrm similar -ulfr REF.png -ulfgl 500
+    python Chunklate.py -df -f bad.png -ulfr similar REF.png -ulfgl 500 -workers normal
 
 The ROI editor supports:
 
@@ -239,10 +227,9 @@ The ROI editor supports:
 - Hover editor buttons or pause over a drawn ROI for 0.5 seconds to see what it
   does.
 
-The mapping is saved as `Folder_x.bad/_ULF.reference_regions.json`, or at the
-path provided by `-ulfroi`. Manual ROI scoring is still only a visual tie-break:
-Adler matches and structural completeness stay stronger than resemblance to a
-reference.
+The mapping is saved as `Folder_x.bad/_ULF.reference_regions.json`. Manual ROI
+scoring is still only a visual tie-break: Adler matches and structural
+completeness stay stronger than resemblance to a reference.
 
 ### Ultimate Resume And CPU Workers
 
@@ -259,7 +246,7 @@ progress so a resumed exhaustive run can skip the checkpoint archive scan and
 continue from the saved ranks. `_ULF.checkpoint.jsonl` remains a candidate
 archive, not a startup requirement for fast resume.
 
-Use `-ulfw` to split the exhaustive Ultimate search across CPU workers:
+Use `-workers` to split the exhaustive Ultimate search across CPU workers:
 
 - `0` or `1`: serial mode.
 - `min`: about `CPU / 4`.
@@ -268,7 +255,8 @@ Use `-ulfw` to split the exhaustive Ultimate search across CPU workers:
 - exact `N`: use that many workers.
 
 If no worker option is provided in interactive mode, Chunklate asks before
-Ultimate starts. In auto or quiet modes, it stays serial unless `-ulfw` is set.
+Ultimate starts. In auto or no-dialogue modes, it stays serial unless
+`-workers` is set.
 On `Ctrl+C`, Chunklate asks the workers to park their shards, writes the
 progress checkpoint, flushes useful visual candidates, and exits with code
 `130` so the next run can resume.
@@ -286,20 +274,17 @@ shards, cursor, and candidate-space hash. `_SBB.Source.raw` is the clean source
 snapshot used for direct resume; `_SBB.Source.png` is written only when that
 snapshot can be decoded as a PNG preview.
 
-Use `-sbb-resume` to control existing Smash checkpoints:
-
-- `ask`: prompt when a compatible checkpoint exists.
-- `auto`: resume without asking.
-- `never`: ignore the checkpoint for this run.
-- `reset`: ignore and clear Smash checkpoint artifacts.
-
-Use `-sbbw` to select the Smash CPU worker profile:
+Use `-workers` to select the Smash CPU worker profile:
 
 - `0` or `1`: legacy serial path.
 - `min`: about `CPU / 4`.
-- `normal` or `auto`: about `CPU / 2`.
+- `normal`: about `CPU / 2`.
 - `max`: about `CPU - 1`.
 - exact `N`: use that many workers.
+
+If no worker option is provided in interactive mode, Chunklate asks before
+launching long Smash routes. Compatible Smash checkpoints are detected
+automatically and Chunklate prompts before resuming or resetting them.
 
 The parent process keeps all visible effects: prompts, previews, repaired files,
 summaries, and checkpoint writes. Workers only test candidate shards and return

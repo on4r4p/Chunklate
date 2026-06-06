@@ -3,6 +3,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -15,6 +17,38 @@ def test_clone_folder_matches_legacy_folder_name(tmp_path):
     folder = output.clone_folder("/somewhere/sample.png", str(tmp_path))
 
     assert folder == str(tmp_path / "Folder_sample")
+
+
+def test_empty_origin_never_creates_folder_underscore(tmp_path):
+    for helper in (
+        output.clone_folder,
+        output.ensure_clone_folder,
+        output.summary_path,
+        output.next_clone_target,
+    ):
+        with pytest.raises(ValueError):
+            helper("", str(tmp_path))
+
+    assert not (tmp_path / "Folder_").exists()
+
+
+def test_summary_helpers_skip_empty_origin(tmp_path):
+    namespace = {
+        "Sample_Name": "sample.png",
+        "MAXCHAR": 80,
+        "SideNotes": [],
+        "FILE_Origin": "",
+        "FILE_DIR": str(tmp_path),
+        "Candy": lambda kind, color, value: "<%s:%s>" % (color, value),
+        "Summary_Header": True,
+    }
+
+    notes = output.ensure_immediate_summary_notes(namespace)
+    notes.append("no-origin-note")
+    output.run_summarise_from_namespace(namespace, "no-origin-result", False)
+
+    assert not (tmp_path / "Folder_").exists()
+    assert list(notes) == ["no-origin-note"]
 
 
 def test_realpng_names_use_inner_png_stem(tmp_path):

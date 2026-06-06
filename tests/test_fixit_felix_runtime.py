@@ -2406,6 +2406,7 @@ def no_next_runtime(
     bad_missplaced=False,
     eof=False,
     chunks_history=(),
+    deferred_linefeed=False,
 ):
     state = {"eof": eof}
     side_notes = []
@@ -2454,6 +2455,11 @@ def no_next_runtime(
             nearby_chunk=record("nearby_chunk", "nearby-result"),
             nearby_found_later_iend=lambda: state.get("nearby_found_later_iend"),
             chunks_history=tuple(chunks_history),
+            has_deferred_linefeed_repair=lambda: deferred_linefeed,
+            apply_deferred_linefeed_repair=record(
+                "apply_deferred_linefeed_repair",
+                "deferred-result",
+            ),
         ),
         side_notes,
         state,
@@ -2633,6 +2639,37 @@ def test_apply_no_next_false_positive_iend_runs_libpng_after_marking_eof():
     ) in calls
     assert ("chunk_story", ("add", b"IEND", 33, 8, 13), {}) in calls
     assert calls[-1] == ("libpng_check", ("sample.png",), {})
+
+
+def test_apply_no_next_false_positive_iend_applies_deferred_linefeed_before_libpng():
+    calls = []
+    finding = "CheckLength_Error_0:-No NextChunk"
+    pandora_box = {finding: {"IEND_Tool_0": b"IEND"}}
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        pandora_box=pandora_box,
+        data_hex="aabbccdd" + fixit_felix.GOOD_IEND_HEX,
+        deferred_linefeed=True,
+    )
+
+    result = fixit_felix_runtime.apply_no_next_chunk(
+        runtime,
+        fixit_felix.NoNextChunkDecision("false_positive_iend", b"IEND", b"IEND", "0"),
+        finding,
+        "IEND_Tool_",
+        no_next_tools(chunk_type=b"IEND", chunk_length="0"),
+    )
+
+    assert result == (True, "deferred-result")
+    assert pandora_box == {}
+    assert state["eof"] is True
+    assert side_notes == [
+        "-Found False-Positive :[Error:-No NextChunk].",
+        "-Reached the end of file.",
+        "-Deferred line-feed repair applied after full chunk tour.",
+    ]
+    assert ("apply_deferred_linefeed_repair", (), {}) in calls
+    assert not [call for call in calls if call[0] in ("libpng_check", "the_end")]
 
 
 def test_apply_no_next_false_positive_iend_writes_clean_cut():

@@ -55,7 +55,19 @@ def source_stem(file_origin: str) -> str:
     return filename
 
 
+def _require_file_origin(file_origin: str) -> str:
+    origin = str(file_origin or "").strip()
+    if not origin:
+        raise ValueError("file_origin is required for output paths")
+    return origin
+
+
+def _namespace_file_origin(namespace: Mapping[str, Any]) -> str:
+    return str(namespace.get("FILE_Origin") or "").strip()
+
+
 def clone_folder(file_origin: str, file_dir: str = "") -> str:
+    file_origin = _require_file_origin(file_origin)
     return os.path.join(file_dir, "Folder_" + source_stem(file_origin))
 
 
@@ -71,6 +83,7 @@ def ensure_clone_folder(file_origin: str, file_dir: str = "") -> str:
 
 
 def clone_basename(file_origin: str) -> str:
+    file_origin = _require_file_origin(file_origin)
     return source_stem(file_origin) + "."
 
 
@@ -109,6 +122,7 @@ def clean_summary_text(text: Any) -> str:
 
 
 def summary_path(file_origin: str, file_dir: str = "") -> str:
+    file_origin = _require_file_origin(file_origin)
     folder = ensure_clone_folder(file_origin, file_dir)
     return os.path.join(
         folder,
@@ -211,7 +225,10 @@ def summary_note_block(note: Any, step: int, *, default_title: str = "Note") -> 
 def append_summary_progress_note(namespace: Mapping[str, Any], note: Any) -> None:
     if "FILE_Origin" not in namespace or "FILE_DIR" not in namespace:
         return
-    filename = summary_path(namespace["FILE_Origin"], namespace["FILE_DIR"])
+    file_origin = _namespace_file_origin(namespace)
+    if not file_origin:
+        return
+    filename = summary_path(file_origin, namespace["FILE_DIR"])
     with builtins.open(filename, "a+", encoding="utf-8") as handle:
         _write_summary_header_if_needed(namespace, handle)
         _write_summary_operations_header_if_needed(namespace, handle)
@@ -223,8 +240,11 @@ def reset_summary_output_if_needed(namespace: dict[str, Any]) -> None:
         return
     if "FILE_Origin" not in namespace or "FILE_DIR" not in namespace:
         return
+    file_origin = _namespace_file_origin(namespace)
+    if not file_origin:
+        return
 
-    filename = summary_path(namespace["FILE_Origin"], namespace["FILE_DIR"])
+    filename = summary_path(file_origin, namespace["FILE_DIR"])
     with builtins.open(filename, "w", encoding="utf-8"):
         pass
     namespace["Summary_File_Reset"] = True
@@ -609,6 +629,9 @@ def run_summarise_from_namespace(
     infos: Any,
     summary_footer: bool = False,
 ) -> None:
+    file_origin = _namespace_file_origin(namespace)
+    if not file_origin:
+        return
     reset_summary_output_if_needed(namespace)
     title = summary_title(namespace["MAXCHAR"])
     eof = summary_separator(
@@ -622,7 +645,7 @@ def run_summarise_from_namespace(
     body = summary_body(infos, side_notes)
     debug_trace = debug_trace_body(debug_notes) if namespace.get("DEBUGFILE") is True else None
 
-    filename = summary_path(namespace["FILE_Origin"], namespace["FILE_DIR"])
+    filename = summary_path(file_origin, namespace["FILE_DIR"])
     builtins.print(namespace["Candy"]("Color", "green", "-Saving Summary : "), filename)
     with builtins.open(filename, "a+", encoding="utf-8") as handle:
 

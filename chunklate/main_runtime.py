@@ -890,7 +890,10 @@ def apply_main_cli_options(
         runtime.print_error(resume_error)
         runtime.exit_process(1)
         return None
+    global_workers = getattr(args, "GLOBAL_WORKERS", None)
     ultimate_linefeed_workers = getattr(args, "ULTIMATE_LINEFEED_WORKERS", None)
+    if ultimate_linefeed_workers is None and global_workers is not None:
+        ultimate_linefeed_workers = global_workers
     workers_error = runtime.ultimate_linefeed_workers_error(
         ultimate_linefeed_workers
     )
@@ -909,6 +912,8 @@ def apply_main_cli_options(
         runtime.exit_process(1)
         return None
     smash_brute_brawl_workers = getattr(args, "SMASH_BRUTE_BRAWL_WORKERS", None)
+    if smash_brute_brawl_workers is None and global_workers is not None:
+        smash_brute_brawl_workers = global_workers
     smash_workers_error = runtime.smash_brute_brawl_workers_error(
         smash_brute_brawl_workers
     )
@@ -1186,7 +1191,12 @@ def _fix_it_felix_repair_boundary_reached(namespace: dict[str, Any]) -> bool:
 
 
 def _deferred_linefeed_repair_boundary_reached(namespace: dict[str, Any]) -> bool:
-    return _is_iend_chunk(namespace.get("Orig_CT")) or bool(namespace.get("EOF", False))
+    if _is_iend_chunk(namespace.get("Orig_CT")) or bool(namespace.get("EOF", False)):
+        return True
+    return any(
+        str(note).strip() == "-Reached the end of file."
+        for note in namespace.get("SideNotes", ())
+    )
 
 
 def _deferred_linefeed_visible_marker_tour_reached_iend(namespace: dict[str, Any]) -> bool:
@@ -1461,9 +1471,12 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
     )
     walk_finished = chunk_walk_reached_end(walk_state, namespace["DATAX"])
     if namespace["SAVE_COUNT"] == save_count_before:
-        if walk_finished and (
-            not namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR")
-            or deferred_linefeed_repair_is_ready(namespace)
+        deferred_ready = bool(
+            namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR")
+            and deferred_linefeed_repair_is_ready(namespace)
+        )
+        if deferred_ready or (
+            walk_finished and not namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR")
         ):
             namespace.get("Apply_Deferred_FindMagic_Repair", lambda: None)()
     else:

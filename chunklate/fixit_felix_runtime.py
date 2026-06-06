@@ -183,6 +183,8 @@ class NoNextChunkRuntime:
     chunks_history: tuple[Any, ...] = ()
     loadingbar: Callable[..., Any] | None = None
     minibar: Callable[..., Any] | None = None
+    has_deferred_linefeed_repair: Callable[[], bool] = lambda: False
+    apply_deferred_linefeed_repair: Callable[[], Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -329,6 +331,8 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         chunks_history=tuple(namespace.get("Chunks_History", ())),
         loadingbar=namespace.get("Loadingbar"),
         minibar=namespace.get("Minibar"),
+        has_deferred_linefeed_repair=lambda: bool(namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR")),
+        apply_deferred_linefeed_repair=namespace.get("Apply_Deferred_FindMagic_Repair"),
     )
 
 
@@ -2985,6 +2989,25 @@ def mark_no_next_iend_reached(runtime: NoNextChunkRuntime) -> None:
     runtime.side_notes.append("-Reached the end of file.")
 
 
+def apply_deferred_linefeed_after_chunk_tour(
+    runtime: NoNextChunkRuntime,
+) -> tuple[bool, Any]:
+    if not runtime.has_deferred_linefeed_repair():
+        return False, None
+    if runtime.apply_deferred_linefeed_repair is None:
+        return False, None
+
+    runtime.candy(
+        "Cowsay",
+        "The chunk tour is complete, so I am applying the deferred line-feed repair now.",
+        "com",
+    )
+    runtime.side_notes.append(
+        "-Deferred line-feed repair applied after full chunk tour."
+    )
+    return True, runtime.apply_deferred_linefeed_repair()
+
+
 def unresolved_non_no_next_findings(runtime: NoNextChunkRuntime) -> tuple[Any, ...]:
     return tuple(
         pandora_key
@@ -3126,6 +3149,11 @@ def apply_no_next_false_positive_iend(
             unresolved = unresolved_non_no_next_findings(runtime)
             if unresolved:
                 return stop_before_libpng_for_unresolved_findings(runtime, unresolved)
+            deferred_applied, deferred_result = apply_deferred_linefeed_after_chunk_tour(
+                runtime
+            )
+            if deferred_applied:
+                return True, deferred_result
             runtime.candy("Cowsay", "Ok let's feed the Kraken now..", "com")
             return True, runtime.libpng_check(runtime.sample)
 
