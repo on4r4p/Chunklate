@@ -478,6 +478,51 @@ def test_twobytes_shard_record_round_trips_resume_cursor():
     assert restored.bonus_value == 99
 
 
+def test_parallel_twobytes_remaining_estimate_counts_edit_kinds_after_resume():
+    length_plan = smash_backend.SmashLengthPlan(
+        outer_index=0,
+        length=1,
+        iter_nbr=None,
+        max_iter=1,
+        len_iter=1,
+        chunk_format=("B",),
+        chunk_data=((7,),),
+        color_type="color",
+    )
+    plan = smash_backend.SmashCandidatePlan(
+        chunk_name=b"IDAT",
+        chunk_length=1,
+        data_offset=8,
+        data_hex="000000000700000000",
+        edit_mode="Replace",
+        bf_mode="TwoBytes",
+        brute_level=0,
+        brute_crc=True,
+        brute_length=True,
+        old_crc=False,
+        struct_indexes=(),
+        candidate_space_hash="hash",
+        crc_trusted=False,
+        lengths=(length_plan,),
+    )
+    shard = smash_backend.SmashShard(
+        shard_id=0,
+        length_plan_index=0,
+        start_inner_index=0,
+        end_inner_index=1,
+        kind="twobytes",
+        inner_index=0,
+        byte_start=0,
+        byte_end=10,
+        next_byte_position=2,
+        edit_kind_index=1,
+    )
+
+    remaining = bruteforce_runtime._estimate_parallel_remaining_candidates(plan, [shard])
+
+    assert remaining == 23
+
+
 def test_run_scan_preserves_viewer_acceptance_gate_and_diff():
     calls = []
 

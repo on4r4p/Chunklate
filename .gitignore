@@ -19,6 +19,7 @@ Folder_*/
 png_to_check/*.png
 scratch/
 [Dd][Aa][Vv][Ii][Dd]/
+brokenjavapngsuite/
 
 # Local scratch media at repository root. Tracked fixtures are unaffected.
 /*.gif

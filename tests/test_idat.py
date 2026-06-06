@@ -3607,6 +3607,54 @@ def test_analyze_idat_stream_reports_bad_adler():
     assert analysis.adler_status == "adler_mismatch"
 
 
+def test_sbb_idat_diagnostic_reports_large_blackfill_gap():
+    data = (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "IDAT_Corruption_2.png").read_bytes()
+
+    diagnostic = idat.analyze_sbb_idat_diagnostic(data, crc_target_trusted=False)
+
+    assert diagnostic.supported is True
+    assert (diagnostic.width, diagnostic.height) == (900, 580)
+    assert diagnostic.color_label == "RGB"
+    assert diagnostic.bit_depth == 8
+    assert diagnostic.expected_decompressed_size == 1_566_580
+    assert diagnostic.decompressed_size == 1_491_984
+    assert diagnostic.missing_decompressed_size == 74_596
+    assert diagnostic.complete_scanlines == 552
+    assert diagnostic.total_scanlines == 580
+    assert diagnostic.partial_scanline_bytes == 1032
+    assert diagnostic.success_estimate == "low"
+
+
+def test_sbb_idat_diagnostic_marks_trusted_small_crc_target_good():
+    filtered = dynamic_filtered_rows(height=2)
+    diagnostic = idat.analyze_sbb_idat_diagnostic(
+        build_rgb_png(1, 2, filtered),
+        crc_target_trusted=True,
+    )
+
+    assert diagnostic.supported is True
+    assert diagnostic.success_estimate == "good"
+
+
+def test_sbb_idat_fixtures_keep_original_crc_targets():
+    fixture_names = (
+        "SBB_IDAT_1Byte_Replace.png",
+        "SBB_IDAT_1Byte_Missing.png",
+        "SBB_IDAT_1Byte_Extra.png",
+        "SBB_IDAT_2Byte_Replace.png",
+    )
+    for fixture_name in fixture_names:
+        data = (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / fixture_name).read_bytes()
+        idat_chunks = [chunk for chunk in iter_chunks(data) if chunk.chunk_type == b"IDAT"]
+
+        assert len(idat_chunks) == 1
+        assert idat_chunks[0].crc_ok is False
+        assert idat.analyze_sbb_idat_diagnostic(data, crc_target_trusted=True).success_estimate in {
+            "good",
+            "maybe",
+        }
+
+
 def test_analyze_idat_stream_reports_incomplete_stream():
     filtered = b"".join(b"\x00" + bytes((row, row, row)) for row in range(10))
     _candidate, partial = find_truncated_candidate(
@@ -3829,6 +3877,9 @@ def main():
         ),
         ("IDAT stream bad zlib header", test_analyze_idat_stream_reports_bad_zlib_header),
         ("IDAT stream bad Adler", test_analyze_idat_stream_reports_bad_adler),
+        ("SBB IDAT diagnostic blackfill gap", test_sbb_idat_diagnostic_reports_large_blackfill_gap),
+        ("SBB IDAT diagnostic trusted target", test_sbb_idat_diagnostic_marks_trusted_small_crc_target_good),
+        ("SBB IDAT fixtures CRC target", test_sbb_idat_fixtures_keep_original_crc_targets),
         ("IDAT stream incomplete", test_analyze_idat_stream_reports_incomplete_stream),
         ("IDAT stream unsupported interlace", test_analyze_idat_stream_reports_unsupported_interlace),
     ]

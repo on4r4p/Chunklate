@@ -637,28 +637,126 @@ def _idat_original_crc_target(chunk: png.PngChunk) -> str | None:
     return chunk.crc.to_bytes(4, "big").hex()
 
 
+def _format_sbb_idat_diagnostic(
+    diagnostic: idat.SmashBruteBrawlIdatDiagnostic,
+) -> tuple[str, str]:
+    if not diagnostic.supported:
+        return (
+            "SBB IDAT diagnostic:\n"
+            "image: unsupported\n"
+            "zlib status: %s\n"
+            "CRC target: %s\n"
+            "SBB chance: %s - %s"
+            % (
+                diagnostic.zlib_status or "unknown",
+                "trusted" if diagnostic.crc_target_trusted else "not trusted",
+                diagnostic.success_estimate,
+                diagnostic.success_reason or diagnostic.reason or "no usable IDAT measurement",
+            ),
+            "bad",
+        )
+
+    crc_label = "trusted original IDAT CRC" if diagnostic.crc_target_trusted else "not trusted"
+    message = (
+        "SBB IDAT diagnostic:\n"
+        "image: %sx%s, %s %s-bit\n"
+        "IDAT: %s chunks, %s compressed bytes, zlib %s\n"
+        "decompressed: expected %s, got %s, missing %s\n"
+        "scanlines: %s/%s complete, %s bytes into next scanline\n"
+        "CRC target: %s\n"
+        "SBB chance: %s - %s"
+        % (
+            diagnostic.width,
+            diagnostic.height,
+            diagnostic.color_label,
+            diagnostic.bit_depth,
+            diagnostic.idat_chunk_count,
+            f"{diagnostic.compressed_size:,}",
+            diagnostic.zlib_status,
+            f"{diagnostic.expected_decompressed_size:,}",
+            f"{diagnostic.decompressed_size:,}",
+            f"{diagnostic.missing_decompressed_size:,}",
+            diagnostic.complete_scanlines,
+            diagnostic.total_scanlines,
+            diagnostic.partial_scanline_bytes,
+            crc_label,
+            diagnostic.success_estimate,
+            diagnostic.success_reason,
+        )
+    )
+    mood = "good" if diagnostic.success_estimate == "good" else "bad" if diagnostic.success_estimate == "low" else "com"
+    return message, mood
+
+
+def _sbb_diagnostic_says_twobytes_is_too_small(
+    diagnostic: idat.SmashBruteBrawlIdatDiagnostic,
+) -> bool:
+    if diagnostic.success_estimate != "low":
+        return False
+    if not diagnostic.supported:
+        return True
+    threshold = max(diagnostic.scanline_size * 2, 4096)
+    return diagnostic.missing_decompressed_size > threshold
+
+
+def _partial_blackfill_question_id(success_estimate: str) -> str:
+    return (
+        "IDAT partial blackfill:-Launch SmashBruteBrawl on the original IDAT "
+        "after writing the blackfill clone? (chance of success: %s)"
+        % (success_estimate or "unknown")
+    )
+
+
+def _partial_blackfill_full_chunk_question_id(success_estimate: str) -> str:
+    return (
+        "IDAT partial blackfill:-Launch full chunk SmashBruteBrawl after low "
+        "chance diagnostic? (chance of success: %s)"
+        % (success_estimate or "unknown")
+    )
+
+
 def _partial_blackfill_bruteforce_question(
     runtime: AutomaticRepairRuntime,
     repair: idat.PartialIdatBlackfillRepair,
     target_chunk: png.PngChunk,
-) -> bool:
+    source_data: bytes,
+    crc_target_trusted: bool,
+) -> str | None:
     runtime.candy(
         "Cowsay",
         "The blackfill clone is a valid fallback: %s/%s scanlines are readable."
         % (repair.recovered_scanlines, repair.total_scanlines),
         "good",
     )
+    diagnostic = idat.analyze_sbb_idat_diagnostic(
+        source_data,
+        crc_target_trusted=crc_target_trusted,
+    )
+    diagnostic_message, diagnostic_mood = _format_sbb_idat_diagnostic(diagnostic)
+    runtime.candy("Cowsay", diagnostic_message, diagnostic_mood)
+    twobytes_too_small = _sbb_diagnostic_says_twobytes_is_too_small(diagnostic)
+    if twobytes_too_small:
+        runtime.candy(
+            "Cowsay",
+            "TwoBytes level 0 probably cannot cover this damage. The blackfill clone is the safer fallback.",
+            "bad",
+        )
+        runtime.candy(
+            "Cowsay",
+            "A full chunk SmashBruteBrawl run is possible, but it may take years and still fail.",
+            "com",
+        )
     runtime.candy(
         "Cowsay",
         "I can also launch SmashBruteBrawl on the original IDAT bytes, before accepting black rows as the final word.",
         "com",
     )
     if runtime.question is None:
-        return False
+        return None
 
-    return bool(
+    launch_twobytes = bool(
         runtime.question(
-            id="IDAT partial blackfill:-Launch SmashBruteBrawl on the original IDAT after writing the blackfill clone?",
+            id=_partial_blackfill_question_id(diagnostic.success_estimate),
             idhash=(
                 "IDAT-partial-blackfill-smash",
                 target_chunk.offset,
@@ -671,6 +769,33 @@ def _partial_blackfill_bruteforce_question(
             skipauto=True,
         )
     )
+    if not launch_twobytes:
+        return None
+
+    if not twobytes_too_small:
+        return "twobytes"
+
+    runtime.candy(
+        "Cowsay",
+        "If you want to skip the cheap pass, I can go straight to full chunk SmashBruteBrawl.",
+        "com",
+    )
+    launch_full = bool(
+        runtime.question(
+            id=_partial_blackfill_full_chunk_question_id(diagnostic.success_estimate),
+            idhash=(
+                "IDAT-partial-blackfill-smash-full",
+                target_chunk.offset,
+                target_chunk.length,
+                repair.recovered_scanlines,
+                repair.total_scanlines,
+                repair.width,
+                repair.height,
+            ),
+            skipauto=True,
+        )
+    )
+    return "full" if launch_full else "twobytes"
 
 
 def maybe_launch_partial_blackfill_bruteforce(
@@ -693,7 +818,15 @@ def maybe_launch_partial_blackfill_bruteforce(
     if runtime.preview_repair_image is not None:
         runtime.preview_repair_image(repair.data, "IDAT_Blackfill_Preview")
 
-    if not _partial_blackfill_bruteforce_question(runtime, repair, target_chunk):
+    old_crc = _idat_original_crc_target(target_chunk)
+    launch_mode = _partial_blackfill_bruteforce_question(
+        runtime,
+        repair,
+        target_chunk,
+        source_data,
+        old_crc is not None,
+    )
+    if launch_mode is None:
         return False
 
     runtime.side_notes.append(
@@ -702,12 +835,15 @@ def maybe_launch_partial_blackfill_bruteforce(
     )
     smash_kwargs: dict[str, Any] = {
         "EditMode": "Replace",
-        "BfMode": "TwoBytes",
+        "BfMode": "Brutus" if launch_mode == "full" else "TwoBytes",
         "BruteCrc": True,
         "BruteLength": True,
         "BruteLevel": 0,
     }
-    old_crc = _idat_original_crc_target(target_chunk)
+    if launch_mode == "full":
+        runtime.side_notes.append(
+            "-FixItFelix: low SBB diagnostic selected full chunk SmashBruteBrawl."
+        )
     if old_crc is not None:
         smash_kwargs["OldCrc"] = old_crc
         runtime.side_notes.append("-FixItFelix: SmashBruteBrawl will use stored IDAT CRC as target.")

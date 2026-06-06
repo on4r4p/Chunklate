@@ -323,12 +323,13 @@ def smash_brute_brawl_failure_decision(
     if brute_level < 3 and chunk == "IHDR":
         return CheckPointActionDecision("smash_brute_brawl_retry_ihdr_harder")
 
+    if "FixItFelix partial IDAT blackfill" in str(from_error):
+        return CheckPointActionDecision("smash_brute_brawl_ask_blackfill_next_step")
+
     if brute_level < 1 and bf_mode == "TwoBytes":
         return CheckPointActionDecision("smash_brute_brawl_ask_twobytes_retry")
 
     if bf_mode != "Custom":
-        if "FixItFelix partial IDAT blackfill" in str(from_error):
-            return CheckPointActionDecision("smash_brute_brawl_keep_blackfill_fallback")
         return CheckPointActionDecision("smash_brute_brawl_end_failed_noncustom")
 
     return CheckPointActionDecision("smash_brute_brawl_ask_custom_brutus")

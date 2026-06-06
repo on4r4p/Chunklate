@@ -880,6 +880,32 @@ def _parallel_shard_records(
     return records
 
 
+def _estimate_parallel_remaining_candidates(
+    plan: smash_backend.SmashCandidatePlan,
+    shards: list[smash_backend.SmashShard],
+) -> int:
+    remaining = 0
+    edit_kind_counts: dict[tuple[int, int], int] = {}
+    for shard in shards:
+        if shard.kind != "twobytes":
+            remaining += max(0, int(shard.end_inner_index) - int(shard.start_inner_index))
+            continue
+        length_plan = plan.lengths[shard.length_plan_index]
+        cache_key = (shard.length_plan_index, int(shard.inner_index or shard.start_inner_index))
+        edit_kind_count = edit_kind_counts.get(cache_key)
+        if edit_kind_count is None:
+            edit_kinds = bruteforce.iter_twobytes_edit_kinds(plan.edit_mode, plan.chunk_name)
+            edit_kind_count = max(1, len(edit_kinds))
+            edit_kind_counts[cache_key] = edit_kind_count
+        first_position = max(int(shard.byte_start), int(shard.next_byte_position or shard.byte_start))
+        position_count = max(0, int(shard.byte_end) - first_position)
+        shard_remaining = position_count * edit_kind_count
+        if first_position == int(shard.next_byte_position or shard.byte_start):
+            shard_remaining = max(0, shard_remaining - int(shard.edit_kind_index or 0))
+        remaining += shard_remaining
+    return max(0, remaining)
+
+
 def _apply_parallel_hit(
     runtime: SmashBruteBrawlRuntime,
     scan_state: SmashBruteBrawlScanState,
@@ -997,11 +1023,8 @@ def _run_parallel_scan(
     runtime.emit("-SmashBruteBrawl will use %s CPU workers." % worker_count)
     scan_state.last_progress_write_at = time.monotonic()
     started_at = runtime.now()
-    if shard_kind == "twobytes":
-        total_candidates = sum(max(0, shard.byte_end - shard.byte_start) for shard in shards)
-    else:
-        total_candidates = sum(length_plan.max_iter for length_plan in length_plans)
-    progress_total = max(total_candidates, scan_state.tested_candidates, 1)
+    remaining_candidates = _estimate_parallel_remaining_candidates(plan, shards)
+    progress_total = max(scan_state.tested_candidates + remaining_candidates, 1)
     progress_width = max(1, len(str(progress_total)))
     runtime.loadingbar(progress_total, progress_width, None, True)
     completed_results: dict[int, smash_backend.SmashShardResult] = {}
@@ -1029,17 +1052,19 @@ def _run_parallel_scan(
         if not force and now - last_worker_heartbeat_at < 0.5:
             return
         buffered_tested = sum(result.tested for result in result_buffer.values())
-        current = scan_state.tested_candidates + buffered_tested
-        runtime.loadingbar(max(progress_total, current, 1), progress_width, current, False)
+        current = min(progress_total, scan_state.tested_candidates + buffered_tested)
+        runtime.loadingbar(progress_total, progress_width, current, False)
         last_worker_heartbeat_at = now
 
-    def handle_ready_results() -> None:
+    def handle_ready_results() -> bool:
         nonlocal next_order_index, accepted
+        advanced = False
         while next_order_index < len(shard_order):
             shard_id = shard_order[next_order_index]
             result = result_buffer.get(shard_id)
             if result is None:
                 break
+            advanced = True
             result_buffer.pop(shard_id)
             completed_results[shard_id] = result
             shard = shard_by_id[shard_id]
@@ -1091,6 +1116,26 @@ def _run_parallel_scan(
             next_order_index += 1
             if accepted:
                 break
+        return advanced
+
+    def mark_missing_ordered_shards_pending() -> None:
+        if not result_buffer:
+            return
+        missing: list[int] = []
+        buffered_ids = set(result_buffer)
+        completed_ids = set(completed_results)
+        for shard_id in shard_order[next_order_index:]:
+            if shard_id in buffered_ids:
+                break
+            if shard_id not in completed_ids:
+                missing.append(shard_id)
+                if len(missing) >= 5:
+                    break
+        if missing:
+            runtime.emit(
+                "-SmashBruteBrawl kept %s unordered worker result(s) for resume; missing earlier shard(s): %s."
+                % (len(result_buffer), ", ".join(str(item) for item in missing))
+            )
 
     def shutdown_executor(*, wait: bool) -> None:
         nonlocal executor_shutdown
@@ -1221,6 +1266,10 @@ def _run_parallel_scan(
             if accepted:
                 break
             fill_pending()
+        while handle_ready_results() and not accepted:
+            pass
+        if result_buffer and not accepted:
+            mark_missing_ordered_shards_pending()
         if accepted:
             for future in pending:
                 future.cancel()

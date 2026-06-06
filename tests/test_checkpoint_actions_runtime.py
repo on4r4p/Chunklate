@@ -279,6 +279,134 @@ def test_blackfill_smash_failure_keeps_existing_fallback():
     assert [call[0] for call in calls].count("candy") == 2
 
 
+def test_blackfill_failure_next_level_relaunches_with_old_crc():
+    calls = []
+    runtime, state, side_notes = build_runtime(calls, question_answers=(True,), eta=2)
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "edit",
+        "TwoBytes",
+        "crc",
+        "length",
+        "old-crc",
+        "FixItFelix partial IDAT blackfill",
+    )
+    decision = checkpoint.CheckPointActionDecision(
+        action="smash_brute_brawl_ask_blackfill_next_step"
+    )
+
+    result = checkpoint_actions_runtime.apply_action_decision(
+        runtime,
+        decision,
+        "IDAT",
+        "-Bruteforcer has Failed",
+        toolkit,
+    )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 1
+    assert side_notes == [
+        "-CheckPoint: Increasing partial blackfill SmashBruteBrawl BruteLevel to 1."
+    ]
+    assert ("set_brute_level", (1,), {}) in calls
+    assert (
+        "smash_brute_brawl",
+        ("sample.png", b"IDAT", 4, 100, "FixItFelix partial IDAT blackfill"),
+        {
+            "EditMode": "edit",
+            "BfMode": "TwoBytes",
+            "BruteCrc": "crc",
+            "BruteLength": "length",
+            "OldCrc": "old-crc",
+        },
+    ) in calls
+
+
+def test_blackfill_failure_full_chunk_relaunches_before_fallback():
+    calls = []
+    runtime, state, side_notes = build_runtime(calls, question_answers=(False, True), brute_level=3)
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "edit",
+        "TwoBytes",
+        "crc",
+        "length",
+        "old-crc",
+        "FixItFelix partial IDAT blackfill",
+    )
+    decision = checkpoint.CheckPointActionDecision(
+        action="smash_brute_brawl_ask_blackfill_next_step"
+    )
+
+    result = checkpoint_actions_runtime.apply_action_decision(
+        runtime,
+        decision,
+        "IDAT",
+        "-Bruteforcer has Failed",
+        toolkit,
+    )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 0
+    assert side_notes == [
+        "-CheckPoint: Trying full chunk SmashBruteBrawl before keeping blackfill."
+    ]
+    assert ("set_brute_level", (0,), {}) in calls
+    assert (
+        "smash_brute_brawl",
+        ("sample.png", b"IDAT", 4, 100, "FixItFelix partial IDAT blackfill"),
+        {
+            "EditMode": "edit",
+            "BfMode": "Brutus",
+            "BruteCrc": "crc",
+            "BruteLength": "length",
+            "OldCrc": "old-crc",
+        },
+    ) in calls
+
+
+def test_blackfill_failure_decline_keeps_existing_fallback():
+    calls = []
+    runtime, state, side_notes = build_runtime(calls, question_answers=(False, False))
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "edit",
+        "TwoBytes",
+        "crc",
+        "length",
+        "old-crc",
+        "FixItFelix partial IDAT blackfill",
+    )
+    decision = checkpoint.CheckPointActionDecision(
+        action="smash_brute_brawl_ask_blackfill_next_step"
+    )
+
+    result = checkpoint_actions_runtime.apply_action_decision(
+        runtime,
+        decision,
+        "IDAT",
+        "-Bruteforcer has Failed",
+        toolkit,
+    )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 0
+    assert side_notes == [
+        "-CheckPoint: Keeping partial IDAT blackfill after SmashBruteBrawl failure."
+    ]
+    assert ("end", (), {}) not in calls
+    assert [call[0] for call in calls].count("question") == 2
+
+
 def test_checkpoint_action_namespace_builder_wires_state_and_callbacks():
     calls = []
     checkpoint_rt = object()
@@ -318,6 +446,9 @@ def main():
         ("Reset Custom Brutus retry", test_custom_brutus_resets_brute_level_and_relaunches),
         ("Keep blackfill on TwoBytes decline", test_blackfill_twobytes_decline_keeps_existing_fallback),
         ("Keep blackfill on SmashBruteBrawl failure", test_blackfill_smash_failure_keeps_existing_fallback),
+        ("Blackfill failure next SBB level", test_blackfill_failure_next_level_relaunches_with_old_crc),
+        ("Blackfill failure full chunk SBB", test_blackfill_failure_full_chunk_relaunches_before_fallback),
+        ("Blackfill failure decline fallback", test_blackfill_failure_decline_keeps_existing_fallback),
         ("Namespace action runtime", test_checkpoint_action_namespace_builder_wires_state_and_callbacks),
     ]
 

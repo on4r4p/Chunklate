@@ -584,9 +584,10 @@ def test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforc
     previews = []
     questions = []
     smash_calls = []
+    candy_calls = []
     runtime = fixit_felix_runtime.AutomaticRepairRuntime(
         side_notes=side_notes,
-        candy=lambda *args: None,
+        candy=lambda *args: candy_calls.append(args),
         write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
         question=lambda **kwargs: questions.append(kwargs) or True,
         preview_repair_image=lambda *args: previews.append(args),
@@ -603,7 +604,10 @@ def test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforc
     assert previews == [(repair.data, "IDAT_Blackfill_Preview")]
     assert questions == [
         {
-            "id": "IDAT partial blackfill:-Launch SmashBruteBrawl on the original IDAT after writing the blackfill clone?",
+            "id": (
+                "IDAT partial blackfill:-Launch SmashBruteBrawl on the original IDAT "
+                "after writing the blackfill clone? (chance of success: maybe)"
+            ),
             "idhash": (
                 "IDAT-partial-blackfill-smash",
                 idat_chunk.offset,
@@ -638,6 +642,89 @@ def test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforc
         "-FixItFelix:launched SmashBruteBrawl on source IDAT after partial blackfill 1/5.",
         "-FixItFelix: stored IDAT CRC already matches current bytes; using image probe.",
     ]
+    diagnostic_messages = [call[1] for call in candy_calls if len(call) > 1 and "SBB IDAT diagnostic:" in call[1]]
+    assert diagnostic_messages
+    assert "image:" in diagnostic_messages[0]
+    assert "decompressed:" in diagnostic_messages[0]
+    assert "scanlines:" in diagnostic_messages[0]
+    assert "SBB chance:" in diagnostic_messages[0]
+
+
+def test_partial_blackfill_low_chance_can_skip_to_full_chunk_smash():
+    source, repair = partial_scanline_blackfill_source_and_repair()
+    idat_chunk = next(chunk for chunk in iter_chunks(source) if chunk.chunk_type == b"IDAT")
+    side_notes = []
+    questions = []
+    smash_calls = []
+    candy_calls = []
+    original_diagnostic = fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic
+
+    def fake_diagnostic(_data, *, crc_target_trusted=False):
+        return idat.SmashBruteBrawlIdatDiagnostic(
+            supported=True,
+            width=900,
+            height=580,
+            bit_depth=8,
+            color_type=2,
+            color_label="RGB",
+            expected_decompressed_size=1_566_580,
+            decompressed_size=1_491_984,
+            missing_decompressed_size=74_596,
+            complete_scanlines=552,
+            total_scanlines=580,
+            partial_scanline_bytes=1032,
+            scanline_size=2701,
+            idat_chunk_count=2,
+            compressed_size=223_816,
+            zlib_status="incomplete_stream",
+            crc_target_trusted=crc_target_trusted,
+            success_estimate="low",
+            success_reason="no trusted CRC target and the decompressed gap is large.",
+        )
+
+    fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = fake_diagnostic
+    try:
+        runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+            side_notes=side_notes,
+            candy=lambda *args: candy_calls.append(args),
+            write_clone=lambda *_args: None,
+            question=lambda **kwargs: questions.append(kwargs) or True,
+            preview_repair_image=lambda *_args: None,
+            smash_brute_brawl=lambda *args, **kwargs: smash_calls.append((args, kwargs)),
+            data_hex=source.hex(),
+            file_origin="source-idat.png",
+        )
+
+        result = fixit_felix_runtime.maybe_launch_partial_blackfill_bruteforce(runtime, repair)
+    finally:
+        fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = original_diagnostic
+
+    assert result is True
+    assert [question["idhash"][0] for question in questions] == [
+        "IDAT-partial-blackfill-smash",
+        "IDAT-partial-blackfill-smash-full",
+    ]
+    assert all("chance of success: low" in question["id"] for question in questions)
+    assert smash_calls == [
+        (
+            (
+                "source-idat.png",
+                "IDAT",
+                idat_chunk.length,
+                idat_chunk.offset * 2,
+                "FixItFelix partial IDAT blackfill",
+            ),
+            {
+                "EditMode": "Replace",
+                "BfMode": "Brutus",
+                "BruteCrc": True,
+                "BruteLength": True,
+                "BruteLevel": 0,
+            },
+        )
+    ]
+    assert any("may take years and still fail" in call[1] for call in candy_calls)
+    assert "-FixItFelix: low SBB diagnostic selected full chunk SmashBruteBrawl." in side_notes
 
 
 def test_partial_blackfill_bruteforce_uses_stored_crc_only_when_it_targets_original():
@@ -3732,6 +3819,10 @@ def main():
         (
             "Apply repair offers SmashBruteBrawl after partial blackfill",
             test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforce,
+        ),
+        (
+            "Partial blackfill low chance can skip to full chunk Smash",
+            test_partial_blackfill_low_chance_can_skip_to_full_chunk_smash,
         ),
         (
             "Partial blackfill uses stored CRC only when useful",

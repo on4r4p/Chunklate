@@ -220,6 +220,59 @@ def action_smash_brute_brawl_keep_blackfill_fallback(runtime: CheckPointActionRu
     )
 
 
+def _smash_old_crc_and_error(info, toolkit) -> tuple[bool, Any, Any]:
+    has_old_crc = len(toolkit) > 9
+    old_crc = toolkit[8] if has_old_crc else None
+    from_error = toolkit[9] if has_old_crc else toolkit[8]
+    return has_old_crc, old_crc, from_error
+
+
+def action_smash_brute_brawl_ask_blackfill_next_step(runtime: CheckPointActionRuntime, decision, chunk, info, toolkit):
+    next_level = runtime.get_brute_level() + 1
+    answer = checkpoint_runtime.ask_smash_brute_brawl_blackfill_next_level(
+        runtime.checkpoint,
+        toolkit,
+        brute_level=next_level,
+        eta=runtime.eta,
+    )
+    has_old_crc, old_crc, from_error = _smash_old_crc_and_error(info, toolkit)
+    if answer is True:
+        runtime.set_brute_level(next_level)
+        runtime.side_notes.append(
+            "-CheckPoint: Increasing partial blackfill SmashBruteBrawl BruteLevel to %s."
+            % next_level
+        )
+        smash_brute_brawl_relaunch(
+            runtime,
+            toolkit,
+            from_error,
+            has_old_crc=has_old_crc,
+            old_crc=old_crc,
+        )
+        return False, None
+
+    answer = checkpoint_runtime.ask_smash_brute_brawl_blackfill_full_chunk(runtime.checkpoint)
+    if answer is True:
+        runtime.set_brute_level(0)
+        runtime.side_notes.append(
+            "-CheckPoint: Trying full chunk SmashBruteBrawl before keeping blackfill."
+        )
+        smash_brute_brawl_relaunch(
+            runtime,
+            toolkit,
+            from_error,
+            bf_mode="Brutus",
+            has_old_crc=has_old_crc,
+            old_crc=old_crc,
+        )
+        return False, None
+
+    runtime.side_notes.append("-CheckPoint: Keeping partial IDAT blackfill after SmashBruteBrawl failure.")
+    return checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(
+        runtime.checkpoint
+    )
+
+
 def action_smash_brute_brawl_ask_custom_brutus(runtime: CheckPointActionRuntime, decision, chunk, info, toolkit):
     runtime.side_notes.append(
         "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!(CUSTOM END)"
@@ -257,6 +310,7 @@ ACTION_HANDLERS = {
     "smash_brute_brawl_ask_twobytes_retry": action_smash_brute_brawl_ask_twobytes_retry,
     "smash_brute_brawl_end_failed_noncustom": action_smash_brute_brawl_end_failed_noncustom,
     "smash_brute_brawl_keep_blackfill_fallback": action_smash_brute_brawl_keep_blackfill_fallback,
+    "smash_brute_brawl_ask_blackfill_next_step": action_smash_brute_brawl_ask_blackfill_next_step,
     "smash_brute_brawl_ask_custom_brutus": action_smash_brute_brawl_ask_custom_brutus,
     "smash_brute_brawl_end_unhandled": action_smash_brute_brawl_end_unhandled,
 }

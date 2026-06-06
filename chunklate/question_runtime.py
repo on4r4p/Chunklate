@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, MutableSequence
 from dataclasses import dataclass
 from typing import Any
@@ -101,7 +102,18 @@ def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
     if "IDAT Zero Scanline Blackfill" in str(question_id):
         return "Question: Option 3, write an all-zero placeholder PNG?"
     if "IDAT partial blackfill" in str(question_id):
-        return "Question: Should i launch SmashBruteBrawl to try to recover this bad boy?"
+        question_text = str(question_id)
+        chance_match = re.search(r"chance of success:\s*([a-zA-Z_-]+)", question_text)
+        chance = chance_match.group(1).replace("_", " ") if chance_match else "unknown"
+        if "full chunk" in question_text:
+            return (
+                "Question: Should i launch full chunk SmashBruteBrawl now? "
+                "(chance of success: %s; this may take years and still fail.)"
+            ) % chance
+        return (
+            "Question: Should i launch SmashBruteBrawl to try to recover this bad boy? "
+            "(chance of success: %s)"
+        ) % chance
     if skipauto:
         return "Question: Should i stop this brute force branch and save the current candidate?"
     if "IDAT Heavy Probe" in str(question_id):

@@ -93,6 +93,31 @@ class IdatStreamAnalysis:
 
 
 @dataclass(frozen=True)
+class SmashBruteBrawlIdatDiagnostic:
+    supported: bool
+    width: int = 0
+    height: int = 0
+    bit_depth: int = 0
+    color_type: int = 0
+    color_label: str = ""
+    expected_decompressed_size: int = 0
+    decompressed_size: int = 0
+    missing_decompressed_size: int = 0
+    complete_scanlines: int = 0
+    total_scanlines: int = 0
+    partial_scanline_bytes: int = 0
+    scanline_size: int = 0
+    idat_chunk_count: int = 0
+    compressed_size: int = 0
+    zlib_status: str = ""
+    zlib_error: str = ""
+    crc_target_trusted: bool = False
+    success_estimate: str = "low"
+    success_reason: str = ""
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class PartialIdatBlackfillRepair:
     data: bytes
     strategy: str
@@ -816,6 +841,99 @@ def analyze_idat_stream(
         computed_adler=computed_adler,
         adler_status=resolved_adler_status,
         **base,
+    )
+
+
+PNG_COLOR_TYPE_LABELS = {
+    0: "grayscale",
+    2: "RGB",
+    3: "indexed",
+    4: "grayscale+alpha",
+    6: "RGBA",
+}
+
+
+def png_color_type_label(color_type: int) -> str:
+    return PNG_COLOR_TYPE_LABELS.get(color_type, "color-type-%s" % color_type)
+
+
+def _sbb_success_estimate(
+    analysis: IdatStreamAnalysis,
+    *,
+    missing_decompressed_size: int,
+    crc_target_trusted: bool,
+) -> tuple[str, str]:
+    if not analysis.supported:
+        return "low", analysis.reason or "IDAT stream is not supported by the probe."
+
+    small_gap = missing_decompressed_size <= max(analysis.scanline_size * 2, 4096)
+    if crc_target_trusted and small_gap:
+        return "good", "stored IDAT CRC is a useful target and the damage looks small."
+    if crc_target_trusted:
+        return "maybe", "stored IDAT CRC is useful, but the decompressed gap is large."
+
+    if missing_decompressed_size > max(analysis.scanline_size * 2, 4096):
+        return "low", "no trusted CRC target and the decompressed gap is large."
+    if analysis.status in ("incomplete_stream", "trailing_data", "partial"):
+        return "maybe", "local stream damage is plausible, but there is no trusted CRC target."
+    if analysis.status == "complete":
+        return "low", "the IDAT stream already decodes structurally."
+    return "maybe", "SBB can try, but the proof target is weak."
+
+
+def analyze_sbb_idat_diagnostic(
+    data: bytes,
+    *,
+    crc_target_trusted: bool = False,
+) -> SmashBruteBrawlIdatDiagnostic:
+    analysis = analyze_idat_stream(data)
+    if not analysis.supported:
+        estimate, reason = _sbb_success_estimate(
+            analysis,
+            missing_decompressed_size=0,
+            crc_target_trusted=crc_target_trusted,
+        )
+        return SmashBruteBrawlIdatDiagnostic(
+            supported=False,
+            zlib_status=analysis.status,
+            zlib_error=analysis.zlib_error,
+            crc_target_trusted=crc_target_trusted,
+            success_estimate=estimate,
+            success_reason=reason,
+            reason=analysis.reason,
+        )
+
+    missing = max(0, analysis.expected_size - analysis.decompressed_size)
+    partial = 0
+    if analysis.scanline_size > 0:
+        partial = analysis.decompressed_size % analysis.scanline_size
+    estimate, reason = _sbb_success_estimate(
+        analysis,
+        missing_decompressed_size=missing,
+        crc_target_trusted=crc_target_trusted,
+    )
+    return SmashBruteBrawlIdatDiagnostic(
+        supported=True,
+        width=analysis.width,
+        height=analysis.height,
+        bit_depth=analysis.bit_depth,
+        color_type=analysis.color_type,
+        color_label=png_color_type_label(analysis.color_type),
+        expected_decompressed_size=analysis.expected_size,
+        decompressed_size=analysis.decompressed_size,
+        missing_decompressed_size=missing,
+        complete_scanlines=analysis.complete_scanlines,
+        total_scanlines=analysis.height,
+        partial_scanline_bytes=partial,
+        scanline_size=analysis.scanline_size,
+        idat_chunk_count=analysis.idat_chunk_count,
+        compressed_size=analysis.compressed_size,
+        zlib_status=analysis.status,
+        zlib_error=analysis.zlib_error,
+        crc_target_trusted=crc_target_trusted,
+        success_estimate=estimate,
+        success_reason=reason,
+        reason=analysis.reason,
     )
 
 

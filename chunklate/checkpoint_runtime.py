@@ -813,6 +813,52 @@ def ask_smash_brute_brawl_dummy_idat_fallback(runtime: CheckPointRuntime) -> Any
     return runtime.question()
 
 
+def ask_smash_brute_brawl_blackfill_next_level(
+    runtime: CheckPointRuntime,
+    toolkit: tuple[Any, ...],
+    *,
+    brute_level: int,
+    eta: int,
+) -> Any:
+    runtime.candy(
+        "Cowsay",
+        "The blackfill fallback is still valid, so this is a bonus round, not the only exit.",
+        "good",
+    )
+    runtime.candy(
+        "Cowsay",
+        "SmashBruteBrawl exhausted this level. I can try BruteLevel %s, but the cost climbs fast."
+        % brute_level,
+        "com",
+    )
+    estimation = eta * toolkit[2] * max(1, brute_level + 1)
+    if toolkit[1] == b"IDAT" or toolkit[1] == "IDAT":
+        estimation *= 3
+    from datetime import timedelta
+
+    runtime.emit("-Next SBB BruteLevel estimated time : %s\n" % str(timedelta(seconds=estimation)))
+    runtime.candy(
+        "Cowsay",
+        "Should I try the next SmashBruteBrawl level before accepting blackfill?",
+        "com",
+    )
+    return runtime.question(skipauto=True)
+
+
+def ask_smash_brute_brawl_blackfill_full_chunk(runtime: CheckPointRuntime) -> Any:
+    runtime.candy(
+        "Cowsay",
+        "I can also try the full chunk brawl. That door is wider, louder, and usually slower.",
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "Should I try full chunk SmashBruteBrawl before keeping the blackfill fallback?",
+        "com",
+    )
+    return runtime.question(skipauto=True)
+
+
 def run_smash_brute_brawl_end_failed_noncustom(
     runtime: CheckPointRuntime,
 ) -> tuple[bool, Any]:

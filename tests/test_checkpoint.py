@@ -420,7 +420,7 @@ def test_smash_brute_brawl_failure_decision_routes_retry_paths():
     assert ihdr_retry.action == "smash_brute_brawl_retry_ihdr_harder"
     assert twobytes_retry.action == "smash_brute_brawl_ask_twobytes_retry"
     assert noncustom_end.action == "smash_brute_brawl_end_failed_noncustom"
-    assert blackfill_fallback.action == "smash_brute_brawl_keep_blackfill_fallback"
+    assert blackfill_fallback.action == "smash_brute_brawl_ask_blackfill_next_step"
     assert custom_brutus.action == "smash_brute_brawl_ask_custom_brutus"
     assert unhandled.action == "smash_brute_brawl_end_unhandled"
 
@@ -463,7 +463,7 @@ def test_checkpoint_action_decision_handles_smash_brute_brawl_failures():
 
     assert ihdr_retry.action == "smash_brute_brawl_retry_ihdr_harder"
     assert custom_brutus.action == "smash_brute_brawl_ask_custom_brutus"
-    assert blackfill_fallback.action == "smash_brute_brawl_keep_blackfill_fallback"
+    assert blackfill_fallback.action == "smash_brute_brawl_ask_blackfill_next_step"
 
 
 def main():
