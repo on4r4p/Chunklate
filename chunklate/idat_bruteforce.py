@@ -13,6 +13,7 @@ import os
 import queue
 import signal
 import time
+import uuid
 import zlib
 from typing import Any, Callable, Iterable
 
@@ -70,7 +71,7 @@ def _hidden_tmp_path(path: str) -> str:
     tmp_name = ".%s.%s.%s.tmp" % (
         filename or "chunklate",
         os.getpid(),
-        time.monotonic_ns(),
+        uuid.uuid4().hex,
     )
     return os.path.join(directory, tmp_name) if directory else tmp_name
 

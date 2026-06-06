@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import json
 import os
 import time
+import uuid
 from typing import Any
 
 from . import idat
@@ -36,7 +37,7 @@ def _hidden_tmp_path(path: str) -> str:
     tmp_name = ".%s.%s.%s.tmp" % (
         filename or "chunklate",
         os.getpid(),
-        time.monotonic_ns(),
+        uuid.uuid4().hex,
     )
     return os.path.join(directory, tmp_name) if directory else tmp_name
 
