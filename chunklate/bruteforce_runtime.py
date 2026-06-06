@@ -174,6 +174,11 @@ def prepare_runtime_plan(
         context.pandora_box,
         runtime.load_spec,
     )
+    runtime_plan = bruteforce.apply_idat_brutus_level(
+        runtime_plan,
+        context.chunk_name,
+        context.brute_level,
+    )
     if runtime_plan.side_note is not None:
         runtime.side_notes.append(runtime_plan.side_note)
     return runtime_plan

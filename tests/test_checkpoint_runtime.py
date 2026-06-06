@@ -1052,6 +1052,7 @@ def test_checkpoint_runtime_runs_smash_brute_brawl_relaunches():
         toolkit,
         "from-old-crc",
         bf_mode="Brutus",
+        brute_level=2,
         has_old_crc=True,
         old_crc="old-crc",
     ) == "smash_brute_brawl"
@@ -1075,6 +1076,7 @@ def test_checkpoint_runtime_runs_smash_brute_brawl_relaunches():
                 "BfMode": "Brutus",
                 "BruteCrc": "crc",
                 "BruteLength": "length",
+                "BruteLevel": 2,
                 "OldCrc": "old-crc",
             },
         ),

@@ -253,6 +253,7 @@ def test_apply_smash_brute_brawl_retry_ihdr_relaunches_with_higher_level():
                 "BfMode": "Bytes",
                 "BruteCrc": "crc",
                 "BruteLength": "length",
+                "BruteLevel": 1,
             },
         )
     ]
@@ -302,6 +303,7 @@ def test_apply_smash_brute_brawl_retry_ihdr_preserves_old_crc_route():
                 "BfMode": "Bytes",
                 "BruteCrc": "crc",
                 "BruteLength": "length",
+                "BruteLevel": 1,
                 "OldCrc": "old-crc",
             },
         )
@@ -362,6 +364,7 @@ def test_apply_smash_brute_brawl_twobytes_retry_preserves_old_crc_route():
                 "BfMode": "TwoBytes",
                 "BruteCrc": "crc",
                 "BruteLength": "length",
+                "BruteLevel": 1,
                 "OldCrc": "old-crc",
             },
         )

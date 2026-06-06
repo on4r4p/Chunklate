@@ -114,6 +114,10 @@ class SmashBruteBrawlIdatDiagnostic:
     crc_target_trusted: bool = False
     success_estimate: str = "low"
     success_reason: str = ""
+    recommended_repair_family: str = "replace"
+    hephaestus_order: tuple[str, ...] = ("Replace", "Insert", "Remove")
+    cheap_twobytes_viable: bool = True
+    hephaestus_reason: str = ""
     reason: str = ""
 
 
@@ -881,6 +885,43 @@ def _sbb_success_estimate(
     return "maybe", "SBB can try, but the proof target is weak."
 
 
+def _sbb_hephaestus_strategy(
+    analysis: IdatStreamAnalysis,
+    *,
+    missing_decompressed_size: int,
+    crc_target_trusted: bool,
+) -> tuple[str, tuple[str, ...], bool, str]:
+    if not analysis.supported:
+        return (
+            "replace",
+            ("Replace", "Insert", "Remove"),
+            False,
+            analysis.reason or "IDAT stream is not supported by the diagnostic probe.",
+        )
+
+    large_missing = missing_decompressed_size > max(analysis.scanline_size * 2, 4096)
+    if analysis.status in ("incomplete_stream", "partial") and missing_decompressed_size > 0:
+        return (
+            "missing",
+            ("Insert", "Replace", "Remove"),
+            bool(crc_target_trusted and not large_missing),
+            "the stream ends before all decompressed image bytes are available.",
+        )
+    if analysis.status == "trailing_data":
+        return (
+            "extra",
+            ("Remove", "Replace", "Insert"),
+            bool(crc_target_trusted),
+            "the stream has extra compressed bytes after a complete decode.",
+        )
+    return (
+        "replace",
+        ("Replace", "Insert", "Remove"),
+        bool(crc_target_trusted or not large_missing),
+        "the damage looks more like wrong compressed bytes than a proven missing tail.",
+    )
+
+
 def analyze_sbb_idat_diagnostic(
     data: bytes,
     *,
@@ -893,6 +934,11 @@ def analyze_sbb_idat_diagnostic(
             missing_decompressed_size=0,
             crc_target_trusted=crc_target_trusted,
         )
+        family, order, cheap_viable, hephaestus_reason = _sbb_hephaestus_strategy(
+            analysis,
+            missing_decompressed_size=0,
+            crc_target_trusted=crc_target_trusted,
+        )
         return SmashBruteBrawlIdatDiagnostic(
             supported=False,
             zlib_status=analysis.status,
@@ -900,6 +946,10 @@ def analyze_sbb_idat_diagnostic(
             crc_target_trusted=crc_target_trusted,
             success_estimate=estimate,
             success_reason=reason,
+            recommended_repair_family=family,
+            hephaestus_order=order,
+            cheap_twobytes_viable=cheap_viable,
+            hephaestus_reason=hephaestus_reason,
             reason=analysis.reason,
         )
 
@@ -908,6 +958,11 @@ def analyze_sbb_idat_diagnostic(
     if analysis.scanline_size > 0:
         partial = analysis.decompressed_size % analysis.scanline_size
     estimate, reason = _sbb_success_estimate(
+        analysis,
+        missing_decompressed_size=missing,
+        crc_target_trusted=crc_target_trusted,
+    )
+    family, order, cheap_viable, hephaestus_reason = _sbb_hephaestus_strategy(
         analysis,
         missing_decompressed_size=missing,
         crc_target_trusted=crc_target_trusted,
@@ -933,6 +988,10 @@ def analyze_sbb_idat_diagnostic(
         crc_target_trusted=crc_target_trusted,
         success_estimate=estimate,
         success_reason=reason,
+        recommended_repair_family=family,
+        hephaestus_order=order,
+        cheap_twobytes_viable=cheap_viable,
+        hephaestus_reason=hephaestus_reason,
         reason=analysis.reason,
     )
 

@@ -1843,6 +1843,61 @@ def run_deferred_linefeed_signature_repair(runtime: FindMagicRuntime, context: F
     return _handle_linefeed_signature_repair(runtime, context, deferred=True)
 
 
+def run_deferred_internal_idat_marker_chain_repair(runtime: FindMagicRuntime, context: FindMagicContext) -> Any:
+    marker_repairs = repair_idat_marker_chain_from_visible_headers(context.data_bytes)
+    best = _linefeed_best_marker_chain_candidate(marker_repairs)
+    if best is None:
+        _cowsay(
+            runtime,
+            "I saw the internal IDAT line-feed trail, but the marker-chain rebuild did not produce a usable candidate.",
+            "bad",
+        )
+        return None
+
+    runtime.candy("Title", "Deferred internal IDAT line-feed repair:")
+    _cowsay(
+        runtime,
+        "The PNG signature is fine, but the IDAT marker chain drifted like line-feed damage.",
+        "bad",
+    )
+    marker_repair, analysis, visual_repair = best
+    marker_summary = _linefeed_marker_chain_summary(marker_repair, analysis, visual_repair)
+    _cowsay(
+        runtime,
+        (
+            "I rebuilt the visible IDAT marker chain before brute force. "
+            "The best visual salvage is now %s/%s scanlines."
+        )
+        % (visual_repair.recovered_scanlines, visual_repair.total_scanlines),
+        "good",
+    )
+    if marker_repair.preserved_chunks:
+        _cowsay(
+            runtime,
+            "I preserved the already-valid IDAT chunks and only rebuilt the suspect marker-chain segment.",
+            "good",
+        )
+    if analysis.adler_status != "adler_match":
+        _cowsay(
+            runtime,
+            "The original Adler still does not match, so this is a rebuilt-Adler visual salvage.",
+            "com",
+        )
+
+    alternative = _linefeed_supermega_probe_alternative(
+        runtime,
+        marker_repair.data,
+        visual_repair,
+        marker_summary,
+    )
+    if alternative is not None:
+        runtime.side_notes.append(alternative.summary)
+        return runtime.write_clone(alternative.repair.data.hex(), alternative.summary)
+
+    runtime.side_notes.append(marker_summary)
+    return runtime.write_clone(visual_repair.data.hex(), marker_summary)
+
+
 def run_ultimate_linefeed_direct_resume(runtime: FindMagicRuntime, context: FindMagicContext) -> Any:
     checkpoint_path = _ultimate_linefeed_checkpoint_path(runtime)
     source_path = _ultimate_linefeed_source_path(runtime, checkpoint_path)
@@ -2395,19 +2450,20 @@ def run_deferred_linefeed_signature_repair_from_namespace(namespace: dict[str, A
         return None
     namespace["DEFERRED_LINEFEED_SIGNATURE_REPAIR"] = None
     data_bytes = pending.get("data_bytes", b"")
-    return run_deferred_linefeed_signature_repair(
-        build_find_magic_runtime_from_namespace(namespace, include_chunk_story=True),
-        FindMagicContext(
-            data_bytes=data_bytes,
-            data_hex=data_bytes.hex(),
-            chunks=tuple(namespace["CHUNKS"]),
-            before_idat=tuple(namespace["BEFORE_IDAT"]),
-            sample_name=str(pending.get("sample_name") or namespace.get("Sample", "")),
-            debug=namespace["DEBUG"],
-            pause_debug=namespace["PAUSEDEBUG"],
-            pause_error=namespace["PAUSEERROR"],
-        ),
+    runtime = build_find_magic_runtime_from_namespace(namespace, include_chunk_story=True)
+    context = FindMagicContext(
+        data_bytes=data_bytes,
+        data_hex=data_bytes.hex(),
+        chunks=tuple(namespace["CHUNKS"]),
+        before_idat=tuple(namespace["BEFORE_IDAT"]),
+        sample_name=str(pending.get("sample_name") or namespace.get("Sample", "")),
+        debug=namespace["DEBUG"],
+        pause_debug=namespace["PAUSEDEBUG"],
+        pause_error=namespace["PAUSEERROR"],
     )
+    if pending.get("source") == "internal-idat-marker-chain":
+        return run_deferred_internal_idat_marker_chain_repair(runtime, context)
+    return run_deferred_linefeed_signature_repair(runtime, context)
 
 
 def run_ultimate_linefeed_direct_resume_from_namespace(namespace: dict[str, Any]) -> Any:

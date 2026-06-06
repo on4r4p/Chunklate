@@ -605,17 +605,18 @@ def test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforc
     assert questions == [
         {
             "id": (
-                "IDAT partial blackfill:-Launch SmashBruteBrawl on the original IDAT "
-                "after writing the blackfill clone? (chance of success: maybe)"
+                "IDAT partial blackfill:-Launch HephaestusForge after low "
+                "chance diagnostic? (chance of success: maybe)"
             ),
             "idhash": (
-                "IDAT-partial-blackfill-smash",
+                "IDAT-partial-blackfill-hephaestus",
                 idat_chunk.offset,
                 idat_chunk.length,
                 repair.recovered_scanlines,
                 repair.total_scanlines,
                 repair.width,
                 repair.height,
+                "Insert",
             ),
             "skipauto": True,
         }
@@ -627,19 +628,19 @@ def test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforc
                 "IDAT",
                 idat_chunk.length,
                 idat_chunk.offset * 2,
-                "FixItFelix partial IDAT blackfill",
+                "FixItFelix partial IDAT blackfill HephaestusForge",
             ),
             {
-                "EditMode": "Replace",
-                "BfMode": "TwoBytes",
+                "EditMode": "Insert",
+                "BfMode": "Brutus",
                 "BruteCrc": True,
                 "BruteLength": True,
-                "BruteLevel": 0,
+                "BruteLevel": 1,
             },
         )
     ]
     assert side_notes[-2:] == [
-        "-FixItFelix:launched SmashBruteBrawl on source IDAT after partial blackfill 1/5.",
+        "-FixItFelix: low SBB diagnostic selected HephaestusForge (Insert-first).",
         "-FixItFelix: stored IDAT CRC already matches current bytes; using image probe.",
     ]
     diagnostic_messages = [call[1] for call in candy_calls if len(call) > 1 and "SBB IDAT diagnostic:" in call[1]]
@@ -648,9 +649,10 @@ def test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforc
     assert "decompressed:" in diagnostic_messages[0]
     assert "scanlines:" in diagnostic_messages[0]
     assert "SBB chance:" in diagnostic_messages[0]
+    assert "HephaestusForge order: Insert -> Replace -> Remove" in diagnostic_messages[0]
 
 
-def test_partial_blackfill_low_chance_can_skip_to_full_chunk_smash():
+def test_partial_blackfill_low_chance_opens_hephaestusforge():
     source, repair = partial_scanline_blackfill_source_and_repair()
     idat_chunk = next(chunk for chunk in iter_chunks(source) if chunk.chunk_type == b"IDAT")
     side_notes = []
@@ -680,6 +682,9 @@ def test_partial_blackfill_low_chance_can_skip_to_full_chunk_smash():
             crc_target_trusted=crc_target_trusted,
             success_estimate="low",
             success_reason="no trusted CRC target and the decompressed gap is large.",
+            recommended_repair_family="missing",
+            hephaestus_order=("Insert", "Replace", "Remove"),
+            cheap_twobytes_viable=False,
         )
 
     fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = fake_diagnostic
@@ -701,10 +706,10 @@ def test_partial_blackfill_low_chance_can_skip_to_full_chunk_smash():
 
     assert result is True
     assert [question["idhash"][0] for question in questions] == [
-        "IDAT-partial-blackfill-smash",
-        "IDAT-partial-blackfill-smash-full",
+        "IDAT-partial-blackfill-hephaestus",
     ]
     assert all("chance of success: low" in question["id"] for question in questions)
+    assert questions[0]["idhash"][-1] == "Insert"
     assert smash_calls == [
         (
             (
@@ -712,19 +717,19 @@ def test_partial_blackfill_low_chance_can_skip_to_full_chunk_smash():
                 "IDAT",
                 idat_chunk.length,
                 idat_chunk.offset * 2,
-                "FixItFelix partial IDAT blackfill",
+                "FixItFelix partial IDAT blackfill HephaestusForge",
             ),
             {
-                "EditMode": "Replace",
+                "EditMode": "Insert",
                 "BfMode": "Brutus",
                 "BruteCrc": True,
                 "BruteLength": True,
-                "BruteLevel": 0,
+                "BruteLevel": 1,
             },
         )
     ]
     assert any("may take years and still fail" in call[1] for call in candy_calls)
-    assert "-FixItFelix: low SBB diagnostic selected full chunk SmashBruteBrawl." in side_notes
+    assert "-FixItFelix: low SBB diagnostic selected HephaestusForge (Insert-first)." in side_notes
 
 
 def test_partial_blackfill_bruteforce_uses_stored_crc_only_when_it_targets_original():
@@ -3259,6 +3264,7 @@ def libpng_runtime(
     pandora_box=None,
     cornucopia=None,
     sample="sample.png",
+    try_idat_decision_gate=None,
 ):
     def record(name, result=None):
         def callback(*args, **kwargs):
@@ -3279,6 +3285,7 @@ def libpng_runtime(
         pandora_box=pandora_box if pandora_box is not None else {},
         cornucopia=cornucopia if cornucopia is not None else {},
         sample=sample,
+        try_idat_decision_gate=try_idat_decision_gate,
     )
 
 
@@ -3373,7 +3380,7 @@ def test_apply_libpng_error_not_enough_image_data_ends_after_todo():
 
     result = fixit_felix_runtime.apply_libpng_error(
         runtime,
-        fixit_felix.LibpngErrorDecision("not_enough_image_data", finding),
+        fixit_felix.LibpngErrorDecision("idat_decision_gate", finding),
         "LibpngCheck_Tool_",
     )
 
@@ -3382,6 +3389,27 @@ def test_apply_libpng_error_not_enough_image_data_ends_after_todo():
         ("emit", ("colored",), {}),
         ("the_end", (), {}),
     ]
+
+
+def test_apply_libpng_error_idat_gate_uses_partial_blackfill_decision():
+    calls = []
+    finding = "Libpng_Error_0:libpng error: Not enough image data"
+
+    def gate(gated_finding):
+        calls.append(("idat_gate", (gated_finding,), {}))
+        return True
+
+    runtime = libpng_runtime(calls, try_idat_decision_gate=gate)
+
+    result = fixit_felix_runtime.apply_libpng_error(
+        runtime,
+        fixit_felix.LibpngErrorDecision("idat_decision_gate", finding),
+        "LibpngCheck_Tool_",
+    )
+
+    assert result is True
+    assert ("idat_gate", (finding,), {}) in calls
+    assert not any(call[0] == "the_end" for call in calls)
 
 
 def test_apply_libpng_error_skip_only_reports_critical_hit():
@@ -3821,8 +3849,8 @@ def main():
             test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforce,
         ),
         (
-            "Partial blackfill low chance can skip to full chunk Smash",
-            test_partial_blackfill_low_chance_can_skip_to_full_chunk_smash,
+            "Partial blackfill low chance opens HephaestusForge",
+            test_partial_blackfill_low_chance_opens_hephaestusforge,
         ),
         (
             "Partial blackfill uses stored CRC only when useful",
@@ -4037,6 +4065,7 @@ def main():
         ("Apply libpng accepts Relics prompt", test_apply_libpng_error_accepts_relics_prompt_and_sets_skip),
         ("Apply libpng declines Relics prompt", test_apply_libpng_error_declines_relics_prompt_and_ends),
         ("Apply libpng not enough image data ends", test_apply_libpng_error_not_enough_image_data_ends_after_todo),
+        ("Apply libpng IDAT decision gate", test_apply_libpng_error_idat_gate_uses_partial_blackfill_decision),
         ("Apply libpng skip reports critical", test_apply_libpng_error_skip_only_reports_critical_hit),
         ("Apply libpng rejects unknown action", test_apply_libpng_error_rejects_unknown_action),
         ("Finding handlers route callback arguments", test_finding_handlers_route_legacy_callback_arguments),

@@ -365,6 +365,14 @@ def _existing_output_folder_has_content(runtime: MainCliOptionsRuntime, folder: 
     return len(runtime.list_dir(folder)) > 0
 
 
+def _existing_output_folder_entries(runtime: MainCliOptionsRuntime, folder: str) -> list[str]:
+    if not runtime.path_exists(folder):
+        return []
+    if not runtime.path_is_dir(folder):
+        return []
+    return list(runtime.list_dir(folder))
+
+
 def _cleanup_answer(value: Any) -> bool | None:
     normalized = str(value).strip().lower()
     if normalized in ("yes", "y"):
@@ -396,8 +404,10 @@ def offer_existing_output_folder_cleanup(
     file_dir: str,
 ) -> None:
     folder = runtime.clone_folder(file_origin, file_dir)
-    if not _existing_output_folder_has_content(runtime, folder):
+    entries = _existing_output_folder_entries(runtime, folder)
+    if not entries:
         return
+    runtime.emit("-Existing output folder has %s file(s)." % len(entries))
 
     runtime.candy(
         "Cowsay",
@@ -1218,6 +1228,104 @@ def _deferred_linefeed_visible_marker_tour_reached_iend(namespace: dict[str, Any
     return True
 
 
+def _joined_findings(namespace: dict[str, Any]) -> str:
+    parts: list[str] = []
+    pandora = namespace.get("PandoraBox", {})
+    if hasattr(pandora, "items"):
+        for key, value in pandora.items():
+            parts.append(str(key))
+            parts.append(str(value))
+    else:
+        for value in pandora:
+            parts.append(str(value))
+    for note in namespace.get("SideNotes", ()):
+        parts.append(str(note))
+    return "\n".join(parts)
+
+
+def _has_internal_idat_linefeed_drift_evidence(namespace: dict[str, Any]) -> bool:
+    findings = _joined_findings(namespace)
+    if not findings:
+        return False
+    lower_findings = findings.lower()
+    if "wrong crc b'idat'" not in lower_findings and 'wrong crc b"idat"' not in lower_findings:
+        return False
+    wrong_next_after_idat = (
+        "Wrong Chunk name after Chunk[b'IDAT']" in findings
+        or 'Wrong Chunk name after Chunk[b"IDAT"]' in findings
+        or "Wrong Chunk Name after Chunk[b'IDAT']" in findings
+        or "wrong next chunk after idat" in lower_findings
+        or ("wrong chunk name" in lower_findings and "after chunk[b'idat']" in lower_findings)
+        or ('wrong chunk name' in lower_findings and 'after chunk[b"idat"]' in lower_findings)
+    )
+    if not wrong_next_after_idat:
+        return False
+    terminal_damage = (
+        bool(namespace.get("Bad_No_Next_Chunk", False))
+        or "no nextchunk" in lower_findings
+        or "iend chunk is missing" in lower_findings
+        or "iend is missing" in lower_findings
+        or bool(namespace.get("EOF", False))
+    )
+    if not terminal_damage:
+        return False
+    return any(chunk == b"IDAT" or str(chunk) == "IDAT" for chunk in namespace.get("Chunks_History", ()))
+
+
+def _internal_idat_linefeed_repair_is_confirmed(namespace: dict[str, Any]) -> bool:
+    data_bytes = namespace.get("DATA_BYTES")
+    if not isinstance(data_bytes, bytes):
+        return False
+    try:
+        if repair_idat_marker_chain_from_visible_headers(data_bytes):
+            return True
+    except Exception:
+        pass
+    try:
+        repair = repair_linefeed_conversion(data_bytes, allow_partial=True)
+    except Exception:
+        return False
+    if repair is None:
+        return False
+    try:
+        marker_repairs = repair_idat_marker_chain_from_visible_headers(repair.data)
+    except Exception:
+        return False
+    return bool(marker_repairs)
+
+
+def maybe_seed_internal_idat_linefeed_repair(namespace: dict[str, Any]) -> bool:
+    if namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR"):
+        return True
+    if namespace.get("DEFERRED_INTERNAL_LINEFEED_CHECKED") is True:
+        return False
+    if not _has_internal_idat_linefeed_drift_evidence(namespace):
+        return False
+    namespace["DEFERRED_INTERNAL_LINEFEED_CHECKED"] = True
+    if not _internal_idat_linefeed_repair_is_confirmed(namespace):
+        return False
+
+    data_bytes = namespace.get("DATA_BYTES", b"")
+    namespace["DEFERRED_LINEFEED_SIGNATURE_REPAIR"] = {
+        "data_bytes": data_bytes,
+        "sample_name": namespace.get("Sample_Name") or namespace.get("Sample", ""),
+        "linefeed_pattern": "internal-idat-marker-chain",
+        "source": "internal-idat-marker-chain",
+    }
+    namespace["DEFERRED_REPAIR_STILL_REQUIRED"] = True
+    namespace.setdefault("SideNotes", []).append(
+        "-FindMagic: internal IDAT marker-chain line-feed repair deferred until the file tour finishes."
+    )
+    candy = namespace.get("Candy")
+    if callable(candy):
+        candy(
+            "Cowsay",
+            "I found line-feed drift inside the IDAT marker chain. I am queuing the deferred line-feed repair.",
+            "com",
+        )
+    return True
+
+
 def deferred_linefeed_repair_is_ready(namespace: dict[str, Any]) -> bool:
     if _deferred_linefeed_repair_boundary_reached(namespace):
         return True
@@ -1225,6 +1333,7 @@ def deferred_linefeed_repair_is_ready(namespace: dict[str, Any]) -> bool:
 
 
 def should_defer_fix_it_felix_until_file_tour(namespace: dict[str, Any]) -> bool:
+    maybe_seed_internal_idat_linefeed_repair(namespace)
     if namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR"):
         if _deferred_linefeed_repair_boundary_reached(namespace):
             return False
@@ -1267,6 +1376,40 @@ def explain_unimplemented_repair_route(namespace: dict[str, Any]) -> None:
         "bad",
     )
     namespace["PRINT"]("-No repair route implemented for remaining findings.")
+
+
+def _last_clone_is_valid_final(namespace: dict[str, Any]) -> bool:
+    validation = namespace.get("LAST_CLONE_VALIDATION")
+    if not isinstance(validation, dict):
+        return True
+    return bool(validation.get("png_ok") and validation.get("idat_complete"))
+
+
+def _apply_deferred_after_weak_clone(namespace: dict[str, Any]) -> bool:
+    if _last_clone_is_valid_final(namespace):
+        return False
+    if not namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR"):
+        maybe_seed_internal_idat_linefeed_repair(namespace)
+    if not namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR"):
+        return False
+
+    namespace["DEFERRED_REPAIR_STILL_REQUIRED"] = True
+    namespace.setdefault("SideNotes", []).append(
+        "-NearbyChunk produced a structural candidate, but IDAT validation still fails; deferred line-feed repair remains active."
+    )
+    sample = namespace.get("FILE_Origin")
+    if sample:
+        namespace["Sample"] = sample
+        namespace["CLONESWAR"] = False
+    candy = namespace.get("Candy")
+    if callable(candy):
+        candy(
+            "Cowsay",
+            "The quick structure patch still fails PNG validation. I am going back to the deferred line-feed repair.",
+            "com",
+        )
+    namespace.get("Apply_Deferred_FindMagic_Repair", lambda: None)()
+    return True
 
 
 def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIterationState:
@@ -1324,7 +1467,8 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
         ):
             namespace.get("Apply_Deferred_FindMagic_Repair", lambda: None)()
     else:
-        namespace.get("Clear_Deferred_FindMagic_Repair", lambda: None)()
+        if not _apply_deferred_after_weak_clone(namespace):
+            namespace.get("Clear_Deferred_FindMagic_Repair", lambda: None)()
     if namespace["SAVE_COUNT"] == save_count_before:
         if has_unresolved_findings(namespace):
             explain_unimplemented_repair_route(namespace)

@@ -705,16 +705,20 @@ def run_smash_brute_brawl_relaunch(
     toolkit: tuple[Any, ...],
     from_error: Any,
     *,
+    edit_mode: Any = None,
     bf_mode: Any = None,
+    brute_level: int | None = None,
     has_old_crc: bool = False,
     old_crc: Any = None,
 ) -> Any:
     kwargs = {
-        "EditMode": toolkit[4],
+        "EditMode": edit_mode if edit_mode is not None else toolkit[4],
         "BfMode": bf_mode if bf_mode is not None else toolkit[5],
         "BruteCrc": toolkit[6],
         "BruteLength": toolkit[7],
     }
+    if brute_level is not None:
+        kwargs["BruteLevel"] = brute_level
     if has_old_crc:
         kwargs["OldCrc"] = old_crc
     return runtime.smash_brute_brawl(
@@ -746,6 +750,7 @@ def run_smash_brute_brawl_retry_ihdr(
         runtime,
         toolkit,
         from_error,
+        brute_level=brute_level,
         has_old_crc=has_old_crc,
         old_crc=old_crc,
     )
@@ -839,21 +844,40 @@ def ask_smash_brute_brawl_blackfill_next_level(
     runtime.emit("-Next SBB BruteLevel estimated time : %s\n" % str(timedelta(seconds=estimation)))
     runtime.candy(
         "Cowsay",
-        "Should I try the next SmashBruteBrawl level before accepting blackfill?",
+        "Should I try the next SmashBruteBrawl level before accepting blackfill? If you do not answer in 30 seconds, I will try it.",
         "com",
     )
-    return runtime.question(skipauto=True)
+    return runtime.question(skipauto=True, timeout_seconds=30, timeout_default=True)
 
 
 def ask_smash_brute_brawl_blackfill_full_chunk(runtime: CheckPointRuntime) -> Any:
     runtime.candy(
         "Cowsay",
-        "I can also try the full chunk brawl. That door is wider, louder, and usually slower.",
+        "I can also open HephaestusForge. That door is wider, louder, and usually slower.",
         "bad",
     )
     runtime.candy(
         "Cowsay",
-        "Should I try full chunk SmashBruteBrawl before keeping the blackfill fallback?",
+        "Should I open HephaestusForge before keeping the blackfill fallback?",
+        "com",
+    )
+    return runtime.question(skipauto=True)
+
+
+def ask_smash_brute_brawl_hephaestus_next_edit(
+    runtime: CheckPointRuntime,
+    *,
+    next_edit_mode: str,
+) -> Any:
+    runtime.candy(
+        "Cowsay",
+        "HephaestusForge exhausted this edit family. I can try %s next, but the forge gets expensive."
+        % next_edit_mode,
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "Should I keep forging before accepting the blackfill fallback?",
         "com",
     )
     return runtime.question(skipauto=True)

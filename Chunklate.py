@@ -46,9 +46,10 @@ except ImportError as exc:
     Image = ImageShow = ImageTk = None
 
 try:
-    from inputimeout import inputimeout
+    from inputimeout import TimeoutOccurred, inputimeout
 except ImportError as exc:
     MISSING_IMPORT_ERRORS["inputimeout"] = exc
+    TimeoutOccurred = TimeoutError
     def inputimeout(prompt="", timeout=None):
         return input(prompt)
 
@@ -1417,8 +1418,29 @@ def CheckLength(Cdata, Clen, Ctype):
 
 
 
-def Question(id=None,idhash=None, skipauto=False):
+def Question(
+    id=None,
+    idhash=None,
+    skipauto=False,
+    timeout_seconds=None,
+    timeout_default=None,
+):
     globals()["LAST_QUESTION_STATUS"] = None
+
+    def asker(prompt):
+        if timeout_seconds is None:
+            return input(prompt)
+        try:
+            return inputimeout(prompt, timeout=timeout_seconds)
+        except TimeoutOccurred:
+            default_answer = "yes" if timeout_default is True else "no"
+            PRINT("")
+            PRINT(
+                "-Question timed out after %s seconds; auto-answering %s.\n"
+                % (timeout_seconds, default_answer)
+            )
+            return default_answer
+
     runtime = question_runtime.QuestionRuntime(
         history=IFOP,
         nodialogue=NODIALOGUE,
@@ -1427,7 +1449,7 @@ def Question(id=None,idhash=None, skipauto=False):
         debug=DEBUG,
         pause_debug=PAUSEDEBUG,
         offset=CLoffI,
-        asker=input,
+        asker=asker,
         candy=Candy,
         emit=PRINT,
         pause=Pause,

@@ -131,6 +131,9 @@ def main_loop_history_reset_values() -> dict[str, object]:
         "FOG_OF_WAR_LAST_RENDER_KEY": None,
         "FOG_OF_WAR_PREVIEW_CHUNK": None,
         "FOG_OF_WAR_PREVIEW_ERROR": False,
+        "LAST_CLONE_VALIDATION": None,
+        "DEFERRED_REPAIR_STILL_REQUIRED": False,
+        "DEFERRED_INTERNAL_LINEFEED_CHECKED": False,
     }
 
 

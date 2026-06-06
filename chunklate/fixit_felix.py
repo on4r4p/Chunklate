@@ -758,8 +758,14 @@ def libpng_error_decision(
 ) -> LibpngErrorDecision:
     if solved:
         return LibpngErrorDecision("save_existing_solution", finding)
-    if "Not enough image data" in str(finding):
-        return LibpngErrorDecision("not_enough_image_data", finding)
+    finding_text = str(finding)
+    if (
+        "Not enough image data" in finding_text
+        or "IDAT zlib stream is invalid" in finding_text
+        or "bad adaptive filter" in finding_text
+        or "scanline filter type is invalid" in finding_text
+    ):
+        return LibpngErrorDecision("idat_decision_gate", finding)
     if skip_bad_libpng:
         return LibpngErrorDecision("skip", finding)
     return LibpngErrorDecision("ask_relics", finding)

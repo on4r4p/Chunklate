@@ -383,6 +383,62 @@ def test_deferred_linefeed_signature_repair_writes_after_tour():
     assert "marker-chain reconstructed visible IHDR/IDAT/IEND headers" in write_calls[0][2]
 
 
+def test_deferred_internal_idat_marker_chain_repair_uses_marker_chain_path():
+    calls = []
+    side_notes = []
+    runtime = build_runtime(calls, side_notes)
+    original_marker_repairs = magic_runtime.repair_idat_marker_chain_from_visible_headers
+    original_best = magic_runtime._linefeed_best_marker_chain_candidate
+    original_summary = magic_runtime._linefeed_marker_chain_summary
+    original_supermega = magic_runtime._linefeed_supermega_probe_alternative
+
+    marker_repair = SimpleNamespace(data=b"marker-data", preserved_chunks=[b"IDAT"])
+    analysis = SimpleNamespace(adler_status="adler_mismatch")
+    visual_repair = SimpleNamespace(
+        recovered_scanlines=10,
+        total_scanlines=20,
+        data=b"visual-data",
+    )
+
+    try:
+        magic_runtime.repair_idat_marker_chain_from_visible_headers = lambda data: [
+            "marker-repair"
+        ]
+        magic_runtime._linefeed_best_marker_chain_candidate = lambda repairs: (
+            marker_repair,
+            analysis,
+            visual_repair,
+        )
+        magic_runtime._linefeed_marker_chain_summary = (
+            lambda marker, idat_analysis, repair: "marker summary"
+        )
+        magic_runtime._linefeed_supermega_probe_alternative = (
+            lambda *args, **kwargs: None
+        )
+
+        result = magic_runtime.run_deferred_internal_idat_marker_chain_repair(
+            runtime,
+            base_context(b"internal-idat".hex(), sample_name="7.bad.png"),
+        )
+    finally:
+        magic_runtime.repair_idat_marker_chain_from_visible_headers = original_marker_repairs
+        magic_runtime._linefeed_best_marker_chain_candidate = original_best
+        magic_runtime._linefeed_marker_chain_summary = original_summary
+        magic_runtime._linefeed_supermega_probe_alternative = original_supermega
+
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert result == "write-result"
+    assert write_calls == [("write_clone", b"visual-data".hex(), "marker summary")]
+    assert side_notes == ["marker summary"]
+    assert ("candy", ("Title", "Deferred internal IDAT line-feed repair:")) in calls
+    cowsay_messages = [
+        call[1][1]
+        for call in calls
+        if call[0] == "candy" and call[1][0] == "Cowsay" and len(call[1]) > 1
+    ]
+    assert any("PNG signature is fine" in message for message in cowsay_messages)
+
+
 def test_linefeed_chunk_evidence_requires_chunk_level_proof_for_idat_bruteforce():
     signature_only = SimpleNamespace(payload_patches=())
 
@@ -1539,6 +1595,10 @@ def main():
         (
             "Header linefeed deferred apply",
             test_deferred_linefeed_signature_repair_writes_after_tour,
+        ),
+        (
+            "Header linefeed deferred internal IDAT",
+            test_deferred_internal_idat_marker_chain_repair_uses_marker_chain_path,
         ),
         (
             "Header linefeed evidence guard",

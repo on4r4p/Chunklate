@@ -144,6 +144,32 @@ class BruteForceRuntimePlan:
     side_note: str | None = None
 
 
+def idat_brutus_length_range_for_level(brute_level: int) -> BruteForceLengthRange:
+    level = max(0, int(brute_level))
+    max_candidate_bytes = level + 1
+    return BruteForceLengthRange(2, (max_candidate_bytes + 1) * 2, 2)
+
+
+def apply_idat_brutus_level(
+    runtime_plan: BruteForceRuntimePlan,
+    chunk_name: bytes,
+    brute_level: int,
+) -> BruteForceRuntimePlan:
+    if chunk_name != b"IDAT" or runtime_plan.mode != "Brutus":
+        return runtime_plan
+
+    length_range = idat_brutus_length_range_for_level(brute_level)
+    if length_range == runtime_plan.length_range:
+        return runtime_plan
+
+    return BruteForceRuntimePlan(
+        mode=runtime_plan.mode,
+        struct_indexes=runtime_plan.struct_indexes,
+        length_range=length_range,
+        side_note=runtime_plan.side_note,
+    )
+
+
 def normalize_old_crc(old_crc: Any) -> Any:
     if old_crc:
         try:

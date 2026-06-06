@@ -160,6 +160,7 @@ def test_twobytes_retry_preserves_old_crc_route():
             "BfMode": "TwoBytes",
             "BruteCrc": "crc",
             "BruteLength": "length",
+            "BruteLevel": 1,
             "OldCrc": "old-crc",
         },
     ) in calls
@@ -320,12 +321,13 @@ def test_blackfill_failure_next_level_relaunches_with_old_crc():
             "BfMode": "TwoBytes",
             "BruteCrc": "crc",
             "BruteLength": "length",
+            "BruteLevel": 1,
             "OldCrc": "old-crc",
         },
     ) in calls
 
 
-def test_blackfill_failure_full_chunk_relaunches_before_fallback():
+def test_blackfill_failure_opens_hephaestusforge_before_fallback():
     calls = []
     runtime, state, side_notes = build_runtime(calls, question_answers=(False, True), brute_level=3)
     toolkit = (
@@ -353,19 +355,20 @@ def test_blackfill_failure_full_chunk_relaunches_before_fallback():
     )
 
     assert result == (False, None)
-    assert state["brute_level"] == 0
+    assert state["brute_level"] == 1
     assert side_notes == [
-        "-CheckPoint: Trying full chunk SmashBruteBrawl before keeping blackfill."
+        "-CheckPoint: Trying HephaestusForge at BruteLevel 1 before keeping blackfill."
     ]
-    assert ("set_brute_level", (0,), {}) in calls
+    assert ("set_brute_level", (1,), {}) in calls
     assert (
         "smash_brute_brawl",
         ("sample.png", b"IDAT", 4, 100, "FixItFelix partial IDAT blackfill"),
         {
-            "EditMode": "edit",
+            "EditMode": "Replace",
             "BfMode": "Brutus",
             "BruteCrc": "crc",
             "BruteLength": "length",
+            "BruteLevel": 1,
             "OldCrc": "old-crc",
         },
     ) in calls
@@ -405,6 +408,89 @@ def test_blackfill_failure_decline_keeps_existing_fallback():
     ]
     assert ("end", (), {}) not in calls
     assert [call[0] for call in calls].count("question") == 2
+
+
+def test_blackfill_failure_after_hephaestusforge_keeps_existing_fallback():
+    calls = []
+    runtime, state, side_notes = build_runtime(calls, question_answers=())
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "edit",
+        "Brutus",
+        "crc",
+        "length",
+        "old-crc",
+        "FixItFelix partial IDAT blackfill",
+    )
+    decision = checkpoint.CheckPointActionDecision(
+        action="smash_brute_brawl_ask_blackfill_next_step"
+    )
+
+    result = checkpoint_actions_runtime.apply_action_decision(
+        runtime,
+        decision,
+        "IDAT",
+        "-Bruteforcer has Failed",
+        toolkit,
+    )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 0
+    assert side_notes == [
+        "-CheckPoint: Keeping partial IDAT blackfill after HephaestusForge failure."
+    ]
+    assert not any(call[0] == "smash_brute_brawl" for call in calls)
+    assert [call[0] for call in calls].count("question") == 0
+
+
+def test_blackfill_hephaestusforge_failure_tries_next_edit_family():
+    calls = []
+    runtime, state, side_notes = build_runtime(calls, question_answers=(True,))
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "Insert",
+        "Brutus",
+        "crc",
+        "length",
+        "old-crc",
+        "FixItFelix partial IDAT blackfill HephaestusForge",
+    )
+    decision = checkpoint.CheckPointActionDecision(
+        action="smash_brute_brawl_ask_blackfill_next_step"
+    )
+
+    result = checkpoint_actions_runtime.apply_action_decision(
+        runtime,
+        decision,
+        "IDAT",
+        "-Bruteforcer has Failed",
+        toolkit,
+    )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 1
+    assert side_notes == [
+        "-CheckPoint: HephaestusForge trying Replace at BruteLevel 1 before keeping blackfill."
+    ]
+    assert ("set_brute_level", (1,), {}) in calls
+    assert (
+        "smash_brute_brawl",
+        ("sample.png", b"IDAT", 4, 100, "FixItFelix partial IDAT blackfill HephaestusForge"),
+        {
+            "EditMode": "Replace",
+            "BfMode": "Brutus",
+            "BruteCrc": "crc",
+            "BruteLength": "length",
+            "BruteLevel": 1,
+            "OldCrc": "old-crc",
+        },
+    ) in calls
 
 
 def test_checkpoint_action_namespace_builder_wires_state_and_callbacks():
@@ -447,8 +533,10 @@ def main():
         ("Keep blackfill on TwoBytes decline", test_blackfill_twobytes_decline_keeps_existing_fallback),
         ("Keep blackfill on SmashBruteBrawl failure", test_blackfill_smash_failure_keeps_existing_fallback),
         ("Blackfill failure next SBB level", test_blackfill_failure_next_level_relaunches_with_old_crc),
-        ("Blackfill failure full chunk SBB", test_blackfill_failure_full_chunk_relaunches_before_fallback),
+        ("Blackfill failure opens HephaestusForge", test_blackfill_failure_opens_hephaestusforge_before_fallback),
         ("Blackfill failure decline fallback", test_blackfill_failure_decline_keeps_existing_fallback),
+        ("Blackfill failure after HephaestusForge", test_blackfill_failure_after_hephaestusforge_keeps_existing_fallback),
+        ("Blackfill HephaestusForge next edit", test_blackfill_hephaestusforge_failure_tries_next_edit_family),
         ("Namespace action runtime", test_checkpoint_action_namespace_builder_wires_state_and_callbacks),
     ]
 

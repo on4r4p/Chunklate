@@ -38,6 +38,7 @@ class WriteCloneRuntime:
     set_save_count: Callable[[int], Any]
     set_have_a_kitkat: Callable[[bool], Any]
     side_notes: MutableSequence[str]
+    record_clone_validation: Callable[[dict[str, Any]], Any] = lambda validation: None
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,9 @@ def build_write_clone_runtime(
         set_save_count=lambda value: namespace.__setitem__("SAVE_COUNT", value),
         set_have_a_kitkat=lambda value: namespace.__setitem__("Have_A_KitKat", value),
         side_notes=side_notes,
+        record_clone_validation=lambda validation: namespace.__setitem__(
+            "LAST_CLONE_VALIDATION", validation
+        ),
     )
 
 
@@ -267,6 +271,38 @@ def announce_clone_write(
         runtime.pause("-Clone ready. Press Return to write it:")
 
 
+def clone_validation_summary(data: bytes) -> dict[str, Any]:
+    try:
+        structure = png.validate_png_structure(data, require_decodable_idat=True)
+    except Exception as exc:
+        return {
+            "png_ok": False,
+            "idat_complete": False,
+            "errors": ("validation crashed: %s" % exc,),
+            "idat_status": "validation_error",
+            "idat_reason": str(exc),
+        }
+
+    try:
+        analysis = idat.analyze_idat_stream(data)
+    except Exception as exc:
+        idat_complete = False
+        idat_status = "analysis_error"
+        idat_reason = str(exc)
+    else:
+        idat_complete = bool(analysis.complete)
+        idat_status = analysis.status
+        idat_reason = analysis.reason or analysis.zlib_error or ""
+
+    return {
+        "png_ok": bool(structure.ok),
+        "idat_complete": idat_complete,
+        "errors": tuple(structure.errors),
+        "idat_status": idat_status,
+        "idat_reason": idat_reason,
+    }
+
+
 def run_write_clone(
     runtime: WriteCloneRuntime,
     context: WriteCloneContext,
@@ -295,6 +331,7 @@ def run_write_clone(
         return None
 
     target = clone_plan.target
+    runtime.record_clone_validation(clone_validation_summary(clone_plan.data))
     announce_clone_write(runtime, context, clone_plan, infos)
     runtime.emit(runtime.candy("Color", "green", "-Saving to : %s") % target.path)
     runtime.side_notes.append("-Saving to : %s" % target.path)

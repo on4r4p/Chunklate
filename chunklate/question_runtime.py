@@ -105,9 +105,9 @@ def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
         question_text = str(question_id)
         chance_match = re.search(r"chance of success:\s*([a-zA-Z_-]+)", question_text)
         chance = chance_match.group(1).replace("_", " ") if chance_match else "unknown"
-        if "full chunk" in question_text:
+        if "HephaestusForge" in question_text or "full chunk" in question_text:
             return (
-                "Question: Should i launch full chunk SmashBruteBrawl now? "
+                "Question: Should i open HephaestusForge now? "
                 "(chance of success: %s; this may take years and still fail.)"
             ) % chance
         return (

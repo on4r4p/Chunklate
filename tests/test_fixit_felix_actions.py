@@ -516,7 +516,7 @@ def test_libpng_error_saves_existing_solution_from_cornucopia():
 
 def test_libpng_error_ask_relics_sets_skip_and_returns_relics():
     reset_fixit_globals()
-    key = "Libpng_Error_0:libpng error: bad adaptive filter"
+    key = "Libpng_Error_0:libpng error: invalid color profile"
     chkd = "LibpngCheck_Tool_"
     Chunklate.PandoraBox = {key: {}}
     relic_calls = []
@@ -542,7 +542,7 @@ def test_libpng_error_ask_relics_sets_skip_and_returns_relics():
 
 def test_libpng_error_skip_only_reports_critical_hit():
     reset_fixit_globals()
-    key = "Libpng_Error_0:libpng error: bad adaptive filter"
+    key = "Libpng_Error_0:libpng error: invalid color profile"
 
     with patched_attrs(
         Chunklate,

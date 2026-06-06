@@ -21,6 +21,9 @@ from . import specs
 from . import writer
 
 
+HEPHAESTUS_INITIAL_BRUTE_LEVEL = 1
+
+
 REPEATED_DEFER_MESSAGE_TEMPLATES = (
     "Ah shit ...here we go again ...another {target} in Grove Street. I will keep it for later.",
     "Well, that same smell again: another {target}. I am parking it for later.",
@@ -195,6 +198,7 @@ class LibpngErrorRuntime:
     pandora_box: Any
     cornucopia: Any
     sample: Any
+    try_idat_decision_gate: Callable[[Any], Any] | None = None
 
 
 def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCrcRuntime:
@@ -227,6 +231,17 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
 
 
 def build_libpng_error_runtime_from_namespace(namespace: dict[str, Any]) -> LibpngErrorRuntime:
+    def try_idat_decision_gate(finding: Any) -> Any:
+        try:
+            data = bytes.fromhex(namespace["DATAX"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        repair = fixit_felix.partial_idat_blackfill(data, (finding,))
+        if repair is None:
+            return None
+        automatic_runtime = build_automatic_repair_runtime_from_namespace(namespace)
+        return apply_partial_blackfill_decision(automatic_runtime, repair)
+
     return LibpngErrorRuntime(
         emit=namespace["PRINT"],
         candy=namespace["Candy"],
@@ -239,6 +254,7 @@ def build_libpng_error_runtime_from_namespace(namespace: dict[str, Any]) -> Libp
         pandora_box=namespace["PandoraBox"],
         cornucopia=namespace["Cornucopia"],
         sample=namespace["Sample"],
+        try_idat_decision_gate=try_idat_decision_gate,
     )
 
 
@@ -640,18 +656,21 @@ def _idat_original_crc_target(chunk: png.PngChunk) -> str | None:
 def _format_sbb_idat_diagnostic(
     diagnostic: idat.SmashBruteBrawlIdatDiagnostic,
 ) -> tuple[str, str]:
+    order = " -> ".join(diagnostic.hephaestus_order or ("Replace", "Insert", "Remove"))
     if not diagnostic.supported:
         return (
             "SBB IDAT diagnostic:\n"
             "image: unsupported\n"
             "zlib status: %s\n"
             "CRC target: %s\n"
-            "SBB chance: %s - %s"
+            "SBB chance: %s - %s\n"
+            "HephaestusForge order: %s"
             % (
                 diagnostic.zlib_status or "unknown",
                 "trusted" if diagnostic.crc_target_trusted else "not trusted",
                 diagnostic.success_estimate,
                 diagnostic.success_reason or diagnostic.reason or "no usable IDAT measurement",
+                order,
             ),
             "bad",
         )
@@ -664,7 +683,8 @@ def _format_sbb_idat_diagnostic(
         "decompressed: expected %s, got %s, missing %s\n"
         "scanlines: %s/%s complete, %s bytes into next scanline\n"
         "CRC target: %s\n"
-        "SBB chance: %s - %s"
+        "SBB chance: %s - %s\n"
+        "HephaestusForge order: %s"
         % (
             diagnostic.width,
             diagnostic.height,
@@ -682,6 +702,7 @@ def _format_sbb_idat_diagnostic(
             crc_label,
             diagnostic.success_estimate,
             diagnostic.success_reason,
+            order,
         )
     )
     mood = "good" if diagnostic.success_estimate == "good" else "bad" if diagnostic.success_estimate == "low" else "com"
@@ -691,6 +712,8 @@ def _format_sbb_idat_diagnostic(
 def _sbb_diagnostic_says_twobytes_is_too_small(
     diagnostic: idat.SmashBruteBrawlIdatDiagnostic,
 ) -> bool:
+    if not diagnostic.cheap_twobytes_viable:
+        return True
     if diagnostic.success_estimate != "low":
         return False
     if not diagnostic.supported:
@@ -707,12 +730,20 @@ def _partial_blackfill_question_id(success_estimate: str) -> str:
     )
 
 
-def _partial_blackfill_full_chunk_question_id(success_estimate: str) -> str:
+def _partial_blackfill_hephaestus_question_id(success_estimate: str) -> str:
     return (
-        "IDAT partial blackfill:-Launch full chunk SmashBruteBrawl after low "
+        "IDAT partial blackfill:-Launch HephaestusForge after low "
         "chance diagnostic? (chance of success: %s)"
         % (success_estimate or "unknown")
     )
+
+
+def _hephaestus_primary_edit_mode(
+    diagnostic: idat.SmashBruteBrawlIdatDiagnostic,
+) -> str:
+    order = diagnostic.hephaestus_order or ("Replace", "Insert", "Remove")
+    first = str(order[0])
+    return first if first in {"Replace", "Insert", "Remove"} else "Replace"
 
 
 def _partial_blackfill_bruteforce_question(
@@ -722,6 +753,11 @@ def _partial_blackfill_bruteforce_question(
     source_data: bytes,
     crc_target_trusted: bool,
 ) -> str | None:
+    runtime.candy(
+        "Cowsay",
+        "libpng confirms the IDAT does not feed the whole image.",
+        "bad",
+    )
     runtime.candy(
         "Cowsay",
         "The blackfill clone is a valid fallback: %s/%s scanlines are readable."
@@ -738,21 +774,47 @@ def _partial_blackfill_bruteforce_question(
     if twobytes_too_small:
         runtime.candy(
             "Cowsay",
+            "Missing decompressed bytes are not compressed bytes I can paste back one-for-one.",
+            "com",
+        )
+        runtime.candy(
+            "Cowsay",
             "TwoBytes level 0 probably cannot cover this damage. The blackfill clone is the safer fallback.",
             "bad",
         )
         runtime.candy(
             "Cowsay",
-            "A full chunk SmashBruteBrawl run is possible, but it may take years and still fail.",
+            "HephaestusForge can try %s first, then the other edit families, but it may take years and still fail."
+            % _hephaestus_primary_edit_mode(diagnostic),
             "com",
         )
-    runtime.candy(
-        "Cowsay",
-        "I can also launch SmashBruteBrawl on the original IDAT bytes, before accepting black rows as the final word.",
-        "com",
-    )
+    else:
+        runtime.candy(
+            "Cowsay",
+            "I can also launch SmashBruteBrawl on the original IDAT bytes, before accepting black rows as the final word.",
+            "com",
+        )
     if runtime.question is None:
         return None
+
+    if twobytes_too_small:
+        launch_hephaestus = bool(
+            runtime.question(
+                id=_partial_blackfill_hephaestus_question_id(diagnostic.success_estimate),
+                idhash=(
+                    "IDAT-partial-blackfill-hephaestus",
+                    target_chunk.offset,
+                    target_chunk.length,
+                    repair.recovered_scanlines,
+                    repair.total_scanlines,
+                    repair.width,
+                    repair.height,
+                    _hephaestus_primary_edit_mode(diagnostic),
+                ),
+                skipauto=True,
+            )
+        )
+        return "hephaestus:%s" % _hephaestus_primary_edit_mode(diagnostic) if launch_hephaestus else None
 
     launch_twobytes = bool(
         runtime.question(
@@ -772,30 +834,7 @@ def _partial_blackfill_bruteforce_question(
     if not launch_twobytes:
         return None
 
-    if not twobytes_too_small:
-        return "twobytes"
-
-    runtime.candy(
-        "Cowsay",
-        "If you want to skip the cheap pass, I can go straight to full chunk SmashBruteBrawl.",
-        "com",
-    )
-    launch_full = bool(
-        runtime.question(
-            id=_partial_blackfill_full_chunk_question_id(diagnostic.success_estimate),
-            idhash=(
-                "IDAT-partial-blackfill-smash-full",
-                target_chunk.offset,
-                target_chunk.length,
-                repair.recovered_scanlines,
-                repair.total_scanlines,
-                repair.width,
-                repair.height,
-            ),
-            skipauto=True,
-        )
-    )
-    return "full" if launch_full else "twobytes"
+    return "twobytes:%s" % _hephaestus_primary_edit_mode(diagnostic)
 
 
 def maybe_launch_partial_blackfill_bruteforce(
@@ -828,21 +867,40 @@ def maybe_launch_partial_blackfill_bruteforce(
     )
     if launch_mode is None:
         return False
+    _launch_partial_blackfill_bruteforce(
+        runtime,
+        repair,
+        target_chunk,
+        old_crc,
+        launch_mode,
+    )
+    return True
 
+
+def _launch_partial_blackfill_bruteforce(
+    runtime: AutomaticRepairRuntime,
+    repair: idat.PartialIdatBlackfillRepair,
+    target_chunk: png.PngChunk,
+    old_crc: str | None,
+    launch_mode: str,
+) -> None:
+    mode_name, _, edit_mode = launch_mode.partition(":")
+    if edit_mode not in {"Replace", "Insert", "Remove"}:
+        edit_mode = "Replace"
     runtime.side_notes.append(
         "-FixItFelix:launched SmashBruteBrawl on source IDAT after partial blackfill %s/%s."
         % (repair.recovered_scanlines, repair.total_scanlines)
     )
     smash_kwargs: dict[str, Any] = {
-        "EditMode": "Replace",
-        "BfMode": "Brutus" if launch_mode == "full" else "TwoBytes",
+        "EditMode": edit_mode,
+        "BfMode": "Brutus" if mode_name == "hephaestus" else "TwoBytes",
         "BruteCrc": True,
         "BruteLength": True,
-        "BruteLevel": 0,
+        "BruteLevel": HEPHAESTUS_INITIAL_BRUTE_LEVEL if mode_name == "hephaestus" else 0,
     }
-    if launch_mode == "full":
+    if mode_name == "hephaestus":
         runtime.side_notes.append(
-            "-FixItFelix: low SBB diagnostic selected full chunk SmashBruteBrawl."
+            "-FixItFelix: low SBB diagnostic selected HephaestusForge (%s-first)." % edit_mode
         )
     if old_crc is not None:
         smash_kwargs["OldCrc"] = old_crc
@@ -854,8 +912,49 @@ def maybe_launch_partial_blackfill_bruteforce(
         "IDAT",
         target_chunk.length,
         target_chunk.offset * 2,
-        "FixItFelix partial IDAT blackfill",
+        "FixItFelix partial IDAT blackfill HephaestusForge" if mode_name == "hephaestus" else "FixItFelix partial IDAT blackfill",
         **smash_kwargs,
+    )
+
+
+def apply_partial_blackfill_decision(
+    runtime: AutomaticRepairRuntime,
+    repair: idat.PartialIdatBlackfillRepair,
+) -> bool:
+    applied_repair = fixit_felix.applied_repair(repair)
+    runtime.side_notes.append(applied_repair.note)
+
+    source_data = _source_data_from_runtime(runtime)
+    target_chunk = _idat_bruteforce_target(source_data) if source_data is not None else None
+    if runtime.smash_brute_brawl is None or source_data is None or target_chunk is None:
+        runtime.candy(
+            "Cowsay",
+            automatic_repair_success_message(repair),
+            "com",
+        )
+        runtime.write_clone(applied_repair.data_hex, applied_repair.save_suffix)
+        return True
+
+    old_crc = _idat_original_crc_target(target_chunk)
+    launch_mode = _partial_blackfill_bruteforce_question(
+        runtime,
+        repair,
+        target_chunk,
+        source_data,
+        old_crc is not None,
+    )
+    runtime.write_clone(applied_repair.data_hex, applied_repair.save_suffix)
+    if runtime.preview_repair_image is not None:
+        runtime.preview_repair_image(repair.data, "IDAT_Blackfill_Preview")
+    if launch_mode is None:
+        runtime.side_notes.append("-FixItFelix: kept partial IDAT blackfill fallback after diagnostic gate.")
+        return True
+    _launch_partial_blackfill_bruteforce(
+        runtime,
+        repair,
+        target_chunk,
+        old_crc,
+        launch_mode,
     )
     return True
 
@@ -1646,6 +1745,8 @@ def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
         return apply_chrm_inference_choice(runtime, repair)
     if _zero_scanline_blackfill_needs_choice(repair):
         return apply_zero_scanline_blackfill_choice(runtime, repair)
+    if _partial_blackfill_bruteforce_can_help(repair):
+        return apply_partial_blackfill_decision(runtime, repair)
 
     manual_plte_result = maybe_offer_manual_plte_editor(runtime, repair)
     if manual_plte_result is not None:
@@ -3331,7 +3432,16 @@ def apply_libpng_error(
 ) -> Any:
     emit_libpng_critical(runtime, decision.finding)
 
-    if decision.action == "not_enough_image_data":
+    if decision.action == "idat_decision_gate":
+        runtime.candy(
+            "Cowsay",
+            "libpng confirms that the IDAT stream is not feeding the image cleanly.",
+            "bad",
+        )
+        if runtime.try_idat_decision_gate is not None:
+            gated = runtime.try_idat_decision_gate(decision.finding)
+            if gated is not None:
+                return gated
         runtime.candy("Cowsay", "Well this is as far as i could get for now. ", "bad")
         runtime.candy("Cowsay", "At least I was able to get some pixels out of it.", "com")
         runtime.emit(runtime.candy("Color", "yellow", "\n-ToDo"))

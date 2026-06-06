@@ -104,15 +104,15 @@ def test_libpng_error_decision_orders_solved_and_terminal_cases():
     )
     assert (
         fixit_felix.libpng_error_decision("libpng error: Not enough image data", solved=False, skip_bad_libpng=False).action
-        == "not_enough_image_data"
+        == "idat_decision_gate"
     )
     assert (
         fixit_felix.libpng_error_decision("libpng error: bad adaptive filter", solved=False, skip_bad_libpng=True).action
-        == "skip"
+        == "idat_decision_gate"
     )
     assert (
         fixit_felix.libpng_error_decision("libpng error: bad adaptive filter", solved=False, skip_bad_libpng=False).action
-        == "ask_relics"
+        == "idat_decision_gate"
     )
 
 

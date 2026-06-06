@@ -1227,6 +1227,47 @@ def test_run_main_chunk_walk_defers_no_next_when_visible_linefeed_tour_finds_ien
     ]
 
 
+def test_run_main_chunk_walk_seeds_internal_idat_linefeed_repair():
+    calls = []
+    sample_bytes = (
+        ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "linefeedcorruption3.png"
+    ).read_bytes()
+    namespace = chunk_namespace(
+        PandoraBox={
+            "Checksum_Error_0:-Wrong Crc b'IDAT'": {},
+            "CheckChunkName_Error_0:-Found Next Chunk[b'XBt\\xd3'] has Wrong Chunk name after Chunk[b'IDAT']": {},
+            "CheckLength_Error_0:-No NextChunk": {},
+        },
+        Bad_No_Next_Chunk=True,
+        DATA_BYTES=sample_bytes,
+        Sample_Name="7.bad.png",
+        Candy=lambda *args: calls.append(("candy", args)),
+    )
+    runtime = build_sequence_chunk_walk_runtime(
+        calls,
+        namespace,
+        {
+            0: b"IDAT",
+        },
+    )
+
+    state = main_runtime.run_main_chunk_walk(
+        runtime,
+        main_runtime.MainChunkWalkContext(offset=0, data_hex="0" * 16),
+    )
+
+    assert state == main_runtime.MainChunkWalkState(offset=16)
+    assert [call for call in calls if call[0] == "fix_it_felix"] == []
+    deferred = namespace["DEFERRED_LINEFEED_SIGNATURE_REPAIR"]
+    assert deferred["source"] == "internal-idat-marker-chain"
+    assert deferred["sample_name"] == "7.bad.png"
+    assert namespace["DEFERRED_REPAIR_STILL_REQUIRED"] is True
+    assert (
+        "-FindMagic: internal IDAT marker-chain line-feed repair deferred until the file tour finishes."
+        in namespace["SideNotes"]
+    )
+
+
 def test_run_main_chunk_walk_defers_private_compression_repair_until_after_idat():
     calls = []
     sequence = {
@@ -1690,6 +1731,207 @@ def test_run_main_loop_once_applies_deferred_after_visible_linefeed_marker_tour(
         "-FindMagic: visible line-feed marker tour reached IEND before deferred repair."
         in namespace["SideNotes"]
     )
+
+
+def test_run_main_loop_once_applies_deferred_after_invalid_nearby_clone():
+    calls = []
+    sample_bytes = (
+        ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "linefeedcorruption3.png"
+    ).read_bytes()
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+    clone_path = sample_path + ".0_Fixed.png"
+
+    namespace = {}
+
+    def chunk_by_chunk(offset):
+        calls.append(("chunk_by_chunk", offset))
+        namespace.update(
+            {
+                "Orig_CD": "orig-data",
+                "Orig_CL": "orig-len",
+                "Orig_CT": b"IDAT",
+                "Chunks_History": [b"PNG", b"IHDR", b"IDAT"],
+                "Raw_Data": "raw-data",
+                "Raw_Type": "raw-type",
+                "Raw_Crc": "raw-crc",
+                "Raw_Length": "raw-len",
+                "Show_Must_Go_On": False,
+                "Have_A_KitKat": False,
+            }
+        )
+
+    def fix_it_felix(chunk):
+        calls.append(("fix_it_felix", chunk))
+        namespace["SAVE_COUNT"] += 1
+        namespace["Sample"] = clone_path
+        namespace["LAST_CLONE_VALIDATION"] = {
+            "png_ok": False,
+            "idat_complete": False,
+            "idat_status": "zlib_error",
+        }
+        namespace["Show_Must_Go_On"] = True
+
+    def apply_deferred():
+        calls.append(("apply_deferred", namespace["Sample"]))
+        namespace["SAVE_COUNT"] += 1
+
+    def find_magic():
+        calls.append(("find_magic",))
+        namespace["SAVE_COUNT"] += 1
+        namespace["Sample"] = clone_path
+        namespace["DATA_BYTES"] = sample_bytes
+        namespace["Chunks_History"] = [b"IDAT"]
+        namespace["Bad_No_Next_Chunk"] = True
+        namespace["PandoraBox"] = {
+            "Checksum_Error_0:-Wrong Crc b'IDAT'": {},
+            "CheckChunkName_Error_0:-Found Next Chunk[b'XBt\\xd3'] has Wrong Chunk name after Chunk[b'IDAT']": {},
+            "CheckLength_Error_0:-No NextChunk": {},
+        }
+        namespace["LAST_CLONE_VALIDATION"] = {
+            "png_ok": False,
+            "idat_complete": False,
+            "idat_status": "zlib_error",
+        }
+        return None
+
+    namespace.update(
+        {
+            "sys": SimpleNamespace(
+                stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+                exit=lambda code: calls.append(("exit", code)),
+            ),
+            "os": os,
+            "CLEAR": False,
+            "FirStart": True,
+            "CHUNK_INFO_STATE": SimpleNamespace(
+                reset_idat=lambda: calls.append(("reset_idat",))
+            ),
+            "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+            "Chunklate": lambda mode: calls.append(("banner", mode)),
+            "Sample": sample_path,
+            "FILE_Origin": sample_path,
+            "CLONESWAR": False,
+            "SAVE_COUNT": 0,
+            "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+            "PRINT": lambda message: calls.append(("emit", message)),
+            "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+            "FindMagic": find_magic,
+            "ChunkbyChunk": chunk_by_chunk,
+            "CheckLength": lambda *args: calls.append(("check_length", args)),
+            "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+            "GetInfo": lambda *args: calls.append(("get_info", args)),
+            "Checksum": lambda *args: calls.append(("checksum", args)),
+            "FixItFelix": fix_it_felix,
+            "Apply_Deferred_FindMagic_Repair": apply_deferred,
+            "Clear_Deferred_FindMagic_Repair": lambda: calls.append(("clear_deferred",)),
+            "Open_Current_Final_Image_If_Valid": lambda: calls.append(("open_final",)),
+        }
+    )
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState()
+    assert ("clear_deferred",) not in calls
+    assert ("apply_deferred", sample_path) in calls
+    assert namespace["Sample"] == sample_path
+    assert namespace["DEFERRED_LINEFEED_SIGNATURE_REPAIR"]["source"] == "internal-idat-marker-chain"
+    assert namespace["DEFERRED_REPAIR_STILL_REQUIRED"] is True
+    assert (
+        "-NearbyChunk produced a structural candidate, but IDAT validation still fails; deferred line-feed repair remains active."
+        in namespace["SideNotes"]
+    )
+
+
+def test_run_main_loop_once_clears_deferred_after_valid_clone():
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    namespace = {}
+
+    def chunk_by_chunk(offset):
+        calls.append(("chunk_by_chunk", offset))
+        namespace.update(
+            {
+                "Orig_CD": "orig-data",
+                "Orig_CL": "orig-len",
+                "Orig_CT": b"IDAT",
+                "Chunks_History": [b"PNG", b"IHDR", b"IDAT"],
+                "Raw_Data": "raw-data",
+                "Raw_Type": "raw-type",
+                "Raw_Crc": "raw-crc",
+                "Raw_Length": "raw-len",
+                "Show_Must_Go_On": False,
+                "Have_A_KitKat": False,
+            }
+        )
+
+    def fix_it_felix(chunk):
+        calls.append(("fix_it_felix", chunk))
+        namespace["SAVE_COUNT"] += 1
+        namespace["LAST_CLONE_VALIDATION"] = {
+            "png_ok": True,
+            "idat_complete": True,
+        }
+        namespace["Show_Must_Go_On"] = True
+
+    def find_magic():
+        calls.append(("find_magic",))
+        namespace["SAVE_COUNT"] += 1
+        namespace["LAST_CLONE_VALIDATION"] = {
+            "png_ok": True,
+            "idat_complete": True,
+        }
+        return None
+
+    namespace.update(
+        {
+            "sys": SimpleNamespace(
+                stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+                exit=lambda code: calls.append(("exit", code)),
+            ),
+            "os": os,
+            "CLEAR": False,
+            "FirStart": True,
+            "CHUNK_INFO_STATE": SimpleNamespace(
+                reset_idat=lambda: calls.append(("reset_idat",))
+            ),
+            "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+            "Chunklate": lambda mode: calls.append(("banner", mode)),
+            "Sample": sample_path,
+            "CLONESWAR": False,
+            "SAVE_COUNT": 0,
+            "DEFERRED_LINEFEED_SIGNATURE_REPAIR": {"data_bytes": b"png"},
+            "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+            "PRINT": lambda message: calls.append(("emit", message)),
+            "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+            "FindMagic": find_magic,
+            "ChunkbyChunk": chunk_by_chunk,
+            "CheckLength": lambda *args: calls.append(("check_length", args)),
+            "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+            "GetInfo": lambda *args: calls.append(("get_info", args)),
+            "Checksum": lambda *args: calls.append(("checksum", args)),
+            "FixItFelix": fix_it_felix,
+            "Apply_Deferred_FindMagic_Repair": lambda: calls.append(("apply_deferred",)),
+            "Clear_Deferred_FindMagic_Repair": lambda: calls.append(("clear_deferred",)),
+            "Open_Current_Final_Image_If_Valid": lambda: calls.append(("open_final",)),
+        }
+    )
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState()
+    assert ("clear_deferred",) in calls
+    assert ("apply_deferred",) not in calls
 
 
 def test_run_main_loop_once_counts_clone_written_by_find_magic():
@@ -2564,6 +2806,10 @@ def main():
             test_run_main_chunk_walk_defers_no_next_when_visible_linefeed_tour_finds_iend,
         ),
         (
+            "chunk walk seeds internal IDAT linefeed",
+            test_run_main_chunk_walk_seeds_internal_idat_linefeed_repair,
+        ),
+        (
             "chunk walk defers private compression repair",
             test_run_main_chunk_walk_defers_private_compression_repair_until_after_idat,
         ),
@@ -2576,6 +2822,14 @@ def main():
         (
             "main loop deferred FindMagic waits for walk end",
             test_run_main_loop_once_does_not_apply_deferred_find_magic_before_walk_end,
+        ),
+        (
+            "main loop deferred survives invalid NearbyChunk clone",
+            test_run_main_loop_once_applies_deferred_after_invalid_nearby_clone,
+        ),
+        (
+            "main loop deferred clears after valid clone",
+            test_run_main_loop_once_clears_deferred_after_valid_clone,
         ),
         ("main loop counts FindMagic clone", test_run_main_loop_once_counts_clone_written_by_find_magic),
         ("main loop opens final image on clean no-clone exit", test_run_main_loop_once_opens_valid_final_image_when_no_clone_written),

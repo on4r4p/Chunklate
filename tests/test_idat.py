@@ -3623,6 +3623,9 @@ def test_sbb_idat_diagnostic_reports_large_blackfill_gap():
     assert diagnostic.total_scanlines == 580
     assert diagnostic.partial_scanline_bytes == 1032
     assert diagnostic.success_estimate == "low"
+    assert diagnostic.recommended_repair_family == "missing"
+    assert diagnostic.hephaestus_order == ("Insert", "Replace", "Remove")
+    assert diagnostic.cheap_twobytes_viable is False
 
 
 def test_sbb_idat_diagnostic_marks_trusted_small_crc_target_good():
@@ -3634,6 +3637,8 @@ def test_sbb_idat_diagnostic_marks_trusted_small_crc_target_good():
 
     assert diagnostic.supported is True
     assert diagnostic.success_estimate == "good"
+    assert diagnostic.recommended_repair_family == "replace"
+    assert diagnostic.hephaestus_order == ("Replace", "Insert", "Remove")
 
 
 def test_sbb_idat_fixtures_keep_original_crc_targets():

@@ -8,6 +8,7 @@ from . import checkpoint_runtime
 
 
 LegacyCall = Callable[..., Any]
+HEPHAESTUS_MIN_BRUTE_LEVEL = 1
 
 
 @dataclass(frozen=True)
@@ -115,7 +116,9 @@ def smash_brute_brawl_relaunch(
     toolkit,
     from_error,
     *,
+    edit_mode=None,
     bf_mode=None,
+    brute_level=None,
     has_old_crc=False,
     old_crc=None,
 ):
@@ -123,7 +126,9 @@ def smash_brute_brawl_relaunch(
         runtime.checkpoint,
         toolkit,
         from_error,
+        edit_mode=edit_mode,
         bf_mode=bf_mode,
+        brute_level=brute_level,
         has_old_crc=has_old_crc,
         old_crc=old_crc,
     )
@@ -163,11 +168,17 @@ def action_smash_brute_brawl_ask_twobytes_retry(runtime: CheckPointActionRuntime
                 runtime,
                 toolkit,
                 toolkit[9],
+                brute_level=brute_level,
                 has_old_crc=True,
                 old_crc=toolkit[8],
             )
         else:
-            smash_brute_brawl_relaunch(runtime, toolkit, toolkit[8])
+            smash_brute_brawl_relaunch(
+                runtime,
+                toolkit,
+                toolkit[8],
+                brute_level=brute_level,
+            )
         return False, None
 
     return smash_brute_brawl_handle_twobytes_decline(runtime, info, toolkit)
@@ -227,7 +238,51 @@ def _smash_old_crc_and_error(info, toolkit) -> tuple[bool, Any, Any]:
     return has_old_crc, old_crc, from_error
 
 
+def _hephaestus_next_edit_mode(edit_mode: Any) -> str | None:
+    current = str(edit_mode)
+    if current == "Insert":
+        return "Replace"
+    if current == "Replace":
+        return "Remove"
+    if current == "Remove":
+        return None
+    return "Replace"
+
+
 def action_smash_brute_brawl_ask_blackfill_next_step(runtime: CheckPointActionRuntime, decision, chunk, info, toolkit):
+    has_old_crc, old_crc, from_error = _smash_old_crc_and_error(info, toolkit)
+    if str(toolkit[5]).lower() == "brutus":
+        next_edit = _hephaestus_next_edit_mode(toolkit[4])
+        if "HephaestusForge" in str(from_error) and next_edit is not None:
+            answer = checkpoint_runtime.ask_smash_brute_brawl_hephaestus_next_edit(
+                runtime.checkpoint,
+                next_edit_mode=next_edit,
+            )
+            if answer is True:
+                hephaestus_level = max(HEPHAESTUS_MIN_BRUTE_LEVEL, runtime.get_brute_level())
+                runtime.set_brute_level(hephaestus_level)
+                runtime.side_notes.append(
+                    "-CheckPoint: HephaestusForge trying %s at BruteLevel %s before keeping blackfill."
+                    % (next_edit, hephaestus_level)
+                )
+                smash_brute_brawl_relaunch(
+                    runtime,
+                    toolkit,
+                    from_error,
+                    edit_mode=next_edit,
+                    bf_mode="Brutus",
+                    brute_level=hephaestus_level,
+                    has_old_crc=has_old_crc,
+                    old_crc=old_crc,
+                )
+                return False, None
+        runtime.side_notes.append(
+            "-CheckPoint: Keeping partial IDAT blackfill after HephaestusForge failure."
+        )
+        return checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(
+            runtime.checkpoint
+        )
+
     next_level = runtime.get_brute_level() + 1
     answer = checkpoint_runtime.ask_smash_brute_brawl_blackfill_next_level(
         runtime.checkpoint,
@@ -235,7 +290,6 @@ def action_smash_brute_brawl_ask_blackfill_next_step(runtime: CheckPointActionRu
         brute_level=next_level,
         eta=runtime.eta,
     )
-    has_old_crc, old_crc, from_error = _smash_old_crc_and_error(info, toolkit)
     if answer is True:
         runtime.set_brute_level(next_level)
         runtime.side_notes.append(
@@ -246,6 +300,7 @@ def action_smash_brute_brawl_ask_blackfill_next_step(runtime: CheckPointActionRu
             runtime,
             toolkit,
             from_error,
+            brute_level=next_level,
             has_old_crc=has_old_crc,
             old_crc=old_crc,
         )
@@ -253,15 +308,18 @@ def action_smash_brute_brawl_ask_blackfill_next_step(runtime: CheckPointActionRu
 
     answer = checkpoint_runtime.ask_smash_brute_brawl_blackfill_full_chunk(runtime.checkpoint)
     if answer is True:
-        runtime.set_brute_level(0)
+        runtime.set_brute_level(HEPHAESTUS_MIN_BRUTE_LEVEL)
         runtime.side_notes.append(
-            "-CheckPoint: Trying full chunk SmashBruteBrawl before keeping blackfill."
+            "-CheckPoint: Trying HephaestusForge at BruteLevel %s before keeping blackfill."
+            % HEPHAESTUS_MIN_BRUTE_LEVEL
         )
         smash_brute_brawl_relaunch(
             runtime,
             toolkit,
             from_error,
+            edit_mode="Replace",
             bf_mode="Brutus",
+            brute_level=HEPHAESTUS_MIN_BRUTE_LEVEL,
             has_old_crc=has_old_crc,
             old_crc=old_crc,
         )

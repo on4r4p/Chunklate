@@ -328,6 +328,23 @@ def test_question_runtime_names_partial_blackfill_smash_prompt():
     assert not any("stop this brute force branch" in prompt for prompt in prompts)
 
 
+def test_question_runtime_names_partial_blackfill_hephaestusforge_prompt():
+    runtime, calls = runtime_from(answers=["yes"], auto=True)
+
+    assert question_runtime.ask_question(
+        runtime,
+        "IDAT partial blackfill:-Launch HephaestusForge after low chance diagnostic? (chance of success: low)",
+        ("IDAT-partial-blackfill-hephaestus", 33, 11, 1, 5, 1, 5, "Insert"),
+        skipauto=True,
+    ) is True
+
+    prompts = [call[1][1] for call in calls if call[0] == "candy" and call[1][:1] == ("Cowsay",)]
+    assert (
+        "Question: Should i open HephaestusForge now? "
+        "(chance of success: low; this may take years and still fail.)"
+    ) in prompts
+
+
 def test_question_runtime_names_super_mega_linefeed_force_prompt():
     runtime, calls = runtime_from(answers=["yes"])
 
@@ -480,6 +497,7 @@ def main():
             test_question_runtime_names_zero_scanline_idat_option_prompts,
         ),
         ("Partial blackfill SmashBruteBrawl prompt", test_question_runtime_names_partial_blackfill_smash_prompt),
+        ("Partial blackfill HephaestusForge prompt", test_question_runtime_names_partial_blackfill_hephaestusforge_prompt),
         ("SuperMegaLineFeedForceOfDeath prompt", test_question_runtime_names_super_mega_linefeed_force_prompt),
         (
             "UltimateMegaSuperLineFeedBruteForce prompt",

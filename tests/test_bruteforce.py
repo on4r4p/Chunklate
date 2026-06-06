@@ -46,6 +46,35 @@ def test_length_range_preserves_legacy_single_and_tuple_specs():
     assert bruteforce.length_range((2, 4)) == bruteforce.BruteForceLengthRange(2, 4, 2)
 
 
+def test_idat_brutus_length_range_expands_with_brute_level():
+    assert bruteforce.idat_brutus_length_range_for_level(0) == bruteforce.BruteForceLengthRange(2, 4, 2)
+    assert bruteforce.idat_brutus_length_range_for_level(1) == bruteforce.BruteForceLengthRange(2, 6, 2)
+    assert bruteforce.idat_brutus_length_range_for_level(2) == bruteforce.BruteForceLengthRange(2, 8, 2)
+
+
+def test_apply_idat_brutus_level_only_expands_idat_brutus():
+    plan = bruteforce.BruteForceRuntimePlan(
+        mode="Brutus",
+        struct_indexes=(),
+        length_range=bruteforce.BruteForceLengthRange(2, 4, 2),
+    )
+    assert bruteforce.apply_idat_brutus_level(plan, b"IDAT", 2) == bruteforce.BruteForceRuntimePlan(
+        mode="Brutus",
+        struct_indexes=(),
+        length_range=bruteforce.BruteForceLengthRange(2, 8, 2),
+    )
+    assert bruteforce.apply_idat_brutus_level(plan, b"gAMA", 2) == plan
+    assert bruteforce.apply_idat_brutus_level(
+        bruteforce.BruteForceRuntimePlan(
+            mode="TwoBytes",
+            struct_indexes=(),
+            length_range=bruteforce.BruteForceLengthRange(2, 4, 2),
+        ),
+        b"IDAT",
+        2,
+    ).length_range == bruteforce.BruteForceLengthRange(2, 4, 2)
+
+
 def test_iter_nbr_for_length_preserves_legacy_threshold():
     assert bruteforce.iter_nbr_for_length(2, 2, 0) is None
     assert bruteforce.iter_nbr_for_length(4, 2, 1) == 2
@@ -1067,6 +1096,8 @@ def main():
         ("Resolve custom mode", test_resolve_mode_keeps_custom_when_struct_indexes_exist),
         ("Fallback Custom to Brutus", test_resolve_mode_falls_back_to_brutus_when_custom_has_no_indexes),
         ("Length ranges", test_length_range_preserves_legacy_single_and_tuple_specs),
+        ("IDAT Brutus level range", test_idat_brutus_length_range_expands_with_brute_level),
+        ("Apply IDAT Brutus level", test_apply_idat_brutus_level_only_expands_idat_brutus),
         ("IterNbr threshold", test_iter_nbr_for_length_preserves_legacy_threshold),
         ("Crash resume decision", test_crash_iteration_decision_preserves_resume_skip_and_reset),
         ("ETA seconds", test_eta_seconds_after_sample_preserves_legacy_seconds_math),
