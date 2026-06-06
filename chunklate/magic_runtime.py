@@ -4,6 +4,7 @@ from collections.abc import Callable, MutableSequence
 from dataclasses import dataclass
 import json
 import os
+import time
 from typing import Any
 
 from . import idat
@@ -23,13 +24,20 @@ LegacyCall = Callable[..., Any]
 
 MAGIC = "89504e470d0a1a0a"
 FULL_MAGIC = "89504e470d0a1a0a0000000d49484452"
+ULTIMATE_INTERRUPT_WARNING_INTERVAL_SECONDS = 5.0
+_ULTIMATE_FLUSH_RUNTIME_STATE: dict[int, dict[str, Any]] = {}
+_ULTIMATE_INTERRUPT_WARNING_STATE: dict[int, dict[str, Any]] = {}
 SUPER_MEGA_LINEFEED_FORCE = "SuperMegaLineFeedForceOfDeath"
 ULTIMATE_LINEFEED_FORCE = "UltimateMegaSuperLineFeedBruteForce"
 
 
 def _hidden_tmp_path(path: str) -> str:
     directory, filename = os.path.split(path)
-    tmp_name = ".%s.tmp" % (filename or "chunklate")
+    tmp_name = ".%s.%s.%s.tmp" % (
+        filename or "chunklate",
+        os.getpid(),
+        time.monotonic_ns(),
+    )
     return os.path.join(directory, tmp_name) if directory else tmp_name
 
 
@@ -63,6 +71,7 @@ class FindMagicRuntime:
     loadingbar: LegacyCall = lambda *args, **kwargs: None
     prompt_candy: LegacyCall | None = None
     clear_dialogue_pause: LegacyCall = lambda *args, **kwargs: None
+    finish_progress_line: LegacyCall = lambda *args, **kwargs: None
     ultimate_checkpoint_path: LegacyCall = lambda *args, **kwargs: ""
     ultimate_progress_path: LegacyCall = lambda *args, **kwargs: ""
     ultimate_source_path: LegacyCall = lambda *args, **kwargs: ""
@@ -85,6 +94,7 @@ class FindMagicRuntime:
         )
     )
     ultimate_linefeed_interactive: LegacyCall = lambda *args, **kwargs: True
+    ultimate_linefeed_workers: LegacyCall = lambda *args, **kwargs: 0
     ultimate_visual_gallery_limit: LegacyCall = (
         lambda *args, **kwargs: idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT
     )
@@ -646,13 +656,19 @@ def _ask_ultimate_linefeed_bruteforce(
 def _linefeed_queue_progress(runtime: FindMagicRuntime):
     disabled = False
     built = False
+    current_key: tuple[str, int] | None = None
 
     def progress(_stage: str, tested: int, budget: int) -> None:
-        nonlocal built, disabled
+        nonlocal built, current_key, disabled
         if disabled:
             return
         total = max(1, int(budget))
+        key = (str(_stage), total)
         try:
+            if current_key is not None and key != current_key:
+                runtime.finish_progress_line(clear=True)
+                built = False
+            current_key = key
             if not built:
                 runtime.loadingbar(total, len(str(total)), 0, True)
                 built = True
@@ -679,19 +695,121 @@ def _prime_ultimate_linefeed_minibar(runtime: FindMagicRuntime, budget: int | No
         return
 
 
+def _ultimate_linefeed_interrupt_flush_progress(runtime: FindMagicRuntime):
+    state = _ULTIMATE_FLUSH_RUNTIME_STATE.setdefault(
+        id(runtime),
+        {
+            "announced": False,
+            "last_current": -1,
+            "completed": False,
+        },
+    )
+
+    def progress(current: int, total: int) -> None:
+        if not state["announced"]:
+            _cowsay(
+                runtime,
+                "Chunky is saving the remaining visual candidates. Please wait a little before leaving the vault.",
+                "com",
+            )
+            runtime.clear_dialogue_pause()
+            state["announced"] = True
+        if state["completed"]:
+            return
+        try:
+            safe_total = max(1, int(total))
+            safe_current = min(max(0, int(current)), safe_total)
+        except (TypeError, ValueError):
+            safe_total = 1
+            safe_current = 0
+        safe_current = max(int(state["last_current"]), safe_current)
+        if safe_current == int(state["last_current"]):
+            return
+        state["last_current"] = safe_current
+        line = "-Ultimate visual flush: %s/%s" % (safe_current, safe_total)
+        try:
+            print("\r%s\033[K" % line, end="", flush=True)
+            if safe_current >= safe_total:
+                print("", flush=True)
+                state["completed"] = True
+        except (OSError, IndexError):
+            try:
+                runtime.emit(line)
+            except (OSError, IndexError):
+                return
+
+    return progress
+
+
+def _ultimate_linefeed_interrupt_repeat_warning(runtime: FindMagicRuntime):
+    lines = (
+        "I heard you. The workers are parking the shards.",
+        "More Ctrl+C will not make zlib confess faster.",
+        "Let me save the good candidates before you kick the vault door.",
+        "The vault is closing, not exploding.",
+    )
+    state = _ULTIMATE_INTERRUPT_WARNING_STATE.setdefault(
+        id(runtime),
+        {
+            "last_at": 0.0,
+            "shown": 0,
+        },
+    )
+
+    def warning(count: int) -> None:
+        now = time.monotonic()
+        if state["shown"] > 0 and now - float(state["last_at"]) < ULTIMATE_INTERRUPT_WARNING_INTERVAL_SECONDS:
+            return
+        state["last_at"] = now
+        state["shown"] = int(state["shown"]) + 1
+        line = lines[(int(state["shown"]) - 1) % len(lines)]
+        _cowsay(runtime, line, "com")
+        runtime.clear_dialogue_pause()
+
+    return warning
+
+
 def _ultimate_linefeed_resume_message(progress_path: str, checkpoint_path: str) -> str:
     phase = ""
+    version = 1
+    tested = 0
+    attempted = 0
+    workers = 0
+    pending_shards = 0
     if progress_path and os.path.exists(progress_path):
         try:
             with open(progress_path, "r", encoding="utf-8") as file:
                 record = json.load(file)
             if isinstance(record, dict):
                 phase = str(record.get("phase", "")).strip().lower()
+                version = int(record.get("version", 1) or 1)
+                tested = int(record.get("tested_candidates", 0) or 0)
+                attempted = max(
+                    tested,
+                    int(record.get("attempted_candidates", 0) or 0),
+                    sum(
+                        idat_bruteforce._ultimate_progress_shard_attempted(shard)
+                        for shard in record.get("shards", ())
+                        if isinstance(shard, dict)
+                    ),
+                )
+                workers = int(record.get("parallel_workers", 0) or 0)
+                pending_shards = sum(
+                    1
+                    for shard in record.get("shards", ())
+                    if isinstance(shard, dict) and str(shard.get("status", "")) != "done"
+                )
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             phase = ""
     if phase == "frontier":
         return "Resume checkpoint found. I am rebuilding the useful frontier before the fish counter starts moving."
     if phase == "exhaustive":
+        if version >= 2:
+            return (
+                "Fast resume: using _ULF.progress.json cursor. Checkpoint archive scan skipped.\n"
+                "resume cursor: attempted %s; committed %s; pending shards: %s; workers: %s"
+                % (attempted, tested, pending_shards, workers)
+            )
         return "Resume checkpoint found. I am jumping back into the exhaustive vault from the saved cursor."
     if phase == "complete":
         return "Resume checkpoint found. The previous Ultimate run already marked this search complete."
@@ -715,6 +833,51 @@ def _ultimate_linefeed_progress_path(runtime: FindMagicRuntime, checkpoint_path:
     if value:
         return value
     return idat_bruteforce.ultimate_linefeed_progress_path_from_checkpoint(checkpoint_path)
+
+
+def _ultimate_linefeed_resume_status(runtime: FindMagicRuntime):
+    shown = {"value": False}
+
+    def callback(status: dict[str, object]) -> None:
+        if shown["value"]:
+            return
+        shown["value"] = True
+        if bool(status.get("fast_resume_used")):
+            attempted = int(status.get("attempted_floor", 0) or 0)
+            committed = int(status.get("committed_count", 0) or 0)
+            matched = int(status.get("matched_shards", 0) or 0)
+            pending = int(status.get("pending_shards", 0) or 0)
+            saved_workers = int(status.get("saved_workers", 0) or 0)
+            current_workers = int(status.get("current_workers", 0) or 0)
+            _cowsay(
+                runtime,
+                (
+                    "Fast resume: using _ULF.progress.json cursor. Checkpoint archive scan skipped.\n"
+                    "resume cursor: attempted %s; committed %s; matched shards: %s; pending shards: %s; saved workers: %s; current workers: %s"
+                )
+                % (
+                    _format_count(attempted),
+                    _format_count(committed),
+                    _format_count(matched),
+                    _format_count(pending),
+                    _format_count(saved_workers),
+                    _format_count(current_workers),
+                ),
+                "com",
+            )
+            runtime.clear_dialogue_pause()
+            return
+        reason = str(status.get("fast_resume_rejected_reason", "") or "").strip()
+        if reason:
+            _cowsay(
+                runtime,
+                "Resume checkpoint found, but cursor is incompatible. Restarting this Ultimate pass from zero.\nreason: %s"
+                % reason,
+                "bad",
+            )
+            runtime.clear_dialogue_pause()
+
+    return callback
 
 
 def _ultimate_linefeed_source_path(runtime: FindMagicRuntime, checkpoint_path: str) -> str:
@@ -910,7 +1073,7 @@ def _ultimate_linefeed_budget_with_resume_guard(
     estimate: idat_bruteforce.UltimateLinefeedSearchEstimate,
     progress_resume: idat_bruteforce.UltimateLinefeedProgress | None,
 ) -> idat_bruteforce.UltimateLinefeedBudgetDecision:
-    tested_floor = max(0, int(getattr(progress_resume, "tested_candidates", 0) or 0))
+    tested_floor = idat_bruteforce.ultimate_progress_attempted_floor(progress_resume)
     while True:
         decision = _ultimate_linefeed_budget(runtime, estimate)
         if decision.aborted or decision.budget is None or tested_floor <= 0:
@@ -990,6 +1153,13 @@ def _ultimate_linefeed_is_interactive(runtime: FindMagicRuntime) -> bool:
         return bool(runtime.ultimate_linefeed_interactive())
     except (OSError, TypeError, ValueError):
         return True
+
+
+def _ultimate_linefeed_workers(runtime: FindMagicRuntime) -> int:
+    try:
+        return max(0, int(runtime.ultimate_linefeed_workers() or 0))
+    except (OSError, TypeError, ValueError):
+        return 0
 
 
 def _ultimate_linefeed_default_reference_regions_path(checkpoint_path: str) -> str:
@@ -1265,6 +1435,7 @@ def _linefeed_run_ultimate_probe(
         checkpoint_path=checkpoint_path,
     )
     visual_gallery_limit = _ultimate_visual_gallery_limit(runtime)
+    ultimate_workers = _ultimate_linefeed_workers(runtime)
     _emit_ultimate_budget_plan(
         runtime,
         estimate,
@@ -1273,21 +1444,19 @@ def _linefeed_run_ultimate_probe(
         progress_path,
         visual_gallery_limit,
     )
+    if ultimate_workers >= 2:
+        _cowsay(
+            runtime,
+            "Ultimate will use %s CPU workers once the exhaustive vault opens." % ultimate_workers,
+            "com",
+        )
+        runtime.clear_dialogue_pause()
     runtime.candy("Title", ULTIMATE_LINEFEED_FORCE)
     _cowsay(
         runtime,
         "Opening the forbidden line-feed combinatorics vault no jutsu. I brought a checkpoint, because hope is not a persistence format.",
         "com",
     )
-    if _ultimate_linefeed_should_resume(runtime):
-        resume_message = _ultimate_linefeed_resume_message(progress_path, checkpoint_path)
-        if resume_message:
-            _cowsay(runtime, resume_message, "com")
-            _cowsay(
-                runtime,
-                "Please don't Panic!",
-                "bad",
-            )
     _prime_ultimate_linefeed_minibar(runtime, budget_decision.budget)
     runtime.clear_dialogue_pause()
     try:
@@ -1303,10 +1472,14 @@ def _linefeed_run_ultimate_probe(
             reference_regions_path=reference_regions_path,
             progress=_linefeed_queue_progress(runtime),
             candidate_preview=runtime.ultimate_candidate_preview,
+            interrupt_flush_progress=_ultimate_linefeed_interrupt_flush_progress(runtime),
+            interrupt_repeat_warning=_ultimate_linefeed_interrupt_repeat_warning(runtime),
+            resume_status=_ultimate_linefeed_resume_status(runtime),
             progress_path=progress_path,
             resume_progress=_ultimate_linefeed_should_resume(runtime),
             visual_gallery_limit=visual_gallery_limit,
             visual_min_coverage=_ultimate_visual_min_coverage(runtime),
+            ultimate_workers=ultimate_workers,
         )
     except (KeyboardInterrupt, idat_bruteforce.UltimateLinefeedInterrupted):
         runtime.ultimate_interrupt_cleanup()
@@ -2128,6 +2301,7 @@ def build_find_magic_runtime_from_namespace(
         loadingbar=namespace.get("Loadingbar", lambda *args, **kwargs: None),
         prompt_candy=namespace.get("Prompt_Candy"),
         clear_dialogue_pause=namespace.get("Clear_Terminal_Dialogue_Pause", lambda *args, **kwargs: None),
+        finish_progress_line=namespace.get("Finish_Progress_Line", lambda *args, **kwargs: None),
         ultimate_checkpoint_path=namespace.get("Ultimate_Linefeed_Checkpoint_Path", lambda *args, **kwargs: ""),
         ultimate_progress_path=namespace.get("Ultimate_Linefeed_Progress_Path", lambda *args, **kwargs: ""),
         ultimate_source_path=namespace.get("Ultimate_Linefeed_Source_Path", lambda *args, **kwargs: ""),
@@ -2162,6 +2336,10 @@ def build_find_magic_runtime_from_namespace(
         ),
         ultimate_linefeed_interactive=lambda *args, **kwargs: not namespace.get("AUTO", False)
         and not namespace.get("NODIALOGUE", False),
+        ultimate_linefeed_workers=namespace.get(
+            "Ultimate_Linefeed_Workers",
+            lambda *args, **kwargs: namespace.get("ULTIMATE_LINEFEED_WORKERS", 0) or 0,
+        ),
         ultimate_visual_gallery_limit=namespace.get(
             "Ultimate_Linefeed_Visual_Gallery_Limit",
             lambda *args, **kwargs: namespace.get(

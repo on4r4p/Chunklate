@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -35,6 +37,7 @@ def build_runtime(
     ultimate_linefeed_reference_region_editor_run=None,
     ultimate_linefeed_interactive=None,
     ultimate_linefeed_source=None,
+    ultimate_linefeed_workers=None,
     ultimate_visual_gallery_limit=None,
     ultimate_visual_min_coverage=None,
     ultimate_candidate_preview=None,
@@ -93,6 +96,7 @@ def build_runtime(
             )
         ),
         ultimate_linefeed_interactive=ultimate_linefeed_interactive or (lambda: True),
+        ultimate_linefeed_workers=ultimate_linefeed_workers or (lambda: 0),
         ultimate_source_path=ultimate_linefeed_source or (lambda: ""),
         ultimate_visual_gallery_limit=ultimate_visual_gallery_limit
         or (lambda: magic_runtime.idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT),
@@ -725,6 +729,7 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
         ultimate_linefeed_budget=lambda: 1234,
         ultimate_visual_gallery_limit=lambda: 77,
         ultimate_visual_min_coverage=lambda: 0.8,
+        ultimate_linefeed_workers=lambda: 3,
         ultimate_candidate_preview=live_preview,
         clear_dialogue_pause=lambda *args: calls.append(("clear_dialogue_pause", args)),
     )
@@ -785,6 +790,11 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
     assert ultimate_kwargs["reference_mode"] == "exact"
     assert ultimate_kwargs["visual_gallery_limit"] == 77
     assert ultimate_kwargs["visual_min_coverage"] == 0.8
+    assert ultimate_kwargs["ultimate_workers"] == 3
+    assert any(
+        call[0] == "candy" and "Ultimate will use 3 CPU workers" in str(call[1][1])
+        for call in calls
+    )
     assert [call for call in calls if call[0] == "loadingbar"]
     opening_index = next(
         index
@@ -841,6 +851,28 @@ def test_linefeed_queue_progress_builds_before_resume_counter():
     ]
 
 
+def test_linefeed_queue_progress_clears_between_super_mega_phases():
+    calls = []
+    runtime = SimpleNamespace(
+        loadingbar=lambda total, size, tested, build: calls.append(
+            ("loadingbar", total, size, tested, build)
+        ),
+        finish_progress_line=lambda **kwargs: calls.append(("finish", kwargs)),
+    )
+
+    progress = magic_runtime._linefeed_queue_progress(runtime)
+    progress("phase2-crlf-structural", 1024, 1024)
+    progress("phase3-deflate-byte", 50, 70)
+
+    assert calls == [
+        ("loadingbar", 1024, 4, 0, True),
+        ("loadingbar", 1024, 4, 1024, False),
+        ("finish", {"clear": True}),
+        ("loadingbar", 70, 2, 0, True),
+        ("loadingbar", 70, 2, 50, False),
+    ]
+
+
 def test_prime_ultimate_linefeed_minibar_draws_unbounded_placeholder():
     calls = []
     runtime = SimpleNamespace(
@@ -875,6 +907,36 @@ def test_ultimate_linefeed_resume_message_uses_exhaustive_phase(tmp_path):
 
     assert "exhaustive vault" in message
     assert "frontier" not in message
+
+
+def test_ultimate_linefeed_resume_message_uses_fast_v2_exhaustive_phase(tmp_path):
+    progress_path = tmp_path / "_ULF.progress.json"
+    progress_path.write_text(
+        json.dumps(
+                {
+                    "version": 2,
+                    "phase": "exhaustive",
+                    "tested_candidates": 1234,
+                    "attempted_candidates": 4321,
+                    "parallel_workers": 4,
+                    "shards": [
+                        {"start_rank": 0, "end_rank": 1000, "next_rank": 1000, "status": "done"},
+                        {"start_rank": 1000, "end_rank": 2000, "next_rank": 1500, "status": "pending"},
+                        {"start_rank": 2000, "end_rank": 3000, "next_rank": 2200, "status": "running"},
+                    ],
+                }
+            ),
+        encoding="utf-8",
+    )
+
+    message = magic_runtime._ultimate_linefeed_resume_message(str(progress_path), "")
+
+    assert "Fast resume" in message
+    assert "Checkpoint archive scan skipped" in message
+    assert "attempted 4321" in message
+    assert "committed 1234" in message
+    assert "pending shards: 2" in message
+    assert "workers: 4" in message
 
 
 def test_ultimate_linefeed_resume_message_handles_complete_phase(tmp_path):
@@ -1190,6 +1252,127 @@ def test_ultimate_budget_plan_unbounded_eta_uses_joke_line():
     ) in text
 
 
+def test_ultimate_interrupt_flush_progress_announces_once_and_counts():
+    magic_runtime._ULTIMATE_FLUSH_RUNTIME_STATE.clear()
+    calls = []
+    runtime = build_runtime(
+        calls,
+        clear_dialogue_pause=lambda *args: calls.append(("clear_dialogue_pause", args)),
+    )
+    progress = magic_runtime._ultimate_linefeed_interrupt_flush_progress(runtime)
+
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        progress(34, 123)
+        progress(35, 123)
+
+    assert calls == [
+        (
+            "candy",
+            (
+                "Cowsay",
+                "Chunky is saving the remaining visual candidates. Please wait a little before leaving the vault.",
+                "com",
+            ),
+        ),
+        ("clear_dialogue_pause", ()),
+    ]
+    text = output.getvalue()
+    assert "\r-Ultimate visual flush: 34/123" in text
+    assert "\r-Ultimate visual flush: 35/123" in text
+
+
+def test_ultimate_interrupt_flush_progress_shares_state_across_callbacks():
+    magic_runtime._ULTIMATE_FLUSH_RUNTIME_STATE.clear()
+    calls = []
+    runtime = build_runtime(
+        calls,
+        clear_dialogue_pause=lambda *args: calls.append(("clear_dialogue_pause", args)),
+    )
+    first = magic_runtime._ultimate_linefeed_interrupt_flush_progress(runtime)
+    second = magic_runtime._ultimate_linefeed_interrupt_flush_progress(runtime)
+
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        first(6, 100)
+        second(6, 100)
+        second(7, 100)
+
+    assert calls == [
+        (
+            "candy",
+            (
+                "Cowsay",
+                "Chunky is saving the remaining visual candidates. Please wait a little before leaving the vault.",
+                "com",
+            ),
+        ),
+        ("clear_dialogue_pause", ()),
+    ]
+    text = output.getvalue()
+    assert text.count("Ultimate visual flush") == 2
+    assert "\r-Ultimate visual flush: 6/100" in text
+    assert "\r-Ultimate visual flush: 7/100" in text
+
+
+def test_ultimate_interrupt_flush_progress_is_monotone_and_skips_duplicates():
+    magic_runtime._ULTIMATE_FLUSH_RUNTIME_STATE.clear()
+    calls = []
+    runtime = build_runtime(calls)
+    progress = magic_runtime._ultimate_linefeed_interrupt_flush_progress(runtime)
+
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        progress(90, 100)
+        progress(90, 100)
+        progress(89, 100)
+        progress(91, 100)
+
+    text = output.getvalue()
+    assert text.count("Ultimate visual flush") == 2
+    assert "\r-Ultimate visual flush: 90/100" in text
+    assert "\r-Ultimate visual flush: 91/100" in text
+    assert "89/100" not in text
+
+
+def test_ultimate_interrupt_repeat_warning_throttles_and_rotates_lines(monkeypatch):
+    magic_runtime._ULTIMATE_INTERRUPT_WARNING_STATE.clear()
+    calls = []
+    runtime = build_runtime(
+        calls,
+        clear_dialogue_pause=lambda *args: calls.append(("clear_dialogue_pause", args)),
+    )
+    warning = magic_runtime._ultimate_linefeed_interrupt_repeat_warning(runtime)
+    now = [100.0]
+    monkeypatch.setattr(magic_runtime.time, "monotonic", lambda: now[0])
+
+    warning(1)
+    warning(2)
+    now[0] += magic_runtime.ULTIMATE_INTERRUPT_WARNING_INTERVAL_SECONDS + 0.1
+    warning(3)
+
+    assert calls == [
+        (
+            "candy",
+            (
+                "Cowsay",
+                "I heard you. The workers are parking the shards.",
+                "com",
+            ),
+        ),
+        ("clear_dialogue_pause", ()),
+        (
+            "candy",
+            (
+                "Cowsay",
+                "More Ctrl+C will not make zlib confess faster.",
+                "com",
+            ),
+        ),
+        ("clear_dialogue_pause", ()),
+    ]
+
+
 def test_ultimate_resume_budget_guard_rejects_low_override():
     calls = []
     runtime = build_runtime(
@@ -1398,6 +1581,18 @@ def main():
         (
             "Header linefeed ultimate budget no pause",
             test_ultimate_budget_plan_uses_prompt_candy_without_dialogue_pause,
+        ),
+        (
+            "Header linefeed ultimate interrupt flush progress",
+            test_ultimate_interrupt_flush_progress_announces_once_and_counts,
+        ),
+        (
+            "Header linefeed ultimate interrupt flush monotone",
+            test_ultimate_interrupt_flush_progress_is_monotone_and_skips_duplicates,
+        ),
+        (
+            "Header linefeed ultimate interrupt repeat warning",
+            test_ultimate_interrupt_repeat_warning_throttles_and_rotates_lines,
         ),
         (
             "Header linefeed ultimate resume budget guard override",

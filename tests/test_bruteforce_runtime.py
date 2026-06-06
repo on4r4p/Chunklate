@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chunklate import bruteforce, bruteforce_runtime, bruteforce_viewer
+from chunklate import bruteforce, bruteforce_runtime, bruteforce_viewer, smash_backend, smash_checkpoint
 
 
 @dataclass
@@ -36,6 +36,7 @@ def build_runtime(
     source_size=0,
     source_path="",
     resume_record=None,
+    smash_workers=0,
 ):
     side_notes = [] if side_notes is None else side_notes
     viewer_results = [] if viewer_results is None else list(viewer_results)
@@ -82,6 +83,7 @@ def build_runtime(
         source_size=source_size,
         source_path=source_path,
         resume_record=resume_record,
+        smash_workers=smash_workers,
     )
 
 
@@ -139,6 +141,341 @@ def test_run_scan_preserves_oldcrc_path_without_viewer():
     assert not [call for call in calls if call[0] == "show_candidate"]
     assert ("loadingbar", 2, 1, None, True) in calls
     assert ("loadingbar", 2, 1, 0, False) in calls
+
+
+def test_resolve_smash_worker_profiles():
+    assert smash_backend.resolve_smash_worker_count(None, cpu_count=16) == 0
+    assert smash_backend.resolve_smash_worker_count("0", cpu_count=16) == 0
+    assert smash_backend.resolve_smash_worker_count("min", cpu_count=16) == 4
+    assert smash_backend.resolve_smash_worker_count("normal", cpu_count=16) == 8
+    assert smash_backend.resolve_smash_worker_count("auto", cpu_count=16) == 8
+    assert smash_backend.resolve_smash_worker_count("max", cpu_count=16) == 15
+    assert smash_backend.resolve_smash_worker_count("3", cpu_count=16) == 3
+
+
+def test_run_scan_parallel_oldcrc_matches_serial_result():
+    calls = []
+    chunk_name = b"gAMA"
+    old_crc = bruteforce.chunk_crc(chunk_name, b"\x07").hex()
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[(7,)],
+        smash_workers=2,
+    )
+
+    result = bruteforce_runtime.run_scan(
+        runtime,
+        base_context(chunk_name=chunk_name, old_crc=old_crc),
+    )
+
+    assert result.state == bruteforce.BruteForceMatchState(
+        bingo=True,
+        replace_flag=True,
+    )
+    assert result.old_crc == bytes.fromhex(old_crc)
+    assert result.full_new_data == (
+        b"\x00\x00\x00\x01" + chunk_name + b"\x07" + bytes.fromhex(old_crc)
+    )
+    assert result.bf_mode == "Brutus"
+    assert not [call for call in calls if call[0] == "show_candidate"]
+    assert ("emit", "-SmashBruteBrawl will use 2 CPU workers.") in calls
+
+
+def test_run_scan_parallel_custom_oldcrc_matches_serial_result():
+    calls = []
+    chunk_name = b"gAMA"
+    old_crc = bruteforce.chunk_crc(chunk_name, b"\x07").hex()
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[(7,)],
+        smash_workers=2,
+    )
+
+    result = bruteforce_runtime.run_scan(
+        runtime,
+        base_context(
+            chunk_name=chunk_name,
+            bf_mode="Custom",
+            pandora_box={"gAMA StructIndex:0": True},
+            old_crc=old_crc,
+        ),
+    )
+
+    assert result.state == bruteforce.BruteForceMatchState(
+        bingo=True,
+        replace_flag=True,
+    )
+    assert result.full_new_data == (
+        b"\x00\x00\x00\x01" + chunk_name + b"\x07" + bytes.fromhex(old_crc)
+    )
+    assert result.bf_mode == "Custom"
+    assert ("emit", "-SmashBruteBrawl will use 2 CPU workers.") in calls
+
+
+def test_run_scan_parallel_twobytes_uses_workers():
+    calls = []
+    chunk_name = b"gAMA"
+    old_crc = bruteforce.chunk_crc(chunk_name, b"\x07").hex()
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[(7,)],
+        smash_workers=2,
+    )
+
+    result = bruteforce_runtime.run_scan(
+        runtime,
+        base_context(
+            chunk_name=chunk_name,
+            chunk_length=1,
+            data_hex="0011223300aabbccddeeff",
+            bf_mode="TwoBytes",
+            old_crc=old_crc,
+        ),
+    )
+
+    assert result.state == bruteforce.BruteForceMatchState(
+        bingo=True,
+        replace_flag=True,
+    )
+    assert ("emit", "-SmashBruteBrawl will use 2 CPU workers.") in calls
+    assert ("loadingbar", 1, 1, None, True) in calls
+    assert not [call for call in calls if call[0] == "raw_print"]
+
+
+def test_run_scan_parallel_twobytes_writes_twobytes_shards():
+    calls = []
+    chunk_name = b"gAMA"
+    old_crc = bruteforce.chunk_crc(chunk_name, b"\x07").hex()
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            source_size=123,
+            source_path="/tmp/_SBB.Source.raw",
+            smash_workers=2,
+        )
+
+        bruteforce_runtime.run_scan(
+            runtime,
+            base_context(
+                chunk_name=chunk_name,
+                chunk_length=1,
+                data_hex="0011223300aabbccddeeff",
+                bf_mode="TwoBytes",
+                old_crc=old_crc,
+            ),
+        )
+
+        record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+
+    assert record["backend"] == "cpu-parallel"
+    assert record["shard_size"] == smash_backend.SMASH_TWOBYTES_SHARD_BYTE_SIZE
+    twobytes_shards = [shard for shard in record["shards"] if shard["kind"] == "twobytes"]
+    assert twobytes_shards
+    assert {
+        "inner_index",
+        "byte_start",
+        "byte_end",
+        "next_byte_position",
+        "edit_kind_index",
+        "stage",
+        "bonus_offset",
+        "bonus_value",
+    }.issubset(twobytes_shards[0])
+
+
+def test_run_scan_parallel_first_sigint_announces_and_saves(monkeypatch):
+    calls = []
+    signal_state = {"current": "original", "handler": None}
+
+    class FakeEvent:
+        def __init__(self):
+            self.was_set = False
+
+        def set(self):
+            self.was_set = True
+
+        def is_set(self):
+            return self.was_set
+
+    class FakeManager:
+        def __init__(self):
+            self.event = FakeEvent()
+
+        def Event(self):
+            return self.event
+
+        def shutdown(self):
+            calls.append(("manager_shutdown",))
+
+    class FakeExecutor:
+        def __init__(self, *, max_workers):
+            calls.append(("executor_start", max_workers))
+
+        def submit(self, *_args):
+            future = bruteforce_runtime.concurrent.futures.Future()
+            calls.append(("executor_submit",))
+            return future
+
+        def shutdown(self, *, wait, cancel_futures):
+            calls.append(("executor_shutdown", wait, cancel_futures))
+
+    def fake_getsignal(signum):
+        assert signum == bruteforce_runtime.signal.SIGINT
+        return signal_state["current"]
+
+    def fake_signal(signum, handler):
+        assert signum == bruteforce_runtime.signal.SIGINT
+        calls.append(("signal", handler))
+        signal_state["current"] = handler
+        if handler not in (bruteforce_runtime.signal.SIG_IGN, "original"):
+            signal_state["handler"] = handler
+
+    def fake_wait(_pending, **_kwargs):
+        signal_state["handler"](bruteforce_runtime.signal.SIGINT, None)
+        return set(), set(_pending)
+
+    monkeypatch.setattr(bruteforce_runtime.multiprocessing, "Manager", FakeManager)
+    monkeypatch.setattr(bruteforce_runtime.concurrent.futures, "ProcessPoolExecutor", FakeExecutor)
+    monkeypatch.setattr(bruteforce_runtime.concurrent.futures, "wait", fake_wait)
+    monkeypatch.setattr(bruteforce_runtime.signal, "getsignal", fake_getsignal)
+    monkeypatch.setattr(bruteforce_runtime.signal, "signal", fake_signal)
+
+    chunk_name = b"gAMA"
+    old_crc = bruteforce.chunk_crc(chunk_name, b"\x07").hex()
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            source_size=123,
+            source_path="/tmp/_SBB.Source.raw",
+            smash_workers=2,
+        )
+
+        try:
+            bruteforce_runtime.run_scan(
+                runtime,
+                base_context(chunk_name=chunk_name, old_crc=old_crc),
+            )
+        except smash_checkpoint.SmashBruteBrawlInterrupted as exc:
+            assert exc.progress_path == progress_path
+        else:
+            raise AssertionError("expected SmashBruteBrawlInterrupted")
+
+        record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+
+    assert any(
+        call[0] == "emit" and "SmashBruteBrawl is stopping cleanly" in call[1]
+        for call in calls
+    )
+    assert ("signal", bruteforce_runtime.signal.SIG_IGN) in calls
+    assert ("signal", "original") in calls
+    assert ("executor_shutdown", True, True) in calls
+    assert ("manager_shutdown",) in calls
+    assert record["backend"] == "cpu-parallel"
+    assert record["counters"]["tested_candidates"] == 0
+
+
+def test_twobytes_worker_bonus_path_has_brute_level(monkeypatch):
+    monkeypatch.setattr(smash_backend, "_candidate_png_looks_valid", lambda _png_bytes: False)
+    length_plan = smash_backend.SmashLengthPlan(
+        outer_index=0,
+        length=1,
+        iter_nbr=None,
+        max_iter=1,
+        len_iter=1,
+        chunk_format=("B",),
+        chunk_data=((7,),),
+        color_type="color",
+    )
+    plan = smash_backend.SmashCandidatePlan(
+        chunk_name=b"gAMA",
+        chunk_length=1,
+        data_offset=8,
+        data_hex="000000000700000000",
+        edit_mode="Replace",
+        bf_mode="TwoBytes",
+        brute_level=1,
+        brute_crc=True,
+        brute_length=True,
+        old_crc=False,
+        struct_indexes=(),
+        candidate_space_hash="hash",
+        crc_trusted=False,
+        lengths=(length_plan,),
+    )
+    shard = smash_backend.SmashShard(
+        shard_id=0,
+        length_plan_index=0,
+        start_inner_index=0,
+        end_inner_index=1,
+        kind="twobytes",
+        inner_index=0,
+        byte_start=0,
+        byte_end=1,
+    )
+
+    result = smash_backend.run_twobytes_shard(plan, shard)
+
+    assert result.error == ""
+    assert result.tested == 1
+    assert result.hits == ()
+
+
+def test_twobytes_shard_record_round_trips_resume_cursor():
+    shard = smash_backend.SmashShard(
+        shard_id=7,
+        length_plan_index=2,
+        start_inner_index=5,
+        end_inner_index=6,
+        kind="twobytes",
+        inner_index=5,
+        byte_start=12,
+        byte_end=24,
+        next_byte_position=16,
+        edit_kind_index=1,
+        stage="bonus",
+        bonus_offset=8,
+        bonus_value=42,
+    )
+    result = smash_backend.SmashShardResult(
+        shard=shard,
+        tested=123,
+        next_inner_index=5,
+        stopped=True,
+        next_byte_position=18,
+        edit_kind_index=2,
+        stage="direct",
+        bonus_offset=10,
+        bonus_value=99,
+    )
+
+    record = smash_backend.shard_record(shard, result)
+    restored = smash_backend.shard_from_record(record)
+
+    assert record["kind"] == "twobytes"
+    assert record["status"] == "pending"
+    assert record["tested"] == 123
+    assert restored.kind == "twobytes"
+    assert restored.inner_index == 5
+    assert restored.byte_start == 12
+    assert restored.byte_end == 24
+    assert restored.next_byte_position == 18
+    assert restored.edit_kind_index == 2
+    assert restored.stage == "direct"
+    assert restored.bonus_offset == 10
+    assert restored.bonus_value == 99
 
 
 def test_run_scan_preserves_viewer_acceptance_gate_and_diff():

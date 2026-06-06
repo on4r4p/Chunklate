@@ -90,8 +90,12 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "-ulfmc" in result.stdout
     assert "--ultimate-linefeed-resume" in result.stdout
     assert "-ulf-resume" in result.stdout
+    assert "--ultimate-linefeed-workers" in result.stdout
+    assert "-ulfw" in result.stdout
     assert "--smashbrutebrawl-resume" in result.stdout
     assert "-sbb-resume" in result.stdout
+    assert "--smashbrutebrawl-workers" in result.stdout
+    assert "-sbbw" in result.stdout
     assert "--ulf-budget" not in result.stdout
 
 
@@ -144,6 +148,30 @@ def test_ultimate_linefeed_reference_roi_cli_aliases_parse():
 
     assert args.ULTIMATE_LINEFEED_REFERENCE_REGIONS == "regions.json"
     assert args.ULTIMATE_LINEFEED_REFERENCE_REGION_EDITOR is True
+
+
+def test_ultimate_linefeed_workers_cli_parses_profiles_and_custom_count():
+    parser = Chunklate.cli.configure_parser(ArgumentParser())
+
+    profile_args = parser.parse_args(["-f", "sample.png", "-ulfw", "normal"])
+    custom_args = parser.parse_args(["-f", "sample.png", "-ulfw", "12"])
+    zero_args = parser.parse_args(["-f", "sample.png", "-ulfw", "0"])
+
+    assert profile_args.ULTIMATE_LINEFEED_WORKERS == "normal"
+    assert custom_args.ULTIMATE_LINEFEED_WORKERS == "12"
+    assert zero_args.ULTIMATE_LINEFEED_WORKERS == "0"
+
+
+def test_smash_brute_brawl_workers_cli_parses_profiles_and_custom_count():
+    parser = Chunklate.cli.configure_parser(ArgumentParser())
+
+    profile_args = parser.parse_args(["-f", "sample.png", "-sbbw", "normal"])
+    custom_args = parser.parse_args(["-f", "sample.png", "-sbbw", "12"])
+    zero_args = parser.parse_args(["-f", "sample.png", "-sbbw", "0"])
+
+    assert profile_args.SMASH_BRUTE_BRAWL_WORKERS == "normal"
+    assert custom_args.SMASH_BRUTE_BRAWL_WORKERS == "12"
+    assert zero_args.SMASH_BRUTE_BRAWL_WORKERS == "0"
 
 
 def test_missing_file_argument_returns_usage_error():

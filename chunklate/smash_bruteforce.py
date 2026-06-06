@@ -5,7 +5,15 @@ from dataclasses import dataclass
 import os
 from typing import Any
 
-from . import bruteforce, bruteforce_result, bruteforce_runtime, bruteforce_viewer, output, smash_checkpoint
+from . import (
+    bruteforce,
+    bruteforce_result,
+    bruteforce_runtime,
+    bruteforce_viewer,
+    output,
+    platform_runtime,
+    smash_checkpoint,
+)
 
 
 LegacyCall = Callable[..., Any]
@@ -69,6 +77,106 @@ class SmashBruteBrawlLegacyRuntime:
     source_size: int = 0
     source_path: str = ""
     resume_record: dict[str, Any] | None = None
+    smash_workers: str | int | None = 0
+
+
+def _smash_worker_profile_counts() -> dict[str, int]:
+    cpu_count = platform_runtime.detected_cpu_count()
+    return {
+        "cpu": cpu_count,
+        "min": platform_runtime.recommended_worker_count(cpu_count, profile="min"),
+        "normal": platform_runtime.recommended_worker_count(cpu_count, profile="normal"),
+        "max": platform_runtime.recommended_worker_count(cpu_count, profile="max"),
+    }
+
+
+def _smash_workers_from_value(value: Any) -> int | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in ("auto", "normal"):
+        return platform_runtime.recommended_worker_count(profile="normal")
+    if text in ("min", "max"):
+        return platform_runtime.recommended_worker_count(profile=text)
+    return max(0, int(text))
+
+
+def _smash_prompt_candy(namespace: dict[str, Any], text: str, mood: str = "com") -> None:
+    prompt_candy = namespace.get("Prompt_Candy")
+    if callable(prompt_candy):
+        prompt_candy("Cowsay", text, mood)
+        return
+    namespace.get("Candy", lambda *args, **kwargs: None)("Cowsay", text, mood)
+
+
+def _smash_print_error(namespace: dict[str, Any], text: str) -> None:
+    print_func = namespace.get("PRINT")
+    if not callable(print_func):
+        return
+    candy = namespace.get("Candy")
+    if callable(candy):
+        text = candy("Color", "red", text)
+    print_func(text)
+
+
+def _smash_input(namespace: dict[str, Any], prompt: str) -> str:
+    input_func = namespace.get("input", input)
+    try:
+        return str(input_func(prompt)).strip().lower()
+    except EOFError:
+        return ""
+
+
+def _smash_print_worker_menu(namespace: dict[str, Any]) -> None:
+    counts = _smash_worker_profile_counts()
+    lines = [
+        "SmashBruteBrawl CPU worker no jutsu:",
+        "CPU detected: %s" % counts["cpu"],
+        "min workers: %s" % counts["min"],
+        "normal workers: %s" % counts["normal"],
+        "max workers: %s" % counts["max"],
+        "",
+        "0. disabled",
+        "min. CPU / 4",
+        "normal. CPU / 2",
+        "max. CPU - 1",
+        "custom. enter an exact worker count",
+        "",
+        "Empty keeps SmashBruteBrawl single-process.",
+    ]
+    _smash_prompt_candy(namespace, "\n".join(lines), "com")
+
+
+def resolve_smash_workers_from_namespace(
+    namespace: dict[str, Any],
+    *,
+    bf_mode: str = "",
+) -> str | int | None:
+    configured = namespace.get("SMASH_BRUTE_BRAWL_WORKERS")
+    if configured is not None:
+        return configured
+    if namespace.get("AUTO", False) or namespace.get("NODIALOGUE", False):
+        return 0
+    if "AUTO" not in namespace and "NODIALOGUE" not in namespace:
+        return 0
+
+    while True:
+        _smash_print_worker_menu(namespace)
+        choice = _smash_input(namespace, "SmashBruteBrawl worker profile [0 disabled] > ")
+        if choice == "":
+            return 0
+        if choice in ("min", "normal", "max", "auto"):
+            return _smash_workers_from_value(choice)
+        if choice == "custom":
+            choice = _smash_input(namespace, "Custom SmashBruteBrawl worker count > ")
+        try:
+            workers = int(choice)
+        except ValueError:
+            _smash_print_error(namespace, "-Enter 0, min, normal, max, custom, or a worker count.")
+            continue
+        if workers >= 0:
+            return workers
+        _smash_print_error(namespace, "-Worker count must be zero or higher.")
 
 
 def run_legacy_smash_brute_brawl_from_namespace(
@@ -137,6 +245,8 @@ def run_legacy_smash_brute_brawl_from_namespace(
         if diff:
             namespace["DIFF"] = diff
 
+    smash_workers = resolve_smash_workers_from_namespace(namespace, bf_mode=bf_mode)
+
     return bridge(
         SmashBruteBrawlLegacyRuntime(
             load_spec=load_spec,
@@ -166,6 +276,7 @@ def run_legacy_smash_brute_brawl_from_namespace(
             source_size=len(source_data),
             source_path=progress_paths.source_raw_path,
             resume_record=resume_record,
+            smash_workers=smash_workers,
         ),
         SmashBruteBrawlLegacyContext(
             file=file,
@@ -353,6 +464,7 @@ def run_legacy_smash_brute_brawl(
                 source_size=runtime.source_size,
                 source_path=runtime.source_path,
                 resume_record=runtime.resume_record,
+                smash_workers=runtime.smash_workers,
             ),
             bruteforce_runtime.SmashBruteBrawlContext(
                 file=context.file,

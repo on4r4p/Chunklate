@@ -62,6 +62,7 @@ def args(**updates):
         "ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT": 100,
         "ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE": 0.95,
         "ULTIMATE_LINEFEED_RESUME": "ask",
+        "ULTIMATE_LINEFEED_WORKERS": None,
         "SMASH_BRUTE_BRAWL_RESUME": "ask",
     }
     values.update(updates)
@@ -322,6 +323,7 @@ def test_apply_main_cli_options_builds_initial_state():
         ultimate_linefeed_visual_gallery_limit=100,
         ultimate_linefeed_visual_min_coverage=0.95,
         ultimate_linefeed_resume="ask",
+        ultimate_linefeed_workers=None,
         smash_brute_brawl_resume="ask",
     )
     assert ("makedirs", "/abs/out/", {"exist_ok": True}) in calls
@@ -440,6 +442,23 @@ def test_apply_main_cli_options_exits_on_bad_ultimate_resume_mode():
     assert ("exit", 1) in calls
 
 
+def test_apply_main_cli_options_exits_on_bad_ultimate_workers():
+    calls = []
+
+    try:
+        apply_options(calls, args(ULTIMATE_LINEFEED_WORKERS="-1"))
+    except ExitReached as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("bad ultimate workers should exit")
+
+    assert (
+        "print",
+        "--ultimate-linefeed-workers must be a non-negative integer, min, normal, or max.",
+    ) in calls
+    assert ("exit", 1) in calls
+
+
 def test_apply_main_cli_options_exits_on_bad_smash_brute_brawl_resume_mode():
     calls = []
 
@@ -453,6 +472,23 @@ def test_apply_main_cli_options_exits_on_bad_smash_brute_brawl_resume_mode():
     assert (
         "print",
         "--smashbrutebrawl-resume must be one of: ask, auto, never, reset.",
+    ) in calls
+    assert ("exit", 1) in calls
+
+
+def test_apply_main_cli_options_exits_on_bad_smash_workers():
+    calls = []
+
+    try:
+        apply_options(calls, args(SMASH_BRUTE_BRAWL_WORKERS="-1"))
+    except ExitReached as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("bad SmashBruteBrawl workers should exit")
+
+    assert (
+        "print",
+        "--smashbrutebrawl-workers must be a non-negative integer, min, normal, max, or auto.",
     ) in calls
     assert ("exit", 1) in calls
 
@@ -540,7 +576,9 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         ultimate_linefeed_visual_gallery_limit=77,
         ultimate_linefeed_visual_min_coverage=0.8,
         ultimate_linefeed_resume="auto",
+        ultimate_linefeed_workers="auto",
         smash_brute_brawl_resume="auto",
+        smash_brute_brawl_workers="normal",
     )
 
     assert main_runtime.legacy_globals_from_main_cli_options(state) == {
@@ -572,7 +610,9 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         "ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT": 77,
         "ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE": 0.8,
         "ULTIMATE_LINEFEED_RESUME": "auto",
+        "ULTIMATE_LINEFEED_WORKERS": "auto",
         "SMASH_BRUTE_BRAWL_RESUME": "auto",
+        "SMASH_BRUTE_BRAWL_WORKERS": "normal",
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
     }
 

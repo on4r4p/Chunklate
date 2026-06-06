@@ -336,6 +336,19 @@ def test_loadingbar_progress_stops_at_last_visible_fish_frame():
     assert progress == ui.LoadingbarProgress(text="500/500frame1>", fish_pos=1)
 
 
+def test_loadingbar_progress_clamps_stale_frame_state():
+    progress = ui.loadingbar_progress(
+        256,
+        1,
+        512,
+        ["frame0>", "frame1>"],
+        fish_pos=99,
+        len_fish_list=99,
+    )
+
+    assert progress == ui.LoadingbarProgress(text="512/256frame1>", fish_pos=1)
+
+
 def test_run_loadingbar_from_namespace_builds_and_prints_progress():
     calls = []
     namespace = {
@@ -544,6 +557,7 @@ def main():
         ("Loadingbar progress large budget speed", test_loadingbar_progress_moves_faster_for_large_budgets),
         ("Loadingbar huge budget callback animation", test_loadingbar_progress_animates_huge_budget_each_callback),
         ("Loadingbar progress visible end", test_loadingbar_progress_stops_at_last_visible_fish_frame),
+        ("Loadingbar progress clamps stale state", test_loadingbar_progress_clamps_stale_frame_state),
         ("Loadingbar namespace bridge", test_run_loadingbar_from_namespace_builds_and_prints_progress),
         ("Loadingbar clears dialogue pause", test_run_loadingbar_from_namespace_clears_dialogue_pause_before_loader_output),
         ("Loadingbar print fallback", test_run_loadingbar_from_namespace_uses_print_fallback),

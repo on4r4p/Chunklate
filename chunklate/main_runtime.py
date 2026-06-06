@@ -59,7 +59,9 @@ class MainCliOptionsRuntime:
     ultimate_linefeed_reference_mode_error: Callable = cli.ultimate_linefeed_reference_mode_error
     ultimate_linefeed_visual_gallery_limit_error: Callable = cli.ultimate_linefeed_visual_gallery_limit_error
     ultimate_linefeed_visual_min_coverage_error: Callable = cli.ultimate_linefeed_visual_min_coverage_error
+    ultimate_linefeed_workers_error: Callable = cli.ultimate_linefeed_workers_error
     smash_brute_brawl_resume_error: Callable = cli.smash_brute_brawl_resume_error
+    smash_brute_brawl_workers_error: Callable = cli.smash_brute_brawl_workers_error
     output_file_dir: Callable = cli.output_file_dir
     runtime_flags_from_args: Callable = cli.runtime_flags_from_args
     clone_folder: Callable[[str, str], str] = output.clone_folder
@@ -86,7 +88,9 @@ class MainCliOptionsState:
     ultimate_linefeed_visual_gallery_limit: int = 100
     ultimate_linefeed_visual_min_coverage: float = 0.95
     ultimate_linefeed_resume: str = "ask"
+    ultimate_linefeed_workers: str | int | None = None
     smash_brute_brawl_resume: str = "ask"
+    smash_brute_brawl_workers: str | int | None = None
 
 
 @dataclass(frozen=True)
@@ -876,6 +880,14 @@ def apply_main_cli_options(
         runtime.print_error(resume_error)
         runtime.exit_process(1)
         return None
+    ultimate_linefeed_workers = getattr(args, "ULTIMATE_LINEFEED_WORKERS", None)
+    workers_error = runtime.ultimate_linefeed_workers_error(
+        ultimate_linefeed_workers
+    )
+    if workers_error is not None:
+        runtime.print_error(workers_error)
+        runtime.exit_process(1)
+        return None
     smash_brute_brawl_resume = str(
         getattr(args, "SMASH_BRUTE_BRAWL_RESUME", "ask") or "ask"
     ).strip().lower()
@@ -884,6 +896,14 @@ def apply_main_cli_options(
     )
     if smash_resume_error is not None:
         runtime.print_error(smash_resume_error)
+        runtime.exit_process(1)
+        return None
+    smash_brute_brawl_workers = getattr(args, "SMASH_BRUTE_BRAWL_WORKERS", None)
+    smash_workers_error = runtime.smash_brute_brawl_workers_error(
+        smash_brute_brawl_workers
+    )
+    if smash_workers_error is not None:
+        runtime.print_error(smash_workers_error)
         runtime.exit_process(1)
         return None
     ultimate_linefeed_budget_error = runtime.ultimate_linefeed_budget_error(
@@ -952,7 +972,9 @@ def apply_main_cli_options(
         ultimate_linefeed_visual_gallery_limit=ultimate_linefeed_visual_gallery_limit,
         ultimate_linefeed_visual_min_coverage=ultimate_linefeed_visual_min_coverage,
         ultimate_linefeed_resume=ultimate_linefeed_resume,
+        ultimate_linefeed_workers=ultimate_linefeed_workers,
         smash_brute_brawl_resume=smash_brute_brawl_resume,
+        smash_brute_brawl_workers=smash_brute_brawl_workers,
     )
 
 
@@ -987,7 +1009,9 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT": options.ultimate_linefeed_visual_gallery_limit,
         "ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE": options.ultimate_linefeed_visual_min_coverage,
         "ULTIMATE_LINEFEED_RESUME": options.ultimate_linefeed_resume,
+        "ULTIMATE_LINEFEED_WORKERS": options.ultimate_linefeed_workers,
         "SMASH_BRUTE_BRAWL_RESUME": options.smash_brute_brawl_resume,
+        "SMASH_BRUTE_BRAWL_WORKERS": options.smash_brute_brawl_workers,
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
     }
 

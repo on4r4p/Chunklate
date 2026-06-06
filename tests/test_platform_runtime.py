@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +49,45 @@ def test_local_venv_python_uses_platform_layouts():
         "C:/repo/.venv/Scripts/python.exe"
     )
     assert platform_runtime.local_venv_python("/repo", os_name="posix") == "/repo/.venv/bin/python"
+
+
+def test_detected_cpu_count_prefers_linux_affinity():
+    fake_os = SimpleNamespace(
+        sched_getaffinity=lambda pid: {0, 1, 2, 3},
+        cpu_count=lambda: 16,
+    )
+
+    assert platform_runtime.detected_cpu_count(env={}, os_module=fake_os) == 4
+
+
+def test_detected_cpu_count_uses_windows_env_before_os_cpu_count():
+    fake_os = SimpleNamespace(cpu_count=lambda: None)
+
+    assert platform_runtime.detected_cpu_count(
+        env={"NUMBER_OF_PROCESSORS": "16"},
+        os_module=fake_os,
+    ) == 16
+
+
+def test_detected_cpu_count_falls_back_to_os_cpu_count_and_one():
+    assert platform_runtime.detected_cpu_count(
+        env={},
+        os_module=SimpleNamespace(cpu_count=lambda: 12),
+    ) == 12
+    assert platform_runtime.detected_cpu_count(
+        env={},
+        os_module=SimpleNamespace(cpu_count=lambda: None),
+    ) == 1
+
+
+def test_recommended_worker_count_profiles_detected_cpus():
+    assert platform_runtime.recommended_worker_count(16, profile="min") == 4
+    assert platform_runtime.recommended_worker_count(16, profile="normal") == 8
+    assert platform_runtime.recommended_worker_count(16, profile="max") == 15
+    assert platform_runtime.recommended_worker_count(16, profile="auto") == 8
+    assert platform_runtime.recommended_worker_count(2, profile="min") == 1
+    assert platform_runtime.recommended_worker_count(32, profile="max") == 31
+    assert platform_runtime.recommended_worker_count(16, profile="max", cap=8) == 8
 
 
 def test_bootstrap_command_uses_python_script():
@@ -107,6 +147,10 @@ def main():
     checks = [
         ("OS family", test_os_family_detects_common_platforms),
         ("venv python path", test_local_venv_python_uses_platform_layouts),
+        ("CPU affinity detection", test_detected_cpu_count_prefers_linux_affinity),
+        ("CPU Windows env detection", test_detected_cpu_count_uses_windows_env_before_os_cpu_count),
+        ("CPU fallback detection", test_detected_cpu_count_falls_back_to_os_cpu_count_and_one),
+        ("recommended worker count", test_recommended_worker_count_profiles_detected_cpus),
         ("bootstrap command", test_bootstrap_command_uses_python_script),
         ("command quoting", test_format_command_uses_windows_and_posix_quoting),
         ("stream error handling", test_configure_text_stream_errors_uses_reconfigure_when_available),

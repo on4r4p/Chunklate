@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from io import BytesIO
 import json
 import os
+import time
 from typing import Any
 
 from . import idat
@@ -20,7 +21,11 @@ ROI_HOVER_DELAY_MS = 500
 
 def _hidden_tmp_path(path: str) -> str:
     directory, filename = os.path.split(path)
-    tmp_name = ".%s.tmp" % (filename or "chunklate")
+    tmp_name = ".%s.%s.%s.tmp" % (
+        filename or "chunklate",
+        os.getpid(),
+        time.monotonic_ns(),
+    )
     return os.path.join(directory, tmp_name) if directory else tmp_name
 
 

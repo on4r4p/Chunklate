@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 import tempfile
+import zlib
 from pathlib import Path
 
 
@@ -8,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chunklate import bruteforce, bruteforce_runtime, bruteforce_viewer, smash_bruteforce, smash_checkpoint
+from chunklate import bruteforce, bruteforce_runtime, bruteforce_viewer, png, smash_bruteforce, smash_checkpoint
 from types import SimpleNamespace
 
 
@@ -129,6 +130,30 @@ def scan_result(**updates):
     return bruteforce_runtime.SmashBruteBrawlScanResult(**result)
 
 
+def png_chunk(chunk_type, payload):
+    return (
+        len(payload).to_bytes(4, "big")
+        + chunk_type
+        + payload
+        + zlib.crc32(chunk_type + payload).to_bytes(4, "big")
+    )
+
+
+def tiny_png_bytes(*, corrupt_idat=False):
+    ihdr = (
+        (1).to_bytes(4, "big")
+        + (1).to_bytes(4, "big")
+        + bytes([8, 2, 0, 0, 0])
+    )
+    idat_payload = b"\x78\x9c\x00" if corrupt_idat else zlib.compress(b"\x00\x00\x00\x00")
+    return (
+        png.PNG_SIGNATURE
+        + png_chunk(b"IHDR", ihdr)
+        + png_chunk(b"IDAT", idat_payload)
+        + png_chunk(b"IEND", b"")
+    )
+
+
 def find_call(calls, name):
     matches = [call for call in calls if call[0] == name]
     assert len(matches) == 1
@@ -240,6 +265,122 @@ def test_legacy_namespace_entry_builds_bridge_and_syncs_legacy_state():
         debug=False,
         pause_debug=False,
     )
+
+
+def test_legacy_namespace_entry_prompts_for_smash_workers_when_unconfigured(monkeypatch):
+    calls = []
+    namespace = build_namespace(calls)
+    namespace["AUTO"] = False
+    namespace["NODIALOGUE"] = False
+    namespace["SMASH_BRUTE_BRAWL_WORKERS"] = None
+    namespace["Prompt_Candy"] = lambda *args: calls.append(("prompt_candy", args))
+    namespace["input"] = lambda prompt: calls.append(("input", prompt)) or "normal"
+    monkeypatch.setattr(smash_bruteforce.platform_runtime, "detected_cpu_count", lambda: 16)
+
+    def bridge(runtime, context):
+        calls.append(("bridge", runtime.smash_workers, context))
+        return "bridge-result"
+
+    result = smash_bruteforce.run_legacy_smash_brute_brawl_from_namespace(
+        namespace,
+        "broken.png",
+        "IDAT",
+        4,
+        16,
+        "Relics",
+        bridge=bridge,
+    )
+
+    assert result == "bridge-result"
+    assert ("input", "SmashBruteBrawl worker profile [0 disabled] > ") in calls
+    assert any(call[0] == "prompt_candy" and "SmashBruteBrawl CPU worker no jutsu" in call[1][1] for call in calls)
+    _name, smash_workers, _context = find_call(calls, "bridge")
+    assert smash_workers == 8
+
+
+def test_legacy_namespace_entry_skips_smash_worker_prompt_when_configured():
+    calls = []
+    namespace = build_namespace(calls)
+    namespace["AUTO"] = False
+    namespace["NODIALOGUE"] = False
+    namespace["SMASH_BRUTE_BRAWL_WORKERS"] = "max"
+    namespace["input"] = lambda prompt: (_ for _ in ()).throw(AssertionError("unexpected prompt"))
+
+    def bridge(runtime, context):
+        calls.append(("bridge", runtime.smash_workers, context))
+        return "bridge-result"
+
+    result = smash_bruteforce.run_legacy_smash_brute_brawl_from_namespace(
+        namespace,
+        "broken.png",
+        "IDAT",
+        4,
+        16,
+        "Relics",
+        bridge=bridge,
+    )
+
+    assert result == "bridge-result"
+    _name, smash_workers, _context = find_call(calls, "bridge")
+    assert smash_workers == "max"
+
+
+def test_legacy_namespace_entry_skips_smash_worker_prompt_in_auto_mode():
+    calls = []
+    namespace = build_namespace(calls)
+    namespace["AUTO"] = True
+    namespace["NODIALOGUE"] = False
+    namespace["SMASH_BRUTE_BRAWL_WORKERS"] = None
+    namespace["input"] = lambda prompt: (_ for _ in ()).throw(AssertionError("unexpected prompt"))
+
+    def bridge(runtime, context):
+        calls.append(("bridge", runtime.smash_workers, context))
+        return "bridge-result"
+
+    result = smash_bruteforce.run_legacy_smash_brute_brawl_from_namespace(
+        namespace,
+        "broken.png",
+        "IDAT",
+        4,
+        16,
+        "Relics",
+        bridge=bridge,
+    )
+
+    assert result == "bridge-result"
+    _name, smash_workers, _context = find_call(calls, "bridge")
+    assert smash_workers == 0
+
+
+def test_legacy_namespace_entry_prompts_for_smash_workers_for_twobytes(monkeypatch):
+    calls = []
+    namespace = build_namespace(calls)
+    namespace["AUTO"] = False
+    namespace["NODIALOGUE"] = False
+    namespace["SMASH_BRUTE_BRAWL_WORKERS"] = None
+    namespace["Prompt_Candy"] = lambda *args: calls.append(("prompt_candy", args))
+    namespace["input"] = lambda prompt: calls.append(("input", prompt)) or "min"
+    monkeypatch.setattr(smash_bruteforce.platform_runtime, "detected_cpu_count", lambda: 16)
+
+    def bridge(runtime, context):
+        calls.append(("bridge", runtime.smash_workers, context.bf_mode))
+        return "bridge-result"
+
+    result = smash_bruteforce.run_legacy_smash_brute_brawl_from_namespace(
+        namespace,
+        "broken.png",
+        "IDAT",
+        4,
+        16,
+        "Relics",
+        "Replace",
+        "TwoBytes",
+        bridge=bridge,
+    )
+
+    assert result == "bridge-result"
+    assert ("input", "SmashBruteBrawl worker profile [0 disabled] > ") in calls
+    assert find_call(calls, "bridge") == ("bridge", 4, "TwoBytes")
 
 
 def test_legacy_namespace_entry_can_override_brute_level_for_one_run():
@@ -517,6 +658,33 @@ def test_direct_resume_loads_source_snapshot_and_invocation():
     assert bridge_call[-1]["brute_level"] == 2
 
 
+def test_write_source_snapshot_keeps_only_decodable_png_preview():
+    with tempfile.TemporaryDirectory() as directory:
+        folder = Path(directory)
+        paths = smash_checkpoint.SmashProgressPaths(
+            folder=str(folder),
+            progress_path=str(folder / smash_checkpoint.SMASH_PROGRESS_NAME),
+            source_raw_path=str(folder / smash_checkpoint.SMASH_SOURCE_RAW_NAME),
+            source_png_path=str(folder / smash_checkpoint.SMASH_SOURCE_NAME),
+        )
+        valid_source = tiny_png_bytes()
+        corrupt_source = tiny_png_bytes(corrupt_idat=True)
+
+        smash_checkpoint.write_source_snapshot(paths, valid_source)
+        assert Path(paths.source_raw_path).read_bytes() == valid_source
+        assert Path(paths.source_png_path).read_bytes() == valid_source
+
+        smash_checkpoint.write_source_snapshot(paths, corrupt_source)
+
+        assert Path(paths.source_raw_path).read_bytes() == corrupt_source
+        assert not Path(paths.source_png_path).exists()
+
+
+def test_source_is_png_decodable_rejects_corrupt_deflate_stream():
+    assert smash_checkpoint.source_is_png_decodable(tiny_png_bytes()) is True
+    assert smash_checkpoint.source_is_png_decodable(tiny_png_bytes(corrupt_idat=True)) is False
+
+
 def main():
     checks = [
         ("Namespace bridge", test_legacy_namespace_entry_builds_bridge_and_syncs_legacy_state),
@@ -525,6 +693,8 @@ def main():
         ("Bridge scan/result", test_legacy_bridge_builds_scan_context_syncs_state_and_runs_result),
         ("Bridge viewer/fallback", test_legacy_bridge_wires_viewer_runtime_and_preserves_existing_diff_fallback),
         ("Direct resume snapshot", test_direct_resume_loads_source_snapshot_and_invocation),
+        ("SBB source snapshot preview", test_write_source_snapshot_keeps_only_decodable_png_preview),
+        ("SBB source corrupt deflate", test_source_is_png_decodable_rejects_corrupt_deflate_stream),
     ]
 
     print("Running smash bruteforce bridge tests")

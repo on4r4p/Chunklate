@@ -247,6 +247,14 @@ def configure_parser(parser: Any) -> Any:
         default="ask",
         metavar="MODE",
     )
+    ultimate.add_argument(
+        "-ulfw",
+        "--ultimate-linefeed-workers",
+        dest="ULTIMATE_LINEFEED_WORKERS",
+        help="Ultimate CPU workers: 0=off, min, normal, max, or N.",
+        default=None,
+        metavar="N|min|normal|max",
+    )
     smash = parser.add_argument_group("smash brute brawl")
     smash.add_argument(
         "-sbb-resume",
@@ -256,6 +264,14 @@ def configure_parser(parser: Any) -> Any:
         choices=("ask", "auto", "never", "reset"),
         default="ask",
         metavar="{ask,auto,never,reset}",
+    )
+    smash.add_argument(
+        "-sbbw",
+        "--smashbrutebrawl-workers",
+        dest="SMASH_BRUTE_BRAWL_WORKERS",
+        help="Smash CPU workers: 0=off, min, normal, max, auto, or N.",
+        default=None,
+        metavar="N|min|normal|max|auto",
     )
     parser.add_argument(
         "--ulfb",
@@ -339,6 +355,13 @@ def configure_parser(parser: Any) -> Any:
         default=SUPPRESS,
         help=SUPPRESS,
         metavar="{ask,auto,never,reset}",
+    )
+    parser.add_argument(
+        "--ulfw",
+        dest="ULTIMATE_LINEFEED_WORKERS",
+        default=SUPPRESS,
+        help=SUPPRESS,
+        metavar="N|min|normal|max",
     )
     parser.add_argument(
         "--ulf-budget",
@@ -484,9 +507,39 @@ def ultimate_linefeed_resume_error(mode: str | None) -> str | None:
     return None
 
 
+def ultimate_linefeed_workers_error(workers: object) -> str | None:
+    if workers is None:
+        return None
+    text = str(workers).strip().lower()
+    if text in ("auto", "min", "normal", "max"):
+        return None
+    try:
+        value = int(text)
+    except (TypeError, ValueError):
+        return "--ultimate-linefeed-workers must be a non-negative integer, min, normal, or max."
+    if value < 0:
+        return "--ultimate-linefeed-workers must be a non-negative integer, min, normal, or max."
+    return None
+
+
 def smash_brute_brawl_resume_error(mode: str | None) -> str | None:
     if str(mode or "ask").strip().lower() not in ("ask", "auto", "never", "reset"):
         return "--smashbrutebrawl-resume must be one of: ask, auto, never, reset."
+    return None
+
+
+def smash_brute_brawl_workers_error(workers: object) -> str | None:
+    if workers is None:
+        return None
+    text = str(workers).strip().lower()
+    if text in ("auto", "min", "normal", "max"):
+        return None
+    try:
+        value = int(text)
+    except (TypeError, ValueError):
+        return "--smashbrutebrawl-workers must be a non-negative integer, min, normal, max, or auto."
+    if value < 0:
+        return "--smashbrutebrawl-workers must be a non-negative integer, min, normal, max, or auto."
     return None
 
 

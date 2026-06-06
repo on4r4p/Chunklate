@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+from io import BytesIO
 import json
 import os
 import time
@@ -10,7 +11,8 @@ from typing import Any, Mapping
 from . import png
 
 
-SMASH_PROGRESS_VERSION = 1
+SMASH_PROGRESS_VERSION = 2
+SMASH_PROGRESS_COMPATIBLE_VERSIONS = (1, 2)
 SMASH_PROGRESS_NAME = "_SBB.progress.json"
 SMASH_SOURCE_RAW_NAME = "_SBB.Source.raw"
 SMASH_SOURCE_NAME = "_SBB.Source.png"
@@ -39,7 +41,11 @@ def source_hash(data: bytes) -> str:
 
 def _hidden_tmp_path(path: str) -> str:
     directory, filename = os.path.split(path)
-    tmp_name = ".%s.tmp" % (filename or "chunklate")
+    tmp_name = ".%s.%s.%s.tmp" % (
+        filename or "chunklate",
+        os.getpid(),
+        time.monotonic_ns(),
+    )
     return os.path.join(directory, tmp_name) if directory else tmp_name
 
 
@@ -74,6 +80,13 @@ def source_is_png_decodable(data: bytes) -> bool:
         tuple(png.iter_chunks(data))
     except Exception:
         return False
+    try:
+        from PIL import Image
+
+        with Image.open(BytesIO(data)) as image:
+            image.load()
+    except Exception:
+        return False
     return True
 
 
@@ -81,6 +94,11 @@ def write_source_snapshot(paths: SmashProgressPaths, data: bytes) -> None:
     atomic_write_bytes(paths.source_raw_path, data)
     if source_is_png_decodable(data):
         atomic_write_bytes(paths.source_png_path, data)
+    elif paths.source_png_path:
+        try:
+            os.remove(paths.source_png_path)
+        except FileNotFoundError:
+            pass
 
 
 def load_json(path: str) -> tuple[dict[str, Any] | None, str]:
@@ -93,7 +111,7 @@ def load_json(path: str) -> tuple[dict[str, Any] | None, str]:
         return None, "SmashBruteBrawl progress checkpoint is not readable: %s" % exc
     if not isinstance(record, dict):
         return None, "SmashBruteBrawl progress checkpoint is not a JSON object."
-    if int(record.get("version", 0) or 0) != SMASH_PROGRESS_VERSION:
+    if int(record.get("version", 0) or 0) not in SMASH_PROGRESS_COMPATIBLE_VERSIONS:
         return None, "SmashBruteBrawl progress checkpoint version is not compatible."
     return record, ""
 
@@ -159,4 +177,3 @@ def progress_due(tested: int, last_write_at: float) -> bool:
     if tested % SMASH_PROGRESS_WRITE_STEP == 0:
         return True
     return time.monotonic() - last_write_at >= SMASH_PROGRESS_WRITE_INTERVAL_SECONDS
-

@@ -547,6 +547,83 @@ def Ultimate_Linefeed_Budget(estimate=None):
     )
 
 
+def _Ultimate_Linefeed_Recommended_Workers():
+    return platform_runtime.recommended_worker_count(profile="normal")
+
+
+def _Ultimate_Linefeed_Worker_Profile_Counts():
+    cpu_count = platform_runtime.detected_cpu_count()
+    return {
+        "cpu": cpu_count,
+        "min": platform_runtime.recommended_worker_count(cpu_count, profile="min"),
+        "normal": platform_runtime.recommended_worker_count(cpu_count, profile="normal"),
+        "max": platform_runtime.recommended_worker_count(cpu_count, profile="max"),
+    }
+
+
+def _Ultimate_Linefeed_Workers_From_Value(value):
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in ("auto", "normal"):
+        return platform_runtime.recommended_worker_count(profile="normal")
+    if text in ("min", "max"):
+        return platform_runtime.recommended_worker_count(profile=text)
+    return max(0, int(text))
+
+
+def _Ultimate_Linefeed_Print_Worker_Menu():
+    counts = _Ultimate_Linefeed_Worker_Profile_Counts()
+    lines = [
+        "Ultimate CPU worker no jutsu:",
+        "CPU detected: %s" % counts["cpu"],
+        "min workers: %s" % counts["min"],
+        "normal workers: %s" % counts["normal"],
+        "max workers: %s" % counts["max"],
+        "",
+        "0. disabled",
+        "min. CPU / 4",
+        "normal. CPU / 2",
+        "max. CPU - 1",
+        "custom. enter an exact worker count",
+        "",
+        "Empty keeps Ultimate single-process.",
+    ]
+    Prompt_Candy("Cowsay", "\n".join(lines), "com")
+
+
+def Ultimate_Linefeed_Workers():
+    configured = globals().get("ULTIMATE_LINEFEED_WORKERS", None)
+    if configured is not None:
+        return _Ultimate_Linefeed_Workers_From_Value(configured)
+    if globals().get("AUTO", False) or globals().get("NODIALOGUE", False):
+        return 0
+
+    while True:
+        _Ultimate_Linefeed_Print_Worker_Menu()
+        try:
+            choice = input("Ultimate worker profile [0 disabled] > ").strip().lower()
+        except EOFError:
+            choice = ""
+        if choice == "":
+            return 0
+        if choice in ("min", "normal", "max", "auto"):
+            return _Ultimate_Linefeed_Workers_From_Value(choice)
+        if choice == "custom":
+            try:
+                choice = input("Custom Ultimate worker count > ").strip().lower()
+            except EOFError:
+                choice = ""
+        try:
+            workers = int(choice)
+        except ValueError:
+            PRINT(Candy("Color", "red", "-Enter 0, min, normal, max, custom, or a worker count."))
+            continue
+        if workers >= 0:
+            return workers
+        PRINT(Candy("Color", "red", "-Worker count must be zero or higher."))
+
+
 def Ultimate_Linefeed_Reference():
     return str(globals().get("ULTIMATE_LINEFEED_REFERENCE", "") or "")
 
@@ -1933,6 +2010,7 @@ ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE = 0.95
 ULTIMATE_LINEFEED_RESUME = "ask"
 ULTIMATE_LINEFEED_LIVE_PREVIEW_FOLDER_REPORTED = ""
 SMASH_BRUTE_BRAWL_RESUME = "ask"
+SMASH_BRUTE_BRAWL_WORKERS = None
 
 FishPos = 0
 LenFishList = 0

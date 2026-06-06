@@ -862,6 +862,10 @@ def test_ultimate_linefeed_budget_modes_apply_divisors_without_upper_cap():
     total = 7_012_540_641
 
     assert idat_bruteforce.ultimate_linefeed_combination_count(5, 4) == 30
+    assert idat_bruteforce._combination_indices_at_rank(5, 3, 0) == (0, 1, 2)
+    assert idat_bruteforce._combination_indices_at_rank(5, 3, 1) == (0, 1, 3)
+    assert idat_bruteforce._combination_indices_at_rank(5, 3, 9) == (2, 3, 4)
+    assert idat_bruteforce._combination_indices_at_rank(5, 3, 10) is None
     assert idat_bruteforce.ultimate_linefeed_budget_decision(total, "quick").budget == 70_126
     assert idat_bruteforce.ultimate_linefeed_budget_decision(total, "normal").budget == 140_251
     assert idat_bruteforce.ultimate_linefeed_budget_decision(total, "deep").budget == 701_255
@@ -887,6 +891,373 @@ def test_ultimate_linefeed_budget_modes_apply_divisors_without_upper_cap():
         pass
     else:
         raise AssertionError("manual budget zero should be rejected")
+
+
+def test_ultimate_progress_round_trips_parallel_shards(tmp_path):
+    progress_path = str(tmp_path / "_ULF.progress.json")
+    shard = {
+        "pool_index": 1,
+        "depth": 3,
+        "start_rank": 50_000,
+        "end_rank": 100_000,
+        "next_rank": 75_000,
+        "tested": 25_000,
+        "pruned": 12,
+        "status": "pending",
+    }
+
+    idat_bruteforce._write_ultimate_progress(
+        progress_path,
+        source_hash="source",
+        target_adler=1234,
+        start_offset=42,
+        max_depth=4,
+        max_offsets=8,
+        operation_pool_hash="merged",
+        focused_operation_pool_hash="focused",
+        broad_operation_pool_hash="broad",
+        phase="exhaustive",
+        depth=3,
+        pool_index=1,
+        combination_rank=75_000,
+        combination_indices=(1, 2, 3),
+        tested_candidates=25_000,
+        pruned_candidates=12,
+        state_count=9,
+        budget=100_000,
+        parallel_workers=3,
+        shard_size=50_000,
+        shards=(shard,),
+        attempted_candidates=90_000,
+    )
+
+    loaded, warning = idat_bruteforce._load_ultimate_progress(
+        progress_path,
+        source_hash="source",
+        target_adler=1234,
+        start_offset=42,
+        max_depth=4,
+        max_offsets=8,
+        operation_pool_hash="merged",
+        focused_operation_pool_hash="focused",
+        broad_operation_pool_hash="broad",
+    )
+
+    assert warning == ""
+    assert loaded is not None
+    assert loaded.version == idat_bruteforce.ULTIMATE_LINEFEED_PROGRESS_VERSION
+    assert loaded.parallel_workers == 3
+    assert loaded.shard_size == 50_000
+    assert loaded.shards == (shard,)
+    assert loaded.attempted_candidates == 90_000
+    assert idat_bruteforce.ultimate_progress_attempted_floor(loaded) == 90_000
+
+
+def test_ultimate_hidden_tmp_path_is_unique_per_write(tmp_path):
+    target = str(tmp_path / "_ULF.progress.json")
+
+    first = idat_bruteforce._hidden_tmp_path(target)
+    second = idat_bruteforce._hidden_tmp_path(target)
+
+    assert first != second
+    assert first.endswith(".tmp")
+    assert second.endswith(".tmp")
+    assert str(tmp_path) in first
+
+
+def test_ultimate_parallel_worker_runs_shard_without_rank_holes():
+    filtered = b"".join(b"\x00" + bytes((13, 10, row)) for row in range(20))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets[:1]):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 20, filtered, idat_data=bytes(compressed))
+    chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    before = idat.analyze_idat_stream(corrupt)
+    suspect_offsets = idat_bruteforce.ultimate_linefeed_suspect_offsets(
+        corrupt,
+        start_offset=idat_bruteforce.first_idat_problem_stream_offset(corrupt),
+        max_offsets=4,
+    )
+    operation_pool = idat_bruteforce._ultimate_operation_pool(
+        root_stream,
+        suspect_offsets,
+        target_adler=before.stored_adler,
+        computed_adler=before.computed_adler,
+    )
+    assert len(operation_pool) >= 3
+
+    context = {
+        "chunks": chunks,
+        "root_stream": root_stream,
+        "before": before,
+        "operation_pools": (operation_pool,),
+        "target_adler": before.stored_adler,
+        "root_parent_score": idat_bruteforce.super_mega_linefeed_score(before, 0),
+        "visual_min_coverage": 0.0,
+        "visual_gallery_limit": 5,
+    }
+    idat_bruteforce._ultimate_parallel_worker_init(context)
+    result = idat_bruteforce._ultimate_parallel_worker_run(
+        {
+            "pool_index": 0,
+            "depth": 1,
+            "start_rank": 0,
+            "end_rank": 3,
+            "next_rank": 0,
+            "tested": 0,
+            "pruned": 0,
+            "status": "pending",
+        }
+    )
+
+    assert result.error == ""
+    assert result.tested == 3
+    assert result.next_rank == 3
+    assert result.shard["start_rank"] == 0
+    assert result.shard["end_rank"] == 3
+
+
+def test_ultimate_parallel_worker_stops_from_shared_event_before_more_work():
+    class FakeProgressQueue:
+        def __init__(self):
+            self.messages = []
+
+        def put_nowait(self, message):
+            self.messages.append(message)
+
+    class FakeStopEvent:
+        def is_set(self):
+            return True
+
+    filtered = b"".join(b"\x00" + bytes((row % 256, 0, 0)) for row in range(16))
+    corrupt = build_rgb_png(1, 16, filtered)
+    chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    before = idat.analyze_idat_stream(corrupt)
+    operation_pool = tuple(
+        idat_bruteforce.SuperMegaLinefeedOperation(
+            "test-insert-cr",
+            offset,
+            b"",
+            b"\r",
+        )
+        for offset in range(80)
+    )
+    progress_queue = FakeProgressQueue()
+
+    context = {
+        "chunks": chunks,
+        "root_stream": root_stream,
+        "before": before,
+        "operation_pools": (operation_pool,),
+        "target_adler": before.stored_adler,
+        "progress_queue": progress_queue,
+        "stop_event": FakeStopEvent(),
+        "root_parent_score": idat_bruteforce.super_mega_linefeed_score(before, 0),
+        "visual_min_coverage": 0.0,
+        "visual_gallery_limit": 0,
+    }
+    idat_bruteforce._ultimate_parallel_worker_init(context)
+    result = idat_bruteforce._ultimate_parallel_worker_run(
+        {
+            "pool_index": 0,
+            "depth": 1,
+            "start_rank": 0,
+            "end_rank": 80,
+            "next_rank": 0,
+            "tested": 0,
+            "pruned": 0,
+            "status": "pending",
+        }
+    )
+
+    assert result.error == ""
+    assert result.tested == 0
+    assert result.next_rank == 0
+    assert progress_queue.messages[-1]["next_rank"] == 0
+    assert progress_queue.messages[-1]["attempted"] == 0
+
+
+def test_ultimate_shutdown_parallel_executor_stops_processes_and_queue():
+    class FakeStopEvent:
+        def __init__(self):
+            self.set_called = False
+
+        def set(self):
+            self.set_called = True
+
+    class FakeProcess:
+        def __init__(self):
+            self.terminated = False
+            self.join_timeout = None
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.terminated = True
+
+        def join(self, timeout):
+            self.join_timeout = timeout
+
+    class FakeExecutor:
+        def __init__(self, process):
+            self._processes = {1: process}
+            self.shutdown_args = None
+
+        def shutdown(self, **kwargs):
+            self.shutdown_args = kwargs
+
+    class FakeQueue:
+        def __init__(self):
+            self.cancelled = False
+            self.closed = False
+
+        def get_nowait(self):
+            raise idat_bruteforce.queue.Empty
+
+        def cancel_join_thread(self):
+            self.cancelled = True
+
+        def close(self):
+            self.closed = True
+
+    stop_event = FakeStopEvent()
+    process = FakeProcess()
+    executor = FakeExecutor(process)
+    progress_queue = FakeQueue()
+
+    idat_bruteforce._ultimate_shutdown_parallel_executor(
+        executor,
+        progress_queue=progress_queue,
+        stop_event=stop_event,
+        grace_seconds=0.01,
+    )
+
+    assert stop_event.set_called is True
+    assert executor.shutdown_args == {"wait": False, "cancel_futures": True}
+    assert process.terminated is True
+    assert process.join_timeout is not None
+    assert progress_queue.cancelled is True
+    assert progress_queue.closed is True
+
+
+def test_ultimate_parallel_worker_reports_progress_before_shard_end(monkeypatch):
+    class FakeProgressQueue:
+        def __init__(self):
+            self.messages = []
+
+        def put_nowait(self, message):
+            self.messages.append(message)
+
+    filtered = b"".join(b"\x00" + bytes((13, 10, row % 256)) for row in range(180))
+    corrupt = build_rgb_png(1, 180, filtered, idat_data=zlib.compress(filtered, level=0))
+    chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    before = idat.analyze_idat_stream(corrupt)
+    operation_pool = tuple(
+        idat_bruteforce.SuperMegaLinefeedOperation(
+            "test-insert-cr",
+            offset,
+            b"",
+            b"\r",
+        )
+        for offset in range(120)
+    )
+    monkeypatch.setattr(idat_bruteforce, "ULTIMATE_LINEFEED_PARALLEL_PROGRESS_STEP", 10)
+    progress_queue = FakeProgressQueue()
+
+    context = {
+        "chunks": chunks,
+        "root_stream": root_stream,
+        "before": before,
+        "operation_pools": (operation_pool,),
+        "target_adler": before.stored_adler,
+        "progress_queue": progress_queue,
+        "root_parent_score": idat_bruteforce.super_mega_linefeed_score(before, 0),
+        "visual_min_coverage": 0.0,
+        "visual_gallery_limit": 0,
+    }
+    idat_bruteforce._ultimate_parallel_worker_init(context)
+    result = idat_bruteforce._ultimate_parallel_worker_run(
+        {
+            "pool_index": 0,
+            "depth": 1,
+            "start_rank": 0,
+            "end_rank": 120,
+            "next_rank": 0,
+            "tested": 0,
+            "pruned": 0,
+            "status": "pending",
+        }
+    )
+
+    assert result.error == ""
+    assert progress_queue.messages
+    assert progress_queue.messages[0]["attempted"] >= 10
+    assert progress_queue.messages[0]["next_rank"] < result.next_rank
+
+
+def test_ultimate_parallel_worker_reports_progress_through_pruned_ranges(monkeypatch):
+    class FakeProgressQueue:
+        def __init__(self):
+            self.messages = []
+
+        def put_nowait(self, message):
+            self.messages.append(message)
+
+    filtered = b"".join(b"\x00" + bytes((row % 256, 0, 0)) for row in range(16))
+    corrupt = build_rgb_png(1, 16, filtered)
+    chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    before = idat.analyze_idat_stream(corrupt)
+    operation_pool = tuple(
+        idat_bruteforce.SuperMegaLinefeedOperation(
+            "test-missing-old-byte",
+            len(root_stream) + 1 + offset,
+            b"\xff",
+            b"\x00",
+        )
+        for offset in range(40)
+    )
+    monkeypatch.setattr(idat_bruteforce, "ULTIMATE_LINEFEED_PARALLEL_PROGRESS_STEP", 10)
+    progress_queue = FakeProgressQueue()
+
+    context = {
+        "chunks": chunks,
+        "root_stream": root_stream,
+        "before": before,
+        "operation_pools": (operation_pool,),
+        "target_adler": before.stored_adler,
+        "progress_queue": progress_queue,
+        "root_parent_score": idat_bruteforce.super_mega_linefeed_score(before, 0),
+        "visual_min_coverage": 0.0,
+        "visual_gallery_limit": 0,
+    }
+    idat_bruteforce._ultimate_parallel_worker_init(context)
+    result = idat_bruteforce._ultimate_parallel_worker_run(
+        {
+            "pool_index": 0,
+            "depth": 1,
+            "start_rank": 0,
+            "end_rank": 40,
+            "next_rank": 0,
+            "tested": 0,
+            "pruned": 0,
+            "status": "pending",
+        }
+    )
+
+    assert result.error == ""
+    assert result.tested == 0
+    assert result.pruned == 40
+    assert progress_queue.messages
+    assert progress_queue.messages[0]["tested"] == 0
+    assert progress_queue.messages[0]["attempted"] >= 10
+    assert progress_queue.messages[0]["next_rank"] < result.next_rank
 
 
 def test_ultimate_linefeed_preview_callback_only_receives_valid_complete_candidates():
@@ -1620,6 +1991,112 @@ def test_ultimate_linefeed_bruteforce_resumes_progress_checkpoint(tmp_path):
     )
 
     progress_calls = []
+    original_load = idat_bruteforce._load_ultimate_checkpoint
+
+    def fail_checkpoint_load(*args, **kwargs):
+        raise AssertionError("v2 exhaustive progress should not scan the checkpoint archive")
+
+    try:
+        idat_bruteforce._load_ultimate_checkpoint = fail_checkpoint_load
+        probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+            corrupt,
+            start_offset=start_offset,
+            checkpoint_path=str(checkpoint),
+            progress_path=str(progress),
+            max_depth=2,
+            max_offsets=64,
+            budget=60,
+            beam_width=1,
+            progress=lambda *args: progress_calls.append(args),
+        )
+    finally:
+        idat_bruteforce._load_ultimate_checkpoint = original_load
+
+    assert probe.progress_resumed is True
+    assert probe.progress_path == str(progress)
+    assert probe.tested_candidates == 60
+    assert probe.budget_exhausted is True
+    assert progress_calls[0] == ("UltimateMegaSuperLineFeedBruteForce", 50, 60)
+    assert ("UltimateMegaSuperLineFeedBruteForce", 0, 60) not in progress_calls
+
+
+def test_ultimate_linefeed_fast_resume_status_and_progress_floor(tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row % 256)) for row in range(120))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 120, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+    checkpoint = tmp_path / "_ULF.checkpoint.jsonl"
+    progress = tmp_path / "_ULF.progress.json"
+    before = idat.analyze_idat_stream(corrupt)
+    _chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    suspect_offsets = idat_bruteforce.ultimate_linefeed_suspect_offsets(
+        corrupt,
+        start_offset=start_offset,
+        max_offsets=64,
+    )
+    focused_pool = idat_bruteforce._ultimate_operation_pool(
+        root_stream,
+        suspect_offsets,
+        target_adler=before.stored_adler,
+        computed_adler=before.computed_adler,
+    )
+    broad_offsets = idat_bruteforce._ultimate_exhaustive_linefeed_offsets(
+        root_stream,
+        suspect_offsets=suspect_offsets,
+        anchor=start_offset,
+        max_offsets=max(64, min(len(root_stream), 64 * 8, 2048)),
+    )
+    broad_pool = idat_bruteforce._ultimate_operation_pool(
+        root_stream,
+        broad_offsets,
+        target_adler=before.stored_adler,
+        computed_adler=before.computed_adler,
+    )
+    merged_pool = idat_bruteforce._merge_ultimate_operations(focused_pool, broad_pool)
+    idat_bruteforce._write_ultimate_progress(
+        str(progress),
+        source_hash=idat_bruteforce._stream_state_key(root_stream),
+        target_adler=before.stored_adler,
+        start_offset=start_offset,
+        max_depth=2,
+        max_offsets=64,
+        operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(merged_pool),
+        focused_operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(focused_pool),
+        broad_operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(broad_pool),
+        phase="exhaustive",
+        depth=1,
+        pool_index=1,
+        combination_rank=10,
+        combination_indices=(10,),
+        tested_candidates=50,
+        pruned_candidates=5,
+        state_count=7,
+        budget=60,
+        parallel_workers=4,
+        shard_size=idat_bruteforce.ULTIMATE_LINEFEED_PARALLEL_SHARD_SIZE,
+        shards=[
+            {
+                "pool_index": 1,
+                "depth": 1,
+                "start_rank": 0,
+                "end_rank": len(merged_pool),
+                "next_rank": min(10, len(merged_pool)),
+                "status": "pending",
+            }
+        ],
+        attempted_candidates=50,
+    )
+
+    progress_calls = []
+    resume_statuses = []
     probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
         corrupt,
         start_offset=start_offset,
@@ -1630,14 +2107,201 @@ def test_ultimate_linefeed_bruteforce_resumes_progress_checkpoint(tmp_path):
         budget=60,
         beam_width=1,
         progress=lambda *args: progress_calls.append(args),
+        resume_status=lambda status: resume_statuses.append(status),
     )
 
-    assert probe.progress_resumed is True
-    assert probe.progress_path == str(progress)
-    assert probe.tested_candidates == 60
-    assert probe.budget_exhausted is True
+    assert probe.fast_resume_used is True
+    assert probe.attempted_floor == 50
+    assert probe.committed_count == 50
+    assert probe.matched_shards == 1
+    assert resume_statuses[0]["fast_resume_used"] is True
+    assert resume_statuses[0]["attempted_floor"] == 50
     assert progress_calls[0] == ("UltimateMegaSuperLineFeedBruteForce", 50, 60)
-    assert ("UltimateMegaSuperLineFeedBruteForce", 0, 60) not in progress_calls
+
+
+def test_ultimate_linefeed_rejects_incompatible_fast_resume_shards(tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row % 256)) for row in range(120))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 120, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+    checkpoint = tmp_path / "_ULF.checkpoint.jsonl"
+    progress = tmp_path / "_ULF.progress.json"
+    before = idat.analyze_idat_stream(corrupt)
+    _chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    suspect_offsets = idat_bruteforce.ultimate_linefeed_suspect_offsets(
+        corrupt,
+        start_offset=start_offset,
+        max_offsets=64,
+    )
+    focused_pool = idat_bruteforce._ultimate_operation_pool(
+        root_stream,
+        suspect_offsets,
+        target_adler=before.stored_adler,
+        computed_adler=before.computed_adler,
+    )
+    broad_offsets = idat_bruteforce._ultimate_exhaustive_linefeed_offsets(
+        root_stream,
+        suspect_offsets=suspect_offsets,
+        anchor=start_offset,
+        max_offsets=max(64, min(len(root_stream), 64 * 8, 2048)),
+    )
+    broad_pool = idat_bruteforce._ultimate_operation_pool(
+        root_stream,
+        broad_offsets,
+        target_adler=before.stored_adler,
+        computed_adler=before.computed_adler,
+    )
+    merged_pool = idat_bruteforce._merge_ultimate_operations(focused_pool, broad_pool)
+    idat_bruteforce._write_ultimate_progress(
+        str(progress),
+        source_hash=idat_bruteforce._stream_state_key(root_stream),
+        target_adler=before.stored_adler,
+        start_offset=start_offset,
+        max_depth=2,
+        max_offsets=64,
+        operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(merged_pool),
+        focused_operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(focused_pool),
+        broad_operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(broad_pool),
+        phase="exhaustive",
+        depth=1,
+        pool_index=1,
+        combination_rank=10,
+        combination_indices=(10,),
+        tested_candidates=50,
+        pruned_candidates=5,
+        state_count=7,
+        budget=0,
+        parallel_workers=4,
+        shard_size=idat_bruteforce.ULTIMATE_LINEFEED_PARALLEL_SHARD_SIZE,
+        shards=[
+            {
+                "pool_index": 99,
+                "depth": 1,
+                "start_rank": 0,
+                "end_rank": 50000,
+                "next_rank": 250,
+                "status": "pending",
+            }
+        ],
+        attempted_candidates=50,
+    )
+
+    progress_calls = []
+    resume_statuses = []
+    probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        corrupt,
+        start_offset=start_offset,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+        max_depth=2,
+        max_offsets=64,
+        budget=0,
+        beam_width=1,
+        progress=lambda *args: progress_calls.append(args),
+        resume_status=lambda status: resume_statuses.append(status),
+    )
+
+    assert probe.fast_resume_used is False
+    assert "cursor shards" in probe.fast_resume_rejected_reason
+    assert resume_statuses[0]["fast_resume_used"] is False
+    assert "cursor shards" in resume_statuses[0]["fast_resume_rejected_reason"]
+    assert progress_calls[0] == ("UltimateMegaSuperLineFeedBruteForce", 0, 1)
+
+
+def test_ultimate_linefeed_complete_progress_does_not_scan_or_relaunch(tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row % 256)) for row in range(120))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 120, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+    checkpoint = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"
+    progress = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.progress.json"
+    before = idat.analyze_idat_stream(corrupt)
+    _chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    suspect_offsets = idat_bruteforce.ultimate_linefeed_suspect_offsets(
+        corrupt,
+        start_offset=start_offset,
+        max_offsets=64,
+    )
+    focused_pool = idat_bruteforce._ultimate_operation_pool(
+        root_stream,
+        suspect_offsets,
+        target_adler=before.stored_adler,
+        computed_adler=before.computed_adler,
+    )
+    broad_offsets = idat_bruteforce._ultimate_exhaustive_linefeed_offsets(
+        root_stream,
+        suspect_offsets=suspect_offsets,
+        anchor=start_offset,
+        max_offsets=max(64, min(len(root_stream), 64 * 8, 2048)),
+    )
+    broad_pool = idat_bruteforce._ultimate_operation_pool(
+        root_stream,
+        broad_offsets,
+        target_adler=before.stored_adler,
+        computed_adler=before.computed_adler,
+    )
+    merged_pool = idat_bruteforce._merge_ultimate_operations(focused_pool, broad_pool)
+    idat_bruteforce._write_ultimate_progress(
+        str(progress),
+        source_hash=idat_bruteforce._stream_state_key(root_stream),
+        target_adler=before.stored_adler,
+        start_offset=start_offset,
+        max_depth=2,
+        max_offsets=64,
+        operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(merged_pool),
+        focused_operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(focused_pool),
+        broad_operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(broad_pool),
+        phase="complete",
+        depth=2,
+        pool_index=1,
+        combination_rank=50,
+        combination_indices=None,
+        tested_candidates=50,
+        pruned_candidates=5,
+        state_count=7,
+        budget=None,
+    )
+    original_load = idat_bruteforce._load_ultimate_checkpoint
+
+    def fail_checkpoint_load(*args, **kwargs):
+        raise AssertionError("complete progress should not scan the checkpoint archive")
+
+    try:
+        idat_bruteforce._load_ultimate_checkpoint = fail_checkpoint_load
+        probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+            corrupt,
+            start_offset=start_offset,
+            checkpoint_path=str(checkpoint),
+            progress_path=str(progress),
+            max_depth=2,
+            max_offsets=64,
+            budget=None,
+            beam_width=1,
+            ultimate_workers=2,
+        )
+    finally:
+        idat_bruteforce._load_ultimate_checkpoint = original_load
+
+    assert probe.progress_resumed is True
+    assert probe.tested_candidates == 50
+    assert probe.best is None
+    assert probe.reason == "previous Ultimate run already marked this search complete"
 
 
 def test_ultimate_linefeed_probe_draws_progress_before_checkpoint_load(tmp_path):
@@ -1717,7 +2381,7 @@ def test_load_ultimate_checkpoint_emits_resume_progress(tmp_path):
     assert len(loaded) == 2
     assert resumed == 2
     assert calls[0] == ("UltimateMegaSuperLineFeedBruteForce", 1, 100)
-    assert calls[-1] == ("UltimateMegaSuperLineFeedBruteForce", 2, 100)
+    assert calls[-1] == ("UltimateMegaSuperLineFeedBruteForce", 4, 100)
 
 
 def test_load_ultimate_checkpoint_limits_candidate_rebuild(tmp_path, monkeypatch):
@@ -1770,6 +2434,8 @@ def test_load_ultimate_checkpoint_limits_candidate_rebuild(tmp_path, monkeypatch
 
     monkeypatch.setattr(idat_bruteforce.idat, "analyze_idat_stream", counting_analyze)
     monkeypatch.setattr(idat_bruteforce, "_replay_operations", counting_replay)
+    monkeypatch.setattr(idat_bruteforce, "ULTIMATE_LINEFEED_PROGRESS_STEP", 2)
+    progress_calls = []
     loaded, visited, next_state_id, resumed = idat_bruteforce._load_ultimate_checkpoint(
         str(checkpoint),
         source_hash=source_hash,
@@ -1777,6 +2443,8 @@ def test_load_ultimate_checkpoint_limits_candidate_rebuild(tmp_path, monkeypatch
         chunks=chunks,
         before=before,
         target_adler=before.stored_adler,
+        progress=lambda *args: progress_calls.append(args),
+        progress_total=100,
         candidate_limit=3,
         beam_width=2,
     )
@@ -1788,6 +2456,7 @@ def test_load_ultimate_checkpoint_limits_candidate_rebuild(tmp_path, monkeypatch
     assert len(loaded) == 5
     assert len(calls) == 5
     assert len(replay_calls) == 5
+    assert progress_calls[-1] == ("UltimateMegaSuperLineFeedBruteForce", 25, 100)
     assert {18, 19}.issubset(loaded_ids)
     assert {0, 1, 2}.issubset(loaded_ids)
     assert 10 not in loaded_ids
@@ -2000,37 +2669,15 @@ def test_ultimate_linefeed_sigint_flushes_visual_gallery(tmp_path):
     checkpoint = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"
     progress_path = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.progress.json"
     visual_path = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.visual.json"
-    _chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
-    checkpoint.write_text(
-        json.dumps(
-            {
-                "source_hash": idat_bruteforce._stream_state_key(root_stream),
-                "state_id": 1,
-                "parent_id": 0,
-                "operations": [],
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
     sent = False
-    positive_progress_calls = 0
     captured_handler = {"handler": None}
 
     def progress(_stage, tested, _budget):
-        nonlocal positive_progress_calls, sent
-        if tested >= 1:
-            positive_progress_calls += 1
-        if (
-            positive_progress_calls >= 2
-            and captured_handler["handler"] is not None
-            and not sent
-        ):
-            sent = True
-            captured_handler["handler"](signal.SIGINT, None)
+        return None
 
     original_signal = idat_bruteforce.signal.signal
     original_getsignal = idat_bruteforce.signal.getsignal
+    original_preview = idat_bruteforce._preview_ultimate_candidate_if_valid
 
     def fake_getsignal(signum):
         if signum == signal.SIGINT:
@@ -2043,10 +2690,18 @@ def test_ultimate_linefeed_sigint_flushes_visual_gallery(tmp_path):
             return original_getsignal(signum)
         return original_signal(signum, handler)
 
+    def preview_then_interrupt(*args, **kwargs):
+        nonlocal sent
+        original_preview(*args, **kwargs)
+        if captured_handler["handler"] is not None and not sent:
+            sent = True
+            captured_handler["handler"](signal.SIGINT, None)
+
     interrupted = False
     try:
         idat_bruteforce.signal.getsignal = fake_getsignal
         idat_bruteforce.signal.signal = fake_signal
+        idat_bruteforce._preview_ultimate_candidate_if_valid = preview_then_interrupt
         idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
             corrupt,
             start_offset=idat_bruteforce.first_idat_problem_stream_offset(corrupt),
@@ -2057,12 +2712,14 @@ def test_ultimate_linefeed_sigint_flushes_visual_gallery(tmp_path):
             budget=4,
             beam_width=1,
             progress=progress,
+            candidate_preview=lambda *_args: None,
         )
-    except KeyboardInterrupt:
+    except idat_bruteforce.UltimateLinefeedInterrupted:
         interrupted = True
     finally:
         idat_bruteforce.signal.getsignal = original_getsignal
         idat_bruteforce.signal.signal = original_signal
+        idat_bruteforce._preview_ultimate_candidate_if_valid = original_preview
 
     assert interrupted is True
     assert progress_path.exists()
@@ -2073,6 +2730,41 @@ def test_ultimate_linefeed_sigint_flushes_visual_gallery(tmp_path):
     previews = list(preview_dir.glob("_VisualCandidate_*.png"))
     assert previews
     assert validate_png_structure(previews[0].read_bytes()).ok
+
+
+def test_ultimate_linefeed_backfill_flush_progress_counts_kept_candidates():
+    clean = build_rgb_png(1, 2, b"\x00abc" + b"\x00def")
+    analysis = idat.analyze_idat_stream(clean)
+    candidate = idat_bruteforce.SuperMegaLinefeedCandidate(
+        clean,
+        (),
+        analysis,
+        analysis,
+        state_id=1,
+        parent_id=0,
+        source_offsets=(),
+        score=idat_bruteforce.super_mega_linefeed_score(analysis, 0),
+    )
+    backfill = idat_bruteforce.UltimateVisualBackfillCandidate(
+        candidate,
+        tested_candidates=12,
+        structural_rank=(0, 0, 0),
+        coverage=1.0,
+    )
+    calls = []
+
+    filled = idat_bruteforce._fill_ultimate_visual_gallery_from_backfill(
+        (),
+        (backfill,),
+        reference_image=None,
+        reference_mode="exact",
+        min_coverage=0.0,
+        limit=123,
+        progress=lambda current, total: calls.append((current, total)),
+    )
+
+    assert len(filled) == 1
+    assert calls == [(1, 123)]
 
 
 def test_ultimate_linefeed_visual_reference_scores_local_png(tmp_path):
@@ -2477,6 +3169,42 @@ def test_ultimate_linefeed_bruteforce_spends_budget_when_no_terminal_match(tmp_p
     assert ("UltimateMegaSuperLineFeedBruteForce", 100, 300) in progress_calls
     assert ("UltimateMegaSuperLineFeedBruteForce", 200, 300) in progress_calls
     assert ("UltimateMegaSuperLineFeedBruteForce", 300, 300) in progress_calls
+
+
+def test_ultimate_linefeed_parallel_progress_updates_before_result_shards_finish(tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row % 256)) for row in range(120))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 120, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+    progress_calls = []
+
+    probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        corrupt,
+        start_offset=start_offset,
+        checkpoint_path=str(tmp_path / "_ULF.checkpoint.jsonl"),
+        progress_path=str(tmp_path / "_ULF.progress.json"),
+        max_depth=2,
+        max_offsets=128,
+        budget=500,
+        beam_width=1,
+        ultimate_workers=2,
+        progress=lambda stage, tested, budget: progress_calls.append((stage, tested, budget)),
+    )
+
+    assert probe.tested_candidates == 500
+    assert probe.budget_exhausted is True
+    displayed = [tested for _stage, tested, _budget in progress_calls]
+    assert displayed == sorted(displayed)
+    assert ("UltimateMegaSuperLineFeedBruteForce", 100, 500) in progress_calls
+    assert ("UltimateMegaSuperLineFeedBruteForce", 200, 500) in progress_calls
 
 
 def test_ultimate_linefeed_bruteforce_broadens_small_focused_space(tmp_path):
@@ -3036,6 +3764,14 @@ def main():
         (
             "Ultimate progress resume",
             test_ultimate_linefeed_bruteforce_resumes_progress_checkpoint,
+        ),
+        (
+            "Ultimate sigint visual flush",
+            test_ultimate_linefeed_sigint_flushes_visual_gallery,
+        ),
+        (
+            "Ultimate backfill flush progress",
+            test_ultimate_linefeed_backfill_flush_progress_counts_kept_candidates,
         ),
         (
             "Ultimate visual reference rank",

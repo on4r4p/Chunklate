@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from dataclasses import dataclass, replace
 from decimal import Decimal
 import hashlib
+import heapq
 import itertools
 import json
 import math
+import multiprocessing
 import os
+import queue
 import signal
 import time
 import zlib
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 from . import deflate_header
 from . import idat
@@ -20,9 +24,14 @@ from . import png
 ProgressCallback = Callable[[int, int, bool], None]
 QueueProgressCallback = Callable[[str, int, int], None]
 UltimateCandidatePreviewCallback = Callable[["SuperMegaLinefeedCandidate", int, int], None]
+UltimateInterruptFlushProgressCallback = Callable[[int, int], None]
+UltimateInterruptRepeatCallback = Callable[[int], None]
+UltimateResumeStatusCallback = Callable[[dict[str, Any]], None]
 UNBOUNDED_PROGRESS_TOTAL = 10**12
 ULTIMATE_LINEFEED_PROGRESS_STEP = 100
 ULTIMATE_LINEFEED_PROGRESS_INTERVAL_SECONDS = 2.0
+ULTIMATE_LINEFEED_PARALLEL_PROGRESS_STEP = 100
+ULTIMATE_LINEFEED_PARALLEL_PROGRESS_POLL_SECONDS = 0.25
 ULTIMATE_LINEFEED_MIN_BUDGET = 50_000
 ULTIMATE_LINEFEED_ETA_CANDIDATES_PER_SECOND = 100
 ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT = 100
@@ -50,12 +59,19 @@ ULTIMATE_LINEFEED_BUDGET_DIVISORS = {
 ULTIMATE_LINEFEED_TOP_CANDIDATES = 5
 KNOWN_UNIVERSE_ATOM_ESTIMATE = 10**80
 KNOWN_UNIVERSE_ATOM_ESTIMATE_LABEL = "10^80"
-ULTIMATE_LINEFEED_PROGRESS_VERSION = 1
+ULTIMATE_LINEFEED_PROGRESS_VERSION = 2
+ULTIMATE_LINEFEED_LEGACY_PROGRESS_VERSION = 1
+ULTIMATE_LINEFEED_PARALLEL_SHARD_SIZE = 50_000
+ULTIMATE_LINEFEED_PARALLEL_SHUTDOWN_GRACE_SECONDS = 5.0
 
 
 def _hidden_tmp_path(path: str) -> str:
     directory, filename = os.path.split(path)
-    tmp_name = ".%s.tmp" % (filename or "chunklate")
+    tmp_name = ".%s.%s.%s.tmp" % (
+        filename or "chunklate",
+        os.getpid(),
+        time.monotonic_ns(),
+    )
     return os.path.join(directory, tmp_name) if directory else tmp_name
 
 
@@ -239,6 +255,14 @@ class UltimateLinefeedProbeResult:
     visual_gallery_path: str = ""
     visual_preview_count: int = 0
     visual_gallery_limit: int = ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT
+    fast_resume_used: bool = False
+    fast_resume_rejected_reason: str = ""
+    attempted_floor: int = 0
+    committed_count: int = 0
+    matched_shards: int = 0
+    pending_shards: int = 0
+    current_workers: int = 0
+    saved_workers: int = 0
 
     @property
     def improved(self) -> bool:
@@ -368,12 +392,393 @@ class UltimateLinefeedProgress:
     state_count: int
     budget: int | None
     timestamp: float
+    parallel_workers: int = 0
+    shard_size: int = 0
+    shards: tuple[dict[str, Any], ...] = ()
+    version: int = ULTIMATE_LINEFEED_LEGACY_PROGRESS_VERSION
+    attempted_candidates: int = 0
 
 
 class UltimateLinefeedInterrupted(Exception):
     def __init__(self, progress_path: str):
         self.progress_path = progress_path
         super().__init__("UltimateMegaSuperLineFeedBruteForce interrupted; progress saved to %s" % progress_path)
+
+
+def _ultimate_progress_shard_attempted(shard: dict[str, Any]) -> int:
+    try:
+        start_rank = int(shard.get("start_rank", 0) or 0)
+        end_rank = int(shard.get("end_rank", start_rank) or start_rank)
+        next_rank = int(shard.get("next_rank", start_rank) or start_rank)
+    except (TypeError, ValueError):
+        return 0
+    if str(shard.get("status", "")) == "done":
+        next_rank = end_rank
+    next_rank = min(max(start_rank, next_rank), max(start_rank, end_rank))
+    return max(0, next_rank - start_rank)
+
+
+def ultimate_progress_attempted_floor(progress: UltimateLinefeedProgress | None) -> int:
+    if progress is None:
+        return 0
+    shard_attempted = sum(
+        _ultimate_progress_shard_attempted(shard)
+        for shard in getattr(progress, "shards", ())
+        if isinstance(shard, dict)
+    )
+    combination_rank = (
+        max(0, int(getattr(progress, "combination_rank", 0) or 0))
+        if getattr(progress, "phase", "") == "exhaustive"
+        else 0
+    )
+    return max(
+        0,
+        int(getattr(progress, "attempted_candidates", 0) or 0),
+        int(getattr(progress, "tested_candidates", 0) or 0),
+        combination_rank,
+        shard_attempted,
+    )
+
+
+def _ultimate_progress_shard_audit(
+    progress: UltimateLinefeedProgress | None,
+    operation_pools: tuple[tuple[SuperMegaLinefeedOperation, ...], ...],
+    *,
+    max_depth: int,
+    shard_size: int = ULTIMATE_LINEFEED_PARALLEL_SHARD_SIZE,
+) -> dict[str, int]:
+    if progress is None:
+        return {"saved": 0, "matched": 0, "pending": 0, "done": 0}
+    saved = 0
+    matched = 0
+    pending = 0
+    done = 0
+    for item in getattr(progress, "shards", ()):
+        if not isinstance(item, dict):
+            continue
+        saved += 1
+        status = str(item.get("status", "")).strip().lower()
+        if status == "done":
+            done += 1
+        else:
+            pending += 1
+        try:
+            pool_index = int(item.get("pool_index", 0) or 0)
+            depth = int(item.get("depth", 0) or 0)
+            start_rank = int(item.get("start_rank", 0) or 0)
+            end_rank = int(item.get("end_rank", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if pool_index < 0 or pool_index >= len(operation_pools):
+            continue
+        if depth < 1 or depth > max(1, max_depth):
+            continue
+        operation_pool = operation_pools[pool_index]
+        if depth > len(operation_pool):
+            continue
+        total_ranks = math.comb(len(operation_pool), depth)
+        expected_end = min(total_ranks, start_rank + max(1, int(shard_size or 1)))
+        if start_rank < 0 or start_rank >= total_ranks:
+            continue
+        if end_rank == expected_end:
+            matched += 1
+    return {"saved": saved, "matched": matched, "pending": pending, "done": done}
+
+
+@dataclass(frozen=True)
+class UltimateParallelShardResult:
+    shard: dict[str, Any]
+    tested: int
+    pruned: int
+    state_count: int
+    next_rank: int
+    candidates: tuple[SuperMegaLinefeedCandidate, ...]
+    terminal: bool = False
+    error: str = ""
+
+
+_ULTIMATE_PARALLEL_WORKER_CONTEXT: dict[str, Any] = {}
+
+
+def _ultimate_parallel_worker_init(context: dict[str, Any]) -> None:
+    global _ULTIMATE_PARALLEL_WORKER_CONTEXT
+    _ULTIMATE_PARALLEL_WORKER_CONTEXT = dict(context)
+
+
+def _ultimate_parallel_worker_run(shard: dict[str, Any]) -> UltimateParallelShardResult:
+    context = _ULTIMATE_PARALLEL_WORKER_CONTEXT
+    try:
+        chunks = context["chunks"]
+        root_stream = context["root_stream"]
+        before = context["before"]
+        operation_pool = context["operation_pools"][int(shard["pool_index"])]
+        target_adler = context["target_adler"]
+        progress_queue = context.get("progress_queue")
+        stop_event = context.get("stop_event")
+        root_parent_score = tuple(context["root_parent_score"])
+        visual_min_coverage = float(context["visual_min_coverage"])
+        visual_gallery_limit = int(context["visual_gallery_limit"])
+        depth = int(shard["depth"])
+        rank = int(shard["next_rank"])
+        end_rank = int(shard["end_rank"])
+        local_seen: set[str] = set()
+        local_top: tuple[SuperMegaLinefeedCandidate, ...] = ()
+        local_backfill: tuple[UltimateVisualBackfillCandidate, ...] = ()
+        tested = 0
+        pruned = 0
+        state_count = 0
+        terminal = False
+        start_rank = int(shard.get("next_rank", shard.get("start_rank", 0)) or 0)
+        shard_progress_key = "%s:%s:%s:%s" % (
+            int(shard.get("pool_index", 0) or 0),
+            int(shard.get("depth", 0) or 0),
+            int(shard.get("start_rank", 0) or 0),
+            int(shard.get("end_rank", 0) or 0),
+        )
+        last_progress_tested = 0
+        last_progress_rank = start_rank
+
+        def stop_requested() -> bool:
+            is_set = getattr(stop_event, "is_set", None)
+            if not callable(is_set):
+                return False
+            try:
+                return bool(is_set())
+            except (OSError, RuntimeError, ValueError):
+                return False
+
+        def report_progress(next_rank: int, *, force: bool = False) -> None:
+            nonlocal last_progress_tested, last_progress_rank
+            if progress_queue is None:
+                return
+            rank_delta = int(next_rank) - last_progress_rank
+            tested_delta = tested - last_progress_tested
+            if (
+                not force
+                and rank_delta < ULTIMATE_LINEFEED_PARALLEL_PROGRESS_STEP
+                and tested_delta < ULTIMATE_LINEFEED_PARALLEL_PROGRESS_STEP
+            ):
+                return
+            last_progress_tested = tested
+            last_progress_rank = int(next_rank)
+            try:
+                progress_queue.put_nowait(
+                    {
+                        "key": shard_progress_key,
+                        "next_rank": int(next_rank),
+                        "tested": int(tested),
+                        "pruned": int(pruned),
+                        "attempted": max(0, int(next_rank) - start_rank),
+                    }
+                )
+            except (AttributeError, OSError, ValueError):
+                pass
+
+        indices = _combination_indices_at_rank(len(operation_pool), depth, rank)
+        while indices is not None and rank < end_rank:
+            if (
+                rank == start_rank
+                or (rank - start_rank) % ULTIMATE_LINEFEED_PARALLEL_PROGRESS_STEP == 0
+            ) and stop_requested():
+                report_progress(rank, force=True)
+                break
+            combination = tuple(operation_pool[index] for index in indices)
+            operations = _normalize_ultimate_operation_sequence(combination)
+            candidate_stream = _replay_operations(root_stream, operations)
+            next_indices = _next_combination_indices(indices, len(operation_pool), depth)
+            if candidate_stream is None:
+                pruned += 1
+                rank += 1
+                report_progress(rank)
+                indices = next_indices
+                continue
+            stream_hash = _stream_state_key(candidate_stream)
+            if stream_hash in local_seen:
+                pruned += 1
+                rank += 1
+                report_progress(rank)
+                indices = next_indices
+                continue
+            local_seen.add(stream_hash)
+            tested += 1
+
+            candidate_data = _rebuild_with_single_idat_stream(chunks, candidate_stream)
+            candidate_analysis = idat.analyze_idat_stream(
+                candidate_data,
+                source_kind="candidate_from_original",
+                crc_provenance="rebuilt_by_chunklate",
+                target_adler=target_adler,
+            )
+            candidate_score = super_mega_linefeed_score(candidate_analysis, len(operations))
+            candidate = SuperMegaLinefeedCandidate(
+                candidate_data,
+                operations,
+                before,
+                candidate_analysis,
+                state_id=0,
+                parent_id=0,
+                source_offsets=tuple(operation.stream_offset for operation in operations),
+                score=candidate_score,
+            )
+            state_count += 1
+            local_top = _remember_ultimate_top_candidate(
+                local_top,
+                candidate,
+                limit=max(ULTIMATE_LINEFEED_TOP_CANDIDATES, min(25, max(5, visual_gallery_limit))),
+            )
+            if visual_gallery_limit > 0:
+                local_backfill = _remember_ultimate_visual_backfill_candidate(
+                    local_backfill,
+                    candidate,
+                    tested=tested,
+                    min_coverage=visual_min_coverage,
+                    limit=max(1, min(visual_gallery_limit, 25)),
+                )
+
+            prune_reason = _ultimate_prune_reason(before, candidate.after)
+            if (
+                _ultimate_prune_is_fatal(prune_reason, depth)
+                and candidate.after.adler_status != "adler_match"
+            ):
+                pruned += 1
+            elif depth > 2 and candidate_score <= root_parent_score:
+                pruned += 1
+            if candidate.after.complete and (
+                target_adler is None or candidate.after.adler_status == "adler_match"
+            ):
+                terminal = True
+                rank += 1
+                report_progress(rank)
+                break
+            rank += 1
+            report_progress(rank)
+            indices = next_indices
+
+        report_progress(rank, force=True)
+        by_hash: dict[str, SuperMegaLinefeedCandidate] = {}
+        for candidate in local_top:
+            by_hash[hashlib.blake2b(candidate.data, digest_size=16).hexdigest()] = candidate
+        for item in local_backfill:
+            by_hash.setdefault(
+                hashlib.blake2b(item.candidate.data, digest_size=16).hexdigest(),
+                item.candidate,
+            )
+        return UltimateParallelShardResult(
+            shard=dict(shard),
+            tested=tested,
+            pruned=pruned,
+            state_count=state_count,
+            next_rank=rank,
+            candidates=tuple(by_hash.values()),
+            terminal=terminal,
+        )
+    except BaseException as exc:
+        failed = dict(shard)
+        return UltimateParallelShardResult(
+            shard=failed,
+            tested=0,
+            pruned=0,
+            state_count=0,
+            next_rank=int(failed.get("next_rank", failed.get("start_rank", 0)) or 0),
+            candidates=(),
+            error="%s: %s" % (type(exc).__name__, exc),
+        )
+
+
+def _ultimate_parallel_mp_context():
+    try:
+        methods = multiprocessing.get_all_start_methods()
+        method = "fork" if "fork" in methods else "spawn"
+        return multiprocessing.get_context(method)
+    except (RuntimeError, ValueError):
+        return None
+
+
+def _ultimate_close_parallel_progress_queue(progress_queue: Any) -> None:
+    if progress_queue is None:
+        return
+    try:
+        while True:
+            progress_queue.get_nowait()
+    except (queue.Empty, EOFError, OSError, ValueError, AttributeError):
+        pass
+    cancel_join_thread = getattr(progress_queue, "cancel_join_thread", None)
+    if callable(cancel_join_thread):
+        try:
+            cancel_join_thread()
+        except (OSError, RuntimeError, ValueError):
+            pass
+    close = getattr(progress_queue, "close", None)
+    if callable(close):
+        try:
+            close()
+        except (OSError, RuntimeError, ValueError):
+            pass
+
+
+def _ultimate_shutdown_parallel_executor(
+    executor: ProcessPoolExecutor,
+    *,
+    futures: dict[Any, dict[str, Any]] | None = None,
+    progress_queue: Any = None,
+    stop_event: Any = None,
+    grace_seconds: float = ULTIMATE_LINEFEED_PARALLEL_SHUTDOWN_GRACE_SECONDS,
+) -> None:
+    set_stop = getattr(stop_event, "set", None)
+    if callable(set_stop):
+        try:
+            set_stop()
+        except (OSError, RuntimeError, ValueError):
+            pass
+    pending_futures = tuple(futures) if futures else ()
+    if pending_futures:
+        try:
+            _done, pending = wait(pending_futures, timeout=max(0.0, float(grace_seconds)))
+        except (OSError, RuntimeError, ValueError):
+            pending = pending_futures
+        for future in pending:
+            cancel = getattr(future, "cancel", None)
+            if callable(cancel):
+                try:
+                    cancel()
+                except (OSError, RuntimeError, ValueError):
+                    pass
+    processes = getattr(executor, "_processes", None)
+    try:
+        executor.shutdown(wait=False, cancel_futures=True)
+    except TypeError:
+        executor.shutdown(wait=False)
+    if isinstance(processes, dict):
+        deadline = time.monotonic() + max(0.0, float(grace_seconds))
+        for process in tuple(processes.values()):
+            poll = getattr(process, "poll", None)
+            is_alive = getattr(process, "is_alive", None)
+            alive = True
+            if callable(poll):
+                try:
+                    alive = poll() is None
+                except (OSError, RuntimeError, ValueError):
+                    alive = True
+            elif callable(is_alive):
+                try:
+                    alive = bool(is_alive())
+                except (OSError, RuntimeError, ValueError):
+                    alive = True
+            if alive:
+                terminate = getattr(process, "terminate", None)
+                if callable(terminate):
+                    try:
+                        terminate()
+                    except (OSError, RuntimeError, ValueError):
+                        pass
+        for process in tuple(processes.values()):
+            join = getattr(process, "join", None)
+            if callable(join):
+                try:
+                    join(max(0.0, deadline - time.monotonic()))
+                except (OSError, RuntimeError, ValueError):
+                    pass
+    _ultimate_close_parallel_progress_queue(progress_queue)
 
 
 def analysis_score(analysis: idat.IdatStreamAnalysis) -> tuple[int, int, int, int, int]:
@@ -1455,18 +1860,24 @@ def _load_ultimate_checkpoint(
     next_state_id = 1
     last_progress_at = time.monotonic()
     processed = 0
+    rebuilt = 0
 
     def emit_load_progress(force: bool = False) -> None:
         nonlocal last_progress_at
         if progress is None:
             return
         now = time.monotonic()
-        if not force and now - last_progress_at < ULTIMATE_LINEFEED_PROGRESS_INTERVAL_SECONDS:
+        current = processed + rebuilt
+        if (
+            not force
+            and current % ULTIMATE_LINEFEED_PROGRESS_STEP != 0
+            and now - last_progress_at < ULTIMATE_LINEFEED_PROGRESS_INTERVAL_SECONDS
+        ):
             return
         last_progress_at = now
         progress(
             progress_stage,
-            min(processed, max(1, int(progress_total))),
+            min(current, max(1, int(progress_total))),
             max(1, int(progress_total)),
         )
 
@@ -1532,7 +1943,7 @@ def _load_ultimate_checkpoint(
         beam_count = max(1, int(beam_width))
         for entry in entries[-beam_count:]:
             selected[int(entry["index"])] = entry
-        for entry in sorted(entries, key=record_rank)[: int(candidate_limit)]:
+        for entry in heapq.nsmallest(int(candidate_limit), entries, key=record_rank):
             selected[int(entry["index"])] = entry
         selected_entries = [
             entry
@@ -1579,6 +1990,8 @@ def _load_ultimate_checkpoint(
                 score=score,
             )
         )
+        rebuilt += 1
+        emit_load_progress()
 
     emit_load_progress(force=bool(entries))
     return loaded, visited, next_state_id, len(entries)
@@ -1647,8 +2060,10 @@ def _load_ultimate_progress(
         return None, "could not load ultimate progress checkpoint %s: %s" % (progress_path, exc)
     if not isinstance(record, dict):
         return None, "ultimate progress checkpoint %s is not a JSON object" % progress_path
+    version = int(record.get("version", ULTIMATE_LINEFEED_LEGACY_PROGRESS_VERSION) or 0)
+    if version not in (ULTIMATE_LINEFEED_LEGACY_PROGRESS_VERSION, ULTIMATE_LINEFEED_PROGRESS_VERSION):
+        return None, "ultimate progress checkpoint %s has unsupported version %s" % (progress_path, version)
     expected = {
-        "version": ULTIMATE_LINEFEED_PROGRESS_VERSION,
         "source_hash": source_hash,
         "target_adler": target_adler,
         "start_offset": start_offset,
@@ -1683,6 +2098,15 @@ def _load_ultimate_progress(
                 int(record.get("state_count", 1)),
                 None if record.get("budget") is None else int(record.get("budget", 0)),
                 float(record.get("timestamp", 0.0)),
+                int(record.get("parallel_workers", 0) or 0),
+                int(record.get("shard_size", 0) or 0),
+                tuple(
+                    item
+                    for item in record.get("shards", ())
+                    if isinstance(item, dict)
+                ),
+                version,
+                int(record.get("attempted_candidates", 0) or 0),
             ),
             "",
         )
@@ -1770,6 +2194,10 @@ def _write_ultimate_progress(
     pruned_candidates: int,
     state_count: int,
     budget: int | None,
+    parallel_workers: int = 0,
+    shard_size: int = 0,
+    shards: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
+    attempted_candidates: int = 0,
 ) -> None:
     if not progress_path:
         return
@@ -1779,8 +2207,7 @@ def _write_ultimate_progress(
             os.makedirs(directory, exist_ok=True)
         tmp_path = _hidden_tmp_path(progress_path)
         with open(tmp_path, "w", encoding="utf-8") as file:
-            json.dump(
-                {
+            record = {
                     "version": ULTIMATE_LINEFEED_PROGRESS_VERSION,
                     "source_hash": source_hash,
                     "target_adler": target_adler,
@@ -1796,14 +2223,20 @@ def _write_ultimate_progress(
                     "combination_rank": combination_rank,
                     "combination_indices": None if combination_indices is None else list(combination_indices),
                     "tested_candidates": tested_candidates,
+                    "attempted_candidates": max(
+                        int(tested_candidates or 0),
+                        int(attempted_candidates or 0),
+                    ),
                     "pruned_candidates": pruned_candidates,
                     "state_count": state_count,
                     "budget": budget,
                     "timestamp": time.time(),
-                },
-                file,
-                sort_keys=True,
-            )
+            }
+            if int(parallel_workers or 0) > 1 or shards:
+                record["parallel_workers"] = max(0, int(parallel_workers or 0))
+                record["shard_size"] = max(0, int(shard_size or 0))
+                record["shards"] = list(shards)
+            json.dump(record, file, sort_keys=True)
             file.write("\n")
         os.replace(tmp_path, progress_path)
     except OSError:
@@ -1831,6 +2264,33 @@ def _combination_rank(indices: tuple[int, ...], n: int, r: int) -> int:
             rank += math.comb(n - candidate - 1, r - position - 1)
         previous = value
     return rank
+
+
+def _combination_indices_at_rank(n: int, r: int, rank: int) -> tuple[int, ...] | None:
+    if r <= 0 or n < r:
+        return None
+    total = math.comb(n, r)
+    rank = int(rank)
+    if rank < 0:
+        rank = 0
+    if rank >= total:
+        return None
+    indices: list[int] = []
+    previous = -1
+    remaining = rank
+    for position in range(r):
+        choices_left = r - position - 1
+        last_candidate = n - choices_left
+        for candidate in range(previous + 1, last_candidate):
+            count = math.comb(n - candidate - 1, choices_left)
+            if remaining < count:
+                indices.append(candidate)
+                previous = candidate
+                break
+            remaining -= count
+    if len(indices) != r:
+        return None
+    return tuple(indices)
 
 
 def _combination_indices_from(
@@ -3438,6 +3898,7 @@ def _fill_ultimate_visual_gallery_from_backfill(
     reference_mode: str,
     min_coverage: float,
     limit: int,
+    progress: UltimateInterruptFlushProgressCallback | None = None,
 ) -> tuple[UltimateVisualCandidate, ...]:
     if limit <= 0 or len(candidates) >= max(1, int(limit)):
         return candidates
@@ -3460,7 +3921,10 @@ def _fill_ultimate_visual_gallery_from_backfill(
             continue
         existing = by_key.get(visual_candidate.diversity_key)
         if existing is None or visual_candidate.rank < existing.rank:
+            previous_count = len(by_key)
             by_key[visual_candidate.diversity_key] = visual_candidate
+            if progress is not None and len(by_key) > previous_count:
+                progress(len(by_key), max(1, int(limit)))
     return tuple(sorted(by_key.values(), key=lambda item: item.rank)[:limit])
 
 
@@ -3898,16 +4362,21 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     reference_regions_path: str = "",
     progress: QueueProgressCallback | None = None,
     candidate_preview: UltimateCandidatePreviewCallback | None = None,
+    interrupt_flush_progress: UltimateInterruptFlushProgressCallback | None = None,
+    interrupt_repeat_warning: UltimateInterruptRepeatCallback | None = None,
+    resume_status: UltimateResumeStatusCallback | None = None,
     progress_path: str = "",
     resume_progress: bool = True,
     visual_gallery_limit: int = ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT,
     visual_min_coverage: float = ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE,
     visual_gallery_path: str = "",
+    ultimate_workers: int = 0,
 ) -> UltimateLinefeedProbeResult:
     strategy = "UltimateMegaSuperLineFeedBruteForce"
     reference_mode = _coerce_ultimate_reference_mode(reference_mode)
     visual_gallery_limit = _coerce_ultimate_visual_gallery_limit(visual_gallery_limit)
     visual_min_coverage = _coerce_ultimate_visual_min_coverage(visual_min_coverage)
+    ultimate_workers = max(0, int(ultimate_workers or 0))
     reference_image, reference_warning = _load_ultimate_reference_image(reference_path)
     reference_regions = None
     if reference_mode == "similar" and reference_image is not None and reference_regions_path:
@@ -3926,6 +4395,35 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     )
     budget_limit = None if budget is None else max(0, int(budget))
     progress_total = UNBOUNDED_PROGRESS_TOTAL if budget_limit is None else max(1, budget_limit)
+    displayed_progress = 0
+    progress_started = False
+    attempted_candidates = 0
+    resume_attempted_floor = 0
+    resume_committed_count = 0
+    resume_matched_shards = 0
+    resume_pending_shards = 0
+    resume_saved_workers = 0
+    resume_fast_used = False
+    resume_rejected_reason = ""
+
+    def emit_ultimate_progress(count: int, *, force: bool = False) -> None:
+        nonlocal displayed_progress, progress_started, attempted_candidates
+        try:
+            value = int(count)
+        except (TypeError, ValueError):
+            value = 0
+        value = min(max(0, value), progress_total)
+        attempted_candidates = max(attempted_candidates, value)
+        if progress is None:
+            return
+        if progress_started and value < displayed_progress:
+            value = displayed_progress
+        if progress_started and value == displayed_progress and not force:
+            return
+        displayed_progress = value
+        progress_started = True
+        progress(strategy, value, progress_total)
+
     if not progress_path:
         progress_path = ultimate_linefeed_progress_path_from_checkpoint(checkpoint_path)
     if not visual_gallery_path and visual_gallery_limit > 0:
@@ -4042,6 +4540,10 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     operation_pool_hash = _ultimate_operation_pool_hash(merged_operation_pool)
     focused_operation_pool_hash = _ultimate_operation_pool_hash(focused_operation_pool)
     broad_operation_pool_hash = _ultimate_operation_pool_hash(broad_operation_pool)
+    operation_pools = (
+        focused_operation_pool,
+        merged_operation_pool,
+    )
     if not progress_path:
         progress_path = ultimate_linefeed_progress_path_from_checkpoint(checkpoint_path)
     progress_warning = ""
@@ -4058,6 +4560,63 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             focused_operation_pool_hash=focused_operation_pool_hash,
             broad_operation_pool_hash=broad_operation_pool_hash,
         )
+    if progress_resume is not None:
+        resume_attempted_floor = ultimate_progress_attempted_floor(progress_resume)
+        resume_committed_count = int(progress_resume.tested_candidates or 0)
+        resume_saved_workers = int(progress_resume.parallel_workers or 0)
+        shard_audit = _ultimate_progress_shard_audit(
+            progress_resume,
+            operation_pools,
+            max_depth=max_depth,
+        )
+        resume_matched_shards = int(shard_audit.get("matched", 0) or 0)
+        resume_pending_shards = int(shard_audit.get("pending", 0) or 0)
+        if (
+            progress_resume.version >= ULTIMATE_LINEFEED_PROGRESS_VERSION
+            and progress_resume.phase == "exhaustive"
+            and int(shard_audit.get("saved", 0) or 0) > 0
+            and resume_attempted_floor > 0
+            and resume_matched_shards == 0
+        ):
+            resume_rejected_reason = "cursor shards do not match the current operation pool"
+            if progress_warning:
+                progress_warning = "%s; %s" % (progress_warning, resume_rejected_reason)
+            else:
+                progress_warning = resume_rejected_reason
+            progress_resume = None
+        elif (
+            progress_resume.version >= ULTIMATE_LINEFEED_PROGRESS_VERSION
+            and progress_resume.phase == "exhaustive"
+        ):
+            resume_fast_used = True
+            if progress is not None:
+                emit_ultimate_progress(resume_attempted_floor, force=True)
+    if resume_status is not None:
+        if resume_fast_used:
+            resume_status(
+                {
+                    "fast_resume_used": True,
+                    "attempted_floor": resume_attempted_floor,
+                    "committed_count": resume_committed_count,
+                    "matched_shards": resume_matched_shards,
+                    "pending_shards": resume_pending_shards,
+                    "current_workers": ultimate_workers,
+                    "saved_workers": resume_saved_workers,
+                }
+            )
+        elif resume_rejected_reason:
+            resume_status(
+                {
+                    "fast_resume_used": False,
+                    "fast_resume_rejected_reason": resume_rejected_reason,
+                    "attempted_floor": resume_attempted_floor,
+                    "committed_count": resume_committed_count,
+                    "matched_shards": resume_matched_shards,
+                    "pending_shards": resume_pending_shards,
+                    "current_workers": ultimate_workers,
+                    "saved_workers": resume_saved_workers,
+                }
+            )
     root_score = super_mega_linefeed_score(before, 0)
     root = SuperMegaLinefeedCandidate(
         data,
@@ -4069,26 +4628,44 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         source_offsets=(),
         score=root_score,
     )
-    if progress is not None:
-        resume_count = progress_resume.tested_candidates if progress_resume is not None else 0
-        progress(strategy, min(resume_count, progress_total), progress_total)
-    checkpoint_rehydrate_limit = _ultimate_checkpoint_rehydrate_limit(
-        beam_width=beam_width,
-        visual_gallery_limit=visual_gallery_limit,
+    fast_resume_exhaustive = (
+        progress_resume is not None
+        and progress_resume.version >= ULTIMATE_LINEFEED_PROGRESS_VERSION
+        and progress_resume.phase == "exhaustive"
     )
-    checkpoint_candidates, checkpoint_visited, next_state_id, resumed_states = _load_ultimate_checkpoint(
-        checkpoint_path,
-        source_hash=source_hash,
-        root_stream=root_stream,
-        chunks=chunks,
-        before=before,
-        target_adler=target_adler,
-        progress=progress,
-        progress_total=progress_total,
-        progress_stage=strategy,
-        candidate_limit=checkpoint_rehydrate_limit,
-        beam_width=beam_width,
+    fast_resume_complete = (
+        progress_resume is not None
+        and progress_resume.version >= ULTIMATE_LINEFEED_PROGRESS_VERSION
+        and progress_resume.phase == "complete"
     )
+    if fast_resume_exhaustive or fast_resume_complete:
+        checkpoint_candidates = []
+        checkpoint_visited = set()
+        next_state_id = 1
+        resumed_states = 0
+    else:
+        checkpoint_rehydrate_limit = _ultimate_checkpoint_rehydrate_limit(
+            beam_width=beam_width,
+            visual_gallery_limit=visual_gallery_limit,
+        )
+        emit_ultimate_progress(0, force=True)
+        checkpoint_candidates, checkpoint_visited, next_state_id, resumed_states = _load_ultimate_checkpoint(
+            checkpoint_path,
+            source_hash=source_hash,
+            root_stream=root_stream,
+            chunks=chunks,
+            before=before,
+            target_adler=target_adler,
+            progress=(
+                (lambda _stage, loaded, _total: emit_ultimate_progress(loaded))
+                if progress is not None
+                else None
+            ),
+            progress_total=progress_total,
+            progress_stage=strategy,
+            candidate_limit=checkpoint_rehydrate_limit,
+            beam_width=beam_width,
+        )
     checkpoint_candidates = tuple(checkpoint_candidates)
     checkpoint_seed_candidates = _ultimate_checkpoint_seed_candidates(
         checkpoint_candidates,
@@ -4151,6 +4728,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     reached_depth = 0
     if progress_resume is not None:
         tested = max(tested, progress_resume.tested_candidates)
+        attempted_candidates = max(attempted_candidates, ultimate_progress_attempted_floor(progress_resume))
         pruned = max(pruned, progress_resume.pruned_candidates)
         next_state_id = max(next_state_id, progress_resume.state_count)
         reached_depth = max(reached_depth, progress_resume.depth)
@@ -4172,6 +4750,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     current_pool_index = 0
     current_combination_rank = 0
     current_combination_indices: tuple[int, ...] | None = None
+    current_shards: dict[str, dict[str, Any]] = {}
     last_progress_at = time.monotonic()
 
     def save_progress_snapshot(
@@ -4182,6 +4761,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         combination_rank: int | None = None,
         combination_indices: tuple[int, ...] | None = None,
         force_visual: bool = False,
+        interrupt_progress: UltimateInterruptFlushProgressCallback | None = None,
     ) -> None:
         nonlocal visual_candidates, visual_preview_count, visual_gallery_dirty
         snapshot_phase = current_phase if phase is None else phase
@@ -4205,6 +4785,19 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             pruned_candidates=pruned,
             state_count=next_state_id,
             budget=budget_limit,
+            parallel_workers=ultimate_workers,
+            shard_size=ULTIMATE_LINEFEED_PARALLEL_SHARD_SIZE if ultimate_workers >= 2 else 0,
+            shards=tuple(
+                sorted(
+                    current_shards.values(),
+                    key=lambda item: (
+                        int(item.get("pool_index", 0) or 0),
+                        int(item.get("depth", 0) or 0),
+                        int(item.get("start_rank", 0) or 0),
+                    ),
+                )
+            ),
+            attempted_candidates=max(attempted_candidates, displayed_progress, tested),
         )
         if (
             visual_gallery_limit > 0
@@ -4220,6 +4813,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                 reference_mode=reference_mode,
                 min_coverage=visual_min_coverage,
                 limit=visual_gallery_limit,
+                progress=interrupt_progress,
             )
             if filled != visual_candidates:
                 visual_candidates = filled
@@ -4269,14 +4863,83 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
 
     previous_sigint_handler = None
     sigint_handler_installed = False
+    interrupt_requested = False
+    repeated_interrupts = 0
+    reported_repeated_interrupts = 0
+    parallel_stop_event: Any = None
 
-    def save_then_interrupt(signum, frame):
-        save_progress_snapshot(force_visual=True)
-        raise KeyboardInterrupt
+    def repeat_interrupt_warning(signum, frame):
+        nonlocal repeated_interrupts
+        repeated_interrupts += 1
+
+    def report_pending_interrupt_warning() -> None:
+        nonlocal reported_repeated_interrupts
+        if (
+            repeated_interrupts <= reported_repeated_interrupts
+            or interrupt_repeat_warning is None
+        ):
+            return
+        reported_repeated_interrupts = repeated_interrupts
+        interrupt_repeat_warning(repeated_interrupts)
+
+    def request_parallel_stop() -> None:
+        event = parallel_stop_event
+        set_stop = getattr(event, "set", None)
+        if callable(set_stop):
+            try:
+                set_stop()
+            except (OSError, RuntimeError, ValueError):
+                pass
+
+    def restore_sigint_handler() -> None:
+        nonlocal sigint_handler_installed
+        if not sigint_handler_installed:
+            return
+        try:
+            signal.signal(signal.SIGINT, previous_sigint_handler)
+        except (OSError, ValueError):
+            pass
+        sigint_handler_installed = False
+
+    def mark_running_shards_pending() -> None:
+        for shard in current_shards.values():
+            if str(shard.get("status", "")) == "running":
+                shard["status"] = "pending"
+
+    def finalize_interrupted_run(*, restore_handler: bool = True) -> None:
+        mark_running_shards_pending()
+        try:
+            save_progress_snapshot(
+                force_visual=True,
+                interrupt_progress=interrupt_flush_progress,
+            )
+        finally:
+            if restore_handler:
+                restore_sigint_handler()
+
+    def raise_if_interrupt_requested(*, restore_handler: bool = True) -> None:
+        if not interrupt_requested:
+            return
+        report_pending_interrupt_warning()
+        request_parallel_stop()
+        finalize_interrupted_run(restore_handler=restore_handler)
+        raise UltimateLinefeedInterrupted(progress_path)
+
+    def request_interrupt(signum, frame):
+        nonlocal interrupt_requested
+        if interrupt_requested:
+            repeat_interrupt_warning(signum, frame)
+            return
+        interrupt_requested = True
+        request_parallel_stop()
+        try:
+            signal.signal(signal.SIGINT, repeat_interrupt_warning)
+        except (OSError, ValueError):
+            pass
 
     try:
         previous_sigint_handler = signal.getsignal(signal.SIGINT)
-        signal.signal(signal.SIGINT, save_then_interrupt)
+        signal.signal(signal.SIGINT, request_interrupt)
         sigint_handler_installed = True
     except (OSError, ValueError):
         sigint_handler_installed = False
@@ -4303,7 +4966,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         return candidate.after.adler_status == "adler_match"
 
     if progress is not None and tested > 0:
-        progress(strategy, min(tested, progress_total), progress_total)
+        emit_ultimate_progress(tested)
 
     frontier_start_depth = 1
     if progress_resume is not None:
@@ -4342,7 +5005,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
 
                     emit_progress = progress_snapshot_due()
                     if progress is not None and emit_progress:
-                        progress(strategy, tested, progress_total)
+                        emit_ultimate_progress(tested)
                     if emit_progress:
                         save_progress_snapshot(phase="frontier", depth=depth)
 
@@ -4363,6 +5026,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                         progress_total,
                         candidate_preview,
                     )
+                    raise_if_interrupt_requested()
                     prune_reason = _ultimate_prune_reason(parent.after, candidate.after)
                     candidate_score = candidate.score or super_mega_linefeed_score(candidate.after, len(candidate.operations))
                     if (
@@ -4405,134 +5069,515 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         )
         frontier = next_frontier[: max(1, beam_width)]
 
+    def run_parallel_exhaustive(operation_pools: tuple[tuple[SuperMegaLinefeedOperation, ...], ...]) -> bool:
+        nonlocal best, best_score, tested, pruned, next_state_id, budget_exhausted
+        nonlocal top_candidates
+        nonlocal reached_depth, current_phase, current_depth, current_pool_index
+        nonlocal current_combination_rank, current_combination_indices
+        nonlocal parallel_stop_event
+        if ultimate_workers < 2:
+            return False
+
+        root_parent_score = root.score or super_mega_linefeed_score(root.after, 0)
+        resumed_by_shard: dict[tuple[int, int, int, int], dict[str, Any]] = {}
+        if progress_resume is not None:
+            for item in progress_resume.shards:
+                try:
+                    key = (
+                        int(item.get("pool_index", 0)),
+                        int(item.get("depth", 0)),
+                        int(item.get("start_rank", 0)),
+                        int(item.get("end_rank", 0)),
+                    )
+                except (TypeError, ValueError):
+                    continue
+                resumed_by_shard[key] = dict(item)
+
+        def shard_key(shard: dict[str, Any]) -> str:
+            return "%s:%s:%s:%s" % (
+                int(shard.get("pool_index", 0) or 0),
+                int(shard.get("depth", 0) or 0),
+                int(shard.get("start_rank", 0) or 0),
+                int(shard.get("end_rank", 0) or 0),
+            )
+
+        def shard_specs() -> Iterable[dict[str, Any]]:
+            for pool_index, operation_pool in enumerate(operation_pools):
+                if progress_resume is not None and not resumed_by_shard:
+                    if progress_resume.phase == "exhaustive" and pool_index < progress_resume.pool_index:
+                        continue
+                    if progress_resume.phase == "complete":
+                        continue
+                if not operation_pool:
+                    continue
+                for depth in range(1, max(1, max_depth) + 1):
+                    if progress_resume is not None and not resumed_by_shard:
+                        if (
+                            progress_resume.phase == "exhaustive"
+                            and pool_index == progress_resume.pool_index
+                            and depth < progress_resume.depth
+                        ):
+                            continue
+                    total_ranks = math.comb(len(operation_pool), depth)
+                    rank = 0
+                    if (
+                        progress_resume is not None
+                        and not resumed_by_shard
+                        and progress_resume.phase == "exhaustive"
+                        and pool_index == progress_resume.pool_index
+                        and depth == progress_resume.depth
+                    ):
+                        rank = max(0, int(progress_resume.combination_rank or 0))
+                    while rank < total_ranks:
+                        end_rank = min(total_ranks, rank + ULTIMATE_LINEFEED_PARALLEL_SHARD_SIZE)
+                        resume_key = (pool_index, depth, rank, end_rank)
+                        previous = resumed_by_shard.get(resume_key)
+                        next_rank = rank
+                        if previous is not None:
+                            status = str(previous.get("status", "pending"))
+                            if status == "done":
+                                rank = end_rank
+                                continue
+                            try:
+                                next_rank = max(rank, int(previous.get("next_rank", rank)))
+                            except (TypeError, ValueError):
+                                next_rank = rank
+                        if next_rank < end_rank:
+                            yield {
+                                "pool_index": pool_index,
+                                "depth": depth,
+                                "start_rank": rank,
+                                "end_rank": end_rank,
+                                "next_rank": next_rank,
+                                "tested": int(previous.get("tested", 0)) if previous else 0,
+                                "pruned": int(previous.get("pruned", 0)) if previous else 0,
+                                "status": "pending",
+                            }
+                        rank = end_rank
+
+        mp_context = _ultimate_parallel_mp_context()
+        progress_queue = None
+        stop_event = None
+        try:
+            progress_queue = (
+                mp_context.Queue()
+                if mp_context is not None
+                else multiprocessing.Queue()
+            )
+        except (OSError, RuntimeError, ValueError):
+            progress_queue = None
+        try:
+            stop_event = (
+                mp_context.Event()
+                if mp_context is not None
+                else multiprocessing.Event()
+            )
+        except (OSError, RuntimeError, ValueError):
+            stop_event = None
+        parallel_stop_event = stop_event
+        if interrupt_requested:
+            request_parallel_stop()
+        context = {
+            "chunks": chunks,
+            "root_stream": root_stream,
+            "before": before,
+            "operation_pools": operation_pools,
+            "target_adler": target_adler,
+            "progress_queue": progress_queue,
+            "stop_event": stop_event,
+            "root_parent_score": root_parent_score,
+            "visual_min_coverage": visual_min_coverage,
+            "visual_gallery_limit": visual_gallery_limit,
+        }
+        executor_kwargs: dict[str, Any] = {
+            "max_workers": max(2, ultimate_workers),
+            "initializer": _ultimate_parallel_worker_init,
+            "initargs": (context,),
+        }
+        if mp_context is not None:
+            executor_kwargs["mp_context"] = mp_context
+        try:
+            executor = ProcessPoolExecutor(**executor_kwargs)
+        except (OSError, RuntimeError, ValueError):
+            return False
+        futures: dict[Any, dict[str, Any]] = {}
+        specs = iter(shard_specs())
+        reserved_ranks = 0
+        exhausted_specs = False
+        seen_returned_candidates: set[str] = set()
+        inflight_progress: dict[str, tuple[int, int, int, int]] = {}
+        parallel_progress_floor = ultimate_progress_attempted_floor(progress_resume)
+        parallel_attempted_since_floor = 0
+
+        def parallel_display_total() -> int:
+            return max(
+                tested,
+                parallel_progress_floor
+                + parallel_attempted_since_floor
+                + sum(max(item[0], item[3]) for item in inflight_progress.values()),
+            )
+
+        def remaining_budget() -> int | None:
+            if budget_limit is None:
+                return None
+            return max(0, int(budget_limit) - parallel_display_total() - reserved_ranks)
+
+        def submit_more() -> None:
+            nonlocal reserved_ranks, exhausted_specs, budget_exhausted
+            while len(futures) < max(2, ultimate_workers) and not exhausted_specs:
+                remaining = remaining_budget()
+                if remaining is not None and remaining <= 0:
+                    budget_exhausted = parallel_display_total() >= int(budget_limit or 0)
+                    break
+                try:
+                    shard = next(specs)
+                except StopIteration:
+                    exhausted_specs = True
+                    break
+                shard = dict(shard)
+                if remaining is not None:
+                    shard["end_rank"] = min(
+                        int(shard["end_rank"]),
+                        int(shard["next_rank"]) + remaining,
+                    )
+                if int(shard["next_rank"]) >= int(shard["end_rank"]):
+                    continue
+                key = shard_key(shard)
+                current_shards[key] = dict(shard, status="running")
+                reserved_ranks += int(shard["end_rank"]) - int(shard["next_rank"])
+                futures[executor.submit(_ultimate_parallel_worker_run, shard)] = shard
+
+        def drain_worker_progress() -> bool:
+            if progress_queue is None:
+                return False
+            changed = False
+            while True:
+                try:
+                    message = progress_queue.get_nowait()
+                except queue.Empty:
+                    break
+                except (EOFError, OSError, ValueError):
+                    break
+                if not isinstance(message, dict):
+                    continue
+                key = str(message.get("key", ""))
+                if not key:
+                    continue
+                try:
+                    next_rank = int(message.get("next_rank", 0) or 0)
+                    live_tested = int(message.get("tested", 0) or 0)
+                    live_pruned = int(message.get("pruned", 0) or 0)
+                    live_attempted = int(message.get("attempted", live_tested) or 0)
+                except (TypeError, ValueError):
+                    continue
+                inflight_progress[key] = (live_tested, live_pruned, next_rank, live_attempted)
+                shard = current_shards.get(key)
+                if shard is not None:
+                    try:
+                        shard["next_rank"] = max(
+                            int(shard.get("next_rank", 0) or 0),
+                            next_rank,
+                        )
+                    except (TypeError, ValueError):
+                        shard["next_rank"] = next_rank
+                    shard["tested_live"] = live_tested
+                    shard["pruned_live"] = live_pruned
+                    shard["attempted_live"] = live_attempted
+                changed = True
+            if not changed:
+                return False
+            if progress is not None:
+                emit_ultimate_progress(parallel_display_total())
+            return True
+
+        try:
+            if progress is not None and parallel_progress_floor > 0:
+                emit_ultimate_progress(parallel_display_total(), force=True)
+            submit_more()
+            while futures and not terminal(best):
+                raise_if_interrupt_requested(restore_handler=False)
+                done, _pending = wait(
+                    tuple(futures),
+                    timeout=ULTIMATE_LINEFEED_PARALLEL_PROGRESS_POLL_SECONDS,
+                    return_when=FIRST_COMPLETED,
+                )
+                raise_if_interrupt_requested(restore_handler=False)
+                if not done:
+                    drain_worker_progress()
+                    raise_if_interrupt_requested(restore_handler=False)
+                    continue
+                drain_worker_progress()
+                raise_if_interrupt_requested(restore_handler=False)
+                for future in done:
+                    shard = futures.pop(future)
+                    inflight_progress.pop(shard_key(shard), None)
+                    try:
+                        submitted_next_rank = int(
+                            shard.get("next_rank", shard.get("start_rank", 0)) or 0
+                        )
+                    except (TypeError, ValueError):
+                        submitted_next_rank = 0
+                    reserved_ranks = max(
+                        0,
+                        reserved_ranks - (int(shard["end_rank"]) - int(shard["next_rank"])),
+                    )
+                    try:
+                        result = future.result()
+                    except BaseException as exc:
+                        result = UltimateParallelShardResult(
+                            shard=shard,
+                            tested=0,
+                            pruned=0,
+                            state_count=0,
+                            next_rank=int(shard.get("next_rank", shard.get("start_rank", 0)) or 0),
+                            candidates=(),
+                            error="%s: %s" % (type(exc).__name__, exc),
+                        )
+                    result_shard = dict(result.shard)
+                    result_shard["next_rank"] = int(result.next_rank)
+                    parallel_attempted_since_floor += max(
+                        0,
+                        int(result.next_rank) - submitted_next_rank,
+                    )
+                    result_shard["tested"] = int(result_shard.get("tested", 0) or 0) + int(result.tested)
+                    result_shard["pruned"] = int(result_shard.get("pruned", 0) or 0) + int(result.pruned)
+                    result_shard["status"] = (
+                        "error"
+                        if result.error
+                        else (
+                            "done"
+                            if int(result.next_rank) >= int(result_shard.get("end_rank", 0) or 0)
+                            else "pending"
+                        )
+                    )
+                    if result.error:
+                        result_shard["error"] = result.error
+                    current_shards[shard_key(result_shard)] = result_shard
+                    current_phase = "exhaustive"
+                    current_depth = int(result_shard.get("depth", current_depth) or current_depth)
+                    current_pool_index = int(result_shard.get("pool_index", current_pool_index) or current_pool_index)
+                    current_combination_rank = int(result.next_rank)
+                    current_combination_indices = _combination_indices_at_rank(
+                        len(operation_pools[current_pool_index]),
+                        current_depth,
+                        current_combination_rank,
+                    )
+                    reached_depth = max(reached_depth, current_depth)
+                    tested += int(result.tested)
+                    pruned += int(result.pruned)
+                    base_state_id = next_state_id
+                    next_state_id += max(int(result.state_count), len(result.candidates))
+                    for index, candidate in enumerate(result.candidates):
+                        candidate_key = hashlib.blake2b(candidate.data, digest_size=16).hexdigest()
+                        if candidate_key in seen_returned_candidates:
+                            continue
+                        seen_returned_candidates.add(candidate_key)
+                        candidate = replace(candidate, state_id=base_state_id + index, parent_id=0)
+                        top_candidates = _remember_ultimate_top_candidate(top_candidates, candidate)
+                        remember_visual_candidate(candidate, tested)
+                        _preview_ultimate_candidate_if_valid(
+                            candidate,
+                            tested,
+                            progress_total,
+                            candidate_preview,
+                        )
+                        raise_if_interrupt_requested(restore_handler=False)
+                        candidate_score = candidate.score or super_mega_linefeed_score(
+                            candidate.after,
+                            len(candidate.operations),
+                        )
+                        if candidate_score > best_score:
+                            best = candidate
+                            best_score = candidate_score
+                            _append_ultimate_checkpoint(
+                                checkpoint_path,
+                                source_hash=source_hash,
+                                candidate=candidate,
+                                depth=current_depth,
+                            )
+                        if terminal(candidate):
+                            best = candidate
+                            best_score = candidate_score
+                            _append_ultimate_checkpoint(
+                                checkpoint_path,
+                                source_hash=source_hash,
+                                candidate=candidate,
+                                depth=current_depth,
+                            )
+                            break
+                    if progress is not None and progress_snapshot_due():
+                        emit_ultimate_progress(parallel_display_total())
+                    save_progress_snapshot()
+                    if budget_limit is not None and parallel_display_total() >= int(budget_limit):
+                        budget_exhausted = True
+                    if terminal(best) or budget_exhausted:
+                        break
+                if terminal(best) or budget_exhausted:
+                    break
+                submit_more()
+        except UltimateLinefeedInterrupted:
+            _ultimate_shutdown_parallel_executor(
+                executor,
+                futures=futures,
+                progress_queue=progress_queue,
+                stop_event=stop_event,
+            )
+            raise
+        except KeyboardInterrupt:
+            request_parallel_stop()
+            _ultimate_shutdown_parallel_executor(
+                executor,
+                futures=futures,
+                progress_queue=progress_queue,
+                stop_event=stop_event,
+            )
+            finalize_interrupted_run(restore_handler=False)
+            raise UltimateLinefeedInterrupted(progress_path)
+        finally:
+            _ultimate_shutdown_parallel_executor(
+                executor,
+                futures=futures,
+                progress_queue=progress_queue,
+                stop_event=stop_event,
+            )
+            parallel_stop_event = None
+            restore_sigint_handler()
+        return True
+
     if not terminal(best) and not budget_exhausted and (budget_limit is None or tested < budget_limit):
         root_parent_score = root.score or super_mega_linefeed_score(root.after, 0)
-        operation_pools = (
-            focused_operation_pool,
-            merged_operation_pool,
-        )
-        for pool_index, operation_pool in enumerate(operation_pools):
-            if progress_resume is not None and progress_resume.phase == "exhaustive" and pool_index < progress_resume.pool_index:
-                continue
-            if not operation_pool:
-                continue
-            for depth in range(1, max(1, max_depth) + 1):
+        if fast_resume_complete:
+            pass
+        elif not (ultimate_workers >= 2 and run_parallel_exhaustive(operation_pools)):
+            for pool_index, operation_pool in enumerate(operation_pools):
                 if (
                     progress_resume is not None
                     and progress_resume.phase == "exhaustive"
-                    and pool_index == progress_resume.pool_index
-                    and depth < progress_resume.depth
+                    and pool_index < progress_resume.pool_index
                 ):
                     continue
-                reached_depth = max(reached_depth, depth)
-                current_phase = "exhaustive"
-                current_depth = depth
-                current_pool_index = pool_index
-                start_indices = None
-                if (
-                    progress_resume is not None
-                    and progress_resume.phase == "exhaustive"
-                    and pool_index == progress_resume.pool_index
-                    and depth == progress_resume.depth
-                ):
-                    start_indices = progress_resume.combination_indices
-                for indices in _combination_indices_from(len(operation_pool), depth, start_indices):
-                    current_combination_indices = indices
-                    current_combination_rank = _combination_rank(indices, len(operation_pool), depth)
-                    combination = tuple(operation_pool[index] for index in indices)
-                    if budget_reached():
-                        budget_exhausted = True
-                        break
-
-                    operations = _normalize_ultimate_operation_sequence(combination)
-                    candidate_stream = _replay_operations(root_stream, operations)
-                    if candidate_stream is None:
-                        pruned += 1
-                        continue
-                    stream_hash = _stream_state_key(candidate_stream)
-                    if stream_hash in visited:
-                        pruned += 1
-                        continue
-
-                    visited.add(stream_hash)
-                    tested += 1
-                    emit_progress = progress_snapshot_due()
-                    if progress is not None and emit_progress:
-                        progress(strategy, tested, progress_total)
-                    next_indices = _next_combination_indices(indices, len(operation_pool), depth)
-                    if emit_progress:
-                        save_progress_snapshot(
-                            phase="exhaustive",
-                            depth=depth,
-                            pool_index=pool_index,
-                            combination_rank=current_combination_rank + 1,
-                            combination_indices=next_indices,
-                        )
-
-                    candidate_data = _rebuild_with_single_idat_stream(chunks, candidate_stream)
-                    candidate_analysis = idat.analyze_idat_stream(
-                        candidate_data,
-                        source_kind="candidate_from_original",
-                        crc_provenance="rebuilt_by_chunklate",
-                        target_adler=target_adler,
-                    )
-                    candidate_score = super_mega_linefeed_score(candidate_analysis, len(operations))
-                    candidate = SuperMegaLinefeedCandidate(
-                        candidate_data,
-                        operations,
-                        before,
-                        candidate_analysis,
-                        state_id=next_state_id,
-                        parent_id=0,
-                        source_offsets=tuple(operation.stream_offset for operation in operations),
-                        score=candidate_score,
-                    )
-                    next_state_id += 1
-                    top_candidates = _remember_ultimate_top_candidate(top_candidates, candidate)
-                    remember_visual_candidate(candidate, tested)
-                    _preview_ultimate_candidate_if_valid(
-                        candidate,
-                        tested,
-                        progress_total,
-                        candidate_preview,
-                    )
-
-                    prune_reason = _ultimate_prune_reason(before, candidate.after)
+                if not operation_pool:
+                    continue
+                for depth in range(1, max(1, max_depth) + 1):
                     if (
-                        _ultimate_prune_is_fatal(prune_reason, depth)
-                        and candidate.after.adler_status != "adler_match"
+                        progress_resume is not None
+                        and progress_resume.phase == "exhaustive"
+                        and pool_index == progress_resume.pool_index
+                        and depth < progress_resume.depth
                     ):
-                        pruned += 1
                         continue
+                    reached_depth = max(reached_depth, depth)
+                    current_phase = "exhaustive"
+                    current_depth = depth
+                    current_pool_index = pool_index
+                    start_indices = None
+                    if (
+                        progress_resume is not None
+                        and progress_resume.phase == "exhaustive"
+                        and pool_index == progress_resume.pool_index
+                        and depth == progress_resume.depth
+                    ):
+                        start_indices = progress_resume.combination_indices
+                    for indices in _combination_indices_from(len(operation_pool), depth, start_indices):
+                        current_combination_indices = indices
+                        current_combination_rank = _combination_rank(indices, len(operation_pool), depth)
+                        combination = tuple(operation_pool[index] for index in indices)
+                        if budget_reached():
+                            budget_exhausted = True
+                            break
 
-                    if candidate_score > best_score:
-                        best = candidate
-                        best_score = candidate_score
-                        _append_ultimate_checkpoint(
-                            checkpoint_path,
-                            source_hash=source_hash,
-                            candidate=candidate,
-                            depth=depth,
+                        operations = _normalize_ultimate_operation_sequence(combination)
+                        candidate_stream = _replay_operations(root_stream, operations)
+                        if candidate_stream is None:
+                            pruned += 1
+                            continue
+                        stream_hash = _stream_state_key(candidate_stream)
+                        if stream_hash in visited:
+                            pruned += 1
+                            continue
+
+                        visited.add(stream_hash)
+                        tested += 1
+                        emit_progress = progress_snapshot_due()
+                        if progress is not None and emit_progress:
+                            emit_ultimate_progress(tested)
+                        next_indices = _next_combination_indices(indices, len(operation_pool), depth)
+                        if emit_progress:
+                            save_progress_snapshot(
+                                phase="exhaustive",
+                                depth=depth,
+                                pool_index=pool_index,
+                                combination_rank=current_combination_rank + 1,
+                                combination_indices=next_indices,
+                            )
+
+                        candidate_data = _rebuild_with_single_idat_stream(chunks, candidate_stream)
+                        candidate_analysis = idat.analyze_idat_stream(
+                            candidate_data,
+                            source_kind="candidate_from_original",
+                            crc_provenance="rebuilt_by_chunklate",
+                            target_adler=target_adler,
                         )
-                    elif depth > 2 and candidate_score <= root_parent_score:
-                        pruned += 1
+                        candidate_score = super_mega_linefeed_score(candidate_analysis, len(operations))
+                        candidate = SuperMegaLinefeedCandidate(
+                            candidate_data,
+                            operations,
+                            before,
+                            candidate_analysis,
+                            state_id=next_state_id,
+                            parent_id=0,
+                            source_offsets=tuple(operation.stream_offset for operation in operations),
+                            score=candidate_score,
+                        )
+                        next_state_id += 1
+                        top_candidates = _remember_ultimate_top_candidate(top_candidates, candidate)
+                        remember_visual_candidate(candidate, tested)
+                        _preview_ultimate_candidate_if_valid(
+                            candidate,
+                            tested,
+                            progress_total,
+                            candidate_preview,
+                        )
+                        raise_if_interrupt_requested()
 
-                    if terminal(best):
+                        prune_reason = _ultimate_prune_reason(before, candidate.after)
+                        if (
+                            _ultimate_prune_is_fatal(prune_reason, depth)
+                            and candidate.after.adler_status != "adler_match"
+                        ):
+                            pruned += 1
+                            continue
+
+                        if candidate_score > best_score:
+                            best = candidate
+                            best_score = candidate_score
+                            _append_ultimate_checkpoint(
+                                checkpoint_path,
+                                source_hash=source_hash,
+                                candidate=candidate,
+                                depth=depth,
+                            )
+                        elif depth > 2 and candidate_score <= root_parent_score:
+                            pruned += 1
+
+                        if terminal(best):
+                            break
+
+                    if budget_exhausted or terminal(best):
                         break
 
                 if budget_exhausted or terminal(best):
                     break
-            if budget_exhausted or terminal(best):
-                break
 
     if progress is not None:
-        progress(strategy, min(tested, progress_total), progress_total)
+        emit_ultimate_progress(tested)
     save_progress_snapshot(phase="complete", depth=reached_depth, force_visual=True)
-    if sigint_handler_installed:
-        signal.signal(signal.SIGINT, previous_sigint_handler)
+    restore_sigint_handler()
 
     reason = ""
-    if best is None:
+    if fast_resume_complete:
+        reason = "previous Ultimate run already marked this search complete"
+    elif best is None:
         reason = "no candidate survived pruning"
     elif target_adler is not None and best.after.adler_status != "adler_match":
         reason = "original Adler target was not recovered"
@@ -4568,6 +5613,14 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         visual_gallery_path=visual_gallery_path,
         visual_preview_count=visual_preview_count,
         visual_gallery_limit=visual_gallery_limit,
+        fast_resume_used=resume_fast_used,
+        fast_resume_rejected_reason=resume_rejected_reason,
+        attempted_floor=resume_attempted_floor if resume_fast_used else 0,
+        committed_count=resume_committed_count,
+        matched_shards=resume_matched_shards,
+        pending_shards=resume_pending_shards,
+        current_workers=ultimate_workers,
+        saved_workers=resume_saved_workers,
     )
 
 
