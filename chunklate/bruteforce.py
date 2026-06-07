@@ -57,12 +57,20 @@ class BruteForceEditWindow:
     length_bytes: bytes | None = None
     replace_flag: bool = False
     insert_flag: bool = False
+    remove_flag: bool = False
 
 
 @dataclass(frozen=True)
 class TwoBytesCandidateData:
     data: bytes
     bonus_hex: str
+    length_bytes: bytes
+
+
+@dataclass(frozen=True)
+class RemoveCandidateData:
+    data: bytes
+    removed_bytes: bytes
     length_bytes: bytes
 
 
@@ -391,6 +399,7 @@ def match_state_from_edit_window(edit_window: BruteForceEditWindow) -> BruteForc
     return BruteForceMatchState(
         replace_flag=edit_window.replace_flag,
         insert_flag=edit_window.insert_flag,
+        remove_flag=edit_window.remove_flag,
     )
 
 
@@ -786,8 +795,8 @@ def twobytes_candidate_data(
         data = bytes.fromhex(to_brute[:needle]) + brute_bytes + bytes.fromhex(to_brute[needle:])
         bonus_hex = to_brute[:needle] + brute_hex + to_brute[needle:]
     elif edit_kind == "remove":
-        data = bytes.fromhex(to_brute[:needle]) + brute_bytes + bytes.fromhex(to_brute[needle + needle2 + 2 :])
-        bonus_hex = to_brute[:needle] + brute_hex + to_brute[needle + needle2 + 2 :]
+        data = bytes.fromhex(to_brute[:needle]) + bytes.fromhex(to_brute[needle + needle2 :])
+        bonus_hex = to_brute[:needle] + to_brute[needle + needle2 :]
     else:
         raise ValueError("Unknown TwoBytes edit kind: %s" % edit_kind)
 
@@ -799,13 +808,50 @@ def twobytes_candidate_data(
 
 
 def iter_twobytes_edit_kinds(edit_mode: str, chunk_name: bytes) -> tuple[str, ...]:
-    if chunk_name == b"IDAT":
-        return ("replace", "insert", "remove")
-
     try:
-        return (TWOBYTES_EDIT_KIND_BY_MODE[edit_mode],)
+        requested = TWOBYTES_EDIT_KIND_BY_MODE[edit_mode]
     except KeyError as exc:
         raise ValueError("Unknown TwoBytes edit mode: %s" % edit_mode) from exc
+
+    if chunk_name != b"IDAT":
+        return (requested,)
+
+    if requested == "insert":
+        return ("insert", "replace", "remove")
+    if requested == "remove":
+        return ("remove", "replace", "insert")
+    return ("replace", "insert", "remove")
+
+
+def remove_candidate_count(to_brute: str, remove_hex_len: int) -> int:
+    if remove_hex_len <= 0 or remove_hex_len % 2:
+        return 0
+    payload_bytes = len(to_brute) // 2
+    remove_bytes = remove_hex_len // 2
+    if remove_bytes <= 0 or remove_bytes > payload_bytes:
+        return 0
+    return payload_bytes - remove_bytes + 1
+
+
+def remove_candidate_data(
+    to_brute: str,
+    remove_start_byte: int,
+    remove_hex_len: int,
+) -> RemoveCandidateData:
+    if remove_hex_len <= 0 or remove_hex_len % 2:
+        raise ValueError("Remove length must be a positive whole number of bytes.")
+    start = max(0, int(remove_start_byte)) * 2
+    end = start + remove_hex_len
+    if start < 0 or end > len(to_brute):
+        raise ValueError("Remove window is outside the chunk payload.")
+    data_hex = to_brute[:start] + to_brute[end:]
+    removed_hex = to_brute[start:end]
+    data = bytes.fromhex(data_hex)
+    return RemoveCandidateData(
+        data=data,
+        removed_bytes=bytes.fromhex(removed_hex),
+        length_bytes=len(data).to_bytes(4, "big"),
+    )
 
 
 def twobytes_bonus_candidate_data(
@@ -1089,6 +1135,18 @@ def edit_window(
             after=bytes.fromhex(data_hex[data_offset + 24 :]),
             length_bytes=int(int(length / 2)).to_bytes(4, "big"),
             insert_flag=True,
+        )
+
+    if edit_mode == "Remove":
+        payload_offset = data_offset + 16
+        payload_end = payload_offset + chunk_length * 2
+        to_brute = data_hex[payload_offset:payload_end]
+        return BruteForceEditWindow(
+            before=bytes.fromhex(data_hex[:data_offset]),
+            to_brute=to_brute,
+            to_bryte=bytes.fromhex(to_brute),
+            after=bytes.fromhex(data_hex[payload_end + 8 :]),
+            remove_flag=True,
         )
 
     raise ValueError("Unknown SmashBruteBrawl edit mode: %s" % edit_mode)

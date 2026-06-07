@@ -155,6 +155,9 @@ def resolve_smash_workers_from_namespace(
     configured = namespace.get("SMASH_BRUTE_BRAWL_WORKERS")
     if configured is not None:
         return configured
+    cached = namespace.get("_SMASH_BRUTE_BRAWL_SESSION_WORKERS")
+    if cached is not None:
+        return cached
     if namespace.get("AUTO", False) or namespace.get("NODIALOGUE", False):
         return 0
     if "AUTO" not in namespace and "NODIALOGUE" not in namespace:
@@ -164,9 +167,12 @@ def resolve_smash_workers_from_namespace(
         _smash_print_worker_menu(namespace)
         choice = _smash_input(namespace, "SmashBruteBrawl worker profile [0 disabled] > ")
         if choice == "":
+            namespace["_SMASH_BRUTE_BRAWL_SESSION_WORKERS"] = 0
             return 0
         if choice in ("min", "normal", "max", "auto"):
-            return _smash_workers_from_value(choice)
+            workers = _smash_workers_from_value(choice)
+            namespace["_SMASH_BRUTE_BRAWL_SESSION_WORKERS"] = workers
+            return workers
         if choice == "custom":
             choice = _smash_input(namespace, "Custom SmashBruteBrawl worker count > ")
         try:
@@ -175,6 +181,7 @@ def resolve_smash_workers_from_namespace(
             _smash_print_error(namespace, "-Enter 0, min, normal, max, custom, or a worker count.")
             continue
         if workers >= 0:
+            namespace["_SMASH_BRUTE_BRAWL_SESSION_WORKERS"] = workers
             return workers
         _smash_print_error(namespace, "-Worker count must be zero or higher.")
 
@@ -224,10 +231,16 @@ def run_legacy_smash_brute_brawl_from_namespace(
             namespace["PRINT"]("-SmashBruteBrawl checkpoint snapshot warning: %s" % exc)
     resume_record = None
     resume_decision = str(namespace.get("SMASH_BRUTE_BRAWL_RESUME_DECISION", "") or "").strip().lower()
-    if resume_decision == "resume":
+    retry_state = namespace.get("_SBB_BLACKFILL_RETRY_STATE")
+    retry_starts_fresh = False
+    if isinstance(retry_state, dict):
+        retry_starts_fresh = bool(retry_state.pop("disable_resume_once", False))
+    if resume_decision == "resume" and not retry_starts_fresh:
         resume_record, progress_warning = smash_checkpoint.load_json(progress_paths.progress_path)
         if progress_warning:
             namespace["PRINT"]("-%s" % progress_warning)
+    elif resume_decision == "resume" and retry_starts_fresh:
+        namespace["PRINT"]("-SmashBruteBrawl retry starts fresh for this pass.")
 
     def load_spec(request):
         return namespace["GetSpec"](
@@ -507,6 +520,9 @@ def run_legacy_smash_brute_brawl(
             candy=runtime.candy,
             checkpoint=runtime.checkpoint,
             side_notes=runtime.side_notes,
+            suppress_failure_theatre=(
+                "FixItFelix partial IDAT blackfill" in str(context.from_error)
+            ),
         ),
         bruteforce_result.BruteForceResultContext(
             state=scan_result.state,
@@ -525,5 +541,6 @@ def run_legacy_smash_brute_brawl(
             from_error=context.from_error,
             diff=final_diff,
             tmp_image_paths=tuple(context.tmp_image_paths),
+            brute_level=context.brute_level,
         ),
     )

@@ -28,6 +28,24 @@ def valid_png_bytes():
     )
 
 
+def test_idat_bruteforce_target_prefers_crc_bad_idat_chunk():
+    ihdr_chunk = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00",
+    )
+    first_idat = build_png_chunk(b"IDAT", b"abcdef")
+    second_idat = build_png_chunk(b"IDAT", b"ghijkl")
+    data = bytearray(PNG_SIGNATURE + ihdr_chunk + first_idat + second_idat + IEND_CHUNK)
+    first_idat_offset = len(PNG_SIGNATURE) + len(ihdr_chunk)
+    first_idat_payload_offset = first_idat_offset + 8
+    data[first_idat_payload_offset + 2] ^= 0xFF
+
+    target = fixit_felix_runtime._idat_bruteforce_target(bytes(data))
+
+    assert target is not None
+    assert target.offset == first_idat_offset
+
+
 def zero_dimension_missing_idat_bytes():
     ihdr = b"\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00"
     return (
@@ -590,7 +608,7 @@ def test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforc
         candy=lambda *args: candy_calls.append(args),
         write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
         question=lambda **kwargs: questions.append(kwargs) or True,
-        preview_repair_image=lambda *args: previews.append(args),
+        preview_repair_image=lambda *args, **kwargs: previews.append((args, kwargs)),
         smash_brute_brawl=lambda *args, **kwargs: smash_calls.append((args, kwargs)),
         data_hex=source.hex(),
         file_origin="source-idat.png",
@@ -601,7 +619,7 @@ def test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforc
     assert result is True
     assert len(writes) == 1
     assert bytes.fromhex(writes[0][0]) == repair.data
-    assert previews == [(repair.data, "IDAT_Blackfill_Preview")]
+    assert previews == [((repair.data, "IDAT_Blackfill_Preview"), {"show": False})]
     assert questions == [
         {
             "id": (
@@ -730,6 +748,78 @@ def test_partial_blackfill_low_chance_opens_hephaestusforge():
     ]
     assert any("may take years and still fail" in call[1] for call in candy_calls)
     assert "-FixItFelix: low SBB diagnostic selected HephaestusForge (Insert-first)." in side_notes
+
+
+def assert_partial_blackfill_cheap_route_uses_edit_mode(edit_mode, family, order):
+    source, repair = partial_scanline_blackfill_source_and_repair()
+    smash_calls = []
+    original_diagnostic = fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic
+
+    def fake_diagnostic(_data, *, crc_target_trusted=False):
+        return idat.SmashBruteBrawlIdatDiagnostic(
+            supported=True,
+            width=1,
+            height=5,
+            bit_depth=8,
+            color_type=2,
+            color_label="RGB",
+            expected_decompressed_size=20,
+            decompressed_size=12,
+            missing_decompressed_size=8,
+            complete_scanlines=3,
+            total_scanlines=5,
+            partial_scanline_bytes=0,
+            scanline_size=4,
+            idat_chunk_count=1,
+            compressed_size=20,
+            zlib_status="partial",
+            crc_target_trusted=crc_target_trusted,
+            success_estimate="good",
+            success_reason="stored IDAT CRC is a useful target.",
+            recommended_repair_family=family,
+            hephaestus_order=order,
+            cheap_twobytes_viable=True,
+        )
+
+    fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = fake_diagnostic
+    try:
+        runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+            side_notes=[],
+            candy=lambda *args: None,
+            write_clone=lambda *_args: None,
+            question=lambda **_kwargs: True,
+            smash_brute_brawl=lambda *args, **kwargs: smash_calls.append((args, kwargs)),
+            data_hex=source.hex(),
+            file_origin="source-idat.png",
+        )
+
+        result = fixit_felix_runtime.maybe_launch_partial_blackfill_bruteforce(runtime, repair)
+    finally:
+        fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = original_diagnostic
+
+    assert result is True
+    assert smash_calls
+    assert smash_calls[0][1]["EditMode"] == edit_mode
+    assert smash_calls[0][1]["BfMode"] == "TwoBytes"
+    assert smash_calls[0][1]["BruteLevel"] == 0
+    idat_chunk = next(chunk for chunk in iter_chunks(source) if chunk.chunk_type == b"IDAT")
+    assert smash_calls[0][0][3] == (idat_chunk.offset + 8) * 2
+
+
+def test_partial_blackfill_cheap_missing_uses_insert():
+    assert_partial_blackfill_cheap_route_uses_edit_mode(
+        "Insert",
+        "missing",
+        ("Insert", "Replace", "Remove"),
+    )
+
+
+def test_partial_blackfill_cheap_extra_uses_remove():
+    assert_partial_blackfill_cheap_route_uses_edit_mode(
+        "Remove",
+        "extra",
+        ("Remove", "Replace", "Insert"),
+    )
 
 
 def test_partial_blackfill_bruteforce_uses_stored_crc_only_when_it_targets_original():
@@ -3890,8 +3980,20 @@ def main():
             test_partial_blackfill_low_chance_opens_hephaestusforge,
         ),
         (
+            "Partial blackfill cheap missing uses Insert",
+            test_partial_blackfill_cheap_missing_uses_insert,
+        ),
+        (
+            "Partial blackfill cheap extra uses Remove",
+            test_partial_blackfill_cheap_extra_uses_remove,
+        ),
+        (
             "Partial blackfill uses stored CRC only when useful",
             test_partial_blackfill_bruteforce_uses_stored_crc_only_when_it_targets_original,
+        ),
+        (
+            "IDAT brute force target prefers bad CRC",
+            test_idat_bruteforce_target_prefers_crc_bad_idat_chunk,
         ),
         (
             "Apply repair offers local IDAT donor",

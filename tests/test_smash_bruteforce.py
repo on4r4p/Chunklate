@@ -525,6 +525,7 @@ def test_legacy_bridge_builds_scan_context_syncs_state_and_runs_result():
         from_error="Relics",
         diff="new-diff",
         tmp_image_paths=(),
+        brute_level=2,
     )
 
 
@@ -685,6 +686,24 @@ def test_source_is_png_decodable_rejects_corrupt_deflate_stream():
     assert smash_checkpoint.source_is_png_decodable(tiny_png_bytes(corrupt_idat=True)) is False
 
 
+def test_resolve_smash_workers_reuses_session_choice_without_reprompt():
+    prompts = []
+    answers = iter(("10",))
+    namespace = {
+        "AUTO": False,
+        "NODIALOGUE": False,
+        "Prompt_Candy": lambda *args: prompts.append(("candy", args)),
+        "input": lambda prompt: prompts.append(("input", prompt)) or next(answers),
+    }
+
+    first = smash_bruteforce.resolve_smash_workers_from_namespace(namespace)
+    second = smash_bruteforce.resolve_smash_workers_from_namespace(namespace)
+
+    assert first == 10
+    assert second == 10
+    assert [item[0] for item in prompts].count("input") == 1
+
+
 def main():
     checks = [
         ("Namespace bridge", test_legacy_namespace_entry_builds_bridge_and_syncs_legacy_state),
@@ -695,6 +714,7 @@ def main():
         ("Direct resume snapshot", test_direct_resume_loads_source_snapshot_and_invocation),
         ("SBB source snapshot preview", test_write_source_snapshot_keeps_only_decodable_png_preview),
         ("SBB source corrupt deflate", test_source_is_png_decodable_rejects_corrupt_deflate_stream),
+        ("SBB worker session cache", test_resolve_smash_workers_reuses_session_choice_without_reprompt),
     ]
 
     print("Running smash bruteforce bridge tests")

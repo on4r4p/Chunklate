@@ -16,6 +16,7 @@ class BruteForceResultRuntime:
     candy: LegacyCall
     checkpoint: LegacyCall
     side_notes: list[Any]
+    suppress_failure_theatre: bool = False
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ class BruteForceResultContext:
     from_error: Any
     diff: str
     tmp_image_paths: tuple[str, ...] = ()
+    brute_level: int = 0
 
 
 def run_success(runtime: BruteForceResultRuntime, context: BruteForceResultContext) -> Any:
@@ -76,13 +78,20 @@ def run_success(runtime: BruteForceResultRuntime, context: BruteForceResultConte
 
 
 def run_failure(runtime: BruteForceResultRuntime, context: BruteForceResultContext) -> Any:
-    runtime.emit(
-        "\n-Bruteforce has %s %s"
-        % (runtime.candy("Color", "red", "Failed!"), runtime.candy("Chunky", "bad"))
-    )
+    if runtime.suppress_failure_theatre:
+        runtime.emit(
+            "\n-SBB pass failed: %s level %s. I will continue the blackfill retry sequence."
+            % (context.edit_mode, context.brute_level)
+        )
+        runtime.side_notes.append("\n-SmashBruteBrawl blackfill pass failed.")
+    else:
+        runtime.emit(
+            "\n-Bruteforce has %s %s"
+            % (runtime.candy("Color", "red", "Failed!"), runtime.candy("Chunky", "bad"))
+        )
 
-    runtime.candy("Cowsay", "I was afraid of this ...", "bad")
-    runtime.side_notes.append(bruteforce.BRUTE_FORCE_FAILURE_NOTE)
+        runtime.candy("Cowsay", "I was afraid of this ...", "bad")
+        runtime.side_notes.append(bruteforce.BRUTE_FORCE_FAILURE_NOTE)
 
     if len(context.tmp_image_paths) > 0:
         runtime.candy(

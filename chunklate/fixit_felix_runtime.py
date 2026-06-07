@@ -75,6 +75,7 @@ class AutomaticRepairRuntime:
     minibar: Callable[..., Any] | None = None
     file_origin: Any = ""
     interactive: bool = False
+    retry_state: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -375,6 +376,7 @@ def build_automatic_repair_runtime_from_namespace(namespace: dict[str, Any]) -> 
         minibar=namespace.get("Minibar"),
         file_origin=namespace.get("FILE_Origin") or namespace.get("Sample") or "",
         interactive=namespace_interactive_prompts(namespace),
+        retry_state=namespace.setdefault("_SBB_BLACKFILL_RETRY_STATE", {}),
     )
 
 
@@ -642,6 +644,14 @@ def _idat_bruteforce_target(source_data: bytes) -> png.PngChunk | None:
     if not idat_chunks:
         return None
 
+    crc_bad_chunks = [
+        chunk
+        for chunk in idat_chunks
+        if (binascii.crc32(chunk.chunk_type + chunk.data) & 0xFFFFFFFF) != chunk.crc
+    ]
+    if crc_bad_chunks:
+        return crc_bad_chunks[0]
+
     analysis = idat.analyze_idat_stream(source_data)
     error_index = analysis.error_idat_index
     if error_index is not None and 1 <= error_index <= len(idat_chunks):
@@ -858,8 +868,7 @@ def maybe_launch_partial_blackfill_bruteforce(
     if target_chunk is None:
         return False
 
-    if runtime.preview_repair_image is not None:
-        runtime.preview_repair_image(repair.data, "IDAT_Blackfill_Preview")
+    _preview_partial_blackfill_repair(runtime, repair, show=False)
 
     old_crc = _idat_original_crc_target(target_chunk)
     launch_mode = _partial_blackfill_bruteforce_question(
@@ -906,19 +915,38 @@ def _launch_partial_blackfill_bruteforce(
         runtime.side_notes.append(
             "-FixItFelix: low SBB diagnostic selected HephaestusForge (%s-first)." % edit_mode
         )
+    if isinstance(runtime.retry_state, dict):
+        runtime.retry_state["disable_resume_once"] = True
     if old_crc is not None:
         smash_kwargs["OldCrc"] = old_crc
         runtime.side_notes.append("-FixItFelix: SmashBruteBrawl will use stored IDAT CRC as target.")
     else:
         runtime.side_notes.append("-FixItFelix: stored IDAT CRC already matches current bytes; using image probe.")
+    smash_data_offset = target_chunk.offset * 2
+    if mode_name == "twobytes":
+        smash_data_offset = (target_chunk.offset + 8) * 2
     runtime.smash_brute_brawl(
         runtime.file_origin or "IDAT",
         "IDAT",
         target_chunk.length,
-        target_chunk.offset * 2,
+        smash_data_offset,
         "FixItFelix partial IDAT blackfill HephaestusForge" if mode_name == "hephaestus" else "FixItFelix partial IDAT blackfill",
         **smash_kwargs,
     )
+
+
+def _preview_partial_blackfill_repair(
+    runtime: AutomaticRepairRuntime,
+    repair: idat.PartialIdatBlackfillRepair,
+    *,
+    show: bool = False,
+) -> None:
+    if runtime.preview_repair_image is None:
+        return
+    try:
+        runtime.preview_repair_image(repair.data, "IDAT_Blackfill_Preview", show=show)
+    except TypeError:
+        runtime.preview_repair_image(repair.data, "IDAT_Blackfill_Preview")
 
 
 def apply_partial_blackfill_decision(
@@ -948,8 +976,7 @@ def apply_partial_blackfill_decision(
         old_crc is not None,
     )
     runtime.write_clone(applied_repair.data_hex, applied_repair.save_suffix)
-    if runtime.preview_repair_image is not None:
-        runtime.preview_repair_image(repair.data, "IDAT_Blackfill_Preview")
+    _preview_partial_blackfill_repair(runtime, repair, show=False)
     if launch_mode is None:
         runtime.side_notes.append("-FixItFelix: kept partial IDAT blackfill fallback after diagnostic gate.")
         return True

@@ -193,11 +193,14 @@ def shard_from_record(record: dict[str, Any]) -> SmashShard:
             bonus_offset=int(record.get("bonus_offset", 0) or 0),
             bonus_value=int(record.get("bonus_value", 0) or 0),
         )
+    if kind not in ("standard", "remove"):
+        kind = "standard"
     return SmashShard(
         shard_id=int(record.get("shard_id", 0) or 0),
         length_plan_index=int(record.get("length_plan_index", 0) or 0),
         start_inner_index=int(record.get("next_inner_index", record.get("start_inner_index", 0)) or 0),
         end_inner_index=int(record.get("end_inner_index", 0) or 0),
+        kind=kind,
     )
 
 
@@ -341,6 +344,46 @@ def build_twobytes_shards(
     return shards
 
 
+def build_remove_shards(
+    plan: SmashCandidatePlan,
+    *,
+    shard_size: int = SMASH_PARALLEL_SHARD_SIZE,
+    resume_outer_index: int = 0,
+    resume_inner_index: int = 0,
+) -> list[SmashShard]:
+    shards: list[SmashShard] = []
+    shard_id = 0
+    safe_shard_size = max(1, int(shard_size))
+    for length_index, length_plan in enumerate(plan.lengths):
+        if length_plan.outer_index < resume_outer_index:
+            continue
+        edit_window = bruteforce.edit_window(
+            plan.data_hex,
+            plan.data_offset,
+            plan.chunk_length,
+            plan.edit_mode,
+            plan.bf_mode,
+            length_plan.length,
+        )
+        total_positions = bruteforce.remove_candidate_count(edit_window.to_brute, length_plan.length)
+        start = resume_inner_index if length_plan.outer_index == resume_outer_index else 0
+        start = max(0, min(start, total_positions))
+        while start < total_positions:
+            end = min(total_positions, start + safe_shard_size)
+            shards.append(
+                SmashShard(
+                    shard_id=shard_id,
+                    length_plan_index=length_index,
+                    start_inner_index=start,
+                    end_inner_index=end,
+                    kind="remove",
+                )
+            )
+            shard_id += 1
+            start = end
+    return shards
+
+
 def _run_standard_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event: Any = None) -> SmashShardResult:
     try:
         length_plan = plan.lengths[shard.length_plan_index]
@@ -415,6 +458,86 @@ def _run_standard_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event:
             if plan.old_crc:
                 break
             if len(hits) >= 8:
+                break
+        return SmashShardResult(
+            shard=shard,
+            tested=tested,
+            next_inner_index=next_inner_index,
+            hits=tuple(hits),
+        )
+    except Exception as exc:
+        return SmashShardResult(
+            shard=shard,
+            tested=0,
+            next_inner_index=shard.start_inner_index,
+            error=str(exc),
+        )
+
+
+def _run_remove_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event: Any = None) -> SmashShardResult:
+    try:
+        length_plan = plan.lengths[shard.length_plan_index]
+        edit_window = bruteforce.edit_window(
+            plan.data_hex,
+            plan.data_offset,
+            plan.chunk_length,
+            plan.edit_mode,
+            plan.bf_mode,
+            length_plan.length,
+        )
+        total_positions = bruteforce.remove_candidate_count(edit_window.to_brute, length_plan.length)
+        start = max(0, min(int(shard.start_inner_index), total_positions))
+        end = max(start, min(int(shard.end_inner_index), total_positions))
+
+        hits: list[SmashCandidateHit] = []
+        tested = 0
+        next_inner_index = start
+        for remove_position in range(start, end):
+            if _stop_is_set(stop_event):
+                return SmashShardResult(
+                    shard=shard,
+                    tested=tested,
+                    next_inner_index=next_inner_index,
+                    hits=tuple(hits),
+                    stopped=True,
+                )
+            candidate_data = bruteforce.remove_candidate_data(
+                edit_window.to_brute,
+                remove_position,
+                length_plan.length,
+            )
+            attempt = bruteforce.prepare_candidate_attempt(
+                plan.chunk_name,
+                candidate_data.length_bytes,
+                candidate_data.data,
+                candidate_data.data,
+                edit_window.before,
+                edit_window.after,
+                brute_length=plan.brute_length,
+                brute_crc=plan.brute_crc,
+                old_crc=plan.old_crc,
+            )
+            tested += 1
+            next_inner_index = remove_position + 1
+            if plan.old_crc:
+                if not attempt.old_crc_match:
+                    continue
+            elif not _candidate_png_looks_valid(attempt.png_bytes):
+                continue
+            hits.append(
+                SmashCandidateHit(
+                    outer_index=length_plan.outer_index,
+                    length=length_plan.length,
+                    inner_index=remove_position,
+                    brute_bytes=candidate_data.removed_bytes,
+                    checksum=attempt.checksum,
+                    full_new_data=attempt.full_new_data,
+                    png_bytes=attempt.png_bytes,
+                    old_crc_match=attempt.old_crc_match,
+                    edit_kind="remove",
+                )
+            )
+            if plan.old_crc or len(hits) >= 8:
                 break
         return SmashShardResult(
             shard=shard,
@@ -669,6 +792,11 @@ def run_twobytes_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event: 
         return _run_twobytes_shard(plan, shard, stop_event)
 
 
+def run_remove_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event: Any = None) -> SmashShardResult:
+    with _worker_stderr_silenced():
+        return _run_remove_shard(plan, shard, stop_event)
+
+
 class SmashBackend:
     name = "base"
 
@@ -688,6 +816,8 @@ class SmashSerialBackend(SmashBackend):
     def run_shard(self, plan: SmashCandidatePlan, shard: SmashShard, stop_event: Any = None) -> SmashShardResult:
         if shard.kind == "twobytes":
             return run_twobytes_shard(plan, shard, stop_event)
+        if shard.kind == "remove":
+            return run_remove_shard(plan, shard, stop_event)
         return run_standard_shard(plan, shard, stop_event)
 
 
@@ -700,6 +830,8 @@ class SmashParallelBackend(SmashBackend):
     def run_shard(self, plan: SmashCandidatePlan, shard: SmashShard, stop_event: Any = None) -> SmashShardResult:
         if shard.kind == "twobytes":
             return run_twobytes_shard(plan, shard, stop_event)
+        if shard.kind == "remove":
+            return run_remove_shard(plan, shard, stop_event)
         return run_standard_shard(plan, shard, stop_event)
 
 

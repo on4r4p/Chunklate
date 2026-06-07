@@ -814,9 +814,18 @@ def test_twobytes_candidate_data_preserves_replace_insert_remove_slices():
     assert insert.bonus_hex == "00aa11223344"
     assert insert.length_bytes == b"\x00\x00\x00\x06"
 
-    assert remove.data == bytes.fromhex("00aa3344")
-    assert remove.bonus_hex == "00aa3344"
+    assert remove.data == bytes.fromhex("00223344")
+    assert remove.bonus_hex == "00223344"
     assert remove.length_bytes == b"\x00\x00\x00\x04"
+
+
+def test_remove_candidate_data_removes_contiguous_payload_window():
+    candidate = bruteforce.remove_candidate_data("0011223344", 1, 4)
+
+    assert candidate.data == bytes.fromhex("003344")
+    assert candidate.removed_bytes == bytes.fromhex("1122")
+    assert candidate.length_bytes == b"\x00\x00\x00\x03"
+    assert bruteforce.remove_candidate_count("0011223344", 4) == 4
 
 
 def test_iter_twobytes_edit_kinds_preserves_idat_all_modes():
@@ -826,9 +835,14 @@ def test_iter_twobytes_edit_kinds_preserves_idat_all_modes():
         "remove",
     )
     assert bruteforce.iter_twobytes_edit_kinds("Insert", b"IDAT") == (
+        "insert",
+        "replace",
+        "remove",
+    )
+    assert bruteforce.iter_twobytes_edit_kinds("Remove", b"IDAT") == (
+        "remove",
         "replace",
         "insert",
-        "remove",
     )
 
 
@@ -1090,6 +1104,24 @@ def test_edit_window_preserves_replace_and_insert_slicing():
     assert insert.insert_flag is True
 
 
+def test_edit_window_preserves_remove_slicing():
+    data_hex = "aabb0000000449444154ccddeeff00112233445566778899"
+
+    remove = bruteforce.edit_window(
+        data_hex,
+        data_offset=4,
+        chunk_length=4,
+        edit_mode="Remove",
+        bf_mode="Brutus",
+        length=4,
+    )
+
+    assert remove.before == bytes.fromhex("aabb")
+    assert remove.to_brute == "ccddeeff"
+    assert remove.after == bytes.fromhex("445566778899")
+    assert remove.remove_flag is True
+
+
 def main():
     checks = [
         ("Normalize old CRC", test_normalize_old_crc_preserves_legacy_values),
@@ -1130,6 +1162,7 @@ def main():
         ("Viewer timeout save", test_save_viewer_timeout_image_uses_callback_and_returns_summary),
         ("Viewer timeout failure", test_save_viewer_timeout_image_reports_callback_failure),
         ("TwoBytes candidate data", test_twobytes_candidate_data_preserves_replace_insert_remove_slices),
+        ("Remove candidate data", test_remove_candidate_data_removes_contiguous_payload_window),
         ("TwoBytes IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_idat_all_modes),
         ("TwoBytes non-IDAT edit kind dispatch", test_iter_twobytes_edit_kinds_preserves_non_idat_requested_mode),
         ("TwoBytes bonus candidates", test_iter_twobytes_bonus_data_preserves_legacy_skip_and_byte_range),
@@ -1144,6 +1177,7 @@ def main():
         ("Build Custom scalar candidate", test_build_candidate_bytes_preserves_custom_scalar_candidate_fallback),
         ("TwoBytes edit window", test_edit_window_preserves_twobytes_slicing),
         ("Replace/Insert edit windows", test_edit_window_preserves_replace_and_insert_slicing),
+        ("Remove edit window", test_edit_window_preserves_remove_slicing),
     ]
 
     print("Running SmashBruteBrawl helper tests")

@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import bruteforce, bruteforce_runtime, bruteforce_viewer, smash_backend, smash_checkpoint
+from chunklate.png import iter_chunks
 
 
 @dataclass
@@ -151,6 +152,91 @@ def test_resolve_smash_worker_profiles():
     assert smash_backend.resolve_smash_worker_count("auto", cpu_count=16) == 8
     assert smash_backend.resolve_smash_worker_count("max", cpu_count=16) == 15
     assert smash_backend.resolve_smash_worker_count("3", cpu_count=16) == 3
+
+
+def test_parallel_progress_records_finished_out_of_order_shards():
+    calls = []
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(1,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+        )
+        context = base_context()
+        runtime_plan = bruteforce_runtime.prepare_runtime_plan(runtime, context)
+        scan_state = bruteforce_runtime.SmashBruteBrawlScanState(
+            state=bruteforce.BruteForceMatchState(),
+        )
+        shards = [
+            smash_backend.SmashShard(
+                shard_id=0,
+                length_plan_index=0,
+                start_inner_index=0,
+                end_inner_index=10,
+            ),
+            smash_backend.SmashShard(
+                shard_id=1,
+                length_plan_index=0,
+                start_inner_index=10,
+                end_inner_index=20,
+            ),
+        ]
+        results = {
+            1: smash_backend.SmashShardResult(
+                shard=shards[1],
+                tested=10,
+                next_inner_index=20,
+            )
+        }
+
+        bruteforce_runtime._save_parallel_progress(
+            runtime,
+            context,
+            runtime_plan,
+            scan_state,
+            candidate_space_hash="hash",
+            worker_count=2,
+            shard_size=10,
+            shards=shards,
+            results=results,
+            tested_floor=5,
+            force=True,
+        )
+
+        record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+
+    assert record["counters"]["tested_candidates"] == 15
+    assert record["shards"][0]["status"] == "pending"
+    assert record["shards"][0]["tested"] == 0
+    assert record["shards"][1]["status"] == "done"
+    assert record["shards"][1]["tested"] == 10
+
+
+def test_empty_pending_parallel_checkpoint_is_rejected_as_stale():
+    record = {
+        "backend": "cpu-parallel",
+        "counters": {"tested_candidates": 0},
+        "shards": [
+            {
+                "kind": "twobytes",
+                "status": "pending",
+                "tested": 0,
+                "byte_start": 0,
+                "byte_end": 10,
+                "next_byte_position": 0,
+                "edit_kind_index": 0,
+                "stage": "",
+            }
+        ],
+    }
+
+    assert bruteforce_runtime._smash_parallel_progress_is_empty_stale(record) is True
+
+    record["shards"][0]["tested"] = 1
+    assert bruteforce_runtime._smash_parallel_progress_is_empty_stale(record) is False
 
 
 def test_run_scan_parallel_oldcrc_matches_serial_result():
@@ -433,6 +519,105 @@ def test_twobytes_worker_bonus_path_has_brute_level(monkeypatch):
     assert result.hits == ()
 
 
+def test_remove_worker_shard_matches_old_crc():
+    chunk_name = b"IDAT"
+    repaired_payload = bytes.fromhex("aacc")
+    old_crc = bruteforce.chunk_crc(chunk_name, repaired_payload)
+    length_plan = smash_backend.SmashLengthPlan(
+        outer_index=0,
+        length=2,
+        iter_nbr=None,
+        max_iter=3,
+        len_iter=1,
+        chunk_format=("B",),
+        chunk_data=((0,),),
+        color_type="color",
+    )
+    plan = smash_backend.SmashCandidatePlan(
+        chunk_name=chunk_name,
+        chunk_length=3,
+        data_offset=0,
+        data_hex="0000000349444154aabbccdeadbeef",
+        edit_mode="Remove",
+        bf_mode="Brutus",
+        brute_level=0,
+        brute_crc=True,
+        brute_length=True,
+        old_crc=old_crc,
+        struct_indexes=(),
+        candidate_space_hash="hash",
+        crc_trusted=True,
+        lengths=(length_plan,),
+    )
+    shard = smash_backend.SmashShard(
+        shard_id=0,
+        length_plan_index=0,
+        start_inner_index=0,
+        end_inner_index=3,
+        kind="remove",
+    )
+
+    result = smash_backend.run_remove_shard(plan, shard)
+
+    assert result.error == ""
+    assert result.hits
+    assert result.hits[0].inner_index == 1
+    assert result.hits[0].edit_kind == "remove"
+    assert result.hits[0].full_new_data == (
+        b"\x00\x00\x00\x02" + chunk_name + repaired_payload + old_crc
+    )
+
+
+def test_twobytes_remove_worker_repairs_extra_idat_byte_fixture():
+    data = (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "SBB_IDAT_1Byte_Extra.png").read_bytes()
+    idat_chunk = next(chunk for chunk in iter_chunks(data) if chunk.chunk_type == b"IDAT")
+    old_crc = idat_chunk.crc.to_bytes(4, "big")
+    length_plan = smash_backend.SmashLengthPlan(
+        outer_index=0,
+        length=1,
+        iter_nbr=None,
+        max_iter=1,
+        len_iter=1,
+        chunk_format=("B",),
+        chunk_data=((0,),),
+        color_type="color",
+    )
+    plan = smash_backend.SmashCandidatePlan(
+        chunk_name=b"IDAT",
+        chunk_length=idat_chunk.length,
+        data_offset=(idat_chunk.offset + 8) * 2,
+        data_hex=data.hex(),
+        edit_mode="Remove",
+        bf_mode="TwoBytes",
+        brute_level=0,
+        brute_crc=True,
+        brute_length=True,
+        old_crc=old_crc,
+        struct_indexes=(),
+        candidate_space_hash="hash",
+        crc_trusted=True,
+        lengths=(length_plan,),
+    )
+    shard = smash_backend.SmashShard(
+        shard_id=0,
+        length_plan_index=0,
+        start_inner_index=0,
+        end_inner_index=1,
+        kind="twobytes",
+        inner_index=0,
+        byte_start=0,
+        byte_end=idat_chunk.length,
+    )
+
+    result = smash_backend.run_twobytes_shard(plan, shard)
+
+    assert result.error == ""
+    assert result.hits
+    assert result.hits[0].edit_kind == "remove"
+    assert result.hits[0].old_crc_match is True
+    assert result.hits[0].full_new_data[:8] == b"\x00\x00\x00\xd3IDAT"
+
+
 def test_twobytes_shard_record_round_trips_resume_cursor():
     shard = smash_backend.SmashShard(
         shard_id=7,
@@ -642,6 +827,36 @@ def test_run_scan_preserves_crash_resume_skip_and_reset():
     assert ("loadingbar", 2, 1, 1, False) in calls
 
 
+def test_run_scan_supports_idat_brutus_remove_with_old_crc():
+    calls = []
+    chunk_name = b"IDAT"
+    repaired_payload = bytes.fromhex("aacc")
+    old_crc = bruteforce.chunk_crc(chunk_name, repaired_payload).hex()
+    runtime = build_runtime(calls, specs=simple_specs, product_values=[])
+
+    result = bruteforce_runtime.run_scan(
+        runtime,
+        base_context(
+            chunk_name=chunk_name,
+            chunk_length=3,
+            data_offset=0,
+            data_hex="0000000349444154aabbccdeadbeef",
+            edit_mode="Remove",
+            bf_mode="Brutus",
+            old_crc=old_crc,
+        ),
+    )
+
+    assert result.state == bruteforce.BruteForceMatchState(
+        bingo=True,
+        remove_flag=True,
+    )
+    assert result.full_new_data == (
+        b"\x00\x00\x00\x02" + chunk_name + repaired_payload + bytes.fromhex(old_crc)
+    )
+    assert result.to_brute == "aabbcc"
+
+
 def test_run_scan_writes_smash_progress_checkpoint():
     calls = []
     chunk_name = b"gAMA"
@@ -694,6 +909,8 @@ def test_run_scan_resumes_from_saved_inner_index_when_space_matches():
 
         bruteforce_runtime.run_scan(first_runtime, context)
         resume_record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+        resume_record["status"] = "running"
+        resume_record["plan"]["status"] = "running"
 
         calls.clear()
         second_runtime = build_runtime(
@@ -739,6 +956,8 @@ def test_run_scan_restarts_when_brute_level_increases_search_space():
             base_context(chunk_name=chunk_name, old_crc=old_crc, brute_level=0),
         )
         resume_record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+        resume_record["status"] = "running"
+        resume_record["plan"]["status"] = "running"
 
         calls.clear()
         next_runtime = build_runtime(
@@ -762,6 +981,48 @@ def test_run_scan_restarts_when_brute_level_increases_search_space():
     )
 
 
+def test_parallel_exhausted_checkpoint_is_not_resumed():
+    calls = []
+    chunk_name = b"gAMA"
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,), (8,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            source_size=123,
+            source_path="/tmp/_SBB.Source.raw",
+            smash_workers=2,
+        )
+        context = base_context(chunk_name=chunk_name, old_crc="00000000")
+
+        bruteforce_runtime.run_scan(runtime, context)
+        resume_record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+
+        assert resume_record["status"] == "exhausted"
+
+        calls.clear()
+        next_runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,), (8,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            source_size=123,
+            source_path="/tmp/_SBB.Source.raw",
+            resume_record=resume_record,
+            smash_workers=2,
+        )
+        bruteforce_runtime.run_scan(next_runtime, context)
+
+    assert any(
+        call[0] == "emit" and "already marked exhausted" in call[1]
+        for call in calls
+    )
+
+
 def main():
     checks = [
         ("OldCrc scan", test_run_scan_preserves_oldcrc_path_without_viewer),
@@ -769,10 +1030,17 @@ def main():
         ("TwoBytes scan", test_run_scan_preserves_twobytes_oldcrc_path),
         ("TwoBytes dots", test_twobytes_progress_dots_line_fills_and_returns),
         ("TwoBytes short terminal", test_twobytes_progress_dots_line_clamps_to_short_terminal_width),
+        ("Remove worker shard", test_remove_worker_shard_matches_old_crc),
+        ("TwoBytes Remove extra IDAT fixture", test_twobytes_remove_worker_repairs_extra_idat_byte_fixture),
+        ("Worker profiles", test_resolve_smash_worker_profiles),
+        ("Parallel progress finished shard records", test_parallel_progress_records_finished_out_of_order_shards),
+        ("Parallel stale empty checkpoint", test_empty_pending_parallel_checkpoint_is_rejected_as_stale),
         ("Crash resume", test_run_scan_preserves_crash_resume_skip_and_reset),
+        ("IDAT Brutus Remove", test_run_scan_supports_idat_brutus_remove_with_old_crc),
         ("Smash progress checkpoint", test_run_scan_writes_smash_progress_checkpoint),
         ("Smash resume inner cursor", test_run_scan_resumes_from_saved_inner_index_when_space_matches),
         ("Smash higher BruteLevel restart", test_run_scan_restarts_when_brute_level_increases_search_space),
+        ("Parallel exhausted checkpoint", test_parallel_exhausted_checkpoint_is_not_resumed),
     ]
 
     print("Running bruteforce runtime tests")

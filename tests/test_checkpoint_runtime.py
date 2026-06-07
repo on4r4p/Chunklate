@@ -1118,8 +1118,8 @@ def test_checkpoint_runtime_runs_smash_brute_brawl_end_actions():
         None,
     )
     assert checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(runtime) == (
-        False,
-        None,
+        True,
+        "end",
     )
     assert checkpoint_runtime.run_smash_brute_brawl_end_unhandled(runtime) == (False, None)
 
@@ -1130,6 +1130,8 @@ def test_checkpoint_runtime_runs_smash_brute_brawl_end_actions():
         "end",
         "candy",
         "candy",
+        "candy",
+        "end",
         "end",
     ]
 

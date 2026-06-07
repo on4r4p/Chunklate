@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from . import checkpoint_runtime
@@ -9,6 +10,9 @@ from . import checkpoint_runtime
 
 LegacyCall = Callable[..., Any]
 HEPHAESTUS_MIN_BRUTE_LEVEL = 1
+SBB_TWOBYTES_CAMPAIGN_LEVELS = (0, 1)
+SBB_HEPHAESTUS_CAMPAIGN_LEVELS = (1, 3, 7, 15)
+SBB_HEPHAESTUS_AUTO_LEVEL_MAX = 3
 
 
 @dataclass(frozen=True)
@@ -21,9 +25,33 @@ class CheckPointActionRuntime:
     set_brute_level: Callable[[int], Any]
     eta: int
     ihdr_interlace: str
+    retry_state: dict[str, Any] = field(default_factory=dict)
+    clear_smash_resume_files: Callable[[], Any] = lambda: None
 
 
 def build_checkpoint_action_runtime_from_namespace(namespace: dict[str, Any]) -> CheckPointActionRuntime:
+    def clear_smash_resume_files() -> None:
+        paths = [
+            namespace.get("SMASH_BRUTE_BRAWL_PROGRESS_PATH"),
+            namespace.get("SMASH_BRUTE_BRAWL_SOURCE_RAW_PATH"),
+            namespace.get("SMASH_BRUTE_BRAWL_SOURCE_PATH"),
+        ]
+        folder = namespace.get("SMASH_BRUTE_BRAWL_FOLDER")
+        if folder:
+            paths.extend(
+                os.path.join(str(folder), name)
+                for name in ("_SBB.progress.json", "_SBB.Source.raw", "_SBB.Source.png")
+            )
+        for path in paths:
+            if not path:
+                continue
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+
     return CheckPointActionRuntime(
         checkpoint=namespace["CheckPoint_Runtime"](),
         side_notes=namespace["SideNotes"],
@@ -33,6 +61,8 @@ def build_checkpoint_action_runtime_from_namespace(namespace: dict[str, Any]) ->
         set_brute_level=lambda value: namespace.__setitem__("Brute_LvL", value),
         eta=namespace["ETA"],
         ihdr_interlace=namespace["IHDR_Interlace"],
+        retry_state=namespace.setdefault("_SBB_BLACKFILL_RETRY_STATE", {}),
+        clear_smash_resume_files=clear_smash_resume_files,
     )
 
 
@@ -122,6 +152,8 @@ def smash_brute_brawl_relaunch(
     has_old_crc=False,
     old_crc=None,
 ):
+    if "FixItFelix partial IDAT blackfill" in str(from_error):
+        runtime.retry_state["disable_resume_once"] = True
     return checkpoint_runtime.run_smash_brute_brawl_relaunch(
         runtime.checkpoint,
         toolkit,
@@ -188,6 +220,7 @@ def smash_brute_brawl_handle_twobytes_decline(runtime: CheckPointActionRuntime, 
     from_error = toolkit[9] if "OldCrc" in info and len(toolkit) > 9 else toolkit[8]
     if "FixItFelix partial IDAT blackfill" in str(from_error):
         runtime.side_notes.append("-CheckPoint: Keeping partial IDAT blackfill after SmashBruteBrawl decline.")
+        runtime.clear_smash_resume_files()
         return checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(
             runtime.checkpoint
         )
@@ -226,6 +259,7 @@ def action_smash_brute_brawl_end_failed_noncustom(runtime: CheckPointActionRunti
 
 def action_smash_brute_brawl_keep_blackfill_fallback(runtime: CheckPointActionRuntime, decision, chunk, info, toolkit):
     runtime.side_notes.append("-CheckPoint: Keeping partial IDAT blackfill after SmashBruteBrawl failure.")
+    runtime.clear_smash_resume_files()
     return checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(
         runtime.checkpoint
     )
@@ -238,97 +272,295 @@ def _smash_old_crc_and_error(info, toolkit) -> tuple[bool, Any, Any]:
     return has_old_crc, old_crc, from_error
 
 
-def _hephaestus_next_edit_mode(edit_mode: Any) -> str | None:
+def _hephaestus_order_from_edit_mode(edit_mode: Any) -> tuple[str, str, str]:
     current = str(edit_mode)
     if current == "Insert":
-        return "Replace"
-    if current == "Replace":
-        return "Remove"
+        return ("Insert", "Replace", "Remove")
     if current == "Remove":
+        return ("Remove", "Replace", "Insert")
+    return ("Replace", "Insert", "Remove")
+
+
+def _hephaestus_next_edit_mode(edit_mode: Any, order: tuple[str, ...] | None = None) -> str | None:
+    current = str(edit_mode)
+    selected_order = tuple(order or _hephaestus_order_from_edit_mode(current))
+    try:
+        index = selected_order.index(current)
+    except ValueError:
+        return selected_order[0] if selected_order else None
+    next_index = index + 1
+    if next_index >= len(selected_order):
         return None
-    return "Replace"
+    return selected_order[next_index]
+
+
+def _blackfill_runtime_order(runtime: CheckPointActionRuntime, edit_mode: Any) -> tuple[str, ...]:
+    cached = runtime.retry_state.get("hephaestus_order")
+    if isinstance(cached, (list, tuple)) and cached:
+        return tuple(str(item) for item in cached)
+    order = _hephaestus_order_from_edit_mode(edit_mode)
+    runtime.retry_state["hephaestus_order"] = order
+    return order
+
+
+def _blackfill_campaign_start_mode(runtime: CheckPointActionRuntime, current_mode: str) -> str:
+    start_mode = runtime.retry_state.get("campaign_start_mode")
+    if not isinstance(start_mode, str) or not start_mode:
+        start_mode = str(current_mode)
+        runtime.retry_state["campaign_start_mode"] = start_mode
+    return start_mode
+
+
+def _blackfill_retry_key(toolkit, *, edit_mode: Any, bf_mode: Any, brute_level: int) -> tuple[str, str, int, str, str, str]:
+    old_crc = toolkit[8] if len(toolkit) > 8 else ""
+    return (
+        str(bf_mode),
+        str(edit_mode),
+        int(brute_level),
+        str(toolkit[6]),
+        str(toolkit[7]),
+        str(old_crc),
+    )
+
+
+def _blackfill_mark_attempt(runtime: CheckPointActionRuntime, toolkit, *, edit_mode: Any, bf_mode: Any, brute_level: int) -> None:
+    attempts = runtime.retry_state.setdefault("attempts", set())
+    attempts.add(_blackfill_retry_key(toolkit, edit_mode=edit_mode, bf_mode=bf_mode, brute_level=brute_level))
+
+
+def _blackfill_attempt_seen(runtime: CheckPointActionRuntime, toolkit, *, edit_mode: Any, bf_mode: Any, brute_level: int) -> bool:
+    attempts = runtime.retry_state.get("attempts")
+    if not isinstance(attempts, set):
+        return False
+    return _blackfill_retry_key(toolkit, edit_mode=edit_mode, bf_mode=bf_mode, brute_level=brute_level) in attempts
+
+
+def _blackfill_next_untried_edit(
+    runtime: CheckPointActionRuntime,
+    toolkit,
+    *,
+    current_edit: Any,
+    order: tuple[str, ...],
+    brute_level: int,
+) -> str | None:
+    next_edit = _hephaestus_next_edit_mode(current_edit, order)
+    while next_edit is not None and _blackfill_attempt_seen(
+        runtime,
+        toolkit,
+        edit_mode=next_edit,
+        bf_mode="Brutus",
+        brute_level=brute_level,
+    ):
+        next_edit = _hephaestus_next_edit_mode(next_edit, order)
+    return next_edit
+
+
+def _blackfill_campaign_attempts(
+    runtime: CheckPointActionRuntime,
+    toolkit,
+    *,
+    current_edit: str,
+    current_mode: str,
+) -> tuple[tuple[str, str, int], ...]:
+    order = _blackfill_runtime_order(runtime, current_edit)
+    start_mode = _blackfill_campaign_start_mode(runtime, current_mode)
+    attempts: list[tuple[str, str, int]] = []
+    if start_mode.lower() != "brutus":
+        for level in SBB_TWOBYTES_CAMPAIGN_LEVELS:
+            for edit in order:
+                attempts.append((edit, "TwoBytes", level))
+    for level in SBB_HEPHAESTUS_CAMPAIGN_LEVELS:
+        for edit in order:
+            attempts.append((edit, "Brutus", level))
+    return tuple(attempts)
+
+
+def _blackfill_attempt_label(edit_mode: str, bf_mode: str, brute_level: int) -> str:
+    if str(bf_mode).lower() == "brutus":
+        return "HephaestusForge %s level %s" % (edit_mode, brute_level)
+    return "%s level %s" % (edit_mode, brute_level)
+
+
+def _blackfill_next_campaign_attempt(
+    runtime: CheckPointActionRuntime,
+    toolkit,
+    *,
+    current_edit: str,
+    current_mode: str,
+    current_level: int,
+) -> tuple[str, str, int] | None:
+    current_key = _blackfill_retry_key(
+        toolkit,
+        edit_mode=current_edit,
+        bf_mode=current_mode,
+        brute_level=current_level,
+    )
+    attempts = _blackfill_campaign_attempts(
+        runtime,
+        toolkit,
+        current_edit=current_edit,
+        current_mode=current_mode,
+    )
+    current_is_in_campaign = any(
+        _blackfill_retry_key(
+            toolkit,
+            edit_mode=edit_mode,
+            bf_mode=bf_mode,
+            brute_level=brute_level,
+        )
+        == current_key
+        for edit_mode, bf_mode, brute_level in attempts
+    )
+    past_current = not current_is_in_campaign
+    for edit_mode, bf_mode, brute_level in attempts:
+        if not current_is_in_campaign:
+            if str(current_mode).lower() != "brutus" and str(bf_mode).lower() != "brutus" and int(current_level) > max(SBB_TWOBYTES_CAMPAIGN_LEVELS):
+                continue
+            if (
+                str(current_mode).lower() == "brutus"
+                and str(bf_mode).lower() == "brutus"
+                and int(current_level) >= HEPHAESTUS_MIN_BRUTE_LEVEL
+                and int(brute_level) <= int(current_level)
+            ):
+                continue
+        key = _blackfill_retry_key(
+            toolkit,
+            edit_mode=edit_mode,
+            bf_mode=bf_mode,
+            brute_level=brute_level,
+        )
+        if key == current_key:
+            past_current = True
+            continue
+        if not past_current and _blackfill_attempt_seen(
+            runtime,
+            toolkit,
+            edit_mode=edit_mode,
+            bf_mode=bf_mode,
+            brute_level=brute_level,
+        ):
+            continue
+        if not past_current:
+            continue
+        if _blackfill_attempt_seen(
+            runtime,
+            toolkit,
+            edit_mode=edit_mode,
+            bf_mode=bf_mode,
+            brute_level=brute_level,
+        ):
+            continue
+        return edit_mode, bf_mode, brute_level
+    return None
+
+
+def _blackfill_deep_campaign_allowed(
+    runtime: CheckPointActionRuntime,
+    toolkit,
+    *,
+    edit_mode: str,
+    bf_mode: str,
+    brute_level: int,
+) -> bool:
+    if str(bf_mode).lower() != "brutus" or int(brute_level) <= SBB_HEPHAESTUS_AUTO_LEVEL_MAX:
+        return True
+    prompted = runtime.retry_state.setdefault("deep_prompted_levels", set())
+    prompt_key = (str(bf_mode), str(edit_mode), int(brute_level))
+    if prompt_key in prompted:
+        return True
+    prompted.add(prompt_key)
+    runtime.checkpoint.candy(
+        "Cowsay",
+        "The next HephaestusForge scope is bigger: %s bytes-ish. This can get expensive fast."
+        % max(1, int(brute_level) + 1),
+        "bad",
+    )
+    runtime.checkpoint.candy(
+        "Cowsay",
+        "Should I continue the progressive forge campaign before accepting blackfill?",
+        "com",
+    )
+    try:
+        return bool(runtime.checkpoint.question(skipauto=True, timeout_seconds=30, timeout_default=True))
+    except TypeError:
+        return bool(runtime.checkpoint.question(skipauto=True))
+
+
+def _blackfill_keep_existing_fallback(runtime: CheckPointActionRuntime) -> tuple[bool, Any]:
+    runtime.side_notes.append(
+        "-CheckPoint: Keeping partial IDAT blackfill after progressive SmashBruteBrawl campaign."
+    )
+    runtime.retry_state.clear()
+    runtime.clear_smash_resume_files()
+    return checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(
+        runtime.checkpoint
+    )
 
 
 def action_smash_brute_brawl_ask_blackfill_next_step(runtime: CheckPointActionRuntime, decision, chunk, info, toolkit):
     has_old_crc, old_crc, from_error = _smash_old_crc_and_error(info, toolkit)
-    if str(toolkit[5]).lower() == "brutus":
-        next_edit = _hephaestus_next_edit_mode(toolkit[4])
-        if "HephaestusForge" in str(from_error) and next_edit is not None:
-            answer = checkpoint_runtime.ask_smash_brute_brawl_hephaestus_next_edit(
-                runtime.checkpoint,
-                next_edit_mode=next_edit,
-            )
-            if answer is True:
-                hephaestus_level = max(HEPHAESTUS_MIN_BRUTE_LEVEL, runtime.get_brute_level())
-                runtime.set_brute_level(hephaestus_level)
-                runtime.side_notes.append(
-                    "-CheckPoint: HephaestusForge trying %s at BruteLevel %s before keeping blackfill."
-                    % (next_edit, hephaestus_level)
-                )
-                smash_brute_brawl_relaunch(
-                    runtime,
-                    toolkit,
-                    from_error,
-                    edit_mode=next_edit,
-                    bf_mode="Brutus",
-                    brute_level=hephaestus_level,
-                    has_old_crc=has_old_crc,
-                    old_crc=old_crc,
-                )
-                return False, None
-        runtime.side_notes.append(
-            "-CheckPoint: Keeping partial IDAT blackfill after HephaestusForge failure."
-        )
-        return checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(
-            runtime.checkpoint
-        )
-
-    next_level = runtime.get_brute_level() + 1
-    answer = checkpoint_runtime.ask_smash_brute_brawl_blackfill_next_level(
-        runtime.checkpoint,
+    current_level = runtime.get_brute_level()
+    current_edit = str(toolkit[4])
+    current_mode = str(toolkit[5])
+    _blackfill_mark_attempt(
+        runtime,
         toolkit,
+        edit_mode=current_edit,
+        bf_mode=current_mode,
+        brute_level=current_level,
+    )
+    next_attempt = _blackfill_next_campaign_attempt(
+        runtime,
+        toolkit,
+        current_edit=current_edit,
+        current_mode=current_mode,
+        current_level=current_level,
+    )
+    if next_attempt is None:
+        runtime.checkpoint.candy(
+            "Cowsay",
+            "I was afraid of this...",
+            "bad",
+        )
+        return _blackfill_keep_existing_fallback(runtime)
+
+    next_edit, next_mode, next_level = next_attempt
+    if not _blackfill_deep_campaign_allowed(
+        runtime,
+        toolkit,
+        edit_mode=next_edit,
+        bf_mode=next_mode,
         brute_level=next_level,
-        eta=runtime.eta,
-    )
-    if answer is True:
-        runtime.set_brute_level(next_level)
-        runtime.side_notes.append(
-            "-CheckPoint: Increasing partial blackfill SmashBruteBrawl BruteLevel to %s."
-            % next_level
-        )
-        smash_brute_brawl_relaunch(
-            runtime,
-            toolkit,
-            from_error,
-            brute_level=next_level,
-            has_old_crc=has_old_crc,
-            old_crc=old_crc,
-        )
-        return False, None
+    ):
+        return _blackfill_keep_existing_fallback(runtime)
 
-    answer = checkpoint_runtime.ask_smash_brute_brawl_blackfill_full_chunk(runtime.checkpoint)
-    if answer is True:
-        runtime.set_brute_level(HEPHAESTUS_MIN_BRUTE_LEVEL)
-        runtime.side_notes.append(
-            "-CheckPoint: Trying HephaestusForge at BruteLevel %s before keeping blackfill."
-            % HEPHAESTUS_MIN_BRUTE_LEVEL
+    runtime.set_brute_level(next_level)
+    runtime.retry_state["disable_resume_once"] = True
+    runtime.checkpoint.emit(
+        "-SBB pass exhausted: %s; trying %s."
+        % (
+            _blackfill_attempt_label(current_edit, current_mode, current_level),
+            _blackfill_attempt_label(next_edit, next_mode, next_level),
         )
-        smash_brute_brawl_relaunch(
-            runtime,
-            toolkit,
-            from_error,
-            edit_mode="Replace",
-            bf_mode="Brutus",
-            brute_level=HEPHAESTUS_MIN_BRUTE_LEVEL,
-            has_old_crc=has_old_crc,
-            old_crc=old_crc,
-        )
-        return False, None
-
-    runtime.side_notes.append("-CheckPoint: Keeping partial IDAT blackfill after SmashBruteBrawl failure.")
-    return checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(
-        runtime.checkpoint
     )
+    runtime.checkpoint.emit(
+        "-SBB campaign keeps the blackfill fallback parked while this pass runs."
+    )
+    runtime.side_notes.append(
+        "-CheckPoint: Progressive SBB campaign trying %s."
+        % _blackfill_attempt_label(next_edit, next_mode, next_level)
+    )
+    smash_brute_brawl_relaunch(
+        runtime,
+        toolkit,
+        from_error,
+        edit_mode=next_edit,
+        bf_mode=next_mode,
+        brute_level=next_level,
+        has_old_crc=has_old_crc,
+        old_crc=old_crc,
+    )
+    return False, None
 
 
 def action_smash_brute_brawl_ask_custom_brutus(runtime: CheckPointActionRuntime, decision, chunk, info, toolkit):

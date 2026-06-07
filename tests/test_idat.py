@@ -3663,6 +3663,20 @@ def test_analyze_idat_stream_reports_bad_adler():
     assert analysis.adler_status == "adler_mismatch"
 
 
+def test_analyze_idat_stream_reports_trailing_data():
+    filtered = dynamic_filtered_rows(height=2)
+    compressed = zlib.compress(filtered) + b"\xa5\x5a"
+
+    analysis = idat.analyze_idat_stream(build_rgb_png(1, 2, filtered, idat_data=compressed))
+
+    assert analysis.supported is True
+    assert analysis.complete is False
+    assert analysis.status == "trailing_data"
+    assert analysis.decompressed_size == len(filtered)
+    assert analysis.error_offset == len(compressed) - 2
+    assert analysis.computed_adler == zlib.adler32(filtered)
+
+
 def test_sbb_idat_diagnostic_reports_large_blackfill_gap():
     data = (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "IDAT_Corruption_2.png").read_bytes()
 
@@ -3698,22 +3712,27 @@ def test_sbb_idat_diagnostic_marks_trusted_small_crc_target_good():
 
 
 def test_sbb_idat_fixtures_keep_original_crc_targets():
-    fixture_names = (
-        "SBB_IDAT_1Byte_Replace.png",
-        "SBB_IDAT_1Byte_Missing.png",
-        "SBB_IDAT_1Byte_Extra.png",
-        "SBB_IDAT_2Byte_Replace.png",
-    )
-    for fixture_name in fixture_names:
+    fixture_expectations = {
+        "SBB_IDAT_1Byte_Replace.png": ("replace", ("Replace", "Insert", "Remove")),
+        "SBB_IDAT_1Byte_Missing.png": ("missing", ("Insert", "Replace", "Remove")),
+        "SBB_IDAT_1Byte_Extra.png": ("extra", ("Remove", "Replace", "Insert")),
+        "SBB_IDAT_2Byte_Replace.png": ("replace", ("Replace", "Insert", "Remove")),
+        "SBB_IDAT_2Byte_Missing.png": ("missing", ("Insert", "Replace", "Remove")),
+        "SBB_IDAT_2Byte_Extra.png": ("extra", ("Remove", "Replace", "Insert")),
+        "SBB_IDAT_4Byte_Replace.png": ("replace", ("Replace", "Insert", "Remove")),
+        "SBB_IDAT_4Byte_Missing.png": ("missing", ("Insert", "Replace", "Remove")),
+        "SBB_IDAT_4Byte_Extra.png": ("extra", ("Remove", "Replace", "Insert")),
+    }
+    for fixture_name, (family, order) in fixture_expectations.items():
         data = (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / fixture_name).read_bytes()
         idat_chunks = [chunk for chunk in iter_chunks(data) if chunk.chunk_type == b"IDAT"]
+        diagnostic = idat.analyze_sbb_idat_diagnostic(data, crc_target_trusted=True)
 
         assert len(idat_chunks) == 1
         assert idat_chunks[0].crc_ok is False
-        assert idat.analyze_sbb_idat_diagnostic(data, crc_target_trusted=True).success_estimate in {
-            "good",
-            "maybe",
-        }
+        assert diagnostic.success_estimate in {"good", "maybe"}
+        assert diagnostic.recommended_repair_family == family
+        assert diagnostic.hephaestus_order == order
 
 
 def test_analyze_idat_stream_reports_incomplete_stream():
@@ -3938,6 +3957,7 @@ def main():
         ),
         ("IDAT stream bad zlib header", test_analyze_idat_stream_reports_bad_zlib_header),
         ("IDAT stream bad Adler", test_analyze_idat_stream_reports_bad_adler),
+        ("IDAT stream trailing data", test_analyze_idat_stream_reports_trailing_data),
         ("SBB IDAT diagnostic blackfill gap", test_sbb_idat_diagnostic_reports_large_blackfill_gap),
         ("SBB IDAT diagnostic trusted target", test_sbb_idat_diagnostic_marks_trusted_small_crc_target_good),
         ("SBB IDAT fixtures CRC target", test_sbb_idat_fixtures_keep_original_crc_targets),

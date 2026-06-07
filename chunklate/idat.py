@@ -269,6 +269,12 @@ def _decompress_until_error_details(stream: bytes) -> tuple[bytes, bool, str, in
     try:
         for offset, value in enumerate(stream):
             decompressed.extend(decompressor.decompress(bytes((value,))))
+            if decompressor.eof and offset + 1 < len(stream):
+                try:
+                    decompressed.extend(decompressor.flush())
+                except zlib.error as exc:
+                    return bytes(decompressed), True, str(exc), offset + 1
+                return bytes(decompressed), True, "trailing data", offset + 1
     except zlib.error as exc:
         return bytes(decompressed), False, str(exc), offset
 
@@ -591,6 +597,8 @@ def _tolerant_filter0_scanlines(
 def _idat_stream_status(error: str, *, complete: bool, decompressed_size: int, expected_size: int) -> str:
     if complete and error == "" and decompressed_size == expected_size:
         return "complete"
+    if error == "trailing data":
+        return "trailing_data"
     if error == "incomplete zlib stream":
         return "incomplete_stream"
     if "incorrect data check" in error:
@@ -649,7 +657,7 @@ def format_adler(value: int | None) -> str:
 
 
 def _computed_adler_for_status(status: str, decompressed: bytes) -> int | None:
-    if status in ("complete", "bad_adler"):
+    if status in ("complete", "bad_adler", "trailing_data"):
         return zlib.adler32(decompressed) & 0xFFFFFFFF
     return None
 
@@ -857,8 +865,49 @@ PNG_COLOR_TYPE_LABELS = {
 }
 
 
+SBB_SINGLE_BYTE_CRC_PROBE_MAX_BYTES = 4096
+
+
 def png_color_type_label(color_type: int) -> str:
     return PNG_COLOR_TYPE_LABELS.get(color_type, "color-type-%s" % color_type)
+
+
+def _crc32_idat_payload(payload: bytes) -> int:
+    return zlib.crc32(b"IDAT" + payload) & 0xFFFFFFFF
+
+
+def _sbb_crc_proven_single_byte_edit_mode(data: bytes) -> str | None:
+    idat_chunks = [chunk for chunk in png.iter_chunks(data) if chunk.chunk_type == b"IDAT"]
+    if len(idat_chunks) != 1:
+        return None
+
+    chunk = idat_chunks[0]
+    payload = chunk.data
+    if chunk.crc_ok or len(payload) > SBB_SINGLE_BYTE_CRC_PROBE_MAX_BYTES:
+        return None
+
+    target_crc = chunk.crc
+    for index in range(len(payload) + 1):
+        prefix = payload[:index]
+        suffix = payload[index:]
+        for value in range(256):
+            if _crc32_idat_payload(prefix + bytes((value,)) + suffix) == target_crc:
+                return "Insert"
+
+    for index in range(len(payload)):
+        if _crc32_idat_payload(payload[:index] + payload[index + 1 :]) == target_crc:
+            return "Remove"
+
+    for index, old_value in enumerate(payload):
+        prefix = payload[:index]
+        suffix = payload[index + 1 :]
+        for value in range(256):
+            if value == old_value:
+                continue
+            if _crc32_idat_payload(prefix + bytes((value,)) + suffix) == target_crc:
+                return "Replace"
+
+    return None
 
 
 def _sbb_success_estimate(
@@ -890,7 +939,30 @@ def _sbb_hephaestus_strategy(
     *,
     missing_decompressed_size: int,
     crc_target_trusted: bool,
+    crc_proven_single_byte_edit_mode: str | None = None,
 ) -> tuple[str, tuple[str, ...], bool, str]:
+    if crc_proven_single_byte_edit_mode == "Insert":
+        return (
+            "missing",
+            ("Insert", "Replace", "Remove"),
+            True,
+            "the stored IDAT CRC proves a one-byte insert repair can restore the original payload.",
+        )
+    if crc_proven_single_byte_edit_mode == "Remove":
+        return (
+            "extra",
+            ("Remove", "Replace", "Insert"),
+            True,
+            "the stored IDAT CRC proves a one-byte remove repair can restore the original payload.",
+        )
+    if crc_proven_single_byte_edit_mode == "Replace":
+        return (
+            "replace",
+            ("Replace", "Insert", "Remove"),
+            True,
+            "the stored IDAT CRC proves a one-byte replace repair can restore the original payload.",
+        )
+
     if not analysis.supported:
         return (
             "replace",
@@ -900,12 +972,14 @@ def _sbb_hephaestus_strategy(
         )
 
     large_missing = missing_decompressed_size > max(analysis.scanline_size * 2, 4096)
-    if analysis.status in ("incomplete_stream", "partial") and missing_decompressed_size > 0:
+    if analysis.status == "incomplete_stream" or (
+        analysis.status == "partial" and missing_decompressed_size > 0
+    ):
         return (
             "missing",
             ("Insert", "Replace", "Remove"),
             bool(crc_target_trusted and not large_missing),
-            "the stream ends before all decompressed image bytes are available.",
+            "the compressed stream ends before the zlib payload is complete.",
         )
     if analysis.status == "trailing_data":
         return (
@@ -928,6 +1002,9 @@ def analyze_sbb_idat_diagnostic(
     crc_target_trusted: bool = False,
 ) -> SmashBruteBrawlIdatDiagnostic:
     analysis = analyze_idat_stream(data)
+    crc_proven_single_byte_edit_mode = (
+        _sbb_crc_proven_single_byte_edit_mode(data) if crc_target_trusted else None
+    )
     if not analysis.supported:
         estimate, reason = _sbb_success_estimate(
             analysis,
@@ -938,6 +1015,7 @@ def analyze_sbb_idat_diagnostic(
             analysis,
             missing_decompressed_size=0,
             crc_target_trusted=crc_target_trusted,
+            crc_proven_single_byte_edit_mode=crc_proven_single_byte_edit_mode,
         )
         return SmashBruteBrawlIdatDiagnostic(
             supported=False,
@@ -966,6 +1044,7 @@ def analyze_sbb_idat_diagnostic(
         analysis,
         missing_decompressed_size=missing,
         crc_target_trusted=crc_target_trusted,
+        crc_proven_single_byte_edit_mode=crc_proven_single_byte_edit_mode,
     )
     return SmashBruteBrawlIdatDiagnostic(
         supported=True,

@@ -154,6 +154,13 @@ faithfully reconstructed.
 Current v1 limits: partial rows are discarded, and PNG filter reconstruction is
 not guessed beyond the complete filtered scanlines already recovered from zlib.
 
+The `SBB_IDAT_*` fixtures are small targeted `SmashBruteBrawl` probes, not
+blackfill examples. They keep the original IDAT CRC as the proof target:
+`*_Replace` tests replace, `*_Missing` tests insert, and `*_Extra` tests
+remove across 1, 2, and 4 byte windows. The 2-byte and 4-byte fixtures are
+deeper probes for HephaestusForge/worker ordering rather than cheap one-byte
+passes.
+
 Before the heavy SuperMega/Ultimate line-feed probes, Chunklate now tries a
 deterministic IDAT marker-chain repair when the PNG signature is damaged but
 visible `IHDR`/`IDAT`/`IEND` headers remain. This path preserves IDAT chunks

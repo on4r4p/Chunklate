@@ -900,6 +900,11 @@ def run_smash_brute_brawl_keep_blackfill_fallback(
 ) -> tuple[bool, Any]:
     runtime.candy(
         "Cowsay",
+        "I was afraid of this ...",
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
         "SmashBruteBrawl did not beat the blackfill fallback.",
         "bad",
     )
@@ -908,7 +913,7 @@ def run_smash_brute_brawl_keep_blackfill_fallback(
         "Keeping the valid blackfill clone already saved.",
         "good",
     )
-    return False, None
+    return True, runtime.end()
 
 
 def ask_smash_brute_brawl_custom_brutus(runtime: CheckPointRuntime) -> Any:
