@@ -394,6 +394,57 @@ def test_run_summarise_from_namespace_appends_debug_trace_to_normal_summary(tmp_
     assert namespace["SideNotes"] == []
 
 
+def test_append_terminal_transcript_only_records_debug_stable_lines():
+    namespace = {"DEBUGFILE": True}
+
+    output.append_terminal_transcript(namespace, "\033[1;31;49mQuestion: launch?\033[m")
+    output.append_terminal_transcript(namespace, "\r000001/999999><(((º>")
+    output.append_terminal_transcript(namespace, "Answer(yes/no):yes")
+
+    assert namespace["TerminalTranscript"] == [
+        "Question: launch?",
+        "Answer(yes/no):yes",
+    ]
+
+
+def test_append_terminal_transcript_ignores_non_debug_file():
+    namespace = {"DEBUGFILE": False}
+
+    output.append_terminal_transcript(namespace, "Question: launch?")
+
+    assert "TerminalTranscript" not in namespace
+
+
+def test_run_summarise_from_namespace_appends_debug_terminal_transcript(tmp_path):
+    namespace = {
+        "Sample_Name": "sample.png",
+        "MAXCHAR": 80,
+        "SideNotes": ["note"],
+        "DebugNotes": [],
+        "TerminalTranscript": [],
+        "FILE_Origin": "sample.png",
+        "FILE_DIR": str(tmp_path),
+        "Candy": lambda kind, color, value: "<%s:%s>" % (color, value),
+        "Summary_Header": True,
+        "DEBUGFILE": True,
+        "PAUSEDIALOGUE": False,
+    }
+    output.append_terminal_transcript(namespace, "\033[1;31;49mQuestion: launch?\033[m")
+    output.append_terminal_transcript(namespace, "\r000001/999999><(((º>")
+    output.append_terminal_transcript(namespace, "Answer(yes/no):yes")
+
+    output.run_summarise_from_namespace(namespace, "fixed", True)
+
+    summary = tmp_path / "Folder_sample" / "Summary_Of_sample"
+    text = summary.read_text(encoding="utf-8")
+    assert "『Terminal Transcript (-df)』" in text
+    assert "Question: launch?" in text
+    assert "Answer(yes/no):yes" in text
+    assert "000001/999999" not in text
+    assert "\033[" not in text
+    assert namespace["TerminalTranscript"] == []
+
+
 def main():
     tmpdir = tempfile.TemporaryDirectory()
     tmp_path = Path(tmpdir.name)
@@ -423,6 +474,18 @@ def main():
         (
             "Summarise debug namespace bridge",
             lambda: test_run_summarise_from_namespace_appends_debug_trace_to_normal_summary(tmp_path),
+        ),
+        (
+            "Append terminal transcript stable lines",
+            test_append_terminal_transcript_only_records_debug_stable_lines,
+        ),
+        (
+            "Append terminal transcript ignores non debug file",
+            test_append_terminal_transcript_ignores_non_debug_file,
+        ),
+        (
+            "Summarise debug terminal transcript",
+            lambda: test_run_summarise_from_namespace_appends_debug_terminal_transcript(tmp_path),
         ),
     ]
 

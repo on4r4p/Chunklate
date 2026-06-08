@@ -14,6 +14,129 @@ class RepairCase:
     validators: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class SbbOneByteCase:
+    fixture: str
+    corruption_family: str
+    mode: str
+    expected_edit_mode: str
+    crc_policy: str
+    crc_useful: bool
+    expected_outcome: str
+
+
+SBB_ONE_BYTE_MATRIX: tuple[SbbOneByteCase, ...] = (
+    SbbOneByteCase(
+        "01_zlib_decomp_moins_1_octet_crc_valide.png",
+        "zlib_decompressed_payload",
+        "minus",
+        "Insert",
+        "valid_recalculated_crc",
+        False,
+        "needs_reference",
+    ),
+    SbbOneByteCase(
+        "02_zlib_decomp_moins_1_octet_crc_original.png",
+        "zlib_decompressed_payload",
+        "minus",
+        "Insert",
+        "original_crc_kept",
+        False,
+        "needs_reference",
+    ),
+    SbbOneByteCase(
+        "03_idat_payload_moins_1_octet_crc_valide.png",
+        "compressed_idat_payload_before_zlib_decompression",
+        "minus",
+        "Insert",
+        "valid_recalculated_crc",
+        False,
+        "clean_reject",
+    ),
+    SbbOneByteCase(
+        "04_idat_payload_moins_1_octet_crc_original.png",
+        "compressed_idat_payload_before_zlib_decompression",
+        "minus",
+        "Insert",
+        "original_crc_kept",
+        True,
+        "repaired",
+    ),
+    SbbOneByteCase(
+        "05_zlib_decomp_plus_1_octet_crc_valide.png",
+        "zlib_decompressed_payload",
+        "plus",
+        "Remove",
+        "valid_recalculated_crc",
+        False,
+        "needs_reference",
+    ),
+    SbbOneByteCase(
+        "06_zlib_decomp_plus_1_octet_crc_original.png",
+        "zlib_decompressed_payload",
+        "plus",
+        "Remove",
+        "original_crc_kept",
+        False,
+        "needs_reference",
+    ),
+    SbbOneByteCase(
+        "07_idat_payload_plus_1_octet_crc_valide.png",
+        "compressed_idat_payload_before_zlib_decompression",
+        "plus",
+        "Remove",
+        "valid_recalculated_crc",
+        False,
+        "clean_reject",
+    ),
+    SbbOneByteCase(
+        "08_idat_payload_plus_1_octet_crc_original.png",
+        "compressed_idat_payload_before_zlib_decompression",
+        "plus",
+        "Remove",
+        "original_crc_kept",
+        True,
+        "strict_validation_or_reference",
+    ),
+    SbbOneByteCase(
+        "09_zlib_decomp_different_1_octet_crc_valide.png",
+        "zlib_decompressed_payload",
+        "different",
+        "Replace",
+        "valid_recalculated_crc",
+        False,
+        "needs_reference",
+    ),
+    SbbOneByteCase(
+        "10_zlib_decomp_different_1_octet_crc_original.png",
+        "zlib_decompressed_payload",
+        "different",
+        "Replace",
+        "original_crc_kept",
+        False,
+        "needs_reference",
+    ),
+    SbbOneByteCase(
+        "11_idat_payload_different_1_octet_crc_valide.png",
+        "compressed_idat_payload_before_zlib_decompression",
+        "different",
+        "Replace",
+        "valid_recalculated_crc",
+        False,
+        "clean_reject",
+    ),
+    SbbOneByteCase(
+        "12_idat_payload_different_1_octet_crc_original.png",
+        "compressed_idat_payload_before_zlib_decompression",
+        "different",
+        "Replace",
+        "original_crc_kept",
+        True,
+        "strict_validation_or_reference",
+    ),
+)
+
+
 VALID_32_PALETTE = (
     "chunk_order_exact:IHDR,gAMA,PLTE,IDAT,IEND",
     "first_chunk:IHDR",
@@ -646,6 +769,18 @@ PILLOW_LENIENT_REPAIR_CASES: dict[str, str] = {}
 LEGACY_CRC_ONLY_REPAIR_CASES: dict[str, tuple[int, tuple[str, ...], str]] = {}
 PILLOW_ONLY_REPAIR_CASES: dict[str, tuple[int, tuple[str, ...], str]] = {}
 UNCOVERED_REPAIR_CASES: dict[str, str] = {
+    "01_zlib_decomp_moins_4_octets_crc_valide.png": "SBB/IDAT audit fixture: zlib stream minus four bytes with repaired CRC; not yet in strict repair matrix",
+    "02_zlib_decomp_moins_4_octets_crc_original.png": "SBB/IDAT audit fixture: zlib stream minus four bytes with original CRC; not yet in strict repair matrix",
+    "03_idat_payload_moins_4_octets_crc_valide.png": "SBB/IDAT audit fixture: IDAT payload minus four bytes with repaired CRC; not yet in strict repair matrix",
+    "04_idat_payload_moins_4_octets_crc_original.png": "SBB/IDAT audit fixture: IDAT payload minus four bytes with original CRC; not yet in strict repair matrix",
+    "05_zlib_decomp_plus_4_octets_crc_valide.png": "SBB/IDAT audit fixture: zlib stream plus four bytes with repaired CRC; not yet in strict repair matrix",
+    "06_zlib_decomp_plus_4_octets_crc_original.png": "SBB/IDAT audit fixture: zlib stream plus four bytes with original CRC; not yet in strict repair matrix",
+    "07_idat_payload_plus_4_octets_crc_valide.png": "SBB/IDAT audit fixture: IDAT payload plus four bytes with repaired CRC; not yet in strict repair matrix",
+    "08_idat_payload_plus_4_octets_crc_original.png": "SBB/IDAT audit fixture: IDAT payload plus four bytes with original CRC; not yet in strict repair matrix",
+    "09_zlib_decomp_4_octets_differents_crc_valide.png": "SBB/IDAT audit fixture: zlib stream four bytes changed with repaired CRC; not yet in strict repair matrix",
+    "10_zlib_decomp_4_octets_differents_crc_original.png": "SBB/IDAT audit fixture: zlib stream four bytes changed with original CRC; not yet in strict repair matrix",
+    "11_idat_payload_4_octets_differents_crc_valide.png": "SBB/IDAT audit fixture: IDAT payload four bytes changed with repaired CRC; not yet in strict repair matrix",
+    "12_idat_payload_4_octets_differents_crc_original.png": "SBB/IDAT audit fixture: IDAT payload four bytes changed with original CRC; not yet in strict repair matrix",
     "badlinefeed1.png": "local line-feed corruption candidate; not yet promoted to a strict repair regression",
     "bkgd_after_idat.png": "misplaced ancillary chunk fixture covered by targeted runtime tests; not yet in strict repair matrix",
     "chrm_after_idat.png": "misplaced ancillary chunk fixture covered by targeted runtime tests; not yet in strict repair matrix",

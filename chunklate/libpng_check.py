@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any, Callable
 import io
 
@@ -50,6 +52,33 @@ def structure_check_result(file: str) -> str:
     return ""
 
 
+def blackfill_artifact_check_result(file: str) -> str:
+    path = Path(file)
+    if "_Fixed" not in path.name:
+        return ""
+    preview_marker = path.parent / "Bruteforce_Previews" / "_Preview_IDAT_Blackfill_Preview.png"
+    summary_marked_blackfill = False
+    for summary_path in path.parent.glob("Summary_Of_*"):
+        try:
+            summary_text = summary_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if "partial-idat-blackfill" in summary_text or "IDAT_Blackfill_Preview" in summary_text:
+            summary_marked_blackfill = True
+            break
+    if not preview_marker.exists() and not summary_marked_blackfill:
+        return ""
+
+    progress_path = path.parent / "_SBB.progress.json"
+    try:
+        progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        progress = {}
+    if isinstance(progress, dict) and str(progress.get("status") or "") == "success":
+        return ""
+    return "libpng error: visual repair needs reference/ROI before accepting blackfill artifact"
+
+
 def known_bad_srgb_profile_warning_for_file(file: str) -> str:
     try:
         with open(file, "rb") as png_file:
@@ -98,6 +127,7 @@ def libpng_result(
     stderr_redirector=stdio.stderr_redirector,
     warning_reader: WarningReader = known_bad_srgb_profile_warning_for_file,
     structure_checker: StructureChecker = structure_check_result,
+    artifact_checker: StructureChecker = blackfill_artifact_check_result,
 ) -> str:
     if cv2_module is not None:
         result = cv2_check_result(file, cv2_module, stderr_redirector)
@@ -107,4 +137,5 @@ def libpng_result(
         result = chunk_stream_check_result(file)
 
     result = append_structure_check_result(result, structure_checker(file))
+    result = append_structure_check_result(result, artifact_checker(file))
     return append_known_bad_srgb_warning(result, warning_reader(file))

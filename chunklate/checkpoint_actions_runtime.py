@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -11,8 +12,15 @@ from . import checkpoint_runtime
 LegacyCall = Callable[..., Any]
 HEPHAESTUS_MIN_BRUTE_LEVEL = 1
 SBB_TWOBYTES_CAMPAIGN_LEVELS = (0, 1)
-SBB_HEPHAESTUS_CAMPAIGN_LEVELS = (1, 3, 7, 15)
+SBB_HEPHAESTUS_CAMPAIGN_LEVELS = (1, 2, 3, 4, 7, 15)
 SBB_HEPHAESTUS_AUTO_LEVEL_MAX = 3
+SBB_LONG_PASS_SECONDS = 60 * 60
+SBB_LONG_PASS_PHRASES = (
+    "My calculator just put on a tiny helmet. This pass is not a coffee break.",
+    "This scope has entered calendar territory.",
+    "I can keep forging, but this loop is starting to look like a lease agreement.",
+    "The checksum is not scared yet. It should be.",
+)
 
 
 @dataclass(frozen=True)
@@ -27,6 +35,7 @@ class CheckPointActionRuntime:
     ihdr_interlace: str
     retry_state: dict[str, Any] = field(default_factory=dict)
     clear_smash_resume_files: Callable[[], Any] = lambda: None
+    progress_path: str = ""
 
 
 def build_checkpoint_action_runtime_from_namespace(namespace: dict[str, Any]) -> CheckPointActionRuntime:
@@ -63,6 +72,7 @@ def build_checkpoint_action_runtime_from_namespace(namespace: dict[str, Any]) ->
         ihdr_interlace=namespace["IHDR_Interlace"],
         retry_state=namespace.setdefault("_SBB_BLACKFILL_RETRY_STATE", {}),
         clear_smash_resume_files=clear_smash_resume_files,
+        progress_path=namespace.get("SMASH_BRUTE_BRAWL_PROGRESS_PATH", ""),
     )
 
 
@@ -154,6 +164,11 @@ def smash_brute_brawl_relaunch(
 ):
     if "FixItFelix partial IDAT blackfill" in str(from_error):
         runtime.retry_state["disable_resume_once"] = True
+        runtime.retry_state["active_pass"] = {
+            "edit_mode": str(edit_mode if edit_mode is not None else toolkit[4]),
+            "bf_mode": str(bf_mode if bf_mode is not None else toolkit[5]),
+            "brute_level": int(brute_level if brute_level is not None else runtime.get_brute_level()),
+        }
     return checkpoint_runtime.run_smash_brute_brawl_relaunch(
         runtime.checkpoint,
         toolkit,
@@ -303,6 +318,18 @@ def _blackfill_runtime_order(runtime: CheckPointActionRuntime, edit_mode: Any) -
     return order
 
 
+def _blackfill_campaign_focus(runtime: CheckPointActionRuntime, edit_mode: Any) -> str:
+    focus = str(runtime.retry_state.get("campaign_focus") or "").strip().lower()
+    if focus in {"insert", "remove", "replace", "progressive"}:
+        return focus
+    # If the user did not explicitly choose a focus, keep the historical
+    # progressive behavior. The focus prompt writes insert/remove/replace when
+    # the user chooses one.
+    focus = "progressive"
+    runtime.retry_state["campaign_focus"] = focus
+    return focus
+
+
 def _blackfill_campaign_start_mode(runtime: CheckPointActionRuntime, current_mode: str) -> str:
     start_mode = runtime.retry_state.get("campaign_start_mode")
     if not isinstance(start_mode, str) or not start_mode:
@@ -311,28 +338,118 @@ def _blackfill_campaign_start_mode(runtime: CheckPointActionRuntime, current_mod
     return start_mode
 
 
-def _blackfill_retry_key(toolkit, *, edit_mode: Any, bf_mode: Any, brute_level: int) -> tuple[str, str, int, str, str, str]:
+def _blackfill_retry_key(
+    runtime: CheckPointActionRuntime,
+    toolkit,
+    *,
+    edit_mode: Any,
+    bf_mode: Any,
+    brute_level: int,
+) -> tuple[str, str, int, str, str, str, str]:
     old_crc = toolkit[8] if len(toolkit) > 8 else ""
     return (
         str(bf_mode),
         str(edit_mode),
         int(brute_level),
+        _blackfill_campaign_focus(runtime, edit_mode),
         str(toolkit[6]),
         str(toolkit[7]),
         str(old_crc),
     )
 
+def _blackfill_attempt_record_from_key(
+    key: tuple[str, str, int, str, str, str, str],
+    *,
+    status: str,
+    tested_candidates: int,
+    elapsed_seconds: int,
+) -> dict[str, Any]:
+    bf_mode, edit_mode, brute_level, focus, brute_crc, brute_length, old_crc = key
+    return {
+        "bf_mode": bf_mode,
+        "edit_mode": edit_mode,
+        "brute_level": int(brute_level),
+        "focus": focus,
+        "brute_crc": brute_crc,
+        "brute_length": brute_length,
+        "old_crc": old_crc,
+        "status": status or "unknown",
+        "tested_candidates": max(0, int(tested_candidates)),
+        "elapsed_seconds": max(0, int(elapsed_seconds)),
+    }
 
-def _blackfill_mark_attempt(runtime: CheckPointActionRuntime, toolkit, *, edit_mode: Any, bf_mode: Any, brute_level: int) -> None:
+
+def _blackfill_store_attempt_record(
+    runtime: CheckPointActionRuntime,
+    key: tuple[str, str, int, str, str, str, str],
+    *,
+    status: str,
+    tested_candidates: int,
+    elapsed_seconds: int,
+) -> None:
+    records = runtime.retry_state.setdefault("attempt_records", [])
+    if not isinstance(records, list):
+        records = []
+        runtime.retry_state["attempt_records"] = records
+    record = _blackfill_attempt_record_from_key(
+        key,
+        status=status,
+        tested_candidates=tested_candidates,
+        elapsed_seconds=elapsed_seconds,
+    )
+    comparable = ("bf_mode", "edit_mode", "brute_level", "focus", "brute_crc", "brute_length", "old_crc")
+    for index, existing in enumerate(records):
+        if not isinstance(existing, dict):
+            continue
+        if all(existing.get(field) == record.get(field) for field in comparable):
+            records[index] = record
+            return
+    records.append(record)
+
+
+def _blackfill_mark_attempt(
+    runtime: CheckPointActionRuntime,
+    toolkit,
+    *,
+    edit_mode: Any,
+    bf_mode: Any,
+    brute_level: int,
+    status: str = "",
+    tested_candidates: int = 0,
+    elapsed_seconds: int = 0,
+) -> None:
     attempts = runtime.retry_state.setdefault("attempts", set())
-    attempts.add(_blackfill_retry_key(toolkit, edit_mode=edit_mode, bf_mode=bf_mode, brute_level=brute_level))
+    key = _blackfill_retry_key(
+        runtime,
+        toolkit,
+        edit_mode=edit_mode,
+        bf_mode=bf_mode,
+        brute_level=brute_level,
+    )
+    attempts.add(key)
+    _blackfill_store_attempt_record(
+        runtime,
+        key,
+        status=status,
+        tested_candidates=tested_candidates,
+        elapsed_seconds=elapsed_seconds,
+    )
 
 
 def _blackfill_attempt_seen(runtime: CheckPointActionRuntime, toolkit, *, edit_mode: Any, bf_mode: Any, brute_level: int) -> bool:
     attempts = runtime.retry_state.get("attempts")
     if not isinstance(attempts, set):
         return False
-    return _blackfill_retry_key(toolkit, edit_mode=edit_mode, bf_mode=bf_mode, brute_level=brute_level) in attempts
+    return (
+        _blackfill_retry_key(
+            runtime,
+            toolkit,
+            edit_mode=edit_mode,
+            bf_mode=bf_mode,
+            brute_level=brute_level,
+        )
+        in attempts
+    )
 
 
 def _blackfill_next_untried_edit(
@@ -364,13 +481,25 @@ def _blackfill_campaign_attempts(
 ) -> tuple[tuple[str, str, int], ...]:
     order = _blackfill_runtime_order(runtime, current_edit)
     start_mode = _blackfill_campaign_start_mode(runtime, current_mode)
+    focus = _blackfill_campaign_focus(runtime, current_edit)
     attempts: list[tuple[str, str, int]] = []
-    if start_mode.lower() != "brutus":
-        for level in SBB_TWOBYTES_CAMPAIGN_LEVELS:
+    if focus == "progressive":
+        if start_mode.lower() != "brutus":
+            for level in SBB_TWOBYTES_CAMPAIGN_LEVELS:
+                for edit in order:
+                    attempts.append((edit, "TwoBytes", level))
+        for level in SBB_HEPHAESTUS_CAMPAIGN_LEVELS:
             for edit in order:
+                attempts.append((edit, "Brutus", level))
+        return tuple(attempts)
+
+    # A focused campaign really focuses: exhaust the requested edit family over
+    # the useful scopes first, then keep the other families available afterward.
+    for edit in order:
+        if start_mode.lower() != "brutus":
+            for level in SBB_TWOBYTES_CAMPAIGN_LEVELS:
                 attempts.append((edit, "TwoBytes", level))
-    for level in SBB_HEPHAESTUS_CAMPAIGN_LEVELS:
-        for edit in order:
+        for level in SBB_HEPHAESTUS_CAMPAIGN_LEVELS:
             attempts.append((edit, "Brutus", level))
     return tuple(attempts)
 
@@ -378,6 +507,8 @@ def _blackfill_campaign_attempts(
 def _blackfill_attempt_label(edit_mode: str, bf_mode: str, brute_level: int) -> str:
     if str(bf_mode).lower() == "brutus":
         return "HephaestusForge %s level %s" % (edit_mode, brute_level)
+    if str(bf_mode).lower() == "twobytes":
+        return "HermesProbe %s level %s" % (edit_mode, brute_level)
     return "%s level %s" % (edit_mode, brute_level)
 
 
@@ -390,6 +521,7 @@ def _blackfill_next_campaign_attempt(
     current_level: int,
 ) -> tuple[str, str, int] | None:
     current_key = _blackfill_retry_key(
+        runtime,
         toolkit,
         edit_mode=current_edit,
         bf_mode=current_mode,
@@ -403,6 +535,7 @@ def _blackfill_next_campaign_attempt(
     )
     current_is_in_campaign = any(
         _blackfill_retry_key(
+            runtime,
             toolkit,
             edit_mode=edit_mode,
             bf_mode=bf_mode,
@@ -424,6 +557,7 @@ def _blackfill_next_campaign_attempt(
             ):
                 continue
         key = _blackfill_retry_key(
+            runtime,
             toolkit,
             edit_mode=edit_mode,
             bf_mode=bf_mode,
@@ -462,28 +596,266 @@ def _blackfill_deep_campaign_allowed(
     bf_mode: str,
     brute_level: int,
 ) -> bool:
-    if str(bf_mode).lower() != "brutus" or int(brute_level) <= SBB_HEPHAESTUS_AUTO_LEVEL_MAX:
+    return True
+
+
+def _blackfill_recent_pass_stats(runtime: CheckPointActionRuntime) -> tuple[int, int]:
+    if not runtime.progress_path:
+        return 0, 0
+    try:
+        with open(runtime.progress_path, "r", encoding="utf-8") as handle:
+            record = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        return 0, 0
+    counters = record.get("counters")
+    if not isinstance(counters, dict):
+        return 0, 0
+    try:
+        tested = int(counters.get("tested_candidates") or 0)
+    except (TypeError, ValueError):
+        tested = 0
+    try:
+        elapsed = int(counters.get("elapsed_seconds") or 0)
+    except (TypeError, ValueError):
+        elapsed = 0
+    if elapsed <= 0:
+        elapsed = int(runtime.eta or 0)
+    return max(0, tested), max(0, elapsed)
+
+
+def _blackfill_recent_pass_record(runtime: CheckPointActionRuntime) -> tuple[str, int, int]:
+    return (
+        _blackfill_recent_pass_status(runtime),
+        *_blackfill_recent_pass_stats(runtime),
+    )
+
+
+def _blackfill_recent_pass_status(runtime: CheckPointActionRuntime) -> str:
+    if not runtime.progress_path:
+        return ""
+    try:
+        with open(runtime.progress_path, "r", encoding="utf-8") as handle:
+            record = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        return ""
+    if not isinstance(record, dict):
+        return ""
+    return str(record.get("status") or "")
+
+
+def _blackfill_recent_invocation_level(
+    runtime: CheckPointActionRuntime,
+    *,
+    edit_mode: str,
+    bf_mode: str,
+) -> int | None:
+    if not runtime.progress_path:
+        return None
+    try:
+        with open(runtime.progress_path, "r", encoding="utf-8") as handle:
+            record = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(record, dict):
+        return None
+    invocation = record.get("invocation")
+    if not isinstance(invocation, dict):
+        return None
+    if str(invocation.get("edit_mode") or "") != str(edit_mode):
+        return None
+    if str(invocation.get("bf_mode") or "") != str(bf_mode):
+        return None
+    try:
+        return int(invocation.get("brute_level"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _blackfill_active_pass_level(
+    runtime: CheckPointActionRuntime,
+    *,
+    edit_mode: str,
+    bf_mode: str,
+) -> int | None:
+    active_pass = runtime.retry_state.get("active_pass")
+    if not isinstance(active_pass, dict):
+        return None
+    if str(active_pass.get("edit_mode") or "") != str(edit_mode):
+        return None
+    if str(active_pass.get("bf_mode") or "") != str(bf_mode):
+        return None
+    try:
+        return int(active_pass.get("brute_level"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _blackfill_current_pass_level(
+    runtime: CheckPointActionRuntime,
+    toolkit,
+    *,
+    edit_mode: str,
+    bf_mode: str,
+) -> int:
+    active_level = _blackfill_active_pass_level(
+        runtime,
+        edit_mode=edit_mode,
+        bf_mode=bf_mode,
+    )
+    if active_level is not None:
+        return active_level
+    progress_level = _blackfill_recent_invocation_level(
+        runtime,
+        edit_mode=edit_mode,
+        bf_mode=bf_mode,
+    )
+    if progress_level is not None:
+        return progress_level
+    level = int(runtime.get_brute_level())
+    from_error = toolkit[9] if len(toolkit) > 9 else toolkit[8] if len(toolkit) > 8 else ""
+    if (
+        str(bf_mode).lower() == "brutus"
+        and str(edit_mode) in {"Insert", "Remove", "Replace"}
+        and level < HEPHAESTUS_MIN_BRUTE_LEVEL
+        and "FixItFelix partial IDAT blackfill" in str(from_error)
+    ):
+        return HEPHAESTUS_MIN_BRUTE_LEVEL
+    return level
+
+
+def _blackfill_pass_transition_text(status: str) -> str:
+    if status == "rejected_hit":
+        return "SBB pass rejected invalid candidates"
+    if status == "success":
+        return "SBB pass already produced a validated hit"
+    return "SBB pass exhausted"
+
+
+def _blackfill_brutus_byte_lengths(brute_level: int) -> tuple[int, ...]:
+    level = max(0, int(brute_level))
+    return tuple(range(1, level + 2))
+
+
+def _blackfill_estimated_brutus_candidates(
+    *,
+    edit_mode: str,
+    brute_level: int,
+    chunk_length: int,
+) -> int:
+    lengths = _blackfill_brutus_byte_lengths(brute_level)
+    if str(edit_mode) == "Remove":
+        payload_bytes = max(1, int(chunk_length))
+        return sum(
+            max(0, payload_bytes - candidate_bytes + 1)
+            for candidate_bytes in lengths
+        )
+    return sum(256 ** candidate_bytes for candidate_bytes in lengths)
+
+
+def _blackfill_estimated_next_candidates(
+    runtime: CheckPointActionRuntime,
+    toolkit,
+    *,
+    edit_mode: str,
+    bf_mode: str,
+    brute_level: int,
+    current_level: int | None = None,
+    previous_tested: int,
+) -> int:
+    if previous_tested <= 0:
+        return 0
+    try:
+        chunk_length = max(1, int(toolkit[2]))
+    except (TypeError, ValueError):
+        chunk_length = 1
+    if str(bf_mode).lower() != "brutus" and int(brute_level) > 0:
+        # Level 0 is the direct pass. Level 1+ adds the byte bonus sweep, so
+        # scale from the measured direct pass by a conservative payload factor.
+        return previous_tested * max(256, chunk_length * 256)
+    if str(bf_mode).lower() == "brutus":
+        return _blackfill_estimated_brutus_candidates(
+            edit_mode=edit_mode,
+            brute_level=brute_level,
+            chunk_length=chunk_length,
+        )
+    return previous_tested
+
+
+def _blackfill_long_eta_phrase(runtime: CheckPointActionRuntime) -> str:
+    index = int(runtime.retry_state.get("long_eta_phrase_index", 0) or 0)
+    runtime.retry_state["long_eta_phrase_index"] = index + 1
+    return SBB_LONG_PASS_PHRASES[index % len(SBB_LONG_PASS_PHRASES)]
+
+
+def _format_sbb_eta(seconds: int | float) -> str:
+    try:
+        total_seconds = int(seconds)
+    except (TypeError, ValueError, OverflowError):
+        return "unknown"
+    if total_seconds < 0:
+        return "unknown"
+    days, remainder = divmod(total_seconds, 24 * 60 * 60)
+    hours, remainder = divmod(remainder, 60 * 60)
+    minutes, secs = divmod(remainder, 60)
+    if days:
+        return "%s days, %s:%02d:%02d" % (f"{days:,}", hours, minutes, secs)
+    return "%s:%02d:%02d" % (hours, minutes, secs)
+
+
+def _blackfill_timed_campaign_allowed(
+    runtime: CheckPointActionRuntime,
+    toolkit,
+    *,
+    edit_mode: str,
+    bf_mode: str,
+    brute_level: int,
+    current_level: int | None = None,
+) -> bool:
+    previous_tested, previous_elapsed = _blackfill_recent_pass_stats(runtime)
+    if previous_tested <= 0:
         return True
-    prompted = runtime.retry_state.setdefault("deep_prompted_levels", set())
-    prompt_key = (str(bf_mode), str(edit_mode), int(brute_level))
+    previous_elapsed = max(1, int(previous_elapsed))
+    estimated_candidates = _blackfill_estimated_next_candidates(
+        runtime,
+        toolkit,
+        edit_mode=edit_mode,
+        bf_mode=bf_mode,
+        brute_level=brute_level,
+        current_level=current_level,
+        previous_tested=previous_tested,
+    )
+    if estimated_candidates <= 0:
+        return True
+    candidates_per_second = previous_tested / max(1, previous_elapsed)
+    estimated_seconds = int(estimated_candidates / max(0.001, candidates_per_second))
+    if estimated_seconds < SBB_LONG_PASS_SECONDS:
+        return True
+    prompt_key = (
+        "eta",
+        str(bf_mode),
+        str(edit_mode),
+        int(brute_level),
+        int(estimated_candidates),
+    )
+    prompted = runtime.retry_state.setdefault("eta_prompted_passes", set())
     if prompt_key in prompted:
         return True
     prompted.add(prompt_key)
-    runtime.checkpoint.candy(
-        "Cowsay",
-        "The next HephaestusForge scope is bigger: %s bytes-ish. This can get expensive fast."
-        % max(1, int(brute_level) + 1),
-        "bad",
+    runtime.checkpoint.candy("Cowsay", _blackfill_long_eta_phrase(runtime), "bad")
+    runtime.checkpoint.emit(
+        "-SBB estimated next pass: %s candidates at about %.1f candidates/s -> %s."
+        % (
+            f"{estimated_candidates:,}",
+            candidates_per_second,
+            _format_sbb_eta(estimated_seconds),
+        )
     )
     runtime.checkpoint.candy(
         "Cowsay",
-        "Should I continue the progressive forge campaign before accepting blackfill?",
+        "Should I continue this SBB pass before accepting the blackfill fallback?",
         "com",
     )
-    try:
-        return bool(runtime.checkpoint.question(skipauto=True, timeout_seconds=30, timeout_default=True))
-    except TypeError:
-        return bool(runtime.checkpoint.question(skipauto=True))
+    return bool(runtime.checkpoint.question(skipauto=True))
 
 
 def _blackfill_keep_existing_fallback(runtime: CheckPointActionRuntime) -> tuple[bool, Any]:
@@ -499,16 +871,31 @@ def _blackfill_keep_existing_fallback(runtime: CheckPointActionRuntime) -> tuple
 
 def action_smash_brute_brawl_ask_blackfill_next_step(runtime: CheckPointActionRuntime, decision, chunk, info, toolkit):
     has_old_crc, old_crc, from_error = _smash_old_crc_and_error(info, toolkit)
-    current_level = runtime.get_brute_level()
     current_edit = str(toolkit[4])
     current_mode = str(toolkit[5])
+    current_level = _blackfill_current_pass_level(
+        runtime,
+        toolkit,
+        edit_mode=current_edit,
+        bf_mode=current_mode,
+    )
+    recent_status, recent_tested, recent_elapsed = _blackfill_recent_pass_record(runtime)
     _blackfill_mark_attempt(
         runtime,
         toolkit,
         edit_mode=current_edit,
         bf_mode=current_mode,
         brute_level=current_level,
+        status=recent_status,
+        tested_candidates=recent_tested,
+        elapsed_seconds=recent_elapsed,
     )
+    if recent_status == "success":
+        runtime.side_notes.append(
+            "-CheckPoint: SBB pass already produced a validated hit; no further campaign pass launched."
+        )
+        runtime.retry_state.clear()
+        return False, None
     next_attempt = _blackfill_next_campaign_attempt(
         runtime,
         toolkit,
@@ -533,12 +920,22 @@ def action_smash_brute_brawl_ask_blackfill_next_step(runtime: CheckPointActionRu
         brute_level=next_level,
     ):
         return _blackfill_keep_existing_fallback(runtime)
+    if not _blackfill_timed_campaign_allowed(
+        runtime,
+        toolkit,
+        edit_mode=next_edit,
+        bf_mode=next_mode,
+        brute_level=next_level,
+        current_level=current_level,
+    ):
+        return _blackfill_keep_existing_fallback(runtime)
 
     runtime.set_brute_level(next_level)
     runtime.retry_state["disable_resume_once"] = True
     runtime.checkpoint.emit(
-        "-SBB pass exhausted: %s; trying %s."
+        "-%s: %s; trying %s."
         % (
+            _blackfill_pass_transition_text(_blackfill_recent_pass_status(runtime)),
             _blackfill_attempt_label(current_edit, current_mode, current_level),
             _blackfill_attempt_label(next_edit, next_mode, next_level),
         )

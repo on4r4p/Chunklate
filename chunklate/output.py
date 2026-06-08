@@ -411,6 +411,34 @@ def debug_trace_body(debug_notes: Sequence[Any]) -> str | None:
     return "".join(body)
 
 
+def append_terminal_transcript(namespace: dict[str, Any], message: Any) -> None:
+    if namespace.get("DEBUGFILE") is not True:
+        return
+    text = clean_summary_text(message)
+    if not text:
+        return
+    if "\r" in text and "\n" not in text:
+        return
+    transcript = namespace.setdefault("TerminalTranscript", [])
+    if not isinstance(transcript, list):
+        transcript = []
+        namespace["TerminalTranscript"] = transcript
+    lines = text.splitlines()
+    if not lines:
+        transcript.append(text)
+        return
+    transcript.extend(lines)
+
+
+def terminal_transcript_body(lines: Sequence[Any]) -> str | None:
+    clean_lines = [clean_summary_text(line) for line in lines]
+    if not any(line.strip() for line in clean_lines):
+        return None
+    body = ["\n\n『Terminal Transcript (-df)』\n\n"]
+    body.extend(line + "\n" for line in clean_lines)
+    return "".join(body)
+
+
 def _value(state: Mapping[str, Any], name: str, default: Any = "") -> Any:
     return state.get(name, default)
 
@@ -644,6 +672,11 @@ def run_summarise_from_namespace(
     debug_notes = list(namespace.get("DebugNotes", []))
     body = summary_body(infos, side_notes)
     debug_trace = debug_trace_body(debug_notes) if namespace.get("DEBUGFILE") is True else None
+    terminal_transcript = None
+    if summary_footer is True and namespace.get("DEBUGFILE") is True:
+        terminal_transcript = terminal_transcript_body(
+            list(namespace.get("TerminalTranscript", []))
+        )
 
     filename = summary_path(file_origin, namespace["FILE_DIR"])
     builtins.print(namespace["Candy"]("Color", "green", "-Saving Summary : "), filename)
@@ -663,9 +696,13 @@ def run_summarise_from_namespace(
 
         if summary_footer is True:
             handle.write(render_summary_footer(namespace, eof))
+            if terminal_transcript is not None:
+                handle.write(terminal_transcript)
 
     if namespace.get("DEBUGFILE") is True:
         namespace["DebugNotes"] = []
+    if summary_footer is True and namespace.get("DEBUGFILE") is True:
+        namespace["TerminalTranscript"] = []
     if isinstance(current_side_notes, ImmediateSummaryNotes):
         current_side_notes.clear()
         current_side_notes.flushed_count = 0

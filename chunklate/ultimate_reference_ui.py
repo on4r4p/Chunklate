@@ -36,6 +36,7 @@ class ReferenceRegionEditorResult:
     path: str
     warning: str = ""
     region_count: int = 0
+    reference_path: str = ""
 
 
 def describe_reference_region(
@@ -189,6 +190,20 @@ def _load_image(path: str, *, fallback_data: bytes = b""):
     raise FileNotFoundError(path)
 
 
+def _select_reference_png_path(filedialog_module: Any, *, initial_path: str = "") -> str:
+    initial_dir = ""
+    if initial_path:
+        initial_dir = os.path.dirname(os.path.abspath(initial_path))
+    options: dict[str, Any] = {
+        "title": "Select reference PNG",
+        "filetypes": (("PNG files", "*.png"), ("All files", "*.*")),
+    }
+    if initial_dir:
+        options["initialdir"] = initial_dir
+    selected = filedialog_module.askopenfilename(**options)
+    return str(selected or "")
+
+
 def _write_region_mapping(
     path: str,
     *,
@@ -222,20 +237,54 @@ def open_ultimate_reference_region_editor(
     candidate_data: bytes = b"",
     tkinter_module: Any | None = None,
     image_tk_module: Any | None = None,
+    filedialog_module: Any | None = None,
 ) -> ReferenceRegionEditorResult:
     try:
         import tkinter as tk
+        from tkinter import filedialog
         from tkinter import messagebox
         from PIL import ImageTk
 
         tk = tkinter_module or tk
         ImageTk = image_tk_module or ImageTk
+        filedialog = filedialog_module or filedialog
         candidate_image, candidate_bytes = _load_image(candidate_path, fallback_data=candidate_data)
         if candidate_data:
             candidate_bytes = candidate_data
-        reference_image, _reference_bytes = _load_image(reference_path)
+        try:
+            reference_image, _reference_bytes = _load_image(reference_path)
+        except Exception:
+            picker_root = tk.Tk()
+            try:
+                picker_root.withdraw()
+            except Exception:
+                pass
+            try:
+                selected_reference = _select_reference_png_path(
+                    filedialog,
+                    initial_path=reference_path,
+                )
+            finally:
+                try:
+                    picker_root.destroy()
+                except Exception:
+                    pass
+            if not selected_reference:
+                return ReferenceRegionEditorResult(
+                    False,
+                    output_path,
+                    "reference region editor unavailable: no reference PNG selected",
+                    reference_path=reference_path,
+                )
+            reference_path = selected_reference
+            reference_image, _reference_bytes = _load_image(reference_path)
     except Exception as exc:
-        return ReferenceRegionEditorResult(False, output_path, "reference region editor unavailable: %s" % exc)
+        return ReferenceRegionEditorResult(
+            False,
+            output_path,
+            "reference region editor unavailable: %s" % exc,
+            reference_path=reference_path,
+        )
 
     try:
         root = tk.Tk()
@@ -718,6 +767,40 @@ def open_ultimate_reference_region_editor(
             redraw_all()
             status.config(text="Cleared regions.")
 
+        def reset_roi_mapping_for_new_reference() -> None:
+            pairs.clear()
+            redo_stack.clear()
+            pending["candidate"] = None
+            pending["reference"] = None
+            candidate_canvas.delete("drag")
+            reference_canvas.delete("drag")
+
+        def select_reference_png() -> None:
+            nonlocal reference_path
+            try:
+                selected_reference = _select_reference_png_path(
+                    filedialog,
+                    initial_path=reference_path,
+                )
+            except Exception as exc:
+                status.config(text="Could not open reference selector: %s" % exc)
+                return
+            if not selected_reference:
+                status.config(text="Reference unchanged.")
+                return
+            try:
+                new_reference_image, _new_reference_bytes = _load_image(selected_reference)
+            except Exception as exc:
+                status.config(text="Could not load reference PNG: %s" % exc)
+                return
+            reference_path = selected_reference
+            side_state["reference"]["image"] = new_reference_image
+            side_state["reference"]["image_item"] = None
+            reference_canvas.delete("all")
+            reset_roi_mapping_for_new_reference()
+            redraw_all()
+            status.config(text="Reference PNG selected. Existing ROI mapping was cleared.")
+
         def save() -> None:
             regions = tuple(pairs)
             if not regions:
@@ -728,7 +811,7 @@ def open_ultimate_reference_region_editor(
                     output_path,
                     candidate_image=candidate_image,
                     candidate_data=candidate_bytes,
-                    reference_image=reference_image,
+                    reference_image=side_state["reference"]["image"],
                     regions=regions,
                 )
             except Exception as exc:
@@ -767,6 +850,7 @@ def open_ultimate_reference_region_editor(
         buttons = tk.Frame(root)
         buttons.pack(fill="x", padx=8, pady=8)
         save_button = tk.Button(buttons, text="Save", command=save)
+        select_reference_button = tk.Button(buttons, text="Select Reference PNG", command=select_reference_png)
         delete_button = tk.Button(buttons, text="Delete last", command=delete_last)
         redo_button = tk.Button(buttons, text="Redo", command=redo_last)
         clear_button = tk.Button(buttons, text="Clear", command=clear)
@@ -775,6 +859,7 @@ def open_ultimate_reference_region_editor(
         negative_button = tk.Button(buttons, text="Add Negative Rectangle", command=add_negative_rectangle)
         cancel_button = tk.Button(buttons, text="Cancel", command=cancel)
         save_button.pack(side="left", padx=4)
+        select_reference_button.pack(side="left", padx=4)
         delete_button.pack(side="left", padx=4)
         redo_button.pack(side="left", padx=4)
         clear_button.pack(side="left", padx=4)
@@ -783,6 +868,7 @@ def open_ultimate_reference_region_editor(
         negative_button.pack(side="left", padx=4)
         cancel_button.pack(side="right", padx=4)
         add_tooltip(save_button, "Save the ROI mapping and close the editor.")
+        add_tooltip(select_reference_button, "Choose or replace the reference PNG used for ROI scoring.")
         add_tooltip(delete_button, "Remove the last saved ROI.")
         add_tooltip(redo_button, "Restore the last ROI removed with Delete last.")
         add_tooltip(clear_button, "Remove every saved ROI and pending selection.")
@@ -798,6 +884,12 @@ def open_ultimate_reference_region_editor(
             output_path,
             str(result["warning"] or ""),
             int(result["region_count"] or 0),
+            reference_path,
         )
     except Exception as exc:
-        return ReferenceRegionEditorResult(False, output_path, "reference region editor failed: %s" % exc)
+        return ReferenceRegionEditorResult(
+            False,
+            output_path,
+            "reference region editor failed: %s" % exc,
+            reference_path=reference_path,
+        )

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import ast
 import builtins
+import json
 import os
 import sys
 import tempfile
@@ -187,6 +188,60 @@ def test_reset_smash_brute_brawl_resume_files_removes_short_names():
     assert [call[1] for call in calls if call[0] == "remove_file"] == [
         folder + "/" + name for name in names
     ]
+
+
+def _filesystem_main_runtime(calls):
+    runtime = build_runtime(calls)
+    return main_runtime.MainCliOptionsRuntime(
+        **{
+            **runtime.__dict__,
+            "path_exists": lambda path: Path(path).exists(),
+            "path_is_dir": lambda path: Path(path).is_dir(),
+            "list_dir": lambda path: os.listdir(path),
+            "join": os.path.join,
+        }
+    )
+
+
+def test_smash_brute_brawl_terminal_progress_is_not_resume_evidence():
+    calls = []
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / main_runtime.SMASH_BRUTE_BRAWL_PROGRESS_NAME)
+        source_raw_path = str(Path(directory) / main_runtime.SMASH_BRUTE_BRAWL_SOURCE_RAW_NAME)
+        source_path = str(Path(directory) / main_runtime.SMASH_BRUTE_BRAWL_SOURCE_NAME)
+        Path(progress_path).write_text(json.dumps({"status": "success"}), encoding="utf-8")
+        Path(source_raw_path).write_bytes(b"source")
+
+        assert (
+            main_runtime._smash_brute_brawl_resume_evidence_exists(
+                _filesystem_main_runtime(calls),
+                directory,
+                progress_path,
+                source_raw_path,
+                source_path,
+            )
+            is False
+        )
+
+
+def test_smash_brute_brawl_interrupted_progress_is_resume_evidence():
+    calls = []
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / main_runtime.SMASH_BRUTE_BRAWL_PROGRESS_NAME)
+        source_raw_path = str(Path(directory) / main_runtime.SMASH_BRUTE_BRAWL_SOURCE_RAW_NAME)
+        source_path = str(Path(directory) / main_runtime.SMASH_BRUTE_BRAWL_SOURCE_NAME)
+        Path(progress_path).write_text(json.dumps({"status": "interrupted"}), encoding="utf-8")
+
+        assert (
+            main_runtime._smash_brute_brawl_resume_evidence_exists(
+                _filesystem_main_runtime(calls),
+                directory,
+                progress_path,
+                source_raw_path,
+                source_path,
+            )
+            is True
+        )
 
 
 def apply_options(calls, parsed_args=None, unknown=(), argv_len=2):
@@ -2842,6 +2897,14 @@ def main():
         (
             "SmashBruteBrawl reset files",
             test_reset_smash_brute_brawl_resume_files_removes_short_names,
+        ),
+        (
+            "SmashBruteBrawl terminal progress skip resume",
+            test_smash_brute_brawl_terminal_progress_is_not_resume_evidence,
+        ),
+        (
+            "SmashBruteBrawl interrupted progress resumes",
+            test_smash_brute_brawl_interrupted_progress_is_resume_evidence,
         ),
         ("main options state", test_apply_main_cli_options_builds_initial_state),
         ("legacy clone/crash", test_apply_main_cli_options_preserves_legacy_unknown_clone_and_crash),

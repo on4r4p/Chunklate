@@ -115,6 +115,25 @@ def test_reference_region_editor_reports_unavailable_images(tmp_path):
     assert "reference region editor unavailable" in result.warning
 
 
+def test_select_reference_png_path_uses_png_filter(tmp_path):
+    calls = []
+
+    class FakeFileDialog:
+        @staticmethod
+        def askopenfilename(**kwargs):
+            calls.append(kwargs)
+            return str(tmp_path / "reference.png")
+
+    selected = ultimate_reference_ui._select_reference_png_path(
+        FakeFileDialog,
+        initial_path=str(tmp_path / "old.png"),
+    )
+
+    assert selected.endswith("reference.png")
+    assert calls[0]["title"] == "Select reference PNG"
+    assert ("PNG files", "*.png") in calls[0]["filetypes"]
+
+
 def test_load_image_uses_visual_preview_for_invalid_source_snapshot(tmp_path):
     source = _invalid_filter_png()
     source_path = tmp_path / "_ULF.Source.png"

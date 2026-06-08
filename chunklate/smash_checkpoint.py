@@ -150,6 +150,7 @@ def invocation_record(
     brute_length: bool,
     old_crc: Any,
     brute_level: int,
+    campaign_focus: str = "",
 ) -> dict[str, Any]:
     return {
         "file": str(file),
@@ -164,6 +165,7 @@ def invocation_record(
         "brute_length": bool(brute_length),
         "old_crc": normalize_old_crc(old_crc),
         "brute_level": int(brute_level),
+        "campaign_focus": str(campaign_focus or ""),
     }
 
 

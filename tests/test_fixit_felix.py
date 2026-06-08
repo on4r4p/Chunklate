@@ -107,11 +107,23 @@ def test_libpng_error_decision_orders_solved_and_terminal_cases():
         == "idat_decision_gate"
     )
     assert (
+        fixit_felix.libpng_error_decision("libpng error: Too much image data", solved=False, skip_bad_libpng=False).action
+        == "idat_decision_gate"
+    )
+    assert (
         fixit_felix.libpng_error_decision("libpng error: bad adaptive filter", solved=False, skip_bad_libpng=True).action
         == "idat_decision_gate"
     )
     assert (
         fixit_felix.libpng_error_decision("libpng error: bad adaptive filter", solved=False, skip_bad_libpng=False).action
+        == "idat_decision_gate"
+    )
+    assert (
+        fixit_felix.libpng_error_decision(
+            "libpng error: visual repair needs reference/ROI before accepting blackfill artifact",
+            solved=False,
+            skip_bad_libpng=False,
+        ).action
         == "idat_decision_gate"
     )
 

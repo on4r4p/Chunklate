@@ -798,7 +798,7 @@ def twobytes_candidate_data(
         data = bytes.fromhex(to_brute[:needle]) + bytes.fromhex(to_brute[needle + needle2 :])
         bonus_hex = to_brute[:needle] + to_brute[needle + needle2 :]
     else:
-        raise ValueError("Unknown TwoBytes edit kind: %s" % edit_kind)
+        raise ValueError("Unknown HermesProbe edit kind: %s" % edit_kind)
 
     return TwoBytesCandidateData(
         data=data,
@@ -811,7 +811,7 @@ def iter_twobytes_edit_kinds(edit_mode: str, chunk_name: bytes) -> tuple[str, ..
     try:
         requested = TWOBYTES_EDIT_KIND_BY_MODE[edit_mode]
     except KeyError as exc:
-        raise ValueError("Unknown TwoBytes edit mode: %s" % edit_mode) from exc
+        raise ValueError("Unknown HermesProbe edit mode: %s" % edit_mode) from exc
 
     if chunk_name != b"IDAT":
         return (requested,)

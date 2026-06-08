@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import builtins
 from dataclasses import dataclass
+import json
 from typing import Any, Callable
 
 from . import cli, messages, output, runtime_state, smash_checkpoint
@@ -33,6 +34,12 @@ SMASH_BRUTE_BRAWL_PROGRESS_NAME = smash_checkpoint.SMASH_PROGRESS_NAME
 SMASH_BRUTE_BRAWL_SOURCE_RAW_NAME = smash_checkpoint.SMASH_SOURCE_RAW_NAME
 SMASH_BRUTE_BRAWL_SOURCE_NAME = smash_checkpoint.SMASH_SOURCE_NAME
 SMASH_BRUTE_BRAWL_RESUME_MODES = smash_checkpoint.SMASH_RESUME_MODES
+SMASH_BRUTE_BRAWL_TERMINAL_PROGRESS_STATUSES = {
+    "accepted_blackfill",
+    "exhausted",
+    "rejected_hit",
+    "success",
+}
 
 
 @dataclass(frozen=True)
@@ -707,6 +714,8 @@ def _smash_brute_brawl_resume_evidence_exists(
     source_raw_path: str,
     source_path: str,
 ) -> bool:
+    if _smash_brute_brawl_progress_is_terminal(progress_path):
+        return False
     if runtime.path_exists(folder) and runtime.path_is_dir(folder):
         try:
             names = set(runtime.list_dir(folder))
@@ -718,6 +727,21 @@ def _smash_brute_brawl_resume_evidence_exists(
         or runtime.path_exists(source_raw_path)
         or runtime.path_exists(source_path)
     )
+
+
+def _smash_brute_brawl_progress_is_terminal(progress_path: str) -> bool:
+    try:
+        with open(progress_path, "r", encoding="utf-8") as handle:
+            progress = json.load(handle)
+    except (OSError, TypeError, ValueError):
+        return False
+    if not isinstance(progress, dict):
+        return False
+    status = str(progress.get("status") or "").strip().lower()
+    plan = progress.get("plan")
+    if not status and isinstance(plan, dict):
+        status = str(plan.get("status") or "").strip().lower()
+    return status in SMASH_BRUTE_BRAWL_TERMINAL_PROGRESS_STATUSES
 
 
 def ask_smash_brute_brawl_resume(runtime: MainCliOptionsRuntime, progress_path: str) -> str:

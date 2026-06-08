@@ -77,11 +77,19 @@ def run_success(runtime: BruteForceResultRuntime, context: BruteForceResultConte
     return runtime.checkpoint(*checkpoint_request.as_args())
 
 
+def _sbb_pass_label(context: BruteForceResultContext) -> str:
+    if str(context.bf_mode).lower() == "brutus":
+        return "HephaestusForge %s level %s" % (context.edit_mode, context.brute_level)
+    if str(context.bf_mode).lower() == "twobytes":
+        return "HermesProbe %s level %s" % (context.edit_mode, context.brute_level)
+    return "%s level %s" % (context.edit_mode, context.brute_level)
+
+
 def run_failure(runtime: BruteForceResultRuntime, context: BruteForceResultContext) -> Any:
     if runtime.suppress_failure_theatre:
         runtime.emit(
-            "\n-SBB pass failed: %s level %s. I will continue the blackfill retry sequence."
-            % (context.edit_mode, context.brute_level)
+            "\n-SBB pass failed: %s. I will continue the blackfill retry sequence."
+            % _sbb_pass_label(context)
         )
         runtime.side_notes.append("\n-SmashBruteBrawl blackfill pass failed.")
     else:

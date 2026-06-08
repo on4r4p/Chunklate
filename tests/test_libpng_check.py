@@ -146,6 +146,62 @@ def test_libpng_result_appends_structure_errors_after_pillow_success():
         png_file.unlink(missing_ok=True)
 
 
+def test_libpng_result_flags_unvalidated_blackfill_fixed_artifact():
+    with tempfile.TemporaryDirectory() as directory:
+        folder = Path(directory)
+        png_file = folder / "sample.0_Fixed.png"
+        png_file.write_bytes(FIXTURE.read_bytes())
+        preview_folder = folder / "Bruteforce_Previews"
+        preview_folder.mkdir()
+        (preview_folder / "_Preview_IDAT_Blackfill_Preview.png").write_bytes(FIXTURE.read_bytes())
+
+        result = libpng_check.libpng_result(
+            str(png_file),
+            image_module=FakePillowOk,
+            warning_reader=lambda file: "",
+        )
+
+    assert "visual repair needs reference/ROI" in result
+
+
+def test_libpng_result_flags_summary_marked_blackfill_fixed_artifact():
+    with tempfile.TemporaryDirectory() as directory:
+        folder = Path(directory)
+        png_file = folder / "sample.0_Fixed.png"
+        png_file.write_bytes(FIXTURE.read_bytes())
+        (folder / "Summary_Of_sample").write_text(
+            "FixItFelix: partial-idat-blackfill recovered 500/500 scanlines.",
+            encoding="utf-8",
+        )
+
+        result = libpng_check.libpng_result(
+            str(png_file),
+            image_module=FakePillowOk,
+            warning_reader=lambda file: "",
+        )
+
+    assert "visual repair needs reference/ROI" in result
+
+
+def test_libpng_result_allows_validated_sbb_success_fixed_artifact():
+    with tempfile.TemporaryDirectory() as directory:
+        folder = Path(directory)
+        png_file = folder / "sample.0_Fixed.png"
+        png_file.write_bytes(FIXTURE.read_bytes())
+        preview_folder = folder / "Bruteforce_Previews"
+        preview_folder.mkdir()
+        (preview_folder / "_Preview_IDAT_Blackfill_Preview.png").write_bytes(FIXTURE.read_bytes())
+        (folder / "_SBB.progress.json").write_text('{"status": "success"}', encoding="utf-8")
+
+        result = libpng_check.libpng_result(
+            str(png_file),
+            image_module=FakePillowOk,
+            warning_reader=lambda file: "",
+        )
+
+    assert "visual repair needs reference/ROI" not in result
+
+
 def test_result_has_error_uses_legacy_error_markers():
     errors = ["libpng error:", "libpng warning:"]
 

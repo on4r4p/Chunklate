@@ -38,6 +38,7 @@ class SmashBruteBrawlLegacyContext:
     brute_length: bool = True
     old_crc: Any = False
     brute_level: int = 0
+    campaign_focus: str = ""
     crash: Any = False
     debug: bool = False
     pause_debug: bool = False
@@ -233,8 +234,10 @@ def run_legacy_smash_brute_brawl_from_namespace(
     resume_decision = str(namespace.get("SMASH_BRUTE_BRAWL_RESUME_DECISION", "") or "").strip().lower()
     retry_state = namespace.get("_SBB_BLACKFILL_RETRY_STATE")
     retry_starts_fresh = False
+    campaign_focus = ""
     if isinstance(retry_state, dict):
         retry_starts_fresh = bool(retry_state.pop("disable_resume_once", False))
+        campaign_focus = str(retry_state.get("campaign_focus") or "")
     if resume_decision == "resume" and not retry_starts_fresh:
         resume_record, progress_warning = smash_checkpoint.load_json(progress_paths.progress_path)
         if progress_warning:
@@ -309,6 +312,7 @@ def run_legacy_smash_brute_brawl_from_namespace(
             brute_length=brute_length,
             old_crc=old_crc,
             brute_level=namespace["Brute_LvL"] if brute_level is None else brute_level,
+            campaign_focus=campaign_focus,
             crash=namespace["CRASH"],
             debug=namespace["DEBUG"],
             pause_debug=namespace["PAUSEDEBUG"],
@@ -392,6 +396,9 @@ def run_smash_brute_brawl_direct_resume_from_namespace(namespace: dict[str, Any]
     namespace["DATA_BYTES"] = source_data
     namespace["DATAX"] = source_data.hex()
     namespace["SMASH_BRUTE_BRAWL_RESUME_DECISION"] = "resume"
+    campaign_focus = str(invocation.get("campaign_focus") or "")
+    if campaign_focus:
+        namespace.setdefault("_SBB_BLACKFILL_RETRY_STATE", {})["campaign_focus"] = campaign_focus
     namespace["Candy"]("Title", "SmashBruteBrawl resume:")
     _cowsay(
         namespace,
@@ -460,6 +467,9 @@ def run_legacy_smash_brute_brawl(
         )
 
     runtime.register_image_viewers(runtime.image_show)
+    suppress_candidate_viewer = "FixItFelix partial IDAT blackfill" in str(
+        context.from_error
+    )
 
     try:
         scan_result = runtime.run_scan(
@@ -478,6 +488,7 @@ def run_legacy_smash_brute_brawl(
                 source_path=runtime.source_path,
                 resume_record=runtime.resume_record,
                 smash_workers=runtime.smash_workers,
+                suppress_candidate_viewer=suppress_candidate_viewer,
             ),
             bruteforce_runtime.SmashBruteBrawlContext(
                 file=context.file,
@@ -493,6 +504,7 @@ def run_legacy_smash_brute_brawl(
                 brute_length=context.brute_length,
                 old_crc=context.old_crc,
                 brute_level=context.brute_level,
+                campaign_focus=context.campaign_focus,
                 crash=context.crash,
                 debug=context.debug,
                 pause_debug=context.pause_debug,

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import json
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -17,6 +19,7 @@ def build_runtime(
     eta=1,
     ihdr_interlace="0",
     question_answers=(True,),
+    progress_path="",
 ):
     state = {"brute_level": brute_level}
     side_notes = []
@@ -68,6 +71,7 @@ def build_runtime(
         set_brute_level=set_brute_level,
         eta=eta,
         ihdr_interlace=ihdr_interlace,
+        progress_path=progress_path,
     )
     return runtime, state, side_notes
 
@@ -310,7 +314,7 @@ def test_blackfill_failure_next_level_relaunches_with_old_crc():
     assert result == (False, None)
     assert state["brute_level"] == 0
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying Replace level 0."
+        "-CheckPoint: Progressive SBB campaign trying HermesProbe Replace level 0."
     ]
     assert ("set_brute_level", (0,), {}) in calls
     assert (
@@ -357,7 +361,7 @@ def test_blackfill_remove_twobytes_failure_tries_next_family_before_hephaestusfo
     assert result == (False, None)
     assert state["brute_level"] == 0
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying Replace level 0."
+        "-CheckPoint: Progressive SBB campaign trying HermesProbe Replace level 0."
     ]
     assert runtime.retry_state.get("disable_resume_once") is True
     assert ("set_brute_level", (0,), {}) in calls
@@ -452,7 +456,7 @@ def test_blackfill_failure_auto_retries_without_questions():
     assert result == (False, None)
     assert state["brute_level"] == 0
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying Replace level 0."
+        "-CheckPoint: Progressive SBB campaign trying HermesProbe Replace level 0."
     ]
     assert (
         "smash_brute_brawl",
@@ -467,6 +471,517 @@ def test_blackfill_failure_auto_retries_without_questions():
         },
     ) in calls
     assert [call[0] for call in calls].count("question") == 0
+
+
+def test_blackfill_failure_prompts_before_measured_long_pass():
+    calls = []
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        Path(progress_path).write_text(
+            json.dumps(
+                {
+                    "status": "exhausted",
+                    "counters": {
+                        "tested_candidates": 6_291_456,
+                        "elapsed_seconds": 60,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        runtime, state, side_notes = build_runtime(
+            calls,
+            question_answers=(False,),
+            progress_path=progress_path,
+        )
+        runtime.retry_state["campaign_focus"] = "insert"
+        toolkit = (
+            "sample.png",
+            b"IDAT",
+            8192,
+            100,
+            "Insert",
+            "TwoBytes",
+            "crc",
+            "length",
+            "old-crc",
+            "FixItFelix partial IDAT blackfill",
+        )
+        decision = checkpoint.CheckPointActionDecision(
+            action="smash_brute_brawl_ask_blackfill_next_step"
+        )
+
+        result = checkpoint_actions_runtime.apply_action_decision(
+            runtime,
+            decision,
+            "IDAT",
+            "-Bruteforcer has Failed",
+            toolkit,
+        )
+
+    assert result == (True, "end")
+    assert state["brute_level"] == 0
+    assert [call[0] for call in calls].count("question") == 1
+    assert any(
+        call[0] == "emit" and "SBB estimated next pass" in call[1][0]
+        for call in calls
+    )
+    assert all(call[0] != "smash_brute_brawl" for call in calls)
+
+
+def test_blackfill_rejected_hit_status_is_reported_before_next_pass():
+    calls = []
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        Path(progress_path).write_text(
+            json.dumps(
+                {
+                    "status": "rejected_hit",
+                    "counters": {
+                        "tested_candidates": 42,
+                        "rejected_candidates": 1,
+                        "elapsed_seconds": 1,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        runtime, state, side_notes = build_runtime(
+            calls,
+            progress_path=progress_path,
+        )
+        toolkit = (
+            "sample.png",
+            b"IDAT",
+            4,
+            100,
+            "Insert",
+            "TwoBytes",
+            "crc",
+            "length",
+            "old-crc",
+            "FixItFelix partial IDAT blackfill",
+        )
+        decision = checkpoint.CheckPointActionDecision(
+            action="smash_brute_brawl_ask_blackfill_next_step"
+        )
+
+        result = checkpoint_actions_runtime.apply_action_decision(
+            runtime,
+            decision,
+            "IDAT",
+            "-Bruteforcer has Failed OldCrc",
+            toolkit,
+        )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 0
+    assert runtime.retry_state["attempt_records"] == [
+        {
+            "bf_mode": "TwoBytes",
+            "edit_mode": "Insert",
+            "brute_level": 0,
+            "focus": "progressive",
+            "brute_crc": "crc",
+            "brute_length": "length",
+            "old_crc": "old-crc",
+            "status": "rejected_hit",
+            "tested_candidates": 42,
+            "elapsed_seconds": 1,
+        }
+    ]
+    assert any(
+        call[0] == "emit" and "SBB pass rejected invalid candidates" in call[1][0]
+        for call in calls
+    )
+    assert (
+        "smash_brute_brawl",
+        ("sample.png", b"IDAT", 4, 100, "FixItFelix partial IDAT blackfill"),
+        {
+            "EditMode": "Replace",
+            "BfMode": "TwoBytes",
+            "BruteCrc": "crc",
+            "BruteLength": "length",
+            "BruteLevel": 0,
+            "OldCrc": "old-crc",
+        },
+    ) in calls
+
+
+def test_blackfill_eta_formatter_handles_huge_values_without_overflow():
+    assert checkpoint_actions_runtime._format_sbb_eta(13_122_988_552_192) == (
+        "151,886,441 days, 13:49:52"
+    )
+    assert checkpoint_actions_runtime._format_sbb_eta("nope") == "unknown"
+
+
+def test_blackfill_hephaestus_estimates_insert_replace_value_space():
+    assert checkpoint_actions_runtime._blackfill_estimated_brutus_candidates(
+        edit_mode="Insert",
+        brute_level=1,
+        chunk_length=8192,
+    ) == 65_792
+    assert checkpoint_actions_runtime._blackfill_estimated_brutus_candidates(
+        edit_mode="Replace",
+        brute_level=2,
+        chunk_length=8192,
+    ) == 16_843_008
+
+
+def test_blackfill_hephaestus_remove_estimates_windows_not_byte_values():
+    assert checkpoint_actions_runtime._blackfill_estimated_brutus_candidates(
+        edit_mode="Remove",
+        brute_level=15,
+        chunk_length=8192,
+    ) == 130_952
+
+
+def test_blackfill_hephaestus_remove_fast_pass_does_not_prompt():
+    calls = []
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        Path(progress_path).write_text(
+            json.dumps(
+                {
+                    "status": "exhausted",
+                    "counters": {
+                        "tested_candidates": 65_508,
+                        "elapsed_seconds": 60,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        runtime, state, side_notes = build_runtime(
+            calls,
+            brute_level=7,
+            question_answers=(),
+            progress_path=progress_path,
+        )
+        runtime.retry_state["campaign_focus"] = "remove"
+        toolkit = (
+            "sample.png",
+            b"IDAT",
+            8192,
+            100,
+            "Remove",
+            "Brutus",
+            "crc",
+            "length",
+            "old-crc",
+            "FixItFelix partial IDAT blackfill",
+        )
+        decision = checkpoint.CheckPointActionDecision(
+            action="smash_brute_brawl_ask_blackfill_next_step"
+        )
+
+        result = checkpoint_actions_runtime.apply_action_decision(
+            runtime,
+            decision,
+            "IDAT",
+            "-Bruteforcer has Failed",
+            toolkit,
+        )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 15
+    assert [call[0] for call in calls].count("question") == 0
+    assert (
+        "smash_brute_brawl",
+        ("sample.png", b"IDAT", 8192, 100, "FixItFelix partial IDAT blackfill"),
+        {
+            "EditMode": "Remove",
+            "BfMode": "Brutus",
+            "BruteCrc": "crc",
+            "BruteLength": "length",
+            "BruteLevel": 15,
+            "OldCrc": "old-crc",
+        },
+    ) in calls
+
+
+def test_blackfill_success_status_is_terminal_for_campaign_action():
+    calls = []
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        Path(progress_path).write_text(
+            json.dumps(
+                {
+                    "status": "success",
+                    "counters": {
+                        "tested_candidates": 7,
+                        "accepted_candidates": 1,
+                        "elapsed_seconds": 2,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        runtime, state, side_notes = build_runtime(
+            calls,
+            progress_path=progress_path,
+        )
+        toolkit = (
+            "sample.png",
+            b"IDAT",
+            4,
+            100,
+            "Insert",
+            "TwoBytes",
+            "crc",
+            "length",
+            "old-crc",
+            "FixItFelix partial IDAT blackfill",
+        )
+        decision = checkpoint.CheckPointActionDecision(
+            action="smash_brute_brawl_ask_blackfill_next_step"
+        )
+
+        result = checkpoint_actions_runtime.apply_action_decision(
+            runtime,
+            decision,
+            "IDAT",
+            "-Bruteforcer has Failed OldCrc",
+            toolkit,
+        )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 0
+    assert side_notes == [
+        "-CheckPoint: SBB pass already produced a validated hit; no further campaign pass launched."
+    ]
+    assert runtime.retry_state == {}
+    assert all(call[0] != "smash_brute_brawl" for call in calls)
+
+
+def test_blackfill_hephaestus_campaign_does_not_skip_level_two():
+    calls = []
+    runtime, state, side_notes = build_runtime(calls, brute_level=1)
+    runtime.retry_state["campaign_focus"] = "insert"
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        8192,
+        100,
+        "Insert",
+        "Brutus",
+        "crc",
+        "length",
+        "old-crc",
+        "FixItFelix partial IDAT blackfill",
+    )
+    decision = checkpoint.CheckPointActionDecision(
+        action="smash_brute_brawl_ask_blackfill_next_step"
+    )
+
+    result = checkpoint_actions_runtime.apply_action_decision(
+        runtime,
+        decision,
+        "IDAT",
+        "-Bruteforcer has Failed",
+        toolkit,
+    )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 2
+    assert side_notes == [
+        "-CheckPoint: Progressive SBB campaign trying HephaestusForge Insert level 2."
+    ]
+    assert (
+        "smash_brute_brawl",
+        ("sample.png", b"IDAT", 8192, 100, "FixItFelix partial IDAT blackfill"),
+        {
+            "EditMode": "Insert",
+            "BfMode": "Brutus",
+            "BruteCrc": "crc",
+            "BruteLength": "length",
+            "BruteLevel": 2,
+            "OldCrc": "old-crc",
+        },
+    ) in calls
+
+
+def test_blackfill_hephaestus_uses_active_pass_level_when_global_level_is_stale():
+    calls = []
+    runtime, state, side_notes = build_runtime(calls, brute_level=0)
+    runtime.retry_state["campaign_focus"] = "insert"
+    runtime.retry_state["active_pass"] = {
+        "edit_mode": "Insert",
+        "bf_mode": "Brutus",
+        "brute_level": 1,
+    }
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        8192,
+        100,
+        "Insert",
+        "Brutus",
+        "crc",
+        "length",
+        "old-crc",
+        "FixItFelix partial IDAT blackfill",
+    )
+    decision = checkpoint.CheckPointActionDecision(
+        action="smash_brute_brawl_ask_blackfill_next_step"
+    )
+
+    result = checkpoint_actions_runtime.apply_action_decision(
+        runtime,
+        decision,
+        "IDAT",
+        "-Bruteforcer has Failed",
+        toolkit,
+    )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 2
+    assert side_notes == [
+        "-CheckPoint: Progressive SBB campaign trying HephaestusForge Insert level 2."
+    ]
+    assert (
+        "smash_brute_brawl",
+        ("sample.png", b"IDAT", 8192, 100, "FixItFelix partial IDAT blackfill"),
+        {
+            "EditMode": "Insert",
+            "BfMode": "Brutus",
+            "BruteCrc": "crc",
+            "BruteLength": "length",
+            "BruteLevel": 2,
+            "OldCrc": "old-crc",
+        },
+    ) in calls
+    assert not any(
+        call[0] == "smash_brute_brawl" and call[2].get("BruteLevel") == 1
+        for call in calls
+    )
+
+
+def test_blackfill_hephaestus_uses_progress_invocation_level_when_global_level_is_stale():
+    calls = []
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        Path(progress_path).write_text(
+            json.dumps(
+                {
+                    "status": "exhausted",
+                    "invocation": {
+                        "edit_mode": "Insert",
+                        "bf_mode": "Brutus",
+                        "brute_level": 1,
+                    },
+                    "counters": {
+                        "tested_candidates": 65792,
+                        "elapsed_seconds": 2,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        runtime, state, side_notes = build_runtime(
+            calls,
+            brute_level=0,
+            progress_path=progress_path,
+        )
+        runtime.retry_state["campaign_focus"] = "insert"
+        toolkit = (
+            "sample.png",
+            b"IDAT",
+            8192,
+            100,
+            "Insert",
+            "Brutus",
+            "crc",
+            "length",
+            "old-crc",
+            "FixItFelix partial IDAT blackfill",
+        )
+        decision = checkpoint.CheckPointActionDecision(
+            action="smash_brute_brawl_ask_blackfill_next_step"
+        )
+
+        result = checkpoint_actions_runtime.apply_action_decision(
+            runtime,
+            decision,
+            "IDAT",
+            "-Bruteforcer has Failed",
+            toolkit,
+        )
+
+    assert result == (False, None)
+    assert state["brute_level"] == 2
+    assert side_notes == [
+        "-CheckPoint: Progressive SBB campaign trying HephaestusForge Insert level 2."
+    ]
+    assert (
+        "smash_brute_brawl",
+        ("sample.png", b"IDAT", 8192, 100, "FixItFelix partial IDAT blackfill"),
+        {
+            "EditMode": "Insert",
+            "BfMode": "Brutus",
+            "BruteCrc": "crc",
+            "BruteLength": "length",
+            "BruteLevel": 2,
+            "OldCrc": "old-crc",
+        },
+    ) in calls
+
+
+def test_blackfill_hephaestus_prompts_before_measured_long_pass():
+    calls = []
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        Path(progress_path).write_text(
+            json.dumps(
+                {
+                    "status": "exhausted",
+                    "counters": {
+                        "tested_candidates": 6_291_456,
+                        "elapsed_seconds": 60,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        runtime, state, side_notes = build_runtime(
+            calls,
+            brute_level=2,
+            question_answers=(False,),
+            progress_path=progress_path,
+        )
+        runtime.retry_state["campaign_focus"] = "insert"
+        toolkit = (
+            "sample.png",
+            b"IDAT",
+            8192,
+            100,
+            "Insert",
+            "Brutus",
+            "crc",
+            "length",
+            "old-crc",
+            "FixItFelix partial IDAT blackfill",
+        )
+        decision = checkpoint.CheckPointActionDecision(
+            action="smash_brute_brawl_ask_blackfill_next_step"
+        )
+
+        result = checkpoint_actions_runtime.apply_action_decision(
+            runtime,
+            decision,
+            "IDAT",
+            "-Bruteforcer has Failed",
+            toolkit,
+        )
+
+    assert result == (True, "end")
+    assert state["brute_level"] == 2
+    assert [call[0] for call in calls].count("question") == 1
+    assert any(
+        call[0] == "emit" and "SBB estimated next pass" in call[1][0]
+        for call in calls
+    )
+    assert all(call[0] != "smash_brute_brawl" for call in calls)
 
 
 def test_blackfill_failure_after_hephaestusforge_keeps_existing_fallback():
@@ -672,6 +1187,8 @@ def test_blackfill_retry_skips_already_attempted_hephaestus_edit():
         "old-crc",
         "FixItFelix partial IDAT blackfill HephaestusForge",
     )
+    runtime.retry_state["campaign_focus"] = "progressive"
+    runtime.retry_state["hephaestus_order"] = ("Remove", "Replace", "Insert")
     checkpoint_actions_runtime._blackfill_mark_attempt(
         runtime,
         toolkit,
@@ -708,6 +1225,79 @@ def test_blackfill_retry_skips_already_attempted_hephaestus_edit():
             "OldCrc": "old-crc",
         },
     ) in calls
+
+
+def test_blackfill_focus_campaign_exhausts_selected_family_first():
+    calls = []
+    runtime, _state, _side_notes = build_runtime(calls)
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "Remove",
+        "TwoBytes",
+        "crc",
+        "length",
+        "old-crc",
+        "FixItFelix partial IDAT blackfill",
+    )
+    runtime.retry_state["campaign_focus"] = "remove"
+    runtime.retry_state["hephaestus_order"] = ("Remove", "Replace", "Insert")
+
+    attempts = checkpoint_actions_runtime._blackfill_campaign_attempts(
+        runtime,
+        toolkit,
+        current_edit="Remove",
+        current_mode="TwoBytes",
+    )
+
+    assert attempts[:8] == (
+        ("Remove", "TwoBytes", 0),
+        ("Remove", "TwoBytes", 1),
+        ("Remove", "Brutus", 1),
+        ("Remove", "Brutus", 2),
+        ("Remove", "Brutus", 3),
+        ("Remove", "Brutus", 4),
+        ("Remove", "Brutus", 7),
+        ("Remove", "Brutus", 15),
+    )
+    assert ("Replace", "TwoBytes", 0) in attempts[8:]
+
+
+def test_blackfill_progressive_campaign_keeps_level_first_order():
+    calls = []
+    runtime, _state, _side_notes = build_runtime(calls)
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "Remove",
+        "TwoBytes",
+        "crc",
+        "length",
+        "old-crc",
+        "FixItFelix partial IDAT blackfill",
+    )
+    runtime.retry_state["campaign_focus"] = "progressive"
+    runtime.retry_state["hephaestus_order"] = ("Remove", "Replace", "Insert")
+
+    attempts = checkpoint_actions_runtime._blackfill_campaign_attempts(
+        runtime,
+        toolkit,
+        current_edit="Remove",
+        current_mode="TwoBytes",
+    )
+
+    assert attempts[:6] == (
+        ("Remove", "TwoBytes", 0),
+        ("Replace", "TwoBytes", 0),
+        ("Insert", "TwoBytes", 0),
+        ("Remove", "TwoBytes", 1),
+        ("Replace", "TwoBytes", 1),
+        ("Insert", "TwoBytes", 1),
+    )
 
 
 def test_checkpoint_action_namespace_builder_wires_state_and_callbacks():
@@ -752,11 +1342,26 @@ def main():
         ("Blackfill failure next SBB level", test_blackfill_failure_next_level_relaunches_with_old_crc),
         ("Blackfill failure opens HephaestusForge", test_blackfill_failure_opens_hephaestusforge_before_fallback),
         ("Blackfill failure auto retry", test_blackfill_failure_auto_retries_without_questions),
+        ("Blackfill long pass ETA prompt", test_blackfill_failure_prompts_before_measured_long_pass),
+        ("Blackfill rejected hit transition", test_blackfill_rejected_hit_status_is_reported_before_next_pass),
+        ("Blackfill success status terminal", test_blackfill_success_status_is_terminal_for_campaign_action),
+        ("Blackfill HephaestusForge does not skip level 2", test_blackfill_hephaestus_campaign_does_not_skip_level_two),
+        (
+            "Blackfill HephaestusForge active pass level",
+            test_blackfill_hephaestus_uses_active_pass_level_when_global_level_is_stale,
+        ),
+        (
+            "Blackfill HephaestusForge progress pass level",
+            test_blackfill_hephaestus_uses_progress_invocation_level_when_global_level_is_stale,
+        ),
+        ("Blackfill HephaestusForge long pass ETA prompt", test_blackfill_hephaestus_prompts_before_measured_long_pass),
         ("Blackfill failure after HephaestusForge", test_blackfill_failure_after_hephaestusforge_keeps_existing_fallback),
         ("Blackfill HephaestusForge next edit", test_blackfill_hephaestusforge_failure_tries_next_edit_family),
         ("Blackfill HephaestusForge Remove next edit", test_blackfill_hephaestusforge_remove_failure_tries_replace_without_prompt),
         ("Blackfill Brutus Remove keeps edit sequence", test_blackfill_brutus_remove_failure_keeps_edit_sequence_without_hephaestus_label),
         ("Blackfill retry skips attempted edit", test_blackfill_retry_skips_already_attempted_hephaestus_edit),
+        ("Blackfill focus campaign order", test_blackfill_focus_campaign_exhausts_selected_family_first),
+        ("Blackfill progressive campaign order", test_blackfill_progressive_campaign_keeps_level_first_order),
         ("Namespace action runtime", test_checkpoint_action_namespace_builder_wires_state_and_callbacks),
     ]
 

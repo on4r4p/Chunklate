@@ -110,7 +110,7 @@ Chunklate follows this high-level flow:
 
 `chunklate/bruteforce.py`
 : Candidate generation, byte edit modes, scan windows, ETA helpers, and
-  `TwoBytes` dispatch for data bruteforce.
+  HermesProbe dispatch (`BfMode="TwoBytes"` internally) for data bruteforce.
 
 `chunklate/bruteforce_runtime.py`
 : Scan execution helpers used by the bruteforce command path.

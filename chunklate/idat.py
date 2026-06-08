@@ -112,12 +112,14 @@ class SmashBruteBrawlIdatDiagnostic:
     zlib_status: str = ""
     zlib_error: str = ""
     crc_target_trusted: bool = False
+    crc_target_useful: bool = False
     success_estimate: str = "low"
     success_reason: str = ""
     recommended_repair_family: str = "replace"
     hephaestus_order: tuple[str, ...] = ("Replace", "Insert", "Remove")
     cheap_twobytes_viable: bool = True
     hephaestus_reason: str = ""
+    requires_visual_reference: bool = False
     reason: str = ""
 
 
@@ -910,6 +912,51 @@ def _sbb_crc_proven_single_byte_edit_mode(data: bytes) -> str | None:
     return None
 
 
+def _sbb_bad_idat_crc_present(data: bytes) -> bool:
+    try:
+        return any(
+            chunk.chunk_type == b"IDAT" and not chunk.crc_ok
+            for chunk in png.iter_chunks(data)
+        )
+    except Exception:
+        return False
+
+
+def _sbb_idat_length_edit_hint(data: bytes) -> str | None:
+    """Infer simple insert/remove hints from a lone short/long IDAT shard.
+
+    Multi-IDAT encoders commonly use a fixed payload size for all non-tail
+    IDAT chunks. When one non-tail IDAT is one byte shorter/longer than the
+    neighboring shard size, that is a useful family hint even without a CRC
+    oracle. This is only a priority hint; validation still owns acceptance.
+    """
+
+    try:
+        idat_chunks = [chunk for chunk in png.iter_chunks(data) if chunk.chunk_type == b"IDAT"]
+    except Exception:
+        return None
+    if len(idat_chunks) < 2:
+        return None
+
+    non_tail_lengths = [len(chunk.data) for chunk in idat_chunks[:-1]]
+    if len(non_tail_lengths) < 2:
+        return None
+    common_length = max(set(non_tail_lengths), key=non_tail_lengths.count)
+    if common_length <= 0:
+        return None
+
+    for length in non_tail_lengths:
+        delta = length - common_length
+        if delta == 0:
+            continue
+        if abs(delta) > 16:
+            return None
+        if delta < 0:
+            return "Insert"
+        return "Remove"
+    return None
+
+
 def _sbb_success_estimate(
     analysis: IdatStreamAnalysis,
     *,
@@ -918,6 +965,9 @@ def _sbb_success_estimate(
 ) -> tuple[str, str]:
     if not analysis.supported:
         return "low", analysis.reason or "IDAT stream is not supported by the probe."
+
+    if analysis.status == "complete" and not crc_target_trusted:
+        return "low", "the IDAT stream already decodes structurally; visual correction needs a reference."
 
     small_gap = missing_decompressed_size <= max(analysis.scanline_size * 2, 4096)
     if crc_target_trusted and small_gap:
@@ -940,6 +990,7 @@ def _sbb_hephaestus_strategy(
     missing_decompressed_size: int,
     crc_target_trusted: bool,
     crc_proven_single_byte_edit_mode: str | None = None,
+    length_edit_hint: str | None = None,
 ) -> tuple[str, tuple[str, ...], bool, str]:
     if crc_proven_single_byte_edit_mode == "Insert":
         return (
@@ -971,7 +1022,33 @@ def _sbb_hephaestus_strategy(
             analysis.reason or "IDAT stream is not supported by the diagnostic probe.",
         )
 
+    if length_edit_hint == "Insert":
+        return (
+            "missing",
+            ("Insert", "Replace", "Remove"),
+            bool(crc_target_trusted),
+            "a non-tail IDAT shard is shorter than its neighboring shard size.",
+        )
+    if length_edit_hint == "Remove":
+        return (
+            "extra",
+            ("Remove", "Replace", "Insert"),
+            bool(crc_target_trusted),
+            "a non-tail IDAT shard is longer than its neighboring shard size.",
+        )
+
     large_missing = missing_decompressed_size > max(analysis.scanline_size * 2, 4096)
+    if (
+        analysis.status == "partial"
+        and analysis.expected_size > 0
+        and analysis.decompressed_size > analysis.expected_size
+    ):
+        return (
+            "extra",
+            ("Remove", "Replace", "Insert"),
+            bool(crc_target_trusted),
+            "the zlib stream decodes past the expected image payload.",
+        )
     if analysis.status == "incomplete_stream" or (
         analysis.status == "partial" and missing_decompressed_size > 0
     ):
@@ -1002,9 +1079,20 @@ def analyze_sbb_idat_diagnostic(
     crc_target_trusted: bool = False,
 ) -> SmashBruteBrawlIdatDiagnostic:
     analysis = analyze_idat_stream(data)
-    crc_proven_single_byte_edit_mode = (
-        _sbb_crc_proven_single_byte_edit_mode(data) if crc_target_trusted else None
+    crc_target_useful = bool(
+        crc_target_trusted
+        and _sbb_bad_idat_crc_present(data)
+        and analysis.status not in {"complete", "partial"}
     )
+    requires_visual_reference = bool(
+        analysis.supported
+        and analysis.status in {"complete", "partial"}
+        and not crc_target_useful
+    )
+    crc_proven_single_byte_edit_mode = (
+        _sbb_crc_proven_single_byte_edit_mode(data) if crc_target_useful else None
+    )
+    length_edit_hint = _sbb_idat_length_edit_hint(data)
     if not analysis.supported:
         estimate, reason = _sbb_success_estimate(
             analysis,
@@ -1014,20 +1102,23 @@ def analyze_sbb_idat_diagnostic(
         family, order, cheap_viable, hephaestus_reason = _sbb_hephaestus_strategy(
             analysis,
             missing_decompressed_size=0,
-            crc_target_trusted=crc_target_trusted,
+            crc_target_trusted=crc_target_useful,
             crc_proven_single_byte_edit_mode=crc_proven_single_byte_edit_mode,
+            length_edit_hint=length_edit_hint,
         )
         return SmashBruteBrawlIdatDiagnostic(
             supported=False,
             zlib_status=analysis.status,
             zlib_error=analysis.zlib_error,
             crc_target_trusted=crc_target_trusted,
+            crc_target_useful=crc_target_useful,
             success_estimate=estimate,
             success_reason=reason,
             recommended_repair_family=family,
             hephaestus_order=order,
             cheap_twobytes_viable=cheap_viable,
             hephaestus_reason=hephaestus_reason,
+            requires_visual_reference=requires_visual_reference,
             reason=analysis.reason,
         )
 
@@ -1038,13 +1129,14 @@ def analyze_sbb_idat_diagnostic(
     estimate, reason = _sbb_success_estimate(
         analysis,
         missing_decompressed_size=missing,
-        crc_target_trusted=crc_target_trusted,
+        crc_target_trusted=crc_target_useful,
     )
     family, order, cheap_viable, hephaestus_reason = _sbb_hephaestus_strategy(
         analysis,
         missing_decompressed_size=missing,
-        crc_target_trusted=crc_target_trusted,
+        crc_target_trusted=crc_target_useful,
         crc_proven_single_byte_edit_mode=crc_proven_single_byte_edit_mode,
+        length_edit_hint=length_edit_hint,
     )
     return SmashBruteBrawlIdatDiagnostic(
         supported=True,
@@ -1065,12 +1157,14 @@ def analyze_sbb_idat_diagnostic(
         zlib_status=analysis.status,
         zlib_error=analysis.zlib_error,
         crc_target_trusted=crc_target_trusted,
+        crc_target_useful=crc_target_useful,
         success_estimate=estimate,
         success_reason=reason,
         recommended_repair_family=family,
         hephaestus_order=order,
         cheap_twobytes_viable=cheap_viable,
         hephaestus_reason=hephaestus_reason,
+        requires_visual_reference=requires_visual_reference,
         reason=analysis.reason,
     )
 

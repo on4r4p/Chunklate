@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import json
+import inspect
+import struct
 import sys
 import tempfile
+import zlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -12,7 +15,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import bruteforce, bruteforce_runtime, bruteforce_viewer, smash_backend, smash_checkpoint
-from chunklate.png import iter_chunks
+from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks
+from pytest import MonkeyPatch
 
 
 @dataclass
@@ -38,6 +42,7 @@ def build_runtime(
     source_path="",
     resume_record=None,
     smash_workers=0,
+    suppress_candidate_viewer=False,
 ):
     side_notes = [] if side_notes is None else side_notes
     viewer_results = [] if viewer_results is None else list(viewer_results)
@@ -85,6 +90,7 @@ def build_runtime(
         source_path=source_path,
         resume_record=resume_record,
         smash_workers=smash_workers,
+        suppress_candidate_viewer=suppress_candidate_viewer,
     )
 
 
@@ -117,7 +123,220 @@ def simple_specs(request):
     return (2, 1, 2, ("B",), [(7,)], "color")
 
 
-def test_run_scan_preserves_oldcrc_path_without_viewer():
+def small_rgba_png(raw_pixel=b"\x01\x02\x03\xff") -> bytes:
+    ihdr = struct.pack("!IIBBBBB", 1, 1, 8, 6, 0, 0, 0)
+    filtered = b"\x00" + raw_pixel
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"IDAT", zlib.compress(filtered))
+        + IEND_CHUNK
+    )
+
+
+def invalid_idat_png() -> bytes:
+    ihdr = struct.pack("!IIBBBBB", 1, 1, 8, 6, 0, 0, 0)
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"IDAT", b"\x78\x9c\x00")
+        + IEND_CHUNK
+    )
+
+
+def accept_fake_sbb_candidates(monkeypatch) -> None:
+    monkeypatch.setattr(
+        bruteforce_runtime,
+        "validate_sbb_candidate",
+        lambda _png_bytes: bruteforce_runtime.SbbCandidateValidation(True),
+    )
+
+
+def test_validate_sbb_candidate_accepts_complete_png():
+    assert bruteforce_runtime.validate_sbb_candidate(small_rgba_png()).ok is True
+
+
+def test_validate_sbb_candidate_rejects_crc_only_bad_idat():
+    validation = bruteforce_runtime.validate_sbb_candidate(invalid_idat_png())
+
+    assert validation.ok is False
+    assert "IDAT zlib stream is invalid" in validation.reason
+    assert validation.category == "invalid_structural"
+
+
+def test_validate_sbb_candidate_rejects_almost_transparent_output():
+    validation = bruteforce_runtime.validate_sbb_candidate(small_rgba_png(b"\x00\x00\x00\x03"))
+
+    assert validation.ok is False
+    assert validation.category == "valid_but_visual_untrusted"
+    assert "almost fully transparent" in validation.reason
+
+
+def test_apply_parallel_hit_rejects_oldcrc_match_before_saving_invalid_png():
+    calls = []
+    runtime = build_runtime(calls, specs=simple_specs, product_values=[(7,)])
+    scan_state = bruteforce_runtime.SmashBruteBrawlScanState(
+        state=bruteforce.BruteForceMatchState()
+    )
+    hit = smash_backend.SmashCandidateHit(
+        outer_index=0,
+        length=1,
+        inner_index=0,
+        checksum=b"\x00\x00\x00\x00",
+        full_new_data=b"chunk",
+        png_bytes=invalid_idat_png(),
+        brute_bytes=b"",
+        old_crc_match=True,
+    )
+
+    accepted = bruteforce_runtime._apply_parallel_hit(
+        runtime,
+        scan_state,
+        b"\x00\x00\x00\x00",
+        hit,
+    )
+
+    assert accepted is False
+    assert scan_state.accepted_candidates == 0
+    assert scan_state.rejected_candidates == 1
+    assert not [call for call in calls if call[0] == "show_candidate"]
+    assert scan_state.rejected_reasons
+    assert not [
+        call for call in calls
+        if call[0] == "emit" and "SBB rejected" in call[1]
+    ]
+
+
+def test_apply_parallel_hit_accepts_oldcrc_match_after_full_png_validation():
+    calls = []
+    runtime = build_runtime(calls, specs=simple_specs, product_values=[(7,)])
+    scan_state = bruteforce_runtime.SmashBruteBrawlScanState(
+        state=bruteforce.BruteForceMatchState()
+    )
+    hit = smash_backend.SmashCandidateHit(
+        outer_index=0,
+        length=1,
+        inner_index=0,
+        checksum=b"\x00\x00\x00\x00",
+        full_new_data=b"chunk",
+        png_bytes=small_rgba_png(),
+        brute_bytes=b"",
+        old_crc_match=True,
+    )
+
+    accepted = bruteforce_runtime._apply_parallel_hit(
+        runtime,
+        scan_state,
+        b"\x00\x00\x00\x00",
+        hit,
+    )
+
+    assert accepted is True
+    assert scan_state.accepted_candidates == 1
+    assert scan_state.state.bingo is True
+    assert not [call for call in calls if call[0] == "show_candidate"]
+
+
+def test_sbb_rejection_messages_are_summary_only():
+    calls = []
+    side_notes = []
+    runtime = build_runtime(calls, specs=simple_specs, product_values=[(7,)], side_notes=side_notes)
+    scan_state = bruteforce_runtime.SmashBruteBrawlScanState(
+        state=bruteforce.BruteForceMatchState()
+    )
+
+    for _index in range(1000):
+        bruteforce_runtime._record_sbb_candidate_rejected(
+            runtime,
+            scan_state,
+            "Incomplete chunk at offset 8351",
+        )
+    bruteforce_runtime._emit_sbb_rejection_progress(runtime, scan_state, force=True)
+
+    emit_calls = [
+        call for call in calls
+        if call[0] == "emit" and "SBB rejected" in call[1]
+    ]
+    assert scan_state.rejected_candidates == 1000
+    assert scan_state.rejected_reasons["Incomplete chunk at offset 8351"] == 1000
+    assert emit_calls == []
+    assert any("rejected 1000 candidate" in note for note in side_notes)
+
+
+def test_apply_parallel_hit_without_crc_uses_viewer_outside_internal_campaign():
+    calls = []
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[(7,)],
+        viewer_results=[bruteforce_viewer.BruteForceViewerResult(True, "looks-good")],
+    )
+    scan_state = bruteforce_runtime.SmashBruteBrawlScanState(
+        state=bruteforce.BruteForceMatchState()
+    )
+    hit = smash_backend.SmashCandidateHit(
+        outer_index=0,
+        length=1,
+        inner_index=0,
+        checksum=b"\x00\x00\x00\x00",
+        full_new_data=b"chunk",
+        png_bytes=small_rgba_png(),
+        brute_bytes=b"",
+        old_crc_match=False,
+    )
+
+    accepted = bruteforce_runtime._apply_parallel_hit(runtime, scan_state, False, hit)
+
+    assert accepted is True
+    assert scan_state.state.bingo is True
+    assert scan_state.diff == "looks-good"
+    assert [call[0] for call in calls].count("show_candidate") == 1
+
+
+def test_apply_parallel_hit_without_crc_is_not_auto_accepted_in_internal_campaign():
+    calls = []
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,)],
+            viewer_results=[bruteforce_viewer.BruteForceViewerResult(True, "ignored")],
+            progress_path=progress_path,
+            suppress_candidate_viewer=True,
+        )
+        scan_state = bruteforce_runtime.SmashBruteBrawlScanState(
+            state=bruteforce.BruteForceMatchState()
+        )
+        hit = smash_backend.SmashCandidateHit(
+            outer_index=0,
+            length=1,
+            inner_index=0,
+            checksum=b"\x00\x00\x00\x00",
+            full_new_data=b"chunk",
+            png_bytes=small_rgba_png(),
+            brute_bytes=b"",
+            old_crc_match=False,
+        )
+
+        accepted = bruteforce_runtime._apply_parallel_hit(runtime, scan_state, False, hit)
+        previews = list((Path(directory) / "Bruteforce_Previews" / "SBB_Candidates").glob("*.png"))
+
+    assert accepted is False
+    assert scan_state.state.bingo is False
+    assert scan_state.accepted_candidates == 0
+    assert scan_state.rejected_candidates == 1
+    assert scan_state.untrusted_preview_count == 1
+    assert len(previews) == 1
+    assert not [call for call in calls if call[0] == "show_candidate"]
+    assert not [
+        call for call in calls
+        if call[0] == "emit" and "SBB rejected" in call[1]
+    ]
+
+
+def test_run_scan_preserves_oldcrc_path_without_viewer(monkeypatch):
+    accept_fake_sbb_candidates(monkeypatch)
     calls = []
     chunk_name = b"gAMA"
     old_crc = bruteforce.chunk_crc(chunk_name, b"\x07").hex()
@@ -152,6 +371,19 @@ def test_resolve_smash_worker_profiles():
     assert smash_backend.resolve_smash_worker_count("auto", cpu_count=16) == 8
     assert smash_backend.resolve_smash_worker_count("max", cpu_count=16) == 15
     assert smash_backend.resolve_smash_worker_count("3", cpu_count=16) == 3
+
+
+def test_smash_parallel_worker_initializer_ignores_sigint(monkeypatch):
+    calls = []
+
+    def fake_signal(signum, handler):
+        calls.append((signum, handler))
+
+    monkeypatch.setattr(smash_backend.signal, "signal", fake_signal)
+
+    smash_backend.ignore_worker_sigint()
+
+    assert calls == [(smash_backend.signal.SIGINT, smash_backend.signal.SIG_IGN)]
 
 
 def test_parallel_progress_records_finished_out_of_order_shards():
@@ -239,7 +471,99 @@ def test_empty_pending_parallel_checkpoint_is_rejected_as_stale():
     assert bruteforce_runtime._smash_parallel_progress_is_empty_stale(record) is False
 
 
-def test_run_scan_parallel_oldcrc_matches_serial_result():
+def test_empty_serial_interrupted_checkpoint_is_rejected_as_stale():
+    context = base_context(chunk_name=b"gAMA", old_crc="00000000", campaign_focus="remove")
+    runtime = build_runtime(
+        [],
+        specs=simple_specs,
+        product_values=[(7,), (8,)],
+        source_hash="source-hash",
+    )
+    runtime_plan = bruteforce_runtime.prepare_runtime_plan(runtime, context)
+    candidate_hash = smash_checkpoint.candidate_space_hash(
+        bruteforce_runtime._candidate_space_payload(
+            context,
+            runtime_plan,
+            source_hash="source-hash",
+        )
+    )
+    record = {
+        "status": "interrupted",
+        "source_hash": "source-hash",
+        "invocation": smash_checkpoint.invocation_record(
+            file=context.file,
+            chunk_name=context.chunk_name,
+            chunk_length=context.chunk_length,
+            data_offset=context.data_offset,
+            from_error=context.from_error,
+            edit_mode=context.edit_mode,
+            bf_mode=context.bf_mode,
+            brute_crc=context.brute_crc,
+            brute_length=context.brute_length,
+            old_crc=context.old_crc,
+            brute_level=context.brute_level,
+            campaign_focus=context.campaign_focus,
+        ),
+        "plan": {"candidate_space_hash": candidate_hash},
+        "cursor": {
+            "outer_index": 0,
+            "inner_index": 0,
+            "byte_position": 0,
+            "edit_kind_index": 0,
+            "stage": "",
+            "bonus_offset": 0,
+            "bonus_value": 0,
+        },
+        "counters": {"tested_candidates": 0, "accepted_candidates": 0},
+        "shards": [],
+    }
+
+    resolved, warning = bruteforce_runtime._resolve_resume_record(
+        runtime,
+        context,
+        runtime_plan,
+        candidate_hash,
+    )
+    assert resolved is None
+    assert warning == ""
+
+    runtime = build_runtime(
+        [],
+        specs=simple_specs,
+        product_values=[(7,), (8,)],
+        source_hash="source-hash",
+        resume_record=record,
+    )
+    resolved, warning = bruteforce_runtime._resolve_resume_record(
+        runtime,
+        context,
+        runtime_plan,
+        candidate_hash,
+    )
+    assert resolved is None
+    assert "stale checkpoint ignored" in warning
+
+
+def test_deep_sbb_parallel_shards_stay_small_enough_for_heartbeat():
+    twobytes_level_0 = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", brute_level=0)
+    twobytes_level_1 = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", brute_level=1)
+    brutus_level_0 = base_context(chunk_name=b"IDAT", bf_mode="Brutus", brute_level=0)
+    brutus_level_7 = base_context(chunk_name=b"IDAT", bf_mode="Brutus", brute_level=7)
+
+    assert (
+        bruteforce_runtime._smash_parallel_shard_size(twobytes_level_0, "twobytes")
+        == smash_backend.SMASH_TWOBYTES_SHARD_BYTE_SIZE
+    )
+    assert bruteforce_runtime._smash_parallel_shard_size(twobytes_level_1, "twobytes") == 64
+    assert (
+        bruteforce_runtime._smash_parallel_shard_size(brutus_level_0, "standard")
+        == smash_backend.SMASH_PARALLEL_SHARD_SIZE
+    )
+    assert bruteforce_runtime._smash_parallel_shard_size(brutus_level_7, "standard") == 512
+
+
+def test_run_scan_parallel_oldcrc_matches_serial_result(monkeypatch):
+    accept_fake_sbb_candidates(monkeypatch)
     calls = []
     chunk_name = b"gAMA"
     old_crc = bruteforce.chunk_crc(chunk_name, b"\x07").hex()
@@ -268,7 +592,8 @@ def test_run_scan_parallel_oldcrc_matches_serial_result():
     assert ("emit", "-SmashBruteBrawl will use 2 CPU workers.") in calls
 
 
-def test_run_scan_parallel_custom_oldcrc_matches_serial_result():
+def test_run_scan_parallel_custom_oldcrc_matches_serial_result(monkeypatch):
+    accept_fake_sbb_candidates(monkeypatch)
     calls = []
     chunk_name = b"gAMA"
     old_crc = bruteforce.chunk_crc(chunk_name, b"\x07").hex()
@@ -300,7 +625,8 @@ def test_run_scan_parallel_custom_oldcrc_matches_serial_result():
     assert ("emit", "-SmashBruteBrawl will use 2 CPU workers.") in calls
 
 
-def test_run_scan_parallel_twobytes_uses_workers():
+def test_run_scan_parallel_twobytes_uses_workers(monkeypatch):
+    accept_fake_sbb_candidates(monkeypatch)
     calls = []
     chunk_name = b"gAMA"
     old_crc = bruteforce.chunk_crc(chunk_name, b"\x07").hex()
@@ -398,12 +724,19 @@ def test_run_scan_parallel_first_sigint_announces_and_saves(monkeypatch):
         def Event(self):
             return self.event
 
+        def Queue(self):
+            class FakeQueue:
+                def get_nowait(self):
+                    raise RuntimeError("empty")
+
+            return FakeQueue()
+
         def shutdown(self):
             calls.append(("manager_shutdown",))
 
     class FakeExecutor:
-        def __init__(self, *, max_workers):
-            calls.append(("executor_start", max_workers))
+        def __init__(self, *, max_workers, initializer=None):
+            calls.append(("executor_start", max_workers, initializer))
 
         def submit(self, *_args):
             future = bruteforce_runtime.concurrent.futures.Future()
@@ -467,10 +800,75 @@ def test_run_scan_parallel_first_sigint_announces_and_saves(monkeypatch):
     )
     assert ("signal", bruteforce_runtime.signal.SIG_IGN) in calls
     assert ("signal", "original") in calls
-    assert ("executor_shutdown", True, True) in calls
+    assert ("executor_start", 2, smash_backend.ignore_worker_sigint) in calls
+    assert ("executor_shutdown", False, True) in calls
     assert ("manager_shutdown",) in calls
     assert record["backend"] == "cpu-parallel"
     assert record["counters"]["tested_candidates"] == 0
+
+
+def test_smash_parallel_shutdown_terminates_processes_and_queue():
+    class FakeStopEvent:
+        def __init__(self):
+            self.set_called = False
+
+        def set(self):
+            self.set_called = True
+
+    class FakeProcess:
+        def __init__(self):
+            self.terminated = False
+            self.join_timeout = None
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.terminated = True
+
+        def join(self, timeout):
+            self.join_timeout = timeout
+
+    class FakeExecutor:
+        def __init__(self, process):
+            self._processes = {1: process}
+            self.shutdown_args = None
+
+        def shutdown(self, **kwargs):
+            self.shutdown_args = kwargs
+
+    class FakeQueue:
+        def __init__(self):
+            self.cancelled = False
+            self.closed = False
+
+        def get_nowait(self):
+            raise RuntimeError("empty")
+
+        def cancel_join_thread(self):
+            self.cancelled = True
+
+        def close(self):
+            self.closed = True
+
+    stop_event = FakeStopEvent()
+    process = FakeProcess()
+    executor = FakeExecutor(process)
+    progress_queue = FakeQueue()
+
+    bruteforce_runtime._shutdown_smash_parallel_executor(
+        executor,
+        progress_queue=progress_queue,
+        stop_event=stop_event,
+        grace_seconds=0.01,
+    )
+
+    assert stop_event.set_called is True
+    assert executor.shutdown_args == {"wait": False, "cancel_futures": True}
+    assert process.terminated is True
+    assert process.join_timeout is not None
+    assert progress_queue.cancelled is True
+    assert progress_queue.closed is True
 
 
 def test_twobytes_worker_bonus_path_has_brute_level(monkeypatch):
@@ -708,7 +1106,8 @@ def test_parallel_twobytes_remaining_estimate_counts_edit_kinds_after_resume():
     assert remaining == 23
 
 
-def test_run_scan_preserves_viewer_acceptance_gate_and_diff():
+def test_run_scan_preserves_viewer_acceptance_gate_and_diff(monkeypatch):
+    accept_fake_sbb_candidates(monkeypatch)
     calls = []
 
     def specs(request):
@@ -739,7 +1138,8 @@ def test_run_scan_preserves_viewer_acceptance_gate_and_diff():
     assert ("loadingbar", 2, 2, 1, False) in calls
 
 
-def test_run_scan_preserves_twobytes_oldcrc_path():
+def test_run_scan_preserves_twobytes_oldcrc_path(monkeypatch):
+    accept_fake_sbb_candidates(monkeypatch)
     calls = []
     chunk_name = b"gAMA"
     old_crc = bruteforce.chunk_crc(chunk_name, b"\x07").hex()
@@ -773,6 +1173,43 @@ def test_run_scan_preserves_twobytes_oldcrc_path():
     ) in calls
 
 
+def test_run_scan_records_rejected_hit_for_crc_match_with_invalid_png():
+    calls = []
+    chunk_name = b"gAMA"
+    old_crc = bruteforce.chunk_crc(chunk_name, b"\x07").hex()
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            source_size=123,
+            source_path="/tmp/_SBB.Source.raw",
+        )
+
+        result = bruteforce_runtime.run_scan(
+            runtime,
+            base_context(chunk_name=chunk_name, old_crc=old_crc),
+        )
+
+        record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+
+    assert result.state.bingo is False
+    assert record["status"] == "rejected_hit"
+    assert record["plan"]["status"] == "rejected_hit"
+    assert record["counters"]["accepted_candidates"] == 0
+    assert record["counters"]["rejected_candidates"] == 1
+    assert not [call for call in calls if call[0] == "show_candidate"]
+    assert record["counters"]["first_rejection_reason"]
+    assert record["counters"]["rejection_reasons"]
+    assert not [
+        call for call in calls
+        if call[0] == "emit" and "SBB rejected" in call[1]
+    ]
+
+
 def test_twobytes_progress_dots_line_fills_and_returns():
     prefix = "0/256 byte 1/149210 "
     start = bruteforce_runtime.twobytes_progress_dots_line(
@@ -804,7 +1241,8 @@ def test_twobytes_progress_dots_line_clamps_to_short_terminal_width():
     ) == "0/256 byte 1/149210 \033[K"
 
 
-def test_run_scan_preserves_crash_resume_skip_and_reset():
+def test_run_scan_preserves_crash_resume_skip_and_reset(monkeypatch):
+    accept_fake_sbb_candidates(monkeypatch)
     calls = []
     chunk_name = b"gAMA"
     old_crc = bruteforce.chunk_crc(chunk_name, b"\x08").hex()
@@ -827,7 +1265,8 @@ def test_run_scan_preserves_crash_resume_skip_and_reset():
     assert ("loadingbar", 2, 1, 1, False) in calls
 
 
-def test_run_scan_supports_idat_brutus_remove_with_old_crc():
+def test_run_scan_supports_idat_brutus_remove_with_old_crc(monkeypatch):
+    accept_fake_sbb_candidates(monkeypatch)
     calls = []
     chunk_name = b"IDAT"
     repaired_payload = bytes.fromhex("aacc")
@@ -890,7 +1329,8 @@ def test_run_scan_writes_smash_progress_checkpoint():
     assert record["plan"]["candidate_space_hash"]
 
 
-def test_run_scan_resumes_from_saved_inner_index_when_space_matches():
+def test_run_scan_resumes_from_saved_inner_index_when_space_matches(monkeypatch):
+    accept_fake_sbb_candidates(monkeypatch)
     calls = []
     chunk_name = b"gAMA"
     old_crc = bruteforce.chunk_crc(chunk_name, b"\x08").hex()
@@ -936,6 +1376,52 @@ def test_run_scan_resumes_from_saved_inner_index_when_space_matches():
         call == ("emit", "-SmashBruteBrawl resume checkpoint accepted at outer 0, inner 1.")
         for call in calls
     )
+
+
+def test_run_scan_restarts_when_campaign_focus_changes():
+    calls = []
+    chunk_name = b"gAMA"
+    old_crc = bruteforce.chunk_crc(chunk_name, b"\x08").hex()
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        first_runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,), (8,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+        )
+        first_context = base_context(
+            chunk_name=chunk_name,
+            old_crc=old_crc,
+            campaign_focus="remove",
+        )
+        bruteforce_runtime.run_scan(first_runtime, first_context)
+        resume_record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+        resume_record["status"] = "running"
+        resume_record["plan"]["status"] = "running"
+
+        calls.clear()
+        next_runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,), (8,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            resume_record=resume_record,
+        )
+        next_context = base_context(
+            chunk_name=chunk_name,
+            old_crc=old_crc,
+            campaign_focus="replace",
+        )
+        bruteforce_runtime.run_scan(next_runtime, next_context)
+
+    assert any(
+        call[0] == "emit" and "does not match this chunk run" in call[1]
+        for call in calls
+    )
+    assert ("loadingbar", 2, 1, 0, False) in calls
 
 
 def test_run_scan_restarts_when_brute_level_increases_search_space():
@@ -1023,6 +1509,46 @@ def test_parallel_exhausted_checkpoint_is_not_resumed():
     )
 
 
+def test_rejected_hit_checkpoint_is_not_resumed():
+    calls = []
+    chunk_name = b"gAMA"
+    old_crc = bruteforce.chunk_crc(chunk_name, b"\x07").hex()
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            source_size=123,
+            source_path="/tmp/_SBB.Source.raw",
+        )
+        context = base_context(chunk_name=chunk_name, old_crc=old_crc)
+
+        bruteforce_runtime.run_scan(runtime, context)
+        resume_record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+        assert resume_record["status"] == "rejected_hit"
+
+        calls.clear()
+        accept_runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[(7,)],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            source_size=123,
+            source_path="/tmp/_SBB.Source.raw",
+            resume_record=resume_record,
+        )
+        bruteforce_runtime.run_scan(accept_runtime, context)
+
+    assert any(
+        call[0] == "emit" and "already marked rejected_hit" in call[1]
+        for call in calls
+    )
+
+
 def main():
     checks = [
         ("OldCrc scan", test_run_scan_preserves_oldcrc_path_without_viewer),
@@ -1034,19 +1560,32 @@ def main():
         ("TwoBytes Remove extra IDAT fixture", test_twobytes_remove_worker_repairs_extra_idat_byte_fixture),
         ("Worker profiles", test_resolve_smash_worker_profiles),
         ("Parallel progress finished shard records", test_parallel_progress_records_finished_out_of_order_shards),
+        ("Parallel Ctrl+C shutdown", test_run_scan_parallel_first_sigint_announces_and_saves),
+        ("Parallel shutdown terminates", test_smash_parallel_shutdown_terminates_processes_and_queue),
         ("Parallel stale empty checkpoint", test_empty_pending_parallel_checkpoint_is_rejected_as_stale),
+        ("Serial stale empty checkpoint", test_empty_serial_interrupted_checkpoint_is_rejected_as_stale),
+        ("Deep SBB shard sizing", test_deep_sbb_parallel_shards_stay_small_enough_for_heartbeat),
         ("Crash resume", test_run_scan_preserves_crash_resume_skip_and_reset),
         ("IDAT Brutus Remove", test_run_scan_supports_idat_brutus_remove_with_old_crc),
         ("Smash progress checkpoint", test_run_scan_writes_smash_progress_checkpoint),
         ("Smash resume inner cursor", test_run_scan_resumes_from_saved_inner_index_when_space_matches),
+        ("Smash resume focus mismatch", test_run_scan_restarts_when_campaign_focus_changes),
         ("Smash higher BruteLevel restart", test_run_scan_restarts_when_brute_level_increases_search_space),
         ("Parallel exhausted checkpoint", test_parallel_exhausted_checkpoint_is_not_resumed),
+        ("Rejected hit checkpoint", test_rejected_hit_checkpoint_is_not_resumed),
     ]
 
     print("Running bruteforce runtime tests")
     for label, check in checks:
         print(f"  - {label} ... ", end="", flush=True)
-        check()
+        if "monkeypatch" in inspect.signature(check).parameters:
+            monkeypatch = MonkeyPatch()
+            try:
+                check(monkeypatch)
+            finally:
+                monkeypatch.undo()
+        else:
+            check()
         print("ok")
 
     print(f"bruteforce runtime tests passed ({len(checks)} checks)")

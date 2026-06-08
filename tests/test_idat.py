@@ -3698,7 +3698,7 @@ def test_sbb_idat_diagnostic_reports_large_blackfill_gap():
     assert diagnostic.cheap_twobytes_viable is False
 
 
-def test_sbb_idat_diagnostic_marks_trusted_small_crc_target_good():
+def test_sbb_idat_diagnostic_marks_complete_stream_as_visual_reference_case():
     filtered = dynamic_filtered_rows(height=2)
     diagnostic = idat.analyze_sbb_idat_diagnostic(
         build_rgb_png(1, 2, filtered),
@@ -3706,7 +3706,9 @@ def test_sbb_idat_diagnostic_marks_trusted_small_crc_target_good():
     )
 
     assert diagnostic.supported is True
-    assert diagnostic.success_estimate == "good"
+    assert diagnostic.success_estimate == "low"
+    assert diagnostic.crc_target_useful is False
+    assert diagnostic.requires_visual_reference is True
     assert diagnostic.recommended_repair_family == "replace"
     assert diagnostic.hephaestus_order == ("Replace", "Insert", "Remove")
 

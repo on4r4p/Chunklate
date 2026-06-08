@@ -76,6 +76,14 @@ class AutomaticRepairRuntime:
     file_origin: Any = ""
     interactive: bool = False
     retry_state: dict[str, Any] | None = None
+    input_func: Callable[[str], str] | None = None
+    ultimate_linefeed_reference: Callable[[], str] = lambda: ""
+    ultimate_linefeed_reference_mode: Callable[[], str] = lambda: ""
+    ultimate_linefeed_reference_regions: Callable[[], str] = lambda: ""
+    ultimate_linefeed_reference_region_editor_run: Callable[..., Any] | None = None
+    set_ultimate_linefeed_reference: Callable[[str], Any] | None = None
+    set_ultimate_linefeed_reference_mode: Callable[[str], Any] | None = None
+    set_ultimate_linefeed_reference_regions: Callable[[str], Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -377,6 +385,25 @@ def build_automatic_repair_runtime_from_namespace(namespace: dict[str, Any]) -> 
         file_origin=namespace.get("FILE_Origin") or namespace.get("Sample") or "",
         interactive=namespace_interactive_prompts(namespace),
         retry_state=namespace.setdefault("_SBB_BLACKFILL_RETRY_STATE", {}),
+        input_func=namespace.get("input", input),
+        ultimate_linefeed_reference=namespace.get("Ultimate_Linefeed_Reference", lambda: ""),
+        ultimate_linefeed_reference_mode=namespace.get("Ultimate_Linefeed_Reference_Mode", lambda: ""),
+        ultimate_linefeed_reference_regions=namespace.get("Ultimate_Linefeed_Reference_Regions", lambda: ""),
+        ultimate_linefeed_reference_region_editor_run=namespace.get(
+            "Ultimate_Linefeed_Reference_Region_Editor_Run"
+        ),
+        set_ultimate_linefeed_reference=lambda value: namespace.__setitem__(
+            "ULTIMATE_LINEFEED_REFERENCE",
+            value,
+        ),
+        set_ultimate_linefeed_reference_mode=lambda value: namespace.__setitem__(
+            "ULTIMATE_LINEFEED_REFERENCE_MODE",
+            value,
+        ),
+        set_ultimate_linefeed_reference_regions=lambda value: namespace.__setitem__(
+            "ULTIMATE_LINEFEED_REFERENCE_REGIONS",
+            value,
+        ),
     )
 
 
@@ -625,6 +652,13 @@ def _partial_blackfill_bruteforce_can_help(repair: Any) -> bool:
     )
 
 
+def _is_partial_blackfill_repair(repair: Any) -> bool:
+    return (
+        isinstance(repair, idat.PartialIdatBlackfillRepair)
+        and str(getattr(repair, "strategy", "")).startswith("partial-idat-blackfill")
+    )
+
+
 def _source_data_from_runtime(runtime: AutomaticRepairRuntime) -> bytes | None:
     if not runtime.data_hex:
         return None
@@ -671,6 +705,16 @@ def _format_sbb_idat_diagnostic(
     diagnostic: idat.SmashBruteBrawlIdatDiagnostic,
 ) -> tuple[str, str]:
     order = " -> ".join(diagnostic.hephaestus_order or ("Replace", "Insert", "Remove"))
+    crc_label = (
+        "trusted original IDAT CRC"
+        if diagnostic.crc_target_useful
+        else "not useful; stored CRC already matches current IDAT bytes or no original target is available"
+    )
+    reference_line = (
+        "\nvisual proof: PNG is structurally valid; visual repair needs a reference/ROI"
+        if diagnostic.requires_visual_reference
+        else ""
+    )
     if not diagnostic.supported:
         return (
             "SBB IDAT diagnostic:\n"
@@ -678,18 +722,18 @@ def _format_sbb_idat_diagnostic(
             "zlib status: %s\n"
             "CRC target: %s\n"
             "SBB chance: %s - %s\n"
-            "HephaestusForge order: %s"
+            "HephaestusForge order: %s%s"
             % (
                 diagnostic.zlib_status or "unknown",
-                "trusted" if diagnostic.crc_target_trusted else "not trusted",
+                crc_label,
                 diagnostic.success_estimate,
                 diagnostic.success_reason or diagnostic.reason or "no usable IDAT measurement",
                 order,
+                reference_line,
             ),
             "bad",
         )
 
-    crc_label = "trusted original IDAT CRC" if diagnostic.crc_target_trusted else "not trusted"
     message = (
         "SBB IDAT diagnostic:\n"
         "image: %sx%s, %s %s-bit\n"
@@ -698,7 +742,7 @@ def _format_sbb_idat_diagnostic(
         "scanlines: %s/%s complete, %s bytes into next scanline\n"
         "CRC target: %s\n"
         "SBB chance: %s - %s\n"
-        "HephaestusForge order: %s"
+        "HephaestusForge order: %s%s"
         % (
             diagnostic.width,
             diagnostic.height,
@@ -717,6 +761,7 @@ def _format_sbb_idat_diagnostic(
             diagnostic.success_estimate,
             diagnostic.success_reason,
             order,
+            reference_line,
         )
     )
     mood = "good" if diagnostic.success_estimate == "good" else "bad" if diagnostic.success_estimate == "low" else "com"
@@ -752,6 +797,98 @@ def _partial_blackfill_hephaestus_question_id(success_estimate: str) -> str:
     )
 
 
+def _sbb_visual_reference_question_id() -> str:
+    return "SBB Visual Reference ROI:-Do you have any similar png by any chance?"
+
+
+def _sbb_reference_regions_path(runtime: AutomaticRepairRuntime) -> str:
+    explicit = str(runtime.ultimate_linefeed_reference_regions() or "")
+    if explicit:
+        return explicit
+    origin = str(runtime.file_origin or "")
+    if origin:
+        folder = "Folder_%s" % Path(origin).stem
+        return str(Path(folder) / idat_bruteforce.ULTIMATE_LINEFEED_REFERENCE_REGION_NAME)
+    return idat_bruteforce.ULTIMATE_LINEFEED_REFERENCE_REGION_NAME
+
+
+def _maybe_prepare_sbb_visual_reference(
+    runtime: AutomaticRepairRuntime,
+    source_data: bytes,
+    diagnostic: idat.SmashBruteBrawlIdatDiagnostic,
+) -> None:
+    if not diagnostic.requires_visual_reference:
+        return
+    if runtime.question is None:
+        return
+    if not bool(
+        runtime.question(
+            id=_sbb_visual_reference_question_id(),
+            idhash=(
+                "IDAT-partial-blackfill-visual-reference",
+                str(runtime.file_origin or ""),
+                diagnostic.width,
+                diagnostic.height,
+                diagnostic.zlib_status,
+            ),
+            skipauto=True,
+        )
+    ):
+        return
+    editor = runtime.ultimate_linefeed_reference_region_editor_run
+    if editor is None:
+        runtime.candy(
+            "Cowsay",
+            "I cannot open the ROI selector from this runtime, so HephaestusForge will continue without visual proof.",
+            "bad",
+        )
+        return
+    reference_path = str(runtime.ultimate_linefeed_reference() or "")
+    regions_path = _sbb_reference_regions_path(runtime)
+    try:
+        result = editor(
+            str(runtime.file_origin or ""),
+            reference_path,
+            regions_path,
+            source_data=source_data,
+        )
+    except Exception as exc:
+        runtime.candy(
+            "Cowsay",
+            "The ROI selector did not open cleanly: %s" % exc,
+            "bad",
+        )
+        return
+    selected_reference = str(getattr(result, "reference_path", "") or reference_path)
+    if bool(getattr(result, "saved", False)):
+        if selected_reference and runtime.set_ultimate_linefeed_reference is not None:
+            runtime.set_ultimate_linefeed_reference(selected_reference)
+        if runtime.set_ultimate_linefeed_reference_mode is not None:
+            runtime.set_ultimate_linefeed_reference_mode("similar")
+        if runtime.set_ultimate_linefeed_reference_regions is not None:
+            runtime.set_ultimate_linefeed_reference_regions(regions_path)
+        if runtime.retry_state is not None:
+            runtime.retry_state["visual_reference"] = selected_reference
+            runtime.retry_state["visual_reference_regions"] = regions_path
+        runtime.side_notes.append(
+            "-FixItFelix: Visual reference ROI saved for SBB/HephaestusForge: %s"
+            % regions_path
+        )
+        runtime.candy(
+            "Cowsay",
+            "ROI saved. Chunky now has a visual reference instead of guessing from vibes.",
+            "good",
+        )
+        return
+    warning = str(getattr(result, "warning", "") or "ROI selector closed without saving")
+    runtime.candy(
+        "Cowsay",
+        "No ROI saved: %s. HephaestusForge can still run, but visual proof stays unavailable."
+        % warning,
+        "com",
+    )
+
+
 def _hephaestus_primary_edit_mode(
     diagnostic: idat.SmashBruteBrawlIdatDiagnostic,
 ) -> str:
@@ -760,30 +897,171 @@ def _hephaestus_primary_edit_mode(
     return first if first in {"Replace", "Insert", "Remove"} else "Replace"
 
 
+def _sbb_focus_reason(edit_mode: str) -> str:
+    if edit_mode == "Insert":
+        return "the measurement points first at missing compressed bytes."
+    if edit_mode == "Remove":
+        return "the measurement points first at extra compressed bytes."
+    return "the measurement points first at changed bytes with the same length."
+
+
+def _focus_order_from_choice(choice: str, diagnostic_order: tuple[str, ...]) -> tuple[str, ...]:
+    clean_order = tuple(
+        item for item in diagnostic_order if item in {"Insert", "Remove", "Replace"}
+    ) or ("Replace", "Insert", "Remove")
+    if choice == "progressive":
+        return clean_order
+    focus = {
+        "insert": "Insert",
+        "remove": "Remove",
+        "replace": "Replace",
+    }.get(choice)
+    if focus is None:
+        return clean_order
+    return (focus,) + tuple(item for item in clean_order if item != focus)
+
+
+def _ask_sbb_focus_choice(
+    runtime: AutomaticRepairRuntime,
+    diagnostic: idat.SmashBruteBrawlIdatDiagnostic,
+) -> str:
+    order = tuple(diagnostic.hephaestus_order or ("Replace", "Insert", "Remove"))
+    recommended_edit = _hephaestus_primary_edit_mode(diagnostic)
+    recommended_choice = {
+        "Insert": "1",
+        "Remove": "2",
+        "Replace": "3",
+    }.get(recommended_edit, "4")
+    focus_name = {
+        "1": "Insert focus",
+        "2": "Remove focus",
+        "3": "Replace focus",
+        "4": "Progressive campaign",
+    }[recommended_choice]
+    if runtime.retry_state is not None:
+        runtime.retry_state["diagnostic_order"] = order
+        runtime.retry_state["campaign_focus"] = {
+            "1": "insert",
+            "2": "remove",
+            "3": "replace",
+            "4": "progressive",
+        }[recommended_choice]
+        runtime.retry_state["hephaestus_order"] = _focus_order_from_choice(
+            str(runtime.retry_state.get("campaign_focus") or "progressive"),
+            order,
+        )
+    if not runtime.interactive or runtime.input_func is None:
+        return str(runtime.retry_state.get("campaign_focus") if runtime.retry_state else "progressive")
+
+    runtime.candy(
+        "Cowsay",
+        "Chunky recommends %s because %s" % (focus_name, _sbb_focus_reason(recommended_edit)),
+        "com",
+    )
+    runtime.candy(
+        "Cowsay",
+        "\n".join(
+            [
+                "Choose the SmashBruteBrawl focus:",
+                "1. Insert focus%s" % (" (recommended)" if recommended_choice == "1" else ""),
+                "2. Remove focus%s" % (" (recommended)" if recommended_choice == "2" else ""),
+                "3. Replace focus%s" % (" (recommended)" if recommended_choice == "3" else ""),
+                "4. Progressive campaign%s" % (" (recommended)" if recommended_choice == "4" else ""),
+                "",
+                "Empty keeps the recommendation.",
+            ]
+        ),
+        "com",
+    )
+    prompt = "SmashBruteBrawl focus [%s %s] > " % (recommended_choice, focus_name)
+    choices = {
+        "1": "insert",
+        "insert": "insert",
+        "2": "remove",
+        "remove": "remove",
+        "3": "replace",
+        "replace": "replace",
+        "4": "progressive",
+        "progressive": "progressive",
+        "": {
+            "1": "insert",
+            "2": "remove",
+            "3": "replace",
+            "4": "progressive",
+        }[recommended_choice],
+    }
+    while True:
+        try:
+            choice = str(runtime.input_func(prompt)).strip().lower()
+        except EOFError:
+            choice = ""
+        focus = choices.get(choice)
+        if focus is not None:
+            if runtime.retry_state is not None:
+                runtime.retry_state["campaign_focus"] = focus
+                runtime.retry_state["hephaestus_order"] = _focus_order_from_choice(focus, order)
+            return focus
+        runtime.candy(
+            "Cowsay",
+            "Choose 1, 2, 3, 4, or leave it empty. Tiny paperwork, huge consequences.",
+            "com",
+        )
+
+
+def _edit_mode_from_sbb_focus(focus: str, diagnostic: idat.SmashBruteBrawlIdatDiagnostic) -> str:
+    if focus == "insert":
+        return "Insert"
+    if focus == "remove":
+        return "Remove"
+    if focus == "replace":
+        return "Replace"
+    return _hephaestus_primary_edit_mode(diagnostic)
+
+
 def _partial_blackfill_bruteforce_question(
     runtime: AutomaticRepairRuntime,
     repair: idat.PartialIdatBlackfillRepair,
     target_chunk: png.PngChunk,
     source_data: bytes,
     crc_target_trusted: bool,
+    diagnostic: idat.SmashBruteBrawlIdatDiagnostic | None = None,
 ) -> str | None:
     runtime.candy(
         "Cowsay",
         "libpng confirms the IDAT does not feed the whole image.",
         "bad",
     )
-    runtime.candy(
-        "Cowsay",
-        "The blackfill clone is a valid fallback: %s/%s scanlines are readable."
-        % (repair.recovered_scanlines, repair.total_scanlines),
-        "good",
-    )
-    diagnostic = idat.analyze_sbb_idat_diagnostic(
-        source_data,
-        crc_target_trusted=crc_target_trusted,
-    )
+    if diagnostic is None:
+        diagnostic = idat.analyze_sbb_idat_diagnostic(
+            source_data,
+            crc_target_trusted=crc_target_trusted,
+        )
+    if diagnostic.requires_visual_reference:
+        runtime.candy(
+            "Cowsay",
+            "This PNG is structurally valid, but visual repair needs a similar reference/ROI.",
+            "com",
+        )
+        runtime.candy(
+            "Cowsay",
+            "The blackfill clone is an inspection artifact until a reference confirms it.",
+            "bad",
+        )
+    else:
+        runtime.candy(
+            "Cowsay",
+            "The blackfill clone is a valid fallback: %s/%s scanlines are readable."
+            % (repair.recovered_scanlines, repair.total_scanlines),
+            "good",
+        )
     diagnostic_message, diagnostic_mood = _format_sbb_idat_diagnostic(diagnostic)
     runtime.candy("Cowsay", diagnostic_message, diagnostic_mood)
+    if not diagnostic.crc_target_useful:
+        runtime.candy(
+            "Cowsay",
+            "CRC is not an oracle for this run. Any SBB hit must survive full PNG validation, and visual/reference proof if the file already decodes.",
+            "com",
+        )
     twobytes_too_small = _sbb_diagnostic_says_twobytes_is_too_small(diagnostic)
     if twobytes_too_small:
         runtime.candy(
@@ -793,7 +1071,7 @@ def _partial_blackfill_bruteforce_question(
         )
         runtime.candy(
             "Cowsay",
-            "TwoBytes level 0 probably cannot cover this damage. The blackfill clone is the safer fallback.",
+            "HermesProbe level 0 probably cannot cover this damage. The blackfill clone is the safer fallback.",
             "bad",
         )
         runtime.candy(
@@ -828,7 +1106,11 @@ def _partial_blackfill_bruteforce_question(
                 skipauto=True,
             )
         )
-        return "hephaestus:%s" % _hephaestus_primary_edit_mode(diagnostic) if launch_hephaestus else None
+        if launch_hephaestus:
+            _maybe_prepare_sbb_visual_reference(runtime, source_data, diagnostic)
+            focus = _ask_sbb_focus_choice(runtime, diagnostic)
+            return "hephaestus:%s" % _edit_mode_from_sbb_focus(focus, diagnostic)
+        return None
 
     launch_twobytes = bool(
         runtime.question(
@@ -848,7 +1130,9 @@ def _partial_blackfill_bruteforce_question(
     if not launch_twobytes:
         return None
 
-    return "twobytes:%s" % _hephaestus_primary_edit_mode(diagnostic)
+    _maybe_prepare_sbb_visual_reference(runtime, source_data, diagnostic)
+    focus = _ask_sbb_focus_choice(runtime, diagnostic)
+    return "twobytes:%s" % _edit_mode_from_sbb_focus(focus, diagnostic)
 
 
 def maybe_launch_partial_blackfill_bruteforce(
@@ -917,6 +1201,11 @@ def _launch_partial_blackfill_bruteforce(
         )
     if isinstance(runtime.retry_state, dict):
         runtime.retry_state["disable_resume_once"] = True
+        runtime.retry_state["active_pass"] = {
+            "edit_mode": edit_mode,
+            "bf_mode": smash_kwargs["BfMode"],
+            "brute_level": int(smash_kwargs["BruteLevel"]),
+        }
     if old_crc is not None:
         smash_kwargs["OldCrc"] = old_crc
         runtime.side_notes.append("-FixItFelix: SmashBruteBrawl will use stored IDAT CRC as target.")
@@ -949,6 +1238,22 @@ def _preview_partial_blackfill_repair(
         runtime.preview_repair_image(repair.data, "IDAT_Blackfill_Preview")
 
 
+def _partial_blackfill_can_be_final_clone(
+    diagnostic: idat.SmashBruteBrawlIdatDiagnostic,
+    repair: idat.PartialIdatBlackfillRepair,
+) -> bool:
+    if int(repair.recovered_scanlines) < int(repair.total_scanlines):
+        return False
+    if (
+        int(diagnostic.expected_decompressed_size) > 0
+        and int(diagnostic.decompressed_size) > int(diagnostic.expected_decompressed_size)
+    ):
+        return False
+    if str(diagnostic.recommended_repair_family or "").lower() == "extra":
+        return False
+    return not bool(diagnostic.requires_visual_reference)
+
+
 def apply_partial_blackfill_decision(
     runtime: AutomaticRepairRuntime,
     repair: idat.PartialIdatBlackfillRepair,
@@ -958,7 +1263,7 @@ def apply_partial_blackfill_decision(
 
     source_data = _source_data_from_runtime(runtime)
     target_chunk = _idat_bruteforce_target(source_data) if source_data is not None else None
-    if runtime.smash_brute_brawl is None or source_data is None or target_chunk is None:
+    if source_data is None or target_chunk is None:
         runtime.candy(
             "Cowsay",
             automatic_repair_success_message(repair),
@@ -968,18 +1273,55 @@ def apply_partial_blackfill_decision(
         return True
 
     old_crc = _idat_original_crc_target(target_chunk)
+    diagnostic = idat.analyze_sbb_idat_diagnostic(
+        source_data,
+        crc_target_trusted=old_crc is not None,
+    )
+    _preview_partial_blackfill_repair(runtime, repair, show=False)
+    if runtime.smash_brute_brawl is None:
+        if _partial_blackfill_can_be_final_clone(diagnostic, repair):
+            runtime.candy(
+                "Cowsay",
+                automatic_repair_success_message(repair),
+                "com",
+            )
+            runtime.write_clone(applied_repair.data_hex, applied_repair.save_suffix)
+        else:
+            runtime.side_notes.append(
+                "-FixItFelix: partial IDAT blackfill kept as preview-only artifact; visual reference/ROI required before final clone."
+            )
+            runtime.candy(
+                "Cowsay",
+                "The blackfill output stays as a preview artifact because visual proof is missing.",
+                "com",
+            )
+        return True
+
     launch_mode = _partial_blackfill_bruteforce_question(
         runtime,
         repair,
         target_chunk,
         source_data,
         old_crc is not None,
+        diagnostic=diagnostic,
     )
-    runtime.write_clone(applied_repair.data_hex, applied_repair.save_suffix)
-    _preview_partial_blackfill_repair(runtime, repair, show=False)
     if launch_mode is None:
-        runtime.side_notes.append("-FixItFelix: kept partial IDAT blackfill fallback after diagnostic gate.")
+        if _partial_blackfill_can_be_final_clone(diagnostic, repair):
+            runtime.write_clone(applied_repair.data_hex, applied_repair.save_suffix)
+            runtime.side_notes.append("-FixItFelix: kept partial IDAT blackfill fallback after diagnostic gate.")
+        else:
+            runtime.side_notes.append(
+                "-FixItFelix: partial IDAT blackfill kept as preview-only artifact after diagnostic gate; no final clone written without visual proof."
+            )
+            runtime.candy(
+                "Cowsay",
+                "I kept the blackfill preview, but I am not calling it fixed without reference proof.",
+                "com",
+            )
         return True
+    runtime.side_notes.append(
+        "-FixItFelix: partial IDAT blackfill parked as preview while SmashBruteBrawl runs; no final clone written yet."
+    )
     _launch_partial_blackfill_bruteforce(
         runtime,
         repair,
@@ -1776,7 +2118,7 @@ def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
         return apply_chrm_inference_choice(runtime, repair)
     if _zero_scanline_blackfill_needs_choice(repair):
         return apply_zero_scanline_blackfill_choice(runtime, repair)
-    if _partial_blackfill_bruteforce_can_help(repair):
+    if _is_partial_blackfill_repair(repair):
         return apply_partial_blackfill_decision(runtime, repair)
 
     manual_plte_result = maybe_offer_manual_plte_editor(runtime, repair)
@@ -3043,10 +3385,56 @@ def unresolved_non_no_next_findings(runtime: NoNextChunkRuntime) -> tuple[Any, .
     )
 
 
+def _is_benign_pre_libpng_metadata_finding(finding: Any) -> bool:
+    text = str(finding).lower()
+    if "missplaced" in text or "must appear" in text or "must appears" in text:
+        return False
+    if "length is not valid" in text or "wrong" in text:
+        return False
+    return any(
+        clue in text
+        for clue in (
+            "overided by srgb chunk",
+            "overridden by srgb chunk",
+            "srgb or iccp already present chrm will be overide",
+            "known incorrect srgb profile",
+            "iccp: profile is noisy",
+        )
+    )
+
+
+def _discard_benign_pre_libpng_metadata_findings(
+    runtime: NoNextChunkRuntime,
+    findings: tuple[Any, ...],
+) -> tuple[Any, ...]:
+    actionable: list[Any] = []
+    for finding in findings:
+        if not _is_benign_pre_libpng_metadata_finding(finding):
+            actionable.append(finding)
+            continue
+        relics.discard_pandora_error(runtime.pandora_box, finding)
+        runtime.side_notes.append(
+            "-Found benign metadata advisory before libpng: %s." % finding
+        )
+    return tuple(actionable)
+
+
 def stop_before_libpng_for_unresolved_findings(
     runtime: NoNextChunkRuntime,
     findings: tuple[Any, ...],
 ) -> tuple[bool, Any]:
+    findings = _discard_benign_pre_libpng_metadata_findings(runtime, findings)
+    if not findings:
+        runtime.candy(
+            "Cowsay",
+            "Only harmless metadata paperwork is left. I am feeding libpng before making the repair call.",
+            "com",
+        )
+        runtime.side_notes.append(
+            "-LibpngCheck allowed after filtering benign metadata advisories."
+        )
+        return True, runtime.libpng_check(runtime.sample)
+
     runtime.candy(
         "Cowsay",
         "Libpng might smile at the pixels, but Pandora still has unpaid invoices. No Kraken snack yet.",

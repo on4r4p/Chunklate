@@ -303,6 +303,53 @@ def clone_validation_summary(data: bytes) -> dict[str, Any]:
     }
 
 
+def clone_validation_is_final(validation: dict[str, Any]) -> bool:
+    return bool(validation.get("png_ok") and validation.get("idat_complete"))
+
+
+def clone_validation_is_artifact_only(validation: dict[str, Any]) -> bool:
+    if clone_validation_is_final(validation):
+        return False
+
+    errors = tuple(str(error) for error in (validation.get("errors") or ()))
+    marker_text = "\n".join(
+        errors
+        + (
+            str(validation.get("idat_reason") or ""),
+            str(validation.get("idat_status") or ""),
+        )
+    )
+    blocking_markers = (
+        "PNG signature is not at offset 0",
+        "PNG has trailing bytes after IEND",
+        "IEND is not the last chunk",
+        "Chunk IDAT has invalid CRC",
+        "IDAT zlib stream is invalid",
+        "IDAT decompressed size does not match IHDR dimensions",
+        "IDAT scanline filter type is invalid",
+        "BadZlibHeader",
+        "bad_adler",
+        "Not enough image data",
+        "zlib",
+        "scanline",
+        "decompressed",
+    )
+    return any(marker in marker_text for marker in blocking_markers)
+
+
+def _clone_validation_failure_reason(validation: dict[str, Any]) -> str:
+    errors = tuple(validation.get("errors") or ())
+    if errors:
+        return "; ".join(str(error) for error in errors)
+    reason = str(validation.get("idat_reason") or "").strip()
+    if reason:
+        return reason
+    status = str(validation.get("idat_status") or "").strip()
+    if status:
+        return status
+    return "PNG/IDAT validation failed"
+
+
 def run_write_clone(
     runtime: WriteCloneRuntime,
     context: WriteCloneContext,
@@ -331,15 +378,14 @@ def run_write_clone(
         return None
 
     target = clone_plan.target
-    runtime.record_clone_validation(clone_validation_summary(clone_plan.data))
+    clone_validation = clone_validation_summary(clone_plan.data)
+    runtime.record_clone_validation(clone_validation)
     announce_clone_write(runtime, context, clone_plan, infos)
     runtime.emit(runtime.candy("Color", "green", "-Saving to : %s") % target.path)
     runtime.side_notes.append("-Saving to : %s" % target.path)
 
     try:
         runtime.write_prepared_clone(clone_plan)
-        runtime.set_sample(target.path)
-        runtime.set_save_count(clone_plan.save_count)
     except Exception as exc:
         runtime.betterror(exc, "WriteClone")
         runtime.emit(
@@ -349,6 +395,23 @@ def run_write_clone(
         runtime.end()
         return None
 
+    if clone_validation_is_artifact_only(clone_validation):
+        reason = _clone_validation_failure_reason(clone_validation)
+        artifact_note = (
+            "-Clone written as artifact only; PNG/IDAT validation failed: %s"
+            % reason
+        )
+        runtime.emit(runtime.candy("Color", "yellow", artifact_note))
+        runtime.side_notes.append(artifact_note)
+        artifact_summary = artifact_note if infos is None or infos == "" else "%s\n%s" % (
+            str(infos).rstrip(),
+            artifact_note,
+        )
+        runtime.summarise(artifact_summary)
+        return None
+
+    runtime.set_sample(target.path)
+    runtime.set_save_count(clone_plan.save_count)
     runtime.set_have_a_kitkat(True)
 
     runtime.summarise(infos)

@@ -2,19 +2,22 @@ from __future__ import annotations
 
 from collections.abc import Callable, MutableSequence
 import concurrent.futures
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import hashlib
 import multiprocessing
+from pathlib import Path
 import signal
 import shutil
 import time
 from typing import Any
+import zlib
 
-from . import bruteforce, smash_backend, smash_checkpoint
+from . import bruteforce, idat, png, smash_backend, smash_checkpoint
 
 
 LegacyCall = Callable[..., Any]
-SBB_CANDIDATE_ALGORITHM_VERSION = 2
+SBB_CANDIDATE_ALGORITHM_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,7 @@ class SmashBruteBrawlContext:
     brute_length: bool = True
     old_crc: Any = False
     brute_level: int = 0
+    campaign_focus: str = ""
     crash: Any = False
     debug: bool = False
     pause_debug: bool = False
@@ -55,6 +59,7 @@ class SmashBruteBrawlRuntime:
     source_path: str = ""
     resume_record: dict[str, Any] | None = None
     smash_workers: str | int | None = 0
+    suppress_candidate_viewer: bool = False
 
 
 @dataclass(frozen=True)
@@ -81,6 +86,7 @@ class SmashBruteBrawlScanState:
     eta_seconds: int = 0
     tested_candidates: int = 0
     accepted_candidates: int = 0
+    rejected_candidates: int = 0
     outer_index: int = 0
     length: int = 0
     inner_index: int = 0
@@ -90,6 +96,19 @@ class SmashBruteBrawlScanState:
     bonus_offset: int = 0
     bonus_value: int = 0
     last_progress_write_at: float = 0.0
+    rejected_reasons: dict[str, int] = field(default_factory=dict)
+    first_rejection_reason: str = ""
+    last_rejection_emit_at: float = 0.0
+    last_rejection_emit_count: int = 0
+    untrusted_preview_count: int = 0
+    untrusted_preview_hashes: set[str] = field(default_factory=set)
+
+
+@dataclass(frozen=True)
+class SbbCandidateValidation:
+    ok: bool
+    reason: str = ""
+    category: str = "valid_structural"
 
 
 TWOBYTES_PROGRESS_DOT_STEP = 1024
@@ -165,6 +184,223 @@ def build_attempt(
     )
 
 
+def _sbb_idat_stream(data: bytes) -> bytes:
+    try:
+        return b"".join(chunk.data for chunk in png.iter_chunks(data) if chunk.chunk_type == b"IDAT")
+    except png.PngFormatError:
+        return b""
+
+
+def _sbb_parse_ihdr(data: bytes) -> tuple[int, int, int, int] | None:
+    try:
+        ihdr = next((chunk for chunk in png.iter_chunks(data) if chunk.chunk_type == b"IHDR"), None)
+    except png.PngFormatError:
+        return None
+    if ihdr is None or ihdr.length != 13:
+        return None
+    try:
+        width = int.from_bytes(ihdr.data[0:4], "big")
+        height = int.from_bytes(ihdr.data[4:8], "big")
+        bit_depth = ihdr.data[8]
+        color_type = ihdr.data[9]
+    except (IndexError, TypeError):
+        return None
+    return width, height, bit_depth, color_type
+
+
+def _sbb_visual_sanity_failure(data: bytes) -> str:
+    ihdr = _sbb_parse_ihdr(data)
+    if ihdr is None:
+        return "IHDR is missing or malformed"
+    width, height, bit_depth, color_type = ihdr
+    idat_stream = _sbb_idat_stream(data)
+    if not idat_stream:
+        return "IDAT stream is missing"
+    try:
+        filtered_scanlines = zlib.decompress(idat_stream)
+    except zlib.error as exc:
+        return "IDAT zlib stream is invalid: %s" % exc
+
+    raw_rows = png.unfilter_scanlines(
+        filtered_scanlines,
+        width=width,
+        height=height,
+        bit_depth=bit_depth,
+        color_type=color_type,
+    )
+    if raw_rows is None:
+        return "IDAT scanlines cannot be unfiltered"
+    if raw_rows and all(value == 0 for value in raw_rows):
+        return "decoded pixels are all zero"
+
+    if bit_depth == 8 and color_type == 6 and len(raw_rows) >= 4:
+        alpha = raw_rows[3::4]
+        if alpha and all(value == 0 for value in alpha):
+            return "decoded RGBA pixels are fully transparent"
+        if alpha:
+            mean_alpha = sum(alpha) / float(len(alpha))
+            near_transparent = sum(1 for value in alpha if value <= 2)
+            if mean_alpha < 8.0 or near_transparent / float(len(alpha)) > 0.98:
+                return "decoded RGBA pixels are almost fully transparent"
+    if bit_depth == 8 and color_type == 4 and len(raw_rows) >= 2:
+        alpha = raw_rows[1::2]
+        if alpha and all(value == 0 for value in alpha):
+            return "decoded grayscale-alpha pixels are fully transparent"
+        if alpha:
+            mean_alpha = sum(alpha) / float(len(alpha))
+            near_transparent = sum(1 for value in alpha if value <= 2)
+            if mean_alpha < 8.0 or near_transparent / float(len(alpha)) > 0.98:
+                return "decoded grayscale-alpha pixels are almost fully transparent"
+    return ""
+
+
+def validate_sbb_candidate(png_bytes: bytes) -> SbbCandidateValidation:
+    """Validate an SBB candidate before treating a checksum hit as a repair."""
+
+    validation = png.validate_png_structure(png_bytes, require_decodable_idat=True)
+    if not validation.ok:
+        return SbbCandidateValidation(False, "; ".join(validation.errors), "invalid_structural")
+
+    analysis = idat.analyze_idat_stream(png_bytes, source_kind="candidate")
+    if not analysis.supported:
+        return SbbCandidateValidation(
+            False,
+            analysis.reason or "IDAT stream is unsupported",
+            "invalid_structural",
+        )
+    if not analysis.complete or analysis.status != "complete":
+        details = analysis.reason or analysis.zlib_error or analysis.status
+        return SbbCandidateValidation(
+            False,
+            "IDAT is not complete: %s" % details,
+            "invalid_structural",
+        )
+    if analysis.expected_size and analysis.decompressed_size != analysis.expected_size:
+        return SbbCandidateValidation(
+            False,
+            "IDAT decompressed size %s does not match expected %s"
+            % (analysis.decompressed_size, analysis.expected_size),
+            "invalid_structural",
+        )
+    if analysis.adler_status == "adler_mismatch":
+        return SbbCandidateValidation(False, "IDAT Adler32 does not match", "invalid_structural")
+
+    visual_failure = _sbb_visual_sanity_failure(png_bytes)
+    if visual_failure:
+        return SbbCandidateValidation(False, visual_failure, "valid_but_visual_untrusted")
+    return SbbCandidateValidation(True, "")
+
+
+def _normalize_sbb_rejection_reason(reason: str) -> str:
+    text = " ".join(str(reason or "unknown").split())
+    return text or "unknown"
+
+
+def _top_sbb_rejection_reason(scan_state: SmashBruteBrawlScanState) -> str:
+    if not scan_state.rejected_reasons:
+        return "unknown"
+    reason, count = max(
+        scan_state.rejected_reasons.items(),
+        key=lambda item: (item[1], item[0]),
+    )
+    return "%s x%s" % (reason, count)
+
+
+def _sbb_preview_candidate_path(
+    runtime: SmashBruteBrawlRuntime,
+    png_bytes: bytes,
+) -> Path | None:
+    if not runtime.progress_path:
+        return None
+    digest = hashlib.blake2b(png_bytes, digest_size=8).hexdigest()
+    folder = Path(runtime.progress_path).parent / "Bruteforce_Previews" / "SBB_Candidates"
+    return folder / ("SBB_visual_untrusted_%s.png" % digest)
+
+
+def _save_sbb_untrusted_preview(
+    runtime: SmashBruteBrawlRuntime,
+    scan_state: SmashBruteBrawlScanState,
+    png_bytes: bytes,
+    reason: str,
+) -> None:
+    if scan_state.untrusted_preview_count >= 32:
+        return
+    digest = hashlib.blake2b(png_bytes, digest_size=8).hexdigest()
+    if digest in scan_state.untrusted_preview_hashes:
+        return
+    preview_path = _sbb_preview_candidate_path(runtime, png_bytes)
+    if preview_path is None:
+        return
+    try:
+        preview_path.parent.mkdir(parents=True, exist_ok=True)
+        preview_path.write_bytes(png_bytes)
+    except OSError:
+        return
+    scan_state.untrusted_preview_hashes.add(digest)
+    scan_state.untrusted_preview_count += 1
+    runtime.side_notes.append(
+        "-SmashBruteBrawl preview-only candidate saved: %s (%s)"
+        % (preview_path, _normalize_sbb_rejection_reason(reason))
+    )
+
+
+def _emit_sbb_rejection_progress(
+    runtime: SmashBruteBrawlRuntime,
+    scan_state: SmashBruteBrawlScanState,
+    *,
+    force: bool = False,
+) -> None:
+    if scan_state.rejected_candidates <= 0:
+        return
+    if not force:
+        return
+    top_reason = _top_sbb_rejection_reason(scan_state)
+    reasons = sorted(
+        scan_state.rejected_reasons.items(),
+        key=lambda item: (-item[1], item[0]),
+    )[:3]
+    reason_text = ", ".join("%s x%s" % (reason, count) for reason, count in reasons)
+    note = (
+        "-SmashBruteBrawl rejected %s candidate(s) after strict validation; top reasons: %s."
+        % (scan_state.rejected_candidates, reason_text or top_reason)
+    )
+    if note not in runtime.side_notes:
+        runtime.side_notes.append(note)
+    scan_state.last_rejection_emit_at = time.monotonic()
+    scan_state.last_rejection_emit_count = scan_state.rejected_candidates
+
+
+def _record_sbb_candidate_rejected(
+    runtime: SmashBruteBrawlRuntime,
+    scan_state: SmashBruteBrawlScanState,
+    reason: str,
+    *,
+    category: str = "invalid_structural",
+    png_bytes: bytes | None = None,
+) -> None:
+    reason = _normalize_sbb_rejection_reason(reason)
+    scan_state.rejected_candidates += 1
+    scan_state.rejected_reasons[reason] = scan_state.rejected_reasons.get(reason, 0) + 1
+    if not scan_state.first_rejection_reason:
+        scan_state.first_rejection_reason = reason
+    if category == "valid_but_visual_untrusted" and png_bytes is not None:
+        _save_sbb_untrusted_preview(runtime, scan_state, png_bytes, reason)
+
+
+def _reject_untrusted_internal_sbb_hit(runtime: SmashBruteBrawlRuntime) -> bool:
+    if not runtime.suppress_candidate_viewer:
+        return False
+    return True
+
+
+def _sbb_scan_terminal_status(scan_state: SmashBruteBrawlScanState) -> str:
+    if scan_state.accepted_candidates > 0:
+        return "success"
+    if scan_state.rejected_candidates > 0:
+        return "rejected_hit"
+    return "exhausted"
+
+
 def prepare_runtime_plan(
     runtime: SmashBruteBrawlRuntime,
     context: SmashBruteBrawlContext,
@@ -225,6 +461,29 @@ def validate_candidate_attempt(
     bonus: bool = False,
 ) -> bool:
     scan_state.tested_candidates += 1
+    if old_crc and not attempt.old_crc_match:
+        return False
+
+    candidate_validation = validate_sbb_candidate(attempt.png_bytes)
+    if not candidate_validation.ok:
+        _record_sbb_candidate_rejected(
+            runtime,
+            scan_state,
+            candidate_validation.reason,
+            category=candidate_validation.category,
+            png_bytes=attempt.png_bytes,
+        )
+        return False
+    if not old_crc and _reject_untrusted_internal_sbb_hit(runtime):
+        _record_sbb_candidate_rejected(
+            runtime,
+            scan_state,
+            "PNG is structurally valid; visual repair needs a reference/ROI",
+            category="valid_but_visual_untrusted",
+            png_bytes=attempt.png_bytes,
+        )
+        return False
+
     viewer_ok = True
     if not old_crc:
         scan_state.full_new_data = attempt.full_new_data
@@ -293,6 +552,20 @@ def _smash_parallel_shard_kind(
     return "standard"
 
 
+def _smash_parallel_shard_size(context: SmashBruteBrawlContext, kind: str) -> int:
+    level = max(0, int(context.brute_level))
+    if kind == "twobytes":
+        if level <= 0:
+            return smash_backend.SMASH_TWOBYTES_SHARD_BYTE_SIZE
+        # Bonus TwoBytes levels can be very expensive per byte position. Worker
+        # heartbeats now carry a live cursor, so keep shards small but avoid
+        # building millions of one-byte shards before the pass can even run.
+        return 64
+    if context.bf_mode == "Brutus" and context.chunk_name == b"IDAT":
+        return max(512, smash_backend.SMASH_PARALLEL_SHARD_SIZE // (4 ** level))
+    return smash_backend.SMASH_PARALLEL_SHARD_SIZE
+
+
 def _candidate_space_payload(
     context: SmashBruteBrawlContext,
     runtime_plan: bruteforce.BruteForceRuntimePlan,
@@ -317,6 +590,7 @@ def _candidate_space_payload(
         "brute_length": bool(context.brute_length),
         "old_crc": smash_checkpoint.normalize_old_crc(context.old_crc),
         "brute_level": int(context.brute_level),
+        "campaign_focus": str(context.campaign_focus or ""),
         "scan_kind": _smash_parallel_shard_kind(context, runtime_plan),
         "twobytes_edit_order": twobytes_edit_order,
     }
@@ -335,6 +609,7 @@ def _progress_invocation_matches(context: SmashBruteBrawlContext, invocation: di
         brute_length=context.brute_length,
         old_crc=context.old_crc,
         brute_level=context.brute_level,
+        campaign_focus=context.campaign_focus,
     )
     comparable_keys = (
         "chunk_name_hex",
@@ -345,8 +620,9 @@ def _progress_invocation_matches(context: SmashBruteBrawlContext, invocation: di
         "brute_crc",
         "brute_length",
         "old_crc",
+        "campaign_focus",
     )
-    return all(invocation.get(key) == expected.get(key) for key in comparable_keys)
+    return all(invocation.get(key, "") == expected.get(key, "") for key in comparable_keys)
 
 
 def _resolve_resume_record(
@@ -367,7 +643,7 @@ def _resolve_resume_record(
     if not isinstance(plan, dict):
         return None, "SmashBruteBrawl checkpoint has no search plan; starting fresh."
     checkpoint_status = str(record.get("status") or plan.get("status") or "")
-    if checkpoint_status in {"exhausted", "success", "accepted_blackfill"}:
+    if checkpoint_status in {"exhausted", "success", "accepted_blackfill", "rejected_hit"}:
         return None, (
             "SmashBruteBrawl checkpoint already marked %s for this pass; trying the next campaign pass."
             % checkpoint_status
@@ -381,10 +657,16 @@ def _resolve_resume_record(
             % (recorded_level, current_level)
         )
     if recorded_hash == candidate_space_hash:
-        if _smash_parallel_progress_is_empty_stale(record):
-            return None, "SmashBruteBrawl checkpoint has no confirmed worker progress; starting this pass fresh."
-        if _smash_parallel_progress_is_exhausted(record):
-            return None, "SmashBruteBrawl checkpoint has already exhausted this worker pass; trying the next campaign pass."
+        if _smash_progress_is_empty_stale(record):
+            return None, (
+                "SBB fresh pass: %s level %s; stale checkpoint ignored."
+                % (context.edit_mode, current_level)
+            )
+        if _smash_progress_is_exhausted(record):
+            return None, (
+                "SBB pass already exhausted: %s level %s; trying next planned pass."
+                % (context.edit_mode, current_level)
+            )
         return record, ""
     if current_level > recorded_level:
         return None, (
@@ -403,8 +685,10 @@ def _smash_parallel_progress_is_exhausted(record: dict[str, Any]) -> bool:
     shards = record.get("shards")
     if not isinstance(shards, list) or not shards:
         return False
-    accepted = _record_int(record.get("counters") if isinstance(record.get("counters"), dict) else {}, "accepted_candidates", 0)
-    if accepted > 0:
+    counters = record.get("counters") if isinstance(record.get("counters"), dict) else {}
+    accepted = _record_int(counters, "accepted_candidates", 0)
+    rejected = _record_int(counters, "rejected_candidates", 0)
+    if accepted > 0 or rejected > 0:
         return False
     saw_done = False
     for shard in shards:
@@ -414,6 +698,12 @@ def _smash_parallel_progress_is_exhausted(record: dict[str, Any]) -> bool:
             return False
         saw_done = True
     return saw_done
+
+
+def _smash_progress_is_exhausted(record: dict[str, Any]) -> bool:
+    if str(record.get("status") or "") == "exhausted":
+        return True
+    return _smash_parallel_progress_is_exhausted(record)
 
 
 def _smash_parallel_progress_is_empty_stale(record: dict[str, Any]) -> bool:
@@ -446,6 +736,33 @@ def _smash_parallel_progress_is_empty_stale(record: dict[str, Any]) -> bool:
         if _record_int(shard, "next_inner_index", _record_int(shard, "start_inner_index", 0)) != _record_int(shard, "start_inner_index", 0):
             return False
     return True
+
+
+def _smash_progress_is_empty_stale(record: dict[str, Any]) -> bool:
+    counters = record.get("counters")
+    tested = _record_int(counters if isinstance(counters, dict) else {}, "tested_candidates", 0)
+    accepted = _record_int(counters if isinstance(counters, dict) else {}, "accepted_candidates", 0)
+    rejected = _record_int(counters if isinstance(counters, dict) else {}, "rejected_candidates", 0)
+    if tested > 0 or accepted > 0 or rejected > 0:
+        return False
+    shards = record.get("shards")
+    if isinstance(shards, list) and shards:
+        return _smash_parallel_progress_is_empty_stale(record)
+    cursor = record.get("cursor")
+    if isinstance(cursor, dict):
+        cursor_keys = (
+            "outer_index",
+            "inner_index",
+            "byte_position",
+            "edit_kind_index",
+            "bonus_offset",
+            "bonus_value",
+        )
+        if any(_record_int(cursor, key, 0) > 0 for key in cursor_keys):
+            return False
+        if str(cursor.get("stage") or ""):
+            return False
+    return str(record.get("status") or "") in {"interrupted", "running", ""}
 
 
 def _smash_progress_record(
@@ -487,6 +804,7 @@ def _smash_progress_record(
             brute_length=context.brute_length,
             old_crc=context.old_crc,
             brute_level=context.brute_level,
+            campaign_focus=context.campaign_focus,
         ),
         "plan": {
             "resolved_mode": runtime_plan.mode,
@@ -498,6 +816,7 @@ def _smash_progress_record(
             "shard_size": int(shard_size),
             "crc_trusted": bool(context.old_crc) if crc_trusted is None else bool(crc_trusted),
             "status": status,
+            "campaign_focus": str(context.campaign_focus or ""),
         },
         "cursor": {
             "outer_index": int(scan_state.outer_index),
@@ -512,7 +831,12 @@ def _smash_progress_record(
         "counters": {
             "tested_candidates": int(scan_state.tested_candidates),
             "accepted_candidates": int(scan_state.accepted_candidates),
+            "rejected_candidates": int(scan_state.rejected_candidates),
+            "rejection_reasons": dict(scan_state.rejected_reasons),
+            "first_rejection_reason": scan_state.first_rejection_reason,
+            "preview_only_candidates": int(scan_state.untrusted_preview_count),
             "last_displayed_counter": int(scan_state.inner_index),
+            "elapsed_seconds": int(scan_state.eta_seconds),
         },
     }
 
@@ -1088,23 +1412,73 @@ def _estimate_parallel_remaining_candidates(
     shards: list[smash_backend.SmashShard],
 ) -> int:
     remaining = 0
-    edit_kind_counts: dict[tuple[int, int], int] = {}
+    edit_kind_counts: dict[tuple[int, int], tuple[str, ...]] = {}
+
+    def bonus_count_for_edit(edit_kind: str, *, payload_bytes: int, brute_bytes_len: int) -> int:
+        if plan.brute_level <= 0:
+            return 0
+        if edit_kind == "insert":
+            candidate_len = payload_bytes + brute_bytes_len
+        elif edit_kind == "remove":
+            candidate_len = payload_bytes - brute_bytes_len
+        else:
+            candidate_len = payload_bytes
+        return max(0, candidate_len - brute_bytes_len) * 256
+
+    def remaining_bonus_from_cursor(
+        total_bonus: int,
+        *,
+        bonus_offset: int,
+        bonus_value: int,
+    ) -> int:
+        consumed = max(0, int(bonus_offset) // 2) * 256 + max(0, int(bonus_value))
+        return max(0, total_bonus - consumed)
+
     for shard in shards:
         if shard.kind != "twobytes":
             remaining += max(0, int(shard.end_inner_index) - int(shard.start_inner_index))
             continue
         length_plan = plan.lengths[shard.length_plan_index]
         cache_key = (shard.length_plan_index, int(shard.inner_index or shard.start_inner_index))
-        edit_kind_count = edit_kind_counts.get(cache_key)
-        if edit_kind_count is None:
+        edit_kinds = edit_kind_counts.get(cache_key)
+        if edit_kinds is None:
             edit_kinds = bruteforce.iter_twobytes_edit_kinds(plan.edit_mode, plan.chunk_name)
-            edit_kind_count = max(1, len(edit_kinds))
-            edit_kind_counts[cache_key] = edit_kind_count
+            edit_kind_counts[cache_key] = edit_kinds
+        edit_window = bruteforce.edit_window(
+            plan.data_hex,
+            plan.data_offset,
+            plan.chunk_length,
+            plan.edit_mode,
+            plan.bf_mode,
+            length_plan.length,
+        )
+        brute_bytes = smash_backend._twobytes_candidate_bytes(plan, length_plan, int(shard.inner_index or shard.start_inner_index), edit_window)
+        brute_bytes_len = len(brute_bytes or b"")
+        payload_bytes = len(edit_window.to_brute) // 2
         first_position = max(int(shard.byte_start), int(shard.next_byte_position or shard.byte_start))
-        position_count = max(0, int(shard.byte_end) - first_position)
-        shard_remaining = position_count * edit_kind_count
-        if first_position == int(shard.next_byte_position or shard.byte_start):
-            shard_remaining = max(0, shard_remaining - int(shard.edit_kind_index or 0))
+        shard_remaining = 0
+        for position in range(first_position, int(shard.byte_end)):
+            start_edit_kind_index = int(shard.edit_kind_index or 0) if position == first_position else 0
+            for edit_kind_index, edit_kind in enumerate(edit_kinds):
+                if edit_kind_index < start_edit_kind_index:
+                    continue
+                shard_remaining += 1
+                bonus_remaining = bonus_count_for_edit(
+                    edit_kind,
+                    payload_bytes=payload_bytes,
+                    brute_bytes_len=brute_bytes_len,
+                )
+                if (
+                    position == first_position
+                    and edit_kind_index == start_edit_kind_index
+                    and str(shard.stage or "") == "bonus"
+                ):
+                    bonus_remaining = remaining_bonus_from_cursor(
+                        bonus_remaining,
+                        bonus_offset=int(shard.bonus_offset),
+                        bonus_value=int(shard.bonus_value),
+                    )
+                shard_remaining += bonus_remaining
         remaining += shard_remaining
     return max(0, remaining)
 
@@ -1121,6 +1495,28 @@ def _apply_parallel_hit(
         png_bytes=hit.png_bytes,
         old_crc_match=hit.old_crc_match,
     )
+    if old_crc and not attempt.old_crc_match:
+        return False
+    candidate_validation = validate_sbb_candidate(attempt.png_bytes)
+    if not candidate_validation.ok:
+        _record_sbb_candidate_rejected(
+            runtime,
+            scan_state,
+            candidate_validation.reason,
+            category=candidate_validation.category,
+            png_bytes=attempt.png_bytes,
+        )
+        return False
+    if not old_crc and _reject_untrusted_internal_sbb_hit(runtime):
+        _record_sbb_candidate_rejected(
+            runtime,
+            scan_state,
+            "PNG is structurally valid; visual repair needs a reference/ROI",
+            category="valid_but_visual_untrusted",
+            png_bytes=attempt.png_bytes,
+        )
+        return False
+
     viewer_ok = True
     if not old_crc:
         scan_state.full_new_data = attempt.full_new_data
@@ -1186,6 +1582,96 @@ def _save_parallel_progress(
     )
 
 
+def _close_smash_parallel_progress_queue(progress_queue: Any) -> None:
+    if progress_queue is None:
+        return
+    try:
+        while True:
+            progress_queue.get_nowait()
+    except Exception:
+        pass
+    cancel_join_thread = getattr(progress_queue, "cancel_join_thread", None)
+    if callable(cancel_join_thread):
+        try:
+            cancel_join_thread()
+        except Exception:
+            pass
+    close = getattr(progress_queue, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass
+
+
+def _shutdown_smash_parallel_executor(
+    executor: concurrent.futures.ProcessPoolExecutor,
+    *,
+    futures: dict[concurrent.futures.Future, Any] | None = None,
+    progress_queue: Any = None,
+    stop_event: Any = None,
+    grace_seconds: float = 2.0,
+) -> None:
+    set_stop = getattr(stop_event, "set", None)
+    if callable(set_stop):
+        try:
+            set_stop()
+        except Exception:
+            pass
+    pending_futures = tuple(futures) if futures else ()
+    if pending_futures:
+        try:
+            _done, pending = concurrent.futures.wait(
+                pending_futures,
+                timeout=max(0.0, float(grace_seconds)),
+            )
+        except Exception:
+            pending = pending_futures
+        for future in pending:
+            cancel = getattr(future, "cancel", None)
+            if callable(cancel):
+                try:
+                    cancel()
+                except Exception:
+                    pass
+    processes = getattr(executor, "_processes", None)
+    try:
+        executor.shutdown(wait=False, cancel_futures=True)
+    except TypeError:
+        executor.shutdown(wait=False)
+    if isinstance(processes, dict):
+        deadline = time.monotonic() + max(0.0, float(grace_seconds))
+        for process in tuple(processes.values()):
+            alive = True
+            poll = getattr(process, "poll", None)
+            is_alive = getattr(process, "is_alive", None)
+            if callable(poll):
+                try:
+                    alive = poll() is None
+                except Exception:
+                    alive = True
+            elif callable(is_alive):
+                try:
+                    alive = bool(is_alive())
+                except Exception:
+                    alive = True
+            if alive:
+                terminate = getattr(process, "terminate", None)
+                if callable(terminate):
+                    try:
+                        terminate()
+                    except Exception:
+                        pass
+        for process in tuple(processes.values()):
+            join = getattr(process, "join", None)
+            if callable(join):
+                try:
+                    join(max(0.0, deadline - time.monotonic()))
+                except Exception:
+                    pass
+    _close_smash_parallel_progress_queue(progress_queue)
+
+
 def _run_parallel_scan(
     runtime: SmashBruteBrawlRuntime,
     context: SmashBruteBrawlContext,
@@ -1212,11 +1698,7 @@ def _run_parallel_scan(
     if not backend.supports(plan):
         return False
     shard_kind = _smash_parallel_shard_kind(context, runtime_plan)
-    shard_size = (
-        smash_backend.SMASH_TWOBYTES_SHARD_BYTE_SIZE
-        if shard_kind == "twobytes"
-        else smash_backend.SMASH_PARALLEL_SHARD_SIZE
-    )
+    shard_size = _smash_parallel_shard_size(context, shard_kind)
     shards = _resume_parallel_shards(
         progress_resume,
         length_plans,
@@ -1260,8 +1742,10 @@ def _run_parallel_scan(
     accepted = False
     manager = multiprocessing.Manager()
     stop_event = manager.Event()
+    progress_queue = manager.Queue()
     last_worker_heartbeat_at = 0.0
     pending: dict[concurrent.futures.Future, smash_backend.SmashShard] = {}
+    live_results: dict[int, smash_backend.SmashShardResult] = {}
     executor: concurrent.futures.ProcessPoolExecutor | None = None
     executor_shutdown = False
     manager_shutdown = False
@@ -1271,13 +1755,58 @@ def _run_parallel_scan(
     interrupt_announced = False
     parallel_tested_floor = int(scan_state.tested_candidates)
 
+    def live_checkpoint_results() -> dict[int, smash_backend.SmashShardResult]:
+        merged = dict(finished_results)
+        for shard_id, result in live_results.items():
+            if shard_id not in merged:
+                merged[shard_id] = result
+        return merged
+
+    def drain_worker_progress() -> bool:
+        drained = False
+        while True:
+            try:
+                item = progress_queue.get_nowait()
+            except Exception:
+                break
+            if not isinstance(item, dict):
+                continue
+            shard_id = _record_int(item, "shard_id", -1)
+            shard = shard_by_id.get(shard_id)
+            if shard is None or shard_id in finished_results:
+                continue
+            tested = _record_int(item, "tested", 0)
+            previous = live_results.get(shard_id)
+            if previous is not None and tested <= previous.tested:
+                continue
+            live_results[shard_id] = smash_backend.SmashShardResult(
+                shard=shard,
+                tested=tested,
+                next_inner_index=_record_int(item, "next_inner_index", shard.start_inner_index),
+                hits=(),
+                stopped=True,
+                next_byte_position=_record_int(item, "next_byte_position", shard.next_byte_position),
+                edit_kind_index=_record_int(item, "edit_kind_index", shard.edit_kind_index),
+                stage=str(item.get("stage") or ""),
+                bonus_offset=_record_int(item, "bonus_offset", 0),
+                bonus_value=_record_int(item, "bonus_value", 0),
+            )
+            drained = True
+        return drained
+
     def emit_worker_heartbeat(*, force: bool = False) -> None:
         nonlocal last_worker_heartbeat_at
         now = time.monotonic()
         if not force and now - last_worker_heartbeat_at < 0.5:
             return
+        drain_worker_progress()
         finished_tested = sum(result.tested for result in finished_results.values())
-        current = min(progress_total, parallel_tested_floor + finished_tested)
+        live_tested = sum(
+            result.tested
+            for shard_id, result in live_results.items()
+            if shard_id not in finished_results
+        )
+        current = min(progress_total, parallel_tested_floor + finished_tested + live_tested)
         runtime.loadingbar(progress_total, progress_width, current, False)
         last_worker_heartbeat_at = now
 
@@ -1366,6 +1895,7 @@ def _run_parallel_scan(
                     bonus_value=shard.bonus_value,
                 )
             finished_results[shard.shard_id] = result
+            live_results.pop(shard.shard_id, None)
             result_buffer[shard.shard_id] = result
 
     def mark_missing_ordered_shards_pending() -> None:
@@ -1390,7 +1920,15 @@ def _run_parallel_scan(
     def shutdown_executor(*, wait: bool) -> None:
         nonlocal executor_shutdown
         if executor is not None and not executor_shutdown:
-            executor.shutdown(wait=wait, cancel_futures=True)
+            if wait:
+                executor.shutdown(wait=True, cancel_futures=True)
+            else:
+                _shutdown_smash_parallel_executor(
+                    executor,
+                    futures=pending,
+                    progress_queue=progress_queue,
+                    stop_event=stop_event,
+                )
             executor_shutdown = True
 
     def shutdown_manager() -> None:
@@ -1434,9 +1972,19 @@ def _run_parallel_scan(
             )
             interrupt_announced = True
         stop_event.set()
-        harvest_finished_futures()
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            drain_worker_progress()
+            harvest_finished_futures()
+            if not pending:
+                break
+            if any(future.done() for future in pending):
+                continue
+            time.sleep(0.05)
         for future in pending:
             future.cancel()
+        drain_worker_progress()
+        harvest_finished_futures()
         _save_parallel_progress(
             runtime,
             context,
@@ -1446,13 +1994,13 @@ def _run_parallel_scan(
             worker_count=worker_count,
             shard_size=shard_size,
             shards=shards,
-            results=finished_results,
+            results=live_checkpoint_results(),
             tested_floor=parallel_tested_floor,
             force=True,
             status="interrupted",
         )
         try:
-            shutdown_executor(wait=True)
+            shutdown_executor(wait=False)
         finally:
             try:
                 shutdown_manager()
@@ -1464,12 +2012,17 @@ def _run_parallel_scan(
         raise interruption
 
     try:
-        emit_worker_heartbeat(force=True)
-        executor = concurrent.futures.ProcessPoolExecutor(max_workers=worker_count)
+        install_sigint_handler()
+        executor = concurrent.futures.ProcessPoolExecutor(
+            max_workers=worker_count,
+            initializer=smash_backend.ignore_worker_sigint,
+        )
         shard_iter = iter(shards)
 
         def fill_pending() -> None:
             while len(pending) < worker_count * 2 and not accepted:
+                if interrupt_requested:
+                    break
                 try:
                     shard = next(shard_iter)
                 except StopIteration:
@@ -1480,11 +2033,14 @@ def _run_parallel_scan(
                     shard_runner = smash_backend.run_remove_shard
                 else:
                     shard_runner = smash_backend.run_standard_shard
-                future = executor.submit(shard_runner, plan, shard, stop_event)
+                future = executor.submit(shard_runner, plan, shard, stop_event, progress_queue)
                 pending[future] = shard
+                if interrupt_requested:
+                    break
 
         fill_pending()
-        install_sigint_handler()
+        if interrupt_requested:
+            finish_interrupted()
         while pending:
             if interrupt_requested:
                 finish_interrupted()
@@ -1531,6 +2087,7 @@ def _run_parallel_scan(
             parallel_tested_floor + sum(result.tested for result in finished_results.values()),
         )
     scan_state.eta_seconds = (runtime.now() - started_at).seconds
+    _emit_sbb_rejection_progress(runtime, scan_state, force=True)
     _save_parallel_progress(
         runtime,
         context,
@@ -1543,7 +2100,7 @@ def _run_parallel_scan(
         results=finished_results,
         tested_floor=parallel_tested_floor,
         force=True,
-        status="success" if accepted else "exhausted",
+        status=_sbb_scan_terminal_status(scan_state),
     )
     for error, count in sorted(worker_error_counts.items(), key=lambda item: item[0]):
         if count > 1:
@@ -1600,6 +2157,16 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
         if isinstance(counters, dict):
             scan_state.tested_candidates = _record_int(counters, "tested_candidates", 0)
             scan_state.accepted_candidates = _record_int(counters, "accepted_candidates", 0)
+            scan_state.rejected_candidates = _record_int(counters, "rejected_candidates", 0)
+            reasons = counters.get("rejection_reasons")
+            if isinstance(reasons, dict):
+                scan_state.rejected_reasons = {
+                    str(reason): int(count)
+                    for reason, count in reasons.items()
+                    if str(reason)
+                }
+            scan_state.first_rejection_reason = str(counters.get("first_rejection_reason") or "")
+            scan_state.untrusted_preview_count = _record_int(counters, "preview_only_candidates", 0)
         scan_state.crash = False
         runtime.emit(
             "-SmashBruteBrawl resume checkpoint accepted at outer %s, inner %s."
@@ -1676,8 +2243,9 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
         scan_state,
         candidate_space_hash=candidate_space_hash,
         force=True,
-        status="success" if scan_state.accepted_candidates > 0 else "exhausted",
+        status=_sbb_scan_terminal_status(scan_state),
     )
+    _emit_sbb_rejection_progress(runtime, scan_state, force=True)
 
     return SmashBruteBrawlScanResult(
         state=scan_state.state,

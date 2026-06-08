@@ -40,7 +40,7 @@
   trailer still does not match. A local reference can rank candidates with exact
   pixel distance, generic similar-image patch/hash scoring, or manual ROI
   scoring for related-but-not-identical screenshots.
-- Resume and parallelize `SmashBruteBrawl` searches, including `TwoBytes`,
+- Resume and parallelize `SmashBruteBrawl` searches, including HermesProbe,
   while keeping prompts, previews, and final writes in the parent process.
 - Repair PNG text metadata damage, including `tEXt` null bytes, `iTXt`
   keyword/compression fields, and `zTXt` compression method or zlib data-format
@@ -296,7 +296,7 @@ automatically and Chunklate prompts before resuming or resetting them.
 The parent process keeps all visible effects: prompts, previews, repaired files,
 summaries, and checkpoint writes. Workers only test candidate shards and return
 hits, cursors, counters, and errors. This applies to long `SmashBruteBrawl`
-paths, including `TwoBytes`; the parent preserves legacy candidate priority
+paths, including HermesProbe; the parent preserves legacy candidate priority
 before accepting a hit. When the stored chunk CRC is trusted, workers can filter
 candidates by checksum first, then the parent validates hits with the real
 PNG/zlib path.

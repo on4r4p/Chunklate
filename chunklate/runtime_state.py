@@ -116,6 +116,7 @@ def main_loop_history_reset_values() -> dict[str, object]:
         "Cornucopia": {},
         "SideNotes": [],
         "DebugNotes": [],
+        "TerminalTranscript": [],
         "IDAT_CRC_PATCH_FAILED": False,
         "IDAT_CRC_PATCH_FAILED_FINDING": None,
         "IDAT_CRC_DEFER_EXPLAINED": False,

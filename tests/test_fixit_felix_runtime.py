@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 from chunklate import fixit_felix
 from chunklate import fixit_felix_runtime
 from chunklate import idat
+from chunklate import ultimate_reference_ui
 from chunklate import messages
 from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks, validate_png_structure
 
@@ -594,7 +595,7 @@ def test_apply_repair_can_write_zero_scanline_blackfill_when_confirmed():
     ]
 
 
-def test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforce():
+def test_apply_repair_parks_partial_blackfill_preview_before_source_idat_bruteforce():
     source, repair = partial_scanline_blackfill_source_and_repair()
     idat_chunk = next(chunk for chunk in iter_chunks(source) if chunk.chunk_type == b"IDAT")
     side_notes = []
@@ -617,8 +618,7 @@ def test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforc
     result = fixit_felix_runtime.apply_repair(runtime, repair)
 
     assert result is True
-    assert len(writes) == 1
-    assert bytes.fromhex(writes[0][0]) == repair.data
+    assert writes == []
     assert previews == [((repair.data, "IDAT_Blackfill_Preview"), {"show": False})]
     assert questions == [
         {
@@ -657,17 +657,142 @@ def test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforc
             },
         )
     ]
-    assert side_notes[-2:] == [
-        "-FixItFelix: low SBB diagnostic selected HephaestusForge (Insert-first).",
-        "-FixItFelix: stored IDAT CRC already matches current bytes; using image probe.",
-    ]
+    assert "-FixItFelix: partial IDAT blackfill parked as preview while SmashBruteBrawl runs; no final clone written yet." in side_notes
+    assert "-FixItFelix: low SBB diagnostic selected HephaestusForge (Insert-first)." in side_notes
+    assert "-FixItFelix: stored IDAT CRC already matches current bytes; using image probe." in side_notes
     diagnostic_messages = [call[1] for call in candy_calls if len(call) > 1 and "SBB IDAT diagnostic:" in call[1]]
     assert diagnostic_messages
     assert "image:" in diagnostic_messages[0]
     assert "decompressed:" in diagnostic_messages[0]
     assert "scanlines:" in diagnostic_messages[0]
+    assert "CRC target: not useful" in diagnostic_messages[0]
     assert "SBB chance:" in diagnostic_messages[0]
     assert "HephaestusForge order: Insert -> Replace -> Remove" in diagnostic_messages[0]
+    assert any("CRC is not an oracle for this run" in call[1] for call in candy_calls)
+
+
+def test_apply_repair_keeps_visual_reference_blackfill_preview_only_without_sbb():
+    source, repair = partial_scanline_blackfill_source_and_repair()
+    side_notes = []
+    writes = []
+    previews = []
+    candy_calls = []
+    original_diagnostic = fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic
+
+    def fake_diagnostic(_data, *, crc_target_trusted=False):
+        return idat.SmashBruteBrawlIdatDiagnostic(
+            supported=True,
+            width=1,
+            height=5,
+            bit_depth=8,
+            color_type=2,
+            color_label="RGB",
+            expected_decompressed_size=20,
+            decompressed_size=21,
+            missing_decompressed_size=0,
+            complete_scanlines=5,
+            total_scanlines=5,
+            partial_scanline_bytes=0,
+            scanline_size=4,
+            idat_chunk_count=1,
+            compressed_size=20,
+            zlib_status="partial",
+            crc_target_trusted=crc_target_trusted,
+            crc_target_useful=False,
+            success_estimate="maybe",
+            success_reason="structure decodes but visual proof is missing.",
+            recommended_repair_family="extra",
+            hephaestus_order=("Remove", "Replace", "Insert"),
+            cheap_twobytes_viable=True,
+            requires_visual_reference=True,
+        )
+
+    fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = fake_diagnostic
+    try:
+        runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+            side_notes=side_notes,
+            candy=lambda *args: candy_calls.append(args),
+            write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+            preview_repair_image=lambda *args, **kwargs: previews.append((args, kwargs)),
+            data_hex=source.hex(),
+            file_origin="source-idat.png",
+        )
+
+        result = fixit_felix_runtime.apply_repair(runtime, repair)
+    finally:
+        fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = original_diagnostic
+
+    assert result is True
+    assert writes == []
+    assert previews == [((repair.data, "IDAT_Blackfill_Preview"), {"show": False})]
+    assert any("preview-only artifact" in note for note in side_notes)
+    assert any("visual proof is missing" in call[1] for call in candy_calls if len(call) > 1)
+
+
+def test_apply_repair_keeps_extra_data_blackfill_preview_only_without_sbb():
+    source, repair = partial_scanline_blackfill_source_and_repair()
+    repair = idat.PartialIdatBlackfillRepair(
+        data=repair.data,
+        strategy=repair.strategy,
+        recovered_scanlines=repair.total_scanlines,
+        total_scanlines=repair.total_scanlines,
+        width=repair.width,
+        height=repair.height,
+        bit_depth=repair.bit_depth,
+        color_type=repair.color_type,
+    )
+    side_notes = []
+    writes = []
+    previews = []
+    original_diagnostic = fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic
+
+    def fake_diagnostic(_data, *, crc_target_trusted=False):
+        return idat.SmashBruteBrawlIdatDiagnostic(
+            supported=True,
+            width=1,
+            height=5,
+            bit_depth=8,
+            color_type=2,
+            color_label="RGB",
+            expected_decompressed_size=20,
+            decompressed_size=21,
+            missing_decompressed_size=0,
+            complete_scanlines=5,
+            total_scanlines=5,
+            partial_scanline_bytes=0,
+            scanline_size=4,
+            idat_chunk_count=1,
+            compressed_size=20,
+            zlib_status="partial",
+            crc_target_trusted=crc_target_trusted,
+            crc_target_useful=False,
+            success_estimate="maybe",
+            success_reason="structure decodes past the expected image payload.",
+            recommended_repair_family="extra",
+            hephaestus_order=("Remove", "Replace", "Insert"),
+            cheap_twobytes_viable=True,
+            requires_visual_reference=False,
+        )
+
+    fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = fake_diagnostic
+    try:
+        runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+            side_notes=side_notes,
+            candy=lambda *args: None,
+            write_clone=lambda data_hex, save_suffix: writes.append((data_hex, save_suffix)),
+            preview_repair_image=lambda *args, **kwargs: previews.append((args, kwargs)),
+            data_hex=source.hex(),
+            file_origin="source-idat.png",
+        )
+
+        result = fixit_felix_runtime.apply_repair(runtime, repair)
+    finally:
+        fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = original_diagnostic
+
+    assert result is True
+    assert writes == []
+    assert previews == [((repair.data, "IDAT_Blackfill_Preview"), {"show": False})]
+    assert any("preview-only artifact" in note for note in side_notes)
 
 
 def test_partial_blackfill_low_chance_opens_hephaestusforge():
@@ -750,6 +875,104 @@ def test_partial_blackfill_low_chance_opens_hephaestusforge():
     assert "-FixItFelix: low SBB diagnostic selected HephaestusForge (Insert-first)." in side_notes
 
 
+def test_partial_blackfill_hephaestus_can_prepare_visual_reference_roi():
+    source, repair = partial_scanline_blackfill_source_and_repair()
+    idat_chunk = next(chunk for chunk in iter_chunks(source) if chunk.chunk_type == b"IDAT")
+    side_notes = []
+    questions = []
+    smash_calls = []
+    editor_calls = []
+    state = {}
+    retry_state = {}
+    original_diagnostic = fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic
+
+    def fake_diagnostic(_data, *, crc_target_trusted=False):
+        return idat.SmashBruteBrawlIdatDiagnostic(
+            supported=True,
+            width=900,
+            height=580,
+            bit_depth=8,
+            color_type=2,
+            color_label="RGB",
+            expected_decompressed_size=1_566_580,
+            decompressed_size=1_491_984,
+            missing_decompressed_size=74_596,
+            complete_scanlines=552,
+            total_scanlines=580,
+            partial_scanline_bytes=1032,
+            scanline_size=2701,
+            idat_chunk_count=2,
+            compressed_size=223_816,
+            zlib_status="incomplete_stream",
+            crc_target_trusted=crc_target_trusted,
+            success_estimate="low",
+            success_reason="no trusted CRC target and the decompressed gap is large.",
+            recommended_repair_family="missing",
+            hephaestus_order=("Insert", "Replace", "Remove"),
+            cheap_twobytes_viable=False,
+            requires_visual_reference=True,
+        )
+
+    def fake_editor(*args, **kwargs):
+        editor_calls.append((args, kwargs))
+        return ultimate_reference_ui.ReferenceRegionEditorResult(
+            True,
+            args[2],
+            region_count=1,
+            reference_path="reference.png",
+        )
+
+    fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = fake_diagnostic
+    try:
+        runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+            side_notes=side_notes,
+            candy=lambda *args: None,
+            write_clone=lambda *_args: None,
+            question=lambda **kwargs: questions.append(kwargs) or True,
+            preview_repair_image=lambda *_args: None,
+            smash_brute_brawl=lambda *args, **kwargs: smash_calls.append((args, kwargs)),
+            data_hex=source.hex(),
+            file_origin="source-idat.png",
+            retry_state=retry_state,
+            ultimate_linefeed_reference=lambda: "",
+            ultimate_linefeed_reference_regions=lambda: "",
+            ultimate_linefeed_reference_region_editor_run=fake_editor,
+            set_ultimate_linefeed_reference=lambda value: state.__setitem__("reference", value),
+            set_ultimate_linefeed_reference_mode=lambda value: state.__setitem__("mode", value),
+            set_ultimate_linefeed_reference_regions=lambda value: state.__setitem__("regions", value),
+        )
+
+        result = fixit_felix_runtime.maybe_launch_partial_blackfill_bruteforce(runtime, repair)
+    finally:
+        fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = original_diagnostic
+
+    assert result is True
+    assert [question["idhash"][0] for question in questions] == [
+        "IDAT-partial-blackfill-hephaestus",
+        "IDAT-partial-blackfill-visual-reference",
+    ]
+    assert editor_calls == [
+        (
+            (
+                "source-idat.png",
+                "",
+                "Folder_source-idat/_ULF.reference_regions.json",
+            ),
+            {"source_data": source},
+        )
+    ]
+    assert state == {
+        "reference": "reference.png",
+        "mode": "similar",
+        "regions": "Folder_source-idat/_ULF.reference_regions.json",
+    }
+    assert retry_state["visual_reference"] == "reference.png"
+    assert retry_state["visual_reference_regions"] == "Folder_source-idat/_ULF.reference_regions.json"
+    assert "-FixItFelix: Visual reference ROI saved for SBB/HephaestusForge: Folder_source-idat/_ULF.reference_regions.json" in side_notes
+    assert smash_calls[0][0][3] == idat_chunk.offset * 2
+    assert smash_calls[0][1]["BfMode"] == "Brutus"
+
+
 def assert_partial_blackfill_cheap_route_uses_edit_mode(edit_mode, family, order):
     source, repair = partial_scanline_blackfill_source_and_repair()
     smash_calls = []
@@ -820,6 +1043,122 @@ def test_partial_blackfill_cheap_extra_uses_remove():
         "extra",
         ("Remove", "Replace", "Insert"),
     )
+
+
+def test_partial_blackfill_focus_prompt_defaults_to_recommendation():
+    source, repair = partial_scanline_blackfill_source_and_repair()
+    inputs = []
+    smash_calls = []
+    retry_state = {}
+    original_diagnostic = fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic
+
+    def fake_diagnostic(_data, *, crc_target_trusted=False):
+        return idat.SmashBruteBrawlIdatDiagnostic(
+            supported=True,
+            width=1,
+            height=5,
+            bit_depth=8,
+            color_type=2,
+            color_label="RGB",
+            expected_decompressed_size=20,
+            decompressed_size=20,
+            missing_decompressed_size=0,
+            complete_scanlines=5,
+            total_scanlines=5,
+            partial_scanline_bytes=0,
+            scanline_size=4,
+            idat_chunk_count=1,
+            compressed_size=20,
+            zlib_status="bad_adler",
+            crc_target_trusted=crc_target_trusted,
+            success_estimate="good",
+            success_reason="stored IDAT CRC is a useful target.",
+            recommended_repair_family="extra",
+            hephaestus_order=("Remove", "Replace", "Insert"),
+            cheap_twobytes_viable=True,
+        )
+
+    fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = fake_diagnostic
+    try:
+        runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+            side_notes=[],
+            candy=lambda *args: None,
+            write_clone=lambda *_args: None,
+            question=lambda **_kwargs: True,
+            smash_brute_brawl=lambda *args, **kwargs: smash_calls.append((args, kwargs)),
+            data_hex=source.hex(),
+            file_origin="source-idat.png",
+            interactive=True,
+            retry_state=retry_state,
+            input_func=lambda prompt: inputs.append(prompt) or "",
+        )
+
+        result = fixit_felix_runtime.maybe_launch_partial_blackfill_bruteforce(runtime, repair)
+    finally:
+        fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = original_diagnostic
+
+    assert result is True
+    assert inputs and inputs[0].startswith("SmashBruteBrawl focus [2 Remove focus]")
+    assert retry_state["campaign_focus"] == "remove"
+    assert retry_state["hephaestus_order"] == ("Remove", "Replace", "Insert")
+    assert smash_calls[0][1]["EditMode"] == "Remove"
+
+
+def test_partial_blackfill_focus_prompt_can_override_recommendation():
+    source, repair = partial_scanline_blackfill_source_and_repair()
+    smash_calls = []
+    retry_state = {}
+    original_diagnostic = fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic
+
+    def fake_diagnostic(_data, *, crc_target_trusted=False):
+        return idat.SmashBruteBrawlIdatDiagnostic(
+            supported=True,
+            width=1,
+            height=5,
+            bit_depth=8,
+            color_type=2,
+            color_label="RGB",
+            expected_decompressed_size=20,
+            decompressed_size=20,
+            missing_decompressed_size=0,
+            complete_scanlines=5,
+            total_scanlines=5,
+            partial_scanline_bytes=0,
+            scanline_size=4,
+            idat_chunk_count=1,
+            compressed_size=20,
+            zlib_status="bad_adler",
+            crc_target_trusted=crc_target_trusted,
+            success_estimate="good",
+            success_reason="stored IDAT CRC is a useful target.",
+            recommended_repair_family="extra",
+            hephaestus_order=("Remove", "Replace", "Insert"),
+            cheap_twobytes_viable=True,
+        )
+
+    fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = fake_diagnostic
+    try:
+        runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+            side_notes=[],
+            candy=lambda *args: None,
+            write_clone=lambda *_args: None,
+            question=lambda **_kwargs: True,
+            smash_brute_brawl=lambda *args, **kwargs: smash_calls.append((args, kwargs)),
+            data_hex=source.hex(),
+            file_origin="source-idat.png",
+            interactive=True,
+            retry_state=retry_state,
+            input_func=lambda _prompt: "3",
+        )
+
+        result = fixit_felix_runtime.maybe_launch_partial_blackfill_bruteforce(runtime, repair)
+    finally:
+        fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = original_diagnostic
+
+    assert result is True
+    assert retry_state["campaign_focus"] == "replace"
+    assert retry_state["hephaestus_order"] == ("Replace", "Remove", "Insert")
+    assert smash_calls[0][1]["EditMode"] == "Replace"
 
 
 def test_partial_blackfill_bruteforce_uses_stored_crc_only_when_it_targets_original():
@@ -3097,6 +3436,56 @@ def test_apply_no_next_false_positive_iend_refuses_libpng_when_other_errors_rema
     assert calls[-1] == ("the_end", (), {})
 
 
+def test_apply_no_next_false_positive_iend_allows_libpng_for_benign_chrm_override():
+    calls = []
+    finding = "GetInfo_Error_0:-cHRM is overided by sRGB chunk and iCCP"
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        pandora_box={finding: {"cHRM_Tool_0": finding}},
+    )
+
+    result = fixit_felix_runtime.apply_no_next_false_positive_iend(
+        runtime,
+        fixit_felix.NoNextFalsePositiveIendDecision("libpng_check"),
+    )
+
+    assert result == (True, "libpng-result")
+    assert state["eof"] is True
+    assert finding not in runtime.pandora_box
+    assert side_notes == [
+        "-Reached the end of file.",
+        "-Found benign metadata advisory before libpng: %s." % finding,
+        "-LibpngCheck allowed after filtering benign metadata advisories.",
+    ]
+    assert ("libpng_check", ("sample.png",), {}) in calls
+    assert not [call for call in calls if call[0] == "the_end"]
+
+
+def test_apply_no_next_false_positive_iend_allows_libpng_for_benign_iccp_warning():
+    calls = []
+    finding = "LibpngCheck_Warning_0:-iCCP: profile is noisy"
+    runtime, side_notes, state = no_next_runtime(
+        calls,
+        pandora_box={finding: {"iCCP_Tool_0": finding}},
+    )
+
+    result = fixit_felix_runtime.apply_no_next_false_positive_iend(
+        runtime,
+        fixit_felix.NoNextFalsePositiveIendDecision("libpng_check"),
+    )
+
+    assert result == (True, "libpng-result")
+    assert state["eof"] is True
+    assert finding not in runtime.pandora_box
+    assert side_notes == [
+        "-Reached the end of file.",
+        "-Found benign metadata advisory before libpng: %s." % finding,
+        "-LibpngCheck allowed after filtering benign metadata advisories.",
+    ]
+    assert ("libpng_check", ("sample.png",), {}) in calls
+    assert not [call for call in calls if call[0] == "the_end"]
+
+
 def test_apply_no_next_false_positive_iend_reports_unimplemented_non_order_error():
     calls = []
     finding = "GetInfo_Error_0:-iTXt Compression Flag must be 0 or 1"
@@ -3980,12 +4369,24 @@ def main():
             test_partial_blackfill_low_chance_opens_hephaestusforge,
         ),
         (
+            "Partial blackfill Hephaestus prepares visual ROI",
+            test_partial_blackfill_hephaestus_can_prepare_visual_reference_roi,
+        ),
+        (
             "Partial blackfill cheap missing uses Insert",
             test_partial_blackfill_cheap_missing_uses_insert,
         ),
         (
             "Partial blackfill cheap extra uses Remove",
             test_partial_blackfill_cheap_extra_uses_remove,
+        ),
+        (
+            "Partial blackfill focus prompt default",
+            test_partial_blackfill_focus_prompt_defaults_to_recommendation,
+        ),
+        (
+            "Partial blackfill focus prompt override",
+            test_partial_blackfill_focus_prompt_can_override_recommendation,
         ),
         (
             "Partial blackfill uses stored CRC only when useful",

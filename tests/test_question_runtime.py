@@ -130,6 +130,22 @@ def test_question_runtime_names_idat_heavy_probe_prompt():
     ) in calls
 
 
+def test_question_runtime_names_sbb_visual_reference_roi_prompt():
+    runtime, calls = runtime_from(answers=["yes"])
+
+    assert question_runtime.ask_question(
+        runtime,
+        "SBB Visual Reference ROI:-similar PNG available",
+        ("roi", 1),
+    ) is True
+
+    assert (
+        "candy",
+        ("Cowsay", "Question: Do you have any similare png by any chance ?", "com"),
+        {},
+    ) in calls
+
+
 def test_question_runtime_names_ihdr_crc_bruteforce_prompt():
     runtime, calls = runtime_from(answers=["yes"])
 
@@ -479,6 +495,10 @@ def main():
         ("Manual feedback", test_question_runtime_manual_answer_uses_legacy_feedback),
         ("EOF answer declines", test_question_runtime_eof_answer_is_decline),
         ("IDAT heavy probe prompt", test_question_runtime_names_idat_heavy_probe_prompt),
+        (
+            "SBB visual reference ROI prompt",
+            test_question_runtime_names_sbb_visual_reference_roi_prompt,
+        ),
         ("IHDR CRC brute force prompt", test_question_runtime_names_ihdr_crc_bruteforce_prompt),
         ("cHRM inference prompt", test_question_runtime_names_chrm_inference_prompt),
         ("PLTE palette editor prompt", test_question_runtime_names_plte_palette_editor_prompt),

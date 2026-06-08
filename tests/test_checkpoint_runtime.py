@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+from io import BytesIO
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -14,14 +15,18 @@ from chunklate import checkpoint, checkpoint_runtime
 
 @contextmanager
 def patched_attrs(module, **attrs):
-    old_values = {name: getattr(module, name) for name in attrs}
+    missing = object()
+    old_values = {name: getattr(module, name, missing) for name in attrs}
     try:
         for name, value in attrs.items():
             setattr(module, name, value)
         yield
     finally:
         for name, value in old_values.items():
-            setattr(module, name, value)
+            if value is missing:
+                delattr(module, name)
+            else:
+                setattr(module, name, value)
 
 
 def callback_runtime(calls):
@@ -50,6 +55,45 @@ def callback_runtime(calls):
         discard_libpng_warning=callback("discard_libpng_warning"),
         libpng_end_success=callback("libpng_end_success"),
     )
+
+
+def _rgba_png(path, color):
+    if Chunklate.Image is None:
+        return
+    image = Chunklate.Image.new("RGBA", (2, 2), color)
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    path.write_bytes(buffer.getvalue())
+
+
+def test_final_image_visual_reference_note_reports_mismatch(tmp_path):
+    if Chunklate.Image is None:
+        return
+    candidate = tmp_path / "candidate.png"
+    reference = tmp_path / "reference.png"
+    _rgba_png(candidate, (255, 0, 0, 255))
+    _rgba_png(reference, (0, 255, 0, 255))
+
+    with patched_attrs(Chunklate, ULTIMATE_LINEFEED_REFERENCE=str(reference)):
+        note = Chunklate.Final_Image_Visual_Reference_Note(str(candidate))
+
+    assert "PNG is structurally valid" in note
+    assert "visual mismatch" in note
+    assert "reference/ROI" in note
+
+
+def test_final_image_visual_reference_note_accepts_identical_reference(tmp_path):
+    if Chunklate.Image is None:
+        return
+    candidate = tmp_path / "candidate.png"
+    reference = tmp_path / "reference.png"
+    _rgba_png(candidate, (255, 0, 0, 255))
+    reference.write_bytes(candidate.read_bytes())
+
+    with patched_attrs(Chunklate, ULTIMATE_LINEFEED_REFERENCE=str(reference)):
+        note = Chunklate.Final_Image_Visual_Reference_Note(str(candidate))
+
+    assert note == ""
 
 
 def test_checkpoint_loop_runtime_records_finding_pauses_and_applies_action():

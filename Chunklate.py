@@ -286,12 +286,24 @@ def CheckPoint_Discard_Libpng_Warning():
 
 
 def CheckPoint_Libpng_End_Success(message):
+    saved_path = Current_Display_Image_Path()
+    visual_reference_note = Final_Image_Visual_Reference_Note(saved_path)
+    if visual_reference_note:
+        Candy(
+            "Cowsay",
+            visual_reference_note,
+            "com",
+        )
+        SideNotes.append("-Visual reference route: %s" % visual_reference_note)
+        PRINT("-Visual reference route: %s" % visual_reference_note)
+        TheEnd()
+        return
+
     Candy(
         "Cowsay",
         message,
         "good",
     )
-    saved_path = Current_Display_Image_Path()
     Candy("Cowsay", "Your file is here: %s" % saved_path, "good")
     PRINT(Candy("Color", "green", "-Saved in : %s") % saved_path)
     Open_Final_Image_Once(saved_path)
@@ -321,6 +333,39 @@ def Current_Display_Image_Path():
     for path in candidates:
         if path:
             return path
+    return ""
+
+
+def _Load_Rgba_Image(path):
+    if Image is None or not path:
+        return None
+    try:
+        with Image.open(path) as image:
+            return image.convert("RGBA")
+    except Exception:
+        return None
+
+
+def Final_Image_Visual_Reference_Note(path):
+    reference_path = Ultimate_Linefeed_Reference()
+    if not reference_path:
+        return ""
+    if not _Valid_Png_Path(path):
+        return ""
+    if not os.path.exists(reference_path):
+        return "PNG is structurally valid; visual repair needs a reference/ROI, but the configured reference is missing: %s." % reference_path
+
+    candidate = _Load_Rgba_Image(path)
+    reference = _Load_Rgba_Image(reference_path)
+    if candidate is None or reference is None:
+        return "PNG is structurally valid; visual repair needs a reference/ROI, but I could not decode the configured reference."
+    if candidate.size != reference.size:
+        return "PNG is structurally valid; visual mismatch detected against the reference size %s vs %s; repair needs reference/ROI." % (
+            candidate.size,
+            reference.size,
+        )
+    if candidate.tobytes() != reference.tobytes():
+        return "PNG is structurally valid; visual mismatch detected against the reference; repair needs reference/ROI."
     return ""
 
 
@@ -943,6 +988,7 @@ def PRINT_With_Loader_Redraw(msg):
     Finish_Progress_Line(clear=True)
     if DEBUGFILE is True:
         DebugNotes.append(msg)
+    output.append_terminal_transcript(globals(), msg)
     ui.emit_printable_message(print, msg, max_columns=MAXCHAR, no_dialogue=NODIALOGUE)
     if was_active:
         Redraw_Progress_Line()
@@ -968,7 +1014,7 @@ def Legacy_UI_Runtime():
         no_dialogue=NODIALOGUE,
         use_color=USE_COLOR,
         pause_dialogue_enabled=PAUSEDIALOGUE,
-        pause_dialogue=lambda: prompts.pause_dialogue(input, PAUSEDIALOGUE),
+        pause_dialogue=lambda: prompts.pause_dialogue(Transcript_Input, PAUSEDIALOGUE),
         pause_state=DIALOGUE_PAUSE_STATE,
     )
 
@@ -978,8 +1024,12 @@ def Candy(mode, arg, data=None):
 
 
 def Prompt_Candy(mode, arg, data=None):
+    def emit(message):
+        output.append_terminal_transcript(globals(), message)
+        print(message, flush=True)
+
     return ui_runtime.LegacyUiRuntime(
-        emit=lambda msg: print(msg, flush=True),
+        emit=emit,
         random_int=random.randint,
         max_columns=MAXCHAR,
         no_dialogue=False,
@@ -1016,6 +1066,16 @@ def Clear_Terminal_Dialogue_Pause():
     DIALOGUE_PAUSE_STATE.pending = False
     DIALOGUE_PAUSE_STATE.paused_in_group = False
     DIALOGUE_PAUSE_STATE.rendering_dialogue = False
+
+
+def Record_Terminal_Transcript(message):
+    output.append_terminal_transcript(globals(), message)
+
+
+def Transcript_Input(prompt=""):
+    answer = input(prompt)
+    Record_Terminal_Transcript("%s%s" % (prompt, answer))
+    return answer
 
 
 def TheEnd():
@@ -1429,11 +1489,17 @@ def Question(
 
     def asker(prompt):
         if timeout_seconds is None:
-            return input(prompt)
+            return Transcript_Input(prompt)
         try:
-            return inputimeout(prompt, timeout=timeout_seconds)
+            answer = inputimeout(prompt, timeout=timeout_seconds)
+            Record_Terminal_Transcript("%s%s" % (prompt, answer))
+            return answer
         except TimeoutOccurred:
             default_answer = "yes" if timeout_default is True else "no"
+            Record_Terminal_Transcript(
+                "%s%s [timeout after %s seconds]"
+                % (prompt, default_answer, timeout_seconds)
+            )
             PRINT("")
             PRINT(
                 "-Question timed out after %s seconds; auto-answering %s.\n"
@@ -1846,7 +1912,7 @@ def CheckPoint(error, fixed, function, chunk, infos, *ToolKit):
 
 def Pause(msg):
     prompts.pause_with_legacy_eof_report(
-        input,
+        Transcript_Input,
         msg,
         error_emit=print,
         stderr_redirector=stderr_redirector,
@@ -1858,6 +1924,7 @@ def PRINT(msg):
     Finish_Progress_Line()
     if DEBUGFILE is True:
         DebugNotes.append(msg)
+    output.append_terminal_transcript(globals(), msg)
     ui.emit_printable_message(print, msg, max_columns=MAXCHAR, no_dialogue=NODIALOGUE)
 
 #    else:
@@ -1942,6 +2009,7 @@ zTXt_Str_List = []
 ThksForTheFish = []
 SideNotes = []
 DebugNotes = []
+TerminalTranscript = []
 ERRORSFLAG = []
 
 PandoraBox = {}

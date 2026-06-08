@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import io
 import os
+import signal
 import sys
 from typing import Any
 
@@ -12,6 +13,14 @@ from . import bruteforce, specs
 
 SMASH_PARALLEL_SHARD_SIZE = 50_000
 SMASH_TWOBYTES_SHARD_BYTE_SIZE = 4096
+SMASH_WORKER_PROGRESS_EVERY = 4096
+
+
+def ignore_worker_sigint() -> None:
+    try:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+    except Exception:
+        pass
 
 
 @dataclass(frozen=True)
@@ -254,6 +263,37 @@ def _stop_is_set(stop_event: Any) -> bool:
         return False
 
 
+def _report_worker_progress(
+    progress_queue: Any,
+    shard: SmashShard,
+    *,
+    tested: int,
+    next_inner_index: int,
+    next_byte_position: int = 0,
+    edit_kind_index: int = 0,
+    stage: str = "",
+    bonus_offset: int = 0,
+    bonus_value: int = 0,
+) -> None:
+    if progress_queue is None:
+        return
+    try:
+        progress_queue.put_nowait(
+            {
+                "shard_id": int(shard.shard_id),
+                "tested": int(tested),
+                "next_inner_index": int(next_inner_index),
+                "next_byte_position": int(next_byte_position),
+                "edit_kind_index": int(edit_kind_index),
+                "stage": stage,
+                "bonus_offset": int(bonus_offset),
+                "bonus_value": int(bonus_value),
+            }
+        )
+    except Exception:
+        pass
+
+
 def _candidate_at_inner_index(length_plan: SmashLengthPlan, inner_index: int) -> tuple[Any, ...] | None:
     for index, candidate in enumerate(specs.iter_product_values(length_plan.chunk_data, length_plan.color_type)):
         if index == inner_index:
@@ -384,7 +424,12 @@ def build_remove_shards(
     return shards
 
 
-def _run_standard_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event: Any = None) -> SmashShardResult:
+def _run_standard_shard(
+    plan: SmashCandidatePlan,
+    shard: SmashShard,
+    stop_event: Any = None,
+    progress_queue: Any = None,
+) -> SmashShardResult:
     try:
         length_plan = plan.lengths[shard.length_plan_index]
         edit_window = bruteforce.edit_window(
@@ -402,6 +447,7 @@ def _run_standard_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event:
 
         hits: list[SmashCandidateHit] = []
         tested = 0
+        last_reported = 0
         next_inner_index = int(shard.start_inner_index)
         for inner_index, candidate in enumerate(
             specs.iter_product_values(length_plan.chunk_data, length_plan.color_type)
@@ -438,6 +484,14 @@ def _run_standard_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event:
             )
             tested += 1
             next_inner_index = inner_index + 1
+            if tested - last_reported >= SMASH_WORKER_PROGRESS_EVERY:
+                last_reported = tested
+                _report_worker_progress(
+                    progress_queue,
+                    shard,
+                    tested=tested,
+                    next_inner_index=next_inner_index,
+                )
             if plan.old_crc:
                 if not attempt.old_crc_match:
                     continue
@@ -474,7 +528,12 @@ def _run_standard_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event:
         )
 
 
-def _run_remove_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event: Any = None) -> SmashShardResult:
+def _run_remove_shard(
+    plan: SmashCandidatePlan,
+    shard: SmashShard,
+    stop_event: Any = None,
+    progress_queue: Any = None,
+) -> SmashShardResult:
     try:
         length_plan = plan.lengths[shard.length_plan_index]
         edit_window = bruteforce.edit_window(
@@ -491,6 +550,7 @@ def _run_remove_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event: A
 
         hits: list[SmashCandidateHit] = []
         tested = 0
+        last_reported = 0
         next_inner_index = start
         for remove_position in range(start, end):
             if _stop_is_set(stop_event):
@@ -519,6 +579,14 @@ def _run_remove_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event: A
             )
             tested += 1
             next_inner_index = remove_position + 1
+            if tested - last_reported >= SMASH_WORKER_PROGRESS_EVERY:
+                last_reported = tested
+                _report_worker_progress(
+                    progress_queue,
+                    shard,
+                    tested=tested,
+                    next_inner_index=next_inner_index,
+                )
             if plan.old_crc:
                 if not attempt.old_crc_match:
                     continue
@@ -554,9 +622,14 @@ def _run_remove_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event: A
         )
 
 
-def run_standard_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event: Any = None) -> SmashShardResult:
+def run_standard_shard(
+    plan: SmashCandidatePlan,
+    shard: SmashShard,
+    stop_event: Any = None,
+    progress_queue: Any = None,
+) -> SmashShardResult:
     with _worker_stderr_silenced():
-        return _run_standard_shard(plan, shard, stop_event)
+        return _run_standard_shard(plan, shard, stop_event, progress_queue)
 
 
 def _twobytes_result(
@@ -594,7 +667,12 @@ def _twobytes_attempt_is_hit(plan: SmashCandidatePlan, attempt: bruteforce.Brute
     return _candidate_png_looks_valid(attempt.png_bytes)
 
 
-def _run_twobytes_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event: Any = None) -> SmashShardResult:
+def _run_twobytes_shard(
+    plan: SmashCandidatePlan,
+    shard: SmashShard,
+    stop_event: Any = None,
+    progress_queue: Any = None,
+) -> SmashShardResult:
     tested = 0
     hits: list[SmashCandidateHit] = []
     inner_index = int(shard.inner_index if shard.inner_index is not None else shard.start_inner_index)
@@ -620,7 +698,7 @@ def _run_twobytes_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event:
                 shard,
                 tested=0,
                 next_byte_position=shard.byte_end,
-                error="TwoBytes candidate index %s is outside the search space." % inner_index,
+                error="HermesProbe candidate index %s is outside the search space." % inner_index,
             )
 
         brute_hex_len = len(brute_bytes.hex())
@@ -629,6 +707,7 @@ def _run_twobytes_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event:
         byte_end = min(max(byte_start, int(shard.byte_end)), total_positions)
         position = max(byte_start, next_byte_position)
         edit_kinds = bruteforce.iter_twobytes_edit_kinds(plan.edit_mode, plan.chunk_name)
+        last_reported = 0
 
         while position < byte_end:
             needle = position * 2
@@ -665,6 +744,17 @@ def _run_twobytes_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event:
                     old_crc=plan.old_crc,
                 )
                 tested += 1
+                if tested - last_reported >= SMASH_WORKER_PROGRESS_EVERY:
+                    last_reported = tested
+                    _report_worker_progress(
+                        progress_queue,
+                        shard,
+                        tested=tested,
+                        next_inner_index=inner_index,
+                        next_byte_position=position,
+                        edit_kind_index=edit_kind_index,
+                        stage="direct",
+                    )
                 if _twobytes_attempt_is_hit(plan, attempt):
                     hits.append(
                         SmashCandidateHit(
@@ -735,6 +825,19 @@ def _run_twobytes_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event:
                         old_crc=plan.old_crc,
                     )
                     tested += 1
+                    if tested - last_reported >= SMASH_WORKER_PROGRESS_EVERY:
+                        last_reported = tested
+                        _report_worker_progress(
+                            progress_queue,
+                            shard,
+                            tested=tested,
+                            next_inner_index=inner_index,
+                            next_byte_position=position,
+                            edit_kind_index=edit_kind_index,
+                            stage="bonus",
+                            bonus_offset=bonus_offset,
+                            bonus_value=bonus_value,
+                        )
                     if not _twobytes_attempt_is_hit(plan, attempt):
                         continue
                     hits.append(
@@ -787,14 +890,24 @@ def _run_twobytes_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event:
         )
 
 
-def run_twobytes_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event: Any = None) -> SmashShardResult:
+def run_twobytes_shard(
+    plan: SmashCandidatePlan,
+    shard: SmashShard,
+    stop_event: Any = None,
+    progress_queue: Any = None,
+) -> SmashShardResult:
     with _worker_stderr_silenced():
-        return _run_twobytes_shard(plan, shard, stop_event)
+        return _run_twobytes_shard(plan, shard, stop_event, progress_queue)
 
 
-def run_remove_shard(plan: SmashCandidatePlan, shard: SmashShard, stop_event: Any = None) -> SmashShardResult:
+def run_remove_shard(
+    plan: SmashCandidatePlan,
+    shard: SmashShard,
+    stop_event: Any = None,
+    progress_queue: Any = None,
+) -> SmashShardResult:
     with _worker_stderr_silenced():
-        return _run_remove_shard(plan, shard, stop_event)
+        return _run_remove_shard(plan, shard, stop_event, progress_queue)
 
 
 class SmashBackend:

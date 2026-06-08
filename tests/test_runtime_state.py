@@ -46,6 +46,7 @@ def test_main_loop_history_reset_values_preserve_fresh_containers():
         "Cornucopia": {},
         "SideNotes": [],
         "DebugNotes": [],
+        "TerminalTranscript": [],
         "IDAT_CRC_PATCH_FAILED": False,
         "IDAT_CRC_PATCH_FAILED_FINDING": None,
         "IDAT_CRC_DEFER_EXPLAINED": False,
@@ -68,6 +69,7 @@ def test_main_loop_history_reset_values_preserve_fresh_containers():
     assert first["PandoraBox"] is not second["PandoraBox"]
     assert first["Chunks_History"] is not second["Chunks_History"]
     assert first["DebugNotes"] is not second["DebugNotes"]
+    assert first["TerminalTranscript"] is not second["TerminalTranscript"]
     assert first["IDAT_CRC_DEFERRED_FINDINGS"] is not second["IDAT_CRC_DEFERRED_FINDINGS"]
     assert first["REPAIR_ROUTE_STATES"] is not second["REPAIR_ROUTE_STATES"]
     assert first["FOG_OF_WAR_BAD_CHUNKS"] is not second["FOG_OF_WAR_BAD_CHUNKS"]

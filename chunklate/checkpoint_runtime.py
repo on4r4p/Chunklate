@@ -910,7 +910,7 @@ def run_smash_brute_brawl_keep_blackfill_fallback(
     )
     runtime.candy(
         "Cowsay",
-        "Keeping the valid blackfill clone already saved.",
+        "Keeping the blackfill fallback parked; no validated SBB repair beat it.",
         "good",
     )
     return True, runtime.end()

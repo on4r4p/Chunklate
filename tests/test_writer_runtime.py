@@ -14,14 +14,26 @@ from chunklate import output, writer, writer_runtime
 from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks
 
 
-def clone_plan(*, save_count=1, max_saves_reached=False):
+def tiny_png_bytes():
+    ihdr = struct.pack("!IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    return (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00"))
+        + IEND_CHUNK
+    )
+
+
+def clone_plan(*, save_count=1, max_saves_reached=False, data=None):
+    if data is None:
+        data = tiny_png_bytes()
     return writer.CloneWritePlan(
         target=output.CloneTarget(
             name="sample.0_Fixed.png",
             directory="/tmp/Folder_sample",
             path="/tmp/Folder_sample/sample.0_Fixed.png",
         ),
-        data=b"fixed",
+        data=data,
         save_count=save_count,
         max_saves_reached=max_saves_reached,
     )
@@ -211,6 +223,60 @@ def test_write_clone_runtime_writes_updates_state_and_summarises():
         "save_count": 1,
         "have_a_kitkat": True,
     }
+
+
+def test_write_clone_invalid_png_is_artifact_only_not_final_sample():
+    calls = []
+    side_notes = []
+    runtime, state = build_runtime(calls, side_notes, plan=clone_plan(data=b"fixed"))
+
+    result = writer_runtime.run_write_clone(runtime, base_context(), "89504e47", "summary")
+
+    assert result is None
+    assert ("write", clone_plan(data=b"fixed")) in calls
+    assert state == {
+        "sample": None,
+        "save_count": None,
+        "have_a_kitkat": False,
+    }
+    assert not [call for call in calls if call[0] == "exit"]
+    assert any(
+        call == (
+            "emit",
+            "<yellow:-Clone written as artifact only; PNG/IDAT validation failed: PNG signature is not at offset 0>",
+        )
+        for call in calls
+    )
+    assert (
+        "summarise",
+        "summary\n-Clone written as artifact only; PNG/IDAT validation failed: PNG signature is not at offset 0",
+    ) in calls
+    assert side_notes == [
+        "-Saving to : /tmp/Folder_sample/sample.0_Fixed.png",
+        "-Clone written as artifact only; PNG/IDAT validation failed: PNG signature is not at offset 0",
+    ]
+
+
+def test_write_clone_structural_intermediate_can_still_be_promoted():
+    calls = []
+    side_notes = []
+    intermediate = PNG_SIGNATURE + build_png_chunk(b"tEXt", b"k\x00v") + IEND_CHUNK
+    runtime, state = build_runtime(calls, side_notes, plan=clone_plan(data=intermediate))
+
+    result = writer_runtime.run_write_clone(runtime, base_context(), "89504e47", "summary")
+
+    assert result is None
+    assert ("write", clone_plan(data=intermediate)) in calls
+    assert state == {
+        "sample": "/tmp/Folder_sample/sample.0_Fixed.png",
+        "save_count": 1,
+        "have_a_kitkat": True,
+    }
+    assert not any(
+        call[0] == "emit" and "artifact only" in str(call[1])
+        for call in calls
+    )
+    assert ("summarise", "summary") in calls
 
 
 def test_write_clone_runtime_preserves_pause_and_max_saves_exit():
