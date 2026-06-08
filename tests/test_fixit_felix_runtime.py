@@ -951,12 +951,13 @@ def test_partial_blackfill_hephaestus_can_prepare_visual_reference_roi():
         "IDAT-partial-blackfill-hephaestus",
         "IDAT-partial-blackfill-visual-reference",
     ]
+    expected_regions = str(Path("Folder_source-idat") / "_ULF.reference_regions.json")
     assert editor_calls == [
         (
             (
                 "source-idat.png",
                 "",
-                "Folder_source-idat/_ULF.reference_regions.json",
+                expected_regions,
             ),
             {"source_data": source},
         )
@@ -964,11 +965,11 @@ def test_partial_blackfill_hephaestus_can_prepare_visual_reference_roi():
     assert state == {
         "reference": "reference.png",
         "mode": "similar",
-        "regions": "Folder_source-idat/_ULF.reference_regions.json",
+        "regions": expected_regions,
     }
     assert retry_state["visual_reference"] == "reference.png"
-    assert retry_state["visual_reference_regions"] == "Folder_source-idat/_ULF.reference_regions.json"
-    assert "-FixItFelix: Visual reference ROI saved for SBB/HephaestusForge: Folder_source-idat/_ULF.reference_regions.json" in side_notes
+    assert retry_state["visual_reference_regions"] == expected_regions
+    assert "-FixItFelix: Visual reference ROI saved for SBB/HephaestusForge: %s" % expected_regions in side_notes
     assert smash_calls[0][0][3] == idat_chunk.offset * 2
     assert smash_calls[0][1]["BfMode"] == "Brutus"
 
