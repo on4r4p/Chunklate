@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import binascii
+import struct
 import sys
+import zlib
 from pathlib import Path
 
 
@@ -15,7 +17,85 @@ from chunklate.png import iter_chunks
 from repair_matrix import SBB_ONE_BYTE_MATRIX
 
 
-FIXTURES = ROOT / "brokenjavapngsuite"
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def _chunk(chunk_type: bytes, payload: bytes, *, crc: int | None = None) -> bytes:
+    if crc is None:
+        crc = binascii.crc32(chunk_type + payload) & 0xFFFFFFFF
+    return (
+        struct.pack(">I", len(payload))
+        + chunk_type
+        + payload
+        + struct.pack(">I", crc)
+    )
+
+
+def _base_filtered_rows() -> bytes:
+    width = 8
+    height = 8
+    rows = []
+    for y in range(height):
+        row = bytearray([0])
+        for x in range(width):
+            row.extend(((x * 31 + y * 7) & 0xFF, (x * 17 + y * 19) & 0xFF, (x * 3 + y * 41) & 0xFF))
+        rows.append(bytes(row))
+    return b"".join(rows)
+
+
+def _build_rgb_png(filtered_rows: bytes, *, idat_payload: bytes | None = None, idat_crc: int | None = None) -> bytes:
+    width = 8
+    height = 8
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    payload = zlib.compress(filtered_rows) if idat_payload is None else idat_payload
+    return (
+        PNG_SIGNATURE
+        + _chunk(b"IHDR", ihdr)
+        + _chunk(b"IDAT", payload, crc=idat_crc)
+        + _chunk(b"IEND", b"")
+    )
+
+
+BASE_FILTERED_ROWS = _base_filtered_rows()
+BASE_IDAT_PAYLOAD = zlib.compress(BASE_FILTERED_ROWS)
+BASE_IDAT_CRC = binascii.crc32(b"IDAT" + BASE_IDAT_PAYLOAD) & 0xFFFFFFFF
+
+
+def _mutate_one_byte(payload: bytes, mode: str, offset: int, value: int = 0xA5) -> bytes:
+    if mode == "minus":
+        return payload[:offset] + payload[offset + 1 :]
+    if mode == "plus":
+        return payload[:offset] + bytes((value,)) + payload[offset:]
+    if mode == "different":
+        replacement = payload[offset] ^ 0x5A
+        if replacement == payload[offset]:
+            replacement ^= 0xFF
+        return payload[:offset] + bytes((replacement,)) + payload[offset + 1 :]
+    raise AssertionError("unknown mutation mode %r" % mode)
+
+
+def _generated_fixture_bytes(case) -> bytes:
+    raw_offset = len(BASE_FILTERED_ROWS) // 2
+    idat_offset = max(2, len(BASE_IDAT_PAYLOAD) // 2)
+    if case.corruption_family == "zlib_decompressed_payload":
+        mutated_rows = _mutate_one_byte(BASE_FILTERED_ROWS, case.mode, raw_offset)
+        idat_payload = zlib.compress(mutated_rows)
+    elif case.corruption_family == "compressed_idat_payload_before_zlib_decompression":
+        if case.mode == "minus":
+            idat_payload = _mutate_one_byte(BASE_IDAT_PAYLOAD, case.mode, len(BASE_IDAT_PAYLOAD) - 1)
+        elif case.mode == "plus":
+            idat_payload = _mutate_one_byte(BASE_IDAT_PAYLOAD, case.mode, len(BASE_IDAT_PAYLOAD))
+        else:
+            idat_payload = _mutate_one_byte(BASE_IDAT_PAYLOAD, case.mode, idat_offset)
+    else:
+        raise AssertionError("unknown corruption family %r" % case.corruption_family)
+
+    idat_crc = None
+    if case.crc_policy == "original_crc_kept":
+        idat_crc = BASE_IDAT_CRC
+    elif case.crc_policy != "valid_recalculated_crc":
+        raise AssertionError("unknown CRC policy %r" % case.crc_policy)
+    return _build_rgb_png(BASE_FILTERED_ROWS, idat_payload=idat_payload, idat_crc=idat_crc)
 
 
 def _first_idat_crc_target_trusted(data: bytes) -> bool:
@@ -37,14 +117,14 @@ def test_sbb_one_byte_matrix_is_complete_and_unique():
 
     assert len(names) == 12
     assert len(set(names)) == 12
-    assert all((FIXTURES / name).exists() for name in names)
+    assert all(_generated_fixture_bytes(case).startswith(PNG_SIGNATURE) for case in SBB_ONE_BYTE_MATRIX)
 
 
 def test_sbb_one_byte_matrix_drives_diagnostic_order_and_crc_trust():
     failures = []
 
     for case in SBB_ONE_BYTE_MATRIX:
-        data = (FIXTURES / case.fixture).read_bytes()
+        data = _generated_fixture_bytes(case)
         crc_target_trusted = _first_idat_crc_target_trusted(data)
         diagnostic = idat.analyze_sbb_idat_diagnostic(
             data,
