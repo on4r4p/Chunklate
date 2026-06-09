@@ -520,7 +520,11 @@ def _ultimate_progress_shard_audit(
         if depth > len(operation_pool):
             continue
         total_ranks = math.comb(len(operation_pool), depth)
-        expected_end = min(total_ranks, start_rank + max(1, int(shard_size or 1)))
+        try:
+            item_shard_size = int(item.get("shard_size", shard_size) or shard_size or 1)
+        except (TypeError, ValueError):
+            item_shard_size = int(shard_size or 1)
+        expected_end = min(total_ranks, start_rank + max(1, item_shard_size))
         if start_rank < 0 or start_rank >= total_ranks:
             continue
         if end_rank == expected_end:
@@ -2602,6 +2606,207 @@ def _normalize_ultimate_operation_sequence(
     )
 
 
+def _ultimate_gpu_analysis_candidates(
+    *,
+    chunks: tuple[png.PngChunk, ...],
+    root_stream: bytes,
+    before: idat.IdatStreamAnalysis,
+    operation_pools: tuple[tuple[SuperMegaLinefeedOperation, ...], ...],
+    target_adler: int | None,
+    gpu_config: Any,
+    max_depth: int,
+    progress_resume: UltimateLinefeedProgress | None = None,
+    candidate_limit: int = ULTIMATE_LINEFEED_TOP_CANDIDATES,
+    budget_limit: int | None = None,
+    shard_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> tuple[tuple[SuperMegaLinefeedCandidate, ...], str]:
+    if not bool(getattr(gpu_config, "enabled", False)):
+        return (), ""
+    try:
+        from . import ultimate_opengl_backend
+    except Exception as exc:
+        return (), "Ultimate OpenGL analysis unavailable: %s" % exc
+
+    nominations: tuple[SuperMegaLinefeedCandidate, ...] = ()
+    warning = ""
+    parent_score = super_mega_linefeed_score(before, 0)
+    max_depth = max(1, int(max_depth or 1))
+    max_hits = max(1, int(candidate_limit or 1))
+    shard_size = max(1, int(ultimate_opengl_backend.ULTIMATE_OPENGL_ANALYSIS_SHARD_SIZE))
+    remaining_rank_budget = None if budget_limit is None else max(0, int(budget_limit))
+    saved_by_key: dict[tuple[int, int, int, int], dict[str, Any]] = {}
+    if progress_resume is not None:
+        for item in progress_resume.shards:
+            if not isinstance(item, dict) or str(item.get("backend", "")) != "opengl":
+                continue
+            try:
+                key = (
+                    int(item.get("pool_index", 0) or 0),
+                    int(item.get("depth", 0) or 0),
+                    int(item.get("start_rank", 0) or 0),
+                    int(item.get("end_rank", 0) or 0),
+                )
+            except (TypeError, ValueError):
+                continue
+            saved_by_key[key] = dict(item)
+
+    def publish_shard(shard: dict[str, Any]) -> None:
+        if shard_callback is None:
+            return
+        shard_callback(dict(shard))
+
+    def shard_specs() -> Iterable[dict[str, Any]]:
+        ordered: list[tuple[int, int]] = []
+        if max_depth >= 1:
+            ordered.extend((pool_index, 1) for pool_index in range(len(operation_pools)))
+        for depth in range(2, max_depth + 1):
+            ordered.extend((pool_index, depth) for pool_index in range(len(operation_pools)))
+
+        for pool_index, depth in ordered:
+            operation_pool = operation_pools[pool_index]
+            if not operation_pool or depth > len(operation_pool):
+                continue
+            total_ranks = math.comb(len(operation_pool), depth)
+            rank = 0
+            while rank < total_ranks:
+                end_rank = min(total_ranks, rank + shard_size)
+                key = (pool_index, depth, rank, end_rank)
+                previous = saved_by_key.get(key)
+                if previous is not None and str(previous.get("status", "")) == "done":
+                    rank = end_rank
+                    continue
+                next_rank = rank
+                tested = 0
+                pruned = 0
+                if previous is not None:
+                    try:
+                        next_rank = max(rank, min(end_rank, int(previous.get("next_rank", rank) or rank)))
+                    except (TypeError, ValueError):
+                        next_rank = rank
+                    try:
+                        tested = int(previous.get("tested", 0) or 0)
+                    except (TypeError, ValueError):
+                        tested = 0
+                    try:
+                        pruned = int(previous.get("pruned", 0) or 0)
+                    except (TypeError, ValueError):
+                        pruned = 0
+                if next_rank < end_rank:
+                    yield {
+                        "backend": "opengl",
+                        "pool_index": pool_index,
+                        "depth": depth,
+                        "start_rank": rank,
+                        "end_rank": end_rank,
+                        "next_rank": next_rank,
+                        "tested": tested,
+                        "pruned": pruned,
+                        "status": "pending",
+                        "shard_size": shard_size,
+                    }
+                rank = end_rank
+
+    for shard in shard_specs():
+        if remaining_rank_budget is not None:
+            available = max(0, remaining_rank_budget)
+            if available <= 0:
+                break
+            shard = dict(shard)
+            shard["end_rank"] = min(
+                int(shard["end_rank"]),
+                int(shard["next_rank"]) + available,
+            )
+            if int(shard["next_rank"]) >= int(shard["end_rank"]):
+                break
+        pool_index = int(shard["pool_index"])
+        depth = int(shard["depth"])
+        operation_pool = operation_pools[pool_index]
+        start_rank = int(shard["next_rank"])
+        end_rank = int(shard["end_rank"])
+        running_shard = dict(shard, status="running")
+        publish_shard(running_shard)
+        try:
+            plan = ultimate_opengl_backend.build_analysis_plan(
+                root_stream,
+                width=before.width,
+                height=before.height,
+                bit_depth=before.bit_depth,
+                color_type=before.color_type,
+                scanline_size=before.scanline_size,
+                expected_size=before.expected_size,
+                operation_pool=operation_pool,
+                pool_index=pool_index,
+                depth=depth,
+                start_rank=start_rank,
+                end_rank=end_rank,
+                target_adler=target_adler,
+                max_hits=max_hits,
+            )
+            decision = ultimate_opengl_backend.explain_analysis(plan, gpu_config)
+            if not decision.runnable:
+                publish_shard(dict(running_shard, status="pending"))
+                return nominations, decision.reason
+            result = ultimate_opengl_backend.run_analysis_gpu(plan, gpu_config)
+        except Exception as exc:
+            publish_shard(dict(running_shard, status="pending", error=str(exc)))
+            return nominations, "Ultimate OpenGL analysis failed: %s" % exc
+        next_rank = max(start_rank, min(end_rank, int(result.next_rank)))
+        completed_shard = dict(
+            running_shard,
+            next_rank=next_rank,
+            tested=int(running_shard.get("tested", 0) or 0) + int(result.tested),
+            pruned=int(running_shard.get("pruned", 0) or 0) + int(result.pruned),
+            status="done" if next_rank >= end_rank else "pending",
+        )
+        if result.fallback_reason:
+            completed_shard["fallback_reason"] = result.fallback_reason
+            if not warning:
+                warning = "OpenGL shader fallback: %s" % result.fallback_reason
+        if result.reason and not warning:
+            warning = result.reason
+        publish_shard(completed_shard)
+        if remaining_rank_budget is not None:
+            remaining_rank_budget = max(0, remaining_rank_budget - max(0, next_rank - start_rank))
+        for hit in result.hits:
+            try:
+                operations = _normalize_ultimate_operation_sequence(
+                    tuple(operation_pool[index] for index in hit.operation_indices)
+                )
+            except (IndexError, TypeError):
+                continue
+            candidate_stream = _replay_operations(root_stream, operations)
+            if candidate_stream is None:
+                continue
+            candidate_data = _rebuild_with_single_idat_stream(chunks, candidate_stream)
+            candidate_analysis = idat.analyze_idat_stream(
+                candidate_data,
+                source_kind="candidate_from_original",
+                crc_provenance="rebuilt_by_chunklate",
+                target_adler=target_adler,
+            )
+            candidate_score = super_mega_linefeed_score(candidate_analysis, len(operations))
+            if candidate_score <= parent_score and candidate_analysis.adler_status != "adler_match":
+                continue
+            candidate = SuperMegaLinefeedCandidate(
+                candidate_data,
+                operations,
+                before,
+                candidate_analysis,
+                state_id=0,
+                parent_id=0,
+                source_offsets=tuple(operation.stream_offset for operation in operations),
+                score=candidate_score,
+            )
+            nominations = _remember_ultimate_top_candidate(
+                nominations,
+                candidate,
+                limit=max_hits,
+            )
+        if nominations and any(candidate.after.adler_status == "adler_match" for candidate in nominations):
+            return nominations, warning
+    return nominations, warning
+
+
 def _ultimate_prune_reason(
     parent: idat.IdatStreamAnalysis,
     candidate: idat.IdatStreamAnalysis,
@@ -4449,6 +4654,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     visual_gallery_path: str = "",
     ultimate_workers: int = 0,
     gpu_suspect_offsets: tuple[int, ...] = (),
+    gpu_config: Any = None,
 ) -> UltimateLinefeedProbeResult:
     strategy = "UltimateMegaSuperLineFeedBruteForce"
     reference_mode = _coerce_ultimate_reference_mode(reference_mode)
@@ -4483,6 +4689,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     resume_saved_workers = 0
     resume_fast_used = False
     resume_rejected_reason = ""
+    gpu_analysis_warning = ""
 
     def emit_ultimate_progress(count: int, *, force: bool = False) -> None:
         nonlocal displayed_progress, progress_started, attempted_candidates
@@ -5066,6 +5273,96 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
             return True
         return candidate.after.adler_status == "adler_match"
 
+    def gpu_shard_key(shard: dict[str, Any]) -> str:
+        return "opengl:%s:%s:%s:%s" % (
+            int(shard.get("pool_index", 0) or 0),
+            int(shard.get("depth", 0) or 0),
+            int(shard.get("start_rank", 0) or 0),
+            int(shard.get("end_rank", 0) or 0),
+        )
+
+    def record_gpu_shard(shard: dict[str, Any]) -> None:
+        normalized = _normalize_ultimate_progress_shard(dict(shard, backend="opengl"))
+        current_shards[gpu_shard_key(normalized)] = normalized
+        save_progress_snapshot(
+            phase="exhaustive",
+            depth=int(normalized.get("depth", current_depth) or current_depth or 1),
+            pool_index=int(normalized.get("pool_index", current_pool_index) or current_pool_index),
+            combination_rank=int(normalized.get("next_rank", current_combination_rank) or 0),
+            combination_indices=None,
+        )
+
+    def gpu_done_shard_covers(pool_index: int, depth: int, rank: int) -> bool:
+        shard_sources: list[dict[str, Any]] = [
+            shard for shard in current_shards.values() if isinstance(shard, dict)
+        ]
+        if progress_resume is not None:
+            shard_sources.extend(
+                shard for shard in progress_resume.shards if isinstance(shard, dict)
+            )
+        for shard in shard_sources:
+            if str(shard.get("backend", "")) != "opengl" or str(shard.get("status", "")) != "done":
+                continue
+            try:
+                if int(shard.get("pool_index", 0) or 0) != int(pool_index):
+                    continue
+                if int(shard.get("depth", 0) or 0) != int(depth):
+                    continue
+                start_rank = int(shard.get("start_rank", 0) or 0)
+                end_rank = int(shard.get("end_rank", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if start_rank <= int(rank) < end_rank:
+                return True
+        return False
+
+    if not terminal(best) and not fast_resume_complete:
+        gpu_candidates, gpu_analysis_warning = _ultimate_gpu_analysis_candidates(
+            chunks=chunks,
+            root_stream=root_stream,
+            before=before,
+            operation_pools=operation_pools,
+            target_adler=target_adler,
+            gpu_config=gpu_config,
+            max_depth=max_depth,
+            progress_resume=progress_resume,
+            candidate_limit=max(ULTIMATE_LINEFEED_TOP_CANDIDATES, min(25, max(5, visual_gallery_limit))),
+            budget_limit=budget_limit,
+            shard_callback=record_gpu_shard,
+        )
+        for candidate in gpu_candidates:
+            stream_hash = _stream_state_key(
+                b"".join(chunk.data for chunk in png.iter_chunks(candidate.data) if chunk.chunk_type == b"IDAT")
+            )
+            if stream_hash in visited:
+                continue
+            visited.add(stream_hash)
+            candidate = replace(candidate, state_id=next_state_id, parent_id=0)
+            next_state_id += 1
+            top_candidates = _remember_ultimate_top_candidate(top_candidates, candidate)
+            remember_visual_candidate(candidate, tested)
+            _preview_ultimate_candidate_if_valid(
+                candidate,
+                tested,
+                progress_total,
+                candidate_preview,
+            )
+            candidate_score = candidate.score or super_mega_linefeed_score(
+                candidate.after,
+                len(candidate.operations),
+            )
+            if candidate_score > best_score:
+                best = candidate
+                best_score = candidate_score
+                _append_ultimate_checkpoint(
+                    checkpoint_path,
+                    source_hash=source_hash,
+                    candidate=candidate,
+                    depth=max(1, len(candidate.operations)),
+                )
+            if terminal(best):
+                break
+
     if progress is not None and tested > 0:
         emit_ultimate_progress(tested)
 
@@ -5193,6 +5490,19 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                 except (TypeError, ValueError):
                     continue
                 resumed_by_shard[key] = dict(item)
+        for item in current_shards.values():
+            if not isinstance(item, dict) or str(item.get("backend", "")) != "opengl":
+                continue
+            try:
+                key = (
+                    int(item.get("pool_index", 0)),
+                    int(item.get("depth", 0)),
+                    int(item.get("start_rank", 0)),
+                    int(item.get("end_rank", 0)),
+                )
+            except (TypeError, ValueError):
+                continue
+            resumed_by_shard[key] = dict(item)
 
         def shard_key(shard: dict[str, Any]) -> str:
             return "%s:%s:%s:%s" % (
@@ -5601,6 +5911,8 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                     for indices in _combination_indices_from(len(operation_pool), depth, start_indices):
                         current_combination_indices = indices
                         current_combination_rank = _combination_rank(indices, len(operation_pool), depth)
+                        if gpu_done_shard_covers(pool_index, depth, current_combination_rank):
+                            continue
                         combination = tuple(operation_pool[index] for index in indices)
                         if budget_reached():
                             budget_exhausted = True
@@ -5703,6 +6015,9 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         reason = "original Adler target was not recovered"
     elif budget_exhausted:
         reason = "budget exhausted"
+    combined_progress_warning = "; ".join(
+        item for item in (progress_warning, gpu_analysis_warning) if item
+    )
 
     return UltimateLinefeedProbeResult(
         before,
@@ -5728,7 +6043,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         reference_warning=reference_warning,
         progress_path=progress_path,
         progress_resumed=progress_resume is not None,
-        progress_warning=progress_warning,
+        progress_warning=combined_progress_warning,
         visual_candidates=visual_candidates,
         visual_gallery_path=visual_gallery_path,
         visual_preview_count=visual_preview_count,

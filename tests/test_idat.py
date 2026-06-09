@@ -12,8 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from chunklate import gpu_runtime
 from chunklate import idat
 from chunklate import idat_bruteforce
+from chunklate import ultimate_opengl_backend
 from chunklate.png import (
     IEND_CHUNK,
     PNG_SIGNATURE,
@@ -2010,6 +2012,164 @@ def test_ultimate_linefeed_combination_indices_resume_without_restarting():
     assert indices == [(1, 3), (1, 4), (2, 3), (2, 4), (3, 4)]
     assert idat_bruteforce._next_combination_indices((3, 4), 5, 2) is None
     assert idat_bruteforce._combination_rank((1, 3), 5, 2) == 5
+
+
+def test_ultimate_progress_shard_preserves_optional_gpu_backend_fields():
+    shard = idat_bruteforce._normalize_ultimate_progress_shard(
+        {
+            "backend": "opengl",
+            "pool_index": 1,
+            "depth": 2,
+            "start_rank": 10,
+            "end_rank": 20,
+            "next_rank": 14,
+            "status": "pending",
+        }
+    )
+
+    assert shard["backend"] == "opengl"
+    assert shard["start_rank"] == 10
+    assert shard["next_rank"] == 14
+    assert shard["tested"] == 4
+
+
+def test_ultimate_gpu_analysis_candidates_are_confirmed_with_idat_analyzer(monkeypatch):
+    filtered = b"\x00abc"
+    good_stream = zlib.compress(filtered)
+    corrupt_stream = bytearray(good_stream)
+    corrupt_stream[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 1, filtered, idat_data=bytes(corrupt_stream))
+    chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    before = idat.analyze_idat_stream(corrupt)
+    operation = idat_bruteforce.SuperMegaLinefeedOperation(
+        "restore-adler-byte",
+        len(corrupt_stream) - 1,
+        bytes((corrupt_stream[-1],)),
+        bytes((good_stream[-1],)),
+    )
+    monkeypatch.setattr(
+        ultimate_opengl_backend,
+        "explain_analysis",
+        lambda plan, gpu_config: ultimate_opengl_backend.UltimateOpenGLDecision(
+            True,
+            "mock OpenGL ready",
+        ),
+    )
+    monkeypatch.setattr(
+        ultimate_opengl_backend,
+        "run_analysis_gpu",
+        lambda plan, gpu_config: ultimate_opengl_backend._run_analysis_host(plan),
+    )
+
+    candidates, warning = idat_bruteforce._ultimate_gpu_analysis_candidates(
+        chunks=chunks,
+        root_stream=root_stream,
+        before=before,
+        operation_pools=((operation,),),
+        target_adler=zlib.adler32(filtered) & 0xFFFFFFFF,
+        gpu_config=gpu_runtime.GpuRuntimeConfig(enabled=True, install_missing=False),
+        max_depth=1,
+    )
+
+    assert warning == ""
+    assert len(candidates) == 1
+    assert candidates[0].after.complete is True
+    assert candidates[0].after.adler_status == "adler_match"
+    assert idat.analyze_idat_stream(candidates[0].data).complete is True
+
+
+def test_ultimate_gpu_analysis_resumes_done_opengl_shards(monkeypatch):
+    filtered = b"\x00abc"
+    stream = zlib.compress(filtered)
+    source = build_rgb_png(1, 1, filtered, idat_data=stream)
+    chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(source)
+    before = idat.analyze_idat_stream(source)
+    operations = tuple(
+        idat_bruteforce.SuperMegaLinefeedOperation(
+            "noop-%s" % index,
+            index,
+            bytes((root_stream[index],)),
+            bytes((root_stream[index],)),
+        )
+        for index in range(3)
+    )
+    progress = idat_bruteforce.UltimateLinefeedProgress(
+        "progress.json",
+        idat_bruteforce._stream_state_key(root_stream),
+        before.stored_adler,
+        None,
+        1,
+        8,
+        "pool",
+        "focused",
+        "broad",
+        "exhaustive",
+        1,
+        0,
+        1,
+        None,
+        1,
+        0,
+        1,
+        None,
+        0.0,
+        shards=(
+            {
+                "backend": "opengl",
+                "pool_index": 0,
+                "depth": 1,
+                "start_rank": 0,
+                "end_rank": 1,
+                "next_rank": 1,
+                "status": "done",
+                "shard_size": 1,
+            },
+        ),
+        version=idat_bruteforce.ULTIMATE_LINEFEED_PROGRESS_VERSION,
+        attempted_candidates=1,
+    )
+    plans = []
+    callbacks = []
+
+    monkeypatch.setattr(ultimate_opengl_backend, "ULTIMATE_OPENGL_ANALYSIS_SHARD_SIZE", 1)
+    monkeypatch.setattr(
+        ultimate_opengl_backend,
+        "explain_analysis",
+        lambda plan, gpu_config: ultimate_opengl_backend.UltimateOpenGLDecision(True, "mock"),
+    )
+
+    def fake_run(plan, gpu_config):
+        plans.append((plan.start_rank, plan.end_rank))
+        return ultimate_opengl_backend.UltimateOpenGLAnalysisResult(
+            (),
+            1,
+            0,
+            plan.start_rank,
+            plan.bounded_end_rank,
+            plan.bounded_end_rank,
+            covered_rank_count=plan.bounded_end_rank - plan.start_rank,
+            shader_used=True,
+        )
+
+    monkeypatch.setattr(ultimate_opengl_backend, "run_analysis_gpu", fake_run)
+
+    candidates, warning = idat_bruteforce._ultimate_gpu_analysis_candidates(
+        chunks=chunks,
+        root_stream=root_stream,
+        before=before,
+        operation_pools=(operations,),
+        target_adler=before.stored_adler,
+        gpu_config=gpu_runtime.GpuRuntimeConfig(enabled=True, install_missing=False),
+        max_depth=1,
+        progress_resume=progress,
+        shard_callback=lambda shard: callbacks.append(dict(shard)),
+    )
+
+    assert candidates == ()
+    assert warning == ""
+    assert plans == [(1, 2), (2, 3)]
+    assert [callback["status"] for callback in callbacks] == ["running", "done", "running", "done"]
+    assert callbacks[-1]["backend"] == "opengl"
 
 
 def test_ultimate_linefeed_bruteforce_resumes_progress_checkpoint(tmp_path):

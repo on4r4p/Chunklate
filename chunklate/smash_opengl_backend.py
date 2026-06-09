@@ -224,12 +224,17 @@ class OpenGLReplace1Result:
     hits: tuple[smash_backend.SmashCandidateHit, ...]
     tested: int
     truncated: bool = False
+    covered_stage: str = "direct"
+    covered_full_cpu_space: bool = True
+    next_cursor: "OpenGLReplace1Cursor | None" = None
 
 
 @dataclass(frozen=True)
 class OpenGLReplace1Cursor:
     inner_index: int
     byte_position: int
+    edit_kind_index: int = 0
+    stage: str = "direct"
 
 
 @dataclass(frozen=True)
@@ -238,6 +243,7 @@ class OpenGLHermesSupport:
     edit_window: bruteforce.BruteForceEditWindow
     values: tuple[int, ...]
     edit_kind: str
+    edit_kinds: tuple[str, ...]
     candidate_len: int
     generated_values: bool
     candidate_count: int
@@ -376,6 +382,12 @@ def _replace1_support_details(plan: smash_backend.SmashCandidatePlan) -> OpenGLH
     edit_kind = _hermes1_edit_kind(plan)
     if not edit_kind:
         return None
+    try:
+        edit_kinds = tuple(bruteforce.iter_twobytes_edit_kinds(plan.edit_mode, plan.chunk_name))
+    except ValueError:
+        return None
+    if not edit_kinds:
+        return None
     length_plan = plan.lengths[0]
     layout = _length_plan_candidate_layout(length_plan)
     if layout is None:
@@ -394,14 +406,10 @@ def _replace1_support_details(plan: smash_backend.SmashCandidatePlan) -> OpenGLH
         return None
     if candidate_len > payload_len:
         return None
-    if edit_kind == "remove":
-        values = (0,)
-        generated_values = False
-        candidate_count = 1
     position_count = _hermes1_position_count(edit_window, edit_kind, candidate_len)
     if position_count <= 0:
         return None
-    total_candidates = int(position_count) * int(candidate_count)
+    total_candidates = int(position_count) * int(candidate_count) * len(edit_kinds)
     if total_candidates <= 0:
         return None
     return OpenGLHermesSupport(
@@ -409,6 +417,7 @@ def _replace1_support_details(plan: smash_backend.SmashCandidatePlan) -> OpenGLH
         edit_window=edit_window,
         values=values,
         edit_kind=edit_kind,
+        edit_kinds=edit_kinds,
         candidate_len=candidate_len,
         generated_values=generated_values,
         candidate_count=candidate_count,
@@ -656,21 +665,60 @@ def _generated_low_len(candidate_len: int) -> int:
     return min(4, int(candidate_len))
 
 
+def _ceil_div(value: int, divisor: int) -> int:
+    safe_divisor = max(1, int(divisor))
+    return -(-int(value) // safe_divisor)
+
+
+def _local_rank_range_for_global_batch(
+    *,
+    start_rank: int,
+    end_rank: int,
+    edit_kind_index: int,
+    edit_kind_count: int,
+    local_total: int,
+) -> tuple[int, int]:
+    start = max(0, _ceil_div(int(start_rank) - int(edit_kind_index), int(edit_kind_count)))
+    end = max(0, _ceil_div(int(end_rank) - int(edit_kind_index), int(edit_kind_count)))
+    return min(start, int(local_total)), min(max(start, end), int(local_total))
+
+
+def _call_progress_callback(
+    progress_callback: Callable[..., Any] | None,
+    tested: int,
+    total: int,
+    cursor: OpenGLReplace1Cursor | None,
+) -> None:
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(tested, total, cursor=cursor)
+        return
+    except TypeError:
+        pass
+    progress_callback(tested, total)
+
+
 def replace1_rank_for_cursor(
     plan: smash_backend.SmashCandidatePlan,
     inner_index: int,
     byte_position: int,
+    edit_kind_index: int = 0,
 ) -> int:
     support = _replace1_support_details(plan)
     if support is None:
         raise NotImplementedError("SBB OpenGL kernel only supports direct HermesProbe byte-window passes for now")
     safe_inner = int(inner_index)
     safe_position = int(byte_position)
+    safe_edit_kind_index = int(edit_kind_index)
     if safe_inner < 0 or safe_inner >= support.candidate_count:
         raise IndexError("HermesProbe inner index is outside the OpenGL search space")
     if safe_position < 0 or safe_position >= support.position_count:
         raise IndexError("HermesProbe byte position is outside the OpenGL search space")
-    return safe_inner * support.position_count + safe_position
+    if safe_edit_kind_index < 0 or safe_edit_kind_index >= len(support.edit_kinds):
+        raise IndexError("HermesProbe edit kind index is outside the OpenGL search space")
+    local_rank = safe_inner * support.position_count + safe_position
+    return local_rank * len(support.edit_kinds) + safe_edit_kind_index
 
 
 def replace1_cursor_from_rank(
@@ -683,9 +731,13 @@ def replace1_cursor_from_rank(
     safe_rank = int(rank)
     if safe_rank < 0 or safe_rank >= support.total_candidates:
         raise IndexError("HermesProbe OpenGL rank is outside the search space")
+    edit_kind_count = len(support.edit_kinds)
+    local_rank = safe_rank // edit_kind_count
     return OpenGLReplace1Cursor(
-        inner_index=safe_rank // support.position_count,
-        byte_position=safe_rank % support.position_count,
+        inner_index=local_rank // support.position_count,
+        byte_position=local_rank % support.position_count,
+        edit_kind_index=safe_rank % edit_kind_count,
+        stage="direct",
     )
 
 
@@ -704,7 +756,10 @@ def _hit_from_replace1_rank(
     support = _replace1_support_details(plan)
     if support is None:
         return None
-    edit_kind = support.edit_kind
+    try:
+        edit_kind = support.edit_kinds[int(cursor.edit_kind_index)]
+    except (IndexError, TypeError, ValueError):
+        return None
     if edit_kind == "remove":
         remove_start = position
         remove_end = position + support.candidate_len
@@ -751,6 +806,9 @@ def _hit_from_replace1_rank(
         png_bytes=attempt.png_bytes,
         old_crc_match=attempt.old_crc_match,
         edit_kind=edit_kind,
+        byte_position=position,
+        edit_kind_index=int(cursor.edit_kind_index),
+        stage=str(cursor.stage or "direct"),
     )
 
 
@@ -761,17 +819,40 @@ def run_replace1_crc_kernel(
     harness_factory: Callable[..., gpu_opengl.OpenGLComputeHarness] = gpu_opengl.create_compute_harness,
     max_hits: int = OPENGL_REPLACE1_MAX_HITS,
     batch_size: int = OPENGL_REPLACE1_BATCH_SIZE,
-    progress_callback: Callable[[int, int], Any] | None = None,
+    progress_callback: Callable[..., Any] | None = None,
+    resume_cursor: OpenGLReplace1Cursor | None = None,
+    stop_after_first_hit: bool = False,
 ) -> OpenGLReplace1Result:
     support = _replace1_support_details(plan)
     if support is None:
         raise NotImplementedError("SBB OpenGL kernel only supports direct HermesProbe byte-window passes for now")
+    if resume_cursor is not None and str(resume_cursor.stage or "direct") != "direct":
+        raise NotImplementedError("SBB OpenGL can resume only the direct stage; using CPU from the saved cursor.")
     length_plan = support.length_plan
     edit_window = support.edit_window
     payload = tuple(bytes.fromhex(edit_window.to_brute))
     total_candidates = support.total_candidates
     if total_candidates <= 0:
         return OpenGLReplace1Result((), 0)
+    start_rank = (
+        replace1_rank_for_cursor(
+            plan,
+            resume_cursor.inner_index,
+            resume_cursor.byte_position,
+            resume_cursor.edit_kind_index,
+        )
+        if resume_cursor is not None
+        else 0
+    )
+    start_rank = min(max(0, int(start_rank)), int(total_candidates))
+    if start_rank >= total_candidates:
+        return OpenGLReplace1Result(
+            (),
+            0,
+            covered_stage="direct",
+            covered_full_cpu_space=max(0, int(plan.brute_level)) <= 0,
+            next_cursor=None,
+        )
 
     harness = None
     shader = None
@@ -781,7 +862,14 @@ def run_replace1_crc_kernel(
     output_buffer = None
     hit_ranks: list[int] = []
     truncated = False
+    stopped_after_hit = False
+    stop_rank_after_hit: int | None = None
     tested_count = 0
+    next_cursor: OpenGLReplace1Cursor | None = (
+        replace1_cursor_from_rank(plan, start_rank)
+        if start_rank < total_candidates
+        else None
+    )
     try:
         harness = harness_factory(auto_install=gpu_config.install_missing)
         shader = harness.compile_compute_shader(OPENGL_REPLACE1_CRC_SHADER)
@@ -800,74 +888,128 @@ def run_replace1_crc_kernel(
         target_crc = int.from_bytes(bytes(plan.old_crc), "big")
         safe_batch_size = min(max(1, int(batch_size)), _dynamic_batch_size(support))
         max_rank_tile_inner = max(1, OPENGL_HERMES_UINT_MAX // max(1, support.position_count))
-        base_inner_index = 0
-        while base_inner_index < support.candidate_count:
-            remaining_inner = support.candidate_count - base_inner_index
-            if support.generated_values and support.candidate_len > 4:
-                low_remaining = (OPENGL_HERMES_UINT_MAX + 1) - _generated_low_base(
-                    support.candidate_len,
-                    base_inner_index,
+        edit_kind_count = len(support.edit_kinds)
+        local_total = int(support.candidate_count) * int(support.position_count)
+        global_rank = int(start_rank)
+
+        def run_local_range(edit_kind_index: int, local_start: int, local_end: int) -> None:
+            nonlocal tested_count, truncated, stopped_after_hit, stop_rank_after_hit
+            local_cursor = int(local_start)
+            while local_cursor < int(local_end):
+                base_inner_index = int(local_cursor) // int(support.position_count)
+                tile_start = base_inner_index * int(support.position_count)
+                remaining_inner = support.candidate_count - base_inner_index
+                if support.generated_values and support.candidate_len > 4:
+                    low_remaining = (OPENGL_HERMES_UINT_MAX + 1) - _generated_low_base(
+                        support.candidate_len,
+                        base_inner_index,
+                    )
+                else:
+                    low_remaining = remaining_inner
+                tile_inner_count = max(
+                    1,
+                    min(
+                        int(remaining_inner),
+                        int(low_remaining),
+                        int(max_rank_tile_inner),
+                    ),
                 )
-            else:
-                low_remaining = remaining_inner
-            tile_inner_count = max(
-                1,
-                min(
-                    int(remaining_inner),
-                    int(low_remaining),
-                    int(max_rank_tile_inner),
-                ),
-            )
-            tile_total = int(tile_inner_count) * int(support.position_count)
-            candidate_prefix = _generated_prefix_bytes(support.candidate_len, base_inner_index)
-            prefix_writer = getattr(candidate_prefix_buffer, "write", None)
-            if callable(prefix_writer):
-                prefix_writer(_uint_buffer_data(list(candidate_prefix) or [0]))
-            base_local_rank = 0
-            while base_local_rank < tile_total:
-                batch_count = min(safe_batch_size, tile_total - base_local_rank)
-                output_buffer.orphan((int(max_hits) + 1) * 4) if hasattr(output_buffer, "orphan") else None
-                writer = getattr(output_buffer, "write", None)
-                if callable(writer):
-                    writer(b"\x00" * ((int(max_hits) + 1) * 4))
-                _set_uniform(shader, "payload_len", len(payload))
-                _set_uniform(shader, "position_count", support.position_count)
-                _set_uniform(shader, "value_count", 0 if support.generated_values else support.candidate_count)
-                _set_uniform(shader, "target_crc", target_crc)
-                _set_uniform(shader, "base_local_rank", base_local_rank)
-                _set_uniform(shader, "batch_count", batch_count)
-                _set_uniform(shader, "max_hits", max_hits)
-                _set_uniform(shader, "edit_kind", OPENGL_HERMES1_EDIT_KIND_INDEX[support.edit_kind])
-                _set_uniform(shader, "candidate_len", support.candidate_len)
-                _set_uniform(shader, "candidate_low_len", _generated_low_len(support.candidate_len))
-                _set_uniform(shader, "candidate_prefix_len", len(candidate_prefix))
-                _set_uniform(
-                    shader,
-                    "candidate_low_base",
-                    _generated_low_base(support.candidate_len, base_inner_index),
+                tile_total = int(tile_inner_count) * int(support.position_count)
+                tile_end = min(int(local_end), tile_start + tile_total)
+                candidate_prefix = _generated_prefix_bytes(support.candidate_len, base_inner_index)
+                prefix_writer = getattr(candidate_prefix_buffer, "write", None)
+                if callable(prefix_writer):
+                    prefix_writer(_uint_buffer_data(list(candidate_prefix) or [0]))
+
+                base_local_rank = int(local_cursor) - tile_start
+                end_local_rank = int(tile_end) - tile_start
+                while base_local_rank < end_local_rank:
+                    batch_count = min(safe_batch_size, end_local_rank - base_local_rank)
+                    output_buffer.orphan((int(max_hits) + 1) * 4) if hasattr(output_buffer, "orphan") else None
+                    writer = getattr(output_buffer, "write", None)
+                    if callable(writer):
+                        writer(b"\x00" * ((int(max_hits) + 1) * 4))
+                    _set_uniform(shader, "payload_len", len(payload))
+                    _set_uniform(shader, "position_count", support.position_count)
+                    _set_uniform(shader, "value_count", 0 if support.generated_values else support.candidate_count)
+                    _set_uniform(shader, "target_crc", target_crc)
+                    _set_uniform(shader, "base_local_rank", base_local_rank)
+                    _set_uniform(shader, "batch_count", batch_count)
+                    _set_uniform(shader, "max_hits", max_hits)
+                    _set_uniform(
+                        shader,
+                        "edit_kind",
+                        OPENGL_HERMES1_EDIT_KIND_INDEX[support.edit_kinds[int(edit_kind_index)]],
+                    )
+                    _set_uniform(shader, "candidate_len", support.candidate_len)
+                    _set_uniform(shader, "candidate_low_len", _generated_low_len(support.candidate_len))
+                    _set_uniform(shader, "candidate_prefix_len", len(candidate_prefix))
+                    _set_uniform(
+                        shader,
+                        "candidate_low_base",
+                        _generated_low_base(support.candidate_len, base_inner_index),
+                    )
+                    _set_uniform(shader, "generated_values", 1 if support.generated_values else 0)
+                    _set_uniform(shader, "original_full_crc", original_full_crc)
+                    group_x = max(1, (int(batch_count) + 127) // 128)
+                    harness.dispatch(shader, group_x=group_x)
+                    harness.memory_barrier()
+                    ranks, batch_truncated = _read_hit_ranks(output_buffer, max_hits=max_hits)
+                    for tile_rank in ranks:
+                        local_inner = int(tile_rank) // int(support.position_count)
+                        position = int(tile_rank) % int(support.position_count)
+                        global_inner = int(base_inner_index) + local_inner
+                        hit_ranks.append(
+                            (
+                                global_inner * int(support.position_count) + position
+                            )
+                            * edit_kind_count
+                            + int(edit_kind_index)
+                        )
+                    truncated = truncated or batch_truncated
+                    tested_count += int(batch_count)
+                    if ranks and stop_after_first_hit:
+                        stopped_after_hit = True
+                        stop_rank_after_hit = min(hit_ranks) + 1
+                        return
+                    if len(hit_ranks) >= max_hits:
+                        truncated = True
+                        return
+                    base_local_rank += int(batch_count)
+                local_cursor = tile_end
+
+        while global_rank < total_candidates:
+            global_end = min(int(total_candidates), global_rank + safe_batch_size)
+            for edit_kind_index, _edit_kind in enumerate(support.edit_kinds):
+                local_start, local_end = _local_rank_range_for_global_batch(
+                    start_rank=global_rank,
+                    end_rank=global_end,
+                    edit_kind_index=edit_kind_index,
+                    edit_kind_count=edit_kind_count,
+                    local_total=local_total,
                 )
-                _set_uniform(shader, "generated_values", 1 if support.generated_values else 0)
-                _set_uniform(shader, "original_full_crc", original_full_crc)
-                group_x = max(1, (int(batch_count) + 127) // 128)
-                harness.dispatch(shader, group_x=group_x)
-                harness.memory_barrier()
-                ranks, batch_truncated = _read_hit_ranks(output_buffer, max_hits=max_hits)
-                for tile_rank in ranks:
-                    local_inner = int(tile_rank) // int(support.position_count)
-                    position = int(tile_rank) % int(support.position_count)
-                    global_inner = int(base_inner_index) + local_inner
-                    hit_ranks.append(global_inner * int(support.position_count) + position)
-                truncated = truncated or batch_truncated
-                tested_count += int(batch_count)
-                if progress_callback is not None:
-                    progress_callback(tested_count, total_candidates)
-                if len(hit_ranks) >= max_hits:
-                    truncated = True
+                if local_start >= local_end:
+                    continue
+                run_local_range(edit_kind_index, local_start, local_end)
+                if stopped_after_hit or len(hit_ranks) >= max_hits:
                     break
-                base_local_rank += int(batch_count)
-            if len(hit_ranks) >= max_hits:
+            if stopped_after_hit and stop_rank_after_hit is not None:
+                global_rank = min(int(total_candidates), int(stop_rank_after_hit))
+            else:
+                global_rank = global_end
+            next_cursor = (
+                replace1_cursor_from_rank(plan, global_rank)
+                if global_rank < total_candidates
+                else None
+            )
+            _call_progress_callback(
+                progress_callback,
+                tested_count,
+                total_candidates - start_rank,
+                next_cursor,
+            )
+            if stopped_after_hit or len(hit_ranks) >= max_hits:
                 break
-            base_inner_index += int(tile_inner_count)
     finally:
         _release_resource(output_buffer)
         _release_resource(candidate_prefix_buffer)
@@ -883,7 +1025,14 @@ def run_replace1_crc_kernel(
         hit = _hit_from_replace1_rank(plan, length_plan, edit_window, rank)
         if hit is not None:
             hits.append(hit)
-    return OpenGLReplace1Result(tuple(hits), tested_count or total_candidates, truncated=truncated)
+    return OpenGLReplace1Result(
+        tuple(hits),
+        tested_count or (total_candidates - start_rank),
+        truncated=truncated,
+        covered_stage="direct",
+        covered_full_cpu_space=next_cursor is None and max(0, int(plan.brute_level)) <= 0,
+        next_cursor=next_cursor,
+    )
 
 
 def run_scan(
@@ -898,11 +1047,30 @@ def run_scan(
     resume_outer_index: int,
     resume_inner_index: int,
     *,
-    progress_callback: Callable[[int, int], Any] | None = None,
+    progress_callback: Callable[..., Any] | None = None,
 ) -> OpenGLReplace1Result:
-    if resume_outer_index or resume_inner_index:
-        raise NotImplementedError("SBB OpenGL resume is not implemented for this pass yet")
-    return run_replace1_crc_kernel(plan, _runtime.gpu_config, progress_callback=progress_callback)
+    resume_cursor = None
+    if isinstance(_progress_resume, dict):
+        cursor_record = _progress_resume.get("cursor")
+        if isinstance(cursor_record, dict):
+            stage = str(cursor_record.get("stage") or "direct")
+            if stage not in ("", "direct"):
+                raise NotImplementedError("SBB OpenGL can resume only direct stage; using CPU from the saved cursor.")
+            if resume_outer_index:
+                raise NotImplementedError("SBB OpenGL direct resume only supports the first Hermes length plan; using CPU.")
+            resume_cursor = OpenGLReplace1Cursor(
+                inner_index=int(resume_inner_index),
+                byte_position=int(cursor_record.get("byte_position", 0) or 0),
+                edit_kind_index=int(cursor_record.get("edit_kind_index", 0) or 0),
+                stage="direct",
+            )
+    return run_replace1_crc_kernel(
+        plan,
+        _runtime.gpu_config,
+        progress_callback=progress_callback,
+        resume_cursor=resume_cursor,
+        stop_after_first_hit=True,
+    )
 
 
 def run_gpu(*args: Any, **kwargs: Any) -> Any:

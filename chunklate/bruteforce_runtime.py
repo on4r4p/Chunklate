@@ -1774,7 +1774,15 @@ def _run_gpu_scan(
         return False
     emit_gpu_status(decision.reason)
 
-    def gpu_progress_callback(tested: int, total: int) -> None:
+    def gpu_progress_callback(tested: int, total: int, *, cursor: Any = None) -> None:
+        if cursor is not None:
+            scan_state.outer_index = 0
+            scan_state.inner_index = int(getattr(cursor, "inner_index", scan_state.inner_index))
+            scan_state.byte_position = int(getattr(cursor, "byte_position", scan_state.byte_position))
+            scan_state.edit_kind_index = int(getattr(cursor, "edit_kind_index", scan_state.edit_kind_index))
+            scan_state.stage = str(getattr(cursor, "stage", "direct") or "direct")
+            scan_state.bonus_offset = 0
+            scan_state.bonus_value = 0
         safe_total = max(1, gpu_tested_floor + max(0, int(total)))
         safe_current = min(safe_total, gpu_tested_floor + max(0, int(tested)))
         scan_state.tested_candidates = max(scan_state.tested_candidates, safe_current)
@@ -1851,12 +1859,39 @@ def _run_gpu_scan(
     hits = tuple(getattr(gpu_result, "hits", ()) or ())
     tested = int(getattr(gpu_result, "tested", 0) or 0)
     truncated = bool(getattr(gpu_result, "truncated", False))
+    covered_full_cpu_space = bool(getattr(gpu_result, "covered_full_cpu_space", True))
+    next_cursor = getattr(gpu_result, "next_cursor", None)
+    if next_cursor is not None:
+        scan_state.outer_index = 0
+        scan_state.inner_index = int(getattr(next_cursor, "inner_index", scan_state.inner_index))
+        scan_state.byte_position = int(getattr(next_cursor, "byte_position", scan_state.byte_position))
+        scan_state.edit_kind_index = int(getattr(next_cursor, "edit_kind_index", scan_state.edit_kind_index))
+        scan_state.stage = str(getattr(next_cursor, "stage", "direct") or "direct")
+        scan_state.bonus_offset = 0
+        scan_state.bonus_value = 0
     if tested > 0:
         scan_state.tested_candidates = max(scan_state.tested_candidates, gpu_tested_floor + tested)
     if not hits:
         if truncated:
             scan_state.tested_candidates = gpu_tested_floor
             emit_gpu_status("OpenGL pass stopped before completion; using CPU workers.")
+            save_smash_progress_snapshot(
+                runtime,
+                context,
+                runtime_plan,
+                scan_state,
+                candidate_space_hash=candidate_space_hash,
+                force=True,
+                backend="opengl",
+                workers=0,
+                shard_size=0,
+                shards=[],
+                crc_trusted=bool(context.old_crc),
+                status="running",
+            )
+            return False
+        if not covered_full_cpu_space:
+            emit_gpu_status("OpenGL direct pass exhausted; continuing with CPU bonus stages.")
             save_smash_progress_snapshot(
                 runtime,
                 context,
@@ -1893,9 +1928,9 @@ def _run_gpu_scan(
         scan_state.outer_index = int(hit.outer_index)
         scan_state.length = int(hit.length)
         scan_state.inner_index = int(hit.inner_index)
-        scan_state.byte_position = 0
-        scan_state.edit_kind_index = 0
-        scan_state.stage = ""
+        scan_state.byte_position = int(getattr(hit, "byte_position", 0))
+        scan_state.edit_kind_index = int(getattr(hit, "edit_kind_index", 0))
+        scan_state.stage = str(getattr(hit, "stage", "") or "")
         scan_state.bonus_offset = 0
         scan_state.bonus_value = 0
         if _apply_parallel_hit(runtime, scan_state, old_crc, hit):

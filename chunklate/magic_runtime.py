@@ -1629,6 +1629,7 @@ def _linefeed_run_ultimate_probe(
             visual_min_coverage=_ultimate_visual_min_coverage(runtime),
             ultimate_workers=ultimate_workers,
             gpu_suspect_offsets=gpu_suspect_offsets,
+            gpu_config=runtime.gpu_config,
         )
     except (KeyboardInterrupt, idat_bruteforce.UltimateLinefeedInterrupted):
         runtime.ultimate_interrupt_cleanup()

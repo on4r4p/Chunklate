@@ -82,6 +82,9 @@ class SmashCandidateHit:
     old_crc_match: bool
     edit_kind: str | None = None
     bonus: bool = False
+    byte_position: int = 0
+    edit_kind_index: int = 0
+    stage: str = ""
 
 
 @dataclass(frozen=True)

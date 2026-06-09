@@ -924,6 +924,213 @@ def test_run_scan_gpu_no_hits_marks_pass_exhausted_without_cpu_fallback(monkeypa
     assert any(call[0] == "loadingbar" and call[3] == 64 for call in calls)
 
 
+def test_run_scan_gpu_no_hits_at_deep_level_continues_to_cpu_bonus(monkeypatch):
+    calls = []
+
+    def gpu_explain(plan, config):
+        calls.append(("gpu_explain", plan, config))
+        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL SBB path active.")
+
+    def gpu_run(*args, **kwargs):
+        calls.append(("gpu_run", args, kwargs))
+        return smash_opengl_backend.OpenGLReplace1Result(
+            (),
+            tested=64,
+            covered_stage="direct",
+            covered_full_cpu_space=False,
+        )
+
+    def cpu_parallel(*_args, **_kwargs):
+        calls.append(("cpu_parallel",))
+        return True
+
+    monkeypatch.setattr(smash_opengl_backend, "explain", gpu_explain)
+    monkeypatch.setattr(smash_opengl_backend, "run_scan", gpu_run)
+    monkeypatch.setattr(bruteforce_runtime, "_run_parallel_scan", cpu_parallel)
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            gpu_config=gpu_runtime.GpuRuntimeConfig(enabled=True),
+        )
+        context = base_context(
+            chunk_name=b"IDAT",
+            bf_mode="TwoBytes",
+            old_crc=b"\x00\x00\x00\x00",
+            brute_level=1,
+        )
+
+        bruteforce_runtime.run_scan(runtime, context)
+        record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+
+    assert ("cpu_parallel",) in calls
+    assert record["status"] == "running"
+    assert record["backend"] == "opengl"
+    assert any(
+        call[0] == "emit" and "OpenGL direct pass exhausted; continuing with CPU bonus stages" in call[1]
+        for call in calls
+    )
+
+
+def test_run_scan_gpu_direct_resume_passes_saved_cursor(monkeypatch):
+    calls = []
+    context = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", old_crc="00000000")
+    setup_runtime = build_runtime(
+        [],
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+    )
+    runtime_plan = bruteforce_runtime.prepare_runtime_plan(setup_runtime, context)
+    candidate_hash = smash_checkpoint.candidate_space_hash(
+        bruteforce_runtime._candidate_space_payload(
+            context,
+            runtime_plan,
+            source_hash="source-hash",
+        )
+    )
+    record = {
+        "status": "running",
+        "backend": "opengl",
+        "source_hash": "source-hash",
+        "invocation": smash_checkpoint.invocation_record(
+            file=context.file,
+            chunk_name=context.chunk_name,
+            chunk_length=context.chunk_length,
+            data_offset=context.data_offset,
+            from_error=context.from_error,
+            edit_mode=context.edit_mode,
+            bf_mode=context.bf_mode,
+            brute_crc=context.brute_crc,
+            brute_length=context.brute_length,
+            old_crc=context.old_crc,
+            brute_level=context.brute_level,
+            campaign_focus=context.campaign_focus,
+        ),
+        "plan": {"candidate_space_hash": candidate_hash, "backend": "opengl"},
+        "cursor": {
+            "outer_index": 0,
+            "length": 2,
+            "inner_index": 3,
+            "byte_position": 4,
+            "edit_kind_index": 1,
+            "stage": "direct",
+            "bonus_offset": 0,
+            "bonus_value": 0,
+        },
+        "counters": {"tested_candidates": 99, "accepted_candidates": 0},
+        "shards": [],
+    }
+
+    def gpu_explain(plan, config):
+        calls.append(("gpu_explain", plan, config))
+        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL SBB path active.")
+
+    def gpu_run(*args, **kwargs):
+        calls.append(("gpu_run", args, kwargs))
+        return True
+
+    monkeypatch.setattr(smash_opengl_backend, "explain", gpu_explain)
+    monkeypatch.setattr(smash_opengl_backend, "run_scan", gpu_run)
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+        resume_record=record,
+        gpu_config=gpu_runtime.GpuRuntimeConfig(enabled=True),
+    )
+
+    bruteforce_runtime.run_scan(runtime, context)
+
+    gpu_call = next(call for call in calls if call[0] == "gpu_run")
+    assert gpu_call[1][7] is record
+    assert gpu_call[1][8] == 0
+    assert gpu_call[1][9] == 3
+
+
+def test_run_scan_gpu_bonus_resume_falls_back_to_cpu(monkeypatch):
+    calls = []
+    context = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", old_crc="00000000", brute_level=1)
+    setup_runtime = build_runtime(
+        [],
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+    )
+    runtime_plan = bruteforce_runtime.prepare_runtime_plan(setup_runtime, context)
+    candidate_hash = smash_checkpoint.candidate_space_hash(
+        bruteforce_runtime._candidate_space_payload(
+            context,
+            runtime_plan,
+            source_hash="source-hash",
+        )
+    )
+    record = {
+        "status": "running",
+        "backend": "opengl",
+        "source_hash": "source-hash",
+        "invocation": smash_checkpoint.invocation_record(
+            file=context.file,
+            chunk_name=context.chunk_name,
+            chunk_length=context.chunk_length,
+            data_offset=context.data_offset,
+            from_error=context.from_error,
+            edit_mode=context.edit_mode,
+            bf_mode=context.bf_mode,
+            brute_crc=context.brute_crc,
+            brute_length=context.brute_length,
+            old_crc=context.old_crc,
+            brute_level=context.brute_level,
+            campaign_focus=context.campaign_focus,
+        ),
+        "plan": {"candidate_space_hash": candidate_hash, "backend": "opengl"},
+        "cursor": {
+            "outer_index": 0,
+            "length": 4,
+            "inner_index": 0,
+            "byte_position": 2,
+            "edit_kind_index": 1,
+            "stage": "bonus",
+            "bonus_offset": 8,
+            "bonus_value": 12,
+        },
+        "counters": {"tested_candidates": 99, "accepted_candidates": 0},
+        "shards": [],
+    }
+
+    def gpu_explain(plan, config):
+        calls.append(("gpu_explain", plan, config))
+        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL SBB path active.")
+
+    def cpu_parallel(*_args, **_kwargs):
+        calls.append(("cpu_parallel",))
+        return True
+
+    monkeypatch.setattr(smash_opengl_backend, "explain", gpu_explain)
+    monkeypatch.setattr(bruteforce_runtime, "_run_parallel_scan", cpu_parallel)
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+        resume_record=record,
+        gpu_config=gpu_runtime.GpuRuntimeConfig(enabled=True),
+    )
+
+    bruteforce_runtime.run_scan(runtime, context)
+
+    assert ("cpu_parallel",) in calls
+    assert any(
+        call[0] == "emit" and "resume only direct stage" in call[1]
+        for call in calls
+    )
+
+
 def test_gpu_keyboard_interrupt_writes_opengl_checkpoint(monkeypatch):
     calls = []
 
