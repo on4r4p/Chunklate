@@ -797,6 +797,8 @@ UNCOVERED_REPAIR_CASES: dict[str, str] = {
     "IDAT_Corruption_3.png": "large multi-IDAT corruption fixture kept for manual partial-IDAT blackfill testing",
     "IDAT_Corruption_4.png": "large multi-IDAT corruption fixture kept for manual partial-IDAT blackfill testing",
     "IDAT_Corruption_5.png": "large multi-IDAT corruption fixture kept for manual partial-IDAT blackfill testing",
+    "Kagebushin_IDAT_Changed_1Byte_StoredOriginalCRC.png": "Kagebushin SBB audit fixture: one IDAT byte changed with original CRC kept; not yet in strict repair matrix",
+    "Kagebushin_IDAT_Changed_2Bytes_StoredOriginalCRC.png": "Kagebushin SBB audit fixture: two IDAT bytes changed with original CRC kept; not yet in strict repair matrix",
     "SBB_IDAT_1Byte_Replace.png": "targeted SmashBruteBrawl fixture: one IDAT byte replaced with original CRC kept",
     "SBB_IDAT_1Byte_Missing.png": "targeted SmashBruteBrawl fixture: one IDAT byte removed with original CRC kept",
     "SBB_IDAT_1Byte_Extra.png": "targeted SmashBruteBrawl fixture: one IDAT byte inserted with original CRC kept",

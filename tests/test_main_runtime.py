@@ -67,6 +67,8 @@ def args(**updates):
         "ULTIMATE_LINEFEED_RESUME": "ask",
         "ULTIMATE_LINEFEED_WORKERS": None,
         "SMASH_BRUTE_BRAWL_RESUME": "ask",
+        "SMASH_BRUTE_BRAWL_WORKERS": None,
+        "SMASH_BRUTE_BRAWL_FORCE_LEVEL": None,
     }
     values.update(updates)
     return SimpleNamespace(**values)
@@ -382,6 +384,8 @@ def test_apply_main_cli_options_builds_initial_state():
         ultimate_linefeed_resume="ask",
         ultimate_linefeed_workers=None,
         smash_brute_brawl_resume="ask",
+        smash_brute_brawl_workers=None,
+        smash_brute_brawl_force_level=None,
     )
     assert ("makedirs", "/abs/out/", {"exist_ok": True}) in calls
 
@@ -550,6 +554,28 @@ def test_apply_main_cli_options_exits_on_bad_smash_workers():
     assert ("exit", 1) in calls
 
 
+def test_apply_main_cli_options_exits_on_bad_smash_force_level():
+    calls = []
+
+    try:
+        apply_options(calls, args(SMASH_BRUTE_BRAWL_FORCE_LEVEL="-1"))
+    except ExitReached as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("bad SmashBruteBrawl force level should exit")
+
+    assert ("print", "-sbbl must be a non-negative integer.") in calls
+    assert ("exit", 1) in calls
+
+
+def test_apply_main_cli_options_accepts_smash_force_level():
+    calls = []
+
+    state = apply_options(calls, args(SMASH_BRUTE_BRAWL_FORCE_LEVEL="2"))
+
+    assert state.smash_brute_brawl_force_level == 2
+
+
 def test_apply_main_cli_options_global_workers_fill_ultimate_and_smash_defaults():
     calls = []
 
@@ -661,6 +687,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         ultimate_linefeed_workers="auto",
         smash_brute_brawl_resume="auto",
         smash_brute_brawl_workers="normal",
+        smash_brute_brawl_force_level=2,
         gpu_config=main_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True),
     )
 
@@ -696,6 +723,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         "ULTIMATE_LINEFEED_WORKERS": "auto",
         "SMASH_BRUTE_BRAWL_RESUME": "auto",
         "SMASH_BRUTE_BRAWL_WORKERS": "normal",
+        "SMASH_BRUTE_BRAWL_FORCE_LEVEL": 2,
         "GPU": True,
         "GPU_CONFIG": main_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True),
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
@@ -764,8 +792,47 @@ def test_apply_main_cli_options_from_namespace_updates_legacy_globals():
     assert namespace["ULTIMATE_LINEFEED_SHOW_PREVIEWS"] is False
     assert namespace["ULTIMATE_LINEFEED_RESUME"] == "ask"
     assert namespace["SMASH_BRUTE_BRAWL_RESUME"] == "ask"
+    assert namespace["SMASH_BRUTE_BRAWL_WORKERS"] is None
+    assert namespace["SMASH_BRUTE_BRAWL_FORCE_LEVEL"] is None
+    assert "Brute_LvL" not in namespace
     assert namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] is True
     assert calls == [("makedirs", "/abs/out/", {"exist_ok": True})]
+
+
+def test_apply_main_cli_options_from_namespace_sets_forced_sbb_brute_level():
+    calls = []
+    fake_os = SimpleNamespace(
+        makedirs=lambda path, **kwargs: calls.append(("makedirs", path, kwargs)),
+        listdir=lambda path: [],
+        path=SimpleNamespace(
+            abspath=lambda path: "/abs/" + path,
+            join=lambda *parts: "/".join(parts),
+            exists=lambda path: False,
+            isdir=lambda path: False,
+        ),
+    )
+    namespace = {
+        "sys": SimpleNamespace(exit=lambda code: calls.append(("exit", code)), stderr="stderr"),
+        "os": fake_os,
+        "shutil": SimpleNamespace(rmtree=lambda path: calls.append(("remove_tree", path))),
+        "Candy": lambda *args: calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "CLONESWAR": False,
+        "CRASH": False,
+        "Brute_LvL": 0,
+    }
+
+    state = main_runtime.apply_main_cli_options_from_namespace(
+        namespace,
+        args(SMASH_BRUTE_BRAWL_FORCE_LEVEL="2"),
+        (),
+        argv_len=2,
+        parser=FakeParser(calls),
+    )
+
+    assert state.smash_brute_brawl_force_level == 2
+    assert namespace["SMASH_BRUTE_BRAWL_FORCE_LEVEL"] == 2
+    assert namespace["Brute_LvL"] == 2
 
 
 def test_reset_main_loop_state_updates_legacy_globals_and_preserves_local_tmp_fixihdr():

@@ -20,6 +20,8 @@ def build_runtime(
     ihdr_interlace="0",
     question_answers=(True,),
     progress_path="",
+    clear_smash_resume_files=None,
+    force_brute_level=None,
 ):
     state = {"brute_level": brute_level}
     side_notes = []
@@ -71,7 +73,9 @@ def build_runtime(
         set_brute_level=set_brute_level,
         eta=eta,
         ihdr_interlace=ihdr_interlace,
+        clear_smash_resume_files=clear_smash_resume_files or (lambda: None),
         progress_path=progress_path,
+        force_brute_level=force_brute_level,
     )
     return runtime, state, side_notes
 
@@ -475,6 +479,7 @@ def test_blackfill_failure_auto_retries_without_questions():
 
 def test_blackfill_failure_prompts_before_measured_long_pass():
     calls = []
+    clear_calls = []
     with tempfile.TemporaryDirectory() as directory:
         progress_path = str(Path(directory) / "_SBB.progress.json")
         Path(progress_path).write_text(
@@ -493,6 +498,7 @@ def test_blackfill_failure_prompts_before_measured_long_pass():
             calls,
             question_answers=(False,),
             progress_path=progress_path,
+            clear_smash_resume_files=lambda: clear_calls.append("clear"),
         )
         runtime.retry_state["campaign_focus"] = "insert"
         toolkit = (
@@ -518,12 +524,16 @@ def test_blackfill_failure_prompts_before_measured_long_pass():
             "-Bruteforcer has Failed",
             toolkit,
         )
+        progress_still_exists = Path(progress_path).exists()
 
     assert result == (True, "end")
     assert state["brute_level"] == 0
+    assert clear_calls == []
+    assert progress_still_exists is True
     assert [call[0] for call in calls].count("question") == 1
     assert any(
-        call[0] == "emit" and "SBB estimated next pass" in call[1][0]
+        call[0] == "emit"
+        and "SBB estimated next pass (HermesProbe Insert 2-byte window)" in call[1][0]
         for call in calls
     )
     assert all(call[0] != "smash_brute_brawl" for call in calls)
@@ -1345,6 +1355,42 @@ def test_blackfill_progressive_campaign_keeps_level_first_order():
     )
 
 
+def test_blackfill_forced_level_skips_lower_campaign_levels():
+    calls = []
+    runtime, _state, _side_notes = build_runtime(calls, force_brute_level=2)
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        4,
+        100,
+        "Replace",
+        "TwoBytes",
+        "crc",
+        "length",
+        "old-crc",
+        "FixItFelix partial IDAT blackfill",
+    )
+    runtime.retry_state["campaign_focus"] = "progressive"
+    runtime.retry_state["hephaestus_order"] = ("Replace", "Insert", "Remove")
+
+    attempts = checkpoint_actions_runtime._blackfill_campaign_attempts(
+        runtime,
+        toolkit,
+        current_edit="Replace",
+        current_mode="TwoBytes",
+    )
+
+    assert attempts[:6] == (
+        ("Replace", "TwoBytes", 2),
+        ("Insert", "TwoBytes", 2),
+        ("Remove", "TwoBytes", 2),
+        ("Replace", "Brutus", 2),
+        ("Insert", "Brutus", 2),
+        ("Remove", "Brutus", 2),
+    )
+    assert all(level >= 2 for _edit, _mode, level in attempts)
+
+
 def test_checkpoint_action_namespace_builder_wires_state_and_callbacks():
     calls = []
     checkpoint_rt = object()
@@ -1354,6 +1400,7 @@ def test_checkpoint_action_namespace_builder_wires_state_and_callbacks():
         "CheckPoint_Apply_Flags": lambda flags: calls.append(("flags", flags)),
         "Raw_NextChunk": b"nEXT",
         "Brute_LvL": 3,
+        "SMASH_BRUTE_BRAWL_FORCE_LEVEL": "2",
         "ETA": 7,
         "IHDR_Interlace": "1",
     }
@@ -1367,6 +1414,7 @@ def test_checkpoint_action_namespace_builder_wires_state_and_callbacks():
     assert runtime.get_brute_level() == 3
     runtime.set_brute_level(4)
     assert namespace["Brute_LvL"] == 4
+    assert runtime.force_brute_level == 2
     assert runtime.eta == 7
     assert runtime.ihdr_interlace == "1"
     runtime.apply_flags({"Bad_Crc": True})
@@ -1407,6 +1455,7 @@ def main():
         ("Blackfill retry skips attempted edit", test_blackfill_retry_skips_already_attempted_hephaestus_edit),
         ("Blackfill focus campaign order", test_blackfill_focus_campaign_exhausts_selected_family_first),
         ("Blackfill progressive campaign order", test_blackfill_progressive_campaign_keeps_level_first_order),
+        ("Blackfill forced campaign level", test_blackfill_forced_level_skips_lower_campaign_levels),
         ("Namespace action runtime", test_checkpoint_action_namespace_builder_wires_state_and_callbacks),
     ]
 

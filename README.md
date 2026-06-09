@@ -70,7 +70,7 @@ python -m pip install "moderngl>=5.10"
 usage: Chunklate.py [-h] [-f FILE] [-c] [-p] [-d] [-df] [-dp] [-ep] [-sp]
                     [-stfu] [-a] [--no-color] [--output-dir DIR]
                     [--max-saves N] [-workers min|normal|max|N] [-gpu]
-                    [-ulfr exact|similar PATH] [-ulfroi-edit] [-ulfsp]
+                    [-sbbl N] [-ulfr exact|similar PATH] [-ulfroi-edit] [-ulfsp]
                     [-ulfgl N] [-ulfmc FLOAT]
 ```
 
@@ -102,6 +102,7 @@ Performance and brute force:
 | `-workers max` | Use about `CPU - 1` workers. |
 | `-workers N` | Use exactly `N` CPU workers. |
 | `-gpu` | Allow GPU acceleration when a compatible engine supports the current pass. CPU remains the fallback. |
+| `-sbbl N` | Start SmashBruteBrawl at brute-force level `N`; useful to jump straight to level `2` for 4-byte Hermes windows after lower levels are already exhausted. |
 
 Ultimate line-feed options:
 

@@ -47,9 +47,14 @@ class CheckPointActionRuntime:
     retry_state: dict[str, Any] = field(default_factory=dict)
     clear_smash_resume_files: Callable[[], Any] = lambda: None
     progress_path: str = ""
+    force_brute_level: int | None = None
 
 
 def build_checkpoint_action_runtime_from_namespace(namespace: dict[str, Any]) -> CheckPointActionRuntime:
+    force_brute_level = _coerce_optional_non_negative_int(
+        namespace.get("SMASH_BRUTE_BRAWL_FORCE_LEVEL")
+    )
+
     def clear_smash_resume_files() -> None:
         paths = [
             namespace.get("SMASH_BRUTE_BRAWL_PROGRESS_PATH"),
@@ -84,7 +89,20 @@ def build_checkpoint_action_runtime_from_namespace(namespace: dict[str, Any]) ->
         retry_state=namespace.setdefault("_SBB_BLACKFILL_RETRY_STATE", {}),
         clear_smash_resume_files=clear_smash_resume_files,
         progress_path=namespace.get("SMASH_BRUTE_BRAWL_PROGRESS_PATH", ""),
+        force_brute_level=force_brute_level,
     )
+
+
+def _coerce_optional_non_negative_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    return parsed
 
 
 def action_write_clone(runtime: CheckPointActionRuntime, decision, chunk, info, toolkit):
@@ -494,12 +512,21 @@ def _blackfill_campaign_attempts(
     start_mode = _blackfill_campaign_start_mode(runtime, current_mode)
     focus = _blackfill_campaign_focus(runtime, current_edit)
     attempts: list[tuple[str, str, int]] = []
+    forced_level = runtime.force_brute_level
+
+    def level_allowed(level: int) -> bool:
+        return forced_level is None or int(level) >= int(forced_level)
+
     if focus == "progressive":
         if start_mode.lower() != "brutus":
             for level in SBB_TWOBYTES_CAMPAIGN_LEVELS:
+                if not level_allowed(level):
+                    continue
                 for edit in order:
                     attempts.append((edit, "TwoBytes", level))
         for level in SBB_HEPHAESTUS_CAMPAIGN_LEVELS:
+            if not level_allowed(level):
+                continue
             for edit in order:
                 attempts.append((edit, "Brutus", level))
         return tuple(attempts)
@@ -509,8 +536,12 @@ def _blackfill_campaign_attempts(
     for edit in order:
         if start_mode.lower() != "brutus":
             for level in SBB_TWOBYTES_CAMPAIGN_LEVELS:
+                if not level_allowed(level):
+                    continue
                 attempts.append((edit, "TwoBytes", level))
         for level in SBB_HEPHAESTUS_CAMPAIGN_LEVELS:
+            if not level_allowed(level):
+                continue
             attempts.append((edit, "Brutus", level))
     return tuple(attempts)
 
@@ -857,10 +888,12 @@ def _blackfill_timed_campaign_allowed(
     if prompt_key in prompted:
         return True
     prompted.add(prompt_key)
+    pass_label = _blackfill_attempt_label(edit_mode, bf_mode, brute_level)
     runtime.checkpoint.candy("Cowsay", _blackfill_long_eta_phrase(runtime), "bad")
     runtime.checkpoint.emit(
-        "-SBB estimated next pass: %s candidates at about %.1f candidates/s -> %s."
+        "-SBB estimated next pass (%s): %s candidates at about %.1f candidates/s -> %s."
         % (
+            pass_label,
             f"{estimated_candidates:,}",
             candidates_per_second,
             _format_sbb_eta(estimated_seconds),
@@ -868,7 +901,8 @@ def _blackfill_timed_campaign_allowed(
     )
     runtime.checkpoint.candy(
         "Cowsay",
-        "Should I continue this SBB pass before accepting the blackfill fallback?",
+        "Should I start this next SBB pass (%s) before accepting the blackfill fallback?"
+        % pass_label,
         "com",
     )
     return bool(runtime.checkpoint.question(skipauto=True))
@@ -879,7 +913,6 @@ def _blackfill_keep_existing_fallback(runtime: CheckPointActionRuntime) -> tuple
         "-CheckPoint: Keeping partial IDAT blackfill after progressive SmashBruteBrawl campaign."
     )
     runtime.retry_state.clear()
-    runtime.clear_smash_resume_files()
     return checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(
         runtime.checkpoint
     )

@@ -1046,6 +1046,64 @@ def test_partial_blackfill_cheap_extra_uses_remove():
     )
 
 
+def test_partial_blackfill_force_level_starts_twobytes_at_requested_level():
+    source, repair = partial_scanline_blackfill_source_and_repair()
+    smash_calls = []
+    side_notes = []
+    retry_state = {}
+    original_diagnostic = fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic
+
+    def fake_diagnostic(_data, *, crc_target_trusted=False):
+        return idat.SmashBruteBrawlIdatDiagnostic(
+            supported=True,
+            width=1,
+            height=5,
+            bit_depth=8,
+            color_type=2,
+            color_label="RGB",
+            expected_decompressed_size=20,
+            decompressed_size=12,
+            missing_decompressed_size=8,
+            complete_scanlines=3,
+            total_scanlines=5,
+            partial_scanline_bytes=0,
+            scanline_size=4,
+            idat_chunk_count=1,
+            compressed_size=20,
+            zlib_status="partial",
+            crc_target_trusted=crc_target_trusted,
+            success_estimate="good",
+            success_reason="stored IDAT CRC is a useful target.",
+            recommended_repair_family="missing",
+            hephaestus_order=("Insert", "Replace", "Remove"),
+            cheap_twobytes_viable=True,
+        )
+
+    fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = fake_diagnostic
+    try:
+        runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+            side_notes=side_notes,
+            candy=lambda *args: None,
+            write_clone=lambda *_args: None,
+            question=lambda **_kwargs: True,
+            smash_brute_brawl=lambda *args, **kwargs: smash_calls.append((args, kwargs)),
+            data_hex=source.hex(),
+            file_origin="source-idat.png",
+            retry_state=retry_state,
+            smash_brute_brawl_force_level=2,
+        )
+
+        result = fixit_felix_runtime.maybe_launch_partial_blackfill_bruteforce(runtime, repair)
+    finally:
+        fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = original_diagnostic
+
+    assert result is True
+    assert smash_calls[0][1]["BfMode"] == "TwoBytes"
+    assert smash_calls[0][1]["BruteLevel"] == 2
+    assert retry_state["active_pass"]["brute_level"] == 2
+    assert "-FixItFelix: SmashBruteBrawl forced to start at brute-force level 2." in side_notes
+
+
 def test_partial_blackfill_focus_prompt_defaults_to_recommendation():
     source, repair = partial_scanline_blackfill_source_and_repair()
     inputs = []
@@ -4105,6 +4163,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
         "PAUSEERROR": True,
         "Sample": "sample.png",
         "FILE_Origin": "source.png",
+        "SMASH_BRUTE_BRAWL_FORCE_LEVEL": "2",
         "DATAX": "001122",
         "Raw_Crc": "deadbeef",
         "Bad_Missplaced": True,
@@ -4217,6 +4276,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert automatic.minibar is namespace["Minibar"]
     assert automatic.file_origin == "source.png"
     assert automatic.interactive is False
+    assert automatic.smash_brute_brawl_force_level == 2
 
 
 def test_namespace_pipeline_builder_preserves_debug_and_repair_wiring():

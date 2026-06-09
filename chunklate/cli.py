@@ -311,6 +311,13 @@ def configure_parser(parser: Any) -> Any:
         default=None,
         metavar="N|min|normal|max|auto",
     )
+    smash.add_argument(
+        "-sbbl",
+        dest="SMASH_BRUTE_BRAWL_FORCE_LEVEL",
+        help="Start SmashBruteBrawl at brute-force level N.",
+        default=None,
+        metavar="N",
+    )
     parser.add_argument(
         "--ultimate-linefeed-reference",
         dest="ULTIMATE_LINEFEED_REFERENCE",
@@ -623,6 +630,18 @@ def smash_brute_brawl_workers_error(workers: object) -> str | None:
         return "--smashbrutebrawl-workers must be a non-negative integer, min, normal, max, or auto."
     if value < 0:
         return "--smashbrutebrawl-workers must be a non-negative integer, min, normal, max, or auto."
+    return None
+
+
+def smash_brute_brawl_level_error(level: object) -> str | None:
+    if level is None:
+        return None
+    try:
+        value = int(str(level).strip())
+    except (TypeError, ValueError):
+        return "-sbbl must be a non-negative integer."
+    if value < 0:
+        return "-sbbl must be a non-negative integer."
     return None
 
 

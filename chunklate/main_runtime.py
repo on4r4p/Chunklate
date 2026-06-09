@@ -69,6 +69,7 @@ class MainCliOptionsRuntime:
     ultimate_linefeed_workers_error: Callable = cli.ultimate_linefeed_workers_error
     smash_brute_brawl_resume_error: Callable = cli.smash_brute_brawl_resume_error
     smash_brute_brawl_workers_error: Callable = cli.smash_brute_brawl_workers_error
+    smash_brute_brawl_level_error: Callable = cli.smash_brute_brawl_level_error
     output_file_dir: Callable = cli.output_file_dir
     runtime_flags_from_args: Callable = cli.runtime_flags_from_args
     clone_folder: Callable[[str, str], str] = output.clone_folder
@@ -98,6 +99,7 @@ class MainCliOptionsState:
     ultimate_linefeed_workers: str | int | None = None
     smash_brute_brawl_resume: str = "ask"
     smash_brute_brawl_workers: str | int | None = None
+    smash_brute_brawl_force_level: int | None = None
     gpu_config: gpu_runtime.GpuRuntimeConfig = gpu_runtime.GpuRuntimeConfig()
 
 
@@ -946,6 +948,19 @@ def apply_main_cli_options(
         runtime.print_error(smash_workers_error)
         runtime.exit_process(1)
         return None
+    smash_brute_brawl_force_level_arg = getattr(args, "SMASH_BRUTE_BRAWL_FORCE_LEVEL", None)
+    smash_level_error = runtime.smash_brute_brawl_level_error(
+        smash_brute_brawl_force_level_arg
+    )
+    if smash_level_error is not None:
+        runtime.print_error(smash_level_error)
+        runtime.exit_process(1)
+        return None
+    smash_brute_brawl_force_level = (
+        None
+        if smash_brute_brawl_force_level_arg is None
+        else int(str(smash_brute_brawl_force_level_arg).strip())
+    )
     ultimate_linefeed_budget_error = runtime.ultimate_linefeed_budget_error(
         ultimate_linefeed_budget,
         ultimate_linefeed_unbounded,
@@ -1016,6 +1031,7 @@ def apply_main_cli_options(
         ultimate_linefeed_workers=ultimate_linefeed_workers,
         smash_brute_brawl_resume=smash_brute_brawl_resume,
         smash_brute_brawl_workers=smash_brute_brawl_workers,
+        smash_brute_brawl_force_level=smash_brute_brawl_force_level,
         gpu_config=gpu_config,
     )
 
@@ -1054,6 +1070,7 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "ULTIMATE_LINEFEED_WORKERS": options.ultimate_linefeed_workers,
         "SMASH_BRUTE_BRAWL_RESUME": options.smash_brute_brawl_resume,
         "SMASH_BRUTE_BRAWL_WORKERS": options.smash_brute_brawl_workers,
+        "SMASH_BRUTE_BRAWL_FORCE_LEVEL": options.smash_brute_brawl_force_level,
         "GPU": options.gpu_config.enabled,
         "GPU_CONFIG": options.gpu_config,
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
@@ -1080,6 +1097,8 @@ def apply_main_cli_options_from_namespace(
     if options is None:
         return None
     namespace.update(legacy_globals_from_main_cli_options(options))
+    if options.smash_brute_brawl_force_level is not None:
+        namespace["Brute_LvL"] = options.smash_brute_brawl_force_level
     return options
 
 

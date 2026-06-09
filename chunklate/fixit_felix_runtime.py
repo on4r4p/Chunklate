@@ -84,6 +84,7 @@ class AutomaticRepairRuntime:
     set_ultimate_linefeed_reference: Callable[[str], Any] | None = None
     set_ultimate_linefeed_reference_mode: Callable[[str], Any] | None = None
     set_ultimate_linefeed_reference_regions: Callable[[str], Any] | None = None
+    smash_brute_brawl_force_level: int | None = None
 
 
 @dataclass(frozen=True)
@@ -368,6 +369,9 @@ def build_critical_miss_runtime_from_namespace(namespace: dict[str, Any]) -> Cri
 
 
 def build_automatic_repair_runtime_from_namespace(namespace: dict[str, Any]) -> AutomaticRepairRuntime:
+    smash_brute_brawl_force_level = _coerce_optional_non_negative_int(
+        namespace.get("SMASH_BRUTE_BRAWL_FORCE_LEVEL")
+    )
     return AutomaticRepairRuntime(
         side_notes=namespace["SideNotes"],
         candy=namespace["Candy"],
@@ -404,7 +408,20 @@ def build_automatic_repair_runtime_from_namespace(namespace: dict[str, Any]) -> 
             "ULTIMATE_LINEFEED_REFERENCE_REGIONS",
             value,
         ),
+        smash_brute_brawl_force_level=smash_brute_brawl_force_level,
     )
+
+
+def _coerce_optional_non_negative_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    return parsed
 
 
 def namespace_interactive_prompts(namespace: dict[str, Any]) -> bool:
@@ -1188,13 +1205,19 @@ def _launch_partial_blackfill_bruteforce(
         "-FixItFelix:launched SmashBruteBrawl on source IDAT after partial blackfill %s/%s."
         % (repair.recovered_scanlines, repair.total_scanlines)
     )
+    brute_level = _partial_blackfill_launch_brute_level(runtime, mode_name)
     smash_kwargs: dict[str, Any] = {
         "EditMode": edit_mode,
         "BfMode": "Brutus" if mode_name == "hephaestus" else "TwoBytes",
         "BruteCrc": True,
         "BruteLength": True,
-        "BruteLevel": HEPHAESTUS_INITIAL_BRUTE_LEVEL if mode_name == "hephaestus" else 0,
+        "BruteLevel": brute_level,
     }
+    if runtime.smash_brute_brawl_force_level is not None:
+        runtime.side_notes.append(
+            "-FixItFelix: SmashBruteBrawl forced to start at brute-force level %s."
+            % brute_level
+        )
     if mode_name == "hephaestus":
         runtime.side_notes.append(
             "-FixItFelix: low SBB diagnostic selected HephaestusForge (%s-first)." % edit_mode
@@ -1222,6 +1245,17 @@ def _launch_partial_blackfill_bruteforce(
         "FixItFelix partial IDAT blackfill HephaestusForge" if mode_name == "hephaestus" else "FixItFelix partial IDAT blackfill",
         **smash_kwargs,
     )
+
+
+def _partial_blackfill_launch_brute_level(
+    runtime: AutomaticRepairRuntime,
+    mode_name: str,
+) -> int:
+    base_level = HEPHAESTUS_INITIAL_BRUTE_LEVEL if mode_name == "hephaestus" else 0
+    force_level = runtime.smash_brute_brawl_force_level
+    if force_level is None:
+        return base_level
+    return max(base_level, int(force_level))
 
 
 def _preview_partial_blackfill_repair(

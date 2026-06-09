@@ -98,6 +98,8 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "-sbb-resume" not in result.stdout
     assert "--smashbrutebrawl-workers" not in result.stdout
     assert "-sbbw" not in result.stdout
+    assert "-sbbl N" in result.stdout
+    assert "--smashbrutebrawl-level" not in result.stdout
     assert "--ulf-budget" not in result.stdout
 
 
@@ -186,6 +188,14 @@ def test_smash_brute_brawl_workers_cli_parses_profiles_and_custom_count():
     assert profile_args.SMASH_BRUTE_BRAWL_WORKERS == "normal"
     assert custom_args.SMASH_BRUTE_BRAWL_WORKERS == "12"
     assert zero_args.SMASH_BRUTE_BRAWL_WORKERS == "0"
+
+
+def test_smash_brute_brawl_level_cli_parses_short_public_flag_only():
+    parser = Chunklate.cli.configure_parser(ArgumentParser())
+
+    level_args = parser.parse_args(["-f", "sample.png", "-sbbl", "2"])
+
+    assert level_args.SMASH_BRUTE_BRAWL_FORCE_LEVEL == "2"
 
 
 def test_global_workers_cli_parses_without_exposing_specific_worker_flags():
