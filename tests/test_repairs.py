@@ -51,7 +51,7 @@ def current_repair_fixture_names():
                 for path in result.stdout.splitlines()
                 if (ROOT / path).exists()
             }
-            return tracked_existing | {path.name for path in FIXTURES.glob("*.png")}
+            return tracked_existing
 
     return {path.name for path in FIXTURES.glob("*.png")}
 

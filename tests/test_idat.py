@@ -858,6 +858,34 @@ def test_ultimate_linefeed_estimate_counts_theoretical_combinations():
     )
 
 
+def test_ultimate_linefeed_estimate_merges_gpu_suspect_offsets_first():
+    filtered = b"".join(b"\x00" + bytes((13, 10, row)) for row in range(20))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    for offset in reversed(crlf_offsets[:2]):
+        del compressed[offset]
+
+    corrupt = build_rgb_png(1, 20, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+    gpu_offset = max(0, len(compressed) - 4)
+
+    estimate = idat_bruteforce.estimate_ultimate_linefeed_search(
+        corrupt,
+        start_offset=start_offset,
+        max_depth=4,
+        max_offsets=8,
+        gpu_suspect_offsets=(gpu_offset,),
+    )
+
+    assert estimate.suspect_offsets[0] == gpu_offset
+    assert start_offset in estimate.suspect_offsets
+    assert estimate.operation_count > 0
+
+
 def test_ultimate_linefeed_budget_modes_apply_divisors_without_upper_cap():
     total = 7_012_540_641
 

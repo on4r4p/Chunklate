@@ -529,6 +529,10 @@ def success_checkpoint_request(
     )
 
     if old_crc:
+        # A stored CRC hit is only proof for the candidate that was already
+        # rebuilt and validated by the brute-force runtime. Persist that exact
+        # PNG; the repaired chunk bytes are summary/debug material, not a patch
+        # to reapply at the legacy payload offset.
         return BruteForceCheckpointRequest(
             error=True,
             fixed=True,
@@ -536,9 +540,9 @@ def success_checkpoint_request(
             chunk=chunk_label,
             infos=("-Previous Crc checksum found by replacing datas",),
             toolkit=(
-                full_new_data_hex,
-                data_offset,
-                data_offset + len(full_new_data_hex),
+                png_bytes_hex,
+                0,
+                -1,
                 replacement_summary,
                 chunk_label,
                 from_error,

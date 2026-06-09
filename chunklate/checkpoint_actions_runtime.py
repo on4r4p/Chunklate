@@ -11,7 +11,7 @@ from . import checkpoint_runtime
 
 LegacyCall = Callable[..., Any]
 HEPHAESTUS_MIN_BRUTE_LEVEL = 1
-SBB_TWOBYTES_CAMPAIGN_LEVELS = (0, 1)
+SBB_TWOBYTES_CAMPAIGN_LEVELS = (0, 1, 2)
 SBB_HEPHAESTUS_CAMPAIGN_LEVELS = (1, 2, 3, 4, 7, 15)
 SBB_HEPHAESTUS_AUTO_LEVEL_MAX = 3
 SBB_LONG_PASS_SECONDS = 60 * 60
@@ -21,6 +21,17 @@ SBB_LONG_PASS_PHRASES = (
     "I can keep forging, but this loop is starting to look like a lease agreement.",
     "The checksum is not scared yet. It should be.",
 )
+
+
+def _hermes_window_bytes_for_level(brute_level: int) -> int:
+    level = max(0, int(brute_level))
+    if level == 0:
+        return 1
+    if level == 1:
+        return 2
+    if level == 2:
+        return 4
+    return 2 ** level
 
 
 @dataclass(frozen=True)
@@ -508,7 +519,10 @@ def _blackfill_attempt_label(edit_mode: str, bf_mode: str, brute_level: int) -> 
     if str(bf_mode).lower() == "brutus":
         return "HephaestusForge %s level %s" % (edit_mode, brute_level)
     if str(bf_mode).lower() == "twobytes":
-        return "HermesProbe %s level %s" % (edit_mode, brute_level)
+        return "HermesProbe %s %s-byte window" % (
+            edit_mode,
+            _hermes_window_bytes_for_level(brute_level),
+        )
     return "%s level %s" % (edit_mode, brute_level)
 
 
@@ -768,10 +782,12 @@ def _blackfill_estimated_next_candidates(
         chunk_length = max(1, int(toolkit[2]))
     except (TypeError, ValueError):
         chunk_length = 1
-    if str(bf_mode).lower() != "brutus" and int(brute_level) > 0:
-        # Level 0 is the direct pass. Level 1+ adds the byte bonus sweep, so
-        # scale from the measured direct pass by a conservative payload factor.
-        return previous_tested * max(256, chunk_length * 256)
+    if str(bf_mode).lower() != "brutus":
+        candidate_bytes = _hermes_window_bytes_for_level(brute_level)
+        positions = max(0, int(chunk_length) - int(candidate_bytes) + 1)
+        if str(edit_mode) == "Remove":
+            return positions
+        return positions * (256 ** int(candidate_bytes))
     if str(bf_mode).lower() == "brutus":
         return _blackfill_estimated_brutus_candidates(
             edit_mode=edit_mode,

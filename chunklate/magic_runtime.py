@@ -8,9 +8,12 @@ import time
 import uuid
 from typing import Any
 
+from . import gpu_runtime
 from . import idat
 from . import idat_bruteforce
+from . import platform_runtime
 from . import ultimate_reference_ui
+from . import ultimate_opengl_backend
 from . import chunk_scanner
 from .png import (
     detect_png_signature_recovery,
@@ -102,6 +105,7 @@ class FindMagicRuntime:
     ultimate_visual_min_coverage: LegacyCall = (
         lambda *args, **kwargs: idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE
     )
+    gpu_config: gpu_runtime.GpuRuntimeConfig = gpu_runtime.GpuRuntimeConfig()
     ultimate_candidate_preview: LegacyCall | None = None
     ultimate_interrupt_cleanup: LegacyCall = lambda *args, **kwargs: None
     defer_linefeed_signature_repair: LegacyCall = lambda *args, **kwargs: False
@@ -1162,7 +1166,18 @@ def _ultimate_linefeed_is_interactive(runtime: FindMagicRuntime) -> bool:
 
 def _ultimate_linefeed_workers(runtime: FindMagicRuntime) -> int:
     try:
-        return max(0, int(runtime.ultimate_linefeed_workers() or 0))
+        raw_workers = runtime.ultimate_linefeed_workers()
+    except (OSError, TypeError, ValueError):
+        return 0
+    if raw_workers is None or str(raw_workers).strip() == "":
+        if not _ultimate_linefeed_is_interactive(runtime):
+            return 0
+        raw_workers = "normal"
+    text = str(raw_workers).strip().lower()
+    if text in ("auto", "min", "normal", "max"):
+        return platform_runtime.recommended_worker_count(profile=text)
+    try:
+        return max(0, int(text))
     except (OSError, TypeError, ValueError):
         return 0
 
@@ -1244,6 +1259,71 @@ def _prepare_ultimate_reference_regions(
     return ""
 
 
+def _maybe_prepare_ultimate_reference_from_prompt(
+    runtime: FindMagicRuntime,
+    *,
+    source_data: bytes,
+    source_path: str,
+    checkpoint_path: str,
+    start_offset: int | None,
+) -> tuple[bool, str, str, str]:
+    if _ultimate_linefeed_reference(runtime):
+        return (False, "", "", "")
+    if runtime.ask is None or not _ultimate_linefeed_is_interactive(runtime):
+        return (False, "", "", "")
+
+    offset_label = "unknown" if start_offset is None else "0x%x" % start_offset
+    _cowsay(runtime, "Do you have any similare png by any chance ?", "com")
+    wants_reference = _ask_runtime_question(
+        runtime,
+        "Ultimate Visual Reference ROI:-Do you have any similar png by any chance?",
+        "ultimate-visual-reference-roi-%s" % offset_label,
+        skipauto=True,
+    )
+    if not wants_reference:
+        _cowsay(
+            runtime,
+            "No reference then. Ultimate will still rank by structural survival first.",
+            "com",
+        )
+        return (True, "", "exact", "")
+
+    regions_path = _ultimate_linefeed_reference_regions_path(runtime, checkpoint_path)
+    result = runtime.ultimate_linefeed_reference_region_editor_run(
+        source_path,
+        "",
+        regions_path,
+        source_data=source_data,
+    )
+    warning = str(getattr(result, "warning", "") or "")
+    if warning:
+        _cowsay(runtime, warning, "com")
+    selected_reference = str(getattr(result, "reference_path", "") or "")
+    if not selected_reference:
+        _cowsay(
+            runtime,
+            "No reference PNG selected. Ultimate will continue without visual reference scoring.",
+            "com",
+        )
+        return (True, "", "exact", "")
+
+    saved_regions = ""
+    if bool(getattr(result, "saved", False)) and _ultimate_linefeed_regions_file_is_valid(regions_path):
+        saved_regions = regions_path
+        _cowsay(
+            runtime,
+            "Manual ROI mapping saved. Similar scoring will use your paired rectangles.",
+            "good",
+        )
+    else:
+        _cowsay(
+            runtime,
+            "Reference PNG selected. Ultimate will use similar auto-patch scoring while structural quality stays first.",
+            "good",
+        )
+    return (True, selected_reference, "similar", saved_regions)
+
+
 def _ultimate_visual_gallery_limit(runtime: FindMagicRuntime) -> int:
     try:
         return max(0, int(runtime.ultimate_visual_gallery_limit()))
@@ -1311,6 +1391,42 @@ def _emit_ultimate_budget_plan(
         return
     _cowsay(runtime, "\n".join(lines), "com")
     runtime.clear_dialogue_pause()
+
+
+def _ultimate_gpu_preflight_offsets_if_requested(
+    runtime: FindMagicRuntime,
+    source_data: bytes,
+    *,
+    start_offset: int | None,
+    target_adler: int | None,
+    super_probe=None,
+) -> tuple[int, ...]:
+    if not runtime.gpu_config.enabled:
+        return ()
+    plan = ultimate_opengl_backend.build_plan(
+        source_data,
+        start_offset=start_offset,
+        target_adler=target_adler,
+        super_result=super_probe,
+    )
+    decision = ultimate_opengl_backend.explain(plan, runtime.gpu_config)
+    if not decision.runnable:
+        runtime.emit("-GPU requested: %s" % decision.reason)
+        return ()
+    try:
+        result = ultimate_opengl_backend.run_gpu(plan, runtime.gpu_config)
+    except Exception as exc:
+        runtime.emit("-GPU requested: Ultimate OpenGL preflight failed (%s); using CPU offset heuristics." % exc)
+        return ()
+    offsets = tuple(int(offset) for offset in getattr(result, "offsets", ()) or ())
+    suffix = ""
+    if bool(getattr(result, "truncated", False)):
+        suffix = " Offset cap reached; CPU heuristics will cover the rest."
+    runtime.emit(
+        "-GPU requested: %s Found %s Ultimate offset hint(s).%s"
+        % (decision.reason, len(offsets), suffix)
+    )
+    return offsets
 
 
 def _preview_ultimate_top_candidates(
@@ -1391,11 +1507,19 @@ def _linefeed_run_ultimate_probe(
     target_adler: int | None,
     super_probe=None,
 ) -> LinefeedAlternative:
+    gpu_suspect_offsets = _ultimate_gpu_preflight_offsets_if_requested(
+        runtime,
+        source_data,
+        start_offset=start_offset,
+        target_adler=target_adler,
+        super_probe=super_probe,
+    )
     estimate = idat_bruteforce.estimate_ultimate_linefeed_search(
         source_data,
         start_offset=start_offset,
         target_adler=target_adler,
         super_result=super_probe,
+        gpu_suspect_offsets=gpu_suspect_offsets,
     )
     checkpoint_path = _ultimate_linefeed_checkpoint_path(runtime)
     progress_path = _ultimate_linefeed_progress_path(runtime, checkpoint_path)
@@ -1433,12 +1557,31 @@ def _linefeed_run_ultimate_probe(
     _write_ultimate_raw_source_snapshot(raw_source_path, source_data)
     if _write_ultimate_source_snapshot(source_path, source_data):
         summary_lines.append("-%s: source snapshot saved at %s." % (ULTIMATE_LINEFEED_FORCE, source_path))
-    reference_regions_path = _prepare_ultimate_reference_regions(
+    (
+        reference_prompt_handled,
+        prompted_reference_path,
+        prompted_reference_mode,
+        prompted_reference_regions_path,
+    ) = _maybe_prepare_ultimate_reference_from_prompt(
         runtime,
         source_data=source_data,
         source_path=source_path,
         checkpoint_path=checkpoint_path,
+        start_offset=start_offset,
     )
+    if reference_prompt_handled:
+        reference_path = prompted_reference_path
+        reference_mode = prompted_reference_mode or "exact"
+        reference_regions_path = prompted_reference_regions_path
+    else:
+        reference_regions_path = _prepare_ultimate_reference_regions(
+            runtime,
+            source_data=source_data,
+            source_path=source_path,
+            checkpoint_path=checkpoint_path,
+        )
+        reference_path = _ultimate_linefeed_reference(runtime)
+        reference_mode = _ultimate_linefeed_reference_mode(runtime)
     visual_gallery_limit = _ultimate_visual_gallery_limit(runtime)
     ultimate_workers = _ultimate_linefeed_workers(runtime)
     _emit_ultimate_budget_plan(
@@ -1472,8 +1615,8 @@ def _linefeed_run_ultimate_probe(
             super_result=super_probe,
             checkpoint_path=checkpoint_path,
             budget=budget_decision.budget,
-            reference_path=_ultimate_linefeed_reference(runtime),
-            reference_mode=_ultimate_linefeed_reference_mode(runtime),
+            reference_path=reference_path,
+            reference_mode=reference_mode,
             reference_regions_path=reference_regions_path,
             progress=_linefeed_queue_progress(runtime),
             candidate_preview=runtime.ultimate_candidate_preview,
@@ -1485,6 +1628,7 @@ def _linefeed_run_ultimate_probe(
             visual_gallery_limit=visual_gallery_limit,
             visual_min_coverage=_ultimate_visual_min_coverage(runtime),
             ultimate_workers=ultimate_workers,
+            gpu_suspect_offsets=gpu_suspect_offsets,
         )
     except (KeyboardInterrupt, idat_bruteforce.UltimateLinefeedInterrupted):
         runtime.ultimate_interrupt_cleanup()
@@ -2398,7 +2542,7 @@ def build_find_magic_runtime_from_namespace(
         and not namespace.get("NODIALOGUE", False),
         ultimate_linefeed_workers=namespace.get(
             "Ultimate_Linefeed_Workers",
-            lambda *args, **kwargs: namespace.get("ULTIMATE_LINEFEED_WORKERS", 0) or 0,
+            lambda *args, **kwargs: namespace.get("ULTIMATE_LINEFEED_WORKERS", None),
         ),
         ultimate_visual_gallery_limit=namespace.get(
             "Ultimate_Linefeed_Visual_Gallery_Limit",
@@ -2414,6 +2558,7 @@ def build_find_magic_runtime_from_namespace(
                 idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE,
             ),
         ),
+        gpu_config=namespace.get("GPU_CONFIG", gpu_runtime.build_gpu_config(namespace)),
         ultimate_candidate_preview=namespace.get("Ultimate_Linefeed_Candidate_Preview"),
         ultimate_interrupt_cleanup=namespace.get("Close_Preview_Image", lambda *args, **kwargs: None),
         defer_linefeed_signature_repair=namespace.get(

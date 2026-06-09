@@ -52,6 +52,7 @@ def args(**updates):
         "DEBUGFILE": False,
         "AUTO": False,
         "COLOR_MODE": "auto",
+        "GPU": False,
         "GLOBAL_WORKERS": None,
         "ULTIMATE_LINEFEED_BUDGET": None,
         "ULTIMATE_LINEFEED_UNBOUNDED": False,
@@ -660,6 +661,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         ultimate_linefeed_workers="auto",
         smash_brute_brawl_resume="auto",
         smash_brute_brawl_workers="normal",
+        gpu_config=main_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True),
     )
 
     assert main_runtime.legacy_globals_from_main_cli_options(state) == {
@@ -694,8 +696,19 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         "ULTIMATE_LINEFEED_WORKERS": "auto",
         "SMASH_BRUTE_BRAWL_RESUME": "auto",
         "SMASH_BRUTE_BRAWL_WORKERS": "normal",
+        "GPU": True,
+        "GPU_CONFIG": main_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True),
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
     }
+
+
+def test_apply_main_cli_options_builds_gpu_config():
+    calls = []
+
+    state = apply_options(calls, args(GPU=True))
+
+    assert state.gpu_config.enabled is True
+    assert state.gpu_config.backend == "opengl"
 
 
 def test_apply_main_cli_options_from_namespace_updates_legacy_globals():
@@ -734,6 +747,8 @@ def test_apply_main_cli_options_from_namespace_updates_legacy_globals():
     assert namespace["PAUSEERROR"] is True
     assert namespace["DEBUG"] is False
     assert namespace["DEBUGFILE"] is False
+    assert namespace["GPU"] is False
+    assert namespace["GPU_CONFIG"] == main_runtime.gpu_runtime.GpuRuntimeConfig()
     assert namespace["MAX_SAVES"] == 3
     assert namespace["SAVE_COUNT"] == 0
     assert namespace["Sample"] == "sample.png"

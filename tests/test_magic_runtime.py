@@ -41,6 +41,7 @@ def build_runtime(
     ultimate_visual_gallery_limit=None,
     ultimate_visual_min_coverage=None,
     ultimate_candidate_preview=None,
+    gpu_config=None,
     defer_linefeed_signature_repair=None,
     prompt_candy=None,
     clear_dialogue_pause=None,
@@ -102,9 +103,34 @@ def build_runtime(
         or (lambda: magic_runtime.idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_GALLERY_LIMIT),
         ultimate_visual_min_coverage=ultimate_visual_min_coverage
         or (lambda: magic_runtime.idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE),
+        gpu_config=gpu_config or magic_runtime.gpu_runtime.GpuRuntimeConfig(),
         ultimate_candidate_preview=ultimate_candidate_preview,
         defer_linefeed_signature_repair=defer_linefeed_signature_repair or (lambda *args: False),
     )
+
+
+def test_ultimate_workers_default_to_normal_when_interactive(monkeypatch):
+    calls = []
+    runtime = build_runtime(
+        calls,
+        ultimate_linefeed_workers=lambda: None,
+        ultimate_linefeed_interactive=lambda: True,
+    )
+    monkeypatch.setattr(magic_runtime.platform_runtime, "detected_cpu_count", lambda: 16)
+
+    assert magic_runtime._ultimate_linefeed_workers(runtime) == 8
+
+
+def test_ultimate_workers_stay_serial_when_auto_without_configuration(monkeypatch):
+    calls = []
+    runtime = build_runtime(
+        calls,
+        ultimate_linefeed_workers=lambda: None,
+        ultimate_linefeed_interactive=lambda: False,
+    )
+    monkeypatch.setattr(magic_runtime.platform_runtime, "detected_cpu_count", lambda: 16)
+
+    assert magic_runtime._ultimate_linefeed_workers(runtime) == 0
 
 
 def base_context(data_hex, **updates):
@@ -117,6 +143,27 @@ def base_context(data_hex, **updates):
     }
     values.update(updates)
     return magic_runtime.FindMagicContext(**values)
+
+
+def test_build_find_magic_runtime_from_namespace_propagates_gpu_config():
+    gpu_config = magic_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True)
+    namespace = {
+        "Candy": lambda *args: None,
+        "PRINT": lambda *args: None,
+        "CheckPoint": lambda *args: None,
+        "TheEnd": lambda *args: None,
+        "Betterror": lambda *args: None,
+        "Pause": lambda *args: None,
+        "SpecLength": lambda *args: None,
+        "Minibar": lambda *args: None,
+        "SideNotes": [],
+        "WriteClone": lambda *args: None,
+        "GPU_CONFIG": gpu_config,
+    }
+
+    runtime = magic_runtime.build_find_magic_runtime_from_namespace(namespace)
+
+    assert runtime.gpu_config == gpu_config
 
 
 def tiny_rgb_png():
@@ -732,6 +779,8 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
     answers = [True, True, True]
     original_super_mega = magic_runtime.idat_bruteforce.probe_super_mega_linefeed_force_of_death
     original_ultimate = magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce
+    original_gpu_explain = magic_runtime.ultimate_opengl_backend.explain
+    original_gpu_run = magic_runtime.ultimate_opengl_backend.run_gpu
 
     def fast_super_mega(data, **kwargs):
         kwargs.update(
@@ -787,17 +836,32 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
         ultimate_visual_min_coverage=lambda: 0.8,
         ultimate_linefeed_workers=lambda: 3,
         ultimate_candidate_preview=live_preview,
+        gpu_config=magic_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True),
         clear_dialogue_pause=lambda *args: calls.append(("clear_dialogue_pause", args)),
     )
     corrupted = linefeed_salvage_fixture()
 
     magic_runtime.idat_bruteforce.probe_super_mega_linefeed_force_of_death = fast_super_mega
     magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce = fake_ultimate
+    magic_runtime.ultimate_opengl_backend.explain = (
+        lambda plan, gpu_config: magic_runtime.ultimate_opengl_backend.UltimateOpenGLDecision(
+            True,
+            "OpenGL Ultimate offset preflight active; CPU still runs the repair search.",
+        )
+    )
+    magic_runtime.ultimate_opengl_backend.run_gpu = (
+        lambda plan, gpu_config: magic_runtime.ultimate_opengl_backend.UltimateOpenGLOffsetResult(
+            (3, 7),
+            22,
+        )
+    )
     try:
         result = magic_runtime.run_find_magic(runtime, base_context(corrupted.hex()))
     finally:
         magic_runtime.idat_bruteforce.probe_super_mega_linefeed_force_of_death = original_super_mega
         magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce = original_ultimate
+        magic_runtime.ultimate_opengl_backend.explain = original_gpu_explain
+        magic_runtime.ultimate_opengl_backend.run_gpu = original_gpu_run
 
     write_calls = [call for call in calls if call[0] == "write_clone"]
     ultimate_asks = [
@@ -809,6 +873,10 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
     assert ultimate_asks
     assert ultimate_asks[0][2] == {"skipauto": True}
     assert ("candy", ("Title", "UltimateMegaSuperLineFeedBruteForce")) in calls
+    assert (
+        "emit",
+        "-GPU requested: OpenGL Ultimate offset preflight active; CPU still runs the repair search. Found 2 Ultimate offset hint(s).",
+    ) in calls
     ultimate_kwargs = [call[1] for call in calls if call[0] == "ultimate_kwargs"][0]
     assert ultimate_kwargs["candidate_preview"] is live_preview
     ultimate_prompt_calls = [
@@ -847,6 +915,7 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
     assert ultimate_kwargs["visual_gallery_limit"] == 77
     assert ultimate_kwargs["visual_min_coverage"] == 0.8
     assert ultimate_kwargs["ultimate_workers"] == 3
+    assert ultimate_kwargs["gpu_suspect_offsets"] == (3, 7)
     assert any(
         call[0] == "candy" and "Ultimate will use 3 CPU workers" in str(call[1][1])
         for call in calls
@@ -1107,6 +1176,80 @@ def test_ultimate_reference_regions_existing_mapping_skips_editor(tmp_path):
     )
 
     assert result == str(regions_path)
+
+
+def test_ultimate_reference_prompt_opens_roi_selector_when_reference_missing(tmp_path):
+    calls = []
+    source_data = tiny_rgb_png()
+    source_path = tmp_path / "_ULF.Source.png"
+    reference_path = tmp_path / "reference.png"
+    regions_path = tmp_path / "_ULF.reference_regions.json"
+    source_path.write_bytes(source_data)
+    reference_path.write_bytes(source_data)
+
+    def ask(*args, **kwargs):
+        calls.append(("ask", args, kwargs))
+        return True
+
+    def editor(source, reference, output, **kwargs):
+        calls.append(("editor", source, reference, output, kwargs.get("source_data")))
+        assert reference == ""
+        _write_roi_mapping(Path(output), source_data, reference_path)
+        return magic_runtime.ultimate_reference_ui.ReferenceRegionEditorResult(
+            True,
+            output,
+            region_count=1,
+            reference_path=str(reference_path),
+        )
+
+    runtime = build_runtime(
+        calls,
+        ask=ask,
+        ultimate_linefeed_reference=lambda: "",
+        ultimate_linefeed_reference_regions=lambda: str(regions_path),
+        ultimate_linefeed_reference_region_editor_run=editor,
+    )
+
+    handled, reference, mode, regions = magic_runtime._maybe_prepare_ultimate_reference_from_prompt(
+        runtime,
+        source_data=source_data,
+        source_path=str(source_path),
+        checkpoint_path=str(tmp_path / "_ULF.checkpoint.jsonl"),
+        start_offset=0x1234,
+    )
+
+    assert handled is True
+    assert reference == str(reference_path)
+    assert mode == "similar"
+    assert regions == str(regions_path)
+    assert [
+        call
+        for call in calls
+        if call[0] == "ask" and call[1][0] == "Ultimate Visual Reference ROI:-Do you have any similar png by any chance?"
+    ]
+    assert [call for call in calls if call[0] == "editor"]
+
+
+def test_ultimate_reference_prompt_skips_when_reference_already_configured(tmp_path):
+    calls = []
+    runtime = build_runtime(
+        calls,
+        ask=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("prompt should not open")),
+        ultimate_linefeed_reference=lambda: "reference.png",
+        ultimate_linefeed_reference_region_editor_run=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("editor should not open")
+        ),
+    )
+
+    handled, reference, mode, regions = magic_runtime._maybe_prepare_ultimate_reference_from_prompt(
+        runtime,
+        source_data=tiny_rgb_png(),
+        source_path=str(tmp_path / "_ULF.Source.png"),
+        checkpoint_path=str(tmp_path / "_ULF.checkpoint.jsonl"),
+        start_offset=0x1234,
+    )
+
+    assert (handled, reference, mode, regions) == (False, "", "", "")
 
 
 def test_ultimate_reference_regions_noninteractive_falls_back_to_auto_patch(tmp_path):

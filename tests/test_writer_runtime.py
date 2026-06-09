@@ -496,6 +496,59 @@ def test_run_save_clone_blocks_idat_crc_only_when_deflate_still_breaks():
     assert any(note.startswith("-Deferred IDAT CRC-only patch: zlib stream still invalid:") for note in side_notes)
 
 
+def test_run_save_clone_blocks_invalid_full_png_before_writing_fixed_file():
+    calls = []
+    side_notes = []
+    source = tiny_png_bytes()
+    invalid_full_png = PNG_SIGNATURE + IEND_CHUNK
+    runtime, state = clone_patch_runtime(calls, data_hex=source.hex())
+    runtime = writer_runtime.ClonePatchRuntime(
+        data_hex=runtime.data_hex,
+        candy=runtime.candy,
+        emit=runtime.emit,
+        betterror=runtime.betterror,
+        write_clone=runtime.write_clone,
+        set_show_must_go_on=runtime.set_show_must_go_on,
+        save_debug_payloads=runtime.save_debug_payloads,
+        side_notes=side_notes,
+    )
+
+    result = writer_runtime.run_save_clone(
+        runtime,
+        invalid_full_png.hex(),
+        0,
+        len(source.hex()),
+        "-Previous Crc checksum found by replacing datas",
+    )
+
+    assert result is None
+    assert state == {"show_must_go_on": False}
+    assert not [call for call in calls if call[0] == "write_clone"]
+    assert any("Rejected full clone before write" in note for note in side_notes)
+
+
+def test_run_save_clone_full_png_sentinel_replaces_entire_source():
+    calls = []
+    source = tiny_png_bytes() + b"stale-tail"
+    replacement = tiny_png_bytes()
+    runtime, state = clone_patch_runtime(calls, data_hex=source.hex())
+
+    result = writer_runtime.run_save_clone(
+        runtime,
+        replacement.hex(),
+        0,
+        -1,
+        "-Previous Crc checksum found by replacing datas",
+    )
+
+    assert result == "written"
+    assert state == {"show_must_go_on": True}
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert write_calls
+    assert write_calls[-1][1] == replacement.hex()
+    assert "stale-tail".encode().hex() not in write_calls[-1][1]
+
+
 def test_save_clone_debug_payloads_writes_large_payload_files():
     with tempfile.TemporaryDirectory() as tmp:
         paths = writer_runtime.save_clone_debug_payloads(

@@ -13,11 +13,19 @@ import time
 from typing import Any
 import zlib
 
-from . import bruteforce, idat, png, smash_backend, smash_checkpoint
+from . import (
+    bruteforce,
+    gpu_runtime,
+    idat,
+    png,
+    smash_backend,
+    smash_checkpoint,
+    smash_opengl_backend,
+)
 
 
 LegacyCall = Callable[..., Any]
-SBB_CANDIDATE_ALGORITHM_VERSION = 3
+SBB_CANDIDATE_ALGORITHM_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -60,6 +68,7 @@ class SmashBruteBrawlRuntime:
     resume_record: dict[str, Any] | None = None
     smash_workers: str | int | None = 0
     suppress_candidate_viewer: bool = False
+    gpu_config: gpu_runtime.GpuRuntimeConfig = gpu_runtime.GpuRuntimeConfig()
 
 
 @dataclass(frozen=True)
@@ -566,6 +575,24 @@ def _smash_parallel_shard_size(context: SmashBruteBrawlContext, kind: str) -> in
     return smash_backend.SMASH_PARALLEL_SHARD_SIZE
 
 
+def _hermes_direct_window_bytes_for_level(context: SmashBruteBrawlContext) -> int:
+    level = max(0, int(context.brute_level))
+    if level <= 0:
+        return 1
+    if level == 1:
+        return 2
+    if level == 2:
+        return 4
+    return 2**level
+
+
+def _uses_hermes_direct_window(
+    context: SmashBruteBrawlContext,
+    runtime_plan: bruteforce.BruteForceRuntimePlan,
+) -> bool:
+    return runtime_plan.mode == "TwoBytes" and context.chunk_name == b"IDAT"
+
+
 def _candidate_space_payload(
     context: SmashBruteBrawlContext,
     runtime_plan: bruteforce.BruteForceRuntimePlan,
@@ -573,8 +600,11 @@ def _candidate_space_payload(
     source_hash: str,
 ) -> dict[str, Any]:
     twobytes_edit_order: list[str] = []
+    hermes_window_bytes = 0
     if runtime_plan.mode == "TwoBytes":
         twobytes_edit_order = list(bruteforce.iter_twobytes_edit_kinds(context.edit_mode, context.chunk_name))
+        if _uses_hermes_direct_window(context, runtime_plan):
+            hermes_window_bytes = _hermes_direct_window_bytes_for_level(context)
     return {
         "algorithm_version": SBB_CANDIDATE_ALGORITHM_VERSION,
         "source_hash": source_hash,
@@ -593,6 +623,7 @@ def _candidate_space_payload(
         "campaign_focus": str(context.campaign_focus or ""),
         "scan_kind": _smash_parallel_shard_kind(context, runtime_plan),
         "twobytes_edit_order": twobytes_edit_order,
+        "hermes_window_bytes": hermes_window_bytes,
     }
 
 
@@ -1141,6 +1172,7 @@ def run_scan_length(
     resume_cursor: dict[str, Any] | None = None,
     runtime_plan: bruteforce.BruteForceRuntimePlan,
     candidate_space_hash: str,
+    length_plan: smash_backend.SmashLengthPlan | None = None,
 ) -> None:
     if runtime_plan.mode == "Brutus" and context.edit_mode == "Remove" and context.chunk_name == b"IDAT":
         run_remove_scan_length(
@@ -1157,11 +1189,18 @@ def run_scan_length(
         return
 
     started_at = runtime.now()
-    iter_nbr = bruteforce.iter_nbr_for_length(length, step, outer_index)
-
-    max_iter, len_iter, chunklen_spec, chunk_format, chunk_data, color_type = (
-        bruteforce.load_iteration_spec(bf_mode, struct_indexes, iter_nbr, runtime.load_spec)
-    )
+    if length_plan is None:
+        iter_nbr = bruteforce.iter_nbr_for_length(length, step, outer_index)
+        max_iter, len_iter, _chunklen_spec, chunk_format, chunk_data, color_type = (
+            bruteforce.load_iteration_spec(bf_mode, struct_indexes, iter_nbr, runtime.load_spec)
+        )
+    else:
+        length = int(length_plan.length)
+        max_iter = int(length_plan.max_iter)
+        len_iter = int(length_plan.len_iter)
+        chunk_format = tuple(length_plan.chunk_format)
+        chunk_data = tuple(length_plan.chunk_data)
+        color_type = str(length_plan.color_type)
 
     runtime.loadingbar(max_iter, len_iter, None, True)
 
@@ -1254,8 +1293,26 @@ def run_scan_length(
 
 def _build_smash_length_plans(
     runtime: SmashBruteBrawlRuntime,
+    context: SmashBruteBrawlContext,
     runtime_plan: bruteforce.BruteForceRuntimePlan,
 ) -> tuple[smash_backend.SmashLengthPlan, ...]:
+    if _uses_hermes_direct_window(context, runtime_plan):
+        candidate_bytes = _hermes_direct_window_bytes_for_level(context)
+        max_iter = 256**candidate_bytes
+        byte_values = tuple(range(256))
+        return (
+            smash_backend.SmashLengthPlan(
+                outer_index=0,
+                length=candidate_bytes * 2,
+                iter_nbr=0,
+                max_iter=max_iter,
+                len_iter=len(str(max_iter)),
+                chunk_format=tuple("B" for _ in range(candidate_bytes)),
+                chunk_data=tuple(byte_values for _ in range(candidate_bytes)),
+                color_type="color",
+            ),
+        )
+
     plans: list[smash_backend.SmashLengthPlan] = []
     length_range = runtime_plan.length_range
     for outer_index, length in enumerate(
@@ -1672,6 +1729,229 @@ def _shutdown_smash_parallel_executor(
     _close_smash_parallel_progress_queue(progress_queue)
 
 
+def _run_gpu_scan(
+    runtime: SmashBruteBrawlRuntime,
+    context: SmashBruteBrawlContext,
+    scan_state: SmashBruteBrawlScanState,
+    old_crc: Any,
+    runtime_plan: bruteforce.BruteForceRuntimePlan,
+    candidate_space_hash: str,
+    progress_resume: dict[str, Any] | None,
+    resume_outer_index: int,
+    resume_inner_index: int,
+) -> bool:
+    if not runtime.gpu_config.enabled:
+        return False
+    length_plans = _build_smash_length_plans(runtime, context, runtime_plan)
+    plan = _build_smash_candidate_plan(
+        context,
+        runtime_plan,
+        old_crc,
+        candidate_space_hash,
+        length_plans,
+    )
+    gpu_tested_floor = max(0, int(scan_state.tested_candidates))
+    gpu_progress = {
+        "started": False,
+        "last_emit": 0.0,
+        "total": 0,
+        "width": 1,
+        "status_width": 0,
+    }
+
+    def emit_gpu_status(reason: str) -> None:
+        line = "-GPU requested: %s" % reason
+        if not gpu_progress["started"]:
+            runtime.emit(line)
+            return
+        width = max(int(gpu_progress["status_width"]), len(line))
+        gpu_progress["status_width"] = width
+        runtime.raw_print("\r%s%s" % (line, " " * max(0, width - len(line))), end="\r", flush=True)
+
+    decision = smash_opengl_backend.explain(plan, runtime.gpu_config)
+    if not decision.runnable:
+        emit_gpu_status(decision.reason)
+        return False
+    emit_gpu_status(decision.reason)
+
+    def gpu_progress_callback(tested: int, total: int) -> None:
+        safe_total = max(1, gpu_tested_floor + max(0, int(total)))
+        safe_current = min(safe_total, gpu_tested_floor + max(0, int(tested)))
+        scan_state.tested_candidates = max(scan_state.tested_candidates, safe_current)
+        if not gpu_progress["started"]:
+            gpu_progress["total"] = safe_total
+            gpu_progress["width"] = max(1, len(str(safe_total)))
+            runtime.loadingbar(safe_total, int(gpu_progress["width"]), None, True)
+            gpu_progress["started"] = True
+        now = time.monotonic()
+        if safe_current < safe_total and now - float(gpu_progress["last_emit"]) < 0.5:
+            return
+        runtime.loadingbar(
+            int(gpu_progress["total"]) or safe_total,
+            int(gpu_progress["width"]),
+            safe_current,
+            False,
+        )
+        gpu_progress["last_emit"] = now
+        save_smash_progress_snapshot(
+            runtime,
+            context,
+            runtime_plan,
+            scan_state,
+            candidate_space_hash=candidate_space_hash,
+            backend="opengl",
+            workers=0,
+            shard_size=0,
+            shards=[],
+            crc_trusted=bool(context.old_crc),
+            status="running",
+        )
+
+    try:
+        gpu_result = smash_opengl_backend.run_scan(
+            runtime,
+            context,
+            scan_state,
+            old_crc,
+            runtime_plan,
+            plan,
+            candidate_space_hash,
+            progress_resume,
+            resume_outer_index,
+            resume_inner_index,
+            progress_callback=gpu_progress_callback,
+        )
+    except KeyboardInterrupt as exc:
+        save_smash_progress_snapshot(
+            runtime,
+            context,
+            runtime_plan,
+            scan_state,
+            candidate_space_hash=candidate_space_hash,
+            force=True,
+            backend="opengl",
+            workers=0,
+            shard_size=0,
+            shards=[],
+            crc_trusted=bool(context.old_crc),
+            status="interrupted",
+        )
+        raise smash_checkpoint.SmashBruteBrawlInterrupted(runtime.progress_path) from exc
+    except NotImplementedError as exc:
+        reason = str(exc) or "SBB OpenGL kernel is not implemented yet"
+        emit_gpu_status("%s; using CPU workers." % reason)
+        return False
+    except Exception as exc:
+        emit_gpu_status("OpenGL SBB path failed (%s); using CPU workers." % exc)
+        return False
+
+    if isinstance(gpu_result, bool):
+        return gpu_result
+
+    hits = tuple(getattr(gpu_result, "hits", ()) or ())
+    tested = int(getattr(gpu_result, "tested", 0) or 0)
+    truncated = bool(getattr(gpu_result, "truncated", False))
+    if tested > 0:
+        scan_state.tested_candidates = max(scan_state.tested_candidates, gpu_tested_floor + tested)
+    if not hits:
+        if truncated:
+            scan_state.tested_candidates = gpu_tested_floor
+            emit_gpu_status("OpenGL pass stopped before completion; using CPU workers.")
+            save_smash_progress_snapshot(
+                runtime,
+                context,
+                runtime_plan,
+                scan_state,
+                candidate_space_hash=candidate_space_hash,
+                force=True,
+                backend="opengl",
+                workers=0,
+                shard_size=0,
+                shards=[],
+                crc_trusted=bool(context.old_crc),
+                status="running",
+            )
+            return False
+        save_smash_progress_snapshot(
+            runtime,
+            context,
+            runtime_plan,
+            scan_state,
+            candidate_space_hash=candidate_space_hash,
+            force=True,
+            backend="opengl",
+            workers=0,
+            shard_size=0,
+            shards=[],
+            crc_trusted=bool(context.old_crc),
+            status="exhausted",
+        )
+        return True
+
+    accepted = False
+    for hit in hits:
+        scan_state.outer_index = int(hit.outer_index)
+        scan_state.length = int(hit.length)
+        scan_state.inner_index = int(hit.inner_index)
+        scan_state.byte_position = 0
+        scan_state.edit_kind_index = 0
+        scan_state.stage = ""
+        scan_state.bonus_offset = 0
+        scan_state.bonus_value = 0
+        if _apply_parallel_hit(runtime, scan_state, old_crc, hit):
+            accepted = True
+            break
+
+    if accepted:
+        save_smash_progress_snapshot(
+            runtime,
+            context,
+            runtime_plan,
+            scan_state,
+            candidate_space_hash=candidate_space_hash,
+            force=True,
+            backend="opengl",
+            workers=0,
+            shard_size=0,
+            shards=[],
+            crc_trusted=bool(context.old_crc),
+            status="success",
+        )
+        return True
+    if truncated:
+        emit_gpu_status("OpenGL hit cap reached before a valid candidate; continuing the campaign.")
+        save_smash_progress_snapshot(
+            runtime,
+            context,
+            runtime_plan,
+            scan_state,
+            candidate_space_hash=candidate_space_hash,
+            force=True,
+            backend="opengl",
+            workers=0,
+            shard_size=0,
+            shards=[],
+            crc_trusted=bool(context.old_crc),
+            status=_sbb_scan_terminal_status(scan_state),
+        )
+        return True
+    save_smash_progress_snapshot(
+        runtime,
+        context,
+        runtime_plan,
+        scan_state,
+        candidate_space_hash=candidate_space_hash,
+        force=True,
+        backend="opengl",
+        workers=0,
+        shard_size=0,
+        shards=[],
+        crc_trusted=bool(context.old_crc),
+        status=_sbb_scan_terminal_status(scan_state),
+    )
+    return True
+
+
 def _run_parallel_scan(
     runtime: SmashBruteBrawlRuntime,
     context: SmashBruteBrawlContext,
@@ -1686,7 +1966,7 @@ def _run_parallel_scan(
     worker_count = smash_backend.resolve_smash_worker_count(runtime.smash_workers)
     if worker_count <= 1:
         return False
-    length_plans = _build_smash_length_plans(runtime, runtime_plan)
+    length_plans = _build_smash_length_plans(runtime, context, runtime_plan)
     plan = _build_smash_candidate_plan(
         context,
         runtime_plan,
@@ -2174,6 +2454,28 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
         )
 
     try:
+        if _run_gpu_scan(
+            runtime,
+            context,
+            scan_state,
+            old_crc,
+            runtime_plan,
+            candidate_space_hash,
+            progress_resume,
+            resume_outer_index,
+            resume_inner_index,
+        ):
+            return SmashBruteBrawlScanResult(
+                state=scan_state.state,
+                old_crc=old_crc,
+                bf_mode=runtime_plan.mode,
+                full_new_data=scan_state.full_new_data,
+                png_bytes=scan_state.png_bytes,
+                to_brute=scan_state.to_brute,
+                diff=scan_state.diff,
+                crash=scan_state.crash,
+                eta_seconds=scan_state.eta_seconds,
+            )
         if _run_parallel_scan(
             runtime,
             context,
@@ -2196,10 +2498,9 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
                 crash=scan_state.crash,
                 eta_seconds=scan_state.eta_seconds,
             )
-        for outer_index, length in enumerate(
-            range(length_range.min_length, length_range.max_length, length_range.step)
-        ):
-            if outer_index < resume_outer_index:
+        length_plans = _build_smash_length_plans(runtime, context, runtime_plan)
+        for length_plan in length_plans:
+            if length_plan.outer_index < resume_outer_index:
                 continue
             run_scan_length(
                 runtime,
@@ -2208,13 +2509,14 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
                 old_crc,
                 runtime_plan.mode,
                 runtime_plan.struct_indexes,
-                length,
+                length_plan.length,
                 length_range.step,
-                outer_index,
-                resume_inner_index=resume_inner_index if outer_index == resume_outer_index else 0,
-                resume_cursor=resume_cursor if outer_index == resume_outer_index else None,
+                length_plan.outer_index,
+                resume_inner_index=resume_inner_index if length_plan.outer_index == resume_outer_index else 0,
+                resume_cursor=resume_cursor if length_plan.outer_index == resume_outer_index else None,
                 runtime_plan=runtime_plan,
                 candidate_space_hash=candidate_space_hash,
+                length_plan=length_plan,
             )
             save_smash_progress_snapshot(
                 runtime,

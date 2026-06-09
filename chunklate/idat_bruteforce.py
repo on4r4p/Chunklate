@@ -2486,6 +2486,27 @@ def _merge_ultimate_operations(
     return tuple(merged)
 
 
+def _merge_ultimate_offsets(
+    *offset_groups: tuple[int, ...],
+    max_offsets: int | None = None,
+) -> tuple[int, ...]:
+    merged: list[int] = []
+    seen: set[int] = set()
+    for offsets in offset_groups:
+        for offset in offsets:
+            try:
+                safe_offset = int(offset)
+            except (TypeError, ValueError):
+                continue
+            if safe_offset < 0 or safe_offset in seen:
+                continue
+            seen.add(safe_offset)
+            merged.append(safe_offset)
+            if max_offsets is not None and len(merged) >= int(max_offsets):
+                return tuple(merged)
+    return tuple(merged)
+
+
 def estimate_ultimate_linefeed_search(
     data: bytes,
     *,
@@ -2494,6 +2515,7 @@ def estimate_ultimate_linefeed_search(
     super_result: SuperMegaLinefeedProbeResult | None = None,
     max_depth: int = 4,
     max_offsets: int = 128,
+    gpu_suspect_offsets: tuple[int, ...] = (),
 ) -> UltimateLinefeedSearchEstimate:
     before = idat.analyze_idat_stream(data)
     if target_adler is None:
@@ -2524,6 +2546,11 @@ def estimate_ultimate_linefeed_search(
         start_offset=start_offset,
         super_result=super_result,
         max_offsets=max_offsets,
+    )
+    suspect_offsets = _merge_ultimate_offsets(
+        tuple(gpu_suspect_offsets or ()),
+        suspect_offsets,
+        max_offsets=max(max_offsets, len(tuple(gpu_suspect_offsets or ())) + max_offsets),
     )
     focused_operation_pool = _ultimate_operation_pool(
         root_stream,
@@ -4421,6 +4448,7 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     visual_min_coverage: float = ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE,
     visual_gallery_path: str = "",
     ultimate_workers: int = 0,
+    gpu_suspect_offsets: tuple[int, ...] = (),
 ) -> UltimateLinefeedProbeResult:
     strategy = "UltimateMegaSuperLineFeedBruteForce"
     reference_mode = _coerce_ultimate_reference_mode(reference_mode)
@@ -4566,6 +4594,11 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         start_offset=start_offset,
         super_result=super_result,
         max_offsets=max_offsets,
+    )
+    suspect_offsets = _merge_ultimate_offsets(
+        tuple(gpu_suspect_offsets or ()),
+        suspect_offsets,
+        max_offsets=max(max_offsets, len(tuple(gpu_suspect_offsets or ())) + max_offsets),
     )
     source_hash = _stream_state_key(root_stream)
     focused_operation_pool = _ultimate_operation_pool(

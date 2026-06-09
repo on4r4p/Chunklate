@@ -10,6 +10,7 @@ from . import (
     bruteforce_result,
     bruteforce_runtime,
     bruteforce_viewer,
+    gpu_runtime,
     output,
     platform_runtime,
     smash_checkpoint,
@@ -79,6 +80,7 @@ class SmashBruteBrawlLegacyRuntime:
     source_path: str = ""
     resume_record: dict[str, Any] | None = None
     smash_workers: str | int | None = 0
+    gpu_config: gpu_runtime.GpuRuntimeConfig = gpu_runtime.GpuRuntimeConfig()
 
 
 def _smash_worker_profile_counts() -> dict[str, int]:
@@ -143,7 +145,7 @@ def _smash_print_worker_menu(namespace: dict[str, Any]) -> None:
         "max. CPU - 1",
         "custom. enter an exact worker count",
         "",
-        "Empty keeps SmashBruteBrawl single-process.",
+        "Empty uses the normal SmashBruteBrawl worker profile.",
     ]
     _smash_prompt_candy(namespace, "\n".join(lines), "com")
 
@@ -166,10 +168,11 @@ def resolve_smash_workers_from_namespace(
 
     while True:
         _smash_print_worker_menu(namespace)
-        choice = _smash_input(namespace, "SmashBruteBrawl worker profile [0 disabled] > ")
+        choice = _smash_input(namespace, "SmashBruteBrawl worker profile [normal] > ")
         if choice == "":
-            namespace["_SMASH_BRUTE_BRAWL_SESSION_WORKERS"] = 0
-            return 0
+            workers = _smash_workers_from_value("normal")
+            namespace["_SMASH_BRUTE_BRAWL_SESSION_WORKERS"] = workers
+            return workers
         if choice in ("min", "normal", "max", "auto"):
             workers = _smash_workers_from_value(choice)
             namespace["_SMASH_BRUTE_BRAWL_SESSION_WORKERS"] = workers
@@ -262,6 +265,7 @@ def run_legacy_smash_brute_brawl_from_namespace(
             namespace["DIFF"] = diff
 
     smash_workers = resolve_smash_workers_from_namespace(namespace, bf_mode=bf_mode)
+    gpu_config = gpu_runtime.build_gpu_config(namespace)
 
     return bridge(
         SmashBruteBrawlLegacyRuntime(
@@ -293,6 +297,7 @@ def run_legacy_smash_brute_brawl_from_namespace(
             source_path=progress_paths.source_raw_path,
             resume_record=resume_record,
             smash_workers=smash_workers,
+            gpu_config=gpu_config,
         ),
         SmashBruteBrawlLegacyContext(
             file=file,
@@ -489,6 +494,7 @@ def run_legacy_smash_brute_brawl(
                 resume_record=runtime.resume_record,
                 smash_workers=runtime.smash_workers,
                 suppress_candidate_viewer=suppress_candidate_viewer,
+                gpu_config=runtime.gpu_config,
             ),
             bruteforce_runtime.SmashBruteBrawlContext(
                 file=context.file,

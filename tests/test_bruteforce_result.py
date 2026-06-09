@@ -124,7 +124,7 @@ def test_bruteforce_result_success_preserves_bonus_note():
     assert "adding those bytes" in side_notes[1]
 
 
-def test_bruteforce_result_success_oldcrc_uses_full_new_data_toolkit():
+def test_bruteforce_result_success_oldcrc_uses_validated_png_toolkit():
     calls = []
     runtime = build_runtime(calls)
     context = base_context(
@@ -140,9 +140,9 @@ def test_bruteforce_result_success_oldcrc_uses_full_new_data_toolkit():
         "SmashBruteBrawl",
         "IDAT",
         ["-Previous Crc checksum found by replacing datas"],
-        "0011aa",
-        16,
-        22,
+        "89504e47",
+        0,
+        -1,
         "-Replacing Corrupted IDAT Data:\n001122\n-With:\n0011aa",
         "IDAT",
         "Relics",

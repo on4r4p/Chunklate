@@ -69,6 +69,7 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "--max-saves" in result.stdout
     assert "--no-color" in result.stdout
     assert "-workers" in result.stdout
+    assert "-gpu" in result.stdout
     assert "--ultimate-linefeed-budget" not in result.stdout
     assert "-ulfb" not in result.stdout
     assert "--ultimate-linefeed-unbounded" not in result.stdout
@@ -201,6 +202,16 @@ def test_global_workers_cli_parses_without_exposing_specific_worker_flags():
     assert specific.GLOBAL_WORKERS == "normal"
     assert specific.ULTIMATE_LINEFEED_WORKERS == "3"
     assert specific.SMASH_BRUTE_BRAWL_WORKERS == "max"
+
+
+def test_gpu_cli_parses_permission_flag():
+    parser = Chunklate.cli.configure_parser(ArgumentParser())
+
+    default_args = parser.parse_args(["-f", "sample.png"])
+    gpu_args = parser.parse_args(["-f", "sample.png", "-gpu"])
+
+    assert default_args.GPU is False
+    assert gpu_args.GPU is True
 
 
 def test_missing_file_argument_returns_usage_error():

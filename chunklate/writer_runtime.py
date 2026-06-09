@@ -256,6 +256,35 @@ def _should_block_idat_crc_only_clone(
     return True, analysis, reason
 
 
+def _should_block_invalid_full_png_clone(
+    runtime: ClonePatchRuntime,
+    fixed_hex: str,
+    start: int,
+    end: int,
+) -> tuple[bool, dict[str, Any] | None, str]:
+    if start != 0:
+        return False, None, ""
+    if end >= 0 and end < len(runtime.data_hex):
+        return False, None, ""
+    try:
+        fixed_data = bytes.fromhex(fixed_hex)
+    except Exception as exc:
+        return True, None, "I could not even build the full PNG candidate: %s" % exc
+    if not fixed_data.startswith(png.PNG_SIGNATURE):
+        return False, None, ""
+
+    validation = clone_validation_summary(fixed_data)
+    if clone_validation_is_final(validation):
+        return False, validation, ""
+    return True, validation, _clone_validation_failure_reason(validation)
+
+
+def _replace_clone_range(runtime: ClonePatchRuntime, data_fix: str, start: int, end: int) -> str:
+    if start == 0 and end < 0:
+        return data_fix
+    return runtime.replace_hex_range(runtime.data_hex, data_fix, start, end)
+
+
 def announce_clone_write(
     runtime: WriteCloneRuntime,
     context: WriteCloneContext,
@@ -492,7 +521,22 @@ def run_save_clone(
             )
         except Exception as exc:
             runtime.betterror(exc, "SaveCloneDebugPayload")
-    fix = runtime.replace_hex_range(runtime.data_hex, data_fix, start, end)
+    fix = _replace_clone_range(runtime, data_fix, start, end)
+    block_invalid_full_png, _validation, invalid_reason = _should_block_invalid_full_png_clone(
+        runtime,
+        fix,
+        start,
+        end,
+    )
+    if block_invalid_full_png:
+        runtime.candy(
+            "Cowsay",
+            "SBB candidate rejected after final clone validation. I am not writing a fake fixed file.",
+            "bad",
+        )
+        note = "-Rejected full clone before write; PNG/IDAT validation failed: %s." % invalid_reason
+        _append_side_note(runtime, note)
+        return None
     runtime.set_show_must_go_on(True)
     return runtime.write_clone(
         fix,

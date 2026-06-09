@@ -314,7 +314,7 @@ def test_blackfill_failure_next_level_relaunches_with_old_crc():
     assert result == (False, None)
     assert state["brute_level"] == 0
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HermesProbe Replace level 0."
+        "-CheckPoint: Progressive SBB campaign trying HermesProbe Replace 1-byte window."
     ]
     assert ("set_brute_level", (0,), {}) in calls
     assert (
@@ -361,7 +361,7 @@ def test_blackfill_remove_twobytes_failure_tries_next_family_before_hephaestusfo
     assert result == (False, None)
     assert state["brute_level"] == 0
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HermesProbe Replace level 0."
+        "-CheckPoint: Progressive SBB campaign trying HermesProbe Replace 1-byte window."
     ]
     assert runtime.retry_state.get("disable_resume_once") is True
     assert ("set_brute_level", (0,), {}) in calls
@@ -456,7 +456,7 @@ def test_blackfill_failure_auto_retries_without_questions():
     assert result == (False, None)
     assert state["brute_level"] == 0
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HermesProbe Replace level 0."
+        "-CheckPoint: Progressive SBB campaign trying HermesProbe Replace 1-byte window."
     ]
     assert (
         "smash_brute_brawl",
@@ -1252,9 +1252,10 @@ def test_blackfill_focus_campaign_exhausts_selected_family_first():
         current_mode="TwoBytes",
     )
 
-    assert attempts[:8] == (
+    assert attempts[:9] == (
         ("Remove", "TwoBytes", 0),
         ("Remove", "TwoBytes", 1),
+        ("Remove", "TwoBytes", 2),
         ("Remove", "Brutus", 1),
         ("Remove", "Brutus", 2),
         ("Remove", "Brutus", 3),
@@ -1262,7 +1263,51 @@ def test_blackfill_focus_campaign_exhausts_selected_family_first():
         ("Remove", "Brutus", 7),
         ("Remove", "Brutus", 15),
     )
-    assert ("Replace", "TwoBytes", 0) in attempts[8:]
+    assert ("Replace", "TwoBytes", 0) in attempts[9:]
+
+
+def test_blackfill_attempt_label_names_hermes_direct_windows():
+    assert (
+        checkpoint_actions_runtime._blackfill_attempt_label("Replace", "TwoBytes", 0)
+        == "HermesProbe Replace 1-byte window"
+    )
+    assert (
+        checkpoint_actions_runtime._blackfill_attempt_label("Replace", "TwoBytes", 1)
+        == "HermesProbe Replace 2-byte window"
+    )
+    assert (
+        checkpoint_actions_runtime._blackfill_attempt_label("Replace", "TwoBytes", 2)
+        == "HermesProbe Replace 4-byte window"
+    )
+
+
+def test_blackfill_estimates_hermes_level_one_as_direct_two_byte_window():
+    calls = []
+    runtime, _state, _side_notes = build_runtime(calls)
+    payload_bytes = 1_455_181
+    toolkit = (
+        "sample.png",
+        b"IDAT",
+        payload_bytes,
+        100,
+        "Replace",
+        "TwoBytes",
+        "crc",
+        "length",
+        "old-crc",
+        "FixItFelix partial IDAT blackfill",
+    )
+
+    estimated = checkpoint_actions_runtime._blackfill_estimated_next_candidates(
+        runtime,
+        toolkit,
+        edit_mode="Replace",
+        bf_mode="TwoBytes",
+        brute_level=1,
+        previous_tested=payload_bytes * 256,
+    )
+
+    assert estimated == (payload_bytes - 1) * (256**2)
 
 
 def test_blackfill_progressive_campaign_keeps_level_first_order():

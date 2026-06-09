@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import json
 from typing import Any, Callable
 
-from . import cli, messages, output, runtime_state, smash_checkpoint
+from . import cli, gpu_runtime, messages, output, runtime_state, smash_checkpoint
 from .png import repair_idat_marker_chain_from_visible_headers, repair_linefeed_conversion
 
 
@@ -98,6 +98,7 @@ class MainCliOptionsState:
     ultimate_linefeed_workers: str | int | None = None
     smash_brute_brawl_resume: str = "ask"
     smash_brute_brawl_workers: str | int | None = None
+    gpu_config: gpu_runtime.GpuRuntimeConfig = gpu_runtime.GpuRuntimeConfig()
 
 
 @dataclass(frozen=True)
@@ -981,6 +982,7 @@ def apply_main_cli_options(
         runtime.print_error(visual_min_coverage_error)
         runtime.exit_process(1)
         return None
+    gpu_config = gpu_runtime.build_gpu_config(args)
 
     file_origin = args.FILENAME
     file_dir = runtime.output_file_dir(
@@ -1014,6 +1016,7 @@ def apply_main_cli_options(
         ultimate_linefeed_workers=ultimate_linefeed_workers,
         smash_brute_brawl_resume=smash_brute_brawl_resume,
         smash_brute_brawl_workers=smash_brute_brawl_workers,
+        gpu_config=gpu_config,
     )
 
 
@@ -1051,6 +1054,8 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "ULTIMATE_LINEFEED_WORKERS": options.ultimate_linefeed_workers,
         "SMASH_BRUTE_BRAWL_RESUME": options.smash_brute_brawl_resume,
         "SMASH_BRUTE_BRAWL_WORKERS": options.smash_brute_brawl_workers,
+        "GPU": options.gpu_config.enabled,
+        "GPU_CONFIG": options.gpu_config,
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
     }
 

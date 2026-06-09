@@ -518,9 +518,9 @@ def test_success_checkpoint_request_preserves_oldcrc_and_regular_toolkits():
         "SmashBruteBrawl",
         "IDAT",
         ["-Previous Crc checksum found by replacing datas"],
-        "001122",
-        10,
-        16,
+        "8899",
+        0,
+        -1,
         "-Replacing Corrupted IDAT Data:\naabb\n-With:\n001122",
         "IDAT",
         "LibpngCheck",
@@ -550,6 +550,28 @@ def test_success_checkpoint_request_preserves_oldcrc_and_regular_toolkits():
         "gAMA",
         "Relics",
     )
+
+
+def test_success_checkpoint_request_oldcrc_writes_validated_png_not_chunk_patch():
+    repaired_chunk_hex = "0016344e49444154" + "78da00" + "59b4169a"
+    validated_png_hex = "89504e470d0a1a0a" + repaired_chunk_hex + "0000000049454e44ae426082"
+
+    request = bruteforce.success_checkpoint_request(
+        old_crc=b"\x59\xb4\x16\x9a",
+        chunk_name=b"IDAT",
+        full_new_data_hex=repaired_chunk_hex,
+        png_bytes_hex=validated_png_hex,
+        data_offset=244,
+        chunk_length=len(repaired_chunk_hex) // 2,
+        to_brute="78daff",
+        from_error="FixItFelix partial IDAT blackfill",
+    )
+
+    args = request.as_args()
+    assert args[5] == validated_png_hex
+    assert args[6] == 0
+    assert args[7] == -1
+    assert "With:\n%s" % repaired_chunk_hex in args[8]
 
 
 def test_failure_checkpoint_request_preserves_oldcrc_and_regular_toolkits():

@@ -191,6 +191,12 @@ def configure_parser(parser: Any) -> Any:
         default=None,
         metavar="min|normal|max|N",
     )
+    parser.add_argument(
+        "-gpu",
+        dest="GPU",
+        help="Allow GPU acceleration when supported.",
+        action="store_true",
+    )
     ultimate = parser.add_argument_group("ultimate line-feed")
     ultimate.add_argument(
         "-ulfb",
