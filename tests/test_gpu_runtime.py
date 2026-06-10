@@ -1400,6 +1400,130 @@ def test_replace4_kernel_can_stop_after_large_kagebushin_style_hit():
     assert hit.old_crc_match is True
 
 
+def test_insert4_kernel_can_stop_after_large_kagebushin_missing_hit():
+    repaired_payload = bytearray(b"\x00" * 1_455_182)
+    corruption_offset = 1_061_222
+    restored = b"\x00\x00\x05\x7f"
+    repaired_payload[corruption_offset : corruption_offset + 4] = restored
+    payload = repaired_payload[:corruption_offset] + repaired_payload[corruption_offset + 4 :]
+    plan = _plan_for_payload(
+        payload=bytes(payload),
+        repaired_payload=bytes(repaired_payload),
+        values=None,
+        candidate_len=4,
+    )
+    inner_index = int.from_bytes(restored, "big")
+    cursor = smash_opengl_backend.OpenGLReplace1Cursor(
+        inner_index=inner_index,
+        byte_position=corruption_offset,
+        edit_kind_index=1,
+        stage="direct",
+    )
+    rank = smash_opengl_backend.replace1_rank_for_cursor(
+        plan,
+        cursor.inner_index,
+        cursor.byte_position,
+        cursor.edit_kind_index,
+    )
+
+    result = smash_opengl_backend.run_replace1_crc_kernel(
+        plan,
+        gpu_runtime.GpuRuntimeConfig(enabled=True),
+        harness_factory=lambda **_kwargs: _fake_rank_harness_for_plan(plan, (rank,)),
+        batch_size=64,
+        resume_cursor=cursor,
+        stop_after_first_hit=True,
+    )
+
+    support = smash_opengl_backend._replace1_support_details(plan)
+    assert support is not None
+    assert rank == 6_145_477_342
+    assert result.tested < support.total_candidates - rank
+    assert result.covered_full_cpu_space is False
+    assert result.next_cursor is not None
+    assert (
+        smash_opengl_backend.replace1_rank_for_cursor(
+            plan,
+            result.next_cursor.inner_index,
+            result.next_cursor.byte_position,
+            result.next_cursor.edit_kind_index,
+        )
+        == rank + 1
+    )
+    assert len(result.hits) == 1
+    hit = result.hits[0]
+    assert hit.inner_index == inner_index
+    assert hit.byte_position == corruption_offset
+    assert hit.edit_kind_index == 1
+    assert hit.stage == "direct"
+    assert hit.brute_bytes == restored
+    assert hit.edit_kind == "insert"
+    assert hit.old_crc_match is True
+
+
+def test_remove4_kernel_can_stop_after_large_kagebushin_extra_hit():
+    repaired_payload = bytearray(b"\x00" * 1_455_182)
+    corruption_offset = 1_061_222
+    extra_bytes = b"\x00\x00\x00\x00"
+    payload = (
+        repaired_payload[:corruption_offset]
+        + extra_bytes
+        + repaired_payload[corruption_offset:]
+    )
+    plan = _plan_for_payload(
+        payload=bytes(payload),
+        repaired_payload=bytes(repaired_payload),
+        values=None,
+        candidate_len=4,
+    )
+    cursor = smash_opengl_backend.OpenGLReplace1Cursor(
+        inner_index=0,
+        byte_position=corruption_offset,
+        edit_kind_index=2,
+        stage="direct",
+    )
+    rank = smash_opengl_backend.replace1_rank_for_cursor(
+        plan,
+        cursor.inner_index,
+        cursor.byte_position,
+        cursor.edit_kind_index,
+    )
+
+    result = smash_opengl_backend.run_replace1_crc_kernel(
+        plan,
+        gpu_runtime.GpuRuntimeConfig(enabled=True),
+        harness_factory=lambda **_kwargs: _fake_rank_harness_for_plan(plan, (rank,)),
+        batch_size=64,
+        resume_cursor=cursor,
+        stop_after_first_hit=True,
+    )
+
+    support = smash_opengl_backend._replace1_support_details(plan)
+    assert support is not None
+    assert rank == 3_183_668
+    assert result.tested < support.total_candidates - rank
+    assert result.covered_full_cpu_space is False
+    assert result.next_cursor is not None
+    assert (
+        smash_opengl_backend.replace1_rank_for_cursor(
+            plan,
+            result.next_cursor.inner_index,
+            result.next_cursor.byte_position,
+            result.next_cursor.edit_kind_index,
+        )
+        == rank + 1
+    )
+    assert len(result.hits) == 1
+    hit = result.hits[0]
+    assert hit.inner_index == 0
+    assert hit.byte_position == corruption_offset
+    assert hit.edit_kind_index == 2
+    assert hit.stage == "direct"
+    assert hit.brute_bytes == extra_bytes
+    assert hit.edit_kind == "remove"
+    assert hit.old_crc_match is True
+
+
 class _FakeUniform:
     def __init__(self):
         self.value = 0

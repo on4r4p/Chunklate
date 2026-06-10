@@ -531,14 +531,17 @@ def _blackfill_campaign_attempts(
                 attempts.append((edit, "Brutus", level))
         return tuple(attempts)
 
-    # A focused campaign really focuses: exhaust the requested edit family over
-    # the useful scopes first, then keep the other families available afterward.
+    # A focused campaign prioritizes the requested edit family, but all direct
+    # HermesProbe windows should run before opening heavier HephaestusForge CPU
+    # passes. A wrong family hint is still cheap to recover from while GPU direct
+    # windows are available.
     for edit in order:
         if start_mode.lower() != "brutus":
             for level in SBB_TWOBYTES_CAMPAIGN_LEVELS:
                 if not level_allowed(level):
                     continue
                 attempts.append((edit, "TwoBytes", level))
+    for edit in order:
         for level in SBB_HEPHAESTUS_CAMPAIGN_LEVELS:
             if not level_allowed(level):
                 continue

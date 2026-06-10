@@ -1237,7 +1237,7 @@ def test_blackfill_retry_skips_already_attempted_hephaestus_edit():
     ) in calls
 
 
-def test_blackfill_focus_campaign_exhausts_selected_family_first():
+def test_blackfill_focus_campaign_runs_all_hermes_before_hephaestus():
     calls = []
     runtime, _state, _side_notes = build_runtime(calls)
     toolkit = (
@@ -1266,6 +1266,14 @@ def test_blackfill_focus_campaign_exhausts_selected_family_first():
         ("Remove", "TwoBytes", 0),
         ("Remove", "TwoBytes", 1),
         ("Remove", "TwoBytes", 2),
+        ("Replace", "TwoBytes", 0),
+        ("Replace", "TwoBytes", 1),
+        ("Replace", "TwoBytes", 2),
+        ("Insert", "TwoBytes", 0),
+        ("Insert", "TwoBytes", 1),
+        ("Insert", "TwoBytes", 2),
+    )
+    assert attempts[9:15] == (
         ("Remove", "Brutus", 1),
         ("Remove", "Brutus", 2),
         ("Remove", "Brutus", 3),
@@ -1273,7 +1281,6 @@ def test_blackfill_focus_campaign_exhausts_selected_family_first():
         ("Remove", "Brutus", 7),
         ("Remove", "Brutus", 15),
     )
-    assert ("Replace", "TwoBytes", 0) in attempts[9:]
 
 
 def test_blackfill_attempt_label_names_hermes_direct_windows():
@@ -1453,7 +1460,7 @@ def main():
         ("Blackfill HephaestusForge Remove next edit", test_blackfill_hephaestusforge_remove_failure_tries_replace_without_prompt),
         ("Blackfill Brutus Remove keeps edit sequence", test_blackfill_brutus_remove_failure_keeps_edit_sequence_without_hephaestus_label),
         ("Blackfill retry skips attempted edit", test_blackfill_retry_skips_already_attempted_hephaestus_edit),
-        ("Blackfill focus campaign order", test_blackfill_focus_campaign_exhausts_selected_family_first),
+        ("Blackfill focus campaign order", test_blackfill_focus_campaign_runs_all_hermes_before_hephaestus),
         ("Blackfill progressive campaign order", test_blackfill_progressive_campaign_keeps_level_first_order),
         ("Blackfill forced campaign level", test_blackfill_forced_level_skips_lower_campaign_levels),
         ("Namespace action runtime", test_checkpoint_action_namespace_builder_wires_state_and_callbacks),
