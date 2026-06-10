@@ -414,6 +414,113 @@ def test_run_scan_gpu_truncated_invalid_hits_do_not_fall_back_to_cpu(monkeypatch
     ]
 
 
+def test_run_scan_gpu_rejected_hit_resumes_direct_scan(monkeypatch):
+    calls = []
+    valid_png = small_rgba_png()
+    invalid_png = invalid_idat_png()
+    next_cursor = smash_opengl_backend.OpenGLReplace1Cursor(
+        inner_index=8,
+        byte_position=9,
+        edit_kind_index=1,
+        stage="direct",
+    )
+    rejected_hit = smash_backend.SmashCandidateHit(
+        outer_index=0,
+        length=2,
+        inner_index=7,
+        checksum=b"\x00\x00\x00\x00",
+        full_new_data=b"rejected",
+        png_bytes=invalid_png,
+        brute_bytes=b"\x07",
+        old_crc_match=True,
+        edit_kind="replace",
+        byte_position=8,
+        edit_kind_index=0,
+        stage="direct",
+    )
+    accepted_hit = smash_backend.SmashCandidateHit(
+        outer_index=0,
+        length=2,
+        inner_index=8,
+        checksum=b"\x00\x00\x00\x00",
+        full_new_data=b"accepted",
+        png_bytes=valid_png,
+        brute_bytes=b"\x08",
+        old_crc_match=True,
+        edit_kind="insert",
+        byte_position=9,
+        edit_kind_index=1,
+        stage="direct",
+    )
+
+    def gpu_explain(plan, config):
+        calls.append(("gpu_explain", plan, config))
+        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL SBB path active.")
+
+    def gpu_run(*args, **kwargs):
+        calls.append(("gpu_run", args, kwargs))
+        if len([call for call in calls if call[0] == "gpu_run"]) == 1:
+            return smash_opengl_backend.OpenGLReplace1Result(
+                (rejected_hit,),
+                tested=64,
+                covered_full_cpu_space=False,
+                next_cursor=next_cursor,
+            )
+        assert args[8] == 0
+        assert args[9] == next_cursor.inner_index
+        assert args[7]["cursor"]["byte_position"] == next_cursor.byte_position
+        return smash_opengl_backend.OpenGLReplace1Result(
+            (accepted_hit,),
+            tested=32,
+            covered_full_cpu_space=False,
+            next_cursor=None,
+        )
+
+    monkeypatch.setattr(smash_opengl_backend, "explain", gpu_explain)
+    monkeypatch.setattr(smash_opengl_backend, "run_scan", gpu_run)
+    monkeypatch.setattr(
+        bruteforce_runtime,
+        "_run_parallel_scan",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("CPU fallback should not run")),
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            gpu_config=gpu_runtime.GpuRuntimeConfig(enabled=True),
+        )
+        context = base_context(
+            chunk_name=b"IDAT",
+            bf_mode="TwoBytes",
+            old_crc=b"\x00\x00\x00\x00",
+        )
+
+        result = bruteforce_runtime.run_scan(runtime, context)
+        record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+
+    assert result.state.bingo is True
+    assert result.full_new_data == b"accepted"
+    assert len([call for call in calls if call[0] == "gpu_run"]) == 2
+    assert record["status"] == "success"
+    assert record["counters"]["accepted_candidates"] == 1
+    assert record["counters"]["rejected_candidates"] == 1
+    assert any(
+        (
+            call[0] == "emit"
+            and "OpenGL CRC hit rejected by validation" in call[1]
+        )
+        or (
+            call[0] == "raw_print"
+            and "OpenGL CRC hit rejected by validation" in call[1][0]
+        )
+        for call in calls
+    )
+
+
 def test_validate_sbb_candidate_accepts_complete_png():
     assert bruteforce_runtime.validate_sbb_candidate(small_rgba_png()).ok is True
 
@@ -2201,6 +2308,7 @@ def main():
         ("Smash resume inner cursor", test_run_scan_resumes_from_saved_inner_index_when_space_matches),
         ("Smash resume focus mismatch", test_run_scan_restarts_when_campaign_focus_changes),
         ("Smash higher BruteLevel restart", test_run_scan_restarts_when_brute_level_increases_search_space),
+        ("GPU rejected hit resumes direct scan", test_run_scan_gpu_rejected_hit_resumes_direct_scan),
         ("Parallel exhausted checkpoint", test_parallel_exhausted_checkpoint_is_not_resumed),
         ("Rejected hit checkpoint", test_rejected_hit_checkpoint_is_not_resumed),
     ]
