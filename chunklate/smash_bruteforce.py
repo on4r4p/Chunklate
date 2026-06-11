@@ -81,6 +81,9 @@ class SmashBruteBrawlLegacyRuntime:
     resume_record: dict[str, Any] | None = None
     smash_workers: str | int | None = 0
     gpu_config: gpu_runtime.GpuRuntimeConfig = gpu_runtime.GpuRuntimeConfig()
+    crc_forge_mode: str = "auto"
+    crc_forge_bytes: int | None = None
+    crc_forge_window: str | None = None
 
 
 def _smash_worker_profile_counts() -> dict[str, int]:
@@ -298,6 +301,9 @@ def run_legacy_smash_brute_brawl_from_namespace(
             resume_record=resume_record,
             smash_workers=smash_workers,
             gpu_config=gpu_config,
+            crc_forge_mode=str(namespace.get("SMASH_BRUTE_BRAWL_CRC_FORGE") or "auto"),
+            crc_forge_bytes=namespace.get("SMASH_BRUTE_BRAWL_CRC_FORGE_BYTES"),
+            crc_forge_window=namespace.get("SMASH_BRUTE_BRAWL_CRC_FORGE_WINDOW"),
         ),
         SmashBruteBrawlLegacyContext(
             file=file,
@@ -495,6 +501,9 @@ def run_legacy_smash_brute_brawl(
                 smash_workers=runtime.smash_workers,
                 suppress_candidate_viewer=suppress_candidate_viewer,
                 gpu_config=runtime.gpu_config,
+                crc_forge_mode=runtime.crc_forge_mode,
+                crc_forge_bytes=runtime.crc_forge_bytes,
+                crc_forge_window=runtime.crc_forge_window,
             ),
             bruteforce_runtime.SmashBruteBrawlContext(
                 file=context.file,

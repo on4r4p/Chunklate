@@ -323,6 +323,86 @@ def test_loadingbar_progress_animates_huge_budget_each_callback():
     )
 
 
+def test_loadingbar_progress_animates_crc_forge_sized_budget_each_callback():
+    frames = [
+        "frame0>",
+        "frame1>",
+        "frame2>",
+        "frame3>",
+        "frame4>",
+    ]
+    first = ui.loadingbar_progress(
+        131584,
+        6,
+        1,
+        frames,
+        fish_pos=0,
+        len_fish_list=4,
+    )
+    second = ui.loadingbar_progress(
+        131584,
+        6,
+        2,
+        frames,
+        fish_pos=first.fish_pos,
+        len_fish_list=4,
+    )
+
+    assert first == ui.LoadingbarProgress(text="000001/131584frame1>", fish_pos=1)
+    assert second == ui.LoadingbarProgress(text="000002/131584frame2>", fish_pos=2)
+
+
+def test_loadingbar_progress_animates_zero_counter_preroll():
+    frames = [
+        "frame0>",
+        "frame1>",
+        "frame2>",
+    ]
+    first = ui.loadingbar_progress(
+        131584,
+        6,
+        0,
+        frames,
+        fish_pos=0,
+        len_fish_list=2,
+    )
+    second = ui.loadingbar_progress(
+        131584,
+        6,
+        0,
+        frames,
+        fish_pos=first.fish_pos,
+        len_fish_list=2,
+    )
+
+    assert first == ui.LoadingbarProgress(text="000000/131584frame1>", fish_pos=1)
+    assert second == ui.LoadingbarProgress(text="000000/131584frame2>", fish_pos=2)
+
+
+def test_loadingbar_progress_zero_counter_preroll_jumps_on_wide_loader():
+    frames = ["frame%s>" % index for index in range(31)]
+
+    first = ui.loadingbar_progress(
+        131584,
+        6,
+        0,
+        frames,
+        fish_pos=0,
+        len_fish_list=30,
+    )
+    second = ui.loadingbar_progress(
+        131584,
+        6,
+        0,
+        frames,
+        fish_pos=first.fish_pos,
+        len_fish_list=30,
+    )
+
+    assert first == ui.LoadingbarProgress(text="000000/131584frame5>", fish_pos=5)
+    assert second == ui.LoadingbarProgress(text="000000/131584frame10>", fish_pos=10)
+
+
 def test_loadingbar_progress_stops_at_last_visible_fish_frame():
     progress = ui.loadingbar_progress(
         500,
@@ -556,6 +636,9 @@ def main():
         ("Loadingbar fish speed scales", test_loadingbar_fish_speed_scales_with_budget_digits),
         ("Loadingbar progress large budget speed", test_loadingbar_progress_moves_faster_for_large_budgets),
         ("Loadingbar huge budget callback animation", test_loadingbar_progress_animates_huge_budget_each_callback),
+        ("Loadingbar CRC forge budget animation", test_loadingbar_progress_animates_crc_forge_sized_budget_each_callback),
+        ("Loadingbar zero counter preroll", test_loadingbar_progress_animates_zero_counter_preroll),
+        ("Loadingbar zero counter wide preroll", test_loadingbar_progress_zero_counter_preroll_jumps_on_wide_loader),
         ("Loadingbar progress visible end", test_loadingbar_progress_stops_at_last_visible_fish_frame),
         ("Loadingbar progress clamps stale state", test_loadingbar_progress_clamps_stale_frame_state),
         ("Loadingbar namespace bridge", test_run_loadingbar_from_namespace_builds_and_prints_progress),

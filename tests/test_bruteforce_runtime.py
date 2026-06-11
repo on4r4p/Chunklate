@@ -52,6 +52,9 @@ def build_runtime(
     smash_workers=0,
     suppress_candidate_viewer=False,
     gpu_config=None,
+    crc_forge_mode="auto",
+    crc_forge_bytes=None,
+    crc_forge_window=None,
 ):
     side_notes = [] if side_notes is None else side_notes
     viewer_results = [] if viewer_results is None else list(viewer_results)
@@ -101,6 +104,9 @@ def build_runtime(
         smash_workers=smash_workers,
         suppress_candidate_viewer=suppress_candidate_viewer,
         gpu_config=gpu_config or gpu_runtime.GpuRuntimeConfig(),
+        crc_forge_mode=crc_forge_mode,
+        crc_forge_bytes=crc_forge_bytes,
+        crc_forge_window=crc_forge_window,
     )
 
 
@@ -152,6 +158,12 @@ def invalid_idat_png() -> bytes:
         + build_png_chunk(b"IDAT", b"\x78\x9c\x00")
         + IEND_CHUNK
     )
+
+
+def png_with_stored_idat_crc(data: bytes, stored_crc: bytes) -> bytes:
+    chunk = next(chunk for chunk in iter_chunks(data) if chunk.chunk_type == b"IDAT")
+    crc_start = chunk.offset + 8 + chunk.length
+    return data[:crc_start] + stored_crc + data[crc_start + 4 :]
 
 
 def accept_fake_sbb_candidates(monkeypatch) -> None:
@@ -519,6 +531,67 @@ def test_run_scan_gpu_rejected_hit_resumes_direct_scan(monkeypatch):
         )
         for call in calls
     )
+
+
+def test_run_scan_crc_forge_repairs_insert5_before_general_sbb(monkeypatch):
+    calls = []
+    good_png = small_rgba_png()
+    good_chunk = next(chunk for chunk in iter_chunks(good_png) if chunk.chunk_type == b"IDAT")
+    old_crc = good_chunk.crc.to_bytes(4, "big")
+    offset = 3
+    broken_payload = good_chunk.data[:offset] + good_chunk.data[offset + 5 :]
+    broken_png = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", next(chunk for chunk in iter_chunks(good_png) if chunk.chunk_type == b"IHDR").data)
+        + build_png_chunk(b"IDAT", broken_payload)
+        + IEND_CHUNK
+    )
+    broken_png = png_with_stored_idat_crc(broken_png, old_crc)
+    broken_chunk = next(chunk for chunk in iter_chunks(broken_png) if chunk.chunk_type == b"IDAT")
+
+    monkeypatch.setattr(
+        bruteforce_runtime,
+        "_run_parallel_scan",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("general SBB should not run")),
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        progress_path = str(Path(directory) / "_SBB.progress.json")
+        runtime = build_runtime(
+            calls,
+            specs=simple_specs,
+            product_values=[],
+            progress_path=progress_path,
+            source_hash="source-hash",
+            source_size=len(broken_png),
+            source_path="source.raw",
+            crc_forge_mode="force",
+            crc_forge_bytes=5,
+            crc_forge_window="%s:%s" % (offset, offset + 1),
+        )
+        context = base_context(
+            file="missing5.png",
+            chunk_name=b"IDAT",
+            chunk_length=broken_chunk.length,
+            data_offset=(broken_chunk.offset + 8) * 2,
+            data_hex=broken_png.hex(),
+            edit_mode="Insert",
+            bf_mode="TwoBytes",
+            old_crc=old_crc,
+        )
+
+        result = bruteforce_runtime.run_scan(runtime, context)
+        record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
+
+    assert result.state.bingo is True
+    assert result.png_bytes == good_png
+    assert result.full_new_data.endswith(old_crc)
+    assert record["backend"] == "crc_forge"
+    assert record["status"] == "success"
+    assert record["cursor"]["stage"] == "crc_forge"
+    assert any(call[0] == "emit" and "HermesProbe CRC-forge targeted IDAT pass active" in call[1] for call in calls)
+    assert any(call[0] == "loadingbar" and call[3] is None and call[4] is True for call in calls)
+    assert sum(1 for call in calls if call[0] == "loadingbar" and call[3] == 0 and call[4] is False) >= 12
+    assert any(call[0] == "loadingbar" and isinstance(call[3], int) and call[3] > 0 for call in calls)
 
 
 def test_validate_sbb_candidate_accepts_complete_png():
@@ -2204,6 +2277,208 @@ def test_run_scan_restarts_when_brute_level_increases_search_space():
     )
 
 
+def test_crc_forge_failed_cursor_is_cleared_before_general_sbb_resume():
+    scan_state = bruteforce_runtime.SmashBruteBrawlScanState(
+        state=bruteforce.BruteForceMatchState(),
+        full_new_data=b"candidate",
+        png_bytes=b"png",
+        to_brute="ff",
+        diff="diff",
+        eta_seconds=12,
+        tested_candidates=99,
+        accepted_candidates=0,
+        rejected_candidates=3,
+        outer_index=2,
+        length=18,
+        inner_index=1234,
+        byte_position=456,
+        edit_kind_index=1,
+        stage="crc_forge",
+        bonus_offset=7,
+        bonus_value=8,
+        last_progress_write_at=9.5,
+        rejected_reasons={"IDAT zlib stream is invalid": 3},
+        first_rejection_reason="IDAT zlib stream is invalid",
+        last_rejection_emit_at=10.0,
+        last_rejection_emit_count=3,
+        untrusted_preview_count=2,
+        untrusted_preview_hashes={"abc"},
+    )
+
+    bruteforce_runtime._reset_scan_state_for_next_sbb_pass(scan_state)
+
+    assert scan_state.full_new_data == b""
+    assert scan_state.png_bytes == b""
+    assert scan_state.to_brute == ""
+    assert scan_state.diff == ""
+    assert scan_state.eta_seconds == 0
+    assert scan_state.tested_candidates == 0
+    assert scan_state.rejected_candidates == 0
+    assert scan_state.outer_index == 0
+    assert scan_state.length == 0
+    assert scan_state.inner_index == 0
+    assert scan_state.byte_position == 0
+    assert scan_state.edit_kind_index == 0
+    assert scan_state.stage == ""
+    assert scan_state.bonus_offset == 0
+    assert scan_state.bonus_value == 0
+    assert scan_state.last_progress_write_at == 0.0
+    assert scan_state.rejected_reasons == {}
+    assert scan_state.first_rejection_reason == ""
+    assert scan_state.last_rejection_emit_at == 0.0
+    assert scan_state.last_rejection_emit_count == 0
+    assert scan_state.untrusted_preview_count == 0
+    assert scan_state.untrusted_preview_hashes == set()
+
+
+def test_crc_forge_checkpoint_is_not_reused_for_general_sbb(monkeypatch):
+    calls = []
+    context = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", old_crc="00000000")
+    setup_runtime = build_runtime(
+        [],
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+    )
+    runtime_plan = bruteforce_runtime.prepare_runtime_plan(setup_runtime, context)
+    candidate_hash = smash_checkpoint.candidate_space_hash(
+        bruteforce_runtime._candidate_space_payload(
+            context,
+            runtime_plan,
+            source_hash="source-hash",
+        )
+    )
+    record = {
+        "status": "running",
+        "backend": "crc_forge",
+        "source_hash": "source-hash",
+        "invocation": smash_checkpoint.invocation_record(
+            file=context.file,
+            chunk_name=context.chunk_name,
+            chunk_length=context.chunk_length,
+            data_offset=context.data_offset,
+            from_error=context.from_error,
+            edit_mode=context.edit_mode,
+            bf_mode=context.bf_mode,
+            brute_crc=context.brute_crc,
+            brute_length=context.brute_length,
+            old_crc=context.old_crc,
+            brute_level=context.brute_level,
+            campaign_focus=context.campaign_focus,
+        ),
+        "plan": {"candidate_space_hash": candidate_hash, "backend": "crc_forge"},
+        "cursor": {
+            "outer_index": 7,
+            "length": 20,
+            "inner_index": 12345,
+            "byte_position": 1061222,
+            "edit_kind_index": 2,
+            "stage": "crc_forge",
+            "bonus_offset": 0,
+            "bonus_value": 0,
+        },
+        "counters": {
+            "tested_candidates": 2402210,
+            "accepted_candidates": 0,
+            "rejected_candidates": 1,
+        },
+        "shards": [],
+    }
+
+    def crc_forge_scan(*_args, **_kwargs):
+        calls.append(("crc_forge_scan",))
+        return False
+
+    def gpu_scan(
+        _runtime,
+        _context,
+        scan_state,
+        _old_crc,
+        _runtime_plan,
+        _candidate_space_hash,
+        progress_resume,
+        resume_outer_index,
+        resume_inner_index,
+    ):
+        calls.append(
+            (
+                "gpu_scan",
+                progress_resume,
+                resume_outer_index,
+                resume_inner_index,
+                scan_state.stage,
+                scan_state.tested_candidates,
+            )
+        )
+        return True
+
+    monkeypatch.setattr(bruteforce_runtime, "_run_crc_forge_scan", crc_forge_scan)
+    monkeypatch.setattr(bruteforce_runtime, "_run_gpu_scan", gpu_scan)
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+        resume_record=record,
+    )
+
+    bruteforce_runtime.run_scan(runtime, context)
+
+    assert ("crc_forge_scan",) in calls
+    assert ("gpu_scan", None, 0, 0, "", 0) in calls
+    assert any(
+        call[0] == "emit" and "HermesProbe CRC-forge checkpoint is not reused for broad SBB" in call[1]
+        for call in calls
+    )
+
+
+def test_crc_forge_failure_can_raise_broad_sbb_level(monkeypatch):
+    calls = []
+    context = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", old_crc="00000000")
+
+    def crc_forge_scan(*_args, **_kwargs):
+        calls.append(("crc_forge_scan",))
+        return False
+
+    def recommended_level(*_args, **_kwargs):
+        return (3, 7)
+
+    def gpu_scan(
+        _runtime,
+        next_context,
+        _scan_state,
+        _old_crc,
+        _runtime_plan,
+        _candidate_space_hash,
+        _progress_resume,
+        _resume_outer_index,
+        _resume_inner_index,
+    ):
+        calls.append(("gpu_scan_level", next_context.brute_level))
+        return True
+
+    monkeypatch.setattr(bruteforce_runtime, "_run_crc_forge_scan", crc_forge_scan)
+    monkeypatch.setattr(bruteforce_runtime, "_recommended_sbb_level_after_crc_forge", recommended_level)
+    monkeypatch.setattr(bruteforce_runtime, "_run_gpu_scan", gpu_scan)
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+    )
+
+    bruteforce_runtime.run_scan(runtime, context)
+
+    assert ("crc_forge_scan",) in calls
+    assert ("gpu_scan_level", 3) in calls
+    assert any(
+        call[0] == "emit"
+        and "targeted 7-byte pass; broad SBB will resume at level 3" in call[1]
+        and "HermesProbe CRC-forge" in call[1]
+        for call in calls
+    )
+
+
 def test_parallel_exhausted_checkpoint_is_not_resumed():
     calls = []
     chunk_name = b"gAMA"
@@ -2308,7 +2583,11 @@ def main():
         ("Smash resume inner cursor", test_run_scan_resumes_from_saved_inner_index_when_space_matches),
         ("Smash resume focus mismatch", test_run_scan_restarts_when_campaign_focus_changes),
         ("Smash higher BruteLevel restart", test_run_scan_restarts_when_brute_level_increases_search_space),
+        ("CRC-forge reset before SBB", test_crc_forge_failed_cursor_is_cleared_before_general_sbb_resume),
+        ("CRC-forge checkpoint skipped for SBB", test_crc_forge_checkpoint_is_not_reused_for_general_sbb),
+        ("CRC-forge raises broad SBB level", test_crc_forge_failure_can_raise_broad_sbb_level),
         ("GPU rejected hit resumes direct scan", test_run_scan_gpu_rejected_hit_resumes_direct_scan),
+        ("CRC-forge Insert5 before general SBB", test_run_scan_crc_forge_repairs_insert5_before_general_sbb),
         ("Parallel exhausted checkpoint", test_parallel_exhausted_checkpoint_is_not_resumed),
         ("Rejected hit checkpoint", test_rejected_hit_checkpoint_is_not_resumed),
     ]

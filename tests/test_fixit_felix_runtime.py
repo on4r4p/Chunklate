@@ -4423,7 +4423,7 @@ def main():
         ),
         (
             "Apply repair offers SmashBruteBrawl after partial blackfill",
-            test_apply_repair_writes_partial_blackfill_then_offers_source_idat_bruteforce,
+            test_apply_repair_parks_partial_blackfill_preview_before_source_idat_bruteforce,
         ),
         (
             "Partial blackfill low chance opens HephaestusForge",

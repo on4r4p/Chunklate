@@ -318,6 +318,28 @@ def configure_parser(parser: Any) -> Any:
         default=None,
         metavar="N",
     )
+    smash.add_argument(
+        "--sbb-crc-forge",
+        dest="SMASH_BRUTE_BRAWL_CRC_FORGE",
+        choices=("auto", "off", "force"),
+        default="auto",
+        help="Run targeted HermesProbe IDAT CRC-forge before broad SmashBruteBrawl passes.",
+        metavar="{auto,off,force}",
+    )
+    smash.add_argument(
+        "--sbb-forge-bytes",
+        dest="SMASH_BRUTE_BRAWL_CRC_FORGE_BYTES",
+        help="Limit targeted HermesProbe IDAT CRC-forge to an exact corruption size from 1 to 10 bytes.",
+        default=None,
+        metavar="N",
+    )
+    smash.add_argument(
+        "--sbb-forge-window",
+        dest="SMASH_BRUTE_BRAWL_CRC_FORGE_WINDOW",
+        help="Limit targeted HermesProbe IDAT CRC-forge to byte offsets START:END, comma separated.",
+        default=None,
+        metavar="START:END",
+    )
     parser.add_argument(
         "--ultimate-linefeed-reference",
         dest="ULTIMATE_LINEFEED_REFERENCE",
@@ -642,6 +664,44 @@ def smash_brute_brawl_level_error(level: object) -> str | None:
         return "-sbbl must be a non-negative integer."
     if value < 0:
         return "-sbbl must be a non-negative integer."
+    return None
+
+
+def smash_brute_brawl_crc_forge_bytes_error(byte_count: object) -> str | None:
+    if byte_count is None:
+        return None
+    try:
+        value = int(str(byte_count).strip())
+    except (TypeError, ValueError):
+        return "--sbb-forge-bytes must be an integer from 1 to 10."
+    if value < 1 or value > 10:
+        return "--sbb-forge-bytes must be an integer from 1 to 10."
+    return None
+
+
+def smash_brute_brawl_crc_forge_window_error(window: object) -> str | None:
+    if window is None or str(window).strip() == "":
+        return None
+    for raw_part in str(window).split(","):
+        part = raw_part.strip()
+        if not part:
+            continue
+        if ":" not in part:
+            try:
+                int(part, 0)
+            except ValueError:
+                return "--sbb-forge-window must use byte offsets like START:END."
+            continue
+        raw_start, raw_end = part.split(":", 1)
+        for value in (raw_start, raw_end):
+            if not value.strip():
+                continue
+            try:
+                parsed = int(value, 0)
+            except ValueError:
+                return "--sbb-forge-window must use byte offsets like START:END."
+            if parsed < 0:
+                return "--sbb-forge-window offsets must be non-negative."
     return None
 
 

@@ -70,6 +70,8 @@ class MainCliOptionsRuntime:
     smash_brute_brawl_resume_error: Callable = cli.smash_brute_brawl_resume_error
     smash_brute_brawl_workers_error: Callable = cli.smash_brute_brawl_workers_error
     smash_brute_brawl_level_error: Callable = cli.smash_brute_brawl_level_error
+    smash_brute_brawl_crc_forge_bytes_error: Callable = cli.smash_brute_brawl_crc_forge_bytes_error
+    smash_brute_brawl_crc_forge_window_error: Callable = cli.smash_brute_brawl_crc_forge_window_error
     output_file_dir: Callable = cli.output_file_dir
     runtime_flags_from_args: Callable = cli.runtime_flags_from_args
     clone_folder: Callable[[str, str], str] = output.clone_folder
@@ -100,6 +102,9 @@ class MainCliOptionsState:
     smash_brute_brawl_resume: str = "ask"
     smash_brute_brawl_workers: str | int | None = None
     smash_brute_brawl_force_level: int | None = None
+    smash_brute_brawl_crc_forge: str = "auto"
+    smash_brute_brawl_crc_forge_bytes: int | None = None
+    smash_brute_brawl_crc_forge_window: str | None = None
     gpu_config: gpu_runtime.GpuRuntimeConfig = gpu_runtime.GpuRuntimeConfig()
 
 
@@ -961,6 +966,34 @@ def apply_main_cli_options(
         if smash_brute_brawl_force_level_arg is None
         else int(str(smash_brute_brawl_force_level_arg).strip())
     )
+    smash_brute_brawl_crc_forge = str(
+        getattr(args, "SMASH_BRUTE_BRAWL_CRC_FORGE", "auto") or "auto"
+    ).strip().lower()
+    smash_crc_forge_bytes_arg = getattr(args, "SMASH_BRUTE_BRAWL_CRC_FORGE_BYTES", None)
+    smash_crc_forge_bytes_error = runtime.smash_brute_brawl_crc_forge_bytes_error(
+        smash_crc_forge_bytes_arg
+    )
+    if smash_crc_forge_bytes_error is not None:
+        runtime.print_error(smash_crc_forge_bytes_error)
+        runtime.exit_process(1)
+        return None
+    smash_brute_brawl_crc_forge_bytes = (
+        None
+        if smash_crc_forge_bytes_arg is None
+        else int(str(smash_crc_forge_bytes_arg).strip())
+    )
+    smash_brute_brawl_crc_forge_window = getattr(
+        args,
+        "SMASH_BRUTE_BRAWL_CRC_FORGE_WINDOW",
+        None,
+    )
+    smash_crc_forge_window_error = runtime.smash_brute_brawl_crc_forge_window_error(
+        smash_brute_brawl_crc_forge_window
+    )
+    if smash_crc_forge_window_error is not None:
+        runtime.print_error(smash_crc_forge_window_error)
+        runtime.exit_process(1)
+        return None
     ultimate_linefeed_budget_error = runtime.ultimate_linefeed_budget_error(
         ultimate_linefeed_budget,
         ultimate_linefeed_unbounded,
@@ -1032,6 +1065,9 @@ def apply_main_cli_options(
         smash_brute_brawl_resume=smash_brute_brawl_resume,
         smash_brute_brawl_workers=smash_brute_brawl_workers,
         smash_brute_brawl_force_level=smash_brute_brawl_force_level,
+        smash_brute_brawl_crc_forge=smash_brute_brawl_crc_forge,
+        smash_brute_brawl_crc_forge_bytes=smash_brute_brawl_crc_forge_bytes,
+        smash_brute_brawl_crc_forge_window=smash_brute_brawl_crc_forge_window,
         gpu_config=gpu_config,
     )
 
@@ -1071,6 +1107,9 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "SMASH_BRUTE_BRAWL_RESUME": options.smash_brute_brawl_resume,
         "SMASH_BRUTE_BRAWL_WORKERS": options.smash_brute_brawl_workers,
         "SMASH_BRUTE_BRAWL_FORCE_LEVEL": options.smash_brute_brawl_force_level,
+        "SMASH_BRUTE_BRAWL_CRC_FORGE": options.smash_brute_brawl_crc_forge,
+        "SMASH_BRUTE_BRAWL_CRC_FORGE_BYTES": options.smash_brute_brawl_crc_forge_bytes,
+        "SMASH_BRUTE_BRAWL_CRC_FORGE_WINDOW": options.smash_brute_brawl_crc_forge_window,
         "GPU": options.gpu_config.enabled,
         "GPU_CONFIG": options.gpu_config,
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,

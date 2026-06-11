@@ -631,7 +631,15 @@ def loadingbar_fish_speed(fishs: int) -> int:
     return max(1, len(str(fish_count)) - 2)
 
 
-HUGE_LOADINGBAR_ANIMATION_THRESHOLD = 1_000_000
+def loadingbar_zero_counter_fish_step(visible_fish_end: int) -> int:
+    try:
+        end = max(0, int(visible_fish_end))
+    except (TypeError, ValueError):
+        return 1
+    return max(1, end // 6)
+
+
+HUGE_LOADINGBAR_ANIMATION_THRESHOLD = 120_000
 
 
 def loadingbar_progress(
@@ -667,6 +675,8 @@ def loadingbar_progress(
         current_loop = min(max(0, int(loop)), fishs)
         if current_loop >= fishs:
             fish_pos = visible_fish_end
+        elif current_loop == 0:
+            fish_pos = (fish_pos + loadingbar_zero_counter_fish_step(visible_fish_end)) % (visible_fish_end + 1)
         elif fishs >= HUGE_LOADINGBAR_ANIMATION_THRESHOLD and current_loop > 0:
             fish_pos = (fish_pos + 1) % (visible_fish_end + 1)
         else:

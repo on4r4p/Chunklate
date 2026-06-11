@@ -85,6 +85,7 @@ class AutomaticRepairRuntime:
     set_ultimate_linefeed_reference_mode: Callable[[str], Any] | None = None
     set_ultimate_linefeed_reference_regions: Callable[[str], Any] | None = None
     smash_brute_brawl_force_level: int | None = None
+    smash_brute_brawl_crc_forge: str = "auto"
 
 
 @dataclass(frozen=True)
@@ -409,6 +410,7 @@ def build_automatic_repair_runtime_from_namespace(namespace: dict[str, Any]) -> 
             value,
         ),
         smash_brute_brawl_force_level=smash_brute_brawl_force_level,
+        smash_brute_brawl_crc_forge=str(namespace.get("SMASH_BRUTE_BRAWL_CRC_FORGE") or "auto"),
     )
 
 
@@ -1077,6 +1079,12 @@ def _partial_blackfill_bruteforce_question(
         runtime.candy(
             "Cowsay",
             "CRC is not an oracle for this run. Any SBB hit must survive full PNG validation, and visual/reference proof if the file already decodes.",
+            "com",
+        )
+    elif str(getattr(runtime, "smash_brute_brawl_crc_forge", "auto") or "auto") != "off":
+        runtime.candy(
+            "Cowsay",
+            "HermesProbe CRC-forge targeted Insert/Replace/Remove 1-10 byte pass will run before broad SmashBruteBrawl.",
             "com",
         )
     twobytes_too_small = _sbb_diagnostic_says_twobytes_is_too_small(diagnostic)
