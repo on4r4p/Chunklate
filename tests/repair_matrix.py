@@ -929,6 +929,32 @@ UNCOVERED_REPAIR_CASES: dict[str, str] = {
     "xs7n0g01.png": "local schaik sample with invalid PNG dimensions; not yet a repair regression",
 }
 
+_KAGEBUSHIN_IDAT_AUDIT_FIXTURES = (
+    tuple(
+        f"Kagebushin_IDAT_Changed_{count:02d}_{'Byte' if count == 1 else 'Bytes'}_StoredOriginalCRC.png"
+        for count in range(1, 11)
+    )
+    + tuple(
+        f"Kagebushin_IDAT_Extra_{count:02d}_{'Byte' if count == 1 else 'Bytes'}_StoredOriginalCRC.png"
+        for count in range(1, 11)
+    )
+    + tuple(
+        f"Kagebushin_IDAT_Missing_{count:02d}_{'Byte' if count == 1 else 'Bytes'}_StoredOriginalCRC.png"
+        for count in range(1, 10)
+    )
+    + tuple(
+        f"Kagebushin_IDAT_{kind}_{count}{'Byte' if count == 1 else 'Bytes'}_StoredOriginalCRC.png"
+        for kind in ("Changed", "Extra", "Missing")
+        for count in (1, 2, 4, 5)
+    )
+)
+
+for _fixture in _KAGEBUSHIN_IDAT_AUDIT_FIXTURES:
+    UNCOVERED_REPAIR_CASES[_fixture] = (
+        "Kagebushin SBB/HermesProbe audit fixture with original IDAT CRC kept; "
+        "kept for manual and targeted runtime validation, not strict repair matrix"
+    )
+
 
 REPAIR_CASES = {
     repair.fixture: (repair.max_saves, repair.expected_outputs)
