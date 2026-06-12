@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 import heapq
 from typing import Iterable
+import zlib
 
 from . import deflate_header
 
@@ -157,6 +158,14 @@ class DeflateHuffmanState:
     literal_max_bits: int
     distance_table: dict[tuple[int, int], int]
     distance_max_bits: int
+
+
+@dataclass(frozen=True)
+class DeflateHistoryState:
+    huffman: DeflateHuffmanState
+    output_tail: bytes
+    tail_start: int
+    history_size: int
 
 
 @dataclass(frozen=True)
@@ -429,6 +438,21 @@ def _align_to_byte(reader: deflate_header.BitReader) -> None:
     remainder = reader.bit_offset % 8
     if remainder:
         reader.bit_offset += 8 - remainder
+
+
+def _history_append_byte(tail: bytearray, value: int, history_size: int) -> None:
+    tail.append(int(value) & 0xFF)
+    overflow = len(tail) - max(1, int(history_size))
+    if overflow > 0:
+        del tail[:overflow]
+
+
+def _history_copy(tail: bytearray, distance: int, length: int, history_size: int) -> None:
+    distance = int(distance)
+    if distance <= 0 or distance > len(tail):
+        raise deflate_header._InvalidHuffman("distance exceeds retained history")
+    for _ in range(int(length)):
+        _history_append_byte(tail, tail[-distance], history_size)
 
 
 def _read_dynamic_tables(
@@ -907,6 +931,179 @@ def _seek_huffman_state_before_bit_from_state(
     return best
 
 
+def _history_result(
+    state: DeflateHuffmanState,
+    output_size: int,
+    tail: bytearray,
+    history_size: int,
+) -> DeflateHistoryState:
+    output_size = int(output_size)
+    return DeflateHistoryState(
+        huffman=state,
+        output_tail=bytes(tail),
+        tail_start=max(0, output_size - len(tail)),
+        history_size=max(1, int(history_size)),
+    )
+
+
+def _replay_history_to_state(
+    stream: bytes,
+    target_state: DeflateHuffmanState,
+    *,
+    zlib_wrapped: bool,
+    history_size: int,
+) -> DeflateHistoryState | None:
+    fast = _zlib_history_to_state(
+        stream,
+        target_state,
+        zlib_wrapped=zlib_wrapped,
+        history_size=history_size,
+    )
+    if fast is not None:
+        return fast
+    if zlib_wrapped and not deflate_header.zlib_header_is_valid(stream):
+        return None
+    target_bit_offset = int(target_state.bit_offset)
+    reader = deflate_header.BitReader(stream, start_byte=2 if zlib_wrapped else 0)
+    output_size = 0
+    block_index = 0
+    tail = bytearray()
+    try:
+        while reader.bit_offset <= target_bit_offset:
+            if reader.bit_offset == target_bit_offset:
+                return _history_result(target_state, output_size, tail, history_size)
+            bfinal = reader.read(1)
+            btype = reader.read(2)
+            if btype == 0:
+                _align_to_byte(reader)
+                if reader.byte_offset + 4 > len(stream):
+                    raise deflate_header._NeedBits
+                len_value = stream[reader.byte_offset] | (stream[reader.byte_offset + 1] << 8)
+                nlen_value = stream[reader.byte_offset + 2] | (stream[reader.byte_offset + 3] << 8)
+                if (len_value ^ 0xFFFF) != nlen_value:
+                    raise deflate_header._InvalidHuffman("stored block length complement mismatch")
+                reader.bit_offset += 32
+                data_start = reader.byte_offset
+                data_end = data_start + len_value
+                if data_end > len(stream):
+                    raise deflate_header._NeedBits
+                if reader.bit_offset <= target_bit_offset < data_end * 8:
+                    return None
+                for value in stream[data_start:data_end]:
+                    _history_append_byte(tail, value, history_size)
+                output_size += len_value
+                reader.bit_offset = data_end * 8
+            elif btype == 1:
+                literal_table, literal_max, distance_table, distance_max = _FIXED_TABLES
+                if reader.bit_offset == target_bit_offset:
+                    return _history_result(target_state, output_size, tail, history_size)
+                while True:
+                    if reader.bit_offset == target_bit_offset:
+                        return _history_result(target_state, output_size, tail, history_size)
+                    if reader.bit_offset > target_bit_offset:
+                        return None
+                    symbol = deflate_header._decode_symbol(reader, literal_table, literal_max)
+                    if symbol < 256:
+                        _history_append_byte(tail, symbol, history_size)
+                        output_size += 1
+                    elif symbol == 256:
+                        break
+                    elif 257 <= symbol <= 285:
+                        length_index = symbol - 257
+                        length = LENGTH_BASES[length_index]
+                        extra_bits = LENGTH_EXTRAS[length_index]
+                        if extra_bits:
+                            length += reader.read(extra_bits)
+                        distance_symbol = deflate_header._decode_symbol(reader, distance_table, distance_max)
+                        if distance_symbol >= len(DISTANCE_BASES):
+                            raise deflate_header._InvalidHuffman("invalid distance symbol")
+                        distance = DISTANCE_BASES[distance_symbol]
+                        distance_extra = DISTANCE_EXTRAS[distance_symbol]
+                        if distance_extra:
+                            distance += reader.read(distance_extra)
+                        if distance > output_size:
+                            raise deflate_header._InvalidHuffman("distance exceeds produced output")
+                        _history_copy(tail, distance, length, history_size)
+                        output_size += length
+                    else:
+                        raise deflate_header._InvalidHuffman("invalid literal/length symbol")
+            elif btype == 2:
+                literal_table, literal_max, distance_table, distance_max = _read_dynamic_tables(reader)
+                if reader.bit_offset == target_bit_offset:
+                    return _history_result(target_state, output_size, tail, history_size)
+                while True:
+                    if reader.bit_offset == target_bit_offset:
+                        return _history_result(target_state, output_size, tail, history_size)
+                    if reader.bit_offset > target_bit_offset:
+                        return None
+                    symbol = deflate_header._decode_symbol(reader, literal_table, literal_max)
+                    if symbol < 256:
+                        _history_append_byte(tail, symbol, history_size)
+                        output_size += 1
+                    elif symbol == 256:
+                        break
+                    elif 257 <= symbol <= 285:
+                        length_index = symbol - 257
+                        length = LENGTH_BASES[length_index]
+                        extra_bits = LENGTH_EXTRAS[length_index]
+                        if extra_bits:
+                            length += reader.read(extra_bits)
+                        distance_symbol = deflate_header._decode_symbol(reader, distance_table, distance_max)
+                        if distance_symbol >= len(DISTANCE_BASES):
+                            raise deflate_header._InvalidHuffman("invalid distance symbol")
+                        distance = DISTANCE_BASES[distance_symbol]
+                        distance_extra = DISTANCE_EXTRAS[distance_symbol]
+                        if distance_extra:
+                            distance += reader.read(distance_extra)
+                        if distance > output_size:
+                            raise deflate_header._InvalidHuffman("distance exceeds produced output")
+                        _history_copy(tail, distance, length, history_size)
+                        output_size += length
+                    else:
+                        raise deflate_header._InvalidHuffman("invalid literal/length symbol")
+            else:
+                return None
+            block_index += 1
+            if bfinal and reader.bit_offset <= target_bit_offset:
+                return None
+    except (deflate_header._NeedBits, deflate_header._InvalidHuffman):
+        return None
+    return None
+
+
+def _zlib_history_to_state(
+    stream: bytes,
+    target_state: DeflateHuffmanState,
+    *,
+    zlib_wrapped: bool,
+    history_size: int,
+) -> DeflateHistoryState | None:
+    output_target = int(target_state.output_offset)
+    if output_target < 0:
+        return None
+    if output_target == 0:
+        return DeflateHistoryState(
+            huffman=target_state,
+            output_tail=b"",
+            tail_start=0,
+            history_size=max(1, int(history_size)),
+        )
+    try:
+        decompressor = zlib.decompressobj(15 if zlib_wrapped else -15)
+        output = decompressor.decompress(stream, output_target)
+    except zlib.error:
+        return None
+    if len(output) < output_target:
+        return None
+    tail = output[-max(1, int(history_size)) :]
+    return DeflateHistoryState(
+        huffman=target_state,
+        output_tail=tail,
+        tail_start=max(0, output_target - len(tail)),
+        history_size=max(1, int(history_size)),
+    )
+
+
 def huffman_state_before_byte_boundary(
     stream: bytes,
     byte_offset: int,
@@ -926,6 +1123,32 @@ def huffman_state_before_byte_boundary(
     if base_state is None:
         return None
     return _seek_huffman_state_before_bit_from_state(stream, base_state, target_bit_offset)
+
+
+def huffman_history_state_before_byte_boundary(
+    stream: bytes,
+    byte_offset: int,
+    *,
+    trace: DeflateTrace | None = None,
+    zlib_wrapped: bool = True,
+    checkpoint_stride: int = 2048,
+    history_size: int = 32768,
+) -> DeflateHistoryState | None:
+    state = huffman_state_before_byte_boundary(
+        stream,
+        byte_offset,
+        trace=trace,
+        zlib_wrapped=zlib_wrapped,
+        checkpoint_stride=checkpoint_stride,
+    )
+    if state is None:
+        return None
+    return _replay_history_to_state(
+        stream,
+        state,
+        zlib_wrapped=zlib_wrapped,
+        history_size=history_size,
+    )
 
 
 def huffman_state_at_byte(
@@ -1010,6 +1233,8 @@ def iter_huffman_byte_prefix_candidates(
     max_fixed_bits: int = 64,
     target_output_delta: int | None = None,
     max_expansions: int | None = 100_000,
+    suffix_payload_bit_offset: int | None = None,
+    suffix_bit_count: int = 0,
 ) -> tuple[DeflatePrefixCandidate, ...]:
     byte_count = int(byte_count)
     if byte_count <= 0 or max_candidates <= 0:
@@ -1018,7 +1243,9 @@ def iter_huffman_byte_prefix_candidates(
     fixed_bit_count = target_bit - int(state.bit_offset)
     if fixed_bit_count < 0 or fixed_bit_count > int(max_fixed_bits):
         return ()
-    required_bits = fixed_bit_count + byte_count * 8
+    suffix_bit_count = max(0, int(suffix_bit_count))
+    suffix_start_bit = fixed_bit_count + byte_count * 8
+    required_bits = suffix_start_bit + suffix_bit_count
     literal_codes = _symbol_codes(state.literal_table)
     distance_codes = _symbol_codes(state.distance_table)
     templates: list[tuple[int, int, tuple[object, ...]]] = []
@@ -1075,8 +1302,6 @@ def iter_huffman_byte_prefix_candidates(
 
     def append_bit(bits: tuple[int, ...], bit: int) -> tuple[tuple[int, ...], ...]:
         nonlocal expansions
-        if expansion_budget is not None and expansions >= expansion_budget:
-            return ()
         if len(bits) >= required_bits:
             return (bits,)
         absolute_bit = int(state.bit_offset) + len(bits)
@@ -1084,6 +1309,12 @@ def iter_huffman_byte_prefix_candidates(
             payload_bit = _payload_bit(payload, absolute_bit)
             if payload_bit is None or payload_bit != int(bit):
                 return ()
+        elif suffix_payload_bit_offset is not None and len(bits) >= suffix_start_bit:
+            suffix_index = len(bits) - suffix_start_bit
+            if suffix_index < suffix_bit_count:
+                payload_bit = _payload_bit(payload, int(suffix_payload_bit_offset) + suffix_index)
+                if payload_bit is None or payload_bit != int(bit):
+                    return ()
         expansions += 1
         return (bits + (int(bit) & 1,),)
 

@@ -948,6 +948,8 @@ def action_smash_brute_brawl_ask_blackfill_next_step(runtime: CheckPointActionRu
         )
         runtime.retry_state.clear()
         return False, None
+    if recent_status == "accepted_blackfill":
+        return _blackfill_keep_existing_fallback(runtime)
     next_attempt = _blackfill_next_campaign_attempt(
         runtime,
         toolkit,

@@ -5,6 +5,7 @@ import concurrent.futures
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 import hashlib
+import math
 import multiprocessing
 from pathlib import Path
 import signal
@@ -26,7 +27,33 @@ from . import (
 
 
 LegacyCall = Callable[..., Any]
-SBB_CANDIDATE_ALGORITHM_VERSION = 4
+SBB_CANDIDATE_ALGORITHM_VERSION = 5
+CRC_FORGE_WINDOW_DISPLAY_LIMIT = 4
+CRC_FORGE_BYTE_COUNT_DISPLAY_LIMIT = 5
+CRC_FORGE_BOUNDED_NO_TIMEOUT_CANDIDATES = 10_000_000
+SBB_DANGEROUS_LEVEL_WARNING = 15
+SBB_ETA_REFERENCE_RATE = 1_000_000.0
+SBB_LONG_FALLBACK_SECONDS = 24 * 60 * 60
+SECONDS_PER_YEAR = 365.25 * 24 * 60 * 60
+
+
+@dataclass(frozen=True)
+class CrcForgeScanOutcome:
+    found: bool
+    budget_stopped: bool = False
+    tested_candidates: int = 0
+    estimated_candidates: int = 0
+    last_byte_count: int = 0
+
+    def __bool__(self) -> bool:
+        return bool(self.found)
+
+
+@dataclass(frozen=True)
+class SbbFallbackDecision:
+    action: str = "trust"
+    brute_level: int | None = None
+    byte_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -48,6 +75,44 @@ class SmashBruteBrawlContext:
     crash: Any = False
     debug: bool = False
     pause_debug: bool = False
+
+
+def _format_crc_forge_windows(
+    windows: tuple[idat_crc_forge.ForgeWindow, ...],
+    *,
+    limit: int = CRC_FORGE_WINDOW_DISPLAY_LIMIT,
+) -> str:
+    if not windows:
+        return "auto"
+    shown = list(windows[: max(1, int(limit))])
+    parts = ["%s:%s" % (window.start, window.end) for window in shown]
+    remaining = len(windows) - len(shown)
+    if remaining > 0:
+        parts.append("+%s more" % remaining)
+    return ", ".join(parts)
+
+
+def _format_crc_forge_byte_counts(
+    byte_counts: tuple[int, ...],
+    *,
+    limit: int = CRC_FORGE_BYTE_COUNT_DISPLAY_LIMIT,
+) -> str:
+    if not byte_counts:
+        return "auto"
+    shown = list(byte_counts[: max(1, int(limit))])
+    text = "/".join(str(count) for count in shown)
+    remaining = len(byte_counts) - len(shown)
+    if remaining > 0:
+        text += " (+%s more)" % remaining
+    return text
+
+
+def _crc_forge_auto_max_seconds(summary: idat_crc_forge.ForgeScanSummary, mode: str) -> float:
+    if str(mode or "auto").strip().lower() == "force":
+        return 0.0
+    if 0 < int(summary.estimated_candidates) <= CRC_FORGE_BOUNDED_NO_TIMEOUT_CANDIDATES:
+        return 0.0
+    return float(idat_crc_forge.HERMESPROBE_AUTO_MAX_SECONDS)
 
 
 @dataclass(frozen=True)
@@ -73,6 +138,7 @@ class SmashBruteBrawlRuntime:
     crc_forge_mode: str = "auto"
     crc_forge_bytes: int | None = None
     crc_forge_window: str | None = None
+    input_func: LegacyCall | None = None
 
 
 @dataclass(frozen=True)
@@ -512,6 +578,60 @@ def _sbb_level_for_idat_byte_count(byte_count: int) -> int:
     return 4
 
 
+def _windows_cover_position_space(
+    windows: tuple[idat_crc_forge.ForgeWindow, ...],
+    position_limit: int,
+) -> bool:
+    limit = max(0, int(position_limit))
+    if limit <= 0:
+        return True
+    merged = idat_crc_forge._merge_windows(windows)
+    cursor = 0
+    for window in merged:
+        if int(window.start) > cursor:
+            return False
+        cursor = max(cursor, int(window.end))
+        if cursor >= limit:
+            return True
+    return False
+
+
+def _crc_forge_covers_broad_sbb_space(
+    source_data: bytes,
+    target_chunk: png.PngChunk,
+    *,
+    edit_order: tuple[str, ...],
+    byte_counts: tuple[int, ...],
+    window_spec: str | None,
+) -> bool:
+    payload_len = len(target_chunk.data)
+    base_windows = (
+        idat_crc_forge.parse_window_spec(window_spec, payload_len)
+        if str(window_spec or "").strip()
+        else idat_crc_forge.ranked_auto_windows(source_data, target_chunk)
+    )
+    if not base_windows:
+        return False
+    for byte_count in byte_counts:
+        if str(window_spec or "").strip():
+            active_edit_order = idat_crc_forge._explicit_window_edit_order(edit_order, byte_count)
+        else:
+            active_edit_order = idat_crc_forge._expanded_edit_order(source_data, edit_order, byte_count)
+        if not active_edit_order:
+            return False
+        for edit_kind in active_edit_order:
+            position_limit = idat_crc_forge.operation_position_limit(payload_len, edit_kind, byte_count)
+            op_windows = idat_crc_forge.clamp_windows_for_operation(
+                base_windows,
+                payload_len,
+                edit_kind,
+                byte_count,
+            )
+            if not _windows_cover_position_space(op_windows, position_limit):
+                return False
+    return True
+
+
 def _recommended_sbb_level_after_crc_forge(
     runtime: SmashBruteBrawlRuntime,
     context: SmashBruteBrawlContext,
@@ -551,8 +671,182 @@ def _recommended_sbb_level_after_crc_forge(
     )
     if not summary.runnable or not summary.byte_counts:
         return None
-    byte_count = int(summary.byte_counts[0])
+    if not _crc_forge_covers_broad_sbb_space(
+        source_data,
+        target_chunk,
+        edit_order=auto_plan.edit_order,
+        byte_counts=summary.byte_counts,
+        window_spec=runtime.crc_forge_window,
+    ):
+        return None
+    byte_count = max(int(value) for value in summary.byte_counts)
     return _sbb_level_for_idat_byte_count(byte_count), byte_count
+
+
+def _ints_from_text(text: str, *, include_zero: bool) -> tuple[int, ...]:
+    values: list[int] = []
+    current = ""
+    for char in str(text):
+        if char.isdigit():
+            current += char
+            continue
+        if current:
+            values.append(int(current))
+            current = ""
+    if current:
+        values.append(int(current))
+    return tuple(value for value in values if value > 0 or (include_zero and value == 0))
+
+
+def _positive_ints_from_text(text: str) -> tuple[int, ...]:
+    return _ints_from_text(text, include_zero=False)
+
+
+def _nonnegative_ints_from_text(text: str) -> tuple[int, ...]:
+    return _ints_from_text(text, include_zero=True)
+
+
+def _fallback_input(runtime: SmashBruteBrawlRuntime, prompt: str) -> str:
+    if runtime.input_func is None:
+        return ""
+    try:
+        return str(runtime.input_func(prompt)).strip().lower()
+    except EOFError:
+        runtime.emit("-SBB fallback prompt reached EOF; trusting the detected level.")
+        return ""
+
+
+def _blackfill_fallback_available(context: SmashBruteBrawlContext) -> bool:
+    return "FixItFelix partial IDAT blackfill" in str(context.from_error)
+
+
+def _format_log10_count(log10_count: float) -> str:
+    if not math.isfinite(log10_count) or log10_count < 0:
+        return "unknown"
+    if log10_count < 12:
+        return f"{int(10 ** log10_count):,}"
+    return "about 1e%s" % int(math.floor(log10_count))
+
+
+def _format_log10_eta(log10_candidates: float, *, rate: float = SBB_ETA_REFERENCE_RATE) -> str:
+    if not math.isfinite(log10_candidates) or log10_candidates < 0:
+        return "unknown"
+    rate = max(0.001, float(rate))
+    log10_seconds = log10_candidates - math.log10(rate)
+    if log10_seconds < 8:
+        return str(timedelta(seconds=int(10 ** log10_seconds)))
+    log10_years = log10_seconds - math.log10(SECONDS_PER_YEAR)
+    if log10_years < 6:
+        return "about %.0f years" % (10 ** log10_years)
+    return "over 1e%s years" % int(math.floor(log10_years))
+
+
+def _sbb_log10_candidate_estimate(
+    context: SmashBruteBrawlContext,
+    runtime_plan: bruteforce.BruteForceRuntimePlan,
+) -> tuple[float | None, str]:
+    if _uses_hermes_direct_window(context, runtime_plan):
+        candidate_bytes = _hermes_direct_window_bytes_for_level(context)
+        log10_per_position = float(candidate_bytes) * math.log10(256)
+        positions = max(1, int(context.chunk_length) - int(candidate_bytes) + 1)
+        log10_total = log10_per_position + math.log10(max(1, positions))
+        detail = "%s-byte SBB direct window across about %s position(s)" % (
+            candidate_bytes,
+            f"{positions:,}",
+        )
+        return log10_total, detail
+    length_range = runtime_plan.length_range
+    lengths = tuple(range(length_range.min_length, length_range.max_length, length_range.step))
+    if not lengths:
+        return None, "unknown candidate space"
+    max_bytes = max(1, max(lengths) // 2)
+    log10_candidates = math.log10(max(1, len(lengths))) + float(max_bytes) * math.log10(256)
+    detail = "rough %s length plan(s), up to %s byte(s)" % (len(lengths), max_bytes)
+    return log10_candidates, detail
+
+
+def _emit_sbb_level_warning(
+    runtime: SmashBruteBrawlRuntime,
+    context: SmashBruteBrawlContext,
+    runtime_plan: bruteforce.BruteForceRuntimePlan,
+) -> None:
+    log10_candidates, detail = _sbb_log10_candidate_estimate(context, runtime_plan)
+    if log10_candidates is None:
+        if int(context.brute_level) >= SBB_DANGEROUS_LEVEL_WARNING:
+            runtime.emit(
+                "-WARNING: SBB level %s is unusually deep; ETA will be sampled after the pass starts."
+                % int(context.brute_level)
+            )
+        return
+    log10_seconds = log10_candidates - math.log10(max(0.001, SBB_ETA_REFERENCE_RATE))
+    is_long = log10_seconds >= math.log10(SBB_LONG_FALLBACK_SECONDS)
+    if not is_long and int(context.brute_level) < SBB_DANGEROUS_LEVEL_WARNING:
+        return
+    runtime.emit(
+        "-WARNING: SBB fallback level %s is estimated above one day (%s)."
+        % (int(context.brute_level), detail)
+    )
+    runtime.emit(
+        "-SBB fallback ETA estimate: %s candidate combinations; at %.0f candidates/s -> %s."
+        % (
+            _format_log10_count(log10_candidates),
+            SBB_ETA_REFERENCE_RATE,
+            _format_log10_eta(log10_candidates),
+        )
+    )
+
+
+def _ask_sbb_fallback_decision(
+    runtime: SmashBruteBrawlRuntime,
+    context: SmashBruteBrawlContext,
+    *,
+    detected_level: int,
+    detected_byte_count: int | None,
+) -> SbbFallbackDecision:
+    if runtime.input_func is None:
+        return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
+
+    blackfill_available = _blackfill_fallback_available(context)
+    runtime.emit("")
+    runtime.emit(
+        "-Targeted repair pass is handing off to broad SBB at detected level %s."
+        % int(detected_level)
+    )
+    if detected_byte_count:
+        runtime.emit("-Detected byte scope: up to %s byte(s)." % int(detected_byte_count))
+    if blackfill_available:
+        runtime.emit(
+            "-SBB fallback choices: 1 trust detection, 2 choose level/bytes, 3 keep blackfill fallback."
+        )
+    else:
+        runtime.emit("-SBB fallback choices: 1 trust detection, 2 choose level/bytes.")
+    answer = _fallback_input(runtime, "SBB fallback [1 trust / 2 custom / 3 blackfill] > ")
+    if answer in {"", "1", "trust", "auto", "yes", "y", "oui", "o"}:
+        return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
+    if answer in {"3", "blackfill", "fallback", "no", "n", "non"}:
+        if blackfill_available:
+            return SbbFallbackDecision("blackfill")
+        runtime.emit("-No blackfill fallback is available here; trusting the detected SBB level.")
+        return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
+    if answer not in {"2", "custom", "manual", "manuel", "level", "bytes"}:
+        runtime.emit("-Unknown SBB fallback answer; trusting the detected level.")
+        return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
+
+    level_text = _fallback_input(runtime, "Custom SBB level [empty keeps detected] > ")
+    byte_text = _fallback_input(runtime, "Bytes concerned [optional, e.g. 1, 1-2, 10] > ")
+    level_values = _nonnegative_ints_from_text(level_text)
+    byte_values = _positive_ints_from_text(byte_text)
+    level = int(level_values[0]) if level_values else int(detected_level)
+    byte_count = max(byte_values) if byte_values else detected_byte_count
+    if byte_count is not None:
+        safe_level = _sbb_level_for_idat_byte_count(int(byte_count))
+        if safe_level > level:
+            runtime.emit(
+                "-Custom byte scope %s needs at least SBB level %s; raising the requested level from %s."
+                % (int(byte_count), safe_level, level)
+            )
+            level = safe_level
+    return SbbFallbackDecision("manual", max(0, int(level)), byte_count)
 
 
 def _run_crc_forge_scan(
@@ -563,7 +857,7 @@ def _run_crc_forge_scan(
     runtime_plan: bruteforce.BruteForceRuntimePlan,
     candidate_space_hash: str,
     progress_resume: dict[str, Any] | None,
-) -> bool:
+) -> CrcForgeScanOutcome | bool:
     mode = str(runtime.crc_forge_mode or "auto").strip().lower()
     if mode == "off":
         return False
@@ -602,13 +896,13 @@ def _run_crc_forge_scan(
         runtime.emit("-HermesProbe CRC-forge targeted IDAT pass skipped: %s" % summary.reason)
         return False
 
-    window_text = ", ".join("%s:%s" % (window.start, window.end) for window in summary.windows)
+    window_text = _format_crc_forge_windows(summary.windows)
     runtime.emit(
-        "-HermesProbe CRC-forge targeted IDAT pass active: %s candidate(s), bytes %s, windows %s."
+        "-HermesProbe CRC-forge targeted IDAT pass active: windows %s; bytes %s; %s candidate(s)."
         % (
-            summary.estimated_candidates,
-            "/".join(str(count) for count in summary.byte_counts),
             window_text or "auto",
+            _format_crc_forge_byte_counts(summary.byte_counts),
+            summary.estimated_candidates,
         )
     )
     resume_cursor = _crc_forge_resume_cursor(progress_resume)
@@ -632,14 +926,21 @@ def _run_crc_forge_scan(
     for _frame in range(12):
         runtime.loadingbar(forge_progress_total, forge_progress_width, 0, False)
         time.sleep(0.08)
+    auto_max_seconds = _crc_forge_auto_max_seconds(summary, mode)
+    if mode != "force" and auto_max_seconds <= 0:
+        runtime.emit(
+            "-HermesProbe CRC-forge targeted pass is bounded; no 300s wall-clock cutoff for this pass."
+        )
 
     def crc_forge_progress_callback(
-        _edit_kind: str,
-        _byte_count: int,
+        edit_kind: str,
+        byte_count: int,
         _position: int,
         _free_index: int,
         tested: int,
     ) -> None:
+        del edit_kind
+        scan_state.length = max(scan_state.length, int(byte_count) * 2)
         safe_current = min(forge_progress_total, max(0, int(tested)))
         scan_state.tested_candidates = max(scan_state.tested_candidates, safe_current)
         now = time.monotonic()
@@ -648,61 +949,71 @@ def _run_crc_forge_scan(
         runtime.loadingbar(forge_progress_total, forge_progress_width, safe_current, False)
         forge_progress["last_emit"] = now
 
-    for candidate in idat_crc_forge.iter_forge_candidates(
-        source_data,
-        target_chunk,
-        old_crc_bytes,
-        edit_order=edit_order,
-        byte_counts=byte_counts,
-        window_spec=runtime.crc_forge_window,
-        mode=mode,
-        zlib_prefilter=True,
-        progress_callback=crc_forge_progress_callback,
-        resume_byte_count=resume_byte_count,
-        resume_window_index=resume_window_index,
-        resume_free_index=resume_free_index,
-        resume_byte_position=resume_byte_position,
-        resume_edit_kind_index=resume_edit_kind_index,
-    ):
-        hit = candidate.hit
-        scan_state.outer_index = int(hit.outer_index)
-        scan_state.length = int(hit.length)
-        scan_state.inner_index = int(candidate.free_index)
-        scan_state.byte_position = int(hit.byte_position)
-        scan_state.edit_kind_index = int(hit.edit_kind_index)
-        scan_state.stage = "crc_forge"
-        scan_state.bonus_offset = 0
-        scan_state.bonus_value = 0
-        scan_state.tested_candidates += 1
-        runtime.loadingbar(
-            forge_progress_total,
-            forge_progress_width,
-            min(forge_progress_total, max(1, int(scan_state.tested_candidates))),
-            False,
-        )
-        if _apply_parallel_hit(runtime, scan_state, old_crc_bytes, hit):
+    budget_stop_reason = ""
+    try:
+        for candidate in idat_crc_forge.iter_forge_candidates(
+            source_data,
+            target_chunk,
+            old_crc_bytes,
+            edit_order=edit_order,
+            byte_counts=byte_counts,
+            window_spec=runtime.crc_forge_window,
+            mode=mode,
+            zlib_prefilter=True,
+            progress_callback=crc_forge_progress_callback,
+            resume_byte_count=resume_byte_count,
+            resume_window_index=resume_window_index,
+            resume_free_index=resume_free_index,
+            resume_byte_position=resume_byte_position,
+            resume_edit_kind_index=resume_edit_kind_index,
+            auto_max_seconds=auto_max_seconds,
+        ):
+            hit = candidate.hit
+            scan_state.outer_index = int(hit.outer_index)
+            scan_state.length = int(hit.length)
+            scan_state.inner_index = int(candidate.free_index)
+            scan_state.byte_position = int(hit.byte_position)
+            scan_state.edit_kind_index = int(hit.edit_kind_index)
+            scan_state.stage = "crc_forge"
+            scan_state.bonus_offset = 0
+            scan_state.bonus_value = 0
+            scan_state.tested_candidates += 1
+            runtime.loadingbar(
+                forge_progress_total,
+                forge_progress_width,
+                min(forge_progress_total, max(1, int(scan_state.tested_candidates))),
+                False,
+            )
+            if _apply_parallel_hit(runtime, scan_state, old_crc_bytes, hit):
+                save_smash_progress_snapshot(
+                    runtime,
+                    context,
+                    runtime_plan,
+                    scan_state,
+                    candidate_space_hash=candidate_space_hash,
+                    force=True,
+                    backend="crc_forge",
+                    crc_trusted=True,
+                    status="success",
+                )
+                return CrcForgeScanOutcome(
+                    True,
+                    tested_candidates=int(scan_state.tested_candidates),
+                    estimated_candidates=int(summary.estimated_candidates),
+                    last_byte_count=max(0, int(scan_state.length) // 2),
+                )
             save_smash_progress_snapshot(
                 runtime,
                 context,
                 runtime_plan,
                 scan_state,
                 candidate_space_hash=candidate_space_hash,
-                force=True,
                 backend="crc_forge",
                 crc_trusted=True,
-                status="success",
+                status="running",
             )
-            return True
-        save_smash_progress_snapshot(
-            runtime,
-            context,
-            runtime_plan,
-            scan_state,
-            candidate_space_hash=candidate_space_hash,
-            backend="crc_forge",
-            crc_trusted=True,
-            status="running",
-        )
+    except idat_crc_forge.HermesProbeBudgetExpired as exc:
+        budget_stop_reason = exc.reason
 
     scan_state.eta_seconds = (runtime.now() - started_at).seconds
     save_smash_progress_snapshot(
@@ -717,9 +1028,20 @@ def _run_crc_forge_scan(
         status=_sbb_scan_terminal_status(scan_state),
     )
     _emit_sbb_rejection_progress(runtime, scan_state, force=True)
-    runtime.emit("-HermesProbe CRC-forge targeted IDAT pass finished without a validated PNG.")
+    if budget_stop_reason:
+        runtime.emit("-HermesProbe CRC-forge targeted IDAT pass stopped: %s" % budget_stop_reason)
+    else:
+        runtime.emit("-HermesProbe CRC-forge targeted IDAT pass finished without a validated PNG.")
+    outcome_tested = int(scan_state.tested_candidates)
+    outcome_last_byte_count = max(0, int(scan_state.length) // 2)
     _reset_scan_state_for_next_sbb_pass(scan_state)
-    return False
+    return CrcForgeScanOutcome(
+        False,
+        budget_stopped=bool(budget_stop_reason),
+        tested_candidates=outcome_tested,
+        estimated_candidates=int(summary.estimated_candidates),
+        last_byte_count=outcome_last_byte_count,
+    )
 
 
 def prepare_runtime_plan(
@@ -2843,7 +3165,7 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
     try:
         resume_backend = str((progress_resume or {}).get("backend") or "")
         if resume_backend in {"", "crc_forge"}:
-            if _run_crc_forge_scan(
+            crc_forge_outcome = _run_crc_forge_scan(
                 runtime,
                 context,
                 scan_state,
@@ -2851,7 +3173,8 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
                 runtime_plan,
                 candidate_space_hash,
                 progress_resume,
-            ):
+            )
+            if crc_forge_outcome:
                 return SmashBruteBrawlScanResult(
                     state=scan_state.state,
                     old_crc=old_crc,
@@ -2863,6 +3186,11 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
                     crash=scan_state.crash,
                     eta_seconds=scan_state.eta_seconds,
                 )
+            crc_forge_budget_stopped = (
+                isinstance(crc_forge_outcome, CrcForgeScanOutcome)
+                and bool(crc_forge_outcome.budget_stopped)
+            )
+            crc_forge_handed_to_sbb = isinstance(crc_forge_outcome, CrcForgeScanOutcome)
             if resume_backend == "crc_forge":
                 progress_resume = None
                 resume_outer_index = 0
@@ -2872,9 +3200,24 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
                 runtime.emit(
                     "-HermesProbe CRC-forge checkpoint is not reused for broad SBB; starting the SBB pass from zero."
                 )
-            recommended_sbb = _recommended_sbb_level_after_crc_forge(runtime, context, old_crc)
-            if recommended_sbb is not None and int(recommended_sbb[0]) > int(context.brute_level):
+            recommended_sbb = (
+                None
+                if crc_forge_budget_stopped
+                else _recommended_sbb_level_after_crc_forge(runtime, context, old_crc)
+            )
+            fallback_byte_count = (
+                max(0, int(crc_forge_outcome.last_byte_count))
+                if isinstance(crc_forge_outcome, CrcForgeScanOutcome)
+                else None
+            )
+            if crc_forge_budget_stopped:
+                runtime.emit(
+                    "-HermesProbe CRC-forge did not finish its targeted pass; broad SBB keeps level %s."
+                    % int(context.brute_level)
+                )
+            elif recommended_sbb is not None and int(recommended_sbb[0]) > int(context.brute_level):
                 recommended_level, recommended_byte_count = recommended_sbb
+                fallback_byte_count = int(recommended_byte_count)
                 context = replace(context, brute_level=int(recommended_level))
                 runtime_plan = prepare_runtime_plan(runtime, context)
                 candidate_space_payload = _candidate_space_payload(
@@ -2890,9 +3233,70 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
                 resume_cursor = None
                 _reset_scan_state_for_next_sbb_pass(scan_state)
                 runtime.emit(
-                    "-HermesProbe CRC-forge exhausted a targeted %s-byte pass; broad SBB will resume at level %s."
+                    "-HermesProbe CRC-forge exhausted targeted passes up to %s bytes; broad SBB will resume at level %s."
                     % (recommended_byte_count, recommended_level)
                 )
+            if crc_forge_handed_to_sbb:
+                decision = _ask_sbb_fallback_decision(
+                    runtime,
+                    context,
+                    detected_level=int(context.brute_level),
+                    detected_byte_count=fallback_byte_count if fallback_byte_count else None,
+                )
+                if decision.action == "blackfill":
+                    runtime.emit("-SBB fallback decision: keeping the blackfill fallback; broad SBB skipped.")
+                    runtime.side_notes.append(
+                        "-SmashBruteBrawl broad SBB skipped by user; keeping blackfill fallback."
+                    )
+                    save_smash_progress_snapshot(
+                        runtime,
+                        context,
+                        runtime_plan,
+                        scan_state,
+                        candidate_space_hash=candidate_space_hash,
+                        force=True,
+                        status="accepted_blackfill",
+                    )
+                    return SmashBruteBrawlScanResult(
+                        state=scan_state.state,
+                        old_crc=old_crc,
+                        bf_mode=runtime_plan.mode,
+                        full_new_data=scan_state.full_new_data,
+                        png_bytes=scan_state.png_bytes,
+                        to_brute=scan_state.to_brute,
+                        diff=scan_state.diff,
+                        crash=scan_state.crash,
+                        eta_seconds=scan_state.eta_seconds,
+                    )
+                if decision.action == "manual" and decision.brute_level is not None:
+                    if int(decision.brute_level) != int(context.brute_level):
+                        context = replace(context, brute_level=int(decision.brute_level))
+                        runtime_plan = prepare_runtime_plan(runtime, context)
+                        candidate_space_payload = _candidate_space_payload(
+                            context,
+                            runtime_plan,
+                            source_hash=runtime.source_hash,
+                        )
+                        candidate_space_hash = smash_checkpoint.candidate_space_hash(
+                            candidate_space_payload
+                        )
+                        length_range = runtime_plan.length_range
+                        progress_resume = None
+                        resume_outer_index = 0
+                        resume_inner_index = 0
+                        resume_cursor = None
+                        _reset_scan_state_for_next_sbb_pass(scan_state)
+                    if decision.byte_count:
+                        runtime.emit(
+                            "-SBB fallback manual override: level %s for declared byte scope %s."
+                            % (int(context.brute_level), int(decision.byte_count))
+                        )
+                    else:
+                        runtime.emit(
+                            "-SBB fallback manual override: level %s."
+                            % int(context.brute_level)
+                        )
+        _emit_sbb_level_warning(runtime, context, runtime_plan)
         if _run_gpu_scan(
             runtime,
             context,

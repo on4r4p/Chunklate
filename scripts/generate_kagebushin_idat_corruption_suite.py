@@ -11,9 +11,9 @@ from chunklate import png
 
 
 DEFAULT_SOURCE = Path("Kagebushin.png")
-DEFAULT_OUTPUT_DIR = Path("brokenjavapngsuite/kagebushin_idat_stored_original_crc_corruptions_1_to_10_bytes")
+DEFAULT_OUTPUT_DIR = Path("brokenjavapngsuite/kagebushin_idat_stored_original_crc_corruptions_1_to_20_bytes")
 DEFAULT_IDAT_OFFSET = 1_061_222
-DEFAULT_BYTE_COUNTS = "1-10"
+DEFAULT_BYTE_COUNTS = "1-20"
 
 
 def parse_byte_counts(spec: str) -> tuple[int, ...]:

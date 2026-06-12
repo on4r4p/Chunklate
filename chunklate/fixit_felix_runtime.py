@@ -1084,7 +1084,7 @@ def _partial_blackfill_bruteforce_question(
     elif str(getattr(runtime, "smash_brute_brawl_crc_forge", "auto") or "auto") != "off":
         runtime.candy(
             "Cowsay",
-            "HermesProbe CRC-forge targeted Insert/Replace/Remove 1-10 byte pass will run before broad SmashBruteBrawl.",
+            "HermesProbe CRC-forge targeted Insert/Replace/Remove 1-20 byte pass will run before broad SmashBruteBrawl.",
             "com",
         )
     twobytes_too_small = _sbb_diagnostic_says_twobytes_is_too_small(diagnostic)

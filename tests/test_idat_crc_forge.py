@@ -310,6 +310,50 @@ def test_rank_scanline_windows_by_deflate_orders_nearest_output_first():
     assert [window.start for window in ranked] == [300, 200, 400, 100]
 
 
+def test_rank_scanline_windows_for_short_idat_gap_targets_failure_frontier():
+    windows = (
+        idat_crc_forge.ForgeWindow(100, 165, "scanline-anomaly"),
+        idat_crc_forge.ForgeWindow(200, 265, "scanline-anomaly"),
+        idat_crc_forge.ForgeWindow(300, 365, "scanline-anomaly"),
+        idat_crc_forge.ForgeWindow(400, 465, "scanline-anomaly"),
+    )
+    original_analyze = idat_crc_forge.idat.analyze_idat_stream
+    original_trace = idat_crc_forge.deflate_probe.cached_analyze_deflate_stream
+    try:
+        idat_crc_forge.idat.analyze_idat_stream = lambda *_args, **_kwargs: SimpleNamespace(
+            supported=True,
+            scanline_size=10,
+            usable_scanlines=5,
+            height=10,
+            expected_size=100,
+            decompressed_size=90,
+        )
+        idat_crc_forge.deflate_probe.cached_analyze_deflate_stream = lambda *_args, **_kwargs: (
+            idat_crc_forge.deflate_probe.DeflateTrace(
+                status="complete",
+                compressed_size=500,
+                decompressed_size=90,
+                checkpoints=(
+                    idat_crc_forge.deflate_probe.DeflateCheckpoint(100, 800, 20, 0, 2),
+                    idat_crc_forge.deflate_probe.DeflateCheckpoint(200, 1600, 30, 0, 2),
+                    idat_crc_forge.deflate_probe.DeflateCheckpoint(300, 2400, 40, 0, 2),
+                    idat_crc_forge.deflate_probe.DeflateCheckpoint(400, 3200, 50, 0, 2),
+                ),
+            )
+        )
+
+        ranked = idat_crc_forge._rank_scanline_windows_by_deflate(
+            _GOOD_PNG,
+            _GOOD_CHUNK,
+            windows,
+        )
+    finally:
+        idat_crc_forge.idat.analyze_idat_stream = original_analyze
+        idat_crc_forge.deflate_probe.cached_analyze_deflate_stream = original_trace
+
+    assert [window.start for window in ranked][:2] == [400, 300]
+
+
 def test_clamp_windows_for_operation_preserves_ranked_order():
     windows = (
         idat_crc_forge.ForgeWindow(300, 320, "scanline-anomaly"),
@@ -320,6 +364,118 @@ def test_clamp_windows_for_operation_preserves_ranked_order():
     clamped = idat_crc_forge.clamp_windows_for_operation(windows, 500, "insert", 9)
 
     assert [window.start for window in clamped] == [300, 100, 200]
+
+
+def test_explain_scan_preserves_ranked_window_order():
+    _good, broken, _old_crc, _offset, _missing = _stored_crc_missing_payload_fixture(4, b"abcd")
+    ranked = (
+        idat_crc_forge.ForgeWindow(70, 80, "scanline-anomaly"),
+        idat_crc_forge.ForgeWindow(30, 40, "scanline-anomaly"),
+        idat_crc_forge.ForgeWindow(50, 60, "scanline-anomaly"),
+    )
+    original_ranked = idat_crc_forge.ranked_auto_windows
+    try:
+        idat_crc_forge.ranked_auto_windows = lambda *_args, **_kwargs: ranked
+
+        summary = idat_crc_forge.explain_scan(
+            broken,
+            _idat(broken),
+            edit_order=("insert",),
+            byte_counts=(4,),
+            mode="force",
+        )
+    finally:
+        idat_crc_forge.ranked_auto_windows = original_ranked
+
+    assert summary.runnable is True
+    assert [window.start for window in summary.windows] == [70, 30, 50]
+
+
+def test_diagnostic_windows_ignore_complete_bad_adler_tail_offset():
+    original_analyze = idat_crc_forge.idat.analyze_idat_stream
+    try:
+        idat_crc_forge.idat.analyze_idat_stream = lambda *_args, **_kwargs: SimpleNamespace(
+            status="bad_adler",
+            expected_size=1000,
+            decompressed_size=1000,
+            error_idat_offset=999,
+            error_offset=999,
+        )
+        assert idat_crc_forge.diagnostic_windows(b"png", 1000) == ()
+
+        idat_crc_forge.idat.analyze_idat_stream = lambda *_args, **_kwargs: SimpleNamespace(
+            status="bad_adler",
+            expected_size=1000,
+            decompressed_size=900,
+            error_idat_offset=999,
+            error_offset=999,
+        )
+        assert idat_crc_forge.diagnostic_windows(b"png", 1000)
+    finally:
+        idat_crc_forge.idat.analyze_idat_stream = original_analyze
+
+
+def test_complete_bad_adler_uses_full_direct_crc_pass_only_for_small_counts():
+    _good, broken, _old_crc, _offset, _missing = _stored_crc_missing_payload_fixture(4, b"abcd")
+    original_analyze = idat_crc_forge.idat.analyze_idat_stream
+    try:
+        idat_crc_forge.idat.analyze_idat_stream = lambda *_args, **_kwargs: SimpleNamespace(
+            supported=False,
+            status="bad_adler",
+            expected_size=1000,
+            decompressed_size=1000,
+            error_idat_offset=len(_idat(broken).data) - 1,
+            error_offset=len(_idat(broken).data) - 1,
+        )
+
+        summary = idat_crc_forge.explain_scan(
+            broken,
+            _idat(broken),
+            edit_order=("replace",),
+            byte_counts=(1, 2, 5, 20),
+            mode="auto",
+        )
+    finally:
+        idat_crc_forge.idat.analyze_idat_stream = original_analyze
+
+    assert summary.runnable is True
+    assert summary.byte_counts == (1, 2)
+    assert summary.windows
+    assert all(window.start == 0 for window in summary.windows)
+    assert all(window.source == "full-direct-crc" for window in summary.windows)
+
+
+def test_complete_bad_adler_full_direct_crc_repairs_changed1_without_local_window():
+    good, broken, old_crc, _offset, original = _stored_crc_changed_payload_fixture(1, b"\xf5", b"\xc9")
+    original_analyze = idat_crc_forge.idat.analyze_idat_stream
+    try:
+        idat_crc_forge.idat.analyze_idat_stream = lambda *_args, **_kwargs: SimpleNamespace(
+            supported=False,
+            status="bad_adler",
+            expected_size=1000,
+            decompressed_size=1000,
+            error_idat_offset=len(_idat(broken).data) - 1,
+            error_offset=len(_idat(broken).data) - 1,
+        )
+
+        for candidate in idat_crc_forge.iter_forge_candidates(
+            broken,
+            _idat(broken),
+            old_crc,
+            edit_order=("replace",),
+            byte_counts=(1,),
+            mode="auto",
+            zlib_prefilter=False,
+        ):
+            if candidate.hit.png_bytes == good:
+                break
+        else:
+            raise AssertionError("full direct CRC pass did not repair the changed byte")
+    finally:
+        idat_crc_forge.idat.analyze_idat_stream = original_analyze
+
+    assert candidate.hit.brute_bytes == original
+    assert candidate.byte_count == 1
 
 
 def test_auto_free_index_limit_keeps_7_byte_crc_forge_bounded():
@@ -428,6 +584,34 @@ def test_auto_insert4_runs_before_large_replace_focus_passes():
     assert candidate.hit.edit_kind == "insert"
     assert candidate.hit.byte_position == offset
     assert candidate.hit.brute_bytes == missing
+
+
+def test_replace_focus_stays_first_for_direct_crc_counts_when_idat_output_is_short():
+    original_windows = idat_crc_forge.scanline_anomaly_windows
+    original_analyze = idat_crc_forge.idat.analyze_idat_stream
+    try:
+        idat_crc_forge.scanline_anomaly_windows = lambda *_args, **_kwargs: (
+            idat_crc_forge.ForgeWindow(10, 20, "scanline-anomaly"),
+        )
+        idat_crc_forge.idat.analyze_idat_stream = lambda *_args, **_kwargs: SimpleNamespace(
+            expected_size=100,
+            decompressed_size=91,
+        )
+
+        plan = idat_crc_forge.focused_auto_plan(
+            _GOOD_PNG,
+            _GOOD_CHUNK,
+            edit_order=("replace", "insert", "remove"),
+            byte_counts=(4,),
+            focus="replace",
+            edit_mode="Replace",
+        )
+    finally:
+        idat_crc_forge.scanline_anomaly_windows = original_windows
+        idat_crc_forge.idat.analyze_idat_stream = original_analyze
+
+    assert plan.edit_order == ("replace", "insert", "remove")
+    assert plan.byte_counts == (4,)
 
 
 def test_auto_insert5_runs_before_large_replace_focus_passes():
@@ -809,6 +993,148 @@ def test_guided_full_replace_runs_before_limited_numeric_search():
     )
 
 
+def test_symbolic_insert_runs_before_guided_candidates():
+    missing = bytes.fromhex("0100000000abcdef01")
+    good, broken, old_crc, offset, _missing = _stored_crc_missing_payload_fixture(9, missing)
+    seen_progress: list[tuple[str, int, int, int, int]] = []
+    original_ranked = idat_crc_forge.ranked_auto_windows
+    original_solver = idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman
+    original_guided = idat_crc_forge._guided_full_byte_candidates
+    try:
+        idat_crc_forge.ranked_auto_windows = lambda *_args, **_kwargs: (
+            idat_crc_forge.ForgeWindow(offset, offset + 1, "scanline-anomaly"),
+        )
+
+        def solver(*_args, **_kwargs):
+            return (missing,)
+
+        def guided(*_args, **_kwargs):
+            raise AssertionError("guided candidates should not run before symbolic hit is yielded")
+
+        idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman = solver
+        idat_crc_forge._guided_full_byte_candidates = guided
+        for candidate in idat_crc_forge.iter_forge_candidates(
+            broken,
+            _idat(broken),
+            old_crc,
+            edit_order=("insert",),
+            byte_counts=(9,),
+            mode="auto",
+            zlib_prefilter=False,
+            progress_callback=lambda *args: seen_progress.append(args),
+        ):
+            if candidate.hit.png_bytes == good:
+                break
+        else:
+            raise AssertionError("symbolic insert bytes were not yielded")
+    finally:
+        idat_crc_forge.ranked_auto_windows = original_ranked
+        idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman = original_solver
+        idat_crc_forge._guided_full_byte_candidates = original_guided
+
+    assert candidate.hit.brute_bytes == missing
+    assert candidate.free_index == idat_crc_forge.DEFLATE_SYMBOLIC_INDEX_MARKER
+    assert any(
+        progress[3] == idat_crc_forge.DEFLATE_SYMBOLIC_INDEX_MARKER
+        for progress in seen_progress
+    )
+
+
+def test_symbolic_insert20_runs_without_free_bruteforce():
+    missing = bytes(range(20))
+    good, broken, old_crc, offset, _missing = _stored_crc_missing_payload_fixture(20, missing)
+    original_ranked = idat_crc_forge.ranked_auto_windows
+    original_solver = idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman
+    try:
+        idat_crc_forge.ranked_auto_windows = lambda *_args, **_kwargs: (
+            idat_crc_forge.ForgeWindow(offset, offset + 1, "scanline-anomaly"),
+        )
+        idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman = lambda *_args, **_kwargs: (missing,)
+        for candidate in idat_crc_forge.iter_forge_candidates(
+            broken,
+            _idat(broken),
+            old_crc,
+            edit_order=("insert",),
+            byte_counts=(20,),
+            mode="force",
+            zlib_prefilter=False,
+        ):
+            if candidate.hit.png_bytes == good:
+                break
+        else:
+            raise AssertionError("symbolic 20-byte insertion was not yielded")
+    finally:
+        idat_crc_forge.ranked_auto_windows = original_ranked
+        idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman = original_solver
+
+    assert candidate.hit.brute_bytes == missing
+    assert candidate.free_index == idat_crc_forge.DEFLATE_SYMBOLIC_INDEX_MARKER
+
+
+def test_auto_semantic_budgets_cover_11_to_20_with_taper():
+    assert idat_crc_forge._semantic_enabled_for_byte_count(10, "auto")
+    assert idat_crc_forge._semantic_enabled_for_byte_count(20, "auto")
+    assert idat_crc_forge._semantic_beam_width_for_byte_count(20, "auto") > 0
+    assert (
+        idat_crc_forge._semantic_beam_width_for_byte_count(20, "auto")
+        < idat_crc_forge._semantic_beam_width_for_byte_count(10, "auto")
+    )
+    assert (
+        idat_crc_forge._semantic_expansions_for_byte_count(20, "auto")
+        < idat_crc_forge._semantic_expansions_for_byte_count(10, "auto")
+    )
+    assert (
+        idat_crc_forge._symbolic_expansions_for_byte_count(20, "auto")
+        < idat_crc_forge._symbolic_expansions_for_byte_count(10, "auto")
+    )
+    assert (
+        idat_crc_forge._symbolic_auto_positions_per_window(20)
+        < idat_crc_forge._symbolic_auto_positions_per_window(10)
+    )
+
+
+def test_auto_insert20_enables_semantic_solver_with_tapered_budget():
+    missing = bytes(range(20))
+    good, broken, old_crc, offset, _missing = _stored_crc_missing_payload_fixture(20, missing)
+    captured: dict[str, int] = {}
+    original_ranked = idat_crc_forge.ranked_auto_windows
+    original_solver = idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman
+    try:
+        idat_crc_forge.ranked_auto_windows = lambda *_args, **_kwargs: (
+            idat_crc_forge.ForgeWindow(offset, offset + 1, "scanline-anomaly"),
+        )
+
+        def solver(*_args, **kwargs):
+            captured["max_expansions"] = kwargs["max_expansions"]
+            captured["semantic_beam_width"] = kwargs["semantic_beam_width"]
+            captured["semantic_expansions"] = kwargs["semantic_expansions"]
+            return (missing,)
+
+        idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman = solver
+        for candidate in idat_crc_forge.iter_forge_candidates(
+            broken,
+            _idat(broken),
+            old_crc,
+            edit_order=("insert",),
+            byte_counts=(20,),
+            mode="auto",
+            zlib_prefilter=False,
+        ):
+            if candidate.hit.png_bytes == good:
+                break
+        else:
+            raise AssertionError("auto symbolic 20-byte insertion was not yielded")
+    finally:
+        idat_crc_forge.ranked_auto_windows = original_ranked
+        idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman = original_solver
+
+    assert candidate.hit.brute_bytes == missing
+    assert candidate.free_index == idat_crc_forge.DEFLATE_SYMBOLIC_INDEX_MARKER
+    assert captured["semantic_beam_width"] == idat_crc_forge._semantic_beam_width_for_byte_count(20, "auto")
+    assert captured["semantic_expansions"] == idat_crc_forge._semantic_expansions_for_byte_count(20, "auto")
+    assert captured["max_expansions"] == idat_crc_forge._symbolic_expansions_for_byte_count(20, "auto")
+
+
 def test_auto_insert3_seed_solver_uses_crc_without_bruteforce():
     good, broken, old_crc, offset, missing = _bad_adler_missing3_fixture()
     seen_progress: list[tuple[str, int, int, int, int]] = []
@@ -838,6 +1164,182 @@ def test_auto_insert3_seed_solver_uses_crc_without_bruteforce():
     assert candidate.hit.brute_bytes == missing
     assert candidate.free_index == -1
     assert seen_progress[-1] == ("insert", 3, offset, -1, 1)
+
+
+def test_direct_crc_replace3_uses_full_idat_when_diagnostic_window_misses():
+    good, broken, old_crc, offset, original = _stored_crc_changed_payload_fixture(
+        3,
+        b"abc",
+        b"xyz",
+    )
+    original_ranked = idat_crc_forge.ranked_auto_windows
+    try:
+        idat_crc_forge.ranked_auto_windows = lambda *_args, **_kwargs: (
+            idat_crc_forge.ForgeWindow(0, 2, "wrong-diagnostic"),
+        )
+        for candidate in idat_crc_forge.iter_forge_candidates(
+            broken,
+            _idat(broken),
+            old_crc,
+            edit_order=("replace",),
+            byte_counts=(3,),
+            mode="auto",
+            zlib_prefilter=False,
+        ):
+            if candidate.hit.png_bytes == good:
+                break
+        else:
+            raise AssertionError("direct 3-byte replace did not scan the full IDAT")
+    finally:
+        idat_crc_forge.ranked_auto_windows = original_ranked
+
+    assert candidate.hit.edit_kind == "replace"
+    assert candidate.hit.byte_position == offset
+    assert candidate.hit.brute_bytes == original
+    assert candidate.free_index == -1
+
+
+def test_direct_crc_adds_nearby_window_before_full_idat():
+    _good, broken, _old_crc, _offset, _original = _stored_crc_changed_payload_fixture(
+        4,
+        b"abcd",
+        b"wxyz",
+    )
+    original_ranked = idat_crc_forge.ranked_auto_windows
+    try:
+        idat_crc_forge.ranked_auto_windows = lambda *_args, **_kwargs: (
+            idat_crc_forge.ForgeWindow(0, 2, "scanline-anomaly"),
+        )
+        summary = idat_crc_forge.explain_scan(
+            broken,
+            _idat(broken),
+            edit_order=("replace",),
+            byte_counts=(4,),
+            mode="auto",
+        )
+    finally:
+        idat_crc_forge.ranked_auto_windows = original_ranked
+
+    sources = tuple(window.source for window in summary.windows)
+    assert "direct-nearby-crc" in sources
+    assert sources.index("direct-nearby-crc") < sources.index("full-direct-crc")
+
+
+def test_auto_budget_expiration_raises_typed_fallback_reason():
+    _good, broken, old_crc, offset, _missing = _stored_crc_missing_payload_fixture(4, b"abcd")
+    original_monotonic = idat_crc_forge.time.monotonic
+    ticks = [0.0, idat_crc_forge.HERMESPROBE_AUTO_MAX_SECONDS + 1.0]
+
+    def fake_monotonic():
+        if ticks:
+            return ticks.pop(0)
+        return idat_crc_forge.HERMESPROBE_AUTO_MAX_SECONDS + 1.0
+
+    try:
+        idat_crc_forge.time.monotonic = fake_monotonic
+        candidates = idat_crc_forge.iter_forge_candidates(
+            broken,
+            _idat(broken),
+            old_crc,
+            edit_order=("insert",),
+            byte_counts=(4,),
+            window_spec="%s:%s" % (offset, offset + 1),
+            mode="auto",
+        )
+        next(candidates)
+    except idat_crc_forge.HermesProbeBudgetExpired as exc:
+        assert "auto budget exhausted" in exc.reason
+        assert "broad SBB" in exc.reason
+    else:
+        raise AssertionError("HermesProbe auto budget did not stop the pass")
+    finally:
+        idat_crc_forge.time.monotonic = original_monotonic
+
+
+def test_symbolic_budget_only_records_internal_counters():
+    budget = idat_crc_forge._HermesProbeBudget(
+        mode="auto",
+        started_at=0.0,
+        max_seconds=1.0,
+    )
+
+    for _index in range(idat_crc_forge.HERMESPROBE_AUTO_SYMBOLIC_POSITIONS_PER_PASS):
+        budget.record_symbolic(0.01)
+
+    assert budget.symbolic_positions == idat_crc_forge.HERMESPROBE_AUTO_SYMBOLIC_POSITIONS_PER_PASS
+    assert round(budget.symbolic_seconds, 2) == round(
+        idat_crc_forge.HERMESPROBE_AUTO_SYMBOLIC_POSITIONS_PER_PASS * 0.01,
+        2,
+    )
+
+
+def test_slow_symbolic_position_does_not_disable_next_symbolic_position():
+    byte_count = 11
+    _good, broken, old_crc, offset, _missing = _stored_crc_missing_payload_fixture(
+        byte_count,
+        b"abcdefghijk",
+    )
+    original_solver = idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman
+    original_monotonic = idat_crc_forge.time.monotonic
+    original_insert_seed = idat_crc_forge._insert_seed_candidates
+    original_guided_full = idat_crc_forge._guided_full_byte_candidates
+    original_guided_free = idat_crc_forge._guided_free_prefix_candidates
+    ticks = [
+        0.0,
+        0.0,
+        idat_crc_forge.HERMESPROBE_AUTO_POSITION_SECONDS + 1.0,
+        idat_crc_forge.HERMESPROBE_AUTO_POSITION_SECONDS + 1.0,
+        idat_crc_forge.HERMESPROBE_AUTO_POSITION_SECONDS + 1.0,
+    ]
+    solver_positions = []
+
+    def fake_monotonic():
+        if ticks:
+            return ticks.pop(0)
+        return idat_crc_forge.HERMESPROBE_AUTO_POSITION_SECONDS + 1.0
+
+    def slow_solver(payload, position, edit_kind, count, start_crc, end_crc, *_args, **_kwargs):
+        del payload, edit_kind
+        solver_positions.append(position)
+        if position == offset:
+            if False:
+                yield b""
+            return
+        free = b"\x00" * (int(count) - 4)
+        patch = idat_crc_forge.crc32_forge.forge_crc32_4byte_transition(
+            idat_crc_forge.zlib.crc32(free, start_crc) & 0xFFFFFFFF,
+            end_crc,
+        )
+        yield free + patch
+
+    try:
+        idat_crc_forge.time.monotonic = fake_monotonic
+        idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman = slow_solver
+        idat_crc_forge._insert_seed_candidates = lambda *_args, **_kwargs: ()
+        idat_crc_forge._guided_full_byte_candidates = lambda *_args, **_kwargs: ()
+        idat_crc_forge._guided_free_prefix_candidates = lambda *_args, **_kwargs: ()
+        candidates = idat_crc_forge.iter_forge_candidates(
+            broken,
+            _idat(broken),
+            old_crc,
+            edit_order=("insert",),
+            byte_counts=(byte_count,),
+            window_spec="%s:%s" % (offset, offset + 2),
+            mode="auto",
+            max_candidates=20_000_000,
+            auto_max_seconds=0.0,
+        )
+        candidate = next(candidates)
+    finally:
+        idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman = original_solver
+        idat_crc_forge.time.monotonic = original_monotonic
+        idat_crc_forge._insert_seed_candidates = original_insert_seed
+        idat_crc_forge._guided_full_byte_candidates = original_guided_full
+        idat_crc_forge._guided_free_prefix_candidates = original_guided_free
+
+    assert solver_positions[:2] == [offset, offset + 1]
+    assert candidate.byte_count == byte_count
+    assert candidate.free_index == idat_crc_forge.DEFLATE_SYMBOLIC_INDEX_MARKER
 
 
 def test_focused_auto_plan_prioritizes_insert5_for_scanline_anomaly():
@@ -1060,7 +1562,12 @@ def main():
     test_clip_windows_to_candidate_budget_keeps_scanline_anchor_offsets()
     test_clip_windows_to_candidate_budget_anchors_large_free_prefixes()
     test_rank_scanline_windows_by_deflate_orders_nearest_output_first()
+    test_rank_scanline_windows_for_short_idat_gap_targets_failure_frontier()
     test_clamp_windows_for_operation_preserves_ranked_order()
+    test_explain_scan_preserves_ranked_window_order()
+    test_diagnostic_windows_ignore_complete_bad_adler_tail_offset()
+    test_complete_bad_adler_uses_full_direct_crc_pass_only_for_small_counts()
+    test_complete_bad_adler_full_direct_crc_repairs_changed1_without_local_window()
     test_auto_free_index_limit_keeps_7_byte_crc_forge_bounded()
     test_seed_candidates_cover_local_insert_replace_and_direct_remove_counts()
     test_ranked_auto_windows_include_scanline_anomaly_for_bad_adler()
@@ -1075,7 +1582,15 @@ def main():
     test_guided_free_prefix_runs_before_limited_numeric_search()
     test_guided_full_insert_runs_before_limited_numeric_search()
     test_guided_full_replace_runs_before_limited_numeric_search()
+    test_symbolic_insert_runs_before_guided_candidates()
+    test_symbolic_insert20_runs_without_free_bruteforce()
+    test_auto_semantic_budgets_cover_11_to_20_with_taper()
+    test_auto_insert20_enables_semantic_solver_with_tapered_budget()
     test_auto_insert3_seed_solver_uses_crc_without_bruteforce()
+    test_direct_crc_replace3_uses_full_idat_when_diagnostic_window_misses()
+    test_auto_budget_expiration_raises_typed_fallback_reason()
+    test_symbolic_budget_only_records_internal_counters()
+    test_slow_symbolic_position_does_not_disable_next_symbolic_position()
     test_focused_auto_plan_prioritizes_insert5_for_scanline_anomaly()
     test_focused_auto_plan_prioritizes_replace_for_large_shortfall_scanline_anomaly()
     test_focused_auto_plan_honors_explicit_insert_focus()

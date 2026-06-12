@@ -19,6 +19,7 @@ from chunklate import (
     bruteforce_runtime,
     bruteforce_viewer,
     gpu_runtime,
+    idat_crc_forge,
     smash_backend,
     smash_checkpoint,
     smash_opengl_backend,
@@ -55,6 +56,7 @@ def build_runtime(
     crc_forge_mode="auto",
     crc_forge_bytes=None,
     crc_forge_window=None,
+    input_func=None,
 ):
     side_notes = [] if side_notes is None else side_notes
     viewer_results = [] if viewer_results is None else list(viewer_results)
@@ -107,6 +109,7 @@ def build_runtime(
         crc_forge_mode=crc_forge_mode,
         crc_forge_bytes=crc_forge_bytes,
         crc_forge_window=crc_forge_window,
+        input_func=input_func,
     )
 
 
@@ -131,6 +134,19 @@ def base_context(**updates):
     }
     context.update(updates)
     return bruteforce_runtime.SmashBruteBrawlContext(**context)
+
+
+def test_format_crc_forge_windows_keeps_priority_visible():
+    windows = tuple(
+        idat_crc_forge.ForgeWindow(index * 10, index * 10 + 5, "scanline-anomaly")
+        for index in range(10)
+    )
+
+    text = bruteforce_runtime._format_crc_forge_windows(windows, limit=3)
+    byte_text = bruteforce_runtime._format_crc_forge_byte_counts(tuple(range(1, 12)), limit=4)
+
+    assert text == "0:5, 10:15, 20:25, +7 more"
+    assert byte_text == "1/2/3/4 (+7 more)"
 
 
 def simple_specs(request):
@@ -2473,10 +2489,324 @@ def test_crc_forge_failure_can_raise_broad_sbb_level(monkeypatch):
     assert ("gpu_scan_level", 3) in calls
     assert any(
         call[0] == "emit"
-        and "targeted 7-byte pass; broad SBB will resume at level 3" in call[1]
+        and "targeted passes up to 7 bytes; broad SBB will resume at level 3" in call[1]
         and "HermesProbe CRC-forge" in call[1]
         for call in calls
     )
+
+
+def test_crc_forge_budget_stop_keeps_current_broad_sbb_level(monkeypatch):
+    calls = []
+    context = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", old_crc="00000000", brute_level=0)
+
+    def crc_forge_scan(*_args, **_kwargs):
+        calls.append(("crc_forge_scan",))
+        return bruteforce_runtime.CrcForgeScanOutcome(False, budget_stopped=True, tested_candidates=1_447_797)
+
+    def recommended_level(*_args, **_kwargs):
+        raise AssertionError("budget-stopped HermesProbe must not raise broad SBB level")
+
+    def gpu_scan(
+        _runtime,
+        next_context,
+        _scan_state,
+        _old_crc,
+        _runtime_plan,
+        _candidate_space_hash,
+        _progress_resume,
+        _resume_outer_index,
+        _resume_inner_index,
+    ):
+        calls.append(("gpu_scan_level", next_context.brute_level))
+        return True
+
+    monkeypatch.setattr(bruteforce_runtime, "_run_crc_forge_scan", crc_forge_scan)
+    monkeypatch.setattr(bruteforce_runtime, "_recommended_sbb_level_after_crc_forge", recommended_level)
+    monkeypatch.setattr(bruteforce_runtime, "_run_gpu_scan", gpu_scan)
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+    )
+
+    bruteforce_runtime.run_scan(runtime, context)
+
+    assert ("crc_forge_scan",) in calls
+    assert ("gpu_scan_level", 0) in calls
+    assert any(
+        call[0] == "emit"
+        and "did not finish its targeted pass; broad SBB keeps level 0" in call[1]
+        for call in calls
+    )
+
+
+def test_crc_forge_fallback_prompt_trusts_detected_level(monkeypatch):
+    calls = []
+    context = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", old_crc="00000000")
+
+    def crc_forge_scan(*_args, **_kwargs):
+        return bruteforce_runtime.CrcForgeScanOutcome(False, tested_candidates=10)
+
+    def recommended_level(*_args, **_kwargs):
+        return (3, 7)
+
+    def gpu_scan(
+        _runtime,
+        next_context,
+        _scan_state,
+        _old_crc,
+        _runtime_plan,
+        _candidate_space_hash,
+        _progress_resume,
+        _resume_outer_index,
+        _resume_inner_index,
+    ):
+        calls.append(("gpu_scan_level", next_context.brute_level))
+        return True
+
+    def input_func(prompt):
+        calls.append(("input", prompt))
+        return ""
+
+    monkeypatch.setattr(bruteforce_runtime, "_run_crc_forge_scan", crc_forge_scan)
+    monkeypatch.setattr(bruteforce_runtime, "_recommended_sbb_level_after_crc_forge", recommended_level)
+    monkeypatch.setattr(bruteforce_runtime, "_run_gpu_scan", gpu_scan)
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+        input_func=input_func,
+    )
+
+    bruteforce_runtime.run_scan(runtime, context)
+
+    assert ("gpu_scan_level", 3) in calls
+    assert any(call[0] == "input" and "SBB fallback" in call[1] for call in calls)
+
+
+def test_crc_forge_fallback_prompt_accepts_manual_level(monkeypatch):
+    calls = []
+    answers = iter(["2", "1", "1"])
+    context = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", old_crc="00000000")
+
+    def crc_forge_scan(*_args, **_kwargs):
+        return bruteforce_runtime.CrcForgeScanOutcome(
+            False,
+            budget_stopped=True,
+            tested_candidates=1_447_797,
+            last_byte_count=20,
+        )
+
+    def recommended_level(*_args, **_kwargs):
+        raise AssertionError("budget-stopped HermesProbe must not auto-raise SBB level")
+
+    def gpu_scan(
+        _runtime,
+        next_context,
+        _scan_state,
+        _old_crc,
+        _runtime_plan,
+        _candidate_space_hash,
+        _progress_resume,
+        _resume_outer_index,
+        _resume_inner_index,
+    ):
+        calls.append(("gpu_scan_level", next_context.brute_level))
+        return True
+
+    def input_func(prompt):
+        calls.append(("input", prompt))
+        return next(answers)
+
+    monkeypatch.setattr(bruteforce_runtime, "_run_crc_forge_scan", crc_forge_scan)
+    monkeypatch.setattr(bruteforce_runtime, "_recommended_sbb_level_after_crc_forge", recommended_level)
+    monkeypatch.setattr(bruteforce_runtime, "_run_gpu_scan", gpu_scan)
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+        input_func=input_func,
+    )
+
+    bruteforce_runtime.run_scan(runtime, context)
+
+    assert ("gpu_scan_level", 1) in calls
+    assert any(
+        call[0] == "emit" and "SBB fallback manual override: level 1" in call[1]
+        for call in calls
+    )
+
+
+def test_crc_forge_fallback_prompt_can_keep_blackfill(monkeypatch):
+    calls = []
+    side_notes = []
+    context = base_context(
+        chunk_name=b"IDAT",
+        bf_mode="TwoBytes",
+        old_crc="00000000",
+        from_error="FixItFelix partial IDAT blackfill",
+    )
+
+    def crc_forge_scan(*_args, **_kwargs):
+        return bruteforce_runtime.CrcForgeScanOutcome(False, budget_stopped=True)
+
+    def gpu_scan(*_args, **_kwargs):
+        raise AssertionError("blackfill decision must skip broad SBB")
+
+    def input_func(prompt):
+        calls.append(("input", prompt))
+        return "3"
+
+    monkeypatch.setattr(bruteforce_runtime, "_run_crc_forge_scan", crc_forge_scan)
+    monkeypatch.setattr(bruteforce_runtime, "_run_gpu_scan", gpu_scan)
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+        input_func=input_func,
+        side_notes=side_notes,
+    )
+
+    result = bruteforce_runtime.run_scan(runtime, context)
+
+    assert result.state.bingo is False
+    assert any("keeping the blackfill fallback" in call[1] for call in calls if call[0] == "emit")
+    assert any("keeping blackfill fallback" in note for note in side_notes)
+
+
+def test_sbb_level_15_warning_includes_eta(monkeypatch):
+    calls = []
+    context = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", old_crc="00000000")
+
+    def crc_forge_scan(*_args, **_kwargs):
+        return False
+
+    def recommended_level(*_args, **_kwargs):
+        return (15, 20)
+
+    def gpu_scan(
+        _runtime,
+        next_context,
+        _scan_state,
+        _old_crc,
+        _runtime_plan,
+        _candidate_space_hash,
+        _progress_resume,
+        _resume_outer_index,
+        _resume_inner_index,
+    ):
+        calls.append(("gpu_scan_level", next_context.brute_level))
+        return True
+
+    monkeypatch.setattr(bruteforce_runtime, "_run_crc_forge_scan", crc_forge_scan)
+    monkeypatch.setattr(bruteforce_runtime, "_recommended_sbb_level_after_crc_forge", recommended_level)
+    monkeypatch.setattr(bruteforce_runtime, "_run_gpu_scan", gpu_scan)
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+    )
+
+    bruteforce_runtime.run_scan(runtime, context)
+
+    assert ("gpu_scan_level", 15) in calls
+    assert any(call[0] == "emit" and "SBB fallback ETA estimate" in call[1] for call in calls)
+
+
+def test_sbb_warning_includes_eta_for_lower_level_long_pass(monkeypatch):
+    calls = []
+    context = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", old_crc="00000000")
+
+    def crc_forge_scan(*_args, **_kwargs):
+        return False
+
+    def recommended_level(*_args, **_kwargs):
+        return (5, 20)
+
+    def gpu_scan(
+        _runtime,
+        next_context,
+        _scan_state,
+        _old_crc,
+        _runtime_plan,
+        _candidate_space_hash,
+        _progress_resume,
+        _resume_outer_index,
+        _resume_inner_index,
+    ):
+        calls.append(("gpu_scan_level", next_context.brute_level))
+        return True
+
+    monkeypatch.setattr(bruteforce_runtime, "_run_crc_forge_scan", crc_forge_scan)
+    monkeypatch.setattr(bruteforce_runtime, "_recommended_sbb_level_after_crc_forge", recommended_level)
+    monkeypatch.setattr(bruteforce_runtime, "_run_gpu_scan", gpu_scan)
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+    )
+
+    bruteforce_runtime.run_scan(runtime, context)
+
+    assert ("gpu_scan_level", 5) in calls
+    assert any(call[0] == "emit" and "estimated above one day" in call[1] for call in calls)
+    assert any(call[0] == "emit" and "SBB fallback ETA estimate" in call[1] for call in calls)
+
+
+def test_crc_forge_auto_timeout_is_disabled_for_bounded_pass():
+    summary = idat_crc_forge.ForgeScanSummary(
+        True,
+        "bounded",
+        estimated_candidates=8_746_533,
+        windows=(idat_crc_forge.ForgeWindow(0, 10),),
+        byte_counts=(1, 2),
+    )
+    huge = idat_crc_forge.ForgeScanSummary(
+        True,
+        "huge",
+        estimated_candidates=bruteforce_runtime.CRC_FORGE_BOUNDED_NO_TIMEOUT_CANDIDATES + 1,
+        windows=(idat_crc_forge.ForgeWindow(0, 10),),
+        byte_counts=(1, 2),
+    )
+
+    assert bruteforce_runtime._crc_forge_auto_max_seconds(summary, "auto") == 0.0
+    assert (
+        bruteforce_runtime._crc_forge_auto_max_seconds(huge, "auto")
+        == idat_crc_forge.HERMESPROBE_AUTO_MAX_SECONDS
+    )
+
+
+def test_crc_forge_partial_windows_do_not_raise_broad_sbb_level(monkeypatch):
+    source_data = small_rgba_png()
+    target_chunk = next(chunk for chunk in iter_chunks(source_data) if chunk.chunk_type == b"IDAT")
+    calls = []
+    context = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", old_crc="00000000")
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+        crc_forge_bytes=1,
+    )
+
+    monkeypatch.setattr(
+        bruteforce_runtime,
+        "_target_idat_chunk_for_crc_forge",
+        lambda *_args, **_kwargs: (source_data, target_chunk),
+    )
+    monkeypatch.setattr(
+        idat_crc_forge,
+        "ranked_auto_windows",
+        lambda *_args, **_kwargs: (idat_crc_forge.ForgeWindow(0, 1, "diagnostic"),),
+    )
+
+    assert bruteforce_runtime._recommended_sbb_level_after_crc_forge(runtime, context, "00000000") is None
 
 
 def test_parallel_exhausted_checkpoint_is_not_resumed():
@@ -2563,6 +2893,7 @@ def test_rejected_hit_checkpoint_is_not_resumed():
 
 def main():
     checks = [
+        ("CRC-forge window display", test_format_crc_forge_windows_keeps_priority_visible),
         ("OldCrc scan", test_run_scan_preserves_oldcrc_path_without_viewer),
         ("Viewer scan", test_run_scan_preserves_viewer_acceptance_gate_and_diff),
         ("TwoBytes scan", test_run_scan_preserves_twobytes_oldcrc_path),
@@ -2586,6 +2917,14 @@ def main():
         ("CRC-forge reset before SBB", test_crc_forge_failed_cursor_is_cleared_before_general_sbb_resume),
         ("CRC-forge checkpoint skipped for SBB", test_crc_forge_checkpoint_is_not_reused_for_general_sbb),
         ("CRC-forge raises broad SBB level", test_crc_forge_failure_can_raise_broad_sbb_level),
+        ("CRC-forge budget stop keeps SBB level", test_crc_forge_budget_stop_keeps_current_broad_sbb_level),
+        ("SBB fallback prompt trusts detected level", test_crc_forge_fallback_prompt_trusts_detected_level),
+        ("SBB fallback prompt accepts manual level", test_crc_forge_fallback_prompt_accepts_manual_level),
+        ("SBB fallback prompt keeps blackfill", test_crc_forge_fallback_prompt_can_keep_blackfill),
+        ("SBB fallback level 15 ETA warning", test_sbb_level_15_warning_includes_eta),
+        ("SBB fallback long ETA warning", test_sbb_warning_includes_eta_for_lower_level_long_pass),
+        ("CRC-forge bounded pass timeout", test_crc_forge_auto_timeout_is_disabled_for_bounded_pass),
+        ("CRC-forge partial windows keep SBB level", test_crc_forge_partial_windows_do_not_raise_broad_sbb_level),
         ("GPU rejected hit resumes direct scan", test_run_scan_gpu_rejected_hit_resumes_direct_scan),
         ("CRC-forge Insert5 before general SBB", test_run_scan_crc_forge_repairs_insert5_before_general_sbb),
         ("Parallel exhausted checkpoint", test_parallel_exhausted_checkpoint_is_not_resumed),

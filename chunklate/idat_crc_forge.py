@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Callable, Iterable
 import zlib
 
-from . import bruteforce, crc32_forge, deflate_probe, idat, png, smash_backend
+from . import bruteforce, crc32_forge, deflate_crc_solver, deflate_probe, idat, png, smash_backend
 
 
 SEED_BYTE_COUNTS = (1, 2, 3)
-FORGE_BYTE_COUNTS = (4, 5, 6, 7, 8, 9, 10)
+FORGE_BYTE_COUNTS = tuple(range(4, 21))
 DIRECT_CRC_BYTE_COUNTS = SEED_BYTE_COUNTS + (4,)
-SMALL_AUTO_EDIT_BYTE_COUNTS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+SMALL_AUTO_EDIT_BYTE_COUNTS = tuple(range(1, 21))
 TARGET_BYTE_COUNTS = SEED_BYTE_COUNTS + FORGE_BYTE_COUNTS
 DEFAULT_WINDOW_RADIUS = 8192
 DEFAULT_MAX_CANDIDATES = 2_000_000
@@ -18,7 +19,8 @@ FORCE_MAX_CANDIDATES = 50_000_000
 SCANLINE_ANOMALY_BACKTRACK_ROWS = (4, 3, 2, 1)
 SCANLINE_ANOMALY_HALF_WINDOW = 32
 SCANLINE_ANOMALY_INTERVAL_DIVISOR = 6
-AUTO_FOCUSED_BYTE_COUNTS = (7, 8, 9, 10, 6, 5, 4, 3, 2, 1)
+DIRECT_CRC_NEARBY_RADIUS = DEFAULT_WINDOW_RADIUS
+AUTO_FOCUSED_BYTE_COUNTS = (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 6, 5, 4, 3, 2, 1)
 AUTO_FREE_INDEX_LIMITS = {
     6: 4096,
     7: 4096,
@@ -37,9 +39,36 @@ DEFLATE_WINDOW_TARGET_BACKTRACK_ROWS = 2
 DEFLATE_GUIDED_PREFIX_CANDIDATES = 32
 DEFLATE_GUIDED_FULL_CANDIDATES = 32
 DEFLATE_GUIDED_BRANCH_TOKENS = 64
-DEFLATE_GUIDED_EXPANSION_BUDGET = 8_192
+DEFLATE_GUIDED_EXPANSION_BUDGET = 500_000
+DEFLATE_GUIDED_SUFFIX_BITS = 96
 DEFLATE_GUIDED_FREE_INDEX_MARKER = -2
 DEFLATE_GUIDED_FULL_INDEX_MARKER = -3
+DEFLATE_SYMBOLIC_INDEX_MARKER = -4
+DEFLATE_SYMBOLIC_SOLUTIONS = 256
+DEFLATE_SYMBOLIC_SOLUTIONS_PER_SKELETON = 512
+DEFLATE_SYMBOLIC_SKELETONS_AUTO = 4_096
+DEFLATE_SYMBOLIC_SKELETONS_FORCE = 32_768
+DEFLATE_SYMBOLIC_PASS_SKELETON_BUDGET_AUTO = 750_000
+DEFLATE_SYMBOLIC_EXPANSIONS_AUTO = 4_000
+DEFLATE_SYMBOLIC_EXPANSIONS_FORCE = 50_000
+DEFLATE_SYMBOLIC_AUTO_POSITIONS_PER_WINDOW = 12
+DEFLATE_SYMBOLIC_SUFFIX_BITS = 96
+DEFLATE_SEMANTIC_EXTRA_ASSIGNMENTS = 32
+DEFLATE_SEMANTIC_AUTO_BYTE_COUNTS = tuple(range(7, 21))
+DEFLATE_SEMANTIC_BEAM_AUTO = 128
+DEFLATE_SEMANTIC_BEAM_FORCE = 2_048
+DEFLATE_SEMANTIC_EXPANSIONS_AUTO = 256
+DEFLATE_SEMANTIC_EXPANSIONS_FORCE = 8_000
+HERMESPROBE_AUTO_MAX_SECONDS = 300.0
+HERMESPROBE_AUTO_POSITION_SECONDS = 45.0
+HERMESPROBE_AUTO_SYMBOLIC_POSITIONS_PER_PASS = 48
+HERMESPROBE_AUTO_SYMBOLIC_SECONDS_PER_PASS = 240.0
+
+
+class HermesProbeBudgetExpired(Exception):
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -89,6 +118,102 @@ class _ZlibProbeCheckpoint:
     position: int
     decompressor: zlib.Decompress
     output_size: int
+
+
+@dataclass
+class _HermesProbeBudget:
+    mode: str
+    started_at: float
+    max_seconds: float
+    symbolic_positions: int = 0
+    symbolic_seconds: float = 0.0
+
+    @property
+    def enabled(self) -> bool:
+        return self.mode != "force" and self.max_seconds > 0
+
+    def check(self) -> None:
+        if not self.enabled:
+            return
+        elapsed = time.monotonic() - self.started_at
+        if elapsed > self.max_seconds:
+            raise HermesProbeBudgetExpired(
+                "HermesProbe auto budget exhausted after %.1fs; falling back to broad SBB." % elapsed
+            )
+
+    def record_symbolic(self, elapsed: float) -> None:
+        if not self.enabled:
+            return
+        self.symbolic_positions += 1
+        self.symbolic_seconds += max(0.0, float(elapsed))
+
+
+def _symbolic_auto_positions_per_window(byte_count: int) -> int:
+    count = int(byte_count)
+    if count <= 10:
+        return DEFLATE_SYMBOLIC_AUTO_POSITIONS_PER_WINDOW
+    if count <= 14:
+        return 8
+    return 6
+
+
+def _symbolic_skeletons_for_byte_count(byte_count: int, mode: str, symbolic_positions: int) -> int:
+    if mode == "force":
+        return DEFLATE_SYMBOLIC_SKELETONS_FORCE
+    count = int(byte_count)
+    base = max(
+        64,
+        min(
+            DEFLATE_SYMBOLIC_SKELETONS_AUTO,
+            DEFLATE_SYMBOLIC_PASS_SKELETON_BUDGET_AUTO // max(1, int(symbolic_positions)),
+        ),
+    )
+    if count <= 10:
+        return base
+    if count <= 14:
+        return min(base, 3_072)
+    return min(base, 2_048)
+
+
+def _symbolic_expansions_for_byte_count(byte_count: int, mode: str) -> int:
+    if mode == "force":
+        return DEFLATE_SYMBOLIC_EXPANSIONS_FORCE
+    count = int(byte_count)
+    if count <= 10:
+        return DEFLATE_SYMBOLIC_EXPANSIONS_AUTO
+    if count <= 14:
+        return 3_000
+    return 2_000
+
+
+def _semantic_enabled_for_byte_count(byte_count: int, mode: str) -> bool:
+    return mode == "force" or int(byte_count) in DEFLATE_SEMANTIC_AUTO_BYTE_COUNTS
+
+
+def _semantic_beam_width_for_byte_count(byte_count: int, mode: str) -> int:
+    if mode == "force":
+        return DEFLATE_SEMANTIC_BEAM_FORCE
+    if not _semantic_enabled_for_byte_count(byte_count, mode):
+        return 0
+    count = int(byte_count)
+    if count <= 10:
+        return DEFLATE_SEMANTIC_BEAM_AUTO
+    if count <= 14:
+        return max(64, DEFLATE_SEMANTIC_BEAM_AUTO * 3 // 4)
+    return max(48, DEFLATE_SEMANTIC_BEAM_AUTO // 2)
+
+
+def _semantic_expansions_for_byte_count(byte_count: int, mode: str) -> int:
+    if mode == "force":
+        return DEFLATE_SEMANTIC_EXPANSIONS_FORCE
+    if not _semantic_enabled_for_byte_count(byte_count, mode):
+        return 0
+    count = int(byte_count)
+    if count <= 10:
+        return DEFLATE_SEMANTIC_EXPANSIONS_AUTO
+    if count <= 14:
+        return max(96, DEFLATE_SEMANTIC_EXPANSIONS_AUTO * 3 // 4)
+    return max(64, DEFLATE_SEMANTIC_EXPANSIONS_AUTO // 2)
 
 
 def normalize_old_crc(old_crc: object) -> bytes | None:
@@ -147,14 +272,82 @@ def _merge_windows(windows: Iterable[ForgeWindow]) -> tuple[ForgeWindow, ...]:
     return tuple(merged)
 
 
+def _dedupe_windows_in_order(windows: Iterable[ForgeWindow]) -> tuple[ForgeWindow, ...]:
+    ordered: list[ForgeWindow] = []
+    seen: set[tuple[int, int, str]] = set()
+    for window in windows:
+        key = (int(window.start), int(window.end), str(window.source))
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(window)
+    return tuple(ordered)
+
+
+def _bad_adler_tail_is_nonlocal(analysis: object, payload_len: int) -> bool:
+    expected_size = int(getattr(analysis, "expected_size", 0) or 0)
+    decompressed_size = int(getattr(analysis, "decompressed_size", 0) or 0)
+    error_idat_offset = getattr(analysis, "error_idat_offset", None)
+    return (
+        getattr(analysis, "status", "") == "bad_adler"
+        and expected_size > 0
+        and decompressed_size >= expected_size
+        and error_idat_offset is not None
+        and int(error_idat_offset) >= max(0, int(payload_len) - 2)
+    )
+
+
+def _full_direct_crc_windows(source_data: bytes, target_chunk: png.PngChunk) -> tuple[ForgeWindow, ...]:
+    payload_len = len(target_chunk.data)
+    try:
+        analysis = idat.analyze_idat_stream(source_data)
+    except Exception:
+        return ()
+    if not _bad_adler_tail_is_nonlocal(analysis, payload_len):
+        return ()
+    return (ForgeWindow(0, payload_len + 1, "full-direct-crc"),)
+
+
+def _direct_crc_seed_windows(
+    windows: tuple[ForgeWindow, ...],
+    target_chunk: png.PngChunk,
+    *,
+    byte_count: int,
+    explicit_windows: bool,
+    mode: str,
+) -> tuple[ForgeWindow, ...]:
+    if explicit_windows or mode == "force" or int(byte_count) not in DIRECT_CRC_BYTE_COUNTS:
+        return windows
+    payload_len = len(target_chunk.data)
+    nearby_windows = _merge_windows(
+        ForgeWindow(
+            max(0, int(window.start) - DIRECT_CRC_NEARBY_RADIUS),
+            min(payload_len + 1, int(window.end) + DIRECT_CRC_NEARBY_RADIUS),
+            "direct-nearby-crc",
+        )
+        for window in windows
+        if window.source != "full-direct-crc"
+        and min(payload_len + 1, int(window.end) + DIRECT_CRC_NEARBY_RADIUS)
+        > max(0, int(window.start) - DIRECT_CRC_NEARBY_RADIUS)
+    )
+    return _dedupe_windows_in_order(
+        tuple(windows)
+        + tuple(nearby_windows)
+        + (ForgeWindow(0, payload_len + 1, "full-direct-crc"),)
+    )
+
+
 def diagnostic_windows(source_data: bytes, payload_len: int, *, radius: int = DEFAULT_WINDOW_RADIUS) -> tuple[ForgeWindow, ...]:
     analysis = idat.analyze_idat_stream(source_data)
     centers: list[int] = []
-    if analysis.error_idat_offset is not None:
+    complete_bad_adler_tail = _bad_adler_tail_is_nonlocal(analysis, payload_len)
+    if analysis.error_idat_offset is not None and not complete_bad_adler_tail:
         centers.append(int(analysis.error_idat_offset))
-    if analysis.error_offset is not None:
+    if analysis.error_offset is not None and not complete_bad_adler_tail:
         centers.append(int(analysis.error_offset))
-    if analysis.status in {"bad_adler", "partial"} and payload_len > 0:
+    if analysis.status == "partial" and payload_len > 0:
+        centers.append(payload_len)
+    if analysis.status == "bad_adler" and not complete_bad_adler_tail and payload_len > 0:
         centers.append(payload_len)
     windows: list[ForgeWindow] = []
     for center in centers:
@@ -311,11 +504,19 @@ def _rank_scanline_windows_by_deflate(
         return _center_out_windows(windows)
     if not trace.checkpoints:
         return _center_out_windows(windows)
+    decompressed_gap = (
+        int(getattr(analysis, "expected_size", 0) or 0)
+        - int(getattr(analysis, "decompressed_size", 0) or 0)
+    )
     target_row = max(
         0,
         min(
             int(analysis.height) - 1,
-            int(analysis.usable_scanlines) - DEFLATE_WINDOW_TARGET_BACKTRACK_ROWS,
+            (
+                int(analysis.usable_scanlines)
+                if decompressed_gap > 0
+                else int(analysis.usable_scanlines) - DEFLATE_WINDOW_TARGET_BACKTRACK_ROWS
+            ),
         ),
     )
     target_output = int(target_row) * int(analysis.scanline_size)
@@ -383,6 +584,8 @@ def _expanded_edit_order(
             priority = ("remove", "replace", "insert")
     if not priority:
         return clean_order
+    if int(byte_count) in DIRECT_CRC_BYTE_COUNTS and clean_order:
+        priority = clean_order + priority
     return tuple(
         dict.fromkeys(
             edit_kind
@@ -664,19 +867,6 @@ def _zlib_probe_accepts_candidate_before_yield(
     brute_bytes: bytes,
     settings: _ZlibProbeSettings,
 ) -> bool:
-    if not _zlib_probe_accepts_candidate(
-        checkpoint,
-        payload,
-        position,
-        edit_kind,
-        byte_count,
-        brute_bytes,
-        settings,
-        require_complete=False,
-    ):
-        return False
-    if len(payload) < STRICT_ZLIB_PREFILTER_MIN_PAYLOAD:
-        return True
     return _zlib_probe_accepts_candidate(
         checkpoint,
         payload,
@@ -685,7 +875,7 @@ def _zlib_probe_accepts_candidate_before_yield(
         byte_count,
         brute_bytes,
         settings,
-        require_complete=True,
+        require_complete=False,
     )
 
 
@@ -726,6 +916,8 @@ def _auto_free_index_limit(
     explicit_windows: bool,
 ) -> int | None:
     del explicit_windows
+    if int(byte_count) > 10:
+        return 0
     if mode == "force":
         return None
     return AUTO_FREE_INDEX_LIMITS.get(int(byte_count))
@@ -845,6 +1037,7 @@ def _guided_full_byte_candidates(
     byte_count: int,
     trace: deflate_probe.DeflateTrace | None,
     target_output_delta: int | None = None,
+    suffix_payload_byte_offset: int | None = None,
 ) -> tuple[bytes, ...]:
     byte_count = int(byte_count)
     if byte_count <= 0 or trace is None or not trace.ok:
@@ -865,6 +1058,10 @@ def _guided_full_byte_candidates(
         max_branch_tokens=DEFLATE_GUIDED_BRANCH_TOKENS,
         target_output_delta=target_output_delta,
         max_expansions=DEFLATE_GUIDED_EXPANSION_BUDGET,
+        suffix_payload_bit_offset=(
+            None if suffix_payload_byte_offset is None else max(0, int(suffix_payload_byte_offset)) * 8
+        ),
+        suffix_bit_count=DEFLATE_GUIDED_SUFFIX_BITS if suffix_payload_byte_offset is not None else 0,
     )
     return tuple(dict.fromkeys(candidate.prefix for candidate in candidates))
 
@@ -889,6 +1086,25 @@ def _guided_target_output_delta(
     if gap > max_local_delta:
         return None
     return gap
+
+
+def _deflate_distance_hints(source_data: bytes) -> tuple[int, ...]:
+    try:
+        analysis = idat.analyze_idat_stream(source_data)
+    except Exception:
+        return ()
+    if not getattr(analysis, "supported", False):
+        return ()
+    scanline_size = int(getattr(analysis, "scanline_size", 0) or 0)
+    if scanline_size <= 0:
+        return ()
+    hints: list[int] = []
+    for multiplier in range(1, 9):
+        value = scanline_size * multiplier
+        if value > 32768:
+            break
+        hints.append(value)
+    return tuple(hints)
 
 
 def _clip_windows_to_candidate_budget(
@@ -979,25 +1195,38 @@ def explain_scan(
     payload_len = len(target_chunk.data)
     explicit_windows = parse_window_spec(window_spec, payload_len)
     windows = explicit_windows or ranked_auto_windows(source_data, target_chunk)
+    full_direct_only = False
+    if not windows and not explicit_windows and mode != "force":
+        windows = _full_direct_crc_windows(source_data, target_chunk)
+        full_direct_only = bool(windows)
     if not windows:
         return ForgeScanSummary(False, "No bounded CRC-forge window is available.")
     clean_counts = tuple(count for count in byte_counts if count in TARGET_BYTE_COUNTS)
+    if full_direct_only:
+        clean_counts = tuple(count for count in clean_counts if count in DIRECT_CRC_BYTE_COUNTS)
     if not clean_counts:
-        return ForgeScanSummary(False, "No CRC-forge byte count in 1..10 was requested.")
+        return ForgeScanSummary(False, "No CRC-forge byte count in 1..20 was requested.")
     budget = max_candidates
     if budget is None:
         budget = FORCE_MAX_CANDIDATES if mode == "force" else DEFAULT_MAX_CANDIDATES
     total = 0
     runnable_counts: list[int] = []
-    runnable_windows = windows
+    runnable_windows: list[ForgeWindow] = []
     for byte_count in clean_counts:
+        count_windows = _direct_crc_seed_windows(
+            windows,
+            target_chunk,
+            byte_count=byte_count,
+            explicit_windows=bool(explicit_windows),
+            mode=mode,
+        )
         active_edit_order = (
             _explicit_window_edit_order(edit_order, byte_count)
             if explicit_windows
             else _expanded_edit_order(source_data, edit_order, byte_count)
         )
         for edit_kind in active_edit_order:
-            op_windows = clamp_windows_for_operation(windows, payload_len, edit_kind, byte_count)
+            op_windows = clamp_windows_for_operation(count_windows, payload_len, edit_kind, byte_count)
             if mode != "force":
                 free_limit = _auto_free_index_limit(
                     byte_count,
@@ -1012,13 +1241,13 @@ def explain_scan(
                     free_index_limit=free_limit,
                 )
             else:
-                free_limit = None
+                free_limit = 0 if int(byte_count) > 10 else None
             count = candidate_count(op_windows, edit_kind, byte_count, free_index_limit=free_limit)
             if count <= 0 or count > int(budget):
                 continue
             total += count
             runnable_counts.append(byte_count)
-            runnable_windows = op_windows
+            runnable_windows.extend(op_windows)
     if total <= 0:
         return ForgeScanSummary(
             False,
@@ -1030,7 +1259,7 @@ def explain_scan(
         True,
         "CRC-forge targeted pass can run.",
         estimated_candidates=total,
-        windows=tuple(_merge_windows(runnable_windows)),
+        windows=_dedupe_windows_in_order(runnable_windows),
         byte_counts=tuple(dict.fromkeys(runnable_counts)),
     )
 
@@ -1052,6 +1281,7 @@ def iter_forge_candidates(
     resume_byte_position: int = 0,
     resume_free_index: int = 0,
     resume_edit_kind_index: int = 0,
+    auto_max_seconds: float | None = None,
 ) -> Iterable[ForgeCandidate]:
     if target_chunk.chunk_type != b"IDAT":
         return
@@ -1060,6 +1290,10 @@ def iter_forge_candidates(
     payload_len = len(payload)
     explicit_windows = parse_window_spec(window_spec, payload_len)
     base_windows = explicit_windows or ranked_auto_windows(source_data, target_chunk)
+    full_direct_only = False
+    if not base_windows and not explicit_windows and mode != "force":
+        base_windows = _full_direct_crc_windows(source_data, target_chunk)
+        full_direct_only = bool(base_windows)
     budget = max_candidates
     if budget is None:
         budget = FORCE_MAX_CANDIDATES if mode == "force" else DEFAULT_MAX_CANDIDATES
@@ -1069,7 +1303,14 @@ def iter_forge_candidates(
     required = crc32_forge.crc32_required_before_suffixes(payload, target_crc)
     probe_settings = _zlib_probe_settings(source_data) if zlib_prefilter else None
     tested = 0
+    run_budget = _HermesProbeBudget(
+        mode=str(mode),
+        started_at=time.monotonic(),
+        max_seconds=HERMESPROBE_AUTO_MAX_SECONDS if auto_max_seconds is None else float(auto_max_seconds),
+    )
     clean_byte_counts = tuple(count for count in byte_counts if count in TARGET_BYTE_COUNTS)
+    if full_direct_only:
+        clean_byte_counts = tuple(count for count in clean_byte_counts if count in DIRECT_CRC_BYTE_COUNTS)
     guided_trace: deflate_probe.DeflateTrace | None = None
     guided_trace_loaded = False
 
@@ -1087,17 +1328,27 @@ def iter_forge_candidates(
         return guided_trace
 
     for byte_count in clean_byte_counts:
+        run_budget.check()
+        seed_windows = _direct_crc_seed_windows(
+            base_windows,
+            target_chunk,
+            byte_count=byte_count,
+            explicit_windows=bool(explicit_windows),
+            mode=mode,
+        )
         seed_edit_kinds = (
             _explicit_window_edit_order(edit_order, byte_count)
             if explicit_windows
             else _expanded_edit_order(source_data, edit_order, byte_count)
         )
         for seed_edit_kind_index, seed_edit_kind in enumerate(seed_edit_kinds):
-            op_windows = clamp_windows_for_operation(base_windows, payload_len, seed_edit_kind, byte_count)
+            run_budget.check()
+            op_windows = clamp_windows_for_operation(seed_windows, payload_len, seed_edit_kind, byte_count)
             estimated = _seed_candidate_count(op_windows, seed_edit_kind, byte_count)
             if estimated <= 0 or estimated > int(budget):
                 continue
             for window_index, window in enumerate(op_windows):
+                run_budget.check()
                 def seed_heartbeat() -> None:
                     if progress_callback is not None:
                         progress_callback(seed_edit_kind, byte_count, window.start, -1, tested)
@@ -1113,6 +1364,7 @@ def iter_forge_candidates(
                     else None
                 )
                 for position in range(window.start, window.end):
+                    run_budget.check()
                     suffix_index = position if seed_edit_kind == "insert" else position + byte_count
                     if suffix_index >= len(required):
                         continue
@@ -1237,6 +1489,7 @@ def iter_forge_candidates(
         count for count in clean_byte_counts
         if count in FORGE_BYTE_COUNTS and count not in DIRECT_CRC_BYTE_COUNTS
     ):
+        run_budget.check()
         if resume_byte_count and byte_count < resume_byte_count:
             continue
         expanded_edit_order = (
@@ -1245,6 +1498,7 @@ def iter_forge_candidates(
             else _expanded_edit_order(source_data, edit_order, byte_count)
         )
         for edit_kind_index, edit_kind in enumerate(expanded_edit_order):
+            run_budget.check()
             if byte_count == resume_byte_count and edit_kind_index < resume_edit_kind_index:
                 continue
             if edit_kind == "remove":
@@ -1264,11 +1518,14 @@ def iter_forge_candidates(
                     free_index_limit=free_limit,
                 )
             else:
-                free_limit = None
+                free_limit = 0 if int(byte_count) > 10 else None
             estimated = candidate_count(op_windows, edit_kind, byte_count, free_index_limit=free_limit)
             if estimated <= 0 or estimated > int(budget):
                 continue
+            symbolic_positions = max(1, sum(window.length for window in op_windows))
+            symbolic_skeletons = _symbolic_skeletons_for_byte_count(byte_count, mode, symbolic_positions)
             for window_index, window in enumerate(op_windows):
+                run_budget.check()
                 def heartbeat() -> None:
                     if progress_callback is not None:
                         progress_callback(edit_kind, byte_count, window.start, 0, tested)
@@ -1294,6 +1551,7 @@ def iter_forge_candidates(
                     start_position = max(start_position, int(resume_byte_position))
                 if edit_kind == "remove":
                     for position in range(start_position, window.end):
+                        run_budget.check()
                         if (
                             byte_count == resume_byte_count
                             and edit_kind_index == resume_edit_kind_index
@@ -1356,17 +1614,105 @@ def iter_forge_candidates(
                 if run_guided_prefixes:
                     trace = get_guided_trace()
                     target_output_delta = _guided_target_output_delta(source_data, edit_kind, byte_count)
+                    distance_hints = _deflate_distance_hints(source_data)
                     for position in range(start_position, window.end):
+                        run_budget.check()
                         suffix_index = position if edit_kind == "insert" else position + byte_count
                         if suffix_index >= len(required):
                             continue
                         full_seen = guided_full_bytes_by_position.setdefault(position, set())
+                        symbolic_filter: Callable[[bytes], bool] | None = None
+                        if probe_checkpoint is not None and probe_settings is not None:
+                            symbolic_filter = lambda brute_bytes, _position=position: _zlib_probe_accepts_candidate_before_yield(
+                                probe_checkpoint,
+                                payload,
+                                _position,
+                                edit_kind,
+                                byte_count,
+                                brute_bytes,
+                                probe_settings,
+                            )
+                        run_symbolic_position = (
+                            int(byte_count) >= 7
+                            and (
+                                mode == "force"
+                                or explicit_windows
+                                or position < window.start + _symbolic_auto_positions_per_window(byte_count)
+                            )
+                        )
+                        if run_symbolic_position:
+                            symbolic_started_at = time.monotonic()
+                            for brute_bytes in deflate_crc_solver.solve_idat_crc_huffman(
+                                payload,
+                                position,
+                                edit_kind,
+                                byte_count,
+                                prefixes[position],
+                                required[suffix_index],
+                                trace,
+                                suffix_payload_byte_offset=suffix_index,
+                                max_solutions=DEFLATE_SYMBOLIC_SOLUTIONS,
+                                max_skeletons=symbolic_skeletons,
+                                suffix_bit_count=DEFLATE_SYMBOLIC_SUFFIX_BITS,
+                                max_solutions_per_skeleton=DEFLATE_SYMBOLIC_SOLUTIONS_PER_SKELETON,
+                                candidate_filter=symbolic_filter,
+                                target_output_delta=target_output_delta,
+                                max_expansions=_symbolic_expansions_for_byte_count(byte_count, mode),
+                                distance_hints=distance_hints,
+                                semantic_extra_assignments=DEFLATE_SEMANTIC_EXTRA_ASSIGNMENTS,
+                                semantic_beam_width=_semantic_beam_width_for_byte_count(byte_count, mode),
+                                semantic_expansions=_semantic_expansions_for_byte_count(byte_count, mode),
+                                semantic_max_skeletons=(
+                                    min(DEFLATE_SYMBOLIC_SKELETONS_FORCE, symbolic_skeletons)
+                                    if mode == "force"
+                                    else min(DEFLATE_SYMBOLIC_SKELETONS_AUTO, symbolic_skeletons)
+                                ),
+                                semantic_solutions_per_skeleton=DEFLATE_SYMBOLIC_SOLUTIONS_PER_SKELETON,
+                            ):
+                                if len(brute_bytes) != byte_count or brute_bytes in full_seen:
+                                    continue
+                                full_seen.add(brute_bytes)
+                                tested += 1
+                                if progress_callback is not None:
+                                    progress_callback(
+                                        edit_kind,
+                                        byte_count,
+                                        position,
+                                        DEFLATE_SYMBOLIC_INDEX_MARKER,
+                                        tested,
+                                    )
+                                if zlib.crc32(brute_bytes, prefixes[position]) & 0xFFFFFFFF != required[suffix_index]:
+                                    continue
+                                if edit_kind == "insert":
+                                    repaired = payload[:position] + brute_bytes + payload[position:]
+                                else:
+                                    repaired = payload[:position] + brute_bytes + payload[position + byte_count :]
+                                yield ForgeCandidate(
+                                    _candidate_hit(
+                                        target_chunk,
+                                        before,
+                                        after,
+                                        repaired,
+                                        old_crc,
+                                        brute_bytes,
+                                        edit_kind,
+                                        edit_kind_index,
+                                        byte_count,
+                                        position,
+                                        window_index,
+                                    ),
+                                    byte_count,
+                                    DEFLATE_SYMBOLIC_INDEX_MARKER,
+                                )
+                            elapsed_symbolic = time.monotonic() - symbolic_started_at
+                            run_budget.record_symbolic(elapsed_symbolic)
                         for brute_bytes in _guided_full_byte_candidates(
                             payload,
                             position,
                             byte_count,
                             trace,
                             target_output_delta,
+                            position if edit_kind == "insert" else position + byte_count,
                         ):
                             if len(brute_bytes) != byte_count or brute_bytes in full_seen:
                                 continue
@@ -1472,8 +1818,10 @@ def iter_forge_candidates(
                                 free_index,
                             )
                 for free_index in range(start_free_index, free_total):
+                    run_budget.check()
                     free_bytes = free_index.to_bytes(free_len, "big")
                     for position in range(start_position, window.end):
+                        run_budget.check()
                         if free_index in guided_free_indexes_by_position.get(position, set()):
                             continue
                         if (
