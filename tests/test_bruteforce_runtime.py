@@ -56,6 +56,7 @@ def build_runtime(
     crc_forge_mode="auto",
     crc_forge_bytes=None,
     crc_forge_window=None,
+    deflate_mitm_mode="auto",
     input_func=None,
 ):
     side_notes = [] if side_notes is None else side_notes
@@ -109,6 +110,7 @@ def build_runtime(
         crc_forge_mode=crc_forge_mode,
         crc_forge_bytes=crc_forge_bytes,
         crc_forge_window=crc_forge_window,
+        deflate_mitm_mode=deflate_mitm_mode,
         input_func=input_func,
     )
 
@@ -147,6 +149,29 @@ def test_format_crc_forge_windows_keeps_priority_visible():
 
     assert text == "0:5, 10:15, 20:25, +7 more"
     assert byte_text == "1/2/3/4 (+7 more)"
+
+
+def test_mitm_v2_checkpoint_backend_is_crc_forge_resumable():
+    cursor = bruteforce_runtime._crc_forge_resume_cursor(
+        {
+            "backend": "deflate_mitm_v2",
+            "cursor": {
+                "length": 40,
+                "outer_index": 2,
+                "inner_index": idat_crc_forge.DEFLATE_MITM_V2_INDEX_MARKER,
+                "byte_position": 123,
+                "edit_kind_index": 1,
+            },
+        }
+    )
+
+    assert cursor == {
+        "byte_count": 20,
+        "window_index": 2,
+        "free_index": idat_crc_forge.DEFLATE_MITM_V2_INDEX_MARKER,
+        "byte_position": 123,
+        "edit_kind_index": 1,
+    }
 
 
 def simple_specs(request):
@@ -2658,7 +2683,7 @@ def test_crc_forge_fallback_prompt_can_keep_blackfill(monkeypatch):
 
     def input_func(prompt):
         calls.append(("input", prompt))
-        return "3"
+        return "4"
 
     monkeypatch.setattr(bruteforce_runtime, "_run_crc_forge_scan", crc_forge_scan)
     monkeypatch.setattr(bruteforce_runtime, "_run_gpu_scan", gpu_scan)
@@ -2676,6 +2701,112 @@ def test_crc_forge_fallback_prompt_can_keep_blackfill(monkeypatch):
     assert result.state.bingo is False
     assert any("keeping the blackfill fallback" in call[1] for call in calls if call[0] == "emit")
     assert any("keeping blackfill fallback" in note for note in side_notes)
+
+
+def test_crc_forge_fallback_prompt_can_go_back_to_targeted(monkeypatch):
+    calls = []
+    side_notes = []
+    context = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", old_crc="00000000")
+
+    def crc_forge_scan(*_args, **_kwargs):
+        return bruteforce_runtime.CrcForgeScanOutcome(False, tested_candidates=20, last_byte_count=10)
+
+    def gpu_scan(*_args, **_kwargs):
+        raise AssertionError("back decision must skip broad SBB")
+
+    def input_func(prompt):
+        calls.append(("input", prompt))
+        return "3"
+
+    monkeypatch.setattr(bruteforce_runtime, "_run_crc_forge_scan", crc_forge_scan)
+    monkeypatch.setattr(bruteforce_runtime, "_run_gpu_scan", gpu_scan)
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+        input_func=input_func,
+        side_notes=side_notes,
+    )
+
+    result = bruteforce_runtime.run_scan(runtime, context)
+
+    assert result.state.bingo is False
+    assert any("returning to targeted repair" in call[1] for call in calls if call[0] == "emit")
+    assert any("targeted retry requested" in note for note in side_notes)
+
+
+def test_crc_forge_fallback_prompt_rejects_unavailable_blackfill_then_trusts(monkeypatch):
+    calls = []
+    answers = iter(["4", "1"])
+    context = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", old_crc="00000000")
+
+    def crc_forge_scan(*_args, **_kwargs):
+        return bruteforce_runtime.CrcForgeScanOutcome(False, tested_candidates=20, last_byte_count=5)
+
+    def gpu_scan(
+        _runtime,
+        next_context,
+        _scan_state,
+        _old_crc,
+        _runtime_plan,
+        _candidate_space_hash,
+        _progress_resume,
+        _resume_outer_index,
+        _resume_inner_index,
+    ):
+        calls.append(("gpu_scan_level", next_context.brute_level))
+        return True
+
+    def input_func(prompt):
+        calls.append(("input", prompt))
+        return next(answers)
+
+    monkeypatch.setattr(bruteforce_runtime, "_run_crc_forge_scan", crc_forge_scan)
+    monkeypatch.setattr(bruteforce_runtime, "_run_gpu_scan", gpu_scan)
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+        input_func=input_func,
+    )
+
+    bruteforce_runtime.run_scan(runtime, context)
+
+    assert ("gpu_scan_level", 0) in calls
+    assert any("No blackfill fallback is available" in call[1] for call in calls if call[0] == "emit")
+
+
+def test_crc_forge_fallback_prompt_invalid_answer_reprompts_once(monkeypatch):
+    calls = []
+    answers = iter(["wat", "3"])
+    context = base_context(chunk_name=b"IDAT", bf_mode="TwoBytes", old_crc="00000000")
+
+    def crc_forge_scan(*_args, **_kwargs):
+        return bruteforce_runtime.CrcForgeScanOutcome(False, tested_candidates=20, last_byte_count=5)
+
+    def gpu_scan(*_args, **_kwargs):
+        raise AssertionError("back after reprompt must skip broad SBB")
+
+    def input_func(prompt):
+        calls.append(("input", prompt))
+        return next(answers)
+
+    monkeypatch.setattr(bruteforce_runtime, "_run_crc_forge_scan", crc_forge_scan)
+    monkeypatch.setattr(bruteforce_runtime, "_run_gpu_scan", gpu_scan)
+    runtime = build_runtime(
+        calls,
+        specs=simple_specs,
+        product_values=[],
+        source_hash="source-hash",
+        input_func=input_func,
+    )
+
+    bruteforce_runtime.run_scan(runtime, context)
+
+    assert sum(1 for call in calls if call[0] == "input") == 2
+    assert any("please choose 1, 2, 3, or 4" in call[1] for call in calls if call[0] == "emit")
 
 
 def test_sbb_level_15_warning_includes_eta(monkeypatch):
@@ -2776,10 +2907,7 @@ def test_crc_forge_auto_timeout_is_disabled_for_bounded_pass():
     )
 
     assert bruteforce_runtime._crc_forge_auto_max_seconds(summary, "auto") == 0.0
-    assert (
-        bruteforce_runtime._crc_forge_auto_max_seconds(huge, "auto")
-        == idat_crc_forge.HERMESPROBE_AUTO_MAX_SECONDS
-    )
+    assert bruteforce_runtime._crc_forge_auto_max_seconds(huge, "auto") == 0.0
 
 
 def test_crc_forge_partial_windows_do_not_raise_broad_sbb_level(monkeypatch):
@@ -2894,6 +3022,7 @@ def test_rejected_hit_checkpoint_is_not_resumed():
 def main():
     checks = [
         ("CRC-forge window display", test_format_crc_forge_windows_keeps_priority_visible),
+        ("MITM V2 checkpoint resume", test_mitm_v2_checkpoint_backend_is_crc_forge_resumable),
         ("OldCrc scan", test_run_scan_preserves_oldcrc_path_without_viewer),
         ("Viewer scan", test_run_scan_preserves_viewer_acceptance_gate_and_diff),
         ("TwoBytes scan", test_run_scan_preserves_twobytes_oldcrc_path),
@@ -2921,6 +3050,12 @@ def main():
         ("SBB fallback prompt trusts detected level", test_crc_forge_fallback_prompt_trusts_detected_level),
         ("SBB fallback prompt accepts manual level", test_crc_forge_fallback_prompt_accepts_manual_level),
         ("SBB fallback prompt keeps blackfill", test_crc_forge_fallback_prompt_can_keep_blackfill),
+        ("SBB fallback prompt back to targeted", test_crc_forge_fallback_prompt_can_go_back_to_targeted),
+        (
+            "SBB fallback prompt rejects unavailable blackfill",
+            test_crc_forge_fallback_prompt_rejects_unavailable_blackfill_then_trusts,
+        ),
+        ("SBB fallback prompt reprompts invalid answer", test_crc_forge_fallback_prompt_invalid_answer_reprompts_once),
         ("SBB fallback level 15 ETA warning", test_sbb_level_15_warning_includes_eta),
         ("SBB fallback long ETA warning", test_sbb_warning_includes_eta_for_lower_level_long_pass),
         ("CRC-forge bounded pass timeout", test_crc_forge_auto_timeout_is_disabled_for_bounded_pass),

@@ -955,6 +955,30 @@ for _fixture in _KAGEBUSHIN_IDAT_AUDIT_FIXTURES:
         "kept for manual and targeted runtime validation, not strict repair matrix"
     )
 
+_YOU_IDAT_AUDIT_FIXTURES = tuple(
+    f"You_IDAT_Chunk00_Changed_{count:02d}_{'Byte' if count == 1 else 'Bytes'}_StoredOriginalCRC.png"
+    for count in range(1, 4)
+)
+
+for _fixture in _YOU_IDAT_AUDIT_FIXTURES:
+    UNCOVERED_REPAIR_CASES[_fixture] = (
+        "You SBB/HermesProbe audit fixture with original IDAT CRC kept; "
+        "kept for manual and targeted runtime validation, not strict repair matrix"
+    )
+
+UNCOVERED_REPAIR_CASES.update(
+    {
+        "One_IDAT_Missing.png": "single-IDAT missing stream fixture kept for manual IDAT salvage testing",
+        "PLTE_2_Empty_Bad_Crc.png": "secondary empty PLTE fixture kept for palette repair exploration",
+        "PLTE_2_Empty_Good_Crc.png": "secondary empty PLTE fixture kept for palette repair exploration",
+        "badbkgd.png": "local bKGD fixture kept for manual ancillary repair exploration",
+        "badice.png": "local ancillary fixture kept for manual repair exploration",
+        "boob.png": "local fixture kept for manual repair exploration",
+        "dwice.png": "local fixture kept for manual repair exploration",
+        "palette_empty.png": "local empty-palette fixture kept for manual palette repair exploration",
+    }
+)
+
 
 REPAIR_CASES = {
     repair.fixture: (repair.max_saves, repair.expected_outputs)

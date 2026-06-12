@@ -1071,6 +1071,53 @@ def test_symbolic_insert20_runs_without_free_bruteforce():
     assert candidate.free_index == idat_crc_forge.DEFLATE_SYMBOLIC_INDEX_MARKER
 
 
+def test_mitm_v2_insert20_runs_after_symbolic_before_guided_candidates():
+    missing = bytes(range(20))
+    good, broken, old_crc, offset, _missing = _stored_crc_missing_payload_fixture(20, missing)
+    seen_progress: list[tuple[str, int, int, int, int]] = []
+    original_ranked = idat_crc_forge.ranked_auto_windows
+    original_solver = idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman
+    original_mitm = idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman_mitm_v2
+    original_guided = idat_crc_forge._guided_full_byte_candidates
+
+    def guided(*_args, **_kwargs):
+        raise AssertionError("guided candidates must wait for MITM V2")
+
+    try:
+        idat_crc_forge.ranked_auto_windows = lambda *_args, **_kwargs: (
+            idat_crc_forge.ForgeWindow(offset, offset + 1, "scanline-anomaly"),
+        )
+        idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman = lambda *_args, **_kwargs: ()
+        idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman_mitm_v2 = lambda *_args, **_kwargs: (missing,)
+        idat_crc_forge._guided_full_byte_candidates = guided
+        for candidate in idat_crc_forge.iter_forge_candidates(
+            broken,
+            _idat(broken),
+            old_crc,
+            edit_order=("insert",),
+            byte_counts=(20,),
+            mode="auto",
+            zlib_prefilter=False,
+            progress_callback=lambda *args: seen_progress.append(args),
+        ):
+            if candidate.hit.png_bytes == good:
+                break
+        else:
+            raise AssertionError("MITM V2 20-byte insertion was not yielded")
+    finally:
+        idat_crc_forge.ranked_auto_windows = original_ranked
+        idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman = original_solver
+        idat_crc_forge.deflate_crc_solver.solve_idat_crc_huffman_mitm_v2 = original_mitm
+        idat_crc_forge._guided_full_byte_candidates = original_guided
+
+    assert candidate.hit.brute_bytes == missing
+    assert candidate.free_index == idat_crc_forge.DEFLATE_MITM_V2_INDEX_MARKER
+    assert any(
+        progress[3] == idat_crc_forge.DEFLATE_MITM_V2_INDEX_MARKER
+        for progress in seen_progress
+    )
+
+
 def test_auto_semantic_budgets_cover_11_to_20_with_taper():
     assert idat_crc_forge._semantic_enabled_for_byte_count(10, "auto")
     assert idat_crc_forge._semantic_enabled_for_byte_count(20, "auto")
@@ -1245,6 +1292,7 @@ def test_auto_budget_expiration_raises_typed_fallback_reason():
             byte_counts=(4,),
             window_spec="%s:%s" % (offset, offset + 1),
             mode="auto",
+            auto_max_seconds=1.0,
         )
         next(candidates)
     except idat_crc_forge.HermesProbeBudgetExpired as exc:
@@ -1584,6 +1632,7 @@ def main():
     test_guided_full_replace_runs_before_limited_numeric_search()
     test_symbolic_insert_runs_before_guided_candidates()
     test_symbolic_insert20_runs_without_free_bruteforce()
+    test_mitm_v2_insert20_runs_after_symbolic_before_guided_candidates()
     test_auto_semantic_budgets_cover_11_to_20_with_taper()
     test_auto_insert20_enables_semantic_solver_with_tapered_budget()
     test_auto_insert3_seed_solver_uses_crc_without_bruteforce()

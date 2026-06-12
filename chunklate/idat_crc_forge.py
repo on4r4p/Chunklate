@@ -20,6 +20,7 @@ SCANLINE_ANOMALY_BACKTRACK_ROWS = (4, 3, 2, 1)
 SCANLINE_ANOMALY_HALF_WINDOW = 32
 SCANLINE_ANOMALY_INTERVAL_DIVISOR = 6
 DIRECT_CRC_NEARBY_RADIUS = DEFAULT_WINDOW_RADIUS
+DIRECT_CRC_FULL_WINDOW_SEGMENT = DEFAULT_WINDOW_RADIUS
 AUTO_FOCUSED_BYTE_COUNTS = (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 6, 5, 4, 3, 2, 1)
 AUTO_FREE_INDEX_LIMITS = {
     6: 4096,
@@ -44,6 +45,7 @@ DEFLATE_GUIDED_SUFFIX_BITS = 96
 DEFLATE_GUIDED_FREE_INDEX_MARKER = -2
 DEFLATE_GUIDED_FULL_INDEX_MARKER = -3
 DEFLATE_SYMBOLIC_INDEX_MARKER = -4
+DEFLATE_MITM_V2_INDEX_MARKER = -7
 DEFLATE_SYMBOLIC_SOLUTIONS = 256
 DEFLATE_SYMBOLIC_SOLUTIONS_PER_SKELETON = 512
 DEFLATE_SYMBOLIC_SKELETONS_AUTO = 4_096
@@ -308,6 +310,15 @@ def _full_direct_crc_windows(source_data: bytes, target_chunk: png.PngChunk) -> 
     return (ForgeWindow(0, payload_len + 1, "full-direct-crc"),)
 
 
+def _full_direct_crc_window_segments(payload_len: int) -> tuple[ForgeWindow, ...]:
+    full_end = max(0, int(payload_len)) + 1
+    segment = max(1, int(DIRECT_CRC_FULL_WINDOW_SEGMENT))
+    return tuple(
+        ForgeWindow(start, min(full_end, start + segment), "full-direct-crc")
+        for start in range(0, full_end, segment)
+    )
+
+
 def _direct_crc_seed_windows(
     windows: tuple[ForgeWindow, ...],
     target_chunk: png.PngChunk,
@@ -319,21 +330,21 @@ def _direct_crc_seed_windows(
     if explicit_windows or mode == "force" or int(byte_count) not in DIRECT_CRC_BYTE_COUNTS:
         return windows
     payload_len = len(target_chunk.data)
+    local_windows = tuple(window for window in windows if window.source != "full-direct-crc")
     nearby_windows = _merge_windows(
         ForgeWindow(
             max(0, int(window.start) - DIRECT_CRC_NEARBY_RADIUS),
             min(payload_len + 1, int(window.end) + DIRECT_CRC_NEARBY_RADIUS),
             "direct-nearby-crc",
         )
-        for window in windows
-        if window.source != "full-direct-crc"
-        and min(payload_len + 1, int(window.end) + DIRECT_CRC_NEARBY_RADIUS)
+        for window in local_windows
+        if min(payload_len + 1, int(window.end) + DIRECT_CRC_NEARBY_RADIUS)
         > max(0, int(window.start) - DIRECT_CRC_NEARBY_RADIUS)
     )
     return _dedupe_windows_in_order(
-        tuple(windows)
+        tuple(local_windows)
         + tuple(nearby_windows)
-        + (ForgeWindow(0, payload_len + 1, "full-direct-crc"),)
+        + _full_direct_crc_window_segments(payload_len)
     )
 
 
@@ -1107,6 +1118,16 @@ def _deflate_distance_hints(source_data: bytes) -> tuple[int, ...]:
     return tuple(hints)
 
 
+def _deflate_scanline_size(source_data: bytes) -> int:
+    try:
+        analysis = idat.analyze_idat_stream(source_data)
+    except Exception:
+        return 0
+    if not getattr(analysis, "supported", False):
+        return 0
+    return max(0, int(getattr(analysis, "scanline_size", 0) or 0))
+
+
 def _clip_windows_to_candidate_budget(
     windows: tuple[ForgeWindow, ...],
     edit_kind: str,
@@ -1282,6 +1303,7 @@ def iter_forge_candidates(
     resume_free_index: int = 0,
     resume_edit_kind_index: int = 0,
     auto_max_seconds: float | None = None,
+    deflate_mitm_mode: str = "auto",
 ) -> Iterable[ForgeCandidate]:
     if target_chunk.chunk_type != b"IDAT":
         return
@@ -1306,7 +1328,7 @@ def iter_forge_candidates(
     run_budget = _HermesProbeBudget(
         mode=str(mode),
         started_at=time.monotonic(),
-        max_seconds=HERMESPROBE_AUTO_MAX_SECONDS if auto_max_seconds is None else float(auto_max_seconds),
+        max_seconds=0.0 if auto_max_seconds is None else float(auto_max_seconds),
     )
     clean_byte_counts = tuple(count for count in byte_counts if count in TARGET_BYTE_COUNTS)
     if full_direct_only:
@@ -1615,6 +1637,7 @@ def iter_forge_candidates(
                     trace = get_guided_trace()
                     target_output_delta = _guided_target_output_delta(source_data, edit_kind, byte_count)
                     distance_hints = _deflate_distance_hints(source_data)
+                    scanline_size = _deflate_scanline_size(source_data)
                     for position in range(start_position, window.end):
                         run_budget.check()
                         suffix_index = position if edit_kind == "insert" else position + byte_count
@@ -1659,6 +1682,7 @@ def iter_forge_candidates(
                                 target_output_delta=target_output_delta,
                                 max_expansions=_symbolic_expansions_for_byte_count(byte_count, mode),
                                 distance_hints=distance_hints,
+                                scanline_size=scanline_size,
                                 semantic_extra_assignments=DEFLATE_SEMANTIC_EXTRA_ASSIGNMENTS,
                                 semantic_beam_width=_semantic_beam_width_for_byte_count(byte_count, mode),
                                 semantic_expansions=_semantic_expansions_for_byte_count(byte_count, mode),
@@ -1668,6 +1692,7 @@ def iter_forge_candidates(
                                     else min(DEFLATE_SYMBOLIC_SKELETONS_AUTO, symbolic_skeletons)
                                 ),
                                 semantic_solutions_per_skeleton=DEFLATE_SYMBOLIC_SOLUTIONS_PER_SKELETON,
+                                mitm_mode="off",
                             ):
                                 if len(brute_bytes) != byte_count or brute_bytes in full_seen:
                                     continue
@@ -1706,6 +1731,71 @@ def iter_forge_candidates(
                                 )
                             elapsed_symbolic = time.monotonic() - symbolic_started_at
                             run_budget.record_symbolic(elapsed_symbolic)
+                            if str(deflate_mitm_mode or "auto").strip().lower() != "off" and int(byte_count) >= 10:
+                                mitm_started_at = time.monotonic()
+                                for brute_bytes in deflate_crc_solver.solve_idat_crc_huffman_mitm_v2(
+                                    payload,
+                                    position,
+                                    edit_kind,
+                                    byte_count,
+                                    prefixes[position],
+                                    required[suffix_index],
+                                    trace,
+                                    suffix_payload_byte_offset=suffix_index,
+                                    max_solutions=DEFLATE_SYMBOLIC_SOLUTIONS,
+                                    max_skeletons=symbolic_skeletons,
+                                    suffix_bit_count=DEFLATE_SYMBOLIC_SUFFIX_BITS,
+                                    max_solutions_per_join=DEFLATE_SYMBOLIC_SOLUTIONS_PER_SKELETON,
+                                    candidate_filter=symbolic_filter,
+                                    target_output_delta=target_output_delta,
+                                    distance_hints=distance_hints,
+                                    scanline_size=scanline_size,
+                                    semantic_extra_assignments=DEFLATE_SEMANTIC_EXTRA_ASSIGNMENTS,
+                                    semantic_beam_width=_semantic_beam_width_for_byte_count(byte_count, mode),
+                                    semantic_expansions=_semantic_expansions_for_byte_count(byte_count, mode),
+                                    semantic_max_skeletons=(
+                                        min(DEFLATE_SYMBOLIC_SKELETONS_FORCE, symbolic_skeletons)
+                                        if mode == "force"
+                                        else min(DEFLATE_SYMBOLIC_SKELETONS_AUTO, symbolic_skeletons)
+                                    ),
+                                    mitm_mode=deflate_mitm_mode,
+                                ):
+                                    if len(brute_bytes) != byte_count or brute_bytes in full_seen:
+                                        continue
+                                    full_seen.add(brute_bytes)
+                                    tested += 1
+                                    if progress_callback is not None:
+                                        progress_callback(
+                                            edit_kind,
+                                            byte_count,
+                                            position,
+                                            DEFLATE_MITM_V2_INDEX_MARKER,
+                                            tested,
+                                        )
+                                    if zlib.crc32(brute_bytes, prefixes[position]) & 0xFFFFFFFF != required[suffix_index]:
+                                        continue
+                                    if edit_kind == "insert":
+                                        repaired = payload[:position] + brute_bytes + payload[position:]
+                                    else:
+                                        repaired = payload[:position] + brute_bytes + payload[position + byte_count :]
+                                    yield ForgeCandidate(
+                                        _candidate_hit(
+                                            target_chunk,
+                                            before,
+                                            after,
+                                            repaired,
+                                            old_crc,
+                                            brute_bytes,
+                                            edit_kind,
+                                            edit_kind_index,
+                                            byte_count,
+                                            position,
+                                            window_index,
+                                        ),
+                                        byte_count,
+                                        DEFLATE_MITM_V2_INDEX_MARKER,
+                                    )
+                                run_budget.record_symbolic(time.monotonic() - mitm_started_at)
                         for brute_bytes in _guided_full_byte_candidates(
                             payload,
                             position,

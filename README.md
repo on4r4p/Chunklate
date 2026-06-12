@@ -70,7 +70,10 @@ python -m pip install "moderngl>=5.10"
 usage: Chunklate.py [-h] [-f FILE] [-c] [-p] [-d] [-df] [-dp] [-ep] [-sp]
                     [-stfu] [-a] [--no-color] [--output-dir DIR]
                     [--max-saves N] [-workers min|normal|max|N] [-gpu]
-                    [-sbbl N] [-ulfr exact|similar PATH] [-ulfroi-edit] [-ulfsp]
+                    [-sbbl N] [--sbb-crc-forge auto|off|force]
+                    [--sbb-forge-bytes N] [--sbb-forge-window START:END]
+                    [--sbb-deflate-mitm auto|off|force]
+                    [-ulfr exact|similar PATH] [-ulfroi-edit] [-ulfsp]
                     [-ulfgl N] [-ulfmc FLOAT]
 ```
 
@@ -103,6 +106,14 @@ Performance and brute force:
 | `-workers N` | Use exactly `N` CPU workers. |
 | `-gpu` | Allow GPU acceleration when a compatible engine supports the current pass. CPU remains the fallback. |
 | `-sbbl N` | Start SmashBruteBrawl at brute-force level `N`; useful to jump straight to level `2` for 4-byte Hermes windows after lower levels are already exhausted. |
+| `--sbb-crc-forge auto` | Let HermesProbe try targeted IDAT CRC repairs before broad SBB. This is the default. |
+| `--sbb-crc-forge off` | Skip HermesProbe CRC repair and go to the normal SBB path. |
+| `--sbb-crc-forge force` | Let HermesProbe use wider targeted repair budgets. This can still be slow. |
+| `--sbb-forge-bytes N` | Limit HermesProbe to one suspected byte count. |
+| `--sbb-forge-window START:END` | Limit HermesProbe to one or more IDAT byte windows. This is useful when you already know the damaged area. |
+| `--sbb-deflate-mitm auto` | Let HermesProbe use the deflate meet-in-the-middle V2 solver for longer IDAT edits. This is the default. |
+| `--sbb-deflate-mitm off` | Disable the V2 deflate solver while keeping the other HermesProbe passes. |
+| `--sbb-deflate-mitm force` | Use larger V2 solver budgets. Prefer this only with a tight byte window. |
 
 Ultimate line-feed options:
 
@@ -169,10 +180,23 @@ Chunklate has three main IDAT paths:
   missing area with black/transparent bytes, rebuild a valid PNG. This is a
   fallback, not proof that the original pixels were recovered.
 - `SmashBruteBrawl`: brute force IDAT byte edits. It includes `HermesProbe`
-  for smaller byte-window passes and `HephaestusForge` for heavier campaigns.
+  for targeted byte-window passes and `HephaestusForge` for heavier campaigns.
 - `UltimateMegaSuperLineFeedBruteForce`: deeper line-feed conversion recovery
   with checkpoints, visual candidate galleries, optional reference scoring, and
   optional CPU workers.
+
+HermesProbe runs before broad SBB when the stored original `IDAT` CRC is useful.
+For small edits it can solve the CRC directly. For larger edits it now also has
+a deflate meet-in-the-middle V2 path: it reads the compressed stream structure
+around the suspected area, keeps only deflate/Huffman shapes that can make sense,
+then uses the CRC as a final constraint. That does not make 20-byte damage
+trivial, but it avoids jumping straight to a blind full brute force when a
+targeted structural search is still realistic.
+
+If HermesProbe cannot prove a full PNG repair, Chunklate explains the handoff
+before broad SBB. In interactive mode you can trust the detected SBB level,
+choose a custom level/byte scope, go back to retry targeted repair, or accept a
+blackfill fallback when one exists.
 
 For brute force, Chunklate tries to keep the parent process responsible for all
 visible effects: prompts, previews, final files, summaries, and checkpoint
@@ -205,6 +229,9 @@ Chunklate cannot reliably repair everything:
 - Missing decompressed bytes are not the same thing as missing compressed bytes.
   A tiny deflate error can make a large part of the image disappear.
 - Large IDAT brute force spaces can still take hours, days, months, or worse.
+- HermesProbe is targeted, not omniscient. If the suspected window is wrong or
+  the corruption spans several IDAT chunks at once, it may still need another
+  pass or a broader fallback.
 - GPU acceleration is still being expanded. HermesProbe has the broadest GPU
   coverage; HephaestusForge and Ultimate still fall back to CPU for many passes.
 - Blackfill output is a valid salvage image, not an exact original recovery.
@@ -215,6 +242,8 @@ Chunklate cannot reliably repair everything:
   deterministic IDAT byte windows.
 - Add stronger GPU/CPU parity tests for deeper byte-window levels.
 - Improve ETA handling so Chunklate asks only before genuinely expensive passes.
+- Keep improving HermesProbe deflate reverse parsing for harder 10+ byte IDAT
+  corruptions.
 - Improve visual scoring for structurally valid but visually suspicious PNGs.
 - Keep growing the repair matrix for real corrupt PNG families.
 - Continue preparing Ultimate for heavier GPU acceleration after the SBB GPU

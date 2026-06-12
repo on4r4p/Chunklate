@@ -100,15 +100,16 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "--smashbrutebrawl-workers" not in result.stdout
     assert "-sbbw" not in result.stdout
     assert "-sbbl N" in result.stdout
+    assert "--sbb-deflate-mitm" in result.stdout
     assert "--smashbrutebrawl-level" not in result.stdout
     assert "--ulf-budget" not in result.stdout
 
 
-def test_sbb_crc_forge_bytes_accepts_seed_only_10_byte_pass():
+def test_sbb_crc_forge_bytes_accepts_targeted_20_byte_pass():
     assert cli.smash_brute_brawl_crc_forge_bytes_error("1") is None
-    assert cli.smash_brute_brawl_crc_forge_bytes_error("10") is None
-    assert cli.smash_brute_brawl_crc_forge_bytes_error("11") == (
-        "--sbb-forge-bytes must be an integer from 1 to 10."
+    assert cli.smash_brute_brawl_crc_forge_bytes_error("20") is None
+    assert cli.smash_brute_brawl_crc_forge_bytes_error("21") == (
+        "--sbb-forge-bytes must be an integer from 1 to 20."
     )
 
 
@@ -427,7 +428,7 @@ def test_should_reexec_local_venv_uses_venv_path_not_realpath(tmp_path):
 def main():
     checks = [
         ("CLI help starts without optional runtime dependencies", test_help_starts_without_optional_runtime_dependencies),
-        ("SBB CRC-forge accepts 10 bytes", test_sbb_crc_forge_bytes_accepts_seed_only_10_byte_pass),
+        ("SBB CRC-forge accepts 20 bytes", test_sbb_crc_forge_bytes_accepts_targeted_20_byte_pass),
         ("Missing -f/--file returns a usage error", test_missing_file_argument_returns_usage_error),
         ("Valid PNG exits successfully with optional libpng fallback", test_valid_png_exits_successfully_with_optional_libpng_fallback),
         ("Empty PLTE repairs in default mode", test_plte_empty_repairs_in_default_interactive_mode),

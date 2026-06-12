@@ -125,6 +125,33 @@ def test_semantic_distance_ranking_prefers_scanline_hint():
     assert deflate_probe.DISTANCE_BASES[5] + options[0][0] == 8
 
 
+def test_png_filter_byte_penalty_rewards_valid_scanline_filter():
+    assert (
+        deflate_crc_solver._png_filter_byte_penalty(
+            b"\x03",
+            output_offset=16,
+            scanline_size=8,
+        )
+        < 0
+    )
+    assert (
+        deflate_crc_solver._png_filter_byte_penalty(
+            b"\xff",
+            output_offset=16,
+            scanline_size=8,
+        )
+        > 0
+    )
+    assert (
+        deflate_crc_solver._png_filter_byte_penalty(
+            b"\xff",
+            output_offset=17,
+            scanline_size=8,
+        )
+        == 0
+    )
+
+
 def test_contextual_template_selection_keeps_literal_diversity():
     templates = tuple(
         deflate_crc_solver._TokenTemplate(index, 4, (index & 1, None, None))
@@ -271,6 +298,72 @@ def test_huffman_solver_recovers_synthetic_replace_10_and_20():
     assert _solve_synthetic("replace", 20)[0] == b"\x00" * 20
 
 
+def test_mitm_v2_solver_recovers_synthetic_replace_20_with_history():
+    byte_count = 20
+    repair = b"\x00" * byte_count
+    suffix = b"\x00" * 32
+    broken = b"\xff" * byte_count + suffix
+    target_crc = zlib.crc32(b"IDAT" + repair + suffix) & 0xFFFFFFFF
+    prefixes = crc32_forge.crc32_prefixes(b"IDAT", broken)
+    required = crc32_forge.crc32_required_before_suffixes(broken, target_crc)
+    state = deflate_probe.DeflateHuffmanState(
+        byte_offset=0,
+        bit_offset=0,
+        output_offset=4096,
+        block_index=0,
+        block_type=1,
+        literal_table={(0, 8): 0},
+        literal_max_bits=8,
+        distance_table={(0, 5): 0},
+        distance_max_bits=5,
+    )
+    history = deflate_probe.DeflateHistoryState(
+        huffman=state,
+        output_tail=b"\x00" * 4096,
+        tail_start=0,
+        history_size=32768,
+    )
+    original_cache = deflate_crc_solver._cached_history_state
+    try:
+        deflate_crc_solver._cached_history_state = lambda *_args, **_kwargs: history
+        solutions = deflate_crc_solver.solve_idat_crc_huffman_mitm_v2(
+            broken,
+            0,
+            "replace",
+            byte_count,
+            prefixes[0],
+            required[byte_count],
+            _synthetic_trace(broken),
+            suffix_payload_byte_offset=byte_count,
+            suffix_bit_count=64,
+            max_solutions=4,
+            max_skeletons=32,
+            semantic_max_skeletons=32,
+            mitm_mode="force",
+        )
+    finally:
+        deflate_crc_solver._cached_history_state = original_cache
+
+    assert repair in solutions
+
+
+def test_mitm_v2_solver_off_skips_cleanly():
+    assert (
+        deflate_crc_solver.solve_idat_crc_huffman_mitm_v2(
+            b"\x00" * 16,
+            0,
+            "replace",
+            10,
+            0,
+            0,
+            _synthetic_trace(b"\x00" * 16),
+            suffix_payload_byte_offset=10,
+            mitm_mode="off",
+        )
+        == ()
+    )
+
+
 def main():
     test_solve_gf2_handles_determined_system()
     test_solve_gf2_enumerates_underdetermined_by_weight()
@@ -278,11 +371,14 @@ def main():
     test_deflate_history_state_replays_fixed_huffman_tail()
     test_semantic_copy_from_output_tail_handles_overlap()
     test_semantic_distance_ranking_prefers_scanline_hint()
+    test_png_filter_byte_penalty_rewards_valid_scanline_filter()
     test_contextual_template_selection_keeps_literal_diversity()
     test_target_output_penalty_allows_suffix_overshoot_after_candidate_bits()
     test_semantic_expansion_generates_length_distance_copy()
     test_huffman_solver_recovers_synthetic_insert_10_and_20()
     test_huffman_solver_recovers_synthetic_replace_10_and_20()
+    test_mitm_v2_solver_recovers_synthetic_replace_20_with_history()
+    test_mitm_v2_solver_off_skips_cleanly()
 
 
 if __name__ == "__main__":

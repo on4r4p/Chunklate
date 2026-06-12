@@ -6,7 +6,7 @@ import itertools
 import zlib
 from typing import Callable, Iterable
 
-from . import deflate_probe
+from . import deflate_probe, deflate_reverse
 
 
 CRC32_MASK = 0xFFFFFFFF
@@ -20,6 +20,12 @@ DEFAULT_SEMANTIC_BEAM_WIDTH = 512
 DEFAULT_SEMANTIC_EXPANSIONS = 1_500
 DEFAULT_SEMANTIC_MAX_SKELETONS = 16
 DEFAULT_SEMANTIC_SOLUTIONS_PER_SKELETON = 16
+DEFAULT_MITM_V2_PATHS_AUTO = 256
+DEFAULT_MITM_V2_PATHS_FORCE = 1024
+DEFAULT_MITM_V2_TOKENS_AUTO = 6
+DEFAULT_MITM_V2_TOKENS_FORCE = 12
+DEFAULT_MITM_V2_JOINS_AUTO = 4096
+DEFAULT_MITM_V2_JOINS_FORCE = 32768
 DEFLATE_HISTORY_SIZE = 32768
 _HISTORY_CACHE_LIMIT = 512
 _HISTORY_CACHE: dict[tuple[int, int, int, int, int, str], deflate_probe.DeflateHistoryState | None] = {}
@@ -1030,6 +1036,24 @@ def _semantic_priority(
     )
 
 
+def _png_filter_byte_penalty(
+    values: bytes,
+    *,
+    output_offset: int,
+    scanline_size: int,
+) -> int:
+    scanline_size = int(scanline_size)
+    if scanline_size <= 0 or not values:
+        return 0
+    penalty = 0
+    for index, value in enumerate(values):
+        absolute_output = int(output_offset) + index
+        if absolute_output % scanline_size != 0:
+            continue
+        penalty += -128 if int(value) <= 4 else 512
+    return penalty
+
+
 def _semantic_length_options(
     length_index: int,
     bits: tuple[int | None, ...],
@@ -1096,6 +1120,7 @@ def _semantic_symbol_expansions(
     distance_hints: tuple[int, ...],
     target_output_delta: int | None,
     semantic_extra_assignments: int,
+    scanline_size: int = 0,
 ) -> tuple[_SemanticPath, ...]:
     start_relative_bit = len(path.bits)
     max_symbol_options = max(16, int(max_branch_tokens) * 4)
@@ -1140,7 +1165,17 @@ def _semantic_symbol_expansions(
                 fixed_bit_count,
                 candidate_bit_count,
             )
-            score = path.score + len(literal_bits) * 8 - fixed_inside * 3 + 64
+            score = (
+                path.score
+                + len(literal_bits) * 8
+                - fixed_inside * 3
+                + 64
+                + _png_filter_byte_penalty(
+                    bytes((symbol,)),
+                    output_offset=path.output_offset,
+                    scanline_size=scanline_size,
+                )
+            )
             output.append(
                 _SemanticPath(
                     score,
@@ -1232,7 +1267,7 @@ def _semantic_symbol_expansions(
                     )
                     if copied is None:
                         continue
-                    _copied_bytes, output_tail, tail_start, output_offset = copied
+                    copied_bytes, output_tail, tail_start, output_offset = copied
                     token_bits: tuple[int | None, ...] = (
                         literal_bits
                         + tuple(length_extra_bits)
@@ -1251,6 +1286,11 @@ def _semantic_symbol_expansions(
                         + len(token_bits) * 5
                         + int(length_penalty)
                         + int(distance_penalty)
+                        + _png_filter_byte_penalty(
+                            copied_bytes,
+                            output_offset=path.output_offset,
+                            scanline_size=scanline_size,
+                        )
                         - min(96, length * 4)
                         - fixed_inside * 3
                     )
@@ -1303,6 +1343,7 @@ def _iter_semantic_symbol_skeletons(
     semantic_extra_assignments: int,
     semantic_beam_width: int,
     semantic_expansions: int,
+    scanline_size: int = 0,
 ) -> Iterable[tuple[int | None, ...]]:
     state = history.huffman
     required_bits = int(fixed_bit_count) + int(candidate_bit_count) + max(0, int(suffix_bit_count))
@@ -1379,6 +1420,7 @@ def _iter_semantic_symbol_skeletons(
                 distance_hints=distance_hints,
                 target_output_delta=target_output_delta,
                 semantic_extra_assignments=semantic_extra_assignments,
+                scanline_size=scanline_size,
             ):
                 if len(next_path.bits) >= required_bits:
                     skeleton = next_path.bits[:required_bits]
@@ -1477,6 +1519,39 @@ def _skeleton_rows(
     return tuple(rows)
 
 
+def _overlay_reverse_tail(
+    skeleton: tuple[int | None, ...],
+    path: deflate_reverse.ReverseTailPath,
+) -> tuple[int | None, ...] | None:
+    bits = list(skeleton)
+    start = int(path.start_relative_bit)
+    if start < 0 or start + len(path.bits) > len(bits):
+        return None
+    for offset, bit in enumerate(path.bits):
+        if bit is None:
+            continue
+        index = start + offset
+        existing = bits[index]
+        if existing is not None and int(existing) != int(bit):
+            return None
+        bits[index] = int(bit) & 1
+    return tuple(bits)
+
+
+def _mitm_v2_limits(mode: str) -> tuple[int, int, int]:
+    if str(mode or "auto").strip().lower() == "force":
+        return (
+            DEFAULT_MITM_V2_PATHS_FORCE,
+            DEFAULT_MITM_V2_TOKENS_FORCE,
+            DEFAULT_MITM_V2_JOINS_FORCE,
+        )
+    return (
+        DEFAULT_MITM_V2_PATHS_AUTO,
+        DEFAULT_MITM_V2_TOKENS_AUTO,
+        DEFAULT_MITM_V2_JOINS_AUTO,
+    )
+
+
 def _local_output_delta_target(
     trace: deflate_probe.DeflateTrace,
     fixed_bit_count: int,
@@ -1496,6 +1571,139 @@ def _local_output_delta_target(
     if requested_target <= max(estimated * 2, estimated + 8):
         return requested_target
     return estimated
+
+
+def solve_idat_crc_huffman_mitm_v2(
+    payload: bytes,
+    position: int,
+    edit_kind: str,
+    byte_count: int,
+    prefix_crc: int,
+    required_crc: int,
+    trace: deflate_probe.DeflateTrace | None,
+    *,
+    suffix_payload_byte_offset: int,
+    max_solutions: int = DEFAULT_MAX_SOLUTIONS,
+    max_skeletons: int = DEFAULT_MAX_SKELETONS_PER_POSITION,
+    suffix_bit_count: int = DEFAULT_SUFFIX_BITS,
+    validate_local: bool = False,
+    max_solutions_per_join: int = 4,
+    candidate_filter: Callable[[bytes], bool] | None = None,
+    target_output_delta: int | None = None,
+    distance_hints: tuple[int, ...] = (),
+    semantic_extra_assignments: int = DEFAULT_SEMANTIC_EXTRA_ASSIGNMENTS,
+    semantic_beam_width: int = DEFAULT_SEMANTIC_BEAM_WIDTH,
+    semantic_expansions: int = DEFAULT_SEMANTIC_EXPANSIONS,
+    semantic_max_skeletons: int = DEFAULT_SEMANTIC_MAX_SKELETONS,
+    scanline_size: int = 0,
+    mitm_mode: str = "off",
+) -> tuple[bytes, ...]:
+    byte_count = int(byte_count)
+    mode = str(mitm_mode or "auto").strip().lower()
+    if (
+        mode == "off"
+        or edit_kind not in {"insert", "replace"}
+        or byte_count < 7
+        or trace is None
+        or not trace.ok
+    ):
+        return ()
+    history = _cached_history_state(payload, int(position), trace)
+    if history is None:
+        return ()
+    state = history.huffman
+    fixed_bit_count = int(position) * 8 - int(state.bit_offset)
+    if fixed_bit_count < 0 or fixed_bit_count > 64:
+        return ()
+    candidate_bit_count = byte_count * 8
+    required_bits = fixed_bit_count + candidate_bit_count + max(0, int(suffix_bit_count))
+    suffix_payload_bit_offset = max(0, int(suffix_payload_byte_offset)) * 8
+    path_limit, token_limit, join_limit = _mitm_v2_limits(mode)
+    reverse_paths = deflate_reverse.iter_reverse_tail_paths(
+        state,
+        candidate_start_relative_bit=fixed_bit_count,
+        candidate_end_relative_bit=fixed_bit_count + candidate_bit_count,
+        max_paths=path_limit,
+        max_tokens=token_limit,
+        max_token_options=max(64, min(256, int(semantic_beam_width))),
+        distance_hints=tuple(int(item) for item in distance_hints if int(item) > 0),
+        target_output_delta=target_output_delta,
+    )
+    if not reverse_paths:
+        return ()
+
+    crc_rows = crc32_affine_rows(prefix_crc, required_crc, byte_count)
+    local_target_output_delta = _local_output_delta_target(
+        trace,
+        fixed_bit_count,
+        candidate_bit_count,
+        target_output_delta,
+    )
+    max_symbols = max(4, byte_count * 3)
+    clean_distance_hints = tuple(int(item) for item in distance_hints if int(item) > 0)
+    seen: set[bytes] = set()
+    solutions: list[bytes] = []
+    joins = 0
+    skeletons = _iter_semantic_symbol_skeletons(
+        payload,
+        history,
+        fixed_bit_count,
+        candidate_bit_count,
+        suffix_payload_bit_offset,
+        suffix_bit_count,
+        max_skeletons=max(1, min(int(max_skeletons), int(semantic_max_skeletons))),
+        max_branch_tokens=max(16, min(64, int(semantic_beam_width))),
+        max_symbols=max_symbols,
+        target_output_delta=local_target_output_delta,
+        distance_hints=clean_distance_hints,
+        semantic_extra_assignments=semantic_extra_assignments,
+        semantic_beam_width=semantic_beam_width,
+        semantic_expansions=semantic_expansions,
+        scanline_size=scanline_size,
+    )
+    for skeleton in skeletons:
+        if len(skeleton) < required_bits:
+            continue
+        for path in reverse_paths:
+            joined = _overlay_reverse_tail(skeleton[:required_bits], path)
+            if joined is None:
+                continue
+            joins += 1
+            equations = crc_rows + _skeleton_rows(joined, fixed_bit_count, candidate_bit_count)
+            for solution in solve_gf2(
+                equations,
+                None,
+                candidate_bit_count,
+                max_solutions=max(1, min(int(max_solutions), int(max_solutions_per_join))),
+            ):
+                candidate = int(solution).to_bytes(byte_count, "little")
+                if candidate in seen:
+                    continue
+                if zlib.crc32(candidate, int(prefix_crc) & CRC32_MASK) & CRC32_MASK != (
+                    int(required_crc) & CRC32_MASK
+                ):
+                    continue
+                if candidate_filter is not None and not candidate_filter(candidate):
+                    continue
+                if validate_local:
+                    local = deflate_probe.validate_local_edit(
+                        payload,
+                        int(position),
+                        edit_kind,
+                        byte_count,
+                        candidate,
+                        stop_after_output=int(state.output_offset) + max(4096, byte_count * 512),
+                        checkpoint_stride=2048,
+                    )
+                    if not local.accepted:
+                        continue
+                seen.add(candidate)
+                solutions.append(candidate)
+                if len(solutions) >= int(max_solutions):
+                    return tuple(solutions)
+            if joins >= int(join_limit):
+                return tuple(solutions)
+    return tuple(solutions)
 
 
 def solve_idat_crc_huffman(
@@ -1522,6 +1730,8 @@ def solve_idat_crc_huffman(
     semantic_expansions: int = DEFAULT_SEMANTIC_EXPANSIONS,
     semantic_max_skeletons: int = DEFAULT_SEMANTIC_MAX_SKELETONS,
     semantic_solutions_per_skeleton: int = DEFAULT_SEMANTIC_SOLUTIONS_PER_SKELETON,
+    scanline_size: int = 0,
+    mitm_mode: str = "auto",
 ) -> tuple[bytes, ...]:
     byte_count = int(byte_count)
     if edit_kind not in {"insert", "replace"} or byte_count <= 0 or trace is None or not trace.ok:
@@ -1610,10 +1820,43 @@ def solve_idat_crc_huffman(
                 semantic_extra_assignments=semantic_extra_assignments,
                 semantic_beam_width=semantic_beam_width,
                 semantic_expansions=semantic_expansions,
+                scanline_size=scanline_size,
             ),
             per_skeleton_limit=max(1, min(int(max_solutions_per_skeleton), int(semantic_solutions_per_skeleton))),
         ):
             return tuple(solutions)
+
+    if history is not None and int(byte_count) >= 10 and str(mitm_mode or "auto").strip().lower() != "off":
+        for candidate in solve_idat_crc_huffman_mitm_v2(
+            payload,
+            position,
+            edit_kind,
+            byte_count,
+            prefix_crc,
+            required_crc,
+            trace,
+            suffix_payload_byte_offset=suffix_payload_byte_offset // 8,
+            max_solutions=max(1, int(max_solutions) - len(solutions)),
+            max_skeletons=max_skeletons,
+            suffix_bit_count=suffix_bit_count,
+            validate_local=validate_local,
+            max_solutions_per_join=max_solutions_per_skeleton,
+            candidate_filter=candidate_filter,
+            target_output_delta=target_output_delta,
+            distance_hints=clean_distance_hints,
+            semantic_extra_assignments=semantic_extra_assignments,
+            semantic_beam_width=semantic_beam_width,
+            semantic_expansions=semantic_expansions,
+            semantic_max_skeletons=semantic_max_skeletons,
+            scanline_size=scanline_size,
+            mitm_mode=mitm_mode,
+        ):
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            solutions.append(candidate)
+            if len(solutions) >= int(max_solutions):
+                return tuple(solutions)
 
     consume_skeletons(_iter_symbol_skeletons(
         payload,

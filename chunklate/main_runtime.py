@@ -39,6 +39,7 @@ SMASH_BRUTE_BRAWL_TERMINAL_PROGRESS_STATUSES = {
     "exhausted",
     "rejected_hit",
     "success",
+    "targeted_retry_requested",
 }
 
 

@@ -108,11 +108,8 @@ def _format_crc_forge_byte_counts(
 
 
 def _crc_forge_auto_max_seconds(summary: idat_crc_forge.ForgeScanSummary, mode: str) -> float:
-    if str(mode or "auto").strip().lower() == "force":
-        return 0.0
-    if 0 < int(summary.estimated_candidates) <= CRC_FORGE_BOUNDED_NO_TIMEOUT_CANDIDATES:
-        return 0.0
-    return float(idat_crc_forge.HERMESPROBE_AUTO_MAX_SECONDS)
+    del summary, mode
+    return 0.0
 
 
 @dataclass(frozen=True)
@@ -138,6 +135,7 @@ class SmashBruteBrawlRuntime:
     crc_forge_mode: str = "auto"
     crc_forge_bytes: int | None = None
     crc_forge_window: str | None = None
+    deflate_mitm_mode: str = "auto"
     input_func: LegacyCall | None = None
 
 
@@ -550,7 +548,7 @@ def _target_idat_chunk_for_crc_forge(
 def _crc_forge_resume_cursor(progress_resume: dict[str, Any] | None) -> dict[str, int] | None:
     if not isinstance(progress_resume, dict):
         return None
-    if str(progress_resume.get("backend") or "") != "crc_forge":
+    if str(progress_resume.get("backend") or "") not in {"crc_forge", "deflate_mitm_v2"}:
         return None
     cursor = progress_resume.get("cursor")
     if not isinstance(cursor, dict):
@@ -563,6 +561,12 @@ def _crc_forge_resume_cursor(progress_resume: dict[str, Any] | None) -> dict[str
         "byte_position": _record_int(cursor, "byte_position", 0),
         "edit_kind_index": _record_int(cursor, "edit_kind_index", 0),
     }
+
+
+def _crc_forge_checkpoint_backend(scan_state: SmashBruteBrawlScanState) -> str:
+    if int(scan_state.inner_index) == int(idat_crc_forge.DEFLATE_MITM_V2_INDEX_MARKER):
+        return "deflate_mitm_v2"
+    return "crc_forge"
 
 
 def _sbb_level_for_idat_byte_count(byte_count: int) -> int:
@@ -803,31 +807,81 @@ def _ask_sbb_fallback_decision(
     detected_level: int,
     detected_byte_count: int | None,
 ) -> SbbFallbackDecision:
-    if runtime.input_func is None:
-        return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
-
     blackfill_available = _blackfill_fallback_available(context)
     runtime.emit("")
     runtime.emit(
         "-Targeted repair pass is handing off to broad SBB at detected level %s."
         % int(detected_level)
     )
+    runtime.emit(
+        "-Reason: HermesProbe did not produce a fully validated PNG from the targeted IDAT search."
+    )
     if detected_byte_count:
         runtime.emit("-Detected byte scope: up to %s byte(s)." % int(detected_byte_count))
-    if blackfill_available:
-        runtime.emit(
-            "-SBB fallback choices: 1 trust detection, 2 choose level/bytes, 3 keep blackfill fallback."
-        )
     else:
-        runtime.emit("-SBB fallback choices: 1 trust detection, 2 choose level/bytes.")
-    answer = _fallback_input(runtime, "SBB fallback [1 trust / 2 custom / 3 blackfill] > ")
+        runtime.emit("-Detected byte scope: unknown; broad SBB will use the current runtime level.")
+    runtime.emit(
+        "-SBB is broader than HermesProbe and can become very slow; review the level before launching it."
+    )
+    if runtime.input_func is None:
+        return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
+
+    blackfill_text = (
+        "4 accept blackfill"
+        if blackfill_available
+        else "4 accept blackfill (unavailable: no blackfill fallback)"
+    )
+    runtime.emit(
+        "-SBB fallback choices: 1 trust detection, 2 choose level/bytes, "
+        "3 back/retry targeted, %s." % blackfill_text
+    )
+    answer = _fallback_input(runtime, "SBB fallback [1 trust / 2 custom / 3 back / 4 blackfill] > ")
+    if answer not in {
+        "",
+        "1",
+        "trust",
+        "auto",
+        "yes",
+        "y",
+        "oui",
+        "o",
+        "2",
+        "custom",
+        "manual",
+        "manuel",
+        "level",
+        "bytes",
+        "3",
+        "back",
+        "retry",
+        "targeted",
+        "retour",
+        "arriere",
+        "arrière",
+        "4",
+        "blackfill",
+        "fallback",
+        "no",
+        "n",
+        "non",
+    }:
+        runtime.emit("-Unknown SBB fallback answer; please choose 1, 2, 3, or 4.")
+        answer = _fallback_input(runtime, "SBB fallback [1 trust / 2 custom / 3 back / 4 blackfill] > ")
     if answer in {"", "1", "trust", "auto", "yes", "y", "oui", "o"}:
         return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
-    if answer in {"3", "blackfill", "fallback", "no", "n", "non"}:
+    if answer in {"3", "back", "retry", "targeted", "retour", "arriere", "arrière"}:
+        return SbbFallbackDecision("back")
+    if answer in {"4", "blackfill", "fallback", "no", "n", "non"}:
         if blackfill_available:
             return SbbFallbackDecision("blackfill")
-        runtime.emit("-No blackfill fallback is available here; trusting the detected SBB level.")
-        return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
+        runtime.emit("-No blackfill fallback is available here; choose 1, 2, or 3.")
+        answer = _fallback_input(runtime, "SBB fallback [1 trust / 2 custom / 3 back] > ")
+        if answer in {"3", "back", "retry", "targeted", "retour", "arriere", "arrière"}:
+            return SbbFallbackDecision("back")
+        if answer in {"2", "custom", "manual", "manuel", "level", "bytes"}:
+            pass
+        else:
+            return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
     if answer not in {"2", "custom", "manual", "manuel", "level", "bytes"}:
         runtime.emit("-Unknown SBB fallback answer; trusting the detected level.")
         return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
@@ -894,6 +948,11 @@ def _run_crc_forge_scan(
     )
     if not summary.runnable:
         runtime.emit("-HermesProbe CRC-forge targeted IDAT pass skipped: %s" % summary.reason)
+        if any(int(count) >= 10 for count in byte_counts):
+            runtime.emit(
+                "-HermesProbe note: 10+ byte repairs need a tight deflate/PNG window; "
+                "broad SBB should be reviewed before launch."
+            )
         return False
 
     window_text = _format_crc_forge_windows(summary.windows)
@@ -967,6 +1026,7 @@ def _run_crc_forge_scan(
             resume_byte_position=resume_byte_position,
             resume_edit_kind_index=resume_edit_kind_index,
             auto_max_seconds=auto_max_seconds,
+            deflate_mitm_mode=runtime.deflate_mitm_mode,
         ):
             hit = candidate.hit
             scan_state.outer_index = int(hit.outer_index)
@@ -992,7 +1052,7 @@ def _run_crc_forge_scan(
                     scan_state,
                     candidate_space_hash=candidate_space_hash,
                     force=True,
-                    backend="crc_forge",
+                    backend=_crc_forge_checkpoint_backend(scan_state),
                     crc_trusted=True,
                     status="success",
                 )
@@ -1008,7 +1068,7 @@ def _run_crc_forge_scan(
                 runtime_plan,
                 scan_state,
                 candidate_space_hash=candidate_space_hash,
-                backend="crc_forge",
+                backend=_crc_forge_checkpoint_backend(scan_state),
                 crc_trusted=True,
                 status="running",
             )
@@ -1023,7 +1083,7 @@ def _run_crc_forge_scan(
         scan_state,
         candidate_space_hash=candidate_space_hash,
         force=True,
-        backend="crc_forge",
+        backend=_crc_forge_checkpoint_backend(scan_state),
         crc_trusted=True,
         status=_sbb_scan_terminal_status(scan_state),
     )
@@ -1308,7 +1368,13 @@ def _resolve_resume_record(
     if not isinstance(plan, dict):
         return None, "SmashBruteBrawl checkpoint has no search plan; starting fresh."
     checkpoint_status = str(record.get("status") or plan.get("status") or "")
-    if checkpoint_status in {"exhausted", "success", "accepted_blackfill", "rejected_hit"}:
+    if checkpoint_status in {
+        "exhausted",
+        "success",
+        "accepted_blackfill",
+        "rejected_hit",
+        "targeted_retry_requested",
+    }:
         return None, (
             "SmashBruteBrawl checkpoint already marked %s for this pass; trying the next campaign pass."
             % checkpoint_status
@@ -3164,7 +3230,7 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
 
     try:
         resume_backend = str((progress_resume or {}).get("backend") or "")
-        if resume_backend in {"", "crc_forge"}:
+        if resume_backend in {"", "crc_forge", "deflate_mitm_v2"}:
             crc_forge_outcome = _run_crc_forge_scan(
                 runtime,
                 context,
@@ -3191,7 +3257,7 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
                 and bool(crc_forge_outcome.budget_stopped)
             )
             crc_forge_handed_to_sbb = isinstance(crc_forge_outcome, CrcForgeScanOutcome)
-            if resume_backend == "crc_forge":
+            if resume_backend in {"crc_forge", "deflate_mitm_v2"}:
                 progress_resume = None
                 resume_outer_index = 0
                 resume_inner_index = 0
@@ -3256,6 +3322,33 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
                         candidate_space_hash=candidate_space_hash,
                         force=True,
                         status="accepted_blackfill",
+                    )
+                    return SmashBruteBrawlScanResult(
+                        state=scan_state.state,
+                        old_crc=old_crc,
+                        bf_mode=runtime_plan.mode,
+                        full_new_data=scan_state.full_new_data,
+                        png_bytes=scan_state.png_bytes,
+                        to_brute=scan_state.to_brute,
+                        diff=scan_state.diff,
+                        crash=scan_state.crash,
+                        eta_seconds=scan_state.eta_seconds,
+                    )
+                if decision.action == "back":
+                    runtime.emit(
+                        "-SBB fallback decision: returning to targeted repair; broad SBB skipped."
+                    )
+                    runtime.side_notes.append(
+                        "-SmashBruteBrawl broad SBB skipped by user; targeted retry requested."
+                    )
+                    save_smash_progress_snapshot(
+                        runtime,
+                        context,
+                        runtime_plan,
+                        scan_state,
+                        candidate_space_hash=candidate_space_hash,
+                        force=True,
+                        status="targeted_retry_requested",
                     )
                     return SmashBruteBrawlScanResult(
                         state=scan_state.state,

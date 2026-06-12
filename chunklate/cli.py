@@ -329,7 +329,7 @@ def configure_parser(parser: Any) -> Any:
     smash.add_argument(
         "--sbb-forge-bytes",
         dest="SMASH_BRUTE_BRAWL_CRC_FORGE_BYTES",
-        help="Limit targeted HermesProbe IDAT CRC-forge to an exact corruption size from 1 to 10 bytes.",
+        help="Limit targeted HermesProbe IDAT CRC-forge to an exact corruption size from 1 to 20 bytes.",
         default=None,
         metavar="N",
     )
@@ -339,6 +339,14 @@ def configure_parser(parser: Any) -> Any:
         help="Limit targeted HermesProbe IDAT CRC-forge to byte offsets START:END, comma separated.",
         default=None,
         metavar="START:END",
+    )
+    smash.add_argument(
+        "--sbb-deflate-mitm",
+        dest="SMASH_BRUTE_BRAWL_DEFLATE_MITM",
+        choices=("auto", "off", "force"),
+        default="auto",
+        help="Run HermesProbe deflate meet-in-the-middle V2 before broad SmashBruteBrawl passes.",
+        metavar="{auto,off,force}",
     )
     parser.add_argument(
         "--ultimate-linefeed-reference",
@@ -673,9 +681,9 @@ def smash_brute_brawl_crc_forge_bytes_error(byte_count: object) -> str | None:
     try:
         value = int(str(byte_count).strip())
     except (TypeError, ValueError):
-        return "--sbb-forge-bytes must be an integer from 1 to 10."
-    if value < 1 or value > 10:
-        return "--sbb-forge-bytes must be an integer from 1 to 10."
+        return "--sbb-forge-bytes must be an integer from 1 to 20."
+    if value < 1 or value > 20:
+        return "--sbb-forge-bytes must be an integer from 1 to 20."
     return None
 
 

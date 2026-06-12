@@ -84,6 +84,7 @@ class SmashBruteBrawlLegacyRuntime:
     crc_forge_mode: str = "auto"
     crc_forge_bytes: int | None = None
     crc_forge_window: str | None = None
+    deflate_mitm_mode: str = "auto"
     input_func: LegacyCall | None = None
 
 
@@ -305,6 +306,7 @@ def run_legacy_smash_brute_brawl_from_namespace(
             crc_forge_mode=str(namespace.get("SMASH_BRUTE_BRAWL_CRC_FORGE") or "auto"),
             crc_forge_bytes=namespace.get("SMASH_BRUTE_BRAWL_CRC_FORGE_BYTES"),
             crc_forge_window=namespace.get("SMASH_BRUTE_BRAWL_CRC_FORGE_WINDOW"),
+            deflate_mitm_mode=str(namespace.get("SMASH_BRUTE_BRAWL_DEFLATE_MITM") or "auto"),
             input_func=namespace.get("input", input),
         ),
         SmashBruteBrawlLegacyContext(
@@ -506,6 +508,7 @@ def run_legacy_smash_brute_brawl(
                 crc_forge_mode=runtime.crc_forge_mode,
                 crc_forge_bytes=runtime.crc_forge_bytes,
                 crc_forge_window=runtime.crc_forge_window,
+                deflate_mitm_mode=runtime.deflate_mitm_mode,
                 input_func=runtime.input_func,
             ),
             bruteforce_runtime.SmashBruteBrawlContext(
