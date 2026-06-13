@@ -54,7 +54,7 @@ def test_configure_parser_preserves_legacy_options():
     assert "--output-dir DIR" in help_text
     assert "--max-saves N" in help_text
     assert "-workers min|normal|max|N" in help_text
-    assert "CPU workers for Ultimate and Smash" in help_text
+    assert "CPU workers for Ultimate and DaedalusForce" in help_text
     assert "\n\nultimate line-feed:\n" in help_text
     assert "--max-saves N    Exit successfully after writing N repaired files." in help_text
     assert "Ultimate candidate limit." not in help_text

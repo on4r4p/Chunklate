@@ -88,10 +88,10 @@ def _sbb_pass_label(context: BruteForceResultContext) -> str:
 def run_failure(runtime: BruteForceResultRuntime, context: BruteForceResultContext) -> Any:
     if runtime.suppress_failure_theatre:
         runtime.emit(
-            "\n-SBB pass failed: %s. I will continue the blackfill retry sequence."
+            "\n-DaedalusForce pass failed: %s. I will continue the blackfill retry sequence."
             % _sbb_pass_label(context)
         )
-        runtime.side_notes.append("\n-SmashBruteBrawl blackfill pass failed.")
+        runtime.side_notes.append("\n-DaedalusForce blackfill pass failed.")
     else:
         runtime.emit(
             "\n-Bruteforce has %s %s"

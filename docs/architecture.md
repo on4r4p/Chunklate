@@ -122,7 +122,7 @@ Chunklate follows this high-level flow:
 : Result handling after bruteforce attempts.
 
 `chunklate/smash_bruteforce.py`
-: Runtime bridge for the `SmashBruteBrawl` command path.
+: Runtime bridge for the `DaedalusForce` command path.
 
 `chunklate/full_chunk_forcer.py`
 : Runtime support for full chunk brute force without relying on CRC first.

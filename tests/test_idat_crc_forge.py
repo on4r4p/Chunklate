@@ -268,6 +268,26 @@ def test_clip_windows_to_candidate_budget_anchors_large_free_prefixes():
     assert sum(window.length for window in clipped) <= 5
 
 
+def test_scanline_bridge_windows_fill_sparse_anomaly_gaps():
+    windows = (
+        idat_crc_forge.ForgeWindow(100, 110, "scanline-anomaly"),
+        idat_crc_forge.ForgeWindow(300, 310, "scanline-anomaly"),
+    )
+
+    bridges = idat_crc_forge._scanline_bridge_windows(
+        windows,
+        500,
+        half_window=5,
+        step=50,
+        limit=10,
+    )
+
+    assert bridges
+    assert all(window.source == "scanline-bridge" for window in bridges)
+    assert any(window.start <= 155 < window.end for window in bridges)
+    assert any(window.start <= 255 < window.end for window in bridges)
+
+
 def test_rank_scanline_windows_by_deflate_orders_nearest_output_first():
     windows = (
         idat_crc_forge.ForgeWindow(100, 165, "scanline-anomaly"),
@@ -656,7 +676,7 @@ def test_auto_insert5_runs_before_large_replace_focus_passes():
         idat_crc_forge.scanline_anomaly_windows = original_scanline
         idat_crc_forge.idat.analyze_idat_stream = original_analyze
 
-    assert plan.edit_order == ("insert", "replace", "remove")
+    assert plan.edit_order == ("replace",)
     assert plan.byte_counts[0] == 5
     assert candidate.hit.edit_kind == "insert"
     assert candidate.hit.byte_position == offset
@@ -708,7 +728,7 @@ def test_auto_insert7_runs_before_replace_focus_when_idat_output_is_short():
         idat_crc_forge.scanline_anomaly_windows = original_scanline
         idat_crc_forge.idat.analyze_idat_stream = original_analyze
 
-    assert plan.edit_order == ("insert", "replace", "remove")
+    assert plan.edit_order == ("replace",)
     assert plan.byte_counts[:4] == (7, 8, 9, 10)
     assert candidate.hit.edit_kind == "insert"
     assert candidate.hit.byte_position == offset
@@ -1246,7 +1266,7 @@ def test_direct_crc_replace3_uses_full_idat_when_diagnostic_window_misses():
     assert candidate.free_index == -1
 
 
-def test_direct_crc_adds_nearby_window_before_full_idat():
+def test_direct_crc_uses_local_nearby_without_full_idat_when_local_window_exists():
     _good, broken, _old_crc, _offset, _original = _stored_crc_changed_payload_fixture(
         4,
         b"abcd",
@@ -1269,7 +1289,116 @@ def test_direct_crc_adds_nearby_window_before_full_idat():
 
     sources = tuple(window.source for window in summary.windows)
     assert "direct-nearby-crc" in sources
-    assert sources.index("direct-nearby-crc") < sources.index("full-direct-crc")
+    assert "full-direct-crc" not in sources
+
+
+def test_tiny_replace_gap_orders_likely_changed_byte_counts_first():
+    original_windows = idat_crc_forge.scanline_anomaly_windows
+    original_analyze = idat_crc_forge.idat.analyze_idat_stream
+    try:
+        idat_crc_forge.scanline_anomaly_windows = lambda *_args, **_kwargs: (
+            idat_crc_forge.ForgeWindow(10, 20, "scanline-anomaly"),
+        )
+        idat_crc_forge.idat.analyze_idat_stream = lambda *_args, **_kwargs: SimpleNamespace(
+            expected_size=100,
+            decompressed_size=97,
+        )
+        positive = idat_crc_forge.focused_auto_plan(
+            _GOOD_PNG,
+            _GOOD_CHUNK,
+            edit_order=("replace", "insert", "remove"),
+            byte_counts=tuple(range(1, 11)),
+            focus="replace",
+            edit_mode="Replace",
+        )
+        idat_crc_forge.idat.analyze_idat_stream = lambda *_args, **_kwargs: SimpleNamespace(
+            expected_size=100,
+            decompressed_size=102,
+        )
+        negative = idat_crc_forge.focused_auto_plan(
+            _GOOD_PNG,
+            _GOOD_CHUNK,
+            edit_order=("replace", "insert", "remove"),
+            byte_counts=tuple(range(1, 11)),
+            focus="replace",
+            edit_mode="Replace",
+        )
+    finally:
+        idat_crc_forge.scanline_anomaly_windows = original_windows
+        idat_crc_forge.idat.analyze_idat_stream = original_analyze
+
+    assert positive.edit_order == ("replace",)
+    assert positive.byte_counts[:6] == (5, 6, 4, 3, 2, 1)
+    assert negative.edit_order == ("replace",)
+    assert negative.byte_counts[:6] == (6, 5, 4, 3, 2, 1)
+
+
+def test_tiny_replace_gap_keeps_non_direct_replace_only_but_expands_direct_crc():
+    original_analyze = idat_crc_forge.idat.analyze_idat_stream
+    try:
+        idat_crc_forge.idat.analyze_idat_stream = lambda *_args, **_kwargs: SimpleNamespace(
+            expected_size=100,
+            decompressed_size=97,
+        )
+
+        replace5 = idat_crc_forge._expanded_edit_order(_GOOD_PNG, ("replace",), 5)
+        replace4 = idat_crc_forge._expanded_edit_order(_GOOD_PNG, ("replace",), 4)
+    finally:
+        idat_crc_forge.idat.analyze_idat_stream = original_analyze
+
+    assert replace5 == ("replace",)
+    assert replace4 == ("replace", "insert", "remove")
+
+
+def test_crc_forge_numeric_search_advances_free_indexes_per_position():
+    _good, broken, old_crc, offset, _original = _stored_crc_changed_payload_fixture(
+        5,
+        b"abcde",
+        b"12345",
+    )
+    seen: list[tuple[str, int, int, int, int]] = []
+    original_seed = idat_crc_forge._seed_candidates
+    original_guided_full = idat_crc_forge._guided_full_byte_candidates
+    original_guided_free = idat_crc_forge._guided_free_prefix_candidates
+
+    class StopAfterProgress(Exception):
+        pass
+
+    def progress(*args):
+        seen.append(args)
+        if len(seen) >= 4:
+            raise StopAfterProgress
+
+    try:
+        idat_crc_forge._seed_candidates = lambda *_args, **_kwargs: ()
+        idat_crc_forge._guided_full_byte_candidates = lambda *_args, **_kwargs: ()
+        idat_crc_forge._guided_free_prefix_candidates = lambda *_args, **_kwargs: ()
+        candidates = idat_crc_forge.iter_forge_candidates(
+            broken,
+            _idat(broken),
+            old_crc,
+            edit_order=("replace",),
+            byte_counts=(5,),
+            window_spec="%s:%s" % (offset, offset + 2),
+            mode="force",
+            zlib_prefilter=False,
+            progress_callback=progress,
+        )
+        for _candidate in candidates:
+            pass
+    except StopAfterProgress:
+        pass
+    finally:
+        idat_crc_forge._seed_candidates = original_seed
+        idat_crc_forge._guided_full_byte_candidates = original_guided_full
+        idat_crc_forge._guided_free_prefix_candidates = original_guided_free
+
+    assert seen[:4] == [
+        ("replace", 5, offset, 0, 1),
+        ("replace", 5, offset, 1, 2),
+        ("replace", 5, offset, 2, 3),
+        ("replace", 5, offset, 3, 4),
+    ]
 
 
 def test_auto_budget_expiration_raises_typed_fallback_reason():
@@ -1297,7 +1426,7 @@ def test_auto_budget_expiration_raises_typed_fallback_reason():
         next(candidates)
     except idat_crc_forge.HermesProbeBudgetExpired as exc:
         assert "auto budget exhausted" in exc.reason
-        assert "broad SBB" in exc.reason
+        assert "broad DaedalusForce" in exc.reason
     else:
         raise AssertionError("HermesProbe auto budget did not stop the pass")
     finally:
@@ -1494,9 +1623,14 @@ def test_focused_auto_plan_honors_explicit_remove_focus():
 
 def test_focused_auto_plan_progressive_uses_current_edit_mode_without_filename_hint():
     original_windows = idat_crc_forge.scanline_anomaly_windows
+    original_analyze = idat_crc_forge.idat.analyze_idat_stream
     try:
         idat_crc_forge.scanline_anomaly_windows = lambda *_args, **_kwargs: (
             idat_crc_forge.ForgeWindow(10, 20, "scanline-anomaly"),
+        )
+        idat_crc_forge.idat.analyze_idat_stream = lambda *_args, **_kwargs: SimpleNamespace(
+            expected_size=0,
+            decompressed_size=0,
         )
 
         plan = idat_crc_forge.focused_auto_plan(
@@ -1509,6 +1643,7 @@ def test_focused_auto_plan_progressive_uses_current_edit_mode_without_filename_h
         )
     finally:
         idat_crc_forge.scanline_anomaly_windows = original_windows
+        idat_crc_forge.idat.analyze_idat_stream = original_analyze
 
     assert plan.edit_order == ("replace",)
     assert plan.byte_counts == (7, 8, 9, 6, 5, 4)
@@ -1609,6 +1744,7 @@ def main():
     test_crc_forge_refuses_large_7_byte_window_without_force_budget()
     test_clip_windows_to_candidate_budget_keeps_scanline_anchor_offsets()
     test_clip_windows_to_candidate_budget_anchors_large_free_prefixes()
+    test_scanline_bridge_windows_fill_sparse_anomaly_gaps()
     test_rank_scanline_windows_by_deflate_orders_nearest_output_first()
     test_rank_scanline_windows_for_short_idat_gap_targets_failure_frontier()
     test_clamp_windows_for_operation_preserves_ranked_order()
@@ -1637,6 +1773,10 @@ def main():
     test_auto_insert20_enables_semantic_solver_with_tapered_budget()
     test_auto_insert3_seed_solver_uses_crc_without_bruteforce()
     test_direct_crc_replace3_uses_full_idat_when_diagnostic_window_misses()
+    test_direct_crc_uses_local_nearby_without_full_idat_when_local_window_exists()
+    test_tiny_replace_gap_orders_likely_changed_byte_counts_first()
+    test_tiny_replace_gap_keeps_non_direct_replace_only_but_expands_direct_crc()
+    test_crc_forge_numeric_search_advances_free_indexes_per_position()
     test_auto_budget_expiration_raises_typed_fallback_reason()
     test_symbolic_budget_only_records_internal_counters()
     test_slow_symbolic_position_does_not_disable_next_symbolic_position()

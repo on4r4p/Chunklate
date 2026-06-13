@@ -981,7 +981,7 @@ def _sbb_success_estimate(
         return "maybe", "local stream damage is plausible, but there is no trusted CRC target."
     if analysis.status == "complete":
         return "low", "the IDAT stream already decodes structurally."
-    return "maybe", "SBB can try, but the proof target is weak."
+    return "maybe", "DaedalusForce can try, but the proof target is weak."
 
 
 def _sbb_hephaestus_strategy(

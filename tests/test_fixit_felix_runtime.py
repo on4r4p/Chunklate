@@ -657,16 +657,16 @@ def test_apply_repair_parks_partial_blackfill_preview_before_source_idat_brutefo
             },
         )
     ]
-    assert "-FixItFelix: partial IDAT blackfill parked as preview while SmashBruteBrawl runs; no final clone written yet." in side_notes
-    assert "-FixItFelix: low SBB diagnostic selected HephaestusForge (Insert-first)." in side_notes
+    assert "-FixItFelix: partial IDAT blackfill parked as preview while DaedalusForce runs; no final clone written yet." in side_notes
+    assert "-FixItFelix: low DaedalusForce diagnostic selected HephaestusForge (Insert-first)." in side_notes
     assert "-FixItFelix: stored IDAT CRC already matches current bytes; using image probe." in side_notes
-    diagnostic_messages = [call[1] for call in candy_calls if len(call) > 1 and "SBB IDAT diagnostic:" in call[1]]
+    diagnostic_messages = [call[1] for call in candy_calls if len(call) > 1 and "DaedalusForce IDAT diagnostic:" in call[1]]
     assert diagnostic_messages
     assert "image:" in diagnostic_messages[0]
     assert "decompressed:" in diagnostic_messages[0]
     assert "scanlines:" in diagnostic_messages[0]
     assert "CRC target: not useful" in diagnostic_messages[0]
-    assert "SBB chance:" in diagnostic_messages[0]
+    assert "DaedalusForce chance:" in diagnostic_messages[0]
     assert "HephaestusForge order: Insert -> Replace -> Remove" in diagnostic_messages[0]
     assert any("CRC is not an oracle for this run" in call[1] for call in candy_calls)
 
@@ -872,7 +872,7 @@ def test_partial_blackfill_low_chance_opens_hephaestusforge():
         )
     ]
     assert any("may take years and still fail" in call[1] for call in candy_calls)
-    assert "-FixItFelix: low SBB diagnostic selected HephaestusForge (Insert-first)." in side_notes
+    assert "-FixItFelix: low DaedalusForce diagnostic selected HephaestusForge (Insert-first)." in side_notes
 
 
 def test_partial_blackfill_hephaestus_can_prepare_visual_reference_roi():
@@ -969,7 +969,7 @@ def test_partial_blackfill_hephaestus_can_prepare_visual_reference_roi():
     }
     assert retry_state["visual_reference"] == "reference.png"
     assert retry_state["visual_reference_regions"] == expected_regions
-    assert "-FixItFelix: Visual reference ROI saved for SBB/HephaestusForge: %s" % expected_regions in side_notes
+    assert "-FixItFelix: Visual reference ROI saved for DaedalusForce/HephaestusForge: %s" % expected_regions in side_notes
     assert smash_calls[0][0][3] == idat_chunk.offset * 2
     assert smash_calls[0][1]["BfMode"] == "Brutus"
 
@@ -1101,7 +1101,7 @@ def test_partial_blackfill_force_level_starts_twobytes_at_requested_level():
     assert smash_calls[0][1]["BfMode"] == "TwoBytes"
     assert smash_calls[0][1]["BruteLevel"] == 2
     assert retry_state["active_pass"]["brute_level"] == 2
-    assert "-FixItFelix: SmashBruteBrawl forced to start at brute-force level 2." in side_notes
+    assert "-FixItFelix: DaedalusForce forced to start at brute-force level 2." in side_notes
 
 
 def test_partial_blackfill_focus_prompt_defaults_to_recommendation():
@@ -1157,7 +1157,7 @@ def test_partial_blackfill_focus_prompt_defaults_to_recommendation():
         fixit_felix_runtime.idat.analyze_sbb_idat_diagnostic = original_diagnostic
 
     assert result is True
-    assert inputs and inputs[0].startswith("SmashBruteBrawl focus [2 Remove focus]")
+    assert inputs and inputs[0].startswith("DaedalusForce focus [2 Remove focus]")
     assert retry_state["campaign_focus"] == "remove"
     assert retry_state["hephaestus_order"] == ("Remove", "Replace", "Insert")
     assert smash_calls[0][1]["EditMode"] == "Remove"
@@ -1242,7 +1242,7 @@ def test_partial_blackfill_bruteforce_uses_stored_crc_only_when_it_targets_origi
     assert result is True
     assert smash_calls[0][1]["BruteLevel"] == 0
     assert smash_calls[0][1]["OldCrc"] == idat_chunk.crc.to_bytes(4, "big").hex()
-    assert side_notes[-1] == "-FixItFelix: SmashBruteBrawl will use stored IDAT CRC as target."
+    assert side_notes[-1] == "-FixItFelix: DaedalusForce will use stored IDAT CRC as target."
 
 
 def test_apply_repair_offers_local_idat_donor_before_black_placeholder():

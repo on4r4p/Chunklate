@@ -184,7 +184,7 @@ def test_viewer_accepts_user_confirmed_candidate_and_returns_diff():
     assert result.diff == "0011\033[1;32;49maa\033[m3344"
     assert ("show", (64, 32), "RGBA") in calls
     assert ("emit", "-Tmp Image Number 10") in calls
-    assert ("summarise", "-SmashBruteBrawl:User chose yes at tries nbr:10") in calls
+    assert ("summarise", "-DaedalusForce:User chose yes at tries nbr:10") in calls
 
 
 def test_viewer_decline_kills_tmp_viewers():

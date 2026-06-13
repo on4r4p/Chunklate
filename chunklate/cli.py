@@ -187,7 +187,7 @@ def configure_parser(parser: Any) -> Any:
     parser.add_argument(
         "-workers",
         dest="GLOBAL_WORKERS",
-        help="CPU workers for Ultimate and Smash: min, normal, max, or exact N.",
+        help="CPU workers for Ultimate and DaedalusForce: min, normal, max, or exact N.",
         default=None,
         metavar="min|normal|max|N",
     )
@@ -293,7 +293,16 @@ def configure_parser(parser: Any) -> Any:
         default=None,
         metavar="N|min|normal|max",
     )
-    smash = parser.add_argument_group("smash brute brawl")
+    smash = parser.add_argument_group("daedalus force")
+    smash.add_argument(
+        "-ddl-resume",
+        "--daedalusforce-resume",
+        dest="SMASH_BRUTE_BRAWL_RESUME",
+        help=SUPPRESS,
+        choices=("ask", "auto", "never", "reset"),
+        default="ask",
+        metavar="{ask,auto,never,reset}",
+    )
     smash.add_argument(
         "-sbb-resume",
         "--smashbrutebrawl-resume",
@@ -304,6 +313,14 @@ def configure_parser(parser: Any) -> Any:
         metavar="{ask,auto,never,reset}",
     )
     smash.add_argument(
+        "-ddlw",
+        "--daedalusforce-workers",
+        dest="SMASH_BRUTE_BRAWL_WORKERS",
+        help=SUPPRESS,
+        default=None,
+        metavar="N|min|normal|max|auto",
+    )
+    smash.add_argument(
         "-sbbw",
         "--smashbrutebrawl-workers",
         dest="SMASH_BRUTE_BRAWL_WORKERS",
@@ -312,40 +329,77 @@ def configure_parser(parser: Any) -> Any:
         metavar="N|min|normal|max|auto",
     )
     smash.add_argument(
-        "-sbbl",
+        "-ddll",
         dest="SMASH_BRUTE_BRAWL_FORCE_LEVEL",
-        help="Start SmashBruteBrawl at brute-force level N.",
+        help="Start DaedalusForce at brute-force level N.",
         default=None,
         metavar="N",
+    )
+    smash.add_argument(
+        "-sbbl",
+        dest="SMASH_BRUTE_BRAWL_FORCE_LEVEL",
+        help=SUPPRESS,
+        default=None,
+        metavar="N",
+    )
+    smash.add_argument(
+        "--ddl-crc-forge",
+        dest="SMASH_BRUTE_BRAWL_CRC_FORGE",
+        choices=("auto", "off", "force"),
+        default="auto",
+        help="Run targeted HermesProbe IDAT CRC-forge before broad DaedalusForce passes.",
+        metavar="{auto,off,force}",
     )
     smash.add_argument(
         "--sbb-crc-forge",
         dest="SMASH_BRUTE_BRAWL_CRC_FORGE",
         choices=("auto", "off", "force"),
         default="auto",
-        help="Run targeted HermesProbe IDAT CRC-forge before broad SmashBruteBrawl passes.",
+        help=SUPPRESS,
         metavar="{auto,off,force}",
     )
     smash.add_argument(
-        "--sbb-forge-bytes",
+        "--ddl-forge-bytes",
         dest="SMASH_BRUTE_BRAWL_CRC_FORGE_BYTES",
         help="Limit targeted HermesProbe IDAT CRC-forge to an exact corruption size from 1 to 20 bytes.",
         default=None,
         metavar="N",
     )
     smash.add_argument(
-        "--sbb-forge-window",
+        "--sbb-forge-bytes",
+        dest="SMASH_BRUTE_BRAWL_CRC_FORGE_BYTES",
+        help=SUPPRESS,
+        default=None,
+        metavar="N",
+    )
+    smash.add_argument(
+        "--ddl-forge-window",
         dest="SMASH_BRUTE_BRAWL_CRC_FORGE_WINDOW",
         help="Limit targeted HermesProbe IDAT CRC-forge to byte offsets START:END, comma separated.",
         default=None,
         metavar="START:END",
     )
     smash.add_argument(
+        "--sbb-forge-window",
+        dest="SMASH_BRUTE_BRAWL_CRC_FORGE_WINDOW",
+        help=SUPPRESS,
+        default=None,
+        metavar="START:END",
+    )
+    smash.add_argument(
+        "--ddl-deflate-mitm",
+        dest="SMASH_BRUTE_BRAWL_DEFLATE_MITM",
+        choices=("auto", "off", "force"),
+        default="auto",
+        help="Run HermesProbe deflate meet-in-the-middle V2 before broad DaedalusForce passes.",
+        metavar="{auto,off,force}",
+    )
+    smash.add_argument(
         "--sbb-deflate-mitm",
         dest="SMASH_BRUTE_BRAWL_DEFLATE_MITM",
         choices=("auto", "off", "force"),
         default="auto",
-        help="Run HermesProbe deflate meet-in-the-middle V2 before broad SmashBruteBrawl passes.",
+        help=SUPPRESS,
         metavar="{auto,off,force}",
     )
     parser.add_argument(
@@ -644,7 +698,7 @@ def ultimate_linefeed_workers_error(workers: object) -> str | None:
 
 def smash_brute_brawl_resume_error(mode: str | None) -> str | None:
     if str(mode or "ask").strip().lower() not in ("ask", "auto", "never", "reset"):
-        return "--smashbrutebrawl-resume must be one of: ask, auto, never, reset."
+        return "--daedalusforce-resume must be one of: ask, auto, never, reset."
     return None
 
 
@@ -657,9 +711,9 @@ def smash_brute_brawl_workers_error(workers: object) -> str | None:
     try:
         value = int(text)
     except (TypeError, ValueError):
-        return "--smashbrutebrawl-workers must be a non-negative integer, min, normal, max, or auto."
+        return "--daedalusforce-workers must be a non-negative integer, min, normal, max, or auto."
     if value < 0:
-        return "--smashbrutebrawl-workers must be a non-negative integer, min, normal, max, or auto."
+        return "--daedalusforce-workers must be a non-negative integer, min, normal, max, or auto."
     return None
 
 
@@ -669,9 +723,9 @@ def smash_brute_brawl_level_error(level: object) -> str | None:
     try:
         value = int(str(level).strip())
     except (TypeError, ValueError):
-        return "-sbbl must be a non-negative integer."
+        return "-ddll must be a non-negative integer."
     if value < 0:
-        return "-sbbl must be a non-negative integer."
+        return "-ddll must be a non-negative integer."
     return None
 
 
@@ -681,9 +735,9 @@ def smash_brute_brawl_crc_forge_bytes_error(byte_count: object) -> str | None:
     try:
         value = int(str(byte_count).strip())
     except (TypeError, ValueError):
-        return "--sbb-forge-bytes must be an integer from 1 to 20."
+        return "--ddl-forge-bytes must be an integer from 1 to 20."
     if value < 1 or value > 20:
-        return "--sbb-forge-bytes must be an integer from 1 to 20."
+        return "--ddl-forge-bytes must be an integer from 1 to 20."
     return None
 
 
@@ -698,7 +752,7 @@ def smash_brute_brawl_crc_forge_window_error(window: object) -> str | None:
             try:
                 int(part, 0)
             except ValueError:
-                return "--sbb-forge-window must use byte offsets like START:END."
+                return "--ddl-forge-window must use byte offsets like START:END."
             continue
         raw_start, raw_end = part.split(":", 1)
         for value in (raw_start, raw_end):
@@ -707,9 +761,9 @@ def smash_brute_brawl_crc_forge_window_error(window: object) -> str | None:
             try:
                 parsed = int(value, 0)
             except ValueError:
-                return "--sbb-forge-window must use byte offsets like START:END."
+                return "--ddl-forge-window must use byte offsets like START:END."
             if parsed < 0:
-                return "--sbb-forge-window offsets must be non-negative."
+                return "--ddl-forge-window offsets must be non-negative."
     return None
 
 

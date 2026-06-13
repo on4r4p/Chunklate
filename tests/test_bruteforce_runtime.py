@@ -235,7 +235,7 @@ def test_run_scan_gpu_crc_useless_falls_back_to_cpu(monkeypatch):
 
     assert ("cpu_parallel",) in calls
     assert any(
-        call[0] == "emit" and "GPU requested: SBB pass has no CRC target" in call[1]
+        call[0] == "emit" and "GPU requested: DaedalusForce pass has no CRC target" in call[1]
         for call in calls
     )
 
@@ -312,7 +312,7 @@ def test_run_scan_gpu_mock_backend_short_circuits_cpu(monkeypatch):
 
     def gpu_explain(plan, config):
         calls.append(("gpu_explain", plan, config))
-        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL SBB path active.")
+        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL DaedalusForce path active.")
 
     def gpu_run(*args, **kwargs):
         calls.append(("gpu_run", args, kwargs))
@@ -341,7 +341,7 @@ def test_run_scan_gpu_mock_backend_short_circuits_cpu(monkeypatch):
 
     assert any(call[0] == "gpu_explain" for call in calls)
     assert any(call[0] == "gpu_run" for call in calls)
-    assert ("emit", "-GPU requested: OpenGL SBB path active.") in calls
+    assert ("emit", "-GPU requested: OpenGL DaedalusForce path active.") in calls
 
 
 def test_run_scan_gpu_hits_are_validated_before_short_circuit(monkeypatch):
@@ -350,7 +350,7 @@ def test_run_scan_gpu_hits_are_validated_before_short_circuit(monkeypatch):
 
     def gpu_explain(plan, config):
         calls.append(("gpu_explain", plan, config))
-        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL SBB path active.")
+        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL DaedalusForce path active.")
 
     hit = smash_backend.SmashCandidateHit(
         outer_index=0,
@@ -410,7 +410,7 @@ def test_run_scan_gpu_truncated_invalid_hits_do_not_fall_back_to_cpu(monkeypatch
 
     def gpu_explain(plan, config):
         calls.append(("gpu_explain", plan, config))
-        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL SBB path active.")
+        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL DaedalusForce path active.")
 
     hit = smash_backend.SmashCandidateHit(
         outer_index=0,
@@ -508,7 +508,7 @@ def test_run_scan_gpu_rejected_hit_resumes_direct_scan(monkeypatch):
 
     def gpu_explain(plan, config):
         calls.append(("gpu_explain", plan, config))
-        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL SBB path active.")
+        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL DaedalusForce path active.")
 
     def gpu_run(*args, **kwargs):
         calls.append(("gpu_run", args, kwargs))
@@ -593,7 +593,7 @@ def test_run_scan_crc_forge_repairs_insert5_before_general_sbb(monkeypatch):
     monkeypatch.setattr(
         bruteforce_runtime,
         "_run_parallel_scan",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("general SBB should not run")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("general DaedalusForce should not run")),
     )
     with tempfile.TemporaryDirectory() as directory:
         progress_path = str(Path(directory) / "_SBB.progress.json")
@@ -686,7 +686,7 @@ def test_apply_parallel_hit_rejects_oldcrc_match_before_saving_invalid_png():
     assert scan_state.rejected_reasons
     assert not [
         call for call in calls
-        if call[0] == "emit" and "SBB rejected" in call[1]
+        if call[0] == "emit" and "DaedalusForce rejected" in call[1]
     ]
 
 
@@ -738,7 +738,7 @@ def test_sbb_rejection_messages_are_summary_only():
 
     emit_calls = [
         call for call in calls
-        if call[0] == "emit" and "SBB rejected" in call[1]
+        if call[0] == "emit" and "DaedalusForce rejected" in call[1]
     ]
     assert scan_state.rejected_candidates == 1000
     assert scan_state.rejected_reasons["Incomplete chunk at offset 8351"] == 1000
@@ -814,7 +814,7 @@ def test_apply_parallel_hit_without_crc_is_not_auto_accepted_in_internal_campaig
     assert not [call for call in calls if call[0] == "show_candidate"]
     assert not [
         call for call in calls
-        if call[0] == "emit" and "SBB rejected" in call[1]
+        if call[0] == "emit" and "DaedalusForce rejected" in call[1]
     ]
 
 
@@ -1103,7 +1103,7 @@ def test_run_scan_gpu_no_hits_marks_pass_exhausted_without_cpu_fallback(monkeypa
 
     def gpu_explain(plan, config):
         calls.append(("gpu_explain", plan, config))
-        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL SBB path active.")
+        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL DaedalusForce path active.")
 
     def gpu_run(*args, **kwargs):
         calls.append(("gpu_run", args, kwargs))
@@ -1150,7 +1150,7 @@ def test_run_scan_gpu_no_hits_at_deep_level_continues_to_cpu_bonus(monkeypatch):
 
     def gpu_explain(plan, config):
         calls.append(("gpu_explain", plan, config))
-        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL SBB path active.")
+        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL DaedalusForce path active.")
 
     def gpu_run(*args, **kwargs):
         calls.append(("gpu_run", args, kwargs))
@@ -1249,7 +1249,7 @@ def test_run_scan_gpu_direct_resume_passes_saved_cursor(monkeypatch):
 
     def gpu_explain(plan, config):
         calls.append(("gpu_explain", plan, config))
-        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL SBB path active.")
+        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL DaedalusForce path active.")
 
     def gpu_run(*args, **kwargs):
         calls.append(("gpu_run", args, kwargs))
@@ -1326,7 +1326,7 @@ def test_run_scan_gpu_bonus_resume_falls_back_to_cpu(monkeypatch):
 
     def gpu_explain(plan, config):
         calls.append(("gpu_explain", plan, config))
-        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL SBB path active.")
+        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL DaedalusForce path active.")
 
     def cpu_parallel(*_args, **_kwargs):
         calls.append(("cpu_parallel",))
@@ -1357,7 +1357,7 @@ def test_gpu_keyboard_interrupt_writes_opengl_checkpoint(monkeypatch):
 
     def gpu_explain(plan, config):
         calls.append(("gpu_explain", plan, config))
-        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL SBB path active.")
+        return smash_opengl_backend.SmashOpenGLDecision(True, "OpenGL DaedalusForce path active.")
 
     def gpu_run(*_args, **_kwargs):
         raise KeyboardInterrupt
@@ -1440,7 +1440,7 @@ def test_run_scan_parallel_oldcrc_matches_serial_result(monkeypatch):
     )
     assert result.bf_mode == "Brutus"
     assert not [call for call in calls if call[0] == "show_candidate"]
-    assert ("emit", "-SmashBruteBrawl will use 2 CPU workers.") in calls
+    assert ("emit", "-DaedalusForce will use 2 CPU workers.") in calls
 
 
 def test_run_scan_parallel_custom_oldcrc_matches_serial_result(monkeypatch):
@@ -1473,7 +1473,7 @@ def test_run_scan_parallel_custom_oldcrc_matches_serial_result(monkeypatch):
         b"\x00\x00\x00\x01" + chunk_name + b"\x07" + bytes.fromhex(old_crc)
     )
     assert result.bf_mode == "Custom"
-    assert ("emit", "-SmashBruteBrawl will use 2 CPU workers.") in calls
+    assert ("emit", "-DaedalusForce will use 2 CPU workers.") in calls
 
 
 def test_run_scan_parallel_twobytes_uses_workers(monkeypatch):
@@ -1503,7 +1503,7 @@ def test_run_scan_parallel_twobytes_uses_workers(monkeypatch):
         bingo=True,
         replace_flag=True,
     )
-    assert ("emit", "-SmashBruteBrawl will use 2 CPU workers.") in calls
+    assert ("emit", "-DaedalusForce will use 2 CPU workers.") in calls
     assert ("loadingbar", 1, 1, None, True) in calls
     assert not [call for call in calls if call[0] == "raw_print"]
 
@@ -1646,7 +1646,7 @@ def test_run_scan_parallel_first_sigint_announces_and_saves(monkeypatch):
         record = json.loads(Path(progress_path).read_text(encoding="utf-8"))
 
     assert any(
-        call[0] == "emit" and "SmashBruteBrawl is stopping cleanly" in call[1]
+        call[0] == "emit" and "DaedalusForce is stopping cleanly" in call[1]
         for call in calls
     )
     assert ("signal", bruteforce_runtime.signal.SIG_IGN) in calls
@@ -2057,7 +2057,7 @@ def test_run_scan_records_rejected_hit_for_crc_match_with_invalid_png():
     assert record["counters"]["rejection_reasons"]
     assert not [
         call for call in calls
-        if call[0] == "emit" and "SBB rejected" in call[1]
+        if call[0] == "emit" and "DaedalusForce rejected" in call[1]
     ]
 
 
@@ -2224,7 +2224,7 @@ def test_run_scan_resumes_from_saved_inner_index_when_space_matches(monkeypatch)
     assert ("loadingbar", 2, 1, 0, False) not in calls
     assert ("loadingbar", 2, 1, 1, False) in calls
     assert any(
-        call == ("emit", "-SmashBruteBrawl resume checkpoint accepted at outer 0, inner 1.")
+        call == ("emit", "-DaedalusForce resume checkpoint accepted at outer 0, inner 1.")
         for call in calls
     )
 
@@ -2468,7 +2468,7 @@ def test_crc_forge_checkpoint_is_not_reused_for_general_sbb(monkeypatch):
     assert ("crc_forge_scan",) in calls
     assert ("gpu_scan", None, 0, 0, "", 0) in calls
     assert any(
-        call[0] == "emit" and "HermesProbe CRC-forge checkpoint is not reused for broad SBB" in call[1]
+        call[0] == "emit" and "HermesProbe CRC-forge checkpoint is not reused for broad DaedalusForce" in call[1]
         for call in calls
     )
 
@@ -2514,7 +2514,7 @@ def test_crc_forge_failure_can_raise_broad_sbb_level(monkeypatch):
     assert ("gpu_scan_level", 3) in calls
     assert any(
         call[0] == "emit"
-        and "targeted passes up to 7 bytes; broad SBB will resume at level 3" in call[1]
+        and "targeted passes up to 7 bytes; broad DaedalusForce will resume at level 3" in call[1]
         and "HermesProbe CRC-forge" in call[1]
         for call in calls
     )
@@ -2529,7 +2529,7 @@ def test_crc_forge_budget_stop_keeps_current_broad_sbb_level(monkeypatch):
         return bruteforce_runtime.CrcForgeScanOutcome(False, budget_stopped=True, tested_candidates=1_447_797)
 
     def recommended_level(*_args, **_kwargs):
-        raise AssertionError("budget-stopped HermesProbe must not raise broad SBB level")
+        raise AssertionError("budget-stopped HermesProbe must not raise broad DaedalusForce level")
 
     def gpu_scan(
         _runtime,
@@ -2561,7 +2561,7 @@ def test_crc_forge_budget_stop_keeps_current_broad_sbb_level(monkeypatch):
     assert ("gpu_scan_level", 0) in calls
     assert any(
         call[0] == "emit"
-        and "did not finish its targeted pass; broad SBB keeps level 0" in call[1]
+        and "did not finish its targeted pass; broad DaedalusForce keeps level 0" in call[1]
         for call in calls
     )
 
@@ -2608,7 +2608,7 @@ def test_crc_forge_fallback_prompt_trusts_detected_level(monkeypatch):
     bruteforce_runtime.run_scan(runtime, context)
 
     assert ("gpu_scan_level", 3) in calls
-    assert any(call[0] == "input" and "SBB fallback" in call[1] for call in calls)
+    assert any(call[0] == "input" and "DaedalusForce fallback" in call[1] for call in calls)
 
 
 def test_crc_forge_fallback_prompt_accepts_manual_level(monkeypatch):
@@ -2625,7 +2625,7 @@ def test_crc_forge_fallback_prompt_accepts_manual_level(monkeypatch):
         )
 
     def recommended_level(*_args, **_kwargs):
-        raise AssertionError("budget-stopped HermesProbe must not auto-raise SBB level")
+        raise AssertionError("budget-stopped HermesProbe must not auto-raise DaedalusForce level")
 
     def gpu_scan(
         _runtime,
@@ -2660,7 +2660,7 @@ def test_crc_forge_fallback_prompt_accepts_manual_level(monkeypatch):
 
     assert ("gpu_scan_level", 1) in calls
     assert any(
-        call[0] == "emit" and "SBB fallback manual override: level 1" in call[1]
+        call[0] == "emit" and "DaedalusForce fallback manual override: level 1" in call[1]
         for call in calls
     )
 
@@ -2679,7 +2679,7 @@ def test_crc_forge_fallback_prompt_can_keep_blackfill(monkeypatch):
         return bruteforce_runtime.CrcForgeScanOutcome(False, budget_stopped=True)
 
     def gpu_scan(*_args, **_kwargs):
-        raise AssertionError("blackfill decision must skip broad SBB")
+        raise AssertionError("blackfill decision must skip broad DaedalusForce")
 
     def input_func(prompt):
         calls.append(("input", prompt))
@@ -2712,7 +2712,7 @@ def test_crc_forge_fallback_prompt_can_go_back_to_targeted(monkeypatch):
         return bruteforce_runtime.CrcForgeScanOutcome(False, tested_candidates=20, last_byte_count=10)
 
     def gpu_scan(*_args, **_kwargs):
-        raise AssertionError("back decision must skip broad SBB")
+        raise AssertionError("back decision must skip broad DaedalusForce")
 
     def input_func(prompt):
         calls.append(("input", prompt))
@@ -2787,7 +2787,7 @@ def test_crc_forge_fallback_prompt_invalid_answer_reprompts_once(monkeypatch):
         return bruteforce_runtime.CrcForgeScanOutcome(False, tested_candidates=20, last_byte_count=5)
 
     def gpu_scan(*_args, **_kwargs):
-        raise AssertionError("back after reprompt must skip broad SBB")
+        raise AssertionError("back after reprompt must skip broad DaedalusForce")
 
     def input_func(prompt):
         calls.append(("input", prompt))
@@ -2846,7 +2846,7 @@ def test_sbb_level_15_warning_includes_eta(monkeypatch):
     bruteforce_runtime.run_scan(runtime, context)
 
     assert ("gpu_scan_level", 15) in calls
-    assert any(call[0] == "emit" and "SBB fallback ETA estimate" in call[1] for call in calls)
+    assert any(call[0] == "emit" and "DaedalusForce fallback ETA estimate" in call[1] for call in calls)
 
 
 def test_sbb_warning_includes_eta_for_lower_level_long_pass(monkeypatch):
@@ -2887,7 +2887,7 @@ def test_sbb_warning_includes_eta_for_lower_level_long_pass(monkeypatch):
 
     assert ("gpu_scan_level", 5) in calls
     assert any(call[0] == "emit" and "estimated above one day" in call[1] for call in calls)
-    assert any(call[0] == "emit" and "SBB fallback ETA estimate" in call[1] for call in calls)
+    assert any(call[0] == "emit" and "DaedalusForce fallback ETA estimate" in call[1] for call in calls)
 
 
 def test_crc_forge_auto_timeout_is_disabled_for_bounded_pass():
@@ -3045,23 +3045,23 @@ def main():
         ("Smash higher BruteLevel restart", test_run_scan_restarts_when_brute_level_increases_search_space),
         ("CRC-forge reset before SBB", test_crc_forge_failed_cursor_is_cleared_before_general_sbb_resume),
         ("CRC-forge checkpoint skipped for SBB", test_crc_forge_checkpoint_is_not_reused_for_general_sbb),
-        ("CRC-forge raises broad SBB level", test_crc_forge_failure_can_raise_broad_sbb_level),
-        ("CRC-forge budget stop keeps SBB level", test_crc_forge_budget_stop_keeps_current_broad_sbb_level),
-        ("SBB fallback prompt trusts detected level", test_crc_forge_fallback_prompt_trusts_detected_level),
-        ("SBB fallback prompt accepts manual level", test_crc_forge_fallback_prompt_accepts_manual_level),
-        ("SBB fallback prompt keeps blackfill", test_crc_forge_fallback_prompt_can_keep_blackfill),
-        ("SBB fallback prompt back to targeted", test_crc_forge_fallback_prompt_can_go_back_to_targeted),
+        ("CRC-forge raises broad DaedalusForce level", test_crc_forge_failure_can_raise_broad_sbb_level),
+        ("CRC-forge budget stop keeps DaedalusForce level", test_crc_forge_budget_stop_keeps_current_broad_sbb_level),
+        ("DaedalusForce fallback prompt trusts detected level", test_crc_forge_fallback_prompt_trusts_detected_level),
+        ("DaedalusForce fallback prompt accepts manual level", test_crc_forge_fallback_prompt_accepts_manual_level),
+        ("DaedalusForce fallback prompt keeps blackfill", test_crc_forge_fallback_prompt_can_keep_blackfill),
+        ("DaedalusForce fallback prompt back to targeted", test_crc_forge_fallback_prompt_can_go_back_to_targeted),
         (
-            "SBB fallback prompt rejects unavailable blackfill",
+            "DaedalusForce fallback prompt rejects unavailable blackfill",
             test_crc_forge_fallback_prompt_rejects_unavailable_blackfill_then_trusts,
         ),
-        ("SBB fallback prompt reprompts invalid answer", test_crc_forge_fallback_prompt_invalid_answer_reprompts_once),
-        ("SBB fallback level 15 ETA warning", test_sbb_level_15_warning_includes_eta),
-        ("SBB fallback long ETA warning", test_sbb_warning_includes_eta_for_lower_level_long_pass),
+        ("DaedalusForce fallback prompt reprompts invalid answer", test_crc_forge_fallback_prompt_invalid_answer_reprompts_once),
+        ("DaedalusForce fallback level 15 ETA warning", test_sbb_level_15_warning_includes_eta),
+        ("DaedalusForce fallback long ETA warning", test_sbb_warning_includes_eta_for_lower_level_long_pass),
         ("CRC-forge bounded pass timeout", test_crc_forge_auto_timeout_is_disabled_for_bounded_pass),
-        ("CRC-forge partial windows keep SBB level", test_crc_forge_partial_windows_do_not_raise_broad_sbb_level),
+        ("CRC-forge partial windows keep DaedalusForce level", test_crc_forge_partial_windows_do_not_raise_broad_sbb_level),
         ("GPU rejected hit resumes direct scan", test_run_scan_gpu_rejected_hit_resumes_direct_scan),
-        ("CRC-forge Insert5 before general SBB", test_run_scan_crc_forge_repairs_insert5_before_general_sbb),
+        ("CRC-forge Insert5 before general DaedalusForce", test_run_scan_crc_forge_repairs_insert5_before_general_sbb),
         ("Parallel exhausted checkpoint", test_parallel_exhausted_checkpoint_is_not_resumed),
         ("Rejected hit checkpoint", test_rejected_hit_checkpoint_is_not_resumed),
     ]

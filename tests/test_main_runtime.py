@@ -532,7 +532,7 @@ def test_apply_main_cli_options_exits_on_bad_smash_brute_brawl_resume_mode():
 
     assert (
         "print",
-        "--smashbrutebrawl-resume must be one of: ask, auto, never, reset.",
+        "--daedalusforce-resume must be one of: ask, auto, never, reset.",
     ) in calls
     assert ("exit", 1) in calls
 
@@ -545,11 +545,11 @@ def test_apply_main_cli_options_exits_on_bad_smash_workers():
     except ExitReached as exc:
         assert exc.code == 1
     else:
-        raise AssertionError("bad SmashBruteBrawl workers should exit")
+        raise AssertionError("bad DaedalusForce workers should exit")
 
     assert (
         "print",
-        "--smashbrutebrawl-workers must be a non-negative integer, min, normal, max, or auto.",
+        "--daedalusforce-workers must be a non-negative integer, min, normal, max, or auto.",
     ) in calls
     assert ("exit", 1) in calls
 
@@ -564,7 +564,7 @@ def test_apply_main_cli_options_exits_on_bad_smash_force_level():
     else:
         raise AssertionError("bad SmashBruteBrawl force level should exit")
 
-    assert ("print", "-sbbl must be a non-negative integer.") in calls
+    assert ("print", "-ddll must be a non-negative integer.") in calls
     assert ("exit", 1) in calls
 
 
@@ -2756,7 +2756,7 @@ def test_run_main_loop_once_skips_output_cleanup_when_smash_resume_is_accepted()
     assert namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] is False
     assert ("remove_tree", folder) not in calls
     assert ("input", "-Delete existing output folder '%s'? (yes/no): " % folder) not in calls
-    assert ("input", "-SmashBruteBrawl resume choice [1 resume]: ") in calls
+    assert ("input", "-DaedalusForce resume choice [1 resume]: ") in calls
     assert ("clear_dialogue_pause",) in calls
     assert ("find_magic",) in calls
 

@@ -754,23 +754,23 @@ def test_viewer_helpers_preserve_legacy_summaries_and_timeout_path():
     assert bruteforce.viewer_try_number(12) == 10
     assert (
         bruteforce.viewer_found_summary(10, 64, 32, "26-05-23:12:34:56")
-        == "-SmashBruteBrawl:Tries nbr 10 Found a width:64 height:32 picture at 26-05-23:12:34:56"
+        == "-DaedalusForce:Tries nbr 10 Found a width:64 height:32 picture at 26-05-23:12:34:56"
     )
-    assert bruteforce.viewer_user_choice_summary(True, 10) == "-SmashBruteBrawl:User chose yes at tries nbr:10"
-    assert bruteforce.viewer_user_choice_summary(False, 10) == "-SmashBruteBrawl:User chose no at tries nbr:10"
+    assert bruteforce.viewer_user_choice_summary(True, 10) == "-DaedalusForce:User chose yes at tries nbr:10"
+    assert bruteforce.viewer_user_choice_summary(False, 10) == "-DaedalusForce:User chose no at tries nbr:10"
     assert (
         bruteforce.viewer_timeout_save_path("/tmp/out", "sample.png", 64, 32, "-260523123456-")
         == "/tmp/out/BF-W64-H32-260523123456-sample.png"
     )
     assert (
         bruteforce.viewer_timeout_saved_summary(10, "/tmp/out/BF-W64-H32-sample.png")
-        == "-SmashBruteBrawl:Image nbr 10 Skipped due to user input timeout.\n"
-        "-SmashBruteBrawl:Image saved at /tmp/out/BF-W64-H32-sample.png ."
+        == "-DaedalusForce:Image nbr 10 Skipped due to user input timeout.\n"
+        "-DaedalusForce:Image saved at /tmp/out/BF-W64-H32-sample.png ."
     )
     assert (
         bruteforce.viewer_timeout_save_failed_summary("/tmp/out/img.png", "denied", 10)
-        == "-SmashBruteBrawl:Saving image /tmp/out/img.png failed due to denied.\n"
-        "-SmashBruteBrawl:Use ./chunklate.py -f yourfile.png --crash 10 to try again"
+        == "-DaedalusForce:Saving image /tmp/out/img.png failed due to denied.\n"
+        "-DaedalusForce:Use ./chunklate.py -f yourfile.png --crash 10 to try again"
     )
 
 
@@ -790,8 +790,8 @@ def test_save_viewer_timeout_image_uses_callback_and_returns_summary():
     assert result == bruteforce.ViewerTimeoutSaveResult(
         saved=True,
         path="/tmp/out/BF-W64-H32-260523123456-sample.png",
-        summary="-SmashBruteBrawl:Image nbr 10 Skipped due to user input timeout.\n"
-        "-SmashBruteBrawl:Image saved at /tmp/out/BF-W64-H32-260523123456-sample.png .",
+        summary="-DaedalusForce:Image nbr 10 Skipped due to user input timeout.\n"
+        "-DaedalusForce:Image saved at /tmp/out/BF-W64-H32-260523123456-sample.png .",
     )
     assert saved_paths == ["/tmp/out/BF-W64-H32-260523123456-sample.png"]
 
@@ -813,8 +813,8 @@ def test_save_viewer_timeout_image_reports_callback_failure():
     assert result.saved is False
     assert result.path == "/tmp/out/BF-W64-H32-260523123456-sample.png"
     assert result.summary == (
-        "-SmashBruteBrawl:Saving image /tmp/out/BF-W64-H32-260523123456-sample.png failed due to denied.\n"
-        "-SmashBruteBrawl:Use ./chunklate.py -f yourfile.png --crash 10 to try again"
+        "-DaedalusForce:Saving image /tmp/out/BF-W64-H32-260523123456-sample.png failed due to denied.\n"
+        "-DaedalusForce:Use ./chunklate.py -f yourfile.png --crash 10 to try again"
     )
     assert isinstance(result.error, PermissionError)
 
@@ -1202,13 +1202,13 @@ def main():
         ("Remove edit window", test_edit_window_preserves_remove_slicing),
     ]
 
-    print("Running SmashBruteBrawl helper tests")
+    print("Running DaedalusForce helper tests")
     for label, check in checks:
         print(f"  - {label} ... ", end="", flush=True)
         check()
         print("ok")
 
-    print(f"SmashBruteBrawl helper tests passed ({len(checks)} checks)")
+    print(f"DaedalusForce helper tests passed ({len(checks)} checks)")
 
 
 if __name__ == "__main__":

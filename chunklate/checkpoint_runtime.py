@@ -832,7 +832,7 @@ def ask_smash_brute_brawl_blackfill_next_level(
     )
     runtime.candy(
         "Cowsay",
-        "SmashBruteBrawl exhausted this level. I can try BruteLevel %s, but the cost climbs fast."
+        "DaedalusForce exhausted this level. I can try BruteLevel %s, but the cost climbs fast."
         % brute_level,
         "com",
     )
@@ -841,10 +841,10 @@ def ask_smash_brute_brawl_blackfill_next_level(
         estimation *= 3
     from datetime import timedelta
 
-    runtime.emit("-Next SBB BruteLevel estimated time : %s\n" % str(timedelta(seconds=estimation)))
+    runtime.emit("-Next DaedalusForce BruteLevel estimated time : %s\n" % str(timedelta(seconds=estimation)))
     runtime.candy(
         "Cowsay",
-        "Should I try the next SmashBruteBrawl level before accepting blackfill? If you do not answer in 30 seconds, I will try it.",
+        "Should I try the next DaedalusForce level before accepting blackfill? If you do not answer in 30 seconds, I will try it.",
         "com",
     )
     return runtime.question(skipauto=True, timeout_seconds=30, timeout_default=True)
@@ -905,12 +905,12 @@ def run_smash_brute_brawl_keep_blackfill_fallback(
     )
     runtime.candy(
         "Cowsay",
-        "SmashBruteBrawl did not beat the blackfill fallback.",
+        "DaedalusForce did not beat the blackfill fallback.",
         "bad",
     )
     runtime.candy(
         "Cowsay",
-        "Keeping the blackfill fallback parked; no validated SBB repair beat it.",
+            "Keeping the blackfill fallback parked; no validated DaedalusForce repair beat it.",
         "good",
     )
     return True, runtime.end()

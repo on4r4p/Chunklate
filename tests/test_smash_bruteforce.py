@@ -241,7 +241,7 @@ def test_legacy_namespace_entry_builds_bridge_and_syncs_legacy_state():
     assert namespace["CRASH"] == "crash"
     assert namespace["ETA"] == 123
     assert namespace["DIFF"] == "new-diff"
-    assert ("candy", ("Title", "SmashBruteBrawl")) in calls
+    assert ("candy", ("Title", "DaedalusForce")) in calls
     assert ("candy", ("Title", "Attempting Bruteforce To Repair Corrupted Chunk Data:")) in calls
     assert (
         "get_spec",
@@ -300,8 +300,8 @@ def test_legacy_namespace_entry_prompts_for_smash_workers_when_unconfigured(monk
     )
 
     assert result == "bridge-result"
-    assert ("input", "SmashBruteBrawl worker profile [normal] > ") in calls
-    assert any(call[0] == "prompt_candy" and "SmashBruteBrawl CPU worker no jutsu" in call[1][1] for call in calls)
+    assert ("input", "DaedalusForce worker profile [normal] > ") in calls
+    assert any(call[0] == "prompt_candy" and "DaedalusForce CPU worker no jutsu" in call[1][1] for call in calls)
     _name, smash_workers, _context = find_call(calls, "bridge")
     assert smash_workers == 8
 
@@ -331,7 +331,7 @@ def test_legacy_namespace_entry_empty_smash_worker_prompt_uses_normal(monkeypatc
     )
 
     assert result == "bridge-result"
-    assert ("input", "SmashBruteBrawl worker profile [normal] > ") in calls
+    assert ("input", "DaedalusForce worker profile [normal] > ") in calls
     _name, smash_workers, _context = find_call(calls, "bridge")
     assert smash_workers == 8
 
@@ -441,7 +441,7 @@ def test_legacy_namespace_entry_prompts_for_smash_workers_for_twobytes(monkeypat
     )
 
     assert result == "bridge-result"
-    assert ("input", "SmashBruteBrawl worker profile [normal] > ") in calls
+    assert ("input", "DaedalusForce worker profile [normal] > ") in calls
     assert find_call(calls, "bridge") == ("bridge", 4, "TwoBytes")
 
 

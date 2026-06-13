@@ -247,7 +247,7 @@ def test_blackfill_twobytes_decline_keeps_existing_fallback():
     assert result == (True, "end")
     assert state["brute_level"] == 1
     assert side_notes == [
-        "-CheckPoint: Keeping partial IDAT blackfill after SmashBruteBrawl decline."
+        "-CheckPoint: Keeping partial IDAT blackfill after DaedalusForce decline."
     ]
     assert ("end", (), {}) in calls
     assert [call[0] for call in calls].count("candy") == 7
@@ -282,7 +282,7 @@ def test_blackfill_smash_failure_keeps_existing_fallback():
     assert result == (True, "end")
     assert state["brute_level"] == 0
     assert side_notes == [
-        "-CheckPoint: Keeping partial IDAT blackfill after SmashBruteBrawl failure."
+        "-CheckPoint: Keeping partial IDAT blackfill after DaedalusForce failure."
     ]
     assert ("end", (), {}) in calls
     assert [call[0] for call in calls].count("candy") == 3
@@ -318,7 +318,7 @@ def test_blackfill_failure_next_level_relaunches_with_old_crc():
     assert result == (False, None)
     assert state["brute_level"] == 0
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HermesProbe Replace 1-byte window."
+            "-CheckPoint: Progressive DaedalusForce campaign trying HermesProbe Replace 1-byte window."
     ]
     assert ("set_brute_level", (0,), {}) in calls
     assert (
@@ -365,7 +365,7 @@ def test_blackfill_remove_twobytes_failure_tries_next_family_before_hephaestusfo
     assert result == (False, None)
     assert state["brute_level"] == 0
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HermesProbe Replace 1-byte window."
+            "-CheckPoint: Progressive DaedalusForce campaign trying HermesProbe Replace 1-byte window."
     ]
     assert runtime.retry_state.get("disable_resume_once") is True
     assert ("set_brute_level", (0,), {}) in calls
@@ -413,7 +413,7 @@ def test_blackfill_failure_opens_hephaestusforge_before_fallback():
     assert result == (False, None)
     assert state["brute_level"] == 1
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HephaestusForge Insert level 1."
+            "-CheckPoint: Progressive DaedalusForce campaign trying HephaestusForge Insert level 1."
     ]
     assert ("set_brute_level", (1,), {}) in calls
     assert (
@@ -460,7 +460,7 @@ def test_blackfill_failure_auto_retries_without_questions():
     assert result == (False, None)
     assert state["brute_level"] == 0
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HermesProbe Replace 1-byte window."
+            "-CheckPoint: Progressive DaedalusForce campaign trying HermesProbe Replace 1-byte window."
     ]
     assert (
         "smash_brute_brawl",
@@ -533,7 +533,7 @@ def test_blackfill_failure_prompts_before_measured_long_pass():
     assert [call[0] for call in calls].count("question") == 1
     assert any(
         call[0] == "emit"
-        and "SBB estimated next pass (HermesProbe Insert 2-byte window)" in call[1][0]
+        and "DaedalusForce estimated next pass (HermesProbe Insert 2-byte window)" in call[1][0]
         for call in calls
     )
     assert all(call[0] != "smash_brute_brawl" for call in calls)
@@ -601,7 +601,7 @@ def test_blackfill_rejected_hit_status_is_reported_before_next_pass():
         }
     ]
     assert any(
-        call[0] == "emit" and "SBB pass rejected invalid candidates" in call[1][0]
+        call[0] == "emit" and "DaedalusForce pass rejected invalid candidates" in call[1][0]
         for call in calls
     )
     assert (
@@ -758,7 +758,7 @@ def test_blackfill_success_status_is_terminal_for_campaign_action():
     assert result == (False, None)
     assert state["brute_level"] == 0
     assert side_notes == [
-        "-CheckPoint: SBB pass already produced a validated hit; no further campaign pass launched."
+        "-CheckPoint: DaedalusForce pass already produced a validated hit; no further campaign pass launched."
     ]
     assert runtime.retry_state == {}
     assert all(call[0] != "smash_brute_brawl" for call in calls)
@@ -795,7 +795,7 @@ def test_blackfill_hephaestus_campaign_does_not_skip_level_two():
     assert result == (False, None)
     assert state["brute_level"] == 2
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HephaestusForge Insert level 2."
+            "-CheckPoint: Progressive DaedalusForce campaign trying HephaestusForge Insert level 2."
     ]
     assert (
         "smash_brute_brawl",
@@ -847,7 +847,7 @@ def test_blackfill_hephaestus_uses_active_pass_level_when_global_level_is_stale(
     assert result == (False, None)
     assert state["brute_level"] == 2
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HephaestusForge Insert level 2."
+            "-CheckPoint: Progressive DaedalusForce campaign trying HephaestusForge Insert level 2."
     ]
     assert (
         "smash_brute_brawl",
@@ -921,7 +921,7 @@ def test_blackfill_hephaestus_uses_progress_invocation_level_when_global_level_i
     assert result == (False, None)
     assert state["brute_level"] == 2
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HephaestusForge Insert level 2."
+            "-CheckPoint: Progressive DaedalusForce campaign trying HephaestusForge Insert level 2."
     ]
     assert (
         "smash_brute_brawl",
@@ -988,7 +988,7 @@ def test_blackfill_hephaestus_prompts_before_measured_long_pass():
     assert state["brute_level"] == 2
     assert [call[0] for call in calls].count("question") == 1
     assert any(
-        call[0] == "emit" and "SBB estimated next pass" in call[1][0]
+        call[0] == "emit" and "DaedalusForce estimated next pass" in call[1][0]
         for call in calls
     )
     assert all(call[0] != "smash_brute_brawl" for call in calls)
@@ -1024,7 +1024,7 @@ def test_blackfill_failure_after_hephaestusforge_keeps_existing_fallback():
     assert result == (False, None)
     assert state["brute_level"] == 1
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HephaestusForge Replace level 1."
+            "-CheckPoint: Progressive DaedalusForce campaign trying HephaestusForge Replace level 1."
     ]
     assert (
         "smash_brute_brawl",
@@ -1071,7 +1071,7 @@ def test_blackfill_hephaestusforge_failure_tries_next_edit_family():
     assert result == (False, None)
     assert state["brute_level"] == 1
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HephaestusForge Replace level 1."
+            "-CheckPoint: Progressive DaedalusForce campaign trying HephaestusForge Replace level 1."
     ]
     assert ("set_brute_level", (1,), {}) in calls
     assert (
@@ -1118,7 +1118,7 @@ def test_blackfill_hephaestusforge_remove_failure_tries_replace_without_prompt()
     assert result == (False, None)
     assert state["brute_level"] == 1
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HephaestusForge Replace level 1."
+            "-CheckPoint: Progressive DaedalusForce campaign trying HephaestusForge Replace level 1."
     ]
     assert ("set_brute_level", (1,), {}) in calls
     assert (
@@ -1166,7 +1166,7 @@ def test_blackfill_brutus_remove_failure_keeps_edit_sequence_without_hephaestus_
     assert result == (False, None)
     assert state["brute_level"] == 1
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HephaestusForge Replace level 1."
+            "-CheckPoint: Progressive DaedalusForce campaign trying HephaestusForge Replace level 1."
     ]
     assert (
         "smash_brute_brawl",
@@ -1221,7 +1221,7 @@ def test_blackfill_retry_skips_already_attempted_hephaestus_edit():
     assert result == (False, None)
     assert state["brute_level"] == 1
     assert side_notes == [
-        "-CheckPoint: Progressive SBB campaign trying HephaestusForge Insert level 1."
+            "-CheckPoint: Progressive DaedalusForce campaign trying HephaestusForge Insert level 1."
     ]
     assert (
         "smash_brute_brawl",
@@ -1439,7 +1439,7 @@ def main():
         ("Reset Custom Brutus retry", test_custom_brutus_resets_brute_level_and_relaunches),
         ("Keep blackfill on TwoBytes decline", test_blackfill_twobytes_decline_keeps_existing_fallback),
         ("Keep blackfill on SmashBruteBrawl failure", test_blackfill_smash_failure_keeps_existing_fallback),
-        ("Blackfill failure next SBB level", test_blackfill_failure_next_level_relaunches_with_old_crc),
+        ("Blackfill failure next DaedalusForce level", test_blackfill_failure_next_level_relaunches_with_old_crc),
         ("Blackfill failure opens HephaestusForge", test_blackfill_failure_opens_hephaestusforge_before_fallback),
         ("Blackfill failure auto retry", test_blackfill_failure_auto_retries_without_questions),
         ("Blackfill long pass ETA prompt", test_blackfill_failure_prompts_before_measured_long_pass),

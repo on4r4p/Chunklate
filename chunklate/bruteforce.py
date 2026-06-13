@@ -10,7 +10,7 @@ from typing import Any
 from typing import Mapping
 
 
-CUSTOM_TO_BRUTUS_NOTE = "-SmashBruteBrawl error: Sti empty switched to Brutus mode"
+CUSTOM_TO_BRUTUS_NOTE = "-DaedalusForce error: Sti empty switched to Brutus mode"
 BRUTE_FORCE_BONUS_NOTE = "-At least 2 bytes has been corrupted."
 BRUTE_FORCE_FAILURE_NOTE = "\n-Launched Data Chunk Bruteforcer.\n-Bruteforce has Failed!"
 TWOBYTES_EDIT_KIND_BY_MODE = {
@@ -714,7 +714,7 @@ def viewer_found_summary(
     height: int,
     timestamp: str,
 ) -> str:
-    return "-SmashBruteBrawl:Tries nbr %s Found a width:%s height:%s picture at %s" % (
+    return "-DaedalusForce:Tries nbr %s Found a width:%s height:%s picture at %s" % (
         try_number,
         width,
         height,
@@ -724,8 +724,8 @@ def viewer_found_summary(
 
 def viewer_user_choice_summary(answer: bool, try_number: int) -> str:
     if answer is True:
-        return "-SmashBruteBrawl:User chose yes at tries nbr:%s" % try_number
-    return "-SmashBruteBrawl:User chose no at tries nbr:%s" % try_number
+        return "-DaedalusForce:User chose yes at tries nbr:%s" % try_number
+    return "-DaedalusForce:User chose no at tries nbr:%s" % try_number
 
 
 def viewer_timeout_save_path(
@@ -743,16 +743,16 @@ def viewer_timeout_save_path(
 
 def viewer_timeout_saved_summary(try_number: int, tmpname: str) -> str:
     return (
-        "-SmashBruteBrawl:Image nbr %s Skipped due to user input timeout.\n"
-        "-SmashBruteBrawl:Image saved at %s ."
+        "-DaedalusForce:Image nbr %s Skipped due to user input timeout.\n"
+        "-DaedalusForce:Image saved at %s ."
         % (str(try_number), tmpname)
     )
 
 
 def viewer_timeout_save_failed_summary(tmpname: str, error: Any, crash_index: int) -> str:
     return (
-        "-SmashBruteBrawl:Saving image %s failed due to %s.\n"
-        "-SmashBruteBrawl:Use ./chunklate.py -f yourfile.png --crash %s to try again"
+        "-DaedalusForce:Saving image %s failed due to %s.\n"
+        "-DaedalusForce:Use ./chunklate.py -f yourfile.png --crash %s to try again"
         % (tmpname, str(error), str(crash_index))
     )
 
@@ -1153,4 +1153,4 @@ def edit_window(
             remove_flag=True,
         )
 
-    raise ValueError("Unknown SmashBruteBrawl edit mode: %s" % edit_mode)
+    raise ValueError("Unknown DaedalusForce edit mode: %s" % edit_mode)

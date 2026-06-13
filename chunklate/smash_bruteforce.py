@@ -138,7 +138,7 @@ def _smash_input(namespace: dict[str, Any], prompt: str) -> str:
 def _smash_print_worker_menu(namespace: dict[str, Any]) -> None:
     counts = _smash_worker_profile_counts()
     lines = [
-        "SmashBruteBrawl CPU worker no jutsu:",
+        "DaedalusForce CPU worker no jutsu:",
         "CPU detected: %s" % counts["cpu"],
         "min workers: %s" % counts["min"],
         "normal workers: %s" % counts["normal"],
@@ -150,7 +150,7 @@ def _smash_print_worker_menu(namespace: dict[str, Any]) -> None:
         "max. CPU - 1",
         "custom. enter an exact worker count",
         "",
-        "Empty uses the normal SmashBruteBrawl worker profile.",
+        "Empty uses the normal DaedalusForce worker profile.",
     ]
     _smash_prompt_candy(namespace, "\n".join(lines), "com")
 
@@ -173,7 +173,7 @@ def resolve_smash_workers_from_namespace(
 
     while True:
         _smash_print_worker_menu(namespace)
-        choice = _smash_input(namespace, "SmashBruteBrawl worker profile [normal] > ")
+        choice = _smash_input(namespace, "DaedalusForce worker profile [normal] > ")
         if choice == "":
             workers = _smash_workers_from_value("normal")
             namespace["_SMASH_BRUTE_BRAWL_SESSION_WORKERS"] = workers
@@ -183,7 +183,7 @@ def resolve_smash_workers_from_namespace(
             namespace["_SMASH_BRUTE_BRAWL_SESSION_WORKERS"] = workers
             return workers
         if choice == "custom":
-            choice = _smash_input(namespace, "Custom SmashBruteBrawl worker count > ")
+            choice = _smash_input(namespace, "Custom DaedalusForce worker count > ")
         try:
             workers = int(choice)
         except ValueError:
@@ -214,7 +214,7 @@ def run_legacy_smash_brute_brawl_from_namespace(
     if bridge is None:
         bridge = run_legacy_smash_brute_brawl
 
-    namespace["Candy"]("Title", "SmashBruteBrawl")
+    namespace["Candy"]("Title", "DaedalusForce")
     namespace["Candy"]("Title", "Attempting Bruteforce To Repair Corrupted Chunk Data:")
     if isinstance(chunk_name, bytes):
         pass
@@ -222,7 +222,7 @@ def run_legacy_smash_brute_brawl_from_namespace(
         try:
             chunk_name = chunk_name.encode(errors="ignore")
         except Exception as exc:
-            namespace["Betterror"](exc, "SmashBruteBrawl")
+            namespace["Betterror"](exc, "DaedalusForce")
             if namespace["DEBUG"] is True:
                 namespace["PRINT"](
                     namespace["Candy"]("Color", "red", "Error:%s")
@@ -237,7 +237,7 @@ def run_legacy_smash_brute_brawl_from_namespace(
         try:
             smash_checkpoint.write_source_snapshot(progress_paths, source_data)
         except OSError as exc:
-            namespace["PRINT"]("-SmashBruteBrawl checkpoint snapshot warning: %s" % exc)
+            namespace["PRINT"]("-DaedalusForce checkpoint snapshot warning: %s" % exc)
     resume_record = None
     resume_decision = str(namespace.get("SMASH_BRUTE_BRAWL_RESUME_DECISION", "") or "").strip().lower()
     retry_state = namespace.get("_SBB_BLACKFILL_RETRY_STATE")
@@ -251,7 +251,7 @@ def run_legacy_smash_brute_brawl_from_namespace(
         if progress_warning:
             namespace["PRINT"]("-%s" % progress_warning)
     elif resume_decision == "resume" and retry_starts_fresh:
-        namespace["PRINT"]("-SmashBruteBrawl retry starts fresh for this pass.")
+        namespace["PRINT"]("-DaedalusForce retry starts fresh for this pass.")
 
     def load_spec(request):
         return namespace["GetSpec"](
@@ -391,21 +391,21 @@ def run_smash_brute_brawl_direct_resume_from_namespace(namespace: dict[str, Any]
     if source_data is None:
         _cowsay(
             namespace,
-            "I found a SmashBruteBrawl checkpoint, but no clean Smash source snapshot yet.",
+            "I found a DaedalusForce checkpoint, but no clean Daedalus source snapshot yet.",
             "bad",
         )
-        _cowsay(namespace, "I will finish the file tour before resuming SmashBruteBrawl.", "com")
+        _cowsay(namespace, "I will finish the file tour before resuming DaedalusForce.", "com")
         return None
     if record.get("source_hash") != smash_checkpoint.source_hash(source_data):
         _cowsay(
             namespace,
-            "The SmashBruteBrawl source snapshot does not match the progress checkpoint. I will finish the file tour first.",
+            "The DaedalusForce source snapshot does not match the progress checkpoint. I will finish the file tour first.",
             "com",
         )
         return None
     invocation = record.get("invocation")
     if not isinstance(invocation, dict):
-        _cowsay(namespace, "The SmashBruteBrawl checkpoint has no runnable invocation.", "com")
+        _cowsay(namespace, "The DaedalusForce checkpoint has no runnable invocation.", "com")
         return None
 
     namespace["DATA_BYTES"] = source_data
@@ -414,10 +414,10 @@ def run_smash_brute_brawl_direct_resume_from_namespace(namespace: dict[str, Any]
     campaign_focus = str(invocation.get("campaign_focus") or "")
     if campaign_focus:
         namespace.setdefault("_SBB_BLACKFILL_RETRY_STATE", {})["campaign_focus"] = campaign_focus
-    namespace["Candy"]("Title", "SmashBruteBrawl resume:")
+    namespace["Candy"]("Title", "DaedalusForce resume:")
     _cowsay(
         namespace,
-        "Resume accepted. I loaded the clean Smash source snapshot and I am jumping straight back to SmashBruteBrawl.",
+        "Resume accepted. I loaded the clean Daedalus source snapshot and I am jumping straight back to DaedalusForce.",
         "good",
     )
     chunk_name = bytes.fromhex(str(invocation.get("chunk_name_hex") or "")) or str(
@@ -430,7 +430,7 @@ def run_smash_brute_brawl_direct_resume_from_namespace(namespace: dict[str, Any]
         chunk_name_text,
         int(invocation.get("chunk_length") or 0),
         int(invocation.get("data_offset") or 0),
-        invocation.get("from_error") or "SmashBruteBrawl resume",
+        invocation.get("from_error") or "DaedalusForce resume",
         str(invocation.get("edit_mode") or "Replace"),
         str(invocation.get("bf_mode") or "Brutus"),
         bool(invocation.get("brute_crc", True)),
@@ -534,7 +534,7 @@ def run_legacy_smash_brute_brawl(
     except smash_checkpoint.SmashBruteBrawlInterrupted as exc:
         runtime.candy(
             "Cowsay",
-            "SmashBruteBrawl stopped. I kept the progress checkpoint so the next run can resume: %s"
+            "DaedalusForce stopped. I kept the progress checkpoint so the next run can resume: %s"
             % exc.progress_path,
             "com",
         )

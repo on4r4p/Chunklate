@@ -769,18 +769,18 @@ PILLOW_LENIENT_REPAIR_CASES: dict[str, str] = {}
 LEGACY_CRC_ONLY_REPAIR_CASES: dict[str, tuple[int, tuple[str, ...], str]] = {}
 PILLOW_ONLY_REPAIR_CASES: dict[str, tuple[int, tuple[str, ...], str]] = {}
 UNCOVERED_REPAIR_CASES: dict[str, str] = {
-    "01_zlib_decomp_moins_4_octets_crc_valide.png": "SBB/IDAT audit fixture: zlib stream minus four bytes with repaired CRC; not yet in strict repair matrix",
-    "02_zlib_decomp_moins_4_octets_crc_original.png": "SBB/IDAT audit fixture: zlib stream minus four bytes with original CRC; not yet in strict repair matrix",
-    "03_idat_payload_moins_4_octets_crc_valide.png": "SBB/IDAT audit fixture: IDAT payload minus four bytes with repaired CRC; not yet in strict repair matrix",
-    "04_idat_payload_moins_4_octets_crc_original.png": "SBB/IDAT audit fixture: IDAT payload minus four bytes with original CRC; not yet in strict repair matrix",
-    "05_zlib_decomp_plus_4_octets_crc_valide.png": "SBB/IDAT audit fixture: zlib stream plus four bytes with repaired CRC; not yet in strict repair matrix",
-    "06_zlib_decomp_plus_4_octets_crc_original.png": "SBB/IDAT audit fixture: zlib stream plus four bytes with original CRC; not yet in strict repair matrix",
-    "07_idat_payload_plus_4_octets_crc_valide.png": "SBB/IDAT audit fixture: IDAT payload plus four bytes with repaired CRC; not yet in strict repair matrix",
-    "08_idat_payload_plus_4_octets_crc_original.png": "SBB/IDAT audit fixture: IDAT payload plus four bytes with original CRC; not yet in strict repair matrix",
-    "09_zlib_decomp_4_octets_differents_crc_valide.png": "SBB/IDAT audit fixture: zlib stream four bytes changed with repaired CRC; not yet in strict repair matrix",
-    "10_zlib_decomp_4_octets_differents_crc_original.png": "SBB/IDAT audit fixture: zlib stream four bytes changed with original CRC; not yet in strict repair matrix",
-    "11_idat_payload_4_octets_differents_crc_valide.png": "SBB/IDAT audit fixture: IDAT payload four bytes changed with repaired CRC; not yet in strict repair matrix",
-    "12_idat_payload_4_octets_differents_crc_original.png": "SBB/IDAT audit fixture: IDAT payload four bytes changed with original CRC; not yet in strict repair matrix",
+    "01_zlib_decomp_moins_4_octets_crc_valide.png": "DaedalusForce/IDAT audit fixture: zlib stream minus four bytes with repaired CRC; not yet in strict repair matrix",
+    "02_zlib_decomp_moins_4_octets_crc_original.png": "DaedalusForce/IDAT audit fixture: zlib stream minus four bytes with original CRC; not yet in strict repair matrix",
+    "03_idat_payload_moins_4_octets_crc_valide.png": "DaedalusForce/IDAT audit fixture: IDAT payload minus four bytes with repaired CRC; not yet in strict repair matrix",
+    "04_idat_payload_moins_4_octets_crc_original.png": "DaedalusForce/IDAT audit fixture: IDAT payload minus four bytes with original CRC; not yet in strict repair matrix",
+    "05_zlib_decomp_plus_4_octets_crc_valide.png": "DaedalusForce/IDAT audit fixture: zlib stream plus four bytes with repaired CRC; not yet in strict repair matrix",
+    "06_zlib_decomp_plus_4_octets_crc_original.png": "DaedalusForce/IDAT audit fixture: zlib stream plus four bytes with original CRC; not yet in strict repair matrix",
+    "07_idat_payload_plus_4_octets_crc_valide.png": "DaedalusForce/IDAT audit fixture: IDAT payload plus four bytes with repaired CRC; not yet in strict repair matrix",
+    "08_idat_payload_plus_4_octets_crc_original.png": "DaedalusForce/IDAT audit fixture: IDAT payload plus four bytes with original CRC; not yet in strict repair matrix",
+    "09_zlib_decomp_4_octets_differents_crc_valide.png": "DaedalusForce/IDAT audit fixture: zlib stream four bytes changed with repaired CRC; not yet in strict repair matrix",
+    "10_zlib_decomp_4_octets_differents_crc_original.png": "DaedalusForce/IDAT audit fixture: zlib stream four bytes changed with original CRC; not yet in strict repair matrix",
+    "11_idat_payload_4_octets_differents_crc_valide.png": "DaedalusForce/IDAT audit fixture: IDAT payload four bytes changed with repaired CRC; not yet in strict repair matrix",
+    "12_idat_payload_4_octets_differents_crc_original.png": "DaedalusForce/IDAT audit fixture: IDAT payload four bytes changed with original CRC; not yet in strict repair matrix",
     "badlinefeed1.png": "local line-feed corruption candidate; not yet promoted to a strict repair regression",
     "bkgd_after_idat.png": "misplaced ancillary chunk fixture covered by targeted runtime tests; not yet in strict repair matrix",
     "chrm_after_idat.png": "misplaced ancillary chunk fixture covered by targeted runtime tests; not yet in strict repair matrix",
@@ -797,17 +797,17 @@ UNCOVERED_REPAIR_CASES: dict[str, str] = {
     "IDAT_Corruption_3.png": "large multi-IDAT corruption fixture kept for manual partial-IDAT blackfill testing",
     "IDAT_Corruption_4.png": "large multi-IDAT corruption fixture kept for manual partial-IDAT blackfill testing",
     "IDAT_Corruption_5.png": "large multi-IDAT corruption fixture kept for manual partial-IDAT blackfill testing",
-    "Kagebushin_IDAT_Changed_1Byte_StoredOriginalCRC.png": "Kagebushin SBB audit fixture: one IDAT byte changed with original CRC kept; not yet in strict repair matrix",
-    "Kagebushin_IDAT_Changed_2Bytes_StoredOriginalCRC.png": "Kagebushin SBB audit fixture: two IDAT bytes changed with original CRC kept; not yet in strict repair matrix",
-    "SBB_IDAT_1Byte_Replace.png": "targeted SmashBruteBrawl fixture: one IDAT byte replaced with original CRC kept",
-    "SBB_IDAT_1Byte_Missing.png": "targeted SmashBruteBrawl fixture: one IDAT byte removed with original CRC kept",
-    "SBB_IDAT_1Byte_Extra.png": "targeted SmashBruteBrawl fixture: one IDAT byte inserted with original CRC kept",
-    "SBB_IDAT_2Byte_Replace.png": "targeted SmashBruteBrawl fixture: two IDAT bytes replaced with original CRC kept",
-    "SBB_IDAT_2Byte_Missing.png": "targeted SmashBruteBrawl fixture: two IDAT bytes removed with original CRC kept",
-    "SBB_IDAT_2Byte_Extra.png": "targeted SmashBruteBrawl fixture: two IDAT bytes inserted with original CRC kept",
-    "SBB_IDAT_4Byte_Replace.png": "targeted SmashBruteBrawl fixture: four IDAT bytes replaced with original CRC kept",
-    "SBB_IDAT_4Byte_Missing.png": "targeted SmashBruteBrawl fixture: four IDAT bytes removed with original CRC kept",
-    "SBB_IDAT_4Byte_Extra.png": "targeted SmashBruteBrawl fixture: four IDAT bytes inserted with original CRC kept",
+    "Kagebushin_IDAT_Changed_1Byte_StoredOriginalCRC.png": "Kagebushin DaedalusForce audit fixture: one IDAT byte changed with original CRC kept; not yet in strict repair matrix",
+    "Kagebushin_IDAT_Changed_2Bytes_StoredOriginalCRC.png": "Kagebushin DaedalusForce audit fixture: two IDAT bytes changed with original CRC kept; not yet in strict repair matrix",
+    "SBB_IDAT_1Byte_Replace.png": "targeted DaedalusForce fixture: one IDAT byte replaced with original CRC kept",
+    "SBB_IDAT_1Byte_Missing.png": "targeted DaedalusForce fixture: one IDAT byte removed with original CRC kept",
+    "SBB_IDAT_1Byte_Extra.png": "targeted DaedalusForce fixture: one IDAT byte inserted with original CRC kept",
+    "SBB_IDAT_2Byte_Replace.png": "targeted DaedalusForce fixture: two IDAT bytes replaced with original CRC kept",
+    "SBB_IDAT_2Byte_Missing.png": "targeted DaedalusForce fixture: two IDAT bytes removed with original CRC kept",
+    "SBB_IDAT_2Byte_Extra.png": "targeted DaedalusForce fixture: two IDAT bytes inserted with original CRC kept",
+    "SBB_IDAT_4Byte_Replace.png": "targeted DaedalusForce fixture: four IDAT bytes replaced with original CRC kept",
+    "SBB_IDAT_4Byte_Missing.png": "targeted DaedalusForce fixture: four IDAT bytes removed with original CRC kept",
+    "SBB_IDAT_4Byte_Extra.png": "targeted DaedalusForce fixture: four IDAT bytes inserted with original CRC kept",
     "ihdr_16bit_palette.png": "IHDR value repair fixture covered by targeted runtime tests; not yet in strict repair matrix",
     "ihdr_1bit_alpha.png": "IHDR value repair fixture kept for manual exploration; not yet in strict repair matrix",
     "ihdr_bit_depth.png": "IHDR value repair fixture kept for manual exploration; not yet in strict repair matrix",
@@ -951,7 +951,7 @@ _KAGEBUSHIN_IDAT_AUDIT_FIXTURES = (
 
 for _fixture in _KAGEBUSHIN_IDAT_AUDIT_FIXTURES:
     UNCOVERED_REPAIR_CASES[_fixture] = (
-        "Kagebushin SBB/HermesProbe audit fixture with original IDAT CRC kept; "
+        "Kagebushin DaedalusForce/HermesProbe audit fixture with original IDAT CRC kept; "
         "kept for manual and targeted runtime validation, not strict repair matrix"
     )
 
@@ -962,7 +962,7 @@ _YOU_IDAT_AUDIT_FIXTURES = tuple(
 
 for _fixture in _YOU_IDAT_AUDIT_FIXTURES:
     UNCOVERED_REPAIR_CASES[_fixture] = (
-        "You SBB/HermesProbe audit fixture with original IDAT CRC kept; "
+        "You DaedalusForce/HermesProbe audit fixture with original IDAT CRC kept; "
         "kept for manual and targeted runtime validation, not strict repair matrix"
     )
 

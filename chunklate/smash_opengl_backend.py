@@ -557,11 +557,11 @@ def explain(
     if gpu_config.backend != "opengl":
         return SmashOpenGLDecision(False, "GPU backend %s is not supported; using CPU workers." % gpu_config.backend)
     if plan.chunk_name != b"IDAT":
-        return SmashOpenGLDecision(False, "SBB GPU path only supports IDAT plans for now; using CPU workers.")
+        return SmashOpenGLDecision(False, "DaedalusForce GPU path only supports IDAT plans for now; using CPU workers.")
     if not _has_crc_target(plan):
-        return SmashOpenGLDecision(False, "SBB pass has no CRC target; using CPU workers.")
+        return SmashOpenGLDecision(False, "DaedalusForce pass has no CRC target; using CPU workers.")
     if not _is_indexable(plan):
-        return SmashOpenGLDecision(False, "SBB pass is not indexable; using CPU workers.")
+        return SmashOpenGLDecision(False, "DaedalusForce pass is not indexable; using CPU workers.")
 
     try:
         availability = availability_probe(auto_install=gpu_config.install_missing)
@@ -576,16 +576,16 @@ def explain(
     if not _kernel_supports_plan(plan):
         return SmashOpenGLDecision(
             False,
-            "SBB OpenGL kernel is not implemented for this pass yet; using CPU workers.",
+            "DaedalusForce OpenGL kernel is not implemented for this pass yet; using CPU workers.",
             availability,
         )
     if not plan.crc_trusted:
         return SmashOpenGLDecision(
             True,
-            "OpenGL SBB path active with an untrusted CRC hint; CPU validation remains mandatory.",
+            "OpenGL DaedalusForce path active with an untrusted CRC hint; CPU validation remains mandatory.",
             availability,
         )
-    return SmashOpenGLDecision(True, "OpenGL SBB path active.", availability)
+    return SmashOpenGLDecision(True, "OpenGL DaedalusForce path active.", availability)
 
 
 def supports(
@@ -707,7 +707,7 @@ def replace1_rank_for_cursor(
 ) -> int:
     support = _replace1_support_details(plan)
     if support is None:
-        raise NotImplementedError("SBB OpenGL kernel only supports direct HermesProbe byte-window passes for now")
+        raise NotImplementedError("DaedalusForce OpenGL kernel only supports direct HermesProbe byte-window passes for now")
     safe_inner = int(inner_index)
     safe_position = int(byte_position)
     safe_edit_kind_index = int(edit_kind_index)
@@ -727,7 +727,7 @@ def replace1_cursor_from_rank(
 ) -> OpenGLReplace1Cursor:
     support = _replace1_support_details(plan)
     if support is None:
-        raise NotImplementedError("SBB OpenGL kernel only supports direct HermesProbe byte-window passes for now")
+        raise NotImplementedError("DaedalusForce OpenGL kernel only supports direct HermesProbe byte-window passes for now")
     safe_rank = int(rank)
     if safe_rank < 0 or safe_rank >= support.total_candidates:
         raise IndexError("HermesProbe OpenGL rank is outside the search space")
@@ -825,9 +825,9 @@ def run_replace1_crc_kernel(
 ) -> OpenGLReplace1Result:
     support = _replace1_support_details(plan)
     if support is None:
-        raise NotImplementedError("SBB OpenGL kernel only supports direct HermesProbe byte-window passes for now")
+        raise NotImplementedError("DaedalusForce OpenGL kernel only supports direct HermesProbe byte-window passes for now")
     if resume_cursor is not None and str(resume_cursor.stage or "direct") != "direct":
-        raise NotImplementedError("SBB OpenGL can resume only the direct stage; using CPU from the saved cursor.")
+        raise NotImplementedError("DaedalusForce OpenGL can resume only the direct stage; using CPU from the saved cursor.")
     length_plan = support.length_plan
     edit_window = support.edit_window
     payload = tuple(bytes.fromhex(edit_window.to_brute))
@@ -1055,9 +1055,9 @@ def run_scan(
         if isinstance(cursor_record, dict):
             stage = str(cursor_record.get("stage") or "direct")
             if stage not in ("", "direct"):
-                raise NotImplementedError("SBB OpenGL can resume only direct stage; using CPU from the saved cursor.")
+                raise NotImplementedError("DaedalusForce OpenGL can resume only direct stage; using CPU from the saved cursor.")
             if resume_outer_index:
-                raise NotImplementedError("SBB OpenGL direct resume only supports the first Hermes length plan; using CPU.")
+                raise NotImplementedError("DaedalusForce OpenGL direct resume only supports the first Hermes length plan; using CPU.")
             resume_cursor = OpenGLReplace1Cursor(
                 inner_index=int(resume_inner_index),
                 byte_position=int(cursor_record.get("byte_position", 0) or 0),

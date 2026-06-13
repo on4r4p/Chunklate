@@ -731,7 +731,7 @@ def test_smash_opengl_backend_accepts_hermes_replace1_plan_when_opengl_available
     )
 
     assert decision.runnable is True
-    assert decision.reason == "OpenGL SBB path active."
+    assert decision.reason == "OpenGL DaedalusForce path active."
 
 
 def test_smash_opengl_backend_accepts_insert_remove_level0_after_opengl_probe():

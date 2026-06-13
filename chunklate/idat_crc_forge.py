@@ -16,20 +16,24 @@ TARGET_BYTE_COUNTS = SEED_BYTE_COUNTS + FORGE_BYTE_COUNTS
 DEFAULT_WINDOW_RADIUS = 8192
 DEFAULT_MAX_CANDIDATES = 2_000_000
 FORCE_MAX_CANDIDATES = 50_000_000
-SCANLINE_ANOMALY_BACKTRACK_ROWS = (4, 3, 2, 1)
+SCANLINE_ANOMALY_BACKTRACK_ROWS = tuple(range(16, 0, -1))
 SCANLINE_ANOMALY_HALF_WINDOW = 32
+SCANLINE_ANOMALY_BRIDGE_STEP = 64
+SCANLINE_ANOMALY_BRIDGE_HALF_WINDOW = 32
+SCANLINE_ANOMALY_MAX_BRIDGE_WINDOWS = 256
 SCANLINE_ANOMALY_INTERVAL_DIVISOR = 6
 DIRECT_CRC_NEARBY_RADIUS = DEFAULT_WINDOW_RADIUS
 DIRECT_CRC_FULL_WINDOW_SEGMENT = DEFAULT_WINDOW_RADIUS
 AUTO_FOCUSED_BYTE_COUNTS = (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 6, 5, 4, 3, 2, 1)
 AUTO_FREE_INDEX_LIMITS = {
-    6: 4096,
+    6: 32_768,
     7: 4096,
     8: 4096,
     9: 390_000,
     10: 0,
 }
-AUTO_LIMITED_FREE_INDEX_MAX_POSITIONS = 30
+AUTO_LIMITED_FREE_INDEX_MAX_POSITIONS = 96
+AUTO_FOCUS_TRUST_REQUESTED_EDIT_MAX_GAP = 4
 REPLACE_SEED_TRANSFORM_COUNT = 1
 INSERT_SEED_TRANSFORM_COUNT = 5
 LOCAL_ZLIB_PREFILTER_SCANLINES = 8
@@ -37,6 +41,7 @@ LOCAL_ZLIB_PREFILTER_CHUNK_SIZE = 2048
 STRICT_ZLIB_PREFILTER_MIN_PAYLOAD = 64 * 1024
 DEFLATE_TRACE_CHECKPOINT_STRIDE = 2048
 DEFLATE_WINDOW_TARGET_BACKTRACK_ROWS = 2
+DEFLATE_WINDOW_BAD_ADLER_COMPLETE_BACKTRACK_ROWS = 5
 DEFLATE_GUIDED_PREFIX_CANDIDATES = 32
 DEFLATE_GUIDED_FULL_CANDIDATES = 32
 DEFLATE_GUIDED_BRANCH_TOKENS = 64
@@ -140,7 +145,8 @@ class _HermesProbeBudget:
         elapsed = time.monotonic() - self.started_at
         if elapsed > self.max_seconds:
             raise HermesProbeBudgetExpired(
-                "HermesProbe auto budget exhausted after %.1fs; falling back to broad SBB." % elapsed
+                "HermesProbe auto budget exhausted after %.1fs; falling back to broad DaedalusForce."
+                % elapsed
             )
 
     def record_symbolic(self, elapsed: float) -> None:
@@ -341,11 +347,9 @@ def _direct_crc_seed_windows(
         if min(payload_len + 1, int(window.end) + DIRECT_CRC_NEARBY_RADIUS)
         > max(0, int(window.start) - DIRECT_CRC_NEARBY_RADIUS)
     )
-    return _dedupe_windows_in_order(
-        tuple(local_windows)
-        + tuple(nearby_windows)
-        + _full_direct_crc_window_segments(payload_len)
-    )
+    if local_windows:
+        return _dedupe_windows_in_order(tuple(local_windows) + tuple(nearby_windows))
+    return _dedupe_windows_in_order(tuple(nearby_windows) + _full_direct_crc_window_segments(payload_len))
 
 
 def diagnostic_windows(source_data: bytes, payload_len: int, *, radius: int = DEFAULT_WINDOW_RADIUS) -> tuple[ForgeWindow, ...]:
@@ -416,6 +420,42 @@ def _compressed_offsets_for_decompressed_targets(
     return offsets
 
 
+def _scanline_bridge_windows(
+    windows: tuple[ForgeWindow, ...],
+    payload_len: int,
+    *,
+    half_window: int = SCANLINE_ANOMALY_BRIDGE_HALF_WINDOW,
+    step: int = SCANLINE_ANOMALY_BRIDGE_STEP,
+    limit: int = SCANLINE_ANOMALY_MAX_BRIDGE_WINDOWS,
+) -> tuple[ForgeWindow, ...]:
+    if len(windows) < 2 or limit <= 0:
+        return ()
+    ordered = sorted(windows, key=lambda item: (item.start + item.end) // 2)
+    bridges: list[ForgeWindow] = []
+    for left, right in zip(ordered, ordered[1:]):
+        if len(bridges) >= int(limit):
+            break
+        left_center = (int(left.start) + int(left.end)) // 2
+        right_center = (int(right.start) + int(right.end)) // 2
+        if right_center <= left_center:
+            continue
+        gap = right_center - left_center
+        if gap <= max(int(step), int(half_window) * 2):
+            continue
+        bridge_count = max(0, (gap - 1) // int(step))
+        for index in range(1, bridge_count + 1):
+            if len(bridges) >= int(limit):
+                break
+            center = left_center + index * int(step)
+            if center >= right_center:
+                break
+            start = max(0, center - int(half_window))
+            end = min(int(payload_len) + 1, center + int(half_window) + 1)
+            if end > start:
+                bridges.append(ForgeWindow(start, end, "scanline-bridge"))
+    return tuple(bridges)
+
+
 def scanline_anomaly_windows(
     source_data: bytes,
     target_chunk: png.PngChunk,
@@ -473,7 +513,10 @@ def scanline_anomaly_windows(
         )
         if local_end > local_start:
             windows.append(ForgeWindow(local_start, local_end, "scanline-anomaly"))
-    return tuple(_merge_windows(windows))
+    merged = tuple(_merge_windows(windows))
+    return _dedupe_windows_in_order(
+        tuple(merged) + _scanline_bridge_windows(merged, len(target_chunk.data), half_window=half_window)
+    )
 
 
 def _center_out_windows(windows: tuple[ForgeWindow, ...]) -> tuple[ForgeWindow, ...]:
@@ -519,20 +562,42 @@ def _rank_scanline_windows_by_deflate(
         int(getattr(analysis, "expected_size", 0) or 0)
         - int(getattr(analysis, "decompressed_size", 0) or 0)
     )
-    target_row = max(
-        0,
-        min(
-            int(analysis.height) - 1,
-            (
-                int(analysis.usable_scanlines)
-                if decompressed_gap > 0
-                else int(analysis.usable_scanlines) - DEFLATE_WINDOW_TARGET_BACKTRACK_ROWS
+    target_rows: tuple[int, ...]
+    backtrack_rows = DEFLATE_WINDOW_TARGET_BACKTRACK_ROWS
+    if str(getattr(analysis, "status", "")) == "bad_adler":
+        backtrack_rows = DEFLATE_WINDOW_BAD_ADLER_COMPLETE_BACKTRACK_ROWS
+        first_row = max(0, int(analysis.usable_scanlines) - 10)
+        last_row = max(first_row, min(int(analysis.height) - 1, int(analysis.usable_scanlines)))
+        target_rows = tuple(range(first_row, last_row + 1))
+        preferred_backtrack = 8 if decompressed_gap > 0 else int(backtrack_rows)
+        preferred_row = max(
+            0,
+            min(int(analysis.height) - 1, int(analysis.usable_scanlines) - int(preferred_backtrack)),
+        )
+    else:
+        target_row = max(
+            0,
+            min(
+                int(analysis.height) - 1,
+                (
+                    int(analysis.usable_scanlines)
+                    if decompressed_gap > 0
+                    else int(analysis.usable_scanlines) - int(backtrack_rows)
+                ),
             ),
-        ),
-    )
-    target_output = int(target_row) * int(analysis.scanline_size)
-    scores = deflate_probe.score_windows_by_output_offset(trace, windows, target_output)
-    ranked = tuple(score.window for score in scores)
+        )
+        target_rows = (target_row,)
+        preferred_row = target_row
+    target_outputs = tuple(int(row) * int(analysis.scanline_size) for row in target_rows)
+    preferred_output = int(preferred_row) * int(analysis.scanline_size)
+    scored: list[tuple[int, int, int, ForgeWindow]] = []
+    for rank, window in enumerate(windows):
+        center = int(window.start) + max(0, int(window.length) // 2)
+        output_offset = deflate_probe.output_offset_before_byte(trace, center)
+        distance = min(abs(int(output_offset) - target) for target in target_outputs)
+        preferred_distance = abs(int(output_offset) - int(preferred_output))
+        scored.append((distance, preferred_distance, rank, window))
+    ranked = tuple(item[3] for item in sorted(scored, key=lambda item: (item[0], item[1], item[2])))
     return ranked or _center_out_windows(windows)
 
 
@@ -572,6 +637,32 @@ def _auto_focused_byte_counts(source_data: bytes, byte_counts: tuple[int, ...]) 
     return tuple(dict.fromkeys(count for count in order if count in byte_counts))
 
 
+def _analysis_output_gap(source_data: bytes) -> int | None:
+    try:
+        analysis = idat.analyze_idat_stream(source_data)
+    except Exception:
+        return None
+    if analysis is None or int(getattr(analysis, "expected_size", 0) or 0) <= 0:
+        return None
+    return int(analysis.expected_size) - int(getattr(analysis, "decompressed_size", 0) or 0)
+
+
+def _tiny_gap_replace_byte_order(byte_counts: tuple[int, ...], gap: int) -> tuple[int, ...]:
+    if int(gap) > 0:
+        preferred = (5, 6, 4, 3, 2, 1, 7, 8, 9, 10)
+    elif int(gap) < 0:
+        preferred = (6, 5, 4, 3, 2, 1, 7, 8, 9, 10)
+    else:
+        preferred = (4, 3, 2, 1, 5, 6, 7, 8, 9, 10)
+    return tuple(
+        dict.fromkeys(
+            count
+            for count in preferred + tuple(byte_counts)
+            if count in byte_counts
+        )
+    )
+
+
 def _expanded_edit_order(
     source_data: bytes,
     edit_order: tuple[str, ...],
@@ -589,6 +680,13 @@ def _expanded_edit_order(
     priority: tuple[str, ...] = ()
     if analysis is not None and int(getattr(analysis, "expected_size", 0)) > 0:
         decompressed_gap = int(analysis.expected_size) - int(getattr(analysis, "decompressed_size", 0))
+        if (
+            int(byte_count) not in DIRECT_CRC_BYTE_COUNTS
+            and len(clean_order) == 1
+            and clean_order[0] == "replace"
+            and abs(decompressed_gap) <= AUTO_FOCUS_TRUST_REQUESTED_EDIT_MAX_GAP
+        ):
+            return clean_order
         if decompressed_gap > 0:
             priority = ("insert", "replace", "remove")
         elif decompressed_gap < 0:
@@ -648,15 +746,30 @@ def focused_auto_plan(
     if requested_edit is None and clean_focus == "progressive":
         requested_edit = edit_kind_by_mode.get(str(edit_mode or "").strip().lower())
     if requested_edit is not None and requested_edit in edit_order:
+        gap = _analysis_output_gap(source_data)
+        if (
+            requested_edit == "replace"
+            and gap is not None
+            and abs(int(gap)) <= AUTO_FOCUS_TRUST_REQUESTED_EDIT_MAX_GAP
+        ):
+            focused_available_counts = _tiny_gap_replace_byte_order(focused_available_counts, int(gap))
         short_edit_order = _expanded_edit_order(source_data, (requested_edit,), focused_available_counts[0])
+        gap_text = ""
+        if gap is not None and abs(int(gap)) <= AUTO_FOCUS_TRUST_REQUESTED_EDIT_MAX_GAP:
+            gap_text = " with tiny IDAT gap"
         if short_edit_order != (requested_edit,):
             return ForgeAutoPlan(
-                edit_order=short_edit_order,
+                edit_order=(
+                    short_edit_order
+                    if focused_available_counts[0] in DIRECT_CRC_BYTE_COUNTS
+                    else (requested_edit,)
+                ),
                 byte_counts=focused_available_counts,
-                reason="scanline-anomaly %s focus with short IDAT gap: trying %s %s first"
+                reason="scanline-anomaly %s focus%s: trying %s %s first"
                 % (
                     clean_focus or requested_edit,
-                    "/".join(edit.title() for edit in short_edit_order),
+                    gap_text,
+                    requested_edit.title(),
                     "/".join(str(count) for count in focused_available_counts),
                 ),
                 reset_resume=True,
@@ -664,9 +777,10 @@ def focused_auto_plan(
         return ForgeAutoPlan(
             edit_order=(requested_edit,),
             byte_counts=focused_available_counts,
-            reason="scanline-anomaly %s focus: trying %s %s first"
+            reason="scanline-anomaly %s focus%s: trying %s %s first"
             % (
                 clean_focus or requested_edit,
+                gap_text,
                 requested_edit.title(),
                 "/".join(str(count) for count in focused_available_counts),
             ),
@@ -687,7 +801,7 @@ def focused_auto_plan(
             byte_counts=(),
             reason=(
                 "scanline-anomaly bad_adler points to %s bytes outside the requested CRC-forge range; "
-                "leaving this pass to SmashBruteBrawl"
+                "leaving this pass to DaedalusForce"
             )
             % focused_count,
             reset_resume=True,
@@ -713,7 +827,7 @@ def focused_auto_plan(
             byte_counts=(),
             reason=(
                 "scanline-anomaly bad_adler points to %s bytes outside the requested CRC-forge range; "
-                "leaving this pass to SmashBruteBrawl"
+                "leaving this pass to DaedalusForce"
             )
             % focused_count,
             reset_resume=True,
@@ -1189,7 +1303,11 @@ def _clip_windows_to_candidate_budget(
                 start = window.start + min(2, max(0, window.length - take))
         else:
             anchor = window.start + max(0, window.length // 2)
-            start = max(window.start, min(anchor - max(0, take // 2), window.end - take))
+            if window.source == "scanline-bridge":
+                anchor = max(window.start, anchor - max(4, int(byte_count) + 2))
+                start = max(window.start, min(anchor - max(0, take // 2), window.end - take))
+            else:
+                start = max(window.start, min(anchor - max(0, (take + 1) // 2), window.end - take))
         end = min(window.end, start + take)
         if end > start:
             clipped.append(ForgeWindow(start, end, window.source))
@@ -1349,8 +1467,8 @@ def iter_forge_candidates(
                 guided_trace = None
         return guided_trace
 
-    for byte_count in clean_byte_counts:
-        run_budget.check()
+    def iter_seed_pass(byte_count: int) -> Iterable[ForgeCandidate]:
+        nonlocal tested
         seed_windows = _direct_crc_seed_windows(
             base_windows,
             target_chunk,
@@ -1507,10 +1625,10 @@ def iter_forge_candidates(
                             -1,
                         )
 
-    for byte_count in tuple(
-        count for count in clean_byte_counts
-        if count in FORGE_BYTE_COUNTS and count not in DIRECT_CRC_BYTE_COUNTS
-    ):
+    for byte_count in clean_byte_counts:
+        yield from iter_seed_pass(byte_count)
+        if byte_count not in FORGE_BYTE_COUNTS or byte_count in DIRECT_CRC_BYTE_COUNTS:
+            continue
         run_budget.check()
         if resume_byte_count and byte_count < resume_byte_count:
             continue
@@ -1907,22 +2025,31 @@ def iter_forge_candidates(
                                 byte_count,
                                 free_index,
                             )
-                for free_index in range(start_free_index, free_total):
+                for position in range(start_position, window.end):
                     run_budget.check()
-                    free_bytes = free_index.to_bytes(free_len, "big")
-                    for position in range(start_position, window.end):
+                    if (
+                        byte_count == resume_byte_count
+                        and edit_kind_index == resume_edit_kind_index
+                        and window_index == resume_window_index
+                        and position < resume_byte_position
+                    ):
+                        continue
+                    position_start_free_index = 0
+                    if (
+                        byte_count == resume_byte_count
+                        and edit_kind_index == resume_edit_kind_index
+                        and window_index == resume_window_index
+                        and position == resume_byte_position
+                    ):
+                        position_start_free_index = max(0, int(start_free_index))
+                    suffix_index = position if edit_kind == "insert" else position + byte_count
+                    if suffix_index >= len(required):
+                        continue
+                    for free_index in range(position_start_free_index, free_total):
                         run_budget.check()
                         if free_index in guided_free_indexes_by_position.get(position, set()):
                             continue
-                        if (
-                            byte_count == resume_byte_count
-                            and edit_kind_index == resume_edit_kind_index
-                            and window_index == resume_window_index
-                            and free_index == resume_free_index
-                            and position < resume_byte_position
-                        ):
-                            continue
-                        suffix_index = position if edit_kind == "insert" else position + byte_count
+                        free_bytes = free_index.to_bytes(free_len, "big")
                         end_crc = required[suffix_index]
                         start_crc = zlib.crc32(free_bytes, prefixes[position]) & 0xFFFFFFFF
                         patch = crc32_forge.forge_crc32_4byte_transition(start_crc, end_crc)

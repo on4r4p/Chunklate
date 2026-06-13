@@ -236,7 +236,7 @@ def emit_debug_report(
     runtime.emit("minchunklen:%s" % minchunklen)
     runtime.emit("step:%s" % step)
     if context.pause_debug is True:
-        runtime.pause("Pause:SmashBruteBrawl")
+        runtime.pause("Pause:DaedalusForce")
 
 
 def build_attempt(
@@ -416,7 +416,7 @@ def _save_sbb_untrusted_preview(
     scan_state.untrusted_preview_hashes.add(digest)
     scan_state.untrusted_preview_count += 1
     runtime.side_notes.append(
-        "-SmashBruteBrawl preview-only candidate saved: %s (%s)"
+        "-DaedalusForce preview-only candidate saved: %s (%s)"
         % (preview_path, _normalize_sbb_rejection_reason(reason))
     )
 
@@ -438,7 +438,7 @@ def _emit_sbb_rejection_progress(
     )[:3]
     reason_text = ", ".join("%s x%s" % (reason, count) for reason, count in reasons)
     note = (
-        "-SmashBruteBrawl rejected %s candidate(s) after strict validation; top reasons: %s."
+        "-DaedalusForce rejected %s candidate(s) after strict validation; top reasons: %s."
         % (scan_state.rejected_candidates, reason_text or top_reason)
     )
     if note not in runtime.side_notes:
@@ -716,7 +716,7 @@ def _fallback_input(runtime: SmashBruteBrawlRuntime, prompt: str) -> str:
     try:
         return str(runtime.input_func(prompt)).strip().lower()
     except EOFError:
-        runtime.emit("-SBB fallback prompt reached EOF; trusting the detected level.")
+        runtime.emit("-DaedalusForce fallback prompt reached EOF; trusting the detected level.")
         return ""
 
 
@@ -778,7 +778,7 @@ def _emit_sbb_level_warning(
     if log10_candidates is None:
         if int(context.brute_level) >= SBB_DANGEROUS_LEVEL_WARNING:
             runtime.emit(
-                "-WARNING: SBB level %s is unusually deep; ETA will be sampled after the pass starts."
+                "-WARNING: DaedalusForce level %s is unusually deep; ETA will be sampled after the pass starts."
                 % int(context.brute_level)
             )
         return
@@ -787,11 +787,11 @@ def _emit_sbb_level_warning(
     if not is_long and int(context.brute_level) < SBB_DANGEROUS_LEVEL_WARNING:
         return
     runtime.emit(
-        "-WARNING: SBB fallback level %s is estimated above one day (%s)."
+        "-WARNING: DaedalusForce fallback level %s is estimated above one day (%s)."
         % (int(context.brute_level), detail)
     )
     runtime.emit(
-        "-SBB fallback ETA estimate: %s candidate combinations; at %.0f candidates/s -> %s."
+        "-DaedalusForce fallback ETA estimate: %s candidate combinations; at %.0f candidates/s -> %s."
         % (
             _format_log10_count(log10_candidates),
             SBB_ETA_REFERENCE_RATE,
@@ -810,7 +810,7 @@ def _ask_sbb_fallback_decision(
     blackfill_available = _blackfill_fallback_available(context)
     runtime.emit("")
     runtime.emit(
-        "-Targeted repair pass is handing off to broad SBB at detected level %s."
+        "-Targeted repair pass is handing off to broad DaedalusForce at detected level %s."
         % int(detected_level)
     )
     runtime.emit(
@@ -819,9 +819,9 @@ def _ask_sbb_fallback_decision(
     if detected_byte_count:
         runtime.emit("-Detected byte scope: up to %s byte(s)." % int(detected_byte_count))
     else:
-        runtime.emit("-Detected byte scope: unknown; broad SBB will use the current runtime level.")
+        runtime.emit("-Detected byte scope: unknown; broad DaedalusForce will use the current runtime level.")
     runtime.emit(
-        "-SBB is broader than HermesProbe and can become very slow; review the level before launching it."
+        "-DaedalusForce is broader than HermesProbe and can become very slow; review the level before launching it."
     )
     if runtime.input_func is None:
         return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
@@ -832,10 +832,10 @@ def _ask_sbb_fallback_decision(
         else "4 accept blackfill (unavailable: no blackfill fallback)"
     )
     runtime.emit(
-        "-SBB fallback choices: 1 trust detection, 2 choose level/bytes, "
+        "-DaedalusForce fallback choices: 1 trust detection, 2 choose level/bytes, "
         "3 back/retry targeted, %s." % blackfill_text
     )
-    answer = _fallback_input(runtime, "SBB fallback [1 trust / 2 custom / 3 back / 4 blackfill] > ")
+    answer = _fallback_input(runtime, "DaedalusForce fallback [1 trust / 2 custom / 3 back / 4 blackfill] > ")
     if answer not in {
         "",
         "1",
@@ -865,8 +865,8 @@ def _ask_sbb_fallback_decision(
         "n",
         "non",
     }:
-        runtime.emit("-Unknown SBB fallback answer; please choose 1, 2, 3, or 4.")
-        answer = _fallback_input(runtime, "SBB fallback [1 trust / 2 custom / 3 back / 4 blackfill] > ")
+        runtime.emit("-Unknown DaedalusForce fallback answer; please choose 1, 2, 3, or 4.")
+        answer = _fallback_input(runtime, "DaedalusForce fallback [1 trust / 2 custom / 3 back / 4 blackfill] > ")
     if answer in {"", "1", "trust", "auto", "yes", "y", "oui", "o"}:
         return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
     if answer in {"3", "back", "retry", "targeted", "retour", "arriere", "arrière"}:
@@ -875,7 +875,7 @@ def _ask_sbb_fallback_decision(
         if blackfill_available:
             return SbbFallbackDecision("blackfill")
         runtime.emit("-No blackfill fallback is available here; choose 1, 2, or 3.")
-        answer = _fallback_input(runtime, "SBB fallback [1 trust / 2 custom / 3 back] > ")
+        answer = _fallback_input(runtime, "DaedalusForce fallback [1 trust / 2 custom / 3 back] > ")
         if answer in {"3", "back", "retry", "targeted", "retour", "arriere", "arrière"}:
             return SbbFallbackDecision("back")
         if answer in {"2", "custom", "manual", "manuel", "level", "bytes"}:
@@ -883,10 +883,10 @@ def _ask_sbb_fallback_decision(
         else:
             return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
     if answer not in {"2", "custom", "manual", "manuel", "level", "bytes"}:
-        runtime.emit("-Unknown SBB fallback answer; trusting the detected level.")
+        runtime.emit("-Unknown DaedalusForce fallback answer; trusting the detected level.")
         return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
 
-    level_text = _fallback_input(runtime, "Custom SBB level [empty keeps detected] > ")
+    level_text = _fallback_input(runtime, "Custom DaedalusForce level [empty keeps detected] > ")
     byte_text = _fallback_input(runtime, "Bytes concerned [optional, e.g. 1, 1-2, 10] > ")
     level_values = _nonnegative_ints_from_text(level_text)
     byte_values = _positive_ints_from_text(byte_text)
@@ -896,7 +896,7 @@ def _ask_sbb_fallback_decision(
         safe_level = _sbb_level_for_idat_byte_count(int(byte_count))
         if safe_level > level:
             runtime.emit(
-                "-Custom byte scope %s needs at least SBB level %s; raising the requested level from %s."
+                "-Custom byte scope %s needs at least DaedalusForce level %s; raising the requested level from %s."
                 % (int(byte_count), safe_level, level)
             )
             level = safe_level
@@ -951,7 +951,7 @@ def _run_crc_forge_scan(
         if any(int(count) >= 10 for count in byte_counts):
             runtime.emit(
                 "-HermesProbe note: 10+ byte repairs need a tight deflate/PNG window; "
-                "broad SBB should be reviewed before launch."
+                "broad DaedalusForce should be reviewed before launch."
             )
         return False
 
@@ -1360,13 +1360,13 @@ def _resolve_resume_record(
     if not isinstance(record, dict):
         return None, ""
     if runtime.source_hash and record.get("source_hash") != runtime.source_hash:
-        return None, "SmashBruteBrawl checkpoint belongs to another source; starting fresh."
+        return None, "DaedalusForce checkpoint belongs to another source; starting fresh."
     invocation = record.get("invocation")
     if not isinstance(invocation, dict) or not _progress_invocation_matches(context, invocation):
-        return None, "SmashBruteBrawl checkpoint does not match this chunk run; starting fresh."
+        return None, "DaedalusForce checkpoint does not match this chunk run; starting fresh."
     plan = record.get("plan")
     if not isinstance(plan, dict):
-        return None, "SmashBruteBrawl checkpoint has no search plan; starting fresh."
+        return None, "DaedalusForce checkpoint has no search plan; starting fresh."
     checkpoint_status = str(record.get("status") or plan.get("status") or "")
     if checkpoint_status in {
         "exhausted",
@@ -1376,7 +1376,7 @@ def _resolve_resume_record(
         "targeted_retry_requested",
     }:
         return None, (
-            "SmashBruteBrawl checkpoint already marked %s for this pass; trying the next campaign pass."
+            "DaedalusForce checkpoint already marked %s for this pass; trying the next campaign pass."
             % checkpoint_status
         )
     recorded_level = _record_int(invocation, "brute_level", int(context.brute_level))
@@ -1384,27 +1384,27 @@ def _resolve_resume_record(
     recorded_hash = str(plan.get("candidate_space_hash") or "")
     if current_level < recorded_level:
         return None, (
-            "SmashBruteBrawl checkpoint was made at BruteLevel %s; current level %s is lower, so I will not resume it."
+            "DaedalusForce checkpoint was made at BruteLevel %s; current level %s is lower, so I will not resume it."
             % (recorded_level, current_level)
         )
     if recorded_hash == candidate_space_hash:
         if _smash_progress_is_empty_stale(record):
             return None, (
-                "SBB fresh pass: %s level %s; stale checkpoint ignored."
+                "DaedalusForce fresh pass: %s level %s; stale checkpoint ignored."
                 % (context.edit_mode, current_level)
             )
         if _smash_progress_is_exhausted(record):
             return None, (
-                "SBB pass already exhausted: %s level %s; trying next planned pass."
+                "DaedalusForce pass already exhausted: %s level %s; trying next planned pass."
                 % (context.edit_mode, current_level)
             )
         return record, ""
     if current_level > recorded_level:
         return None, (
-            "BruteLevel increased from %s to %s. The search space changed, so SmashBruteBrawl restarts from zero."
+            "BruteLevel increased from %s to %s. The search space changed, so DaedalusForce restarts from zero."
             % (recorded_level, current_level)
         )
-    return None, "SmashBruteBrawl search space changed; starting fresh."
+    return None, "DaedalusForce search space changed; starting fresh."
 
 
 def _smash_parallel_progress_is_exhausted(record: dict[str, Any]) -> bool:
@@ -2571,11 +2571,11 @@ def _run_gpu_scan(
             )
             raise smash_checkpoint.SmashBruteBrawlInterrupted(runtime.progress_path) from exc
         except NotImplementedError as exc:
-            reason = str(exc) or "SBB OpenGL kernel is not implemented yet"
+            reason = str(exc) or "DaedalusForce OpenGL kernel is not implemented yet"
             emit_gpu_status("%s; using CPU workers." % reason)
             return False
         except Exception as exc:
-            emit_gpu_status("OpenGL SBB path failed (%s); using CPU workers." % exc)
+            emit_gpu_status("OpenGL DaedalusForce path failed (%s); using CPU workers." % exc)
             return False
 
         if isinstance(gpu_result, bool):
@@ -2780,7 +2780,7 @@ def _run_parallel_scan(
         )
         return True
 
-    runtime.emit("-SmashBruteBrawl will use %s CPU workers." % worker_count)
+    runtime.emit("-DaedalusForce will use %s CPU workers." % worker_count)
     scan_state.last_progress_write_at = time.monotonic()
     started_at = runtime.now()
     remaining_candidates = _estimate_parallel_remaining_candidates(plan, shards)
@@ -2906,7 +2906,7 @@ def _run_parallel_scan(
                 previous_error_count = worker_error_counts.get(result.error, 0)
                 worker_error_counts[result.error] = previous_error_count + 1
                 if previous_error_count == 0:
-                    runtime.emit("-SmashBruteBrawl worker shard %s failed: %s" % (shard_id, result.error))
+                    runtime.emit("-DaedalusForce worker shard %s failed: %s" % (shard_id, result.error))
             emit_worker_heartbeat(force=True)
             for hit in result.hits:
                 if _apply_parallel_hit(runtime, scan_state, old_crc, hit):
@@ -2968,7 +2968,7 @@ def _run_parallel_scan(
                     break
         if missing:
             runtime.emit(
-                "-SmashBruteBrawl kept %s unordered worker result(s) for resume; missing earlier shard(s): %s."
+                "-DaedalusForce kept %s unordered worker result(s) for resume; missing earlier shard(s): %s."
                 % (len(result_buffer), ", ".join(str(item) for item in missing))
             )
 
@@ -3022,7 +3022,7 @@ def _run_parallel_scan(
         ignore_sigint_until_exit()
         if not interrupt_announced:
             runtime.emit(
-                "-SmashBruteBrawl is stopping cleanly. Workers are parking; saving %s."
+                "-DaedalusForce is stopping cleanly. Workers are parking; saving %s."
                 % (runtime.progress_path or "the progress checkpoint")
             )
             interrupt_announced = True
@@ -3160,7 +3160,7 @@ def _run_parallel_scan(
     for error, count in sorted(worker_error_counts.items(), key=lambda item: item[0]):
         if count > 1:
             runtime.emit(
-                "-SmashBruteBrawl suppressed %s repeated worker shard errors: %s"
+                "-DaedalusForce suppressed %s repeated worker shard errors: %s"
                 % (count - 1, error)
             )
     return True
@@ -3224,7 +3224,7 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
             scan_state.untrusted_preview_count = _record_int(counters, "preview_only_candidates", 0)
         scan_state.crash = False
         runtime.emit(
-            "-SmashBruteBrawl resume checkpoint accepted at outer %s, inner %s."
+            "-DaedalusForce resume checkpoint accepted at outer %s, inner %s."
             % (resume_outer_index, resume_inner_index)
         )
 
@@ -3264,7 +3264,7 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
                 resume_cursor = None
                 _reset_scan_state_for_next_sbb_pass(scan_state)
                 runtime.emit(
-                    "-HermesProbe CRC-forge checkpoint is not reused for broad SBB; starting the SBB pass from zero."
+                    "-HermesProbe CRC-forge checkpoint is not reused for broad DaedalusForce; starting the DaedalusForce pass from zero."
                 )
             recommended_sbb = (
                 None
@@ -3278,7 +3278,7 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
             )
             if crc_forge_budget_stopped:
                 runtime.emit(
-                    "-HermesProbe CRC-forge did not finish its targeted pass; broad SBB keeps level %s."
+                    "-HermesProbe CRC-forge did not finish its targeted pass; broad DaedalusForce keeps level %s."
                     % int(context.brute_level)
                 )
             elif recommended_sbb is not None and int(recommended_sbb[0]) > int(context.brute_level):
@@ -3299,7 +3299,7 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
                 resume_cursor = None
                 _reset_scan_state_for_next_sbb_pass(scan_state)
                 runtime.emit(
-                    "-HermesProbe CRC-forge exhausted targeted passes up to %s bytes; broad SBB will resume at level %s."
+                    "-HermesProbe CRC-forge exhausted targeted passes up to %s bytes; broad DaedalusForce will resume at level %s."
                     % (recommended_byte_count, recommended_level)
                 )
             if crc_forge_handed_to_sbb:
@@ -3310,9 +3310,9 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
                     detected_byte_count=fallback_byte_count if fallback_byte_count else None,
                 )
                 if decision.action == "blackfill":
-                    runtime.emit("-SBB fallback decision: keeping the blackfill fallback; broad SBB skipped.")
+                    runtime.emit("-DaedalusForce fallback decision: keeping the blackfill fallback; broad DaedalusForce skipped.")
                     runtime.side_notes.append(
-                        "-SmashBruteBrawl broad SBB skipped by user; keeping blackfill fallback."
+                        "-Broad DaedalusForce skipped by user; keeping blackfill fallback."
                     )
                     save_smash_progress_snapshot(
                         runtime,
@@ -3336,10 +3336,10 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
                     )
                 if decision.action == "back":
                     runtime.emit(
-                        "-SBB fallback decision: returning to targeted repair; broad SBB skipped."
+                        "-DaedalusForce fallback decision: returning to targeted repair; broad DaedalusForce skipped."
                     )
                     runtime.side_notes.append(
-                        "-SmashBruteBrawl broad SBB skipped by user; targeted retry requested."
+                        "-Broad DaedalusForce skipped by user; targeted retry requested."
                     )
                     save_smash_progress_snapshot(
                         runtime,
@@ -3381,12 +3381,12 @@ def run_scan(runtime: SmashBruteBrawlRuntime, context: SmashBruteBrawlContext) -
                         _reset_scan_state_for_next_sbb_pass(scan_state)
                     if decision.byte_count:
                         runtime.emit(
-                            "-SBB fallback manual override: level %s for declared byte scope %s."
+                            "-DaedalusForce fallback manual override: level %s for declared byte scope %s."
                             % (int(context.brute_level), int(decision.byte_count))
                         )
                     else:
                         runtime.emit(
-                            "-SBB fallback manual override: level %s."
+                            "-DaedalusForce fallback manual override: level %s."
                             % int(context.brute_level)
                         )
         _emit_sbb_level_warning(runtime, context, runtime_plan)

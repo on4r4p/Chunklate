@@ -263,7 +263,7 @@ def action_smash_brute_brawl_ask_twobytes_retry(runtime: CheckPointActionRuntime
 def smash_brute_brawl_handle_twobytes_decline(runtime: CheckPointActionRuntime, info, toolkit):
     from_error = toolkit[9] if "OldCrc" in info and len(toolkit) > 9 else toolkit[8]
     if "FixItFelix partial IDAT blackfill" in str(from_error):
-        runtime.side_notes.append("-CheckPoint: Keeping partial IDAT blackfill after SmashBruteBrawl decline.")
+        runtime.side_notes.append("-CheckPoint: Keeping partial IDAT blackfill after DaedalusForce decline.")
         runtime.clear_smash_resume_files()
         return checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(
             runtime.checkpoint
@@ -302,7 +302,7 @@ def action_smash_brute_brawl_end_failed_noncustom(runtime: CheckPointActionRunti
 
 
 def action_smash_brute_brawl_keep_blackfill_fallback(runtime: CheckPointActionRuntime, decision, chunk, info, toolkit):
-    runtime.side_notes.append("-CheckPoint: Keeping partial IDAT blackfill after SmashBruteBrawl failure.")
+    runtime.side_notes.append("-CheckPoint: Keeping partial IDAT blackfill after DaedalusForce failure.")
     runtime.clear_smash_resume_files()
     return checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(
         runtime.checkpoint
@@ -773,10 +773,10 @@ def _blackfill_current_pass_level(
 
 def _blackfill_pass_transition_text(status: str) -> str:
     if status == "rejected_hit":
-        return "SBB pass rejected invalid candidates"
+        return "DaedalusForce pass rejected invalid candidates"
     if status == "success":
-        return "SBB pass already produced a validated hit"
-    return "SBB pass exhausted"
+        return "DaedalusForce pass already produced a validated hit"
+    return "DaedalusForce pass exhausted"
 
 
 def _blackfill_brutus_byte_lengths(brute_level: int) -> tuple[int, ...]:
@@ -894,7 +894,7 @@ def _blackfill_timed_campaign_allowed(
     pass_label = _blackfill_attempt_label(edit_mode, bf_mode, brute_level)
     runtime.checkpoint.candy("Cowsay", _blackfill_long_eta_phrase(runtime), "bad")
     runtime.checkpoint.emit(
-        "-SBB estimated next pass (%s): %s candidates at about %.1f candidates/s -> %s."
+        "-DaedalusForce estimated next pass (%s): %s candidates at about %.1f candidates/s -> %s."
         % (
             pass_label,
             f"{estimated_candidates:,}",
@@ -904,7 +904,7 @@ def _blackfill_timed_campaign_allowed(
     )
     runtime.checkpoint.candy(
         "Cowsay",
-        "Should I start this next SBB pass (%s) before accepting the blackfill fallback?"
+        "Should I start this next DaedalusForce pass (%s) before accepting the blackfill fallback?"
         % pass_label,
         "com",
     )
@@ -913,7 +913,7 @@ def _blackfill_timed_campaign_allowed(
 
 def _blackfill_keep_existing_fallback(runtime: CheckPointActionRuntime) -> tuple[bool, Any]:
     runtime.side_notes.append(
-        "-CheckPoint: Keeping partial IDAT blackfill after progressive SmashBruteBrawl campaign."
+        "-CheckPoint: Keeping partial IDAT blackfill after progressive DaedalusForce campaign."
     )
     runtime.retry_state.clear()
     return checkpoint_runtime.run_smash_brute_brawl_keep_blackfill_fallback(
@@ -944,7 +944,7 @@ def action_smash_brute_brawl_ask_blackfill_next_step(runtime: CheckPointActionRu
     )
     if recent_status == "success":
         runtime.side_notes.append(
-            "-CheckPoint: SBB pass already produced a validated hit; no further campaign pass launched."
+            "-CheckPoint: DaedalusForce pass already produced a validated hit; no further campaign pass launched."
         )
         runtime.retry_state.clear()
         return False, None
@@ -995,10 +995,10 @@ def action_smash_brute_brawl_ask_blackfill_next_step(runtime: CheckPointActionRu
         )
     )
     runtime.checkpoint.emit(
-        "-SBB campaign keeps the blackfill fallback parked while this pass runs."
+        "-DaedalusForce campaign keeps the blackfill fallback parked while this pass runs."
     )
     runtime.side_notes.append(
-        "-CheckPoint: Progressive SBB campaign trying %s."
+        "-CheckPoint: Progressive DaedalusForce campaign trying %s."
         % _blackfill_attempt_label(next_edit, next_mode, next_level)
     )
     smash_brute_brawl_relaunch(

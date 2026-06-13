@@ -756,12 +756,12 @@ def _smash_brute_brawl_progress_is_terminal(progress_path: str) -> bool:
 def ask_smash_brute_brawl_resume(runtime: MainCliOptionsRuntime, progress_path: str) -> str:
     runtime.candy(
         "Cowsay",
-        "I found a SmashBruteBrawl checkpoint in this folder. I can resume from it instead of wiping the output.",
+        "I found a DaedalusForce checkpoint in this folder. I can resume from it instead of wiping the output.",
         "good",
     )
     runtime.candy(
         "Cowsay",
-        "If a clean Smash source snapshot exists, I can jump straight back; otherwise I will finish the file tour first.",
+        "If a clean DaedalusForce source snapshot exists, I can jump straight back; otherwise I will finish the file tour first.",
         "com",
     )
     runtime.candy(
@@ -769,7 +769,7 @@ def ask_smash_brute_brawl_resume(runtime: MainCliOptionsRuntime, progress_path: 
         "1. resume\n2. ignore once\n3. reset checkpoints\n4. abort",
         "com",
     )
-    prompt = "-SmashBruteBrawl resume choice [1 resume]: "
+    prompt = "-DaedalusForce resume choice [1 resume]: "
     while True:
         try:
             answer = runtime.asker(prompt)
@@ -829,7 +829,7 @@ def predecide_smash_brute_brawl_resume_from_namespace(namespace: dict[str, Any])
         namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] = False
         runtime.candy(
             "Cowsay",
-            "SmashBruteBrawl checkpoint found. Auto-resume is enabled, so I am keeping the output folder intact.",
+            "DaedalusForce checkpoint found. Auto-resume is enabled, so I am keeping the output folder intact.",
             "good",
         )
         return

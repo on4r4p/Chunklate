@@ -560,7 +560,7 @@ def try_ihdr_stored_crc_bruteforce(
         runtime.side_notes.append("-FixItFelix:IHDR stored-CRC brute force declined; using rebuilt IHDR candidate.")
         return None
 
-    runtime.candy("Title", "SmashBruteBrawl IHDR stored CRC")
+    runtime.candy("Title", "DaedalusForce IHDR stored CRC")
     if runtime.minibar is not None:
         runtime.minibar(Indication="IHDR CRC brute force: stored CRC target")
     try:
@@ -736,11 +736,11 @@ def _format_sbb_idat_diagnostic(
     )
     if not diagnostic.supported:
         return (
-            "SBB IDAT diagnostic:\n"
+            "DaedalusForce IDAT diagnostic:\n"
             "image: unsupported\n"
             "zlib status: %s\n"
             "CRC target: %s\n"
-            "SBB chance: %s - %s\n"
+            "DaedalusForce chance: %s - %s\n"
             "HephaestusForge order: %s%s"
             % (
                 diagnostic.zlib_status or "unknown",
@@ -754,13 +754,13 @@ def _format_sbb_idat_diagnostic(
         )
 
     message = (
-        "SBB IDAT diagnostic:\n"
+        "DaedalusForce IDAT diagnostic:\n"
         "image: %sx%s, %s %s-bit\n"
         "IDAT: %s chunks, %s compressed bytes, zlib %s\n"
         "decompressed: expected %s, got %s, missing %s\n"
         "scanlines: %s/%s complete, %s bytes into next scanline\n"
         "CRC target: %s\n"
-        "SBB chance: %s - %s\n"
+        "DaedalusForce chance: %s - %s\n"
         "HephaestusForge order: %s%s"
         % (
             diagnostic.width,
@@ -802,7 +802,7 @@ def _sbb_diagnostic_says_twobytes_is_too_small(
 
 def _partial_blackfill_question_id(success_estimate: str) -> str:
     return (
-        "IDAT partial blackfill:-Launch SmashBruteBrawl on the original IDAT "
+        "IDAT partial blackfill:-Launch DaedalusForce on the original IDAT "
         "after writing the blackfill clone? (chance of success: %s)"
         % (success_estimate or "unknown")
     )
@@ -817,7 +817,7 @@ def _partial_blackfill_hephaestus_question_id(success_estimate: str) -> str:
 
 
 def _sbb_visual_reference_question_id() -> str:
-    return "SBB Visual Reference ROI:-Do you have any similar png by any chance?"
+    return "DaedalusForce Visual Reference ROI:-Do you have any similar png by any chance?"
 
 
 def _sbb_reference_regions_path(runtime: AutomaticRepairRuntime) -> str:
@@ -890,7 +890,7 @@ def _maybe_prepare_sbb_visual_reference(
             runtime.retry_state["visual_reference"] = selected_reference
             runtime.retry_state["visual_reference_regions"] = regions_path
         runtime.side_notes.append(
-            "-FixItFelix: Visual reference ROI saved for SBB/HephaestusForge: %s"
+            "-FixItFelix: Visual reference ROI saved for DaedalusForce/HephaestusForge: %s"
             % regions_path
         )
         runtime.candy(
@@ -981,7 +981,7 @@ def _ask_sbb_focus_choice(
         "Cowsay",
         "\n".join(
             [
-                "Choose the SmashBruteBrawl focus:",
+                "Choose the DaedalusForce focus:",
                 "1. Insert focus%s" % (" (recommended)" if recommended_choice == "1" else ""),
                 "2. Remove focus%s" % (" (recommended)" if recommended_choice == "2" else ""),
                 "3. Replace focus%s" % (" (recommended)" if recommended_choice == "3" else ""),
@@ -992,7 +992,7 @@ def _ask_sbb_focus_choice(
         ),
         "com",
     )
-    prompt = "SmashBruteBrawl focus [%s %s] > " % (recommended_choice, focus_name)
+    prompt = "DaedalusForce focus [%s %s] > " % (recommended_choice, focus_name)
     choices = {
         "1": "insert",
         "insert": "insert",
@@ -1078,13 +1078,13 @@ def _partial_blackfill_bruteforce_question(
     if not diagnostic.crc_target_useful:
         runtime.candy(
             "Cowsay",
-            "CRC is not an oracle for this run. Any SBB hit must survive full PNG validation, and visual/reference proof if the file already decodes.",
+            "CRC is not an oracle for this run. Any DaedalusForce hit must survive full PNG validation, and visual/reference proof if the file already decodes.",
             "com",
         )
     elif str(getattr(runtime, "smash_brute_brawl_crc_forge", "auto") or "auto") != "off":
         runtime.candy(
             "Cowsay",
-            "HermesProbe CRC-forge targeted Insert/Replace/Remove 1-20 byte pass will run before broad SmashBruteBrawl.",
+            "HermesProbe CRC-forge targeted Insert/Replace/Remove 1-20 byte pass will run before broad DaedalusForce.",
             "com",
         )
     twobytes_too_small = _sbb_diagnostic_says_twobytes_is_too_small(diagnostic)
@@ -1108,7 +1108,7 @@ def _partial_blackfill_bruteforce_question(
     else:
         runtime.candy(
             "Cowsay",
-            "I can also launch SmashBruteBrawl on the original IDAT bytes, before accepting black rows as the final word.",
+            "I can also launch DaedalusForce on the original IDAT bytes, before accepting black rows as the final word.",
             "com",
         )
     if runtime.question is None:
@@ -1210,7 +1210,7 @@ def _launch_partial_blackfill_bruteforce(
     if edit_mode not in {"Replace", "Insert", "Remove"}:
         edit_mode = "Replace"
     runtime.side_notes.append(
-        "-FixItFelix:launched SmashBruteBrawl on source IDAT after partial blackfill %s/%s."
+        "-FixItFelix:launched DaedalusForce on source IDAT after partial blackfill %s/%s."
         % (repair.recovered_scanlines, repair.total_scanlines)
     )
     brute_level = _partial_blackfill_launch_brute_level(runtime, mode_name)
@@ -1223,12 +1223,12 @@ def _launch_partial_blackfill_bruteforce(
     }
     if runtime.smash_brute_brawl_force_level is not None:
         runtime.side_notes.append(
-            "-FixItFelix: SmashBruteBrawl forced to start at brute-force level %s."
+            "-FixItFelix: DaedalusForce forced to start at brute-force level %s."
             % brute_level
         )
     if mode_name == "hephaestus":
         runtime.side_notes.append(
-            "-FixItFelix: low SBB diagnostic selected HephaestusForge (%s-first)." % edit_mode
+            "-FixItFelix: low DaedalusForce diagnostic selected HephaestusForge (%s-first)." % edit_mode
         )
     if isinstance(runtime.retry_state, dict):
         runtime.retry_state["disable_resume_once"] = True
@@ -1239,7 +1239,7 @@ def _launch_partial_blackfill_bruteforce(
         }
     if old_crc is not None:
         smash_kwargs["OldCrc"] = old_crc
-        runtime.side_notes.append("-FixItFelix: SmashBruteBrawl will use stored IDAT CRC as target.")
+        runtime.side_notes.append("-FixItFelix: DaedalusForce will use stored IDAT CRC as target.")
     else:
         runtime.side_notes.append("-FixItFelix: stored IDAT CRC already matches current bytes; using image probe.")
     smash_data_offset = target_chunk.offset * 2
@@ -1362,7 +1362,7 @@ def apply_partial_blackfill_decision(
             )
         return True
     runtime.side_notes.append(
-        "-FixItFelix: partial IDAT blackfill parked as preview while SmashBruteBrawl runs; no final clone written yet."
+        "-FixItFelix: partial IDAT blackfill parked as preview while DaedalusForce runs; no final clone written yet."
     )
     _launch_partial_blackfill_bruteforce(
         runtime,

@@ -331,14 +331,14 @@ def test_question_runtime_names_partial_blackfill_smash_prompt():
 
     assert question_runtime.ask_question(
         runtime,
-        "IDAT partial blackfill:-Launch SmashBruteBrawl on the original IDAT after writing the blackfill clone? (chance of success: low)",
+        "IDAT partial blackfill:-Launch DaedalusForce on the original IDAT after writing the blackfill clone? (chance of success: low)",
         ("IDAT-partial-blackfill-smash", 33, 11, 1, 5, 1, 5),
         skipauto=True,
     ) is True
 
     prompts = [call[1][1] for call in calls if call[0] == "candy" and call[1][:1] == ("Cowsay",)]
     assert (
-        "Question: Should i launch SmashBruteBrawl to try to recover this bad boy? "
+        "Question: Should i launch DaedalusForce to try to recover this bad boy? "
         "(chance of success: low)"
     ) in prompts
     assert not any("stop this brute force branch" in prompt for prompt in prompts)

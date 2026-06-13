@@ -33,7 +33,7 @@ class SmashProgressPaths:
 class SmashBruteBrawlInterrupted(Exception):
     def __init__(self, progress_path: str):
         self.progress_path = progress_path
-        super().__init__("SmashBruteBrawl interrupted; progress saved to %s" % progress_path)
+        super().__init__("DaedalusForce interrupted; progress saved to %s" % progress_path)
 
 
 def source_hash(data: bytes) -> str:
@@ -109,11 +109,11 @@ def load_json(path: str) -> tuple[dict[str, Any] | None, str]:
         with open(path, "r", encoding="utf-8") as file:
             record = json.load(file)
     except (OSError, json.JSONDecodeError) as exc:
-        return None, "SmashBruteBrawl progress checkpoint is not readable: %s" % exc
+        return None, "DaedalusForce progress checkpoint is not readable: %s" % exc
     if not isinstance(record, dict):
-        return None, "SmashBruteBrawl progress checkpoint is not a JSON object."
+        return None, "DaedalusForce progress checkpoint is not a JSON object."
     if int(record.get("version", 0) or 0) not in SMASH_PROGRESS_COMPATIBLE_VERSIONS:
-        return None, "SmashBruteBrawl progress checkpoint version is not compatible."
+        return None, "DaedalusForce progress checkpoint version is not compatible."
     return record, ""
 
 

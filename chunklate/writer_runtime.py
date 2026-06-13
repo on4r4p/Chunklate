@@ -531,7 +531,7 @@ def run_save_clone(
     if block_invalid_full_png:
         runtime.candy(
             "Cowsay",
-            "SBB candidate rejected after final clone validation. I am not writing a fake fixed file.",
+            "DaedalusForce candidate rejected after final clone validation. I am not writing a fake fixed file.",
             "bad",
         )
         note = "-Rejected full clone before write; PNG/IDAT validation failed: %s." % invalid_reason

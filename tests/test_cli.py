@@ -99,8 +99,10 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "-sbb-resume" not in result.stdout
     assert "--smashbrutebrawl-workers" not in result.stdout
     assert "-sbbw" not in result.stdout
-    assert "-sbbl N" in result.stdout
-    assert "--sbb-deflate-mitm" in result.stdout
+    assert "-ddll N" in result.stdout
+    assert "--ddl-deflate-mitm" in result.stdout
+    assert "-sbbl N" not in result.stdout
+    assert "--sbb-deflate-mitm" not in result.stdout
     assert "--smashbrutebrawl-level" not in result.stdout
     assert "--ulf-budget" not in result.stdout
 
@@ -109,7 +111,7 @@ def test_sbb_crc_forge_bytes_accepts_targeted_20_byte_pass():
     assert cli.smash_brute_brawl_crc_forge_bytes_error("1") is None
     assert cli.smash_brute_brawl_crc_forge_bytes_error("20") is None
     assert cli.smash_brute_brawl_crc_forge_bytes_error("21") == (
-        "--sbb-forge-bytes must be an integer from 1 to 20."
+        "--ddl-forge-bytes must be an integer from 1 to 20."
     )
 
 
@@ -191,21 +193,25 @@ def test_ultimate_linefeed_workers_cli_parses_profiles_and_custom_count():
 def test_smash_brute_brawl_workers_cli_parses_profiles_and_custom_count():
     parser = Chunklate.cli.configure_parser(ArgumentParser())
 
-    profile_args = parser.parse_args(["-f", "sample.png", "-sbbw", "normal"])
-    custom_args = parser.parse_args(["-f", "sample.png", "-sbbw", "12"])
-    zero_args = parser.parse_args(["-f", "sample.png", "-sbbw", "0"])
+    profile_args = parser.parse_args(["-f", "sample.png", "-ddlw", "normal"])
+    custom_args = parser.parse_args(["-f", "sample.png", "-ddlw", "12"])
+    zero_args = parser.parse_args(["-f", "sample.png", "-ddlw", "0"])
+    old_alias_args = parser.parse_args(["-f", "sample.png", "-sbbw", "normal"])
 
     assert profile_args.SMASH_BRUTE_BRAWL_WORKERS == "normal"
     assert custom_args.SMASH_BRUTE_BRAWL_WORKERS == "12"
     assert zero_args.SMASH_BRUTE_BRAWL_WORKERS == "0"
+    assert old_alias_args.SMASH_BRUTE_BRAWL_WORKERS == "normal"
 
 
 def test_smash_brute_brawl_level_cli_parses_short_public_flag_only():
     parser = Chunklate.cli.configure_parser(ArgumentParser())
 
-    level_args = parser.parse_args(["-f", "sample.png", "-sbbl", "2"])
+    level_args = parser.parse_args(["-f", "sample.png", "-ddll", "2"])
+    old_alias_args = parser.parse_args(["-f", "sample.png", "-sbbl", "2"])
 
     assert level_args.SMASH_BRUTE_BRAWL_FORCE_LEVEL == "2"
+    assert old_alias_args.SMASH_BRUTE_BRAWL_FORCE_LEVEL == "2"
 
 
 def test_global_workers_cli_parses_without_exposing_specific_worker_flags():
@@ -213,7 +219,7 @@ def test_global_workers_cli_parses_without_exposing_specific_worker_flags():
 
     parsed = parser.parse_args(["-f", "sample.png", "-workers", "normal"])
     specific = parser.parse_args(
-        ["-f", "sample.png", "-workers", "normal", "-ulfw", "3", "-sbbw", "max"]
+        ["-f", "sample.png", "-workers", "normal", "-ulfw", "3", "-ddlw", "max"]
     )
 
     assert parsed.GLOBAL_WORKERS == "normal"

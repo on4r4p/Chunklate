@@ -101,7 +101,7 @@ def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
         return "Question: Option 2, build a synthetic diagnostic IDAT? This is not the original image."
     if "IDAT Zero Scanline Blackfill" in str(question_id):
         return "Question: Option 3, write an all-zero placeholder PNG?"
-    if "SBB Visual Reference ROI" in str(question_id):
+    if "DaedalusForce Visual Reference ROI" in str(question_id) or "SBB Visual Reference ROI" in str(question_id):
         return "Question: Do you have any similare png by any chance ?"
     if "Ultimate Visual Reference ROI" in str(question_id):
         return "Question: Do you have any similare png by any chance ?"
@@ -115,7 +115,7 @@ def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
                 "(chance of success: %s; this may take years and still fail.)"
             ) % chance
         return (
-            "Question: Should i launch SmashBruteBrawl to try to recover this bad boy? "
+            "Question: Should i launch DaedalusForce to try to recover this bad boy? "
             "(chance of success: %s)"
         ) % chance
     if skipauto:
