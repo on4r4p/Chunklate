@@ -627,6 +627,8 @@ def _Ultimate_Linefeed_Print_Worker_Menu():
         "normal workers: %s" % counts["normal"],
         "max workers: %s" % counts["max"],
         "",
+        "Choose how many Cpu workers to use (0,min, normal, max, or enter an exact number).",
+        "",
         "0. disabled",
         "min. CPU / 4",
         "normal. CPU / 2",
@@ -1194,7 +1196,8 @@ def Tk_Manual_Plte(
     ChunkName,
     ChunkLength,
     DataOffset,
-    FromError
+    FromError,
+    DataHex=None,
 ):
     PaletteEditor = palette_runtime.create_manual_palette_editor_from_namespace(
         globals(),
@@ -1203,6 +1206,7 @@ def Tk_Manual_Plte(
         ChunkLength,
         DataOffset,
         FromError,
+        data_hex=DataHex,
     )
     PaletteEditor.window.mainloop()
 

@@ -12,6 +12,7 @@ from . import bruteforce_runtime
 from . import fixit_felix
 from . import idat
 from . import idat_bruteforce
+from . import idat_crc_forge
 from . import idat_chain
 from . import messages
 from . import png
@@ -2005,10 +2006,10 @@ def _grayscale_plte_rebuild_prompt(repair: Any) -> tuple[str, str] | None:
     return GRAYSCALE_PLTE_REBUILD_PROMPTS.get(str(getattr(repair, "strategy", "")))
 
 
-def _plte_manual_window_from_data_hex(data_hex: str) -> tuple[int, int] | None:
+def _plte_manual_window_from_data(data: bytes) -> tuple[int, int] | None:
     try:
-        chunks = tuple(png.iter_chunks(bytes.fromhex(data_hex)))
-    except (ValueError, png.PngFormatError):
+        chunks = tuple(png.iter_chunks(data))
+    except png.PngFormatError:
         return None
 
     plte = next((chunk for chunk in chunks if chunk.chunk_type == b"PLTE"), None)
@@ -2020,6 +2021,14 @@ def _plte_manual_window_from_data_hex(data_hex: str) -> tuple[int, int] | None:
     return start, end
 
 
+def _plte_manual_window_from_data_hex(data_hex: str) -> tuple[int, int] | None:
+    try:
+        data = bytes.fromhex(data_hex)
+    except ValueError:
+        return None
+    return _plte_manual_window_from_data(data)
+
+
 def maybe_offer_manual_plte_editor(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
     prompt = _grayscale_plte_rebuild_prompt(repair)
     if prompt is None:
@@ -2029,7 +2038,19 @@ def maybe_offer_manual_plte_editor(runtime: AutomaticRepairRuntime, repair: Any)
     if runtime.question is None or runtime.tk_manual_plte is None:
         return None
 
-    window = _plte_manual_window_from_data_hex(runtime.data_hex)
+    repair_data = getattr(repair, "data", None)
+    if not isinstance(repair_data, bytes):
+        return None
+
+    validation = png.validate_png_structure(repair_data)
+    if not validation.ok:
+        runtime.side_notes.append(
+            "-FixItFelix:skipped Tkinter PLTE editor because repaired PLTE preview is not structurally valid: %s."
+            % "; ".join(validation.errors)
+        )
+        return None
+
+    window = _plte_manual_window_from_data(repair_data)
     if window is None:
         return None
 
@@ -2063,6 +2084,7 @@ def maybe_offer_manual_plte_editor(runtime: AutomaticRepairRuntime, repair: Any)
         end,
         start,
         "-PLTE Wrong Data",
+        repair_data.hex(),
     )
     return True
 
@@ -2571,6 +2593,112 @@ def _runtime_idat_queue_progress(runtime: Any):
     return progress
 
 
+def _bad_crc_idat_chunks(data: bytes) -> tuple[png.PngChunk, ...]:
+    try:
+        chunks = tuple(png.iter_chunks(data))
+    except png.PngFormatError:
+        return ()
+    return tuple(
+        chunk
+        for chunk in chunks
+        if chunk.chunk_type == b"IDAT" and chunk.crc != chunk.computed_crc
+    )
+
+
+def _focused_idat_crc_window(
+    target_chunk: png.PngChunk,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    byte_count: int = 4,
+) -> tuple[int, int] | None:
+    if analysis.error_file_offset is None:
+        return None
+    payload_offset = int(analysis.error_file_offset) - int(target_chunk.offset) - 8
+    start = payload_offset - int(byte_count) + 1
+    end = start + 1
+    if start < 0 or end > len(target_chunk.data):
+        return None
+    return start, end
+
+
+def try_focused_idat_crc_forge(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+) -> tuple[bool, Any] | None:
+    if analysis.status != "corrupt_deflate":
+        return None
+    if analysis.error_file_offset is None:
+        return None
+    bad_chunks = _bad_crc_idat_chunks(data)
+    if len(bad_chunks) != 1:
+        return None
+
+    target_chunk = bad_chunks[0]
+    window = _focused_idat_crc_window(target_chunk, analysis, byte_count=4)
+    if window is None:
+        return None
+    start, end = window
+
+    runtime.candy(
+        "Cowsay",
+        "HermesProbe localized a deflate error near file offset 0x%x." % int(analysis.error_file_offset),
+        "com",
+    )
+    runtime.candy(
+        "Cowsay",
+        "Trying focused 4-byte IDAT CRC repair around 0x%x before blackfill."
+        % int(target_chunk.offset + 8 + start),
+        "com",
+    )
+
+    old_crc = int(target_chunk.crc).to_bytes(4, "big")
+    window_spec = "%s:%s" % (start, end)
+    for candidate in idat_crc_forge.iter_forge_candidates(
+        data,
+        target_chunk,
+        old_crc,
+        edit_order=("replace",),
+        byte_counts=(4,),
+        window_spec=window_spec,
+        mode="force",
+        zlib_prefilter=True,
+    ):
+        candidate_data = candidate.hit.png_bytes
+        candidate_analysis = idat.analyze_idat_stream(candidate_data)
+        if not candidate_analysis.complete:
+            continue
+        validation = png.validate_png_structure(candidate_data)
+        if not validation.ok:
+            continue
+        runtime.candy(
+            "Cowsay",
+            "HermesProbe found the four-byte bite mark. Patch: IDAT payload offset 0x%x -> %s."
+            % (int(candidate.hit.byte_position), candidate.hit.brute_bytes.hex()),
+            "good",
+        )
+        summary = "\n".join(
+            (
+                "-Repair hypothesis tried: focused 4-byte IDAT CRC forge.",
+                idat_stream_diagnosis_note(analysis),
+                "HermesProbe localized deflate error near file offset 0x%x."
+                % int(analysis.error_file_offset),
+                "Focused IDAT payload window: 0x%x..0x%x."
+                % (int(start), int(start + 3)),
+                "Patch: replace 4 byte(s) at IDAT payload offset 0x%x with %s."
+                % (int(candidate.hit.byte_position), candidate.hit.brute_bytes.hex()),
+                idat_stream_diagnosis_note(candidate_analysis),
+            )
+        )
+        return True, runtime.write_clone(candidate_data, summary)
+
+    runtime.side_notes.append(
+        "-Focused IDAT CRC forge found no validated 4-byte repair around file offset 0x%x."
+        % int(target_chunk.offset + 8 + start)
+    )
+    return None
+
+
 def _ask_idat_heavy_probe(runtime: Any, analysis: idat.IdatStreamAnalysis) -> bool:
     runtime.candy(
         "Cowsay",
@@ -2619,6 +2747,10 @@ def try_idat_deflate_bruteforce(
             "com",
         )
         return None
+
+    focused_crc = try_focused_idat_crc_forge(runtime, data, analysis)
+    if focused_crc is not None:
+        return focused_crc
 
     runtime.candy(
         "Cowsay",

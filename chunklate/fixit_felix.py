@@ -30,6 +30,7 @@ from .png import (
     repair_nonconsecutive_idat_interruption,
     repair_offs_length,
     repair_optional_truecolor_plte,
+    repair_overlong_chunk_length_to_next_header,
     repair_pcal_out_of_place,
     repair_phys_length,
     repair_scal_payload,
@@ -93,6 +94,7 @@ AutomaticRepairHandler = Literal[
     "splt_payload_cleanup",
     "duplicate_ihdr_cleanup",
     "duplicate_singleton_cleanup",
+    "plte_overlong_length_cleanup",
     "plte_cleanup",
     "gama_length",
     "gifg_length",
@@ -126,6 +128,7 @@ FixItFelixWorkKind = Literal["automatic_repair", "finding"]
 
 
 AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
+    "ihdr_rebuild",
     "color_profile_cleanup",
     "hist_out_of_place_cleanup",
     "pcal_out_of_place_cleanup",
@@ -134,6 +137,7 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "splt_payload_cleanup",
     "duplicate_ihdr_cleanup",
     "duplicate_singleton_cleanup",
+    "plte_overlong_length_cleanup",
     "plte_cleanup",
     "gama_length",
     "gifg_length",
@@ -160,7 +164,6 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "known_chunk_type_case",
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
-    "ihdr_rebuild",
     "partial_idat_blackfill",
 )
 AUTOMATIC_REPAIR_INTENTS: dict[
@@ -213,6 +216,10 @@ AUTOMATIC_REPAIR_INTENTS: dict[
     "duplicate_singleton_cleanup": (
         "PNG only allows one copy of this singleton chunk. I am going to keep the safest copy and remove duplicates.",
         (("Multiple",), ("multiple", "chunks")),
+    ),
+    "plte_overlong_length_cleanup": (
+        "The PLTE length appears to run past the next real chunk. I am going to shorten it, rebuild CRCs, then rebuild the palette if needed.",
+        (("PLTE", "Wrong Chunk name after Chunk"), ("PLTE", "No NextChunk"), ("PLTE", "Wrong Crc")),
     ),
     "plte_cleanup": (
         "The palette is suspicious. I am going to rebuild, trim, or remove PLTE according to the image color type and used indexes.",
@@ -974,6 +981,41 @@ def splt_payload_cleanup(data: bytes, findings: Iterable[object]) -> Any | None:
     return repair_splt_payloads(data)
 
 
+def plte_overlong_length_cleanup(
+    data: bytes,
+    findings: Iterable[object],
+    *,
+    auto: bool,
+    nodialogue: bool,
+    max_saves: int | None,
+) -> Any | None:
+    if not (
+        has_finding(findings, "PLTE")
+        and (
+            has_finding(findings, "Wrong Chunk name after Chunk")
+            or has_finding(findings, "No NextChunk")
+            or has_finding(findings, "Wrong Crc")
+        )
+    ):
+        return None
+
+    realigned = repair_overlong_chunk_length_to_next_header(
+        data,
+        max_overrun=4096,
+        chunk_types=(b"PLTE",),
+    )
+    if realigned is None:
+        return None
+
+    return plte_cleanup(
+        realigned.data,
+        ("PLTE",),
+        auto=auto,
+        nodialogue=nodialogue,
+        max_saves=max_saves,
+    ) or realigned
+
+
 def plte_cleanup(
     data: bytes,
     findings: Iterable[object],
@@ -1289,6 +1331,14 @@ def automatic_repair(
         return duplicate_ihdr_cleanup(data, findings)
     if name == "duplicate_singleton_cleanup":
         return duplicate_singleton_cleanup(data, findings)
+    if name == "plte_overlong_length_cleanup":
+        return plte_overlong_length_cleanup(
+            data,
+            findings,
+            auto=auto,
+            nodialogue=nodialogue,
+            max_saves=max_saves,
+        )
     if name == "plte_cleanup":
         return plte_cleanup(
             data,

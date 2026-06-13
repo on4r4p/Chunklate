@@ -809,19 +809,30 @@ def _ask_sbb_fallback_decision(
 ) -> SbbFallbackDecision:
     blackfill_available = _blackfill_fallback_available(context)
     runtime.emit("")
-    runtime.emit(
+    runtime.candy(
+        "Cowsay",
         "-Targeted repair pass is handing off to broad DaedalusForce at detected level %s."
-        % int(detected_level)
+        % int(detected_level),
+        "com",
     )
-    runtime.emit(
-        "-Reason: HermesProbe did not produce a fully validated PNG from the targeted IDAT search."
+    
+    runtime.candy(
+        "Cowsay",
+        "-Reason: HermesProbe did not produce a fully validated PNG from the targeted IDAT search.",
+        "bad",
     )
     if detected_byte_count:
-        runtime.emit("-Detected byte scope: up to %s byte(s)." % int(detected_byte_count))
+        runtime.candy(
+            "Cowsay",
+            "-Detected byte scope: up to %s byte(s)." % int(detected_byte_count),
+            "com",
+        )
     else:
         runtime.emit("-Detected byte scope: unknown; broad DaedalusForce will use the current runtime level.")
-    runtime.emit(
-        "-DaedalusForce is broader than HermesProbe and can become very slow; review the level before launching it."
+    runtime.candy(
+        "Cowsay",
+        "-DaedalusForce is broader than HermesProbe and can become very slow; review the level before launching it.",
+        "bad",
     )
     if runtime.input_func is None:
         return SbbFallbackDecision("trust", int(detected_level), detected_byte_count)
@@ -1089,9 +1100,17 @@ def _run_crc_forge_scan(
     )
     _emit_sbb_rejection_progress(runtime, scan_state, force=True)
     if budget_stop_reason:
-        runtime.emit("-HermesProbe CRC-forge targeted IDAT pass stopped: %s" % budget_stop_reason)
+        runtime.candy(
+        "Cowsay",
+        "-HermesProbe CRC-forge targeted IDAT pass stopped: %s" % budget_stop_reason,
+        "bad",
+    )
     else:
-        runtime.emit("-HermesProbe CRC-forge targeted IDAT pass finished without a validated PNG.")
+        runtime.candy(
+        "Cowsay",
+        "-HermesProbe CRC-forge targeted IDAT pass finished without a validated PNG.",
+        "bad",
+    )
     outcome_tested = int(scan_state.tested_candidates)
     outcome_last_byte_count = max(0, int(scan_state.length) // 2)
     _reset_scan_state_for_next_sbb_pass(scan_state)

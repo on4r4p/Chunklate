@@ -343,6 +343,7 @@ def test_applied_repair_adds_ihdr_metadata_when_available():
 
 def test_automatic_repair_order_keeps_legacy_priority():
     assert fixit_felix.automatic_repair_order() == (
+        "ihdr_rebuild",
         "color_profile_cleanup",
         "hist_out_of_place_cleanup",
         "pcal_out_of_place_cleanup",
@@ -351,6 +352,7 @@ def test_automatic_repair_order_keeps_legacy_priority():
         "splt_payload_cleanup",
         "duplicate_ihdr_cleanup",
         "duplicate_singleton_cleanup",
+        "plte_overlong_length_cleanup",
         "plte_cleanup",
         "gama_length",
         "gifg_length",
@@ -377,7 +379,6 @@ def test_automatic_repair_order_keeps_legacy_priority():
         "known_chunk_type_case",
         "unknown_private_critical_removal",
         "missing_chunk_data_byte",
-        "ihdr_rebuild",
         "partial_idat_blackfill",
     )
 
@@ -1703,6 +1704,36 @@ def test_missing_chunk_data_byte_requires_crc_or_no_next_finding():
     assert repaired.chunk_name == "PLTE"
 
 
+def test_plte_overlong_length_cleanup_rebuilds_palette_after_realigning_idat():
+    ihdr = struct.pack("!IIBBBBB", 1, 1, 8, 3, 0, 0, 0)
+    idat = build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00", level=0))
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + (40).to_bytes(4, "big")
+        + b"PLTE"
+        + (b"junk" * 8)
+        + b"crc!"
+        + idat
+        + IEND_CHUNK
+    )
+
+    repaired = fixit_felix.plte_overlong_length_cleanup(
+        original,
+        ["CheckChunkName_Error_0:-Found Next Chunk[b'xxxx'] has Wrong Chunk name after Chunk[b'PLTE']"],
+        auto=False,
+        nodialogue=False,
+        max_saves=None,
+    )
+
+    assert repaired is not None
+    assert repaired.strategy == "rebuilt malformed indexed PLTE as grayscale palette"
+    assert validate_png_structure(repaired.data).ok
+    chunks = tuple(iter_chunks(repaired.data))
+    assert [chunk.chunk_type for chunk in chunks] == [b"IHDR", b"PLTE", b"IDAT", b"IEND"]
+    assert chunks[1].length == 768
+
+
 def test_known_chunk_type_case_requires_wrong_ancillary_finding():
     original = read_fixture("chunk_private_critical.png")
 
@@ -1802,6 +1833,45 @@ def test_ihdr_rebuild_converts_private_compression_method():
     assert repaired.strategy == "converted private bzip2 compression method to standard zlib IDAT"
     assert validate_png_structure(repaired.data).ok
     assert next(iter_chunks(repaired.data)).data[10] == 0
+
+
+def test_ihdr_rebuild_wins_before_color_profile_cleanup_for_wrong_width_fixture():
+    sample = ROOT / "png_to_check" / "Sample-png-image-100kbWrong-Width.png"
+    if not sample.exists():
+        return
+
+    data = sample.read_bytes()
+    findings = [
+        "Checksum_Error_0:-Wrong Crc b'IHDR'",
+        "GetInfo_Error_1:libpng warning: iCCP: known incorrect sRGB profile",
+    ]
+
+    def automatic(handler):
+        return fixit_felix.automatic_repair(
+            handler,
+            data,
+            findings,
+            known_chunk_types=specs.CHUNKS,
+            auto=True,
+            nodialogue=True,
+            max_saves=None,
+        )
+
+    first_handler = next(
+        handler
+        for handler in fixit_felix.automatic_repair_order()
+        if automatic(handler) is not None
+    )
+    repaired = automatic(first_handler)
+
+    assert first_handler == "ihdr_rebuild"
+    assert repaired is not None
+    assert repaired.strategy == "restored IHDR values matching stored CRC"
+    ihdr = next(chunk for chunk in iter_chunks(repaired.data) if chunk.chunk_type == b"IHDR")
+    assert int.from_bytes(ihdr.data[:4], "big") == 272
+    assert int.from_bytes(ihdr.data[4:8], "big") == 170
+    assert ihdr.crc_ok
+    assert validate_png_structure(repaired.data).ok
 
 
 def test_partial_idat_blackfill_requires_idat_finding_and_partial_stream():
@@ -1959,6 +2029,10 @@ def main():
             "PLTE cleanup truncates oversized optional truecolor palette",
             test_plte_cleanup_truncates_oversized_optional_truecolor_palette,
         ),
+        (
+            "PLTE overlong length cleanup realigns before rebuild",
+            test_plte_overlong_length_cleanup_rebuilds_palette_after_realigning_idat,
+        ),
         ("Duplicate singleton cleanup requires Multiple finding", test_duplicate_singleton_cleanup_requires_multiple_finding),
         ("Duplicate singleton cleanup removes duplicate iCCP", test_duplicate_singleton_cleanup_removes_duplicate_iccp),
         ("Duplicate singleton cleanup removes duplicate pCAL", test_duplicate_singleton_cleanup_removes_duplicate_pcal),
@@ -2003,6 +2077,10 @@ def main():
         ("IHDR rebuild requires IHDR finding", test_ihdr_rebuild_requires_ihdr_finding),
         ("IHDR rebuild trims overlong IHDR", test_ihdr_rebuild_trims_overlong_ihdr_payload),
         ("IHDR rebuild converts private compression method", test_ihdr_rebuild_converts_private_compression_method),
+        (
+            "IHDR rebuild wins before color profile cleanup for wrong width",
+            test_ihdr_rebuild_wins_before_color_profile_cleanup_for_wrong_width_fixture,
+        ),
         (
             "Partial IDAT blackfill requires IDAT finding",
             test_partial_idat_blackfill_requires_idat_finding_and_partial_stream,

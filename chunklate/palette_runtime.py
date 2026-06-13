@@ -286,13 +286,14 @@ def build_manual_palette_setup_context_from_namespace(
     chunk_name: object,
     chunk_length: int,
     data_offset: int,
+    data_hex: str | None = None,
 ) -> ManualPaletteSetupContext:
     return ManualPaletteSetupContext(
         file=file,
         chunk_name=chunk_name,
         chunk_length=chunk_length,
         data_offset=data_offset,
-        data_hex=namespace["DATAX"],
+        data_hex=namespace["DATAX"] if data_hex is None else data_hex,
         debug=namespace["DEBUG"],
     )
 
@@ -749,6 +750,7 @@ def create_manual_palette_editor_from_namespace(
     data_offset: int,
     from_error: object,
     *,
+    data_hex: str | None = None,
     setup_creator: Callable = create_manual_palette_setup,
     editor_creator: Callable = create_manual_palette_editor,
 ) -> ManualPaletteEditor:
@@ -760,6 +762,7 @@ def create_manual_palette_editor_from_namespace(
             chunk_name,
             chunk_length,
             data_offset,
+            data_hex,
         ),
     )
     namespace["wanabyte"] = setup.session.wanabyte

@@ -1053,6 +1053,28 @@ def test_create_manual_palette_editor_from_namespace_wires_legacy_globals():
     assert calls == [("Sync_Palette_Legacy_State", (), {})]
 
 
+def test_manual_palette_setup_context_accepts_data_hex_override():
+    namespace = {"DATAX": "001122", "DEBUG": False}
+
+    context = palette_runtime.build_manual_palette_setup_context_from_namespace(
+        namespace,
+        "sample.png",
+        b"PLTE",
+        12,
+        4,
+        data_hex="aabbcc",
+    )
+
+    assert context == palette_runtime.ManualPaletteSetupContext(
+        file="sample.png",
+        chunk_name=b"PLTE",
+        chunk_length=12,
+        data_offset=4,
+        data_hex="aabbcc",
+        debug=False,
+    )
+
+
 def test_guess_palette_count_uses_phash_distance_and_records_side_note():
     calls = []
     side_notes = []
@@ -1268,6 +1290,7 @@ def main():
             "Manual palette namespace editor",
             test_create_manual_palette_editor_from_namespace_wires_legacy_globals,
         ),
+        ("Manual palette data override", test_manual_palette_setup_context_accepts_data_hex_override),
         ("Guess palette count", test_guess_palette_count_uses_phash_distance_and_records_side_note),
         ("Guess palette fallback", test_guess_palette_count_preserves_ihdr_depth_fallback),
         ("Guess palette libpng error", test_guess_palette_count_routes_libpng_error_to_end),

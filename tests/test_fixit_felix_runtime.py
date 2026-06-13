@@ -205,7 +205,7 @@ def test_apply_repair_offers_tkinter_controls_after_empty_plte_preview():
         nodialogue=False,
         max_saves=None,
     )
-    plte = next(chunk for chunk in iter_chunks(original) if chunk.chunk_type == b"PLTE")
+    plte = next(chunk for chunk in iter_chunks(repair.data) if chunk.chunk_type == b"PLTE")
     start = plte.offset * 2
     end = (plte.offset + 12 + plte.length) * 2
     side_notes = []
@@ -231,7 +231,7 @@ def test_apply_repair_offers_tkinter_controls_after_empty_plte_preview():
         "idhash": ("PLTE", start, end, "empty-indexed-grayscale"),
         "skipauto": True,
     }) in calls
-    assert ("manual", ("plte_empty.png", b"PLTE", end, start, "-PLTE Wrong Data")) in calls
+    assert ("manual", ("plte_empty.png", b"PLTE", end, start, "-PLTE Wrong Data", repair.data.hex())) in calls
     assert [call for call in calls if call[0] == "write"] == []
     assert side_notes == ["-FixItFelix:opened Tkinter PLTE editor after grayscale PLTE preview."]
 
@@ -273,7 +273,7 @@ def test_apply_repair_offers_tkinter_controls_after_malformed_plte_preview():
         nodialogue=False,
         max_saves=None,
     )
-    plte = next(chunk for chunk in iter_chunks(original) if chunk.chunk_type == b"PLTE")
+    plte = next(chunk for chunk in iter_chunks(repair.data) if chunk.chunk_type == b"PLTE")
     start = plte.offset * 2
     end = (plte.offset + 12 + plte.length) * 2
     calls = []
@@ -299,7 +299,7 @@ def test_apply_repair_offers_tkinter_controls_after_malformed_plte_preview():
         "idhash": ("PLTE", start, end, "malformed-indexed-grayscale"),
         "skipauto": True,
     }) in calls
-    assert ("manual", ("plte_length_mod_three.png", b"PLTE", end, start, "-PLTE Wrong Data")) in calls
+    assert ("manual", ("plte_length_mod_three.png", b"PLTE", end, start, "-PLTE Wrong Data", repair.data.hex())) in calls
     assert [call for call in calls if call[0] == "write"] == []
 
 
@@ -312,7 +312,7 @@ def test_apply_repair_offers_tkinter_controls_after_oversized_black_plte_preview
         nodialogue=False,
         max_saves=None,
     )
-    plte = next(chunk for chunk in iter_chunks(original) if chunk.chunk_type == b"PLTE")
+    plte = next(chunk for chunk in iter_chunks(repair.data) if chunk.chunk_type == b"PLTE")
     start = plte.offset * 2
     end = (plte.offset + 12 + plte.length) * 2
     calls = []
@@ -338,7 +338,7 @@ def test_apply_repair_offers_tkinter_controls_after_oversized_black_plte_preview
         "idhash": ("PLTE", start, end, "oversized-indexed-grayscale"),
         "skipauto": True,
     }) in calls
-    assert ("manual", ("plte_too_many_entries.png", b"PLTE", end, start, "-PLTE Wrong Data")) in calls
+    assert ("manual", ("plte_too_many_entries.png", b"PLTE", end, start, "-PLTE Wrong Data", repair.data.hex())) in calls
     assert [call for call in calls if call[0] == "write"] == []
 
 
@@ -2210,6 +2210,57 @@ def test_apply_wrong_crc_writes_improved_deflate_probe_instead_of_crc_clone():
     assert [call for call in calls if call[0] == "write_clone"]
     assert "-Repair hypothesis tried: targeted IDAT deflate header probe." in calls[-1][1][1]
     assert any(note.startswith("-IDAT deflate candidate:") for note in side_notes)
+
+
+def test_apply_wrong_crc_uses_focused_idat_crc_forge_before_blackfill():
+    sample = ROOT / "png_to_check" / "color_plte2_sample.png"
+    if not sample.exists():
+        return
+
+    data = sample.read_bytes()
+    analysis = fixit_felix_runtime.idat.analyze_idat_stream(data)
+    bad_idat = next(
+        chunk
+        for chunk in iter_chunks(data)
+        if chunk.chunk_type == b"IDAT" and chunk.crc != chunk.computed_crc
+    )
+    calls = []
+    side_notes = []
+    finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(True,),
+        pandora_box={finding: {chkd + "0": bad_idat.computed_crc.to_bytes(4, "big").hex()}},
+        data_hex=data.hex(),
+        side_notes=side_notes,
+        minibar=lambda *args: calls.append(("minibar", args, {})),
+    )
+
+    result = fixit_felix_runtime.apply_wrong_crc(
+        runtime,
+        fixit_felix.WrongCrcDecision("ask_easy_crc_fix", finding, 0),
+        chkd,
+        wrong_crc_tools(
+            chunk=b"IDAT",
+            replacement_crc=bad_idat.computed_crc.to_bytes(4, "big").hex(),
+            start=(bad_idat.offset + 8 + bad_idat.length) * 2,
+            end=(bad_idat.offset + 12 + bad_idat.length) * 2,
+        ),
+    )
+
+    assert analysis.error_file_offset == 0x20F
+    assert result == (True, "written")
+    cowsay = [call[1][1] for call in calls if call[0] == "candy" and call[1][0] == "Cowsay"]
+    assert "HermesProbe localized a deflate error near file offset 0x20f." in cowsay
+    assert "Trying focused 4-byte IDAT CRC repair around 0x20c before blackfill." in cowsay
+    assert not [call for call in calls if call[0] == "question"]
+    writes = [call for call in calls if call[0] == "write_clone"]
+    assert len(writes) == 1
+    repaired = writes[0][1][0]
+    assert validate_png_structure(repaired).ok
+    assert fixit_felix_runtime.idat.analyze_idat_stream(repaired).complete is True
+    assert "-Repair hypothesis tried: focused 4-byte IDAT CRC forge." in writes[0][1][1]
 
 
 def test_apply_wrong_crc_uses_heavy_probe_loadingbar_after_quick_probe_fails():
@@ -4528,6 +4579,10 @@ def main():
         (
             "Apply wrong CRC writes improved IDAT deflate probe",
             test_apply_wrong_crc_writes_improved_deflate_probe_instead_of_crc_clone,
+        ),
+        (
+            "Apply wrong CRC focused IDAT CRC forge before blackfill",
+            test_apply_wrong_crc_uses_focused_idat_crc_forge_before_blackfill,
         ),
         (
             "Apply wrong CRC heavy IDAT deflate probe loadingbar",

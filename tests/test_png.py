@@ -171,6 +171,25 @@ def test_repair_indexed_plte_rebuilds_malformed_palette():
     assert plte.length == 768
 
 
+def test_repair_empty_plte_replaces_terminal_duplicate_plte_with_iend():
+    ihdr = (1).to_bytes(4, "big") + (1).to_bytes(4, "big") + b"\x08\x03\x00\x00\x00"
+    original = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"PLTE", b"")
+        + build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00", level=0))
+        + build_png_chunk(b"PLTE", b"\x00\x00\x00")
+    )
+
+    repaired = repair_empty_plte(original)
+
+    assert repaired is not None
+    assert validate_png_structure(repaired.data).ok
+    chunks = tuple(iter_chunks(repaired.data))
+    assert [chunk.chunk_type for chunk in chunks] == [b"IHDR", b"PLTE", b"IDAT", b"IEND"]
+    assert chunks[1].length == 3
+
+
 def test_repair_indexed_plte_rebuilds_oversized_black_palette():
     repaired = repair_indexed_plte((BROKEN_FIXTURES / "plte_too_many_entries.png").read_bytes())
 
@@ -855,6 +874,55 @@ def test_repair_ihdr_uses_crc_preserving_strategy_first():
     assert first.data[10:11] == b"\x00"
     assert first.crc == original_ihdr.crc
     assert first.crc_ok
+
+
+def test_repair_ihdr_preserving_indexed_crc_inserts_missing_plte():
+    sample = ROOT / "png_to_check" / "tstplt.png"
+    if not sample.exists():
+        return
+
+    original = sample.read_bytes()
+    original_ihdr = chunk_at(original, len(PNG_SIGNATURE))
+
+    repaired = repair_ihdr(original)
+
+    assert original_ihdr is not None
+    assert repaired is not None
+    assert repaired.strategy == (
+        "restored indexed IHDR values matching stored CRC and inserted missing PLTE as grayscale palette"
+    )
+    assert repaired.preserved_crc is True
+    assert repaired.width == 32
+    assert repaired.height == 32
+    assert repaired.bit_depth == 8
+    assert repaired.color_type == 3
+    chunks = tuple(iter_chunks(repaired.data))
+    assert [chunk.chunk_type for chunk in chunks] == [b"IHDR", b"gAMA", b"PLTE", b"IDAT", b"IEND"]
+    ihdr = chunks[0]
+    assert ihdr.crc == original_ihdr.crc
+    assert ihdr.crc_ok
+    assert ihdr.data[8:10] == b"\x08\x03"
+    assert validate_png_structure(repaired.data).ok
+
+
+def test_repair_ihdr_rebuilds_fake_prefix_from_valid_suffix_fixture():
+    sample = ROOT / "png_to_check" / "Wrong-fake-data.png"
+    if not sample.exists():
+        return
+
+    repaired = repair_ihdr(sample.read_bytes())
+
+    assert repaired is not None
+    assert repaired.strategy == "rebuilt fake IHDR prefix from valid chunk suffix and IDAT scanline size"
+    assert repaired.width == 477
+    assert repaired.height == 599
+    assert repaired.bit_depth == 8
+    assert repaired.color_type == 2
+    assert repaired.strict_candidate_count == 1
+    chunks = tuple(iter_chunks(repaired.data))
+    assert [chunk.chunk_type for chunk in chunks[:6]] == [b"IHDR", b"gAMA", b"cHRM", b"bKGD", b"pHYs", b"tIME"]
+    assert chunks[0].crc_ok
+    assert validate_png_structure(repaired.data).ok
 
 
 def test_repair_ihdr_falls_back_to_rebuild_when_stored_crc_is_not_original():
@@ -2749,6 +2817,14 @@ def main():
         ("Repair IHDR while preserving stored CRC", test_repair_ihdr_preserving_crc_keeps_original_checksum),
         ("Prefer CRC-preserving IHDR repair", test_repair_ihdr_uses_crc_preserving_strategy_first),
         (
+            "Keep indexed IHDR stored CRC and insert missing PLTE",
+            test_repair_ihdr_preserving_indexed_crc_inserts_missing_plte,
+        ),
+        (
+            "Rebuild fake IHDR prefix from valid chunk suffix",
+            test_repair_ihdr_rebuilds_fake_prefix_from_valid_suffix_fixture,
+        ),
+        (
             "Fallback to rebuilt IHDR when stored CRC is not original",
             test_repair_ihdr_falls_back_to_rebuild_when_stored_crc_is_not_original,
         ),
@@ -2827,6 +2903,10 @@ def main():
         ),
         ("Remove empty optional truecolor PLTE", test_repair_empty_plte_removes_optional_truecolor_palette),
         ("Rebuild empty indexed PLTE", test_repair_empty_plte_rebuilds_indexed_palette),
+        (
+            "Rebuild empty PLTE with terminal duplicate PLTE",
+            test_repair_empty_plte_replaces_terminal_duplicate_plte_with_iend,
+        ),
         ("Remove forbidden grayscale PLTE", test_repair_grayscale_plte_removes_forbidden_palette),
         ("Truncate oversized optional truecolor PLTE", test_repair_optional_truecolor_plte_truncates_oversized_palette),
         ("Remove malformed optional truecolor PLTE", test_repair_optional_truecolor_plte_removes_malformed_palette),

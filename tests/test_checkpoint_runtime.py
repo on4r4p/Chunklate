@@ -144,6 +144,39 @@ def test_checkpoint_loop_runtime_records_finding_pauses_and_applies_action():
     )
 
 
+def test_checkpoint_loop_pauses_once_for_simultaneous_errors():
+    calls = []
+
+    result = checkpoint_runtime.run_checkpoint_loop(
+        checkpoint_runtime.CheckPointLoopRuntime(
+            record_finding=lambda registration: calls.append(("record_finding", registration.info)),
+            apply_action=lambda decision, chunk, info, toolkit: calls.append(("apply_action", info)) or (False, None),
+            pause_error=lambda prompt: calls.append(("pause_error", prompt)),
+        ),
+        checkpoint_runtime.CheckPointLoopContext(
+            error=True,
+            fixed=False,
+            function="GetInfo",
+            chunk=b"IHDR",
+            infos=(
+                "-IHDR size have to always be 13 bytes",
+                "-IHDR Width Must be between 1 to 2147483647. StructIndex:0",
+                "-IHDR Color Must be 0,2,3,4 or 6. StructIndex:3",
+            ),
+            toolkit=(),
+            brute_level=0,
+            libpng_errors=(),
+            libpng_finished_at_iend=False,
+            pause_error_enabled=True,
+        ),
+    )
+
+    assert result == ()
+    assert [call for call in calls if call[0] == "pause_error"] == [("pause_error", "Pause:Error")]
+    assert len([call for call in calls if call[0] == "record_finding"]) == 3
+    assert len([call for call in calls if call[0] == "apply_action"]) == 3
+
+
 def test_checkpoint_loop_runtime_returns_first_action_result():
     calls = []
 
@@ -1232,6 +1265,7 @@ def test_chunklate_checkpoint_runtime_uses_current_legacy_functions():
 def main():
     checks = [
         ("CheckPoint loop records and applies", test_checkpoint_loop_runtime_records_finding_pauses_and_applies_action),
+        ("CheckPoint loop pauses once for simultaneous errors", test_checkpoint_loop_pauses_once_for_simultaneous_errors),
         ("CheckPoint loop returns action result", test_checkpoint_loop_runtime_returns_first_action_result),
         ("CheckPoint entry routes loop", test_checkpoint_entry_runtime_emits_header_and_routes_loop),
         ("CheckPoint entry debug", test_checkpoint_entry_runtime_preserves_debug_and_pause),

@@ -4310,6 +4310,35 @@ def indexed_palette_lacks_used_color_diversity(palette_data: bytes, indices: Ite
     return len(colors) <= 1
 
 
+def finalize_plte_repair_data(data: bytes) -> bytes:
+    if validate_png_structure(data).ok:
+        return data
+
+    try:
+        chunks = list(iter_chunks(data))
+    except PngFormatError:
+        return data
+
+    if not chunks or chunks[-1].chunk_type == b"IEND":
+        return data
+
+    appended = data + IEND_CHUNK
+    if validate_png_structure(appended).ok:
+        return appended
+
+    chunk_types = [chunk.chunk_type for chunk in chunks]
+    if chunks[-1].chunk_type == b"PLTE" and chunk_types.count(b"PLTE") > 1:
+        completed = data[: chunks[-1].offset] + IEND_CHUNK
+        if validate_png_structure(completed).ok:
+            return completed
+
+    return data
+
+
+def build_plte_repair(data: bytes, strategy: str) -> PlteRepair:
+    return PlteRepair(data=finalize_plte_repair_data(data), strategy=strategy)
+
+
 def repair_indexed_plte(data: bytes) -> PlteRepair | None:
     try:
         chunks = list(iter_chunks(data))
@@ -4350,7 +4379,7 @@ def repair_indexed_plte(data: bytes) -> PlteRepair | None:
         palette = grayscale_palette(max_entries)
         if insert_before is None or palette is None:
             return None
-        return PlteRepair(
+        return build_plte_repair(
             data=data[: insert_before.offset] + build_png_chunk(b"PLTE", palette) + data[insert_before.offset :],
             strategy="inserted missing indexed PLTE as grayscale palette",
         )
@@ -4359,7 +4388,7 @@ def repair_indexed_plte(data: bytes) -> PlteRepair | None:
         palette = grayscale_palette(max_entries)
         if palette is None:
             return None
-        return PlteRepair(
+        return build_plte_repair(
             data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
             strategy="rebuilt malformed indexed PLTE as grayscale palette",
         )
@@ -4371,11 +4400,11 @@ def repair_indexed_plte(data: bytes) -> PlteRepair | None:
             palette = grayscale_palette(max_entries)
             if palette is None:
                 return None
-            return PlteRepair(
+            return build_plte_repair(
                 data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
                 strategy="rebuilt oversized indexed PLTE as grayscale palette",
             )
-        return PlteRepair(
+        return build_plte_repair(
             data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
             strategy="truncated indexed PLTE to bit depth entry count",
         )
@@ -4384,7 +4413,7 @@ def repair_indexed_plte(data: bytes) -> PlteRepair | None:
         palette = grayscale_palette(max_entries)
         if palette is None:
             return None
-        return PlteRepair(
+        return build_plte_repair(
             data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
             strategy="rebuilt undersized indexed PLTE as grayscale palette",
         )
@@ -4393,7 +4422,7 @@ def repair_indexed_plte(data: bytes) -> PlteRepair | None:
         palette = grayscale_palette(max_entries)
         if palette is None:
             return None
-        return PlteRepair(
+        return build_plte_repair(
             data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
             strategy="rebuilt low-diversity indexed PLTE as grayscale palette",
         )
@@ -4418,7 +4447,7 @@ def repair_empty_plte(data: bytes) -> PlteRepair | None:
 
     _width, _height, bit_depth, color_type, _method, _filter_method, _interlace = ihdr_values
     if color_type in (0, 2, 4, 6):
-        return PlteRepair(
+        return build_plte_repair(
             data=replace_png_chunk(data, plte, b""),
             strategy="removed empty non-indexed PLTE chunk",
         )
@@ -4439,7 +4468,7 @@ def repair_empty_plte(data: bytes) -> PlteRepair | None:
     if palette is None:
         return None
 
-    return PlteRepair(
+    return build_plte_repair(
         data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", palette)),
         strategy="rebuilt empty indexed PLTE as grayscale palette",
     )
@@ -4464,7 +4493,7 @@ def repair_grayscale_plte(data: bytes) -> PlteRepair | None:
     if color_type not in (0, 4):
         return None
 
-    return PlteRepair(
+    return build_plte_repair(
         data=replace_png_chunk(data, plte, b""),
         strategy="removed PLTE chunk forbidden in grayscale PNG",
     )
@@ -4490,13 +4519,13 @@ def repair_optional_truecolor_plte(data: bytes) -> PlteRepair | None:
         return None
 
     if plte.length % 3 != 0:
-        return PlteRepair(
+        return build_plte_repair(
             data=replace_png_chunk(data, plte, b""),
             strategy="removed malformed optional truecolor PLTE chunk",
         )
 
     if (plte.length // 3) > 256:
-        return PlteRepair(
+        return build_plte_repair(
             data=replace_png_chunk(data, plte, build_png_chunk(b"PLTE", plte.data[: 256 * 3])),
             strategy="truncated optional truecolor PLTE to 256 entries",
         )
@@ -5461,6 +5490,140 @@ def _best_rebuild_ihdr_candidate_from_idat(data: bytes) -> tuple[IhdrRebuildCand
     return strict_candidates[0], len(strict_candidates)
 
 
+def _valid_chunk_suffix_from_offset(data: bytes, offset: int) -> tuple[PngChunk, ...] | None:
+    chunks: list[PngChunk] = []
+    cursor = int(offset)
+    while cursor < len(data):
+        chunk = chunk_at(data, cursor)
+        if chunk is None:
+            return None
+        if not _is_ascii_chunk_type(chunk.chunk_type):
+            return None
+        if not chunk.crc_ok:
+            return None
+        chunks.append(chunk)
+        cursor = chunk.offset + 12 + chunk.length
+        if chunk.chunk_type == b"IEND":
+            break
+
+    if not chunks or chunks[-1].chunk_type != b"IEND":
+        return None
+    if chunks[-1].offset + 12 + chunks[-1].length != len(data):
+        return None
+    if not any(chunk.chunk_type == b"IDAT" for chunk in chunks):
+        return None
+    return tuple(chunks)
+
+
+def _real_chunk_suffix_after_broken_ihdr(data: bytes) -> tuple[int, tuple[PngChunk, ...]] | None:
+    signature_offset = find_signature_offset(data)
+    if signature_offset < 0:
+        return None
+
+    ihdr_offset = signature_offset + len(PNG_SIGNATURE)
+    ihdr = chunk_at(data, ihdr_offset)
+    if ihdr is None or ihdr.chunk_type != b"IHDR":
+        return None
+
+    first_scan_offset = ihdr.offset + 8
+    last_scan_offset = min(len(data) - 12, ihdr.offset + 8 + 64)
+    for offset in range(first_scan_offset, last_scan_offset + 1):
+        chunk = chunk_at(data, offset)
+        if chunk is None:
+            continue
+        if chunk.chunk_type == b"IHDR":
+            continue
+        if chunk.chunk_type not in specs.CHUNKS:
+            continue
+        suffix = _valid_chunk_suffix_from_offset(data, offset)
+        if suffix is not None:
+            return offset, suffix
+
+    return None
+
+
+def _current_ihdr_hints(data: bytes) -> tuple[int, int, int, int]:
+    signature_offset = find_signature_offset(data)
+    if signature_offset < 0:
+        return 0, 0, 0, 0
+
+    ihdr = chunk_at(data, signature_offset + len(PNG_SIGNATURE))
+    if ihdr is None or ihdr.chunk_type != b"IHDR":
+        return 0, 0, 0, 0
+
+    payload = ihdr.data
+    width = int.from_bytes(payload[:4], "big") if len(payload) >= 4 else 0
+    height = int.from_bytes(payload[4:8], "big") if len(payload) >= 8 else 0
+    bit_depth = payload[8] if len(payload) >= 9 else 0
+    color_type = payload[9] if len(payload) >= 10 else 0
+    return width, height, bit_depth, color_type
+
+
+def _best_rebuild_ihdr_candidate_from_real_suffix(data: bytes) -> tuple[IhdrRebuildCandidate, int] | None:
+    suffix_result = _real_chunk_suffix_after_broken_ihdr(data)
+    if suffix_result is None:
+        return None
+
+    suffix_offset, suffix_chunks = suffix_result
+    idat_data = b"".join(chunk.data for chunk in suffix_chunks if chunk.chunk_type == b"IDAT")
+    try:
+        decompressed = zlib.decompress(idat_data)
+    except zlib.error:
+        return None
+
+    current_width, current_height, current_bit_depth, current_color_type = _current_ihdr_hints(data)
+    has_plte = any(chunk.chunk_type == b"PLTE" for chunk in suffix_chunks)
+    signature_offset = find_signature_offset(data)
+    if signature_offset < 0:
+        return None
+
+    strict_candidates: list[IhdrRebuildCandidate] = []
+    seen_candidates: set[bytes] = set()
+    for fixed_ihdr_data in _ihdr_candidate_data_from_idat(
+        len(decompressed),
+        current_width,
+        current_height,
+        current_bit_depth,
+        current_color_type,
+    ):
+        if fixed_ihdr_data in seen_candidates:
+            continue
+        seen_candidates.add(fixed_ihdr_data)
+
+        rebuilt = data[:signature_offset] + PNG_SIGNATURE + build_png_chunk(b"IHDR", fixed_ihdr_data) + data[suffix_offset:]
+        if not validate_png_structure(rebuilt).ok:
+            continue
+
+        width, height, bit_depth, color_type, _method, _filter_method, _interlace = struct.unpack(
+            "!IIBBBBB",
+            fixed_ihdr_data,
+        )
+        strict_candidates.append(
+            IhdrRebuildCandidate(
+                data=rebuilt,
+                ihdr_data=fixed_ihdr_data,
+                width=width,
+                height=height,
+                bit_depth=bit_depth,
+                color_type=color_type,
+                score=_ihdr_rebuild_score(
+                    fixed_ihdr_data,
+                    has_plte=has_plte,
+                    current_width=current_width,
+                    current_height=current_height,
+                    current_bit_depth=current_bit_depth,
+                    current_color_type=current_color_type,
+                ),
+            )
+        )
+
+    if not strict_candidates:
+        return None
+
+    strict_candidates.sort(key=lambda candidate: candidate.score, reverse=True)
+    return strict_candidates[0], len(strict_candidates)
+
+
 def rebuild_ihdr_from_idat(data: bytes) -> bytes | None:
     candidate = _best_rebuild_ihdr_candidate_from_idat(data)
     if candidate is None:
@@ -5480,10 +5643,38 @@ def repair_ihdr(data: bytes) -> IhdrRepair | None:
 
     fixed = repair_ihdr_preserving_crc(data)
     if fixed is not None:
+        fixed_validation = validate_png_structure(fixed)
+        if not fixed_validation.ok and "Indexed-color PNG requires a PLTE chunk" in fixed_validation.errors:
+            fixed_plte = repair_indexed_plte(fixed)
+            if fixed_plte is not None and validate_png_structure(fixed_plte.data).ok:
+                ihdr = next((chunk for chunk in iter_chunks(fixed_plte.data) if chunk.chunk_type == b"IHDR"), None)
+                ihdr_values = _parse_ihdr_data(ihdr) if ihdr is not None else None
+                if ihdr_values is not None:
+                    width, height, bit_depth, color_type, _method, _filter_method, _interlace = ihdr_values
+                else:
+                    width = height = bit_depth = color_type = None
+                return IhdrRepair(
+                    data=fixed_plte.data,
+                    strategy="restored indexed IHDR values matching stored CRC and inserted missing PLTE as grayscale palette",
+                    preserved_crc=True,
+                    width=width,
+                    height=height,
+                    bit_depth=bit_depth,
+                    color_type=color_type,
+                )
         return IhdrRepair(
             data=fixed,
             strategy="restored IHDR values matching stored CRC",
             preserved_crc=True,
+        )
+
+    rebuilt_from_suffix = _best_rebuild_ihdr_candidate_from_real_suffix(data)
+    if rebuilt_from_suffix is not None:
+        candidate, candidate_count = rebuilt_from_suffix
+        return _ihdr_repair_from_candidate(
+            candidate,
+            strategy="rebuilt fake IHDR prefix from valid chunk suffix and IDAT scanline size",
+            candidate_count=candidate_count,
         )
 
     rebuilt = _best_rebuild_ihdr_candidate_from_idat(data)

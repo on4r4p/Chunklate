@@ -524,6 +524,7 @@ def run_checkpoint_loop(
     runtime: CheckPointLoopRuntime,
     context: CheckPointLoopContext,
 ) -> Any:
+    paused_error_in_context = False
     for info in context.infos:
         registration = checkpoint.finding_registration(
             error=context.error,
@@ -535,8 +536,13 @@ def run_checkpoint_loop(
         )
         if registration.should_record:
             runtime.record_finding(registration)
-            if registration.store == "pandora_box" and context.pause_error_enabled:
+            if (
+                registration.store == "pandora_box"
+                and context.pause_error_enabled
+                and not paused_error_in_context
+            ):
                 runtime.pause_error("Pause:Error")
+                paused_error_in_context = True
 
         decision = checkpoint.action_decision(
             error=context.error,
