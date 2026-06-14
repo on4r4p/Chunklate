@@ -2629,6 +2629,25 @@ def remember_deferred_idat_crc_note(runtime: WrongCrcRuntime, validation: WrongC
         runtime.side_notes.append(defer_idat_crc_only_note(validation.reason))
 
 
+def remember_failed_idat_crc_only_patch(
+    runtime: WrongCrcRuntime,
+    finding: Any,
+    tools: relics.WrongCrcTools,
+    validation: WrongCrcPatchValidation,
+) -> None:
+    runtime.set_idat_crc_patch_failed(True)
+    runtime.set_idat_crc_patch_failed_finding(finding)
+    runtime.remember_deferred_idat_crc_route(finding, tools)
+    remember_deferred_idat_crc_note(runtime, validation)
+
+
+def already_explained_invalid_idat_crc_only_patch(runtime: WrongCrcRuntime) -> bool:
+    return any(
+        str(note).startswith("-Deferred IDAT CRC-only patch: zlib stream still invalid:")
+        for note in runtime.side_notes
+    )
+
+
 def _runtime_can_write_clone(runtime: Any) -> bool:
     return callable(getattr(runtime, "write_clone", None))
 
@@ -3050,10 +3069,7 @@ def save_or_defer_wrong_crc(
         return save_wrong_crc(runtime, tools)
 
     if tools.chunk == b"IDAT":
-        runtime.set_idat_crc_patch_failed(True)
-        runtime.set_idat_crc_patch_failed_finding(finding)
-        runtime.remember_deferred_idat_crc_route(finding, tools)
-        remember_deferred_idat_crc_note(runtime, validation)
+        remember_failed_idat_crc_only_patch(runtime, finding, tools, validation)
 
     runtime.candy(
         "Cowsay",
@@ -3089,10 +3105,7 @@ def preflight_idat_crc_only_patch(
     if validation.can_save:
         return None
 
-    runtime.set_idat_crc_patch_failed(True)
-    runtime.set_idat_crc_patch_failed_finding(finding)
-    runtime.remember_deferred_idat_crc_route(finding, tools)
-    remember_deferred_idat_crc_note(runtime, validation)
+    remember_failed_idat_crc_only_patch(runtime, finding, tools, validation)
     runtime.candy(
         "Cowsay",
         "I tested the cheap CRC patch in my head. It still breaks: %s" % validation.reason,
@@ -3214,9 +3227,43 @@ def apply_wrong_crc(
         return final_wrong_crc_question(runtime, decision.finding, chkd, tools)
 
     if decision.action == "ask_other_errors_first":
+        if tools.chunk == b"IDAT" and runtime.is_deferred_idat_crc_route(decision.finding, tools):
+            runtime.set_idat_crc_patch_failed(True)
+            runtime.set_idat_crc_patch_failed_finding(decision.finding)
+            runtime.candy(
+                "Cowsay",
+                "I already checked that IDAT CRC-only route. It still only makes the checksum label prettier.",
+                "com",
+            )
+            return defer_wrong_crc(runtime, tools)
+
         clean_idat_crc_patch = save_clean_idat_crc_only_patch_before_other_errors(runtime, tools)
         if clean_idat_crc_patch is not None:
             return clean_idat_crc_patch
+
+        if tools.chunk == b"IDAT":
+            validation = validate_idat_crc_only_patch(runtime, tools)
+            if not validation.can_save:
+                already_explained = already_explained_invalid_idat_crc_only_patch(runtime)
+                remember_failed_idat_crc_only_patch(runtime, decision.finding, tools, validation)
+                if already_explained:
+                    runtime.candy(
+                        "Cowsay",
+                        repeated_deferred_repair_message(error_label="wrong CRC", chunk=b"IDAT"),
+                        "com",
+                    )
+                else:
+                    runtime.candy(
+                        "Cowsay",
+                        "I tested the cheap CRC patch in my head. It still breaks: %s" % validation.reason,
+                        "bad",
+                    )
+                    runtime.candy(
+                        "Cowsay",
+                        "So i'm not asking you to bless the same fake fix while other errors are still visible.",
+                        "com",
+                    )
+                return defer_wrong_crc(runtime, tools)
 
         visible_other_error_count = len(wrong_crc_visible_other_errors(runtime, decision.finding))
         other_error_count = visible_other_error_count or decision.other_error_count

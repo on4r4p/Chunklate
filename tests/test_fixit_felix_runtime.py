@@ -2480,6 +2480,42 @@ def test_apply_wrong_crc_other_errors_defers_to_chunk_story():
     ]
 
 
+def test_apply_wrong_crc_other_errors_defers_invalid_idat_crc_only_without_question():
+    calls = []
+    side_notes = []
+    finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
+    chkd = "IDAT_Tool_"
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(),
+        pandora_box={
+            finding: {chkd + "0": "fixed-crc-data"},
+            "CheckLength_Error_0:-No NextChunk": {},
+        },
+        data_hex="00112233445566778899",
+        side_notes=side_notes,
+    )
+
+    result = fixit_felix_runtime.apply_wrong_crc(
+        runtime,
+        fixit_felix.WrongCrcDecision("ask_other_errors_first", finding, 1),
+        chkd,
+        wrong_crc_tools(),
+    )
+
+    assert result == (False, None)
+    assert not any(call[0] == "question" for call in calls)
+    assert ("set_idat_crc_patch_failed", (True,), {}) in calls
+    assert ("set_idat_crc_patch_failed_finding", (finding,), {}) in calls
+    assert any(call[0] == "remember_deferred_idat_crc_route" for call in calls)
+    assert any(note.startswith("-Deferred IDAT CRC-only patch: zlib stream still invalid:") for note in side_notes)
+    assert calls[-3:] == [
+        ("chunk_story", ("add", b"IDAT", 33, 109, 13), {}),
+        ("set_old_bad_crc", ("old-crc",), {}),
+        ("set_skip_bad_crc", (True,), {}),
+    ]
+
+
 def test_apply_wrong_crc_other_errors_saves_clean_idat_crc_only_patch():
     calls = []
     finding = "Checksum_Error_0:Wrong Crc b'IDAT'"

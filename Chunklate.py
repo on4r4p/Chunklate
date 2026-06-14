@@ -818,6 +818,9 @@ def GetSpec(GetChunk,Mode,Fields=["All"],StructIndex=None,IterNbr=1):
 
 
 def Sync_Chunk_Info_Legacy_State(section=None):
+    if hasattr(section, "legacy_globals"):
+        globals().update(section.legacy_globals())
+        return None
     return chunk_state_runtime.sync_state_to_legacy(globals(), CHUNK_INFO_STATE, section)
 
 
@@ -892,13 +895,9 @@ def YouShallPass(Chunk, data):
     return youshallpass_runtime.youshallpass(YouShallPass_Runtime(), Chunk, data)
 
 
-def Sync_Chunk_Scanner_Legacy_State(scan):
-    globals().update(scan.legacy_globals())
-
-
 def ChunkbyChunk(offset):
     ChunkScan = chunk_scanner.scan_legacy_chunk(DATA_BYTES, offset)
-    Sync_Chunk_Scanner_Legacy_State(ChunkScan)
+    Sync_Chunk_Info_Legacy_State(ChunkScan)
 
     Candy("Title", "Chunk Infos:")
     chunk_report.render_legacy_chunk_window(
@@ -1410,6 +1409,12 @@ def NameShift():
 
 def BruteChunk_Crc_Matches(candidates):
     try:
+        # Add validation to check if Raw_Data and Raw_Crc are not empty
+        if not Raw_Data or Raw_Data.strip() == '':
+            return []
+        if not Raw_Crc or Raw_Crc.strip() == '':
+            return []
+            
         chunk_data = bytes.fromhex(Raw_Data)
         stored_crc = int(Raw_Crc, 16)
     except Exception as e:
@@ -1650,12 +1655,14 @@ def FixItFelix_Wrong_Crc(key, chkd, PandoraBox_len):
             FixItFelix_Set_Skip_Bad_Crc(True)
             return False, None
 
-    return fixit_felix_runtime.apply_wrong_crc(
+    success, result = fixit_felix_runtime.apply_wrong_crc(
         FixItFelix_Wrong_Crc_Runtime(),
         CrcDecision,
         chkd,
         CrcTools,
     )
+
+    return success, result
 
 
 def FixItFelix_Set_Skip_Bad_Libpng(value):

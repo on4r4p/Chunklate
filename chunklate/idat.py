@@ -694,6 +694,53 @@ def _idat_crc_provenance(
         return "original_crc_ok"
     return "original_crc_bad"
 
+def _attempt_raw_deflate_recovery(idat_stream: bytes) -> tuple[bytes, str]:
+    """Try decompressing raw deflate (stripping zlib wrapper)."""
+    if len(idat_stream) < 6:
+        return b"", "stream too short"
+    
+    # Skip zlib header (2 bytes) and try raw deflate
+    raw_deflate = idat_stream[2:-4]
+    if len(raw_deflate) == 0:
+        return b"", "no raw content"
+    
+    try:
+        # Decompress raw deflate without zlib wrapper
+        decompressor = zlib.decompressobj(-zlib.MAX_WBITS)
+        decompressed = decompressor.decompress(raw_deflate)
+        return decompressed, ""
+    except zlib.error as e:
+        return b"", str(e)
+
+
+def _recover_partial_scanlines_from_corrupt_deflate(
+    idat_stream: bytes,
+    *,
+    width: int,
+    height: int,
+    bit_depth: int,
+    color_type: int,
+) -> TolerantScanlineSalvage | None:
+    """Recover scanlines using raw deflate + tolerant salvage."""
+    
+    scanline_size = png.png_scanline_size(width, bit_depth, color_type)
+    if scanline_size is None:
+        return None
+    
+    # Try raw deflate recovery
+    raw_decompressed, _error = _attempt_raw_deflate_recovery(idat_stream)
+    
+    if raw_decompressed and len(raw_decompressed) >= scanline_size:
+        # Use existing tolerant salvage on recovered data
+        return _tolerant_filter0_scanlines(
+            raw_decompressed,
+            width=width,
+            height=height,
+            bit_depth=bit_depth,
+            color_type=color_type,
+        )
+    
+    return None
 
 def analyze_idat_stream(
     data: bytes,
@@ -813,12 +860,32 @@ def analyze_idat_stream(
     )
     complete_scanlines, usable_scanlines = _count_usable_scanlines(decompressed, scanline_size, height)
     recovered_size = usable_scanlines * scanline_size
+    
+    # Calculate status FIRST
     status = _idat_stream_status(
         error,
         complete=zlib_complete,
         decompressed_size=len(decompressed),
         expected_size=expected_size,
     )
+    
+    # THEN try raw deflate recovery if status is corrupt_deflate
+    if len(decompressed) == 0 and status == "corrupt_deflate":
+        raw_salvage = _recover_partial_scanlines_from_corrupt_deflate(
+            idat_stream,
+            width=width,
+            height=height,
+            bit_depth=bit_depth,
+            color_type=color_type,
+        )
+        if raw_salvage and raw_salvage.recovered_scanlines > 0:
+            decompressed = raw_salvage.filtered_scanlines
+            usable_scanlines = raw_salvage.recovered_scanlines
+            complete_scanlines = raw_salvage.recovered_scanlines
+            recovered_size = len(decompressed)
+            error = f"recovered {usable_scanlines} scanlines via raw deflate salvage"
+            status = "partial"  # Update status after recovery
+    
     complete = status == "complete" and usable_scanlines == height
     reason = error
     if status == "partial" and len(decompressed) != expected_size:
@@ -1635,7 +1702,7 @@ def rebuild_tolerant_idat_salvage(data: bytes) -> PartialIdatBlackfillRepair | N
         return None
 
     idat_stream = b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
-    decompressed, _zlib_complete, _error = _decompress_until_error(idat_stream)
+    decompressed, zlib_complete, _error = _decompress_until_error(idat_stream)
     if len(decompressed) < analysis.expected_size:
         return None
     salvage = _tolerant_filter0_scanlines(
