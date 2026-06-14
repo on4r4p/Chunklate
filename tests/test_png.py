@@ -784,6 +784,20 @@ def test_validate_png_structure_rejects_invalid_scanline_filter():
     assert "IDAT scanline filter type is invalid" in validation.errors
 
 
+def test_validate_png_structure_rejects_indexed_idat_outside_plte():
+    ihdr = build_png_chunk(b"IHDR", b"\x00\x00\x00\x02\x00\x00\x00\x01\x04\x03\x00\x00\x00")
+    plte = build_png_chunk(b"PLTE", b"\x00\x00\x00")
+    bkgd = build_png_chunk(b"bKGD", b"\x02")
+    idat = build_png_chunk(b"IDAT", zlib.compress(b"\x00\x12", level=0))
+    data = PNG_SIGNATURE + ihdr + plte + bkgd + idat + IEND_CHUNK
+
+    validation = validate_png_structure(data)
+
+    assert not validation.ok
+    assert "bKGD palette index must be within PLTE entry count" in validation.errors
+    assert "IDAT uses palette index outside PLTE" in validation.errors
+
+
 def test_validate_png_structure_rejects_unknown_critical_chunk():
     ihdr = build_png_chunk(b"IHDR", b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00")
     idat = build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
@@ -2804,6 +2818,10 @@ def main():
         (
             "Validate PNG structure rejects invalid scanline filter",
             test_validate_png_structure_rejects_invalid_scanline_filter,
+        ),
+        (
+            "Validate PNG structure rejects indexed IDAT outside PLTE",
+            test_validate_png_structure_rejects_indexed_idat_outside_plte,
         ),
         (
             "Validate PNG structure rejects unknown critical chunk",

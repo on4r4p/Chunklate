@@ -185,6 +185,65 @@ def test_automatic_repair_success_message_explains_private_compression():
     assert "standard zlib" in message
 
 
+def test_automatic_repair_success_message_describes_focused_idat_crc_forge():
+    repair = SimpleNamespace(
+        strategy="focused 4-byte IDAT CRC repair around file offset 0x20c before blackfill",
+    )
+
+    message = fixit_felix_runtime.automatic_repair_success_message(repair)
+
+    assert "HermesProbe localized a deflate error near a single bad IDAT CRC" in message
+    assert "focused 4-byte repair" in message
+
+
+def test_apply_repair_prompts_after_writing_focused_idat_crc_clone():
+    side_notes = []
+    calls = []
+    repair = fixit_felix.IdatCrcForgeRepair(
+        data=valid_png_bytes(),
+        strategy="focused 4-byte IDAT CRC repair around file offset 0x20c before blackfill",
+        error_file_offset=0x20F,
+        window_start=0x20C,
+        window_end=0x20F,
+    )
+    runtime = fixit_felix_runtime.AutomaticRepairRuntime(
+        side_notes=side_notes,
+        candy=lambda *args: calls.append(("candy", args)),
+        write_clone=lambda *args: calls.append(("write", args)),
+        question=lambda **kwargs: calls.append(("question", kwargs)) or True,
+        preview_repair_image=lambda *args: calls.append(("preview", args)),
+        data_hex=repair.data.hex(),
+        interactive=True,
+    )
+
+    result = fixit_felix_runtime.apply_repair(runtime, repair)
+
+    assert result is True
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "HermesProbe localized a deflate error near file offset 0x20f.",
+            "com",
+        ),
+    ) in [(call[0], call[1]) for call in calls]
+    write_call = next(call for call in calls if call[0] == "write")
+    preview_call = next(call for call in calls if call[0] == "preview")
+    question_call = next(call for call in calls if call[0] == "question")
+    assert write_call == ("write", (repair.data.hex(), "-focused 4-byte IDAT CRC repair around file offset 0x20c before blackfill."))
+    assert preview_call == ("preview", (repair.data, "IDAT_CRC_Focused_Preview"))
+    assert question_call == (
+        "question",
+        {
+            "id": "IDAT CRC Forge:-Keep the focused 4-byte repair after preview?",
+            "idhash": ("IDAT-focused-crc-forge", 0x20F, 0x20C, 0x20F),
+            "skipauto": True,
+        },
+    )
+    assert calls.index(write_call) < calls.index(preview_call) < calls.index(question_call)
+    assert side_notes[0] == "-FixItFelix:focused 4-byte IDAT CRC repair around file offset 0x20c before blackfill."
+
+
 def test_automatic_repair_success_message_prefers_trns_over_plte_wording():
     repair = SimpleNamespace(
         strategy="trimmed indexed tRNS length from 200 to PLTE entry count 173 and rebuilt CRC",
@@ -1896,6 +1955,7 @@ def wrong_crc_runtime(
     last_question_status=None,
     deferred_routes=None,
     deflate_probe_keys=None,
+    preview_repair_image=None,
     loadingbar=None,
     minibar=None,
 ):
@@ -1957,6 +2017,7 @@ def wrong_crc_runtime(
         remember_idat_deflate_probe=remember_deflate_probe,
         debug=debug,
         pause_debug=pause_debug,
+        preview_repair_image=preview_repair_image,
         loadingbar=loadingbar,
         minibar=minibar,
     )
@@ -2234,6 +2295,7 @@ def test_apply_wrong_crc_uses_focused_idat_crc_forge_before_blackfill():
         pandora_box={finding: {chkd + "0": bad_idat.computed_crc.to_bytes(4, "big").hex()}},
         data_hex=data.hex(),
         side_notes=side_notes,
+        preview_repair_image=lambda *args: calls.append(("preview", args, {})),
         minibar=lambda *args: calls.append(("minibar", args, {})),
     )
 
@@ -2254,13 +2316,25 @@ def test_apply_wrong_crc_uses_focused_idat_crc_forge_before_blackfill():
     cowsay = [call[1][1] for call in calls if call[0] == "candy" and call[1][0] == "Cowsay"]
     assert "HermesProbe localized a deflate error near file offset 0x20f." in cowsay
     assert "Trying focused 4-byte IDAT CRC repair around 0x20c before blackfill." in cowsay
-    assert not [call for call in calls if call[0] == "question"]
     writes = [call for call in calls if call[0] == "write_clone"]
+    previews = [call for call in calls if call[0] == "preview"]
+    questions = [call for call in calls if call[0] == "question"]
     assert len(writes) == 1
+    assert len(previews) == 1
+    assert len(questions) == 1
+    assert calls.index(writes[0]) < calls.index(questions[0])
+    assert calls.index(writes[0]) < calls.index(previews[0]) < calls.index(questions[0])
+    assert questions[0][1] == ()
+    assert questions[0][2]["skipauto"] is True
     repaired = writes[0][1][0]
     assert validate_png_structure(repaired).ok
     assert fixit_felix_runtime.idat.analyze_idat_stream(repaired).complete is True
+    repaired_plte = next(chunk for chunk in iter_chunks(repaired) if chunk.chunk_type == b"PLTE")
+    repaired_indices = fixit_felix_runtime.png.indexed_png_indices(repaired)
+    assert repaired_indices is not None
+    assert max(repaired_indices) < repaired_plte.length // 3
     assert "-Repair hypothesis tried: focused 4-byte IDAT CRC forge." in writes[0][1][1]
+    assert "Follow-up repair: then rebuilt undersized indexed PLTE as grayscale palette." in writes[0][1][1]
 
 
 def test_apply_wrong_crc_uses_heavy_probe_loadingbar_after_quick_probe_fails():
@@ -2551,6 +2625,22 @@ def idat_chain_aligned_bad_deflate_hex():
     return data.hex()
 
 
+def idat_chain_repairable_bad_deflate_hex():
+    ihdr = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00",
+    )
+    data = (
+        PNG_SIGNATURE
+        + ihdr
+        + raw_png_chunk(2, b"IDAT", b"\x78\x9c")
+        + raw_png_chunk(2, b"IDAT", b"\xff\xff")
+        + raw_png_chunk(2, b"@DAT", b"\x00\x00")
+        + IEND_CHUNK
+    )
+    return data.hex()
+
+
 def wrong_chunk_name_before_first_idat_hex():
     ihdr = build_png_chunk(
         b"IHDR",
@@ -2832,6 +2922,56 @@ def test_apply_wrong_chunk_name_uses_idat_chain_batch_before_bruteforce():
     assert any(call[0] == "write_clone" for call in calls)
     assert "-Repair hypothesis tried: IDAT chain header repair." in side_notes
     assert any("type @DAT -> IDAT" in note for note in side_notes)
+
+
+def test_apply_wrong_chunk_name_runs_hermesprobe_after_idat_chain_repair():
+    calls = []
+    side_notes = []
+    finding = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"
+    chkd = "zzzz_Tool_"
+    source = bytes.fromhex(idat_chain_repairable_bad_deflate_hex())
+    fixed = fixit_felix_runtime.idat_chain.analyze_idat_chain_headers(source).fixed_data
+    probed = []
+    original_probe = fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates
+
+    def no_candidate_probe(data, **_kwargs):
+        probed.append(data)
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            0,
+            0,
+            False,
+            "deflate-header",
+            "mocked",
+        )
+
+    try:
+        fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = no_candidate_probe
+        runtime = wrong_chunk_name_runtime(
+            calls,
+            answers=(),
+            pandora_box={finding: {chkd + "0": b"zzzz"}},
+            side_notes=side_notes,
+            data_hex=source.hex(),
+        )
+
+        result = fixit_felix_runtime.apply_wrong_chunk_name(
+            runtime,
+            fixit_felix.WrongChunkNameDecision("ask_bruteforce", finding, True),
+            chkd,
+            wrong_chunk_name_tools(),
+        )
+    finally:
+        fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = original_probe
+
+    assert result == (True, "written")
+    assert probed == [fixed]
+    assert ("candy", ("Title", "probe_deflate_header_candidates"), {}) in calls
+    assert any(call[0] == "write_clone" for call in calls)
+    assert runtime.data_hex == source.hex()
 
 
 def test_apply_wrong_chunk_name_uses_deflate_probe_when_aligned_stream_is_bad():
@@ -4237,6 +4377,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert wrong_crc.original_chunk_length_hex == "0000000d"
     assert wrong_crc.debug is True
     assert wrong_crc.pause_debug is False
+    assert wrong_crc.preview_repair_image is namespace["Preview_Repair_Image"]
 
     libpng = fixit_felix_runtime.build_libpng_error_runtime_from_namespace(namespace)
     assert libpng.emit is namespace["PRINT"]
@@ -4533,6 +4674,10 @@ def main():
             test_apply_repair_explains_ihdr_value_rebuild_without_crc_noise,
         ),
         (
+            "Automatic repair success message describes focused IDAT CRC forge",
+            test_automatic_repair_success_message_describes_focused_idat_crc_forge,
+        ),
+        (
             "Apply repair rejects invalid IHDR rebuild",
             test_apply_repair_rejects_invalid_ihdr_rebuild_before_clone,
         ),
@@ -4628,6 +4773,10 @@ def main():
         (
             "Apply wrong chunk name IDAT chain batch",
             test_apply_wrong_chunk_name_uses_idat_chain_batch_before_bruteforce,
+        ),
+        (
+            "Apply wrong chunk name HermesProbe after IDAT chain",
+            test_apply_wrong_chunk_name_runs_hermesprobe_after_idat_chain_repair,
         ),
         (
             "Apply wrong chunk name probes after aligned bad stream",

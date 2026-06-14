@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chunklate import fixit_felix, specs
+from chunklate import fixit_felix, idat, png, specs
 from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks, validate_png_structure
 
 
@@ -379,6 +379,7 @@ def test_automatic_repair_order_keeps_legacy_priority():
         "known_chunk_type_case",
         "unknown_private_critical_removal",
         "missing_chunk_data_byte",
+        "focused_idat_crc_forge",
         "partial_idat_blackfill",
     )
 
@@ -421,6 +422,15 @@ def test_automatic_repair_intent_describes_matching_route():
     )
     assert splt_payload_message is not None
     assert "sPLT metadata is malformed" in splt_payload_message
+    idat_crc_message = fixit_felix.automatic_repair_intent(
+        "focused_idat_crc_forge",
+        [
+            "Checksum_Error_0:Wrong Crc b'IDAT'",
+            "Libpng_Error_0:libpng error: invalid distance too far back",
+        ],
+    )
+    assert idat_crc_message is not None
+    assert "HermesProbe localized a deflate error near a single bad IDAT CRC" in idat_crc_message
     splt_sample_depth_message = fixit_felix.automatic_repair_intent(
         "splt_payload_cleanup",
         ["GetInfo_Error_0:-Sample depth is not correct it must be 8 or 16"],
@@ -1895,6 +1905,48 @@ def test_partial_idat_blackfill_requires_idat_finding_and_partial_stream():
     assert validate_png_structure(repaired.data).ok
 
 
+def test_focused_idat_crc_forge_precedes_blackfill_for_color_plte2_sample():
+    sample = ROOT / "png_to_check" / "color_plte2_sample.png"
+    if not sample.exists():
+        return
+
+    data = sample.read_bytes()
+    findings = [
+        "Checksum_Error_0:Wrong Crc b'IDAT'",
+        "Libpng_Error_0:libpng error: invalid distance too far back",
+    ]
+
+    def automatic(handler):
+        return fixit_felix.automatic_repair(
+            handler,
+            data,
+            findings,
+            known_chunk_types=specs.CHUNKS,
+            auto=True,
+            nodialogue=True,
+            max_saves=None,
+        )
+
+    first_handler = next(
+        handler
+        for handler in fixit_felix.automatic_repair_order()
+        if automatic(handler) is not None
+    )
+    repaired = automatic(first_handler)
+
+    assert first_handler == "focused_idat_crc_forge"
+    assert repaired is not None
+    assert repaired.strategy.startswith("focused 4-byte IDAT CRC repair around file offset 0x20c")
+    assert "rebuilt undersized indexed PLTE as grayscale palette" in repaired.strategy
+    assert validate_png_structure(repaired.data).ok
+    assert idat.analyze_idat_stream(repaired.data).complete is True
+    repaired_chunks = tuple(iter_chunks(repaired.data))
+    repaired_plte = next(chunk for chunk in repaired_chunks if chunk.chunk_type == b"PLTE")
+    repaired_indices = png.indexed_png_indices(repaired.data)
+    assert repaired_indices is not None
+    assert max(repaired_indices) < repaired_plte.length // 3
+
+
 def test_partial_idat_blackfill_normalizes_complete_invalid_filter_type():
     original = build_rgb_png(1, 2, b"\x80abc" + b"\x00def")
 
@@ -2084,6 +2136,10 @@ def main():
         (
             "Partial IDAT blackfill requires IDAT finding",
             test_partial_idat_blackfill_requires_idat_finding_and_partial_stream,
+        ),
+        (
+            "Focused IDAT CRC forge precedes blackfill",
+            test_focused_idat_crc_forge_precedes_blackfill_for_color_plte2_sample,
         ),
         (
             "Partial IDAT normalizes invalid filter type",

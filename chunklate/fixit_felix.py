@@ -7,6 +7,9 @@ from typing import Any
 from typing import Callable
 from typing import Literal
 
+from . import idat
+from . import idat_crc_forge
+from . import png
 from .png import (
     repair_bkgd_length,
     repair_chrm_length,
@@ -122,6 +125,7 @@ AutomaticRepairHandler = Literal[
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
     "ihdr_rebuild",
+    "focused_idat_crc_forge",
     "partial_idat_blackfill",
 ]
 FixItFelixWorkKind = Literal["automatic_repair", "finding"]
@@ -164,6 +168,7 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "known_chunk_type_case",
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
+    "focused_idat_crc_forge",
     "partial_idat_blackfill",
 )
 AUTOMATIC_REPAIR_INTENTS: dict[
@@ -369,6 +374,10 @@ AUTOMATIC_REPAIR_INTENTS: dict[
         "IHDR is not trustworthy. I am going to rebuild it from PNG rules, CRC evidence, or IDAT scanline math.",
         (("IHDR", "GetInfo"), ("IHDR", "Wrong Crc")),
     ),
+    "focused_idat_crc_forge": (
+        "HermesProbe localized a deflate error near a single bad IDAT CRC. I am trying the tight 4-byte repair before the blackfill fallback.",
+        (("Wrong Crc", "IDAT"),),
+    ),
     "partial_idat_blackfill": (
         "The image data is damaged. I am going to salvage complete scanlines and rebuild the IDAT stream.",
         (
@@ -500,6 +509,15 @@ class AppliedRepair:
     data_hex: str
     note: str
     save_suffix: str
+
+
+@dataclass(frozen=True)
+class IdatCrcForgeRepair:
+    data: bytes
+    strategy: str
+    error_file_offset: int
+    window_start: int
+    window_end: int
 
 
 def repair_metadata_note(repair: Any) -> str:
@@ -1305,6 +1323,110 @@ def partial_idat_blackfill(data: bytes, findings: Iterable[object]) -> Any | Non
     return rebuild_partial_idat_blackfill(data)
 
 
+def _bad_crc_idat_chunks(data: bytes) -> tuple[png.PngChunk, ...]:
+    try:
+        chunks = tuple(png.iter_chunks(data))
+    except png.PngFormatError:
+        return ()
+
+    return tuple(
+        chunk
+        for chunk in chunks
+        if chunk.chunk_type == b"IDAT" and chunk.crc != chunk.computed_crc
+    )
+
+
+def _focused_idat_crc_window(
+    target_chunk: png.PngChunk,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    byte_count: int = 4,
+) -> tuple[int, int] | None:
+    if analysis.error_file_offset is None:
+        return None
+
+    payload_offset = int(analysis.error_file_offset) - int(target_chunk.offset) - 8
+    start = payload_offset - int(byte_count) + 1
+    end = start + 1
+    if start < 0 or end > len(target_chunk.data):
+        return None
+    return start, end
+
+
+def finalize_focused_idat_crc_candidate(candidate_data: bytes) -> tuple[bytes, str] | None:
+    validation = png.validate_png_structure(candidate_data)
+    if validation.ok:
+        return candidate_data, ""
+
+    plte_repair = png.repair_indexed_plte(candidate_data)
+    if plte_repair is None:
+        return None
+    if not png.validate_png_structure(plte_repair.data).ok:
+        return None
+    return plte_repair.data, " then %s" % plte_repair.strategy
+
+
+def focused_idat_crc_forge(data: bytes, findings: Iterable[object]) -> Any | None:
+    if not (
+        has_finding(findings, "Wrong Crc", "IDAT")
+        or has_finding(findings, "libpng error", "IDAT")
+        or has_finding(findings, "corrupt_deflate")
+    ):
+        return None
+
+    try:
+        analysis = idat.analyze_idat_stream(data)
+    except Exception:
+        return None
+
+    if analysis.status != "corrupt_deflate" or analysis.error_file_offset is None:
+        return None
+
+    bad_chunks = _bad_crc_idat_chunks(data)
+    if len(bad_chunks) != 1:
+        return None
+
+    target_chunk = bad_chunks[0]
+    window = _focused_idat_crc_window(target_chunk, analysis, byte_count=4)
+    if window is None:
+        return None
+
+    start, end = window
+    old_crc = target_chunk.crc.to_bytes(4, "big")
+    window_spec = "%s:%s" % (start, end)
+    target_file_offset = int(target_chunk.offset) + 8 + int(start)
+
+    for candidate in idat_crc_forge.iter_forge_candidates(
+        data,
+        target_chunk,
+        old_crc,
+        edit_order=("replace",),
+        byte_counts=(4,),
+        window_spec=window_spec,
+        mode="force",
+        zlib_prefilter=True,
+    ):
+        candidate_data = candidate.hit.png_bytes
+        candidate_analysis = idat.analyze_idat_stream(candidate_data)
+        if not candidate_analysis.complete:
+            continue
+        finalized = finalize_focused_idat_crc_candidate(candidate_data)
+        if finalized is None:
+            continue
+        repaired_data, followup_strategy = finalized
+
+        return IdatCrcForgeRepair(
+            data=repaired_data,
+            strategy="focused 4-byte IDAT CRC repair around file offset 0x%x%s before blackfill"
+            % (target_file_offset, followup_strategy),
+            error_file_offset=int(analysis.error_file_offset),
+            window_start=target_file_offset,
+            window_end=target_file_offset + 3,
+        )
+
+    return None
+
+
 def automatic_repair(
     name: AutomaticRepairHandler,
     data: bytes,
@@ -1399,6 +1521,8 @@ def automatic_repair(
         return missing_chunk_data_byte(data, findings)
     if name == "ihdr_rebuild":
         return ihdr_rebuild(data, findings)
+    if name == "focused_idat_crc_forge":
+        return focused_idat_crc_forge(data, findings)
     if name == "partial_idat_blackfill":
         return partial_idat_blackfill(data, findings)
     raise ValueError("Unknown FixItFelix automatic repair: %s" % name)

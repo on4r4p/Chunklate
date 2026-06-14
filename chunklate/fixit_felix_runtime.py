@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import binascii
 from dataclasses import dataclass
+from dataclasses import replace
 from pathlib import Path
 import random
 from typing import Any
@@ -135,6 +136,7 @@ class WrongCrcRuntime:
     pause_debug: bool
     loadingbar: Callable[..., Any] | None = None
     minibar: Callable[..., Any] | None = None
+    preview_repair_image: Callable[..., Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -241,6 +243,7 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         pause_debug=namespace["PAUSEDEBUG"],
         loadingbar=namespace.get("Loadingbar"),
         minibar=namespace.get("Minibar"),
+        preview_repair_image=namespace.get("Preview_Repair_Image"),
     )
 
 
@@ -677,6 +680,60 @@ def _is_partial_blackfill_repair(repair: Any) -> bool:
         isinstance(repair, idat.PartialIdatBlackfillRepair)
         and str(getattr(repair, "strategy", "")).startswith("partial-idat-blackfill")
     )
+
+
+def _focused_idat_crc_forge_needs_choice(repair: Any) -> bool:
+    return str(getattr(repair, "strategy", "")).startswith("focused 4-byte IDAT CRC repair")
+
+
+def apply_focused_idat_crc_forge_choice(
+    runtime: AutomaticRepairRuntime,
+    repair: Any,
+) -> bool | None:
+    applied_repair = fixit_felix.applied_repair(repair)
+    error_file_offset = getattr(repair, "error_file_offset", None)
+    window_start = getattr(repair, "window_start", None)
+    window_end = getattr(repair, "window_end", None)
+
+    if error_file_offset is not None:
+        runtime.candy(
+            "Cowsay",
+            "HermesProbe localized a deflate error near file offset 0x%x." % int(error_file_offset),
+            "com",
+        )
+    runtime.side_notes.append(applied_repair.note)
+    runtime.write_clone(applied_repair.data_hex, applied_repair.save_suffix)
+    if runtime.preview_repair_image is not None:
+        runtime.preview_repair_image(repair.data, "IDAT_CRC_Focused_Preview")
+    runtime.candy(
+        "Cowsay",
+        "I wrote the focused 4-byte IDAT CRC repair clone. Say yes if the preview still holds, or no if blackfill should stay on deck.",
+        "com",
+    )
+
+    if runtime.question is not None:
+        accepted = runtime.question(
+            id="IDAT CRC Forge:-Keep the focused 4-byte repair after preview?",
+            idhash=(
+                "IDAT-focused-crc-forge",
+                error_file_offset,
+                window_start,
+                window_end,
+            ),
+            skipauto=True,
+        )
+        if not accepted:
+            runtime.side_notes.append(
+                "-FixItFelix:focused 4-byte IDAT CRC repair written but not confirmed; keeping blackfill fallback available."
+            )
+            return None
+
+    runtime.candy(
+        "Cowsay",
+        automatic_repair_success_message(repair),
+        "good",
+    )
+    return True
 
 
 def _source_data_from_runtime(runtime: AutomaticRepairRuntime) -> bytes | None:
@@ -2103,6 +2160,16 @@ def automatic_repair_success_message(repair: Any) -> str:
             "are outside PNG's 0..4 range. I am changing only those row filters to "
             "0, then recompressing IDAT."
         )
+    if strategy.startswith("focused 4-byte IDAT CRC repair"):
+        if "PLTE" in strategy:
+            return (
+                "HermesProbe localized a deflate error near a single bad IDAT CRC. I am "
+                "keeping the focused 4-byte repair clone after chaining the palette cleanup before blackfill."
+            )
+        return (
+            "HermesProbe localized a deflate error near a single bad IDAT CRC. I am "
+            "keeping the focused 4-byte repair clone before blackfill gets a chance to run."
+        )
     if strategy.startswith("partial-idat-blackfill"):
         return (
             "The IDAT stream stops before the full image is available. I am keeping "
@@ -2184,6 +2251,8 @@ def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
         return apply_zero_scanline_blackfill_choice(runtime, repair)
     if _is_partial_blackfill_repair(repair):
         return apply_partial_blackfill_decision(runtime, repair)
+    if _focused_idat_crc_forge_needs_choice(repair):
+        return apply_focused_idat_crc_forge_choice(runtime, repair)
 
     manual_plte_result = maybe_offer_manual_plte_editor(runtime, repair)
     if manual_plte_result is not None:
@@ -2668,15 +2737,10 @@ def try_focused_idat_crc_forge(
         candidate_analysis = idat.analyze_idat_stream(candidate_data)
         if not candidate_analysis.complete:
             continue
-        validation = png.validate_png_structure(candidate_data)
-        if not validation.ok:
+        finalized = fixit_felix.finalize_focused_idat_crc_candidate(candidate_data)
+        if finalized is None:
             continue
-        runtime.candy(
-            "Cowsay",
-            "HermesProbe found the four-byte bite mark. Patch: IDAT payload offset 0x%x -> %s."
-            % (int(candidate.hit.byte_position), candidate.hit.brute_bytes.hex()),
-            "good",
-        )
+        repaired_data, followup_strategy = finalized
         summary = "\n".join(
             (
                 "-Repair hypothesis tried: focused 4-byte IDAT CRC forge.",
@@ -2687,10 +2751,45 @@ def try_focused_idat_crc_forge(
                 % (int(start), int(start + 3)),
                 "Patch: replace 4 byte(s) at IDAT payload offset 0x%x with %s."
                 % (int(candidate.hit.byte_position), candidate.hit.brute_bytes.hex()),
+                (
+                    "Follow-up repair:%s." % followup_strategy
+                    if followup_strategy
+                    else "Follow-up repair: none needed."
+                ),
                 idat_stream_diagnosis_note(candidate_analysis),
             )
         )
-        return True, runtime.write_clone(candidate_data, summary)
+        written = runtime.write_clone(repaired_data, summary)
+        preview = getattr(runtime, "preview_repair_image", None)
+        if preview is not None:
+            preview(repaired_data, "IDAT_CRC_Focused_Preview")
+        runtime.candy(
+            "Cowsay",
+            "I wrote the focused 4-byte IDAT CRC repair clone. Say yes if it still holds; no keeps blackfill available.",
+            "com",
+        )
+        answer = runtime.question(
+            id="IDAT CRC Forge:-Keep the focused 4-byte repair after preview?",
+            idhash=(
+                "IDAT-focused-crc-forge",
+                int(analysis.error_file_offset),
+                int(target_chunk.offset + 8 + start),
+                int(target_chunk.offset + 8 + start + 3),
+            ),
+            skipauto=True,
+        )
+        if answer is False:
+            runtime.side_notes.append(
+                "-FixItFelix:focused 4-byte IDAT CRC repair written but not confirmed; keeping blackfill fallback available."
+            )
+            return None
+        runtime.candy(
+            "Cowsay",
+            "HermesProbe found the four-byte bite mark. Patch: IDAT payload offset 0x%x -> %s."
+            % (int(candidate.hit.byte_position), candidate.hit.brute_bytes.hex()),
+            "good",
+        )
+        return True, written
 
     runtime.side_notes.append(
         "-Focused IDAT CRC forge found no validated 4-byte repair around file offset 0x%x."
@@ -3199,6 +3298,18 @@ def _block_isolated_idat_repairs_after_chain_diagnostic(
     return False, None
 
 
+def _try_idat_deflate_probe_on_candidate(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+) -> tuple[bool, Any] | None:
+    try:
+        probe_runtime = replace(runtime, data_hex=data.hex())
+    except TypeError:
+        return None
+    return try_idat_deflate_bruteforce(probe_runtime, analysis)
+
+
 def try_idat_chain_header_repair(
     runtime: Any,
     *,
@@ -3234,6 +3345,14 @@ def try_idat_chain_header_repair(
     stream_analysis = idat.analyze_idat_stream(analysis.fixed_data)
     _explain_idat_stream_after_header_repair(runtime, stream_analysis)
     summary = "\n".join([summary, idat_stream_diagnosis_note(stream_analysis)])
+    if not stream_analysis.complete and stream_analysis.supported:
+        probe_result = _try_idat_deflate_probe_on_candidate(
+            runtime,
+            analysis.fixed_data,
+            stream_analysis,
+        )
+        if probe_result is not None:
+            return probe_result
     return True, runtime.write_clone(analysis.fixed_data, summary)
 
 

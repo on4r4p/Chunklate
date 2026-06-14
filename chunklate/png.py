@@ -1087,6 +1087,7 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
 
     idat_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"IDAT"]
     plte_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"PLTE"]
+    plte_entry_count: int | None = None
 
     if idat_indices:
         first_idat = idat_indices[0]
@@ -1125,6 +1126,8 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
         plte = chunks[plte_indices[0]]
         if not png_chunk_data_is_coherent(b"PLTE", plte.data):
             errors.append("PLTE chunk is malformed")
+        elif plte.length % 3 == 0:
+            plte_entry_count = plte.length // 3
         if color_type in (0, 4):
             errors.append("PLTE chunk is not allowed for grayscale color types")
         if color_type == 3 and (plte.length // 3) > (2 ** bit_depth):
@@ -1349,6 +1352,9 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
                 "bKGD chunk length must be %s for IHDR color type %s"
                 % (expected_bkgd_length, color_type)
             )
+        elif color_type == 3 and plte_entry_count is not None and bkgd.data:
+            if bkgd.data[0] >= plte_entry_count:
+                errors.append("bKGD palette index must be within PLTE entry count")
 
     chrm_indices = [index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"cHRM"]
     if len(chrm_indices) > 1:
@@ -1386,6 +1392,26 @@ def validate_png_structure(data: bytes, *, require_decodable_idat: bool = True) 
                     )
                     if invalid_filter_row is not None:
                         errors.append("IDAT scanline filter type is invalid")
+                    elif color_type == 3 and plte_entry_count is not None:
+                        raw_rows = unfilter_scanlines(
+                            decompressed,
+                            width=width,
+                            height=height,
+                            bit_depth=bit_depth,
+                            color_type=color_type,
+                        )
+                        indices = (
+                            None
+                            if raw_rows is None
+                            else unpack_indexed_scanlines(
+                                raw_rows,
+                                width=width,
+                                height=height,
+                                bit_depth=bit_depth,
+                            )
+                        )
+                        if indices is not None and max(indices, default=0) >= plte_entry_count:
+                            errors.append("IDAT uses palette index outside PLTE")
 
     return PngValidationResult(tuple(errors))
 
