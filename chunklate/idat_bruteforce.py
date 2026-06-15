@@ -90,6 +90,7 @@ class IdatDeflateCandidate:
     edit_kind: str = "replace"
     old_bytes: bytes = b""
     new_bytes: bytes = b""
+    bit_offsets: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -104,6 +105,7 @@ class IdatDeflateProbeResult:
     reason: str = ""
     chain: tuple[IdatDeflateCandidate, ...] = ()
     diagnostic_best: IdatDeflateCandidate | None = None
+    subprobes: tuple["IdatDeflateProbeResult", ...] = ()
 
     @property
     def improved(self) -> bool:
@@ -935,6 +937,13 @@ def _idat_stream_range_for_chunk_offset(
     return None
 
 
+def _idat_chunk_index(idat_chunks: tuple[png.PngChunk, ...], target_chunk: png.PngChunk) -> int:
+    for index, chunk in enumerate(idat_chunks, start=1):
+        if chunk.offset == target_chunk.offset:
+            return index
+    return 0
+
+
 def _rebuild_with_single_idat_stream(chunks: tuple[png.PngChunk, ...], idat_stream: bytes) -> bytes:
     rebuilt = bytearray(png.PNG_SIGNATURE)
     idat_written = False
@@ -1171,6 +1180,82 @@ def mutate_idat_stream_byte(
         edit_kind="replace",
         old_bytes=bytes((old_byte,)),
         new_bytes=bytes((new_byte,)),
+    )
+
+
+def mutate_idat_stream_bit_flips(
+    data: bytes,
+    bit_offsets: Iterable[int],
+    *,
+    before_analysis: idat.IdatStreamAnalysis | None = None,
+) -> IdatDeflateCandidate | None:
+    bits = tuple(sorted(dict.fromkeys(int(bit) for bit in bit_offsets)))
+    if not bits:
+        return None
+
+    before = before_analysis or idat.analyze_idat_stream(data)
+    try:
+        idat_chunks, idat_stream = _idat_chunks_and_stream(data)
+    except png.PngFormatError:
+        return None
+
+    if not idat_stream:
+        return None
+    if bits[0] < 0 or bits[-1] >= len(idat_stream) * 8:
+        return None
+
+    candidate = bytearray(data)
+    locations: dict[int, tuple[png.PngChunk, int, int, int]] = {}
+    touched_chunks: dict[int, png.PngChunk] = {}
+    for bit_offset in bits:
+        stream_offset = bit_offset // 8
+        bit_index = bit_offset % 8
+        location = locations.get(stream_offset)
+        if location is None:
+            located = _locate_idat_stream_offset(idat_chunks, stream_offset)
+            if located is None:
+                return None
+            chunk, idat_index, idat_offset = located
+            file_offset = chunk.offset + 8 + idat_offset
+            location = (chunk, idat_index, idat_offset, file_offset)
+            locations[stream_offset] = location
+        chunk, _idat_index, _idat_offset, file_offset = location
+        candidate[file_offset] ^= 1 << bit_index
+        touched_chunks[chunk.offset] = chunk
+
+    if not touched_chunks:
+        return None
+
+    for chunk in touched_chunks.values():
+        payload_start = chunk.offset + 8
+        payload_end = payload_start + chunk.length
+        crc_offset = payload_end
+        repaired_crc = zlib.crc32(chunk.chunk_type + bytes(candidate[payload_start:payload_end])) & 0xFFFFFFFF
+        candidate[crc_offset : crc_offset + 4] = repaired_crc.to_bytes(4, "big")
+
+    byte_offsets = tuple(sorted(locations))
+    first_stream_offset = byte_offsets[0]
+    first_chunk, first_idat_index, first_idat_offset, first_file_offset = locations[first_stream_offset]
+    old_bytes = bytes(idat_stream[offset] for offset in byte_offsets)
+    new_bytes = bytes(candidate[locations[offset][3]] for offset in byte_offsets)
+    if old_bytes == new_bytes:
+        return None
+
+    candidate_data = bytes(candidate)
+    return IdatDeflateCandidate(
+        data=candidate_data,
+        stream_offset=first_stream_offset,
+        file_offset=first_file_offset,
+        idat_index=first_idat_index,
+        idat_offset=first_idat_offset,
+        old_byte=idat_stream[first_stream_offset],
+        new_byte=candidate[first_file_offset],
+        before=before,
+        after=idat.analyze_idat_stream(candidate_data),
+        edit_kind="bit-flip-set",
+        old_bytes=old_bytes,
+        new_bytes=new_bytes,
+        bit_offsets=bits,
     )
 
 
@@ -6987,15 +7072,1778 @@ def _candidate_header_is_fixed(
         return False
     if before_header.ok:
         return False
+    if after_header is None and before_header.btype == 2:
+        try:
+            _idat_chunks, candidate_stream = _idat_chunks_and_stream(candidate.data)
+            after_header = deflate_header.analyze_deflate_header(candidate_stream)
+        except Exception:
+            after_header = None
     if after_header is None:
         return candidate.after.complete or candidate.after.decompressed_size > before.decompressed_size
+    if (
+        before_header.btype == 2
+        and after_header.ok
+        and after_header.btype != before_header.btype
+        and not is_material_improvement(before, candidate.after)
+    ):
+        return False
     return after_header.ok
+
+
+def _range_bits(start: int | None, end: int | None, *, limit: int) -> tuple[int, ...]:
+    if start is None or end is None:
+        return ()
+    start = max(0, int(start))
+    end = min(int(end), limit)
+    if end <= start:
+        return ()
+    return tuple(range(start, end))
+
+
+def _dynamic_token_bits(
+    token: deflate_header.DynamicLengthToken,
+    *,
+    bit_limit: int,
+) -> tuple[int, ...]:
+    bits = list(_range_bits(token.bit_start, token.bit_end, limit=bit_limit))
+    bits.extend(_range_bits(token.extra_bit_start, token.extra_bit_end, limit=bit_limit))
+    return tuple(bits)
+
+
+def _dynamic_huffman_suspect_bits(
+    trace: deflate_header.DynamicHeaderTrace,
+    stream: bytes,
+    *,
+    max_bits: int,
+) -> tuple[int, ...]:
+    bit_limit = len(stream) * 8
+    if bit_limit <= 0 or max_bits <= 0:
+        return ()
+
+    bits: list[int] = []
+
+    def add_many(values: Iterable[int]) -> None:
+        for bit in values:
+            if 0 <= bit < bit_limit:
+                bits.append(int(bit))
+
+    if trace.hlit is not None:
+        eob_index = 256
+        for token in trace.tokens:
+            if token.length_start <= eob_index < token.length_end:
+                add_many(_dynamic_token_bits(token, bit_limit=bit_limit))
+        boundary = int(trace.hlit)
+        for token in trace.tokens:
+            if (
+                token.length_start <= boundary <= token.length_end
+                or abs(token.length_start - boundary) <= 8
+                or abs(token.length_end - boundary) <= 8
+            ):
+                add_many(_dynamic_token_bits(token, bit_limit=bit_limit))
+
+    for _name, start, end in trace.count_bits:
+        add_many(_range_bits(start, end, limit=bit_limit))
+
+    for _symbol, start, end in trace.code_length_bits:
+        add_many(_range_bits(start, end, limit=bit_limit))
+
+    header_start = 16
+    header_end = trace.header_end_bit or trace.bit_offset or min(bit_limit, header_start + max_bits)
+    header_end = min(bit_limit, max(header_start, header_end))
+    add_many(range(header_start, min(header_end, header_start + max_bits)))
+
+    return tuple(dict.fromkeys(bits))[:max_bits]
+
+
+def _flip_stream_bits(stream: bytes, bit_offsets: Iterable[int]) -> bytes | None:
+    candidate = bytearray(stream)
+    for bit_offset in bit_offsets:
+        bit_offset = int(bit_offset)
+        if bit_offset < 0 or bit_offset >= len(candidate) * 8:
+            return None
+        candidate[bit_offset // 8] ^= 1 << (bit_offset % 8)
+    return bytes(candidate)
+
+
+def _replace_stream_bits_preserve_length(
+    stream: bytes,
+    bit_start: int,
+    bit_end: int,
+    bits: tuple[int, ...],
+) -> bytes | None:
+    bit_count = len(stream) * 8
+    bit_start = int(bit_start)
+    bit_end = int(bit_end)
+    if bit_start < 0 or bit_end < bit_start or bit_end > bit_count:
+        return None
+    if not bits and bit_start == bit_end:
+        return stream
+    replacement_width = len(bits)
+    replacement = 0
+    for index, bit in enumerate(bits):
+        replacement |= (int(bit) & 1) << index
+    value = int.from_bytes(stream, "little")
+    low = value & ((1 << bit_start) - 1)
+    high = value >> bit_end
+    shifted = low | (replacement << bit_start) | (high << (bit_start + replacement_width))
+    mask = (1 << bit_count) - 1 if bit_count else 0
+    return (shifted & mask).to_bytes(len(stream), "little")
+
+
+def _shift_stream_delete_bit(stream: bytes, bit_offset: int) -> bytes | None:
+    bit_count = len(stream) * 8
+    bit_offset = int(bit_offset)
+    if bit_offset < 0 or bit_offset >= bit_count:
+        return None
+    value = int.from_bytes(stream, "little")
+    low = value & ((1 << bit_offset) - 1)
+    high = value >> (bit_offset + 1)
+    shifted = low | (high << bit_offset)
+    return shifted.to_bytes(len(stream), "little")
+
+
+def _shift_stream_insert_bit(stream: bytes, bit_offset: int, bit_value: int) -> bytes | None:
+    bit_count = len(stream) * 8
+    bit_offset = int(bit_offset)
+    if bit_offset < 0 or bit_offset >= bit_count:
+        return None
+    value = int.from_bytes(stream, "little")
+    low = value & ((1 << bit_offset) - 1)
+    high = value >> bit_offset
+    mask = (1 << bit_count) - 1
+    shifted = low | ((int(bit_value) & 1) << bit_offset) | (high << (bit_offset + 1))
+    return (shifted & mask).to_bytes(len(stream), "little")
+
+
+def mutate_idat_stream_bit_shift(
+    data: bytes,
+    bit_offset: int,
+    edit_kind: str,
+    *,
+    bit_value: int = 0,
+    before_analysis: idat.IdatStreamAnalysis | None = None,
+) -> IdatDeflateCandidate | None:
+    bit_offset = int(bit_offset)
+    before = before_analysis or idat.analyze_idat_stream(data)
+    try:
+        chunks, idat_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError:
+        return None
+    if not idat_stream or bit_offset < 0 or bit_offset >= len(idat_stream) * 8:
+        return None
+
+    edit = str(edit_kind).strip().lower()
+    if edit == "bit-delete":
+        shifted_stream = _shift_stream_delete_bit(idat_stream, bit_offset)
+        old_bit = (idat_stream[bit_offset // 8] >> (bit_offset % 8)) & 1
+        new_bit = 0
+    elif edit == "bit-insert":
+        shifted_stream = _shift_stream_insert_bit(idat_stream, bit_offset, bit_value)
+        old_bit = 0
+        new_bit = int(bit_value) & 1
+    else:
+        return None
+    if shifted_stream is None or shifted_stream == idat_stream:
+        return None
+
+    location = _locate_idat_stream_offset(
+        tuple(chunk for chunk in chunks if chunk.chunk_type == b"IDAT"),
+        bit_offset // 8,
+    )
+    if location is None:
+        return None
+    chunk, idat_index, idat_offset = location
+    file_offset = chunk.offset + 8 + idat_offset
+
+    stream_offset = bit_offset // 8
+    context_start = max(0, stream_offset - 4)
+    context_end = min(len(idat_stream), stream_offset + 5)
+    candidate_data = _rebuild_with_single_idat_stream(chunks, shifted_stream)
+    return IdatDeflateCandidate(
+        data=candidate_data,
+        stream_offset=stream_offset,
+        file_offset=file_offset,
+        idat_index=idat_index,
+        idat_offset=idat_offset,
+        old_byte=old_bit,
+        new_byte=new_bit,
+        before=before,
+        after=idat.analyze_idat_stream(
+            candidate_data,
+            crc_provenance="rebuilt_by_chunklate",
+            source_kind="candidate_from_original",
+        ),
+        edit_kind=edit,
+        old_bytes=idat_stream[context_start:context_end],
+        new_bytes=shifted_stream[context_start:context_end],
+        bit_offsets=(bit_offset,),
+    )
+
+
+def mutate_idat_stream_bit_range_replace(
+    data: bytes,
+    bit_start: int,
+    bit_end: int,
+    bits: tuple[int, ...],
+    *,
+    before_analysis: idat.IdatStreamAnalysis | None = None,
+) -> IdatDeflateCandidate | None:
+    bit_start = int(bit_start)
+    bit_end = int(bit_end)
+    before = before_analysis or idat.analyze_idat_stream(data)
+    try:
+        chunks, idat_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError:
+        return None
+    if not idat_stream or bit_start < 0 or bit_end < bit_start or bit_end > len(idat_stream) * 8:
+        return None
+
+    candidate_stream = _replace_stream_bits_preserve_length(idat_stream, bit_start, bit_end, bits)
+    if candidate_stream is None or candidate_stream == idat_stream:
+        return None
+
+    idat_chunks = tuple(chunk for chunk in chunks if chunk.chunk_type == b"IDAT")
+    location = _locate_idat_stream_offset(idat_chunks, bit_start // 8)
+    if location is None:
+        return None
+    chunk, idat_index, idat_offset = location
+    file_offset = chunk.offset + 8 + idat_offset
+
+    stream_offset = bit_start // 8
+    context_start = max(0, stream_offset - 4)
+    context_end = min(len(idat_stream), max(stream_offset + 5, (bit_end + 7) // 8 + 4))
+    candidate_data = _rebuild_with_single_idat_stream(chunks, candidate_stream)
+    return IdatDeflateCandidate(
+        data=candidate_data,
+        stream_offset=stream_offset,
+        file_offset=file_offset,
+        idat_index=idat_index,
+        idat_offset=idat_offset,
+        old_byte=idat_stream[stream_offset],
+        new_byte=candidate_stream[stream_offset],
+        before=before,
+        after=idat.analyze_idat_stream(
+            candidate_data,
+            crc_provenance="rebuilt_by_chunklate",
+            source_kind="candidate_from_original",
+        ),
+        edit_kind="semantic-token",
+        old_bytes=idat_stream[context_start:context_end],
+        new_bytes=candidate_stream[context_start:context_end],
+        bit_offsets=(bit_start,),
+    )
+
+
+def mutate_idat_stream_bit_range_replacements(
+    data: bytes,
+    replacements: Iterable[tuple[int, int, tuple[int, ...]]],
+    *,
+    edit_kind: str,
+    before_analysis: idat.IdatStreamAnalysis | None = None,
+) -> IdatDeflateCandidate | None:
+    edits = tuple(
+        (int(bit_start), int(bit_end), tuple(int(bit) & 1 for bit in bits))
+        for bit_start, bit_end, bits in replacements
+    )
+    if not edits:
+        return None
+
+    before = before_analysis or idat.analyze_idat_stream(data)
+    try:
+        chunks, idat_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError:
+        return None
+    if not idat_stream:
+        return None
+
+    candidate_stream = idat_stream
+    for bit_start, bit_end, bits in sorted(edits, key=lambda item: item[0], reverse=True):
+        if bit_start < 0 or bit_end < bit_start or bit_end > len(candidate_stream) * 8:
+            return None
+        candidate_stream = _replace_stream_bits_preserve_length(candidate_stream, bit_start, bit_end, bits)
+        if candidate_stream is None:
+            return None
+    if candidate_stream == idat_stream:
+        return None
+
+    first_bit = min(bit_start for bit_start, _bit_end, _bits in edits)
+    last_bit = max(bit_end for _bit_start, bit_end, _bits in edits)
+    idat_chunks = tuple(chunk for chunk in chunks if chunk.chunk_type == b"IDAT")
+    location = _locate_idat_stream_offset(idat_chunks, first_bit // 8)
+    if location is None:
+        return None
+    chunk, idat_index, idat_offset = location
+    file_offset = chunk.offset + 8 + idat_offset
+
+    stream_offset = first_bit // 8
+    context_start = max(0, stream_offset - 4)
+    context_end = min(len(idat_stream), max(stream_offset + 5, (last_bit + 7) // 8 + 4))
+    candidate_data = _rebuild_with_single_idat_stream(chunks, candidate_stream)
+    return IdatDeflateCandidate(
+        data=candidate_data,
+        stream_offset=stream_offset,
+        file_offset=file_offset,
+        idat_index=idat_index,
+        idat_offset=idat_offset,
+        old_byte=idat_stream[stream_offset],
+        new_byte=candidate_stream[stream_offset],
+        before=before,
+        after=idat.analyze_idat_stream(
+            candidate_data,
+            crc_provenance="rebuilt_by_chunklate",
+            source_kind="candidate_from_original",
+        ),
+        edit_kind=edit_kind,
+        old_bytes=idat_stream[context_start:context_end],
+        new_bytes=candidate_stream[context_start:context_end],
+        bit_offsets=tuple(bit_start for bit_start, _bit_end, _bits in edits),
+    )
+
+
+def _bits_for_lsb_code(code: int, width: int) -> tuple[int, ...]:
+    return tuple((int(code) >> index) & 1 for index in range(int(width)))
+
+
+def _dynamic_code_length_symbol_codes(
+    trace: deflate_header.DynamicHeaderTrace,
+) -> dict[int, tuple[int, int]]:
+    table, _max_bits = deflate_header._build_huffman_table(
+        list(trace.code_length_lengths),
+        allow_single=True,
+        allow_incomplete=True,
+    )
+    return {int(symbol): (int(code), int(width)) for (code, width), symbol in table.items()}
+
+
+def _stream_bits_value(stream: bytes, bit_start: int, bit_end: int) -> int:
+    value = 0
+    for index, bit_offset in enumerate(range(int(bit_start), int(bit_end))):
+        value |= ((stream[bit_offset // 8] >> (bit_offset % 8)) & 1) << index
+    return value
+
+
+def _dynamic_code_length_alphabet_orders() -> tuple[tuple[str, tuple[int, ...]], ...]:
+    natural = tuple(range(19))
+    repeat_first_linear = (16, 17, 18) + tuple(range(16))
+    literal_repeat_tail = tuple(range(16)) + (16, 17, 18)
+    return (
+        ("natural-default", natural),
+        ("repeat-first-linear", repeat_first_linear),
+        ("literal-repeat-tail", literal_repeat_tail),
+    )
+
+
+def _dynamic_alphabet_rewrite_replacements(
+    stream: bytes,
+    trace: deflate_header.DynamicHeaderTrace,
+    source_order: tuple[int, ...],
+) -> tuple[tuple[int, int, tuple[int, ...]], ...]:
+    entries = tuple(trace.code_length_bits)
+    if not entries:
+        return ()
+    values_by_source_symbol: dict[int, int] = {}
+    for index, (_standard_symbol, bit_start, bit_end) in enumerate(entries):
+        if index >= len(source_order):
+            break
+        values_by_source_symbol[int(source_order[index])] = _stream_bits_value(stream, bit_start, bit_end)
+
+    replacements: list[tuple[int, int, tuple[int, ...]]] = []
+    for standard_symbol, bit_start, bit_end in entries:
+        old_value = _stream_bits_value(stream, bit_start, bit_end)
+        new_value = values_by_source_symbol.get(int(standard_symbol), 0)
+        if new_value != old_value:
+            replacements.append((bit_start, bit_end, _bits_for_lsb_code(new_value, bit_end - bit_start)))
+    return tuple(replacements)
+
+
+def _apply_stream_bit_replacements(
+    stream: bytes,
+    replacements: Iterable[tuple[int, int, tuple[int, ...]]],
+) -> bytes | None:
+    candidate_stream = stream
+    for bit_start, bit_end, bits in sorted(replacements, key=lambda item: item[0], reverse=True):
+        candidate_stream = _replace_stream_bits_preserve_length(candidate_stream, bit_start, bit_end, bits)
+        if candidate_stream is None:
+            return None
+    return candidate_stream
+
+
+def _apply_payload_bit_replacements(
+    payload: bytes,
+    replacements: Iterable[tuple[int, int, tuple[int, ...]]],
+) -> bytes | None:
+    candidate = bytes(payload)
+    for bit_start, bit_end, bits in sorted(replacements, key=lambda item: item[0], reverse=True):
+        candidate = _replace_stream_bits_preserve_length(candidate, bit_start, bit_end, bits)
+        if candidate is None:
+            return None
+    return candidate
+
+
+def _stream_with_target_payload(
+    idat_stream: bytes,
+    target_stream_start: int,
+    target_stream_end: int,
+    payload: bytes,
+) -> bytes:
+    return (
+        idat_stream[:target_stream_start]
+        + bytes(payload)
+        + idat_stream[target_stream_end:]
+    )
+
+
+def _crc32_idat_payload(payload: bytes) -> int:
+    return zlib.crc32(b"IDAT" + bytes(payload)) & 0xFFFFFFFF
+
+
+def _gf2_low_weight_solutions(
+    columns: tuple[int, ...],
+    target_delta: int,
+    *,
+    max_solutions: int,
+) -> tuple[int, ...]:
+    variable_count = len(columns)
+    if variable_count <= 0 or max_solutions <= 0:
+        return ()
+    mask_limit = (1 << variable_count) - 1
+    equations: list[tuple[int, int]] = []
+    for crc_bit in range(32):
+        row = 0
+        for variable_index, column in enumerate(columns):
+            if int(column) & (1 << crc_bit):
+                row |= 1 << variable_index
+        equations.append((row, (int(target_delta) >> crc_bit) & 1))
+
+    basis: dict[int, tuple[int, int]] = {}
+    for row, value in equations:
+        row &= mask_limit
+        value &= 1
+        while row:
+            pivot = row.bit_length() - 1
+            existing = basis.get(pivot)
+            if existing is None:
+                basis[pivot] = (row, value)
+                break
+            row ^= existing[0]
+            value ^= existing[1]
+        else:
+            if value:
+                return ()
+
+    pivots = set(basis)
+    free_vars = [index for index in range(variable_count) if index not in pivots]
+
+    def complete_solution(free_value: int) -> int:
+        solution = 0
+        for bit_index, variable_index in enumerate(free_vars):
+            if free_value & (1 << bit_index):
+                solution |= 1 << variable_index
+        for pivot in sorted(pivots):
+            row, value = basis[pivot]
+            known = (row & ~(1 << pivot)) & solution
+            if (known.bit_count() & 1) ^ value:
+                solution |= 1 << pivot
+            else:
+                solution &= ~(1 << pivot)
+        return solution & mask_limit
+
+    solutions: list[int] = []
+    if not free_vars:
+        solution = complete_solution(0)
+        return (solution,) if solution else ()
+    free_count = len(free_vars)
+    for weight in range(free_count + 1):
+        for combination in itertools.combinations(range(free_count), weight):
+            free_value = 0
+            for bit_index in combination:
+                free_value |= 1 << bit_index
+            solution = complete_solution(free_value)
+            if solution:
+                solutions.append(solution)
+            if len(solutions) >= int(max_solutions):
+                return tuple(sorted(dict.fromkeys(solutions), key=lambda item: (item.bit_count(), item)))
+    return tuple(sorted(dict.fromkeys(solutions), key=lambda item: (item.bit_count(), item)))
+
+
+def _crc_guided_solutions_for_payload_bits(
+    payload: bytes,
+    payload_bits: tuple[int, ...],
+    target_crc: int,
+    *,
+    max_solutions: int,
+) -> tuple[tuple[int, ...], ...]:
+    bits = tuple(dict.fromkeys(int(bit) for bit in payload_bits if 0 <= int(bit) < len(payload) * 8))
+    if not bits:
+        return ()
+    current_crc = _crc32_idat_payload(payload)
+    target_crc = int(target_crc) & 0xFFFFFFFF
+    target_delta = current_crc ^ target_crc
+    if target_delta == 0:
+        return ()
+    columns: list[int] = []
+    for bit_offset in bits:
+        candidate = bytearray(payload)
+        candidate[bit_offset // 8] ^= 1 << (bit_offset % 8)
+        columns.append(_crc32_idat_payload(candidate) ^ current_crc)
+    solutions: list[tuple[int, ...]] = []
+    for mask in _gf2_low_weight_solutions(
+        tuple(columns),
+        target_delta,
+        max_solutions=max_solutions,
+    ):
+        solution = tuple(bits[index] for index in range(len(bits)) if mask & (1 << index))
+        if solution:
+            solutions.append(solution)
+    return tuple(solutions)
+
+
+def _flip_payload_bits(payload: bytes, payload_bits: Iterable[int]) -> bytes | None:
+    candidate = bytearray(payload)
+    for bit_offset in payload_bits:
+        bit_offset = int(bit_offset)
+        if bit_offset < 0 or bit_offset >= len(candidate) * 8:
+            return None
+        candidate[bit_offset // 8] ^= 1 << (bit_offset % 8)
+    return bytes(candidate)
+
+
+def _dynamic_crc_guided_target_chunk(
+    chunks: tuple[png.PngChunk, ...],
+    before: idat.IdatStreamAnalysis,
+) -> png.PngChunk | None:
+    idat_chunks = tuple(chunk for chunk in chunks if chunk.chunk_type == b"IDAT")
+    if before.error_file_offset is not None:
+        error_file_offset = int(before.error_file_offset)
+        for chunk in idat_chunks:
+            payload_start = chunk.offset + 8
+            payload_end = payload_start + chunk.length
+            if payload_start <= error_file_offset < payload_end and chunk.crc != chunk.computed_crc:
+                return chunk
+    return next((chunk for chunk in idat_chunks if chunk.crc != chunk.computed_crc), None)
+
+
+def _stream_bits_for_target_payload(
+    bits: Iterable[int],
+    *,
+    target_stream_start: int,
+    target_stream_end: int,
+) -> tuple[int, ...]:
+    start_bit = int(target_stream_start) * 8
+    end_bit = int(target_stream_end) * 8
+    return tuple(
+        dict.fromkeys(
+            int(bit) - start_bit
+            for bit in bits
+            if start_bit <= int(bit) < end_bit
+        )
+    )
+
+
+def _dynamic_crc_guided_bit_groups(
+    trace: deflate_header.DynamicHeaderTrace,
+    idat_stream: bytes,
+    *,
+    target_stream_start: int,
+    target_stream_end: int,
+    max_group_bits: int,
+) -> tuple[tuple[str, tuple[int, ...]], ...]:
+    stream_bit_limit = len(idat_stream) * 8
+    groups: list[tuple[str, tuple[int, ...]]] = []
+
+    def add_group(label: str, stream_bits: Iterable[int]) -> None:
+        payload_bits = _stream_bits_for_target_payload(
+            tuple(dict.fromkeys(int(bit) for bit in stream_bits if 0 <= int(bit) < stream_bit_limit)),
+            target_stream_start=target_stream_start,
+            target_stream_end=target_stream_end,
+        )
+        if not payload_bits:
+            return
+        for index in range(0, len(payload_bits), max_group_bits):
+            chunk = payload_bits[index : index + max_group_bits]
+            if chunk:
+                groups.append(("%s%s" % (label, "" if index == 0 else ":%s" % (index // max_group_bits)), chunk))
+
+    add_group(
+        "counts",
+        itertools.chain.from_iterable(
+            range(start, end) for _name, start, end in trace.count_bits
+        ),
+    )
+    add_group(
+        "alphabet",
+        itertools.chain.from_iterable(
+            range(start, end) for _symbol, start, end in trace.code_length_bits
+        ),
+    )
+
+    eob_index = 256
+    boundary = int(trace.hlit) if trace.hlit is not None else eob_index
+    eob_bits: list[int] = []
+    boundary_bits: list[int] = []
+    repeat_bits: list[int] = []
+    tail_bits: list[int] = []
+    tail_start = max(0, len(trace.tokens) - 32)
+    for token_index, token in enumerate(trace.tokens):
+        token_bits = _dynamic_token_bits(token, bit_limit=stream_bit_limit)
+        if token.length_start <= eob_index < token.length_end:
+            eob_bits.extend(token_bits)
+        if (
+            token.length_start <= boundary <= token.length_end
+            or abs(token.length_start - boundary) <= 8
+            or abs(token.length_end - boundary) <= 8
+        ):
+            boundary_bits.extend(token_bits)
+        if token.symbol in (16, 17, 18):
+            repeat_bits.extend(token_bits)
+        if token_index >= tail_start:
+            tail_bits.extend(token_bits)
+    add_group("eob", eob_bits)
+    add_group("boundary", boundary_bits)
+    add_group("repeat", repeat_bits)
+    add_group("tail", tail_bits)
+    add_group(
+        "priority",
+        _dynamic_huffman_suspect_bits(
+            trace,
+            idat_stream,
+            max_bits=max(1, max_group_bits * 4),
+        ),
+    )
+
+    deduped: list[tuple[str, tuple[int, ...]]] = []
+    seen: set[tuple[int, ...]] = set()
+    for label, bits in groups:
+        key = tuple(bits)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((label, key))
+    return tuple(deduped)
+
+
+def _payload_after_stream_replacements(
+    idat_stream: bytes,
+    payload: bytes,
+    replacements: Iterable[tuple[int, int, tuple[int, ...]]],
+    *,
+    target_stream_start: int,
+    target_stream_end: int,
+) -> bytes | None:
+    target_start_bit = int(target_stream_start) * 8
+    target_end_bit = int(target_stream_end) * 8
+    payload_replacements: list[tuple[int, int, tuple[int, ...]]] = []
+    for bit_start, bit_end, bits in replacements:
+        if bit_start < target_start_bit or bit_end > target_end_bit:
+            return None
+        payload_replacements.append((bit_start - target_start_bit, bit_end - target_start_bit, bits))
+    if not payload_replacements:
+        return None
+    return _apply_payload_bit_replacements(payload, payload_replacements)
+
+
+def _dynamic_crc_guided_fixed_payloads(
+    idat_stream: bytes,
+    payload: bytes,
+    trace: deflate_header.DynamicHeaderTrace,
+    *,
+    target_stream_start: int,
+    target_stream_end: int,
+    max_items: int,
+) -> tuple[tuple[str, bytes, tuple[int, ...]], ...]:
+    items: list[tuple[str, bytes, tuple[int, ...]]] = []
+    seen_payloads: set[bytes] = set()
+
+    def add_payload(edit_kind: str, replacements: tuple[tuple[int, int, tuple[int, ...]], ...]) -> None:
+        if len(items) >= int(max_items):
+            return
+        fixed_payload = _payload_after_stream_replacements(
+            idat_stream,
+            payload,
+            replacements,
+            target_stream_start=target_stream_start,
+            target_stream_end=target_stream_end,
+        )
+        if fixed_payload is None or fixed_payload == payload or fixed_payload in seen_payloads:
+            return
+        seen_payloads.add(fixed_payload)
+        items.append(
+            (
+                edit_kind,
+                fixed_payload,
+                tuple(bit_start for bit_start, _bit_end, _bits in replacements),
+            )
+        )
+
+    try:
+        symbol_codes = _dynamic_code_length_symbol_codes(trace)
+    except Exception:
+        symbol_codes = {}
+    if symbol_codes:
+        for token in _dynamic_semantic_priority_tokens(trace, limit=32):
+            bit_start = int(token.bit_start)
+            bit_end = _dynamic_length_token_bit_end(token)
+            for replacement_bits in _dynamic_semantic_token_options(token, symbol_codes):
+                add_payload(
+                    "crc-guided-semantic",
+                    ((bit_start, bit_end, replacement_bits),),
+                )
+                if len(items) >= int(max_items):
+                    return tuple(items)
+
+    for _label, source_order in _dynamic_code_length_alphabet_orders():
+        replacements = _dynamic_alphabet_rewrite_replacements(idat_stream, trace, source_order)
+        add_payload("crc-guided-alphabet", replacements)
+        if len(items) >= int(max_items):
+            return tuple(items)
+    return tuple(items)
+
+
+def _crc_guided_candidate_from_payload(
+    data: bytes,
+    *,
+    before: idat.IdatStreamAnalysis,
+    chunks: tuple[png.PngChunk, ...],
+    idat_chunks: tuple[png.PngChunk, ...],
+    target_chunk: png.PngChunk,
+    target_stream_start: int,
+    original_payload: bytes,
+    payload: bytes,
+    global_bit_offsets: tuple[int, ...],
+    edit_kind: str,
+) -> IdatDeflateCandidate | None:
+    if payload == original_payload:
+        return None
+    if _crc32_idat_payload(payload) != int(target_chunk.crc):
+        return None
+    target_start_bit = int(target_stream_start) * 8
+    touched_bytes = tuple(
+        sorted(
+            {
+                (int(bit) - target_start_bit) // 8
+                for bit in global_bit_offsets
+                if target_start_bit <= int(bit) < target_start_bit + len(payload) * 8
+            }
+        )
+    )
+    if not touched_bytes:
+        touched_bytes = tuple(
+            index
+            for index, (old, new) in enumerate(zip(original_payload, payload))
+            if old != new
+        )
+    if not touched_bytes:
+        return None
+
+    candidate = bytearray(data)
+    payload_start = target_chunk.offset + 8
+    payload_end = payload_start + target_chunk.length
+    candidate[payload_start:payload_end] = payload
+    candidate_data = bytes(candidate)
+
+    first_payload_offset = touched_bytes[0]
+    first_file_offset = payload_start + first_payload_offset
+    first_stream_offset = target_stream_start + first_payload_offset
+    idat_index = _idat_chunk_index(idat_chunks, target_chunk)
+    old_bytes = bytes(original_payload[offset] for offset in touched_bytes)
+    new_bytes = bytes(payload[offset] for offset in touched_bytes)
+    return IdatDeflateCandidate(
+        data=candidate_data,
+        stream_offset=first_stream_offset,
+        file_offset=first_file_offset,
+        idat_index=idat_index,
+        idat_offset=first_payload_offset,
+        old_byte=original_payload[first_payload_offset],
+        new_byte=payload[first_payload_offset],
+        before=before,
+        after=idat.analyze_idat_stream(candidate_data),
+        edit_kind=edit_kind,
+        old_bytes=old_bytes,
+        new_bytes=new_bytes,
+        bit_offsets=tuple(sorted(global_bit_offsets)),
+    )
+
+
+def _dynamic_alphabet_field_priority(
+    entry: tuple[int, int, int],
+) -> tuple[int, int, int]:
+    symbol, bit_start, _bit_end = entry
+    if symbol in (16, 17, 18):
+        rank = 0
+    elif symbol == 0:
+        rank = 1
+    elif symbol in (7, 8, 9, 6, 10):
+        rank = 2
+    else:
+        rank = 3
+    return rank, int(symbol), int(bit_start)
+
+
+def probe_dynamic_huffman_alphabet_candidates(
+    data: bytes,
+    *,
+    budget: int = 8192,
+    max_fields: int = 17,
+    max_field_edits: int = 2,
+    progress: QueueProgressCallback | None = None,
+) -> IdatDeflateProbeResult:
+    before = idat.analyze_idat_stream(data)
+    strategy = "dynamic-huffman-alphabet"
+    if not before.supported:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, before.reason)
+    if before.complete:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "IDAT stream is already complete")
+    if before.decompressed_size != 0:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "deflate already produced bytes")
+
+    try:
+        _idat_chunks, idat_stream = _idat_chunks_and_stream(data)
+    except png.PngFormatError as exc:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, str(exc))
+
+    before_header = before.deflate_header or deflate_header.analyze_deflate_header(idat_stream)
+    if before_header.status not in ("invalid_huffman_lengths", "bad_code_length_tree") or before_header.btype != 2:
+        return IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            0,
+            0,
+            False,
+            strategy,
+            "unsupported header status: %s" % before_header.status,
+        )
+
+    trace = deflate_header.trace_dynamic_header(idat_stream)
+    entries = tuple(sorted(trace.code_length_bits, key=_dynamic_alphabet_field_priority))[:max_fields]
+    if trace.btype != 2 or not entries:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, trace.summary)
+
+    window_start = min(bit_start for _symbol, bit_start, _bit_end in entries) // 8
+    window_end = (max(bit_end for _symbol, _bit_start, bit_end in entries) + 7) // 8
+    best: IdatDeflateCandidate | None = None
+    best_score = analysis_score(before)
+    diagnostic_best: IdatDeflateCandidate | None = None
+    diagnostic_score = analysis_score(before)
+    tested = 0
+    order_headers = 0
+    alphabet_headers = 0
+    valid_headers = 0
+    best_scanlines = before.usable_scanlines
+    budget_exhausted = False
+    seen: set[tuple[tuple[int, int, tuple[int, ...]], ...]] = set()
+
+    def result() -> IdatDeflateProbeResult:
+        reason = (
+            "orders=%s; fields=%s; alphabet_headers=%s; valid_headers=%s; best_scanlines=%s; %s"
+            % (
+                order_headers,
+                len(entries),
+                alphabet_headers,
+                valid_headers,
+                best_scanlines,
+                trace.summary,
+            )
+        )
+        return IdatDeflateProbeResult(
+            before,
+            best,
+            window_start,
+            window_end,
+            tested,
+            budget_exhausted,
+            strategy,
+            reason,
+            diagnostic_best=diagnostic_best,
+        )
+
+    def consider_replacements(
+        replacements: tuple[tuple[int, int, tuple[int, ...]], ...],
+        *,
+        edit_kind: str,
+    ) -> bool:
+        nonlocal best, best_score, diagnostic_best, diagnostic_score
+        nonlocal tested, order_headers, alphabet_headers, valid_headers, best_scanlines, budget_exhausted
+        if not replacements:
+            return False
+        key = tuple(sorted(replacements))
+        if key in seen:
+            return False
+        seen.add(key)
+        if tested >= budget:
+            budget_exhausted = True
+            return False
+        tested += 1
+        if progress is not None and tested % 100 == 0:
+            progress(strategy, tested, budget)
+
+        candidate_stream = _apply_stream_bit_replacements(idat_stream, replacements)
+        if candidate_stream is None or candidate_stream == idat_stream:
+            return False
+        candidate_trace = deflate_header.trace_dynamic_header(candidate_stream)
+        if candidate_trace.btype != 2:
+            return False
+        if (
+            candidate_trace.hlit is not None
+            and candidate_trace.hdist is not None
+            and candidate_trace.length_count == int(candidate_trace.hlit) + int(candidate_trace.hdist)
+        ):
+            alphabet_headers += 1
+        try:
+            header = deflate_header.analyze_deflate_header(candidate_stream)
+        except Exception:
+            return False
+        if not header.ok or header.btype != before_header.btype:
+            return False
+        valid_headers += 1
+        candidate = mutate_idat_stream_bit_range_replacements(
+            data,
+            replacements,
+            edit_kind=edit_kind,
+            before_analysis=before,
+        )
+        if candidate is None:
+            return False
+
+        candidate_score = analysis_score(candidate.after)
+        best_scanlines = max(best_scanlines, candidate.after.usable_scanlines)
+        if candidate_score > diagnostic_score:
+            diagnostic_best = candidate
+            diagnostic_score = candidate_score
+        if not is_material_improvement(before, candidate.after):
+            return False
+        if candidate_score <= best_score:
+            return False
+        best = candidate
+        best_score = candidate_score
+        return bool(candidate.after.complete)
+
+    if progress is not None:
+        progress(strategy, 0, max(0, budget))
+
+    for _label, source_order in _dynamic_code_length_alphabet_orders():
+        if tested >= budget:
+            budget_exhausted = True
+            if progress is not None:
+                progress(strategy, tested, budget)
+            return result()
+        try:
+            alternate_trace = deflate_header.trace_dynamic_header(
+                idat_stream,
+                code_length_order=source_order,
+            )
+        except Exception:
+            alternate_trace = None
+        if (
+            alternate_trace is not None
+            and alternate_trace.hlit is not None
+            and alternate_trace.hdist is not None
+            and alternate_trace.length_count == int(alternate_trace.hlit) + int(alternate_trace.hdist)
+        ):
+            order_headers += 1
+        replacements = _dynamic_alphabet_rewrite_replacements(idat_stream, trace, source_order)
+        if consider_replacements(replacements, edit_kind="alphabet-order"):
+            if progress is not None:
+                progress(strategy, tested, budget)
+            return result()
+
+    fields = entries[:max(1, max_fields)]
+    max_width = max(1, int(max_field_edits))
+    for width in range(1, max_width + 1):
+        for field_group in itertools.combinations(fields, width):
+            old_values = tuple(
+                _stream_bits_value(idat_stream, bit_start, bit_end)
+                for _symbol, bit_start, bit_end in field_group
+            )
+            for values in itertools.product(range(8), repeat=width):
+                if values == old_values:
+                    continue
+                if tested >= budget:
+                    budget_exhausted = True
+                    if progress is not None:
+                        progress(strategy, tested, budget)
+                    return result()
+                replacements = tuple(
+                    (
+                        bit_start,
+                        bit_end,
+                        _bits_for_lsb_code(value, bit_end - bit_start),
+                    )
+                    for value, (_symbol, bit_start, bit_end) in zip(values, field_group)
+                )
+                if consider_replacements(replacements, edit_kind="alphabet-field"):
+                    if progress is not None:
+                        progress(strategy, tested, budget)
+                    return result()
+
+    if progress is not None:
+        progress(strategy, tested, budget)
+    return result()
+
+
+def probe_dynamic_huffman_crc_guided_candidates(
+    data: bytes,
+    *,
+    budget: int = 65536,
+    max_group_bits: int = 48,
+    max_solutions_per_group: int = 256,
+    max_fixed_payloads: int = 256,
+    progress: QueueProgressCallback | None = None,
+) -> IdatDeflateProbeResult:
+    before = idat.analyze_idat_stream(data)
+    strategy = "dynamic-huffman-crc-guided"
+    if not before.supported:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, before.reason)
+    if before.complete:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "IDAT stream is already complete")
+    if before.decompressed_size != 0:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "deflate already produced bytes")
+
+    try:
+        chunks, idat_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, str(exc))
+    idat_chunks = tuple(chunk for chunk in chunks if chunk.chunk_type == b"IDAT")
+    target_chunk = _dynamic_crc_guided_target_chunk(chunks, before)
+    if target_chunk is None:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "no mismatching IDAT CRC target")
+    target_range = _idat_stream_range_for_chunk_offset(chunks, target_chunk.offset)
+    if target_range is None:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "target IDAT stream range unavailable")
+    target_stream_start, target_stream_end = target_range
+
+    before_header = before.deflate_header or deflate_header.analyze_deflate_header(idat_stream)
+    if before_header.status not in ("invalid_huffman_lengths", "bad_code_length_tree") or before_header.btype != 2:
+        return IdatDeflateProbeResult(
+            before,
+            None,
+            target_stream_start,
+            target_stream_end,
+            0,
+            False,
+            strategy,
+            "unsupported header status: %s" % before_header.status,
+        )
+
+    trace = deflate_header.trace_dynamic_header(idat_stream)
+    if trace.btype != 2:
+        return IdatDeflateProbeResult(before, None, target_stream_start, target_stream_end, 0, False, strategy, trace.summary)
+
+    groups = _dynamic_crc_guided_bit_groups(
+        trace,
+        idat_stream,
+        target_stream_start=target_stream_start,
+        target_stream_end=target_stream_end,
+        max_group_bits=max_group_bits,
+    )
+    if not groups:
+        return IdatDeflateProbeResult(before, None, target_stream_start, target_stream_end, 0, False, strategy, "no CRC-guided bit groups")
+
+    original_payload = bytes(target_chunk.data)
+    target_crc = int(target_chunk.crc)
+    best: IdatDeflateCandidate | None = None
+    best_score = analysis_score(before)
+    diagnostic_best: IdatDeflateCandidate | None = None
+    diagnostic_score = analysis_score(before)
+    tested = 0
+    crc_solutions = 0
+    valid_headers = 0
+    best_scanlines = before.usable_scanlines
+    budget_exhausted = False
+    seen_payloads: set[bytes] = set()
+
+    def result() -> IdatDeflateProbeResult:
+        reason = (
+            "groups=%s; crc_solutions=%s; valid_headers=%s; best_scanlines=%s; target_idat=%s; %s"
+            % (
+                len(groups),
+                crc_solutions,
+                valid_headers,
+                best_scanlines,
+                _idat_chunk_index(idat_chunks, target_chunk),
+                trace.summary,
+            )
+        )
+        return IdatDeflateProbeResult(
+            before,
+            best,
+            target_stream_start,
+            target_stream_end,
+            tested,
+            budget_exhausted,
+            strategy,
+            reason,
+            diagnostic_best=diagnostic_best,
+        )
+
+    def consider_payload(payload: bytes, edit_kind: str, global_bits: tuple[int, ...]) -> bool:
+        nonlocal best, best_score, diagnostic_best, diagnostic_score
+        nonlocal tested, crc_solutions, valid_headers, best_scanlines, budget_exhausted
+        if payload in seen_payloads:
+            return False
+        seen_payloads.add(payload)
+        if _crc32_idat_payload(payload) != target_crc:
+            return False
+        if tested >= budget:
+            budget_exhausted = True
+            return False
+        tested += 1
+        crc_solutions += 1
+        if progress is not None and tested % 100 == 0:
+            progress(strategy, tested, budget)
+
+        candidate_stream = _stream_with_target_payload(
+            idat_stream,
+            target_stream_start,
+            target_stream_end,
+            payload,
+        )
+        try:
+            header = deflate_header.analyze_deflate_header(candidate_stream)
+        except Exception:
+            return False
+        if not header.ok or header.btype != before_header.btype:
+            return False
+        valid_headers += 1
+
+        candidate = _crc_guided_candidate_from_payload(
+            data,
+            before=before,
+            chunks=chunks,
+            idat_chunks=idat_chunks,
+            target_chunk=target_chunk,
+            target_stream_start=target_stream_start,
+            original_payload=original_payload,
+            payload=payload,
+            global_bit_offsets=global_bits,
+            edit_kind=edit_kind,
+        )
+        if candidate is None:
+            return False
+
+        candidate_score = analysis_score(candidate.after)
+        best_scanlines = max(best_scanlines, candidate.after.usable_scanlines)
+        if candidate_score > diagnostic_score:
+            diagnostic_best = candidate
+            diagnostic_score = candidate_score
+        if not is_material_improvement(before, candidate.after):
+            return False
+        if candidate_score <= best_score:
+            return False
+        best = candidate
+        best_score = candidate_score
+        return bool(candidate.after.complete)
+
+    if progress is not None:
+        progress(strategy, 0, max(0, budget))
+
+    payload_variants: list[tuple[str, bytes, tuple[int, ...]]] = [
+        ("crc-guided-bitset", original_payload, ()),
+    ]
+    payload_variants.extend(
+        _dynamic_crc_guided_fixed_payloads(
+            idat_stream,
+            original_payload,
+            trace,
+            target_stream_start=target_stream_start,
+            target_stream_end=target_stream_end,
+            max_items=max_fixed_payloads,
+        )
+    )
+
+    target_start_bit = target_stream_start * 8
+    for edit_kind, base_payload, fixed_stream_bits in payload_variants:
+        if budget_exhausted:
+            break
+        if _crc32_idat_payload(base_payload) == target_crc:
+            if consider_payload(base_payload, edit_kind, tuple(fixed_stream_bits)):
+                if progress is not None:
+                    progress(strategy, tested, budget)
+                return result()
+            if budget_exhausted:
+                break
+
+        for _group_label, payload_bits in groups:
+            if tested >= budget:
+                budget_exhausted = True
+                break
+            solutions = _crc_guided_solutions_for_payload_bits(
+                base_payload,
+                payload_bits,
+                target_crc,
+                max_solutions=max_solutions_per_group,
+            )
+            for solution_payload_bits in solutions:
+                if tested >= budget:
+                    budget_exhausted = True
+                    break
+                payload = _flip_payload_bits(base_payload, solution_payload_bits)
+                if payload is None:
+                    continue
+                solution_stream_bits = tuple(target_start_bit + bit for bit in solution_payload_bits)
+                global_bits = tuple(sorted(tuple(fixed_stream_bits) + solution_stream_bits))
+                if consider_payload(payload, edit_kind, global_bits):
+                    if progress is not None:
+                        progress(strategy, tested, budget)
+                    return result()
+            if budget_exhausted:
+                break
+
+    if progress is not None:
+        progress(strategy, tested, budget)
+    return result()
+
+
+def _dynamic_length_token_bit_end(token: deflate_header.DynamicLengthToken) -> int:
+    return int(token.extra_bit_end if token.extra_bit_end is not None else token.bit_end)
+
+
+def _dynamic_length_token_bit_width(token: deflate_header.DynamicLengthToken) -> int:
+    return _dynamic_length_token_bit_end(token) - int(token.bit_start)
+
+
+def _encode_dynamic_length_token(
+    symbol_codes: dict[int, tuple[int, int]],
+    symbol: int,
+    *,
+    repeat: int = 1,
+) -> tuple[int, ...] | None:
+    symbol = int(symbol)
+    code = symbol_codes.get(symbol)
+    if code is None:
+        return None
+    code_bits = _bits_for_lsb_code(code[0], code[1])
+    if symbol <= 15:
+        return code_bits
+    if symbol == 16:
+        if repeat < 3 or repeat > 6:
+            return None
+        return code_bits + _bits_for_lsb_code(int(repeat) - 3, 2)
+    if symbol == 17:
+        if repeat < 3 or repeat > 10:
+            return None
+        return code_bits + _bits_for_lsb_code(int(repeat) - 3, 3)
+    if symbol == 18:
+        if repeat < 11 or repeat > 138:
+            return None
+        return code_bits + _bits_for_lsb_code(int(repeat) - 11, 7)
+    return None
+
+
+def _semantic_repeat_values(current: int, low: int, high: int) -> tuple[int, ...]:
+    values = {
+        low,
+        high,
+        int(current),
+        int(current) - 8,
+        int(current) - 4,
+        int(current) - 2,
+        int(current) - 1,
+        int(current) + 1,
+        int(current) + 2,
+        int(current) + 4,
+        int(current) + 8,
+    }
+    return tuple(sorted(value for value in values if int(low) <= value <= int(high)))
+
+
+def _dynamic_semantic_token_options(
+    token: deflate_header.DynamicLengthToken,
+    symbol_codes: dict[int, tuple[int, int]],
+) -> tuple[tuple[int, ...], ...]:
+    options: list[tuple[int, ...]] = []
+    for symbol in range(0, 16):
+        encoded = _encode_dynamic_length_token(symbol_codes, symbol)
+        if encoded is not None:
+            options.append(encoded)
+    if int(token.length_start) > 0:
+        for repeat in range(3, 7):
+            encoded = _encode_dynamic_length_token(symbol_codes, 16, repeat=repeat)
+            if encoded is not None:
+                options.append(encoded)
+    for repeat in range(3, 11):
+        encoded = _encode_dynamic_length_token(symbol_codes, 17, repeat=repeat)
+        if encoded is not None:
+            options.append(encoded)
+    for repeat in _semantic_repeat_values(int(token.repeat), 11, 138):
+        encoded = _encode_dynamic_length_token(symbol_codes, 18, repeat=repeat)
+        if encoded is not None:
+            options.append(encoded)
+    original_width = _dynamic_length_token_bit_width(token)
+    return tuple(
+        dict.fromkeys(
+            sorted(
+                options,
+                key=lambda bits: (
+                    abs(len(bits) - original_width),
+                    len(bits),
+                    bits,
+                ),
+            )
+        )
+    )
+
+
+def _dynamic_semantic_priority_tokens(
+    trace: deflate_header.DynamicHeaderTrace,
+    *,
+    limit: int,
+) -> tuple[deflate_header.DynamicLengthToken, ...]:
+    if limit <= 0:
+        return ()
+    eob_index = 256
+    boundary = int(trace.hlit) if trace.hlit is not None else eob_index
+    tail_start = max(0, len(trace.tokens) - 32)
+
+    def priority(item: tuple[int, deflate_header.DynamicLengthToken]) -> tuple[int, int, int]:
+        index, token = item
+        if token.length_start <= eob_index < token.length_end:
+            rank = 0
+        elif token.length_start <= boundary <= token.length_end:
+            rank = 1
+        elif token.symbol in (16, 17, 18):
+            rank = 2
+        elif abs(token.length_start - eob_index) <= 16 or abs(token.length_end - eob_index) <= 16:
+            rank = 3
+        elif abs(token.length_start - boundary) <= 16 or abs(token.length_end - boundary) <= 16:
+            rank = 4
+        elif index >= tail_start:
+            rank = 5
+        else:
+            rank = 6
+        return rank, int(token.length_start), int(token.bit_start)
+
+    return tuple(token for _index, token in sorted(enumerate(trace.tokens), key=priority)[:limit])
+
+
+def probe_dynamic_huffman_semantic_candidates(
+    data: bytes,
+    *,
+    budget: int = 12000,
+    max_tokens: int = 96,
+    progress: QueueProgressCallback | None = None,
+) -> IdatDeflateProbeResult:
+    before = idat.analyze_idat_stream(data)
+    strategy = "dynamic-huffman-semantic"
+    if not before.supported:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, before.reason)
+    if before.complete:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "IDAT stream is already complete")
+    if before.decompressed_size != 0:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "deflate already produced bytes")
+
+    try:
+        _idat_chunks, idat_stream = _idat_chunks_and_stream(data)
+    except png.PngFormatError as exc:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, str(exc))
+
+    before_header = before.deflate_header or deflate_header.analyze_deflate_header(idat_stream)
+    if before_header.status != "invalid_huffman_lengths" or before_header.btype != 2:
+        return IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            0,
+            0,
+            False,
+            strategy,
+            "unsupported header status: %s" % before_header.status,
+        )
+
+    trace = deflate_header.trace_dynamic_header(idat_stream)
+    if trace.status != "invalid_huffman_lengths" or trace.btype != 2 or not trace.tokens:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, trace.summary)
+    try:
+        symbol_codes = _dynamic_code_length_symbol_codes(trace)
+    except Exception as exc:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, str(exc))
+
+    tokens = _dynamic_semantic_priority_tokens(trace, limit=max_tokens)
+    if not tokens:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "no semantic tokens")
+
+    window_start = min(int(token.bit_start) for token in tokens) // 8
+    window_end = (max(_dynamic_length_token_bit_end(token) for token in tokens) // 8) + 1
+    best: IdatDeflateCandidate | None = None
+    best_score = analysis_score(before)
+    diagnostic_best: IdatDeflateCandidate | None = None
+    diagnostic_score = analysis_score(before)
+    tested = 0
+    semantic_headers = 0
+    valid_headers = 0
+    best_scanlines = before.usable_scanlines
+    budget_exhausted = False
+    seen: set[tuple[int, int, tuple[int, ...]]] = set()
+
+    def result() -> IdatDeflateProbeResult:
+        reason = (
+            "tokens=%s; semantic_headers=%s; valid_headers=%s; best_scanlines=%s; %s"
+            % (
+                len(tokens),
+                semantic_headers,
+                valid_headers,
+                best_scanlines,
+                trace.summary,
+            )
+        )
+        return IdatDeflateProbeResult(
+            before,
+            best,
+            window_start,
+            window_end,
+            tested,
+            budget_exhausted,
+            strategy,
+            reason,
+            diagnostic_best=diagnostic_best,
+        )
+
+    if progress is not None:
+        progress(strategy, 0, max(0, budget))
+
+    for token in tokens:
+        bit_start = int(token.bit_start)
+        bit_end = _dynamic_length_token_bit_end(token)
+        for replacement_bits in _dynamic_semantic_token_options(token, symbol_codes):
+            key = (bit_start, bit_end, replacement_bits)
+            if key in seen:
+                continue
+            seen.add(key)
+            if tested >= budget:
+                budget_exhausted = True
+                if progress is not None:
+                    progress(strategy, tested, budget)
+                return result()
+            tested += 1
+            if progress is not None and tested % 100 == 0:
+                progress(strategy, tested, budget)
+
+            candidate_stream = _replace_stream_bits_preserve_length(
+                idat_stream,
+                bit_start,
+                bit_end,
+                replacement_bits,
+            )
+            if candidate_stream is None or candidate_stream == idat_stream:
+                continue
+            candidate_trace = deflate_header.trace_dynamic_header(candidate_stream)
+            if candidate_trace.btype != 2:
+                continue
+            if (
+                candidate_trace.hlit is not None
+                and candidate_trace.hdist is not None
+                and candidate_trace.length_count == int(candidate_trace.hlit) + int(candidate_trace.hdist)
+            ):
+                semantic_headers += 1
+            try:
+                header = deflate_header.analyze_deflate_header(candidate_stream)
+            except Exception:
+                continue
+            if not header.ok or header.btype != before_header.btype:
+                continue
+            valid_headers += 1
+            candidate = mutate_idat_stream_bit_range_replace(
+                data,
+                bit_start,
+                bit_end,
+                replacement_bits,
+                before_analysis=before,
+            )
+            if candidate is None:
+                continue
+
+            candidate_score = analysis_score(candidate.after)
+            best_scanlines = max(best_scanlines, candidate.after.usable_scanlines)
+            if candidate_score > diagnostic_score:
+                diagnostic_best = candidate
+                diagnostic_score = candidate_score
+            if not is_material_improvement(before, candidate.after):
+                continue
+            if candidate_score <= best_score:
+                continue
+            best = candidate
+            best_score = candidate_score
+            if candidate.after.complete:
+                if progress is not None:
+                    progress(strategy, tested, budget)
+                return result()
+
+    if progress is not None:
+        progress(strategy, tested, budget)
+    return result()
+
+
+def probe_dynamic_huffman_header_candidates(
+    data: bytes,
+    *,
+    budget: int = 32768,
+    max_bits: int = 192,
+    max_bit_flips: int = 2,
+    progress: QueueProgressCallback | None = None,
+) -> IdatDeflateProbeResult:
+    before = idat.analyze_idat_stream(data)
+    strategy = "dynamic-huffman-header"
+    if not before.supported:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, before.reason)
+    if before.complete:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "IDAT stream is already complete")
+    if before.decompressed_size != 0:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "deflate already produced bytes")
+
+    try:
+        _idat_chunks, idat_stream = _idat_chunks_and_stream(data)
+    except png.PngFormatError as exc:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, str(exc))
+
+    before_header = before.deflate_header or deflate_header.analyze_deflate_header(idat_stream)
+    if before_header.status != "invalid_huffman_lengths":
+        return IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            0,
+            0,
+            False,
+            strategy,
+            "unsupported header status: %s" % before_header.status,
+        )
+
+    trace = deflate_header.trace_dynamic_header(idat_stream)
+    if trace.status not in ("invalid_huffman_lengths", "ok"):
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, trace.summary)
+
+    suspect_bits = _dynamic_huffman_suspect_bits(trace, idat_stream, max_bits=max_bits)
+    if not suspect_bits:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "no dynamic header suspect bits")
+
+    window_start = min(suspect_bits) // 8
+    window_end = (max(suspect_bits) // 8) + 1
+    best: IdatDeflateCandidate | None = None
+    best_score = analysis_score(before)
+    diagnostic_best: IdatDeflateCandidate | None = None
+    diagnostic_score = analysis_score(before)
+    tested = 0
+    valid_headers = 0
+    budget_exhausted = False
+
+    def result() -> IdatDeflateProbeResult:
+        reason = "bits=%s; valid_headers=%s; %s" % (
+            len(suspect_bits),
+            valid_headers,
+            trace.summary,
+        )
+        return IdatDeflateProbeResult(
+            before,
+            best,
+            window_start,
+            window_end,
+            tested,
+            budget_exhausted,
+            strategy,
+            reason,
+            diagnostic_best=diagnostic_best,
+        )
+
+    if progress is not None:
+        progress(strategy, 0, max(0, budget))
+
+    max_width = max(1, int(max_bit_flips))
+    for width in range(1, max_width + 1):
+        for bit_offsets in itertools.combinations(suspect_bits, width):
+            if tested >= budget:
+                budget_exhausted = True
+                if progress is not None:
+                    progress(strategy, tested, budget)
+                return result()
+            tested += 1
+            if progress is not None and tested % 100 == 0:
+                progress(strategy, tested, budget)
+
+            candidate_stream = _flip_stream_bits(idat_stream, bit_offsets)
+            if candidate_stream is None:
+                continue
+            try:
+                header = deflate_header.analyze_deflate_header(candidate_stream)
+            except Exception:
+                continue
+            if not header.ok or header.btype != before_header.btype:
+                continue
+            valid_headers += 1
+
+            candidate = mutate_idat_stream_bit_flips(
+                data,
+                bit_offsets,
+                before_analysis=before,
+            )
+            if candidate is None:
+                continue
+
+            candidate_score = analysis_score(candidate.after)
+            if candidate_score > diagnostic_score:
+                diagnostic_best = candidate
+                diagnostic_score = candidate_score
+            if not is_material_improvement(before, candidate.after):
+                continue
+            if candidate_score <= best_score:
+                continue
+            best = candidate
+            best_score = candidate_score
+            if candidate.after.complete:
+                if progress is not None:
+                    progress(strategy, tested, budget)
+                return result()
+
+    if progress is not None:
+        progress(strategy, tested, budget)
+    return result()
+
+
+def probe_dynamic_huffman_bitshift_candidates(
+    data: bytes,
+    *,
+    budget: int = 4096,
+    max_bits: int = 1024,
+    progress: QueueProgressCallback | None = None,
+) -> IdatDeflateProbeResult:
+    before = idat.analyze_idat_stream(data)
+    strategy = "dynamic-huffman-bitshift"
+    if not before.supported:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, before.reason)
+    if before.complete:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "IDAT stream is already complete")
+    if before.decompressed_size != 0:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "deflate already produced bytes")
+
+    try:
+        _idat_chunks, idat_stream = _idat_chunks_and_stream(data)
+    except png.PngFormatError as exc:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, str(exc))
+
+    before_header = before.deflate_header or deflate_header.analyze_deflate_header(idat_stream)
+    if before_header.status != "invalid_huffman_lengths" or before_header.btype != 2:
+        return IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            0,
+            0,
+            False,
+            strategy,
+            "unsupported header status: %s" % before_header.status,
+        )
+
+    trace = deflate_header.trace_dynamic_header(idat_stream)
+    header_start_bit = 16
+    header_end_bit = trace.header_end_bit or trace.bit_offset or before_header.bit_offset
+    if header_end_bit is None:
+        header_end_bit = min(len(idat_stream) * 8, header_start_bit + max_bits)
+    header_end_bit = min(
+        len(idat_stream) * 8,
+        max(header_start_bit, int(header_end_bit)),
+        header_start_bit + max(1, int(max_bits)),
+    )
+    bit_offsets = tuple(range(header_start_bit, header_end_bit))
+    if not bit_offsets:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "no dynamic header bits")
+
+    window_start = min(bit_offsets) // 8
+    window_end = (max(bit_offsets) // 8) + 1
+    best: IdatDeflateCandidate | None = None
+    best_score = analysis_score(before)
+    diagnostic_best: IdatDeflateCandidate | None = None
+    diagnostic_score = analysis_score(before)
+    tested = 0
+    valid_headers = 0
+    budget_exhausted = False
+
+    def result() -> IdatDeflateProbeResult:
+        reason = "bits=%s; valid_dynamic_headers=%s; %s" % (
+            len(bit_offsets),
+            valid_headers,
+            trace.summary,
+        )
+        return IdatDeflateProbeResult(
+            before,
+            best,
+            window_start,
+            window_end,
+            tested,
+            budget_exhausted,
+            strategy,
+            reason,
+            diagnostic_best=diagnostic_best,
+        )
+
+    def consider(candidate: IdatDeflateCandidate | None) -> bool:
+        nonlocal best, best_score, diagnostic_best, diagnostic_score
+        if candidate is None:
+            return False
+        candidate_score = analysis_score(candidate.after)
+        if candidate_score > diagnostic_score:
+            diagnostic_best = candidate
+            diagnostic_score = candidate_score
+        if not is_material_improvement(before, candidate.after):
+            return False
+        if candidate_score <= best_score:
+            return False
+        best = candidate
+        best_score = candidate_score
+        return bool(candidate.after.complete)
+
+    if progress is not None:
+        progress(strategy, 0, max(0, budget))
+
+    operations: tuple[tuple[str, int], ...] = (
+        ("bit-delete", 0),
+        ("bit-insert", 0),
+        ("bit-insert", 1),
+    )
+    for bit_offset in bit_offsets:
+        for edit_kind, bit_value in operations:
+            if tested >= budget:
+                budget_exhausted = True
+                if progress is not None:
+                    progress(strategy, tested, budget)
+                return result()
+            tested += 1
+            if progress is not None and tested % 100 == 0:
+                progress(strategy, tested, budget)
+
+            if edit_kind == "bit-delete":
+                candidate_stream = _shift_stream_delete_bit(idat_stream, bit_offset)
+            else:
+                candidate_stream = _shift_stream_insert_bit(idat_stream, bit_offset, bit_value)
+            if candidate_stream is None:
+                continue
+            try:
+                header = deflate_header.analyze_deflate_header(candidate_stream)
+            except Exception:
+                continue
+            if not header.ok or header.btype != before_header.btype:
+                continue
+            valid_headers += 1
+            if consider(
+                mutate_idat_stream_bit_shift(
+                    data,
+                    bit_offset,
+                    edit_kind,
+                    bit_value=bit_value,
+                    before_analysis=before,
+                )
+            ):
+                if progress is not None:
+                    progress(strategy, tested, budget)
+                return result()
+
+    if progress is not None:
+        progress(strategy, tested, budget)
+    return result()
 
 
 def probe_deflate_header_candidates(
     data: bytes,
     *,
-    budget: int = 65536,
+    budget: int = 100000,
     progress: QueueProgressCallback | None = None,
 ) -> IdatDeflateProbeResult:
     before = idat.analyze_idat_stream(data)
@@ -7024,19 +8872,24 @@ def probe_deflate_header_candidates(
     diagnostic_score = analysis_score(before)
     tested = 0
     budget_exhausted = False
+    subprobes: list[IdatDeflateProbeResult] = []
 
-    def exhausted() -> IdatDeflateProbeResult:
+    def result(*, exhausted_budget: bool | None = None) -> IdatDeflateProbeResult:
         return IdatDeflateProbeResult(
             before,
             best,
             window_start,
             window_end,
             tested,
-            True,
+            budget_exhausted if exhausted_budget is None else exhausted_budget,
             strategy,
             before_header.summary,
             diagnostic_best=diagnostic_best,
+            subprobes=tuple(subprobes),
         )
+
+    def exhausted() -> IdatDeflateProbeResult:
+        return result(exhausted_budget=True)
 
     def consider(candidate: IdatDeflateCandidate | None) -> bool:
         nonlocal best, best_score, diagnostic_best, diagnostic_score
@@ -7103,17 +8956,7 @@ def probe_deflate_header_candidates(
             ):
                 if progress is not None:
                     progress("deflate-header-bit", tested, budget)
-                return IdatDeflateProbeResult(
-                    before,
-                    best,
-                    window_start,
-                    window_end,
-                    tested,
-                    budget_exhausted,
-                    strategy,
-                    before_header.summary,
-                    diagnostic_best=diagnostic_best,
-                )
+                return result()
 
     if progress is not None:
         progress("deflate-header-remove", tested, budget)
@@ -7139,17 +8982,125 @@ def probe_deflate_header_candidates(
             ):
                 if progress is not None:
                     progress("deflate-header-remove", tested, budget)
-                return IdatDeflateProbeResult(
-                    before,
-                    best,
-                    window_start,
-                    window_end,
-                    tested,
-                    budget_exhausted,
-                    strategy,
-                    before_header.summary,
-                    diagnostic_best=diagnostic_best,
-                )
+                return result()
+
+    if before_header.status == "invalid_huffman_lengths" and tested < budget:
+        remaining_budget = max(0, budget - tested)
+        bitshift_base = tested
+
+        def bitshift_progress(label: str, done: int, _total: int) -> None:
+            if progress is not None:
+                progress(label, min(budget, bitshift_base + done), budget)
+
+        bitshift_probe = probe_dynamic_huffman_bitshift_candidates(
+            data,
+            budget=remaining_budget,
+            progress=bitshift_progress if progress is not None else None,
+        )
+        subprobes.append(bitshift_probe)
+        tested += bitshift_probe.tested_candidates
+        if bitshift_probe.best is not None and consider(bitshift_probe.best):
+            return result()
+        if bitshift_probe.diagnostic_best is not None and bitshift_probe.diagnostic_best is not bitshift_probe.best:
+            consider(bitshift_probe.diagnostic_best)
+        if bitshift_probe.budget_exhausted:
+            budget_exhausted = True
+            return exhausted()
+
+    if before_header.status == "invalid_huffman_lengths" and tested < budget:
+        remaining_budget = max(0, budget - tested)
+        dynamic_base = tested
+
+        def dynamic_progress(label: str, done: int, _total: int) -> None:
+            if progress is not None:
+                progress(label, min(budget, dynamic_base + done), budget)
+
+        semantic_reserve = 12000 if remaining_budget > 16000 else 0
+        dynamic_budget = min(32768, max(0, remaining_budget - semantic_reserve))
+        if dynamic_budget:
+            dynamic_probe = probe_dynamic_huffman_header_candidates(
+                data,
+                budget=dynamic_budget,
+                progress=dynamic_progress if progress is not None else None,
+            )
+            subprobes.append(dynamic_probe)
+            tested += dynamic_probe.tested_candidates
+            if dynamic_probe.best is not None and consider(dynamic_probe.best):
+                return result()
+            if dynamic_probe.diagnostic_best is not None and dynamic_probe.diagnostic_best is not dynamic_probe.best:
+                consider(dynamic_probe.diagnostic_best)
+            if dynamic_probe.budget_exhausted and tested >= budget:
+                budget_exhausted = True
+                return exhausted()
+
+    if before_header.status == "invalid_huffman_lengths" and tested < budget:
+        remaining_budget = max(0, budget - tested)
+        semantic_base = tested
+
+        def semantic_progress(label: str, done: int, _total: int) -> None:
+            if progress is not None:
+                progress(label, min(budget, semantic_base + done), budget)
+
+        semantic_probe = probe_dynamic_huffman_semantic_candidates(
+            data,
+            budget=min(12000, remaining_budget),
+            progress=semantic_progress if progress is not None else None,
+        )
+        subprobes.append(semantic_probe)
+        tested += semantic_probe.tested_candidates
+        if semantic_probe.best is not None and consider(semantic_probe.best):
+            return result()
+        if semantic_probe.diagnostic_best is not None and semantic_probe.diagnostic_best is not semantic_probe.best:
+            consider(semantic_probe.diagnostic_best)
+        if semantic_probe.budget_exhausted and tested >= budget:
+            budget_exhausted = True
+            return exhausted()
+
+    if before_header.status in ("invalid_huffman_lengths", "bad_code_length_tree") and tested < budget:
+        remaining_budget = max(0, budget - tested)
+        alphabet_base = tested
+
+        def alphabet_progress(label: str, done: int, _total: int) -> None:
+            if progress is not None:
+                progress(label, min(budget, alphabet_base + done), budget)
+
+        alphabet_probe = probe_dynamic_huffman_alphabet_candidates(
+            data,
+            budget=min(8192, remaining_budget),
+            progress=alphabet_progress if progress is not None else None,
+        )
+        subprobes.append(alphabet_probe)
+        tested += alphabet_probe.tested_candidates
+        if alphabet_probe.best is not None and consider(alphabet_probe.best):
+            return result()
+        if alphabet_probe.diagnostic_best is not None and alphabet_probe.diagnostic_best is not alphabet_probe.best:
+            consider(alphabet_probe.diagnostic_best)
+        if alphabet_probe.budget_exhausted and tested >= budget:
+            budget_exhausted = True
+            return exhausted()
+
+    if before_header.status in ("invalid_huffman_lengths", "bad_code_length_tree") and tested < budget:
+        remaining_budget = max(0, budget - tested)
+        crc_guided_base = tested
+
+        def crc_guided_progress(label: str, done: int, _total: int) -> None:
+            if progress is not None:
+                progress(label, min(budget, crc_guided_base + done), budget)
+
+        crc_guided_probe = probe_dynamic_huffman_crc_guided_candidates(
+            data,
+            budget=min(65536, remaining_budget),
+            progress=crc_guided_progress if progress is not None else None,
+        )
+        subprobes.append(crc_guided_probe)
+        tested += crc_guided_probe.tested_candidates
+        if crc_guided_probe.best is not None and consider(crc_guided_probe.best):
+            return result()
+        if crc_guided_probe.diagnostic_best is not None and crc_guided_probe.diagnostic_best is not crc_guided_probe.best:
+            consider(crc_guided_probe.diagnostic_best)
+        if crc_guided_probe.budget_exhausted and tested >= budget:
+            budget_exhausted = True
+            return exhausted()
 
     if progress is not None:
         progress("deflate-header-byte", tested, budget)
@@ -7177,17 +9128,7 @@ def probe_deflate_header_candidates(
             ):
                 if progress is not None:
                     progress("deflate-header-byte", tested, budget)
-                return IdatDeflateProbeResult(
-                    before,
-                    best,
-                    window_start,
-                    window_end,
-                    tested,
-                    budget_exhausted,
-                    strategy,
-                    before_header.summary,
-                    diagnostic_best=diagnostic_best,
-                )
+                return result()
 
     if progress is not None:
         progress("deflate-header-insert", tested, budget)
@@ -7215,31 +9156,11 @@ def probe_deflate_header_candidates(
             ):
                 if progress is not None:
                     progress("deflate-header-insert", tested, budget)
-                return IdatDeflateProbeResult(
-                    before,
-                    best,
-                    window_start,
-                    window_end,
-                    tested,
-                    budget_exhausted,
-                    strategy,
-                    before_header.summary,
-                    diagnostic_best=diagnostic_best,
-                )
+                return result()
 
     if progress is not None:
         progress("deflate-header-byte", tested, budget)
-    return IdatDeflateProbeResult(
-        before,
-        best,
-        window_start,
-        window_end,
-        tested,
-        budget_exhausted,
-        strategy,
-        before_header.summary,
-        diagnostic_best=diagnostic_best,
-    )
+    return result()
 
 
 def probe_idat_deflate_heavy_candidates(
@@ -7493,6 +9414,10 @@ def probe_summary_line(result: IdatDeflateProbeResult) -> str:
     return line + "."
 
 
+def probe_detail_summary_lines(result: IdatDeflateProbeResult) -> tuple[str, ...]:
+    return tuple(probe_summary_line(subprobe) for subprobe in result.subprobes)
+
+
 def linefeed_insert_probe_summary_line(result: IdatLinefeedInsertProbeResult) -> str:
     line = (
         "-IDAT line-feed probe: strategy=%s; window=0x%x..0x%x; tested=%s"
@@ -7709,13 +9634,59 @@ def ultimate_visual_candidate_summary_line(candidate: UltimateVisualCandidate) -
     return line + "."
 
 
-def candidate_summary_line(candidate: IdatDeflateCandidate) -> str:
+def _format_candidate_bit_offsets(candidate: IdatDeflateCandidate, *, limit: int = 8) -> str:
+    offsets = tuple(candidate.bit_offsets)
+    if not offsets:
+        return ""
+    parts = ["0x%x.%s" % (bit // 8, bit % 8) for bit in offsets[:limit]]
+    if len(offsets) > limit:
+        parts.append("...")
+    return ",".join(parts)
+
+
+def _candidate_operation(candidate: IdatDeflateCandidate) -> str:
     if candidate.edit_kind == "insert":
-        operation = "insert %s" % (candidate.new_bytes.hex() or "%02x" % candidate.new_byte)
-    elif candidate.edit_kind == "remove":
-        operation = "remove %s" % (candidate.old_bytes.hex() or "%02x" % candidate.old_byte)
-    else:
-        operation = "byte %02x -> %02x" % (candidate.old_byte, candidate.new_byte)
+        return "insert %s" % (candidate.new_bytes.hex() or "%02x" % candidate.new_byte)
+    if candidate.edit_kind == "remove":
+        return "remove %s" % (candidate.old_bytes.hex() or "%02x" % candidate.old_byte)
+    if candidate.edit_kind == "bit-flip-set":
+        return "flip bits %s" % (_format_candidate_bit_offsets(candidate) or "unknown")
+    if candidate.edit_kind == "bit-delete":
+        return "delete bit %s" % (_format_candidate_bit_offsets(candidate) or "unknown")
+    if candidate.edit_kind == "bit-insert":
+        return "insert bit %s=%s" % (
+            _format_candidate_bit_offsets(candidate) or "unknown",
+            candidate.new_byte & 1,
+        )
+    if candidate.edit_kind == "semantic-token":
+        return "rewrite Huffman length token at %s" % (
+            _format_candidate_bit_offsets(candidate) or "unknown"
+        )
+    if candidate.edit_kind == "alphabet-order":
+        return "rewrite Huffman code-length alphabet order at %s" % (
+            _format_candidate_bit_offsets(candidate) or "unknown"
+        )
+    if candidate.edit_kind == "alphabet-field":
+        return "rewrite Huffman code-length alphabet field at %s" % (
+            _format_candidate_bit_offsets(candidate) or "unknown"
+        )
+    if candidate.edit_kind == "crc-guided-bitset":
+        return "CRC-guided Huffman bit flips %s" % (
+            _format_candidate_bit_offsets(candidate) or "unknown"
+        )
+    if candidate.edit_kind == "crc-guided-semantic":
+        return "CRC-guided Huffman semantic rewrite at %s" % (
+            _format_candidate_bit_offsets(candidate) or "unknown"
+        )
+    if candidate.edit_kind == "crc-guided-alphabet":
+        return "CRC-guided Huffman alphabet rewrite at %s" % (
+            _format_candidate_bit_offsets(candidate) or "unknown"
+        )
+    return "byte %02x -> %02x" % (candidate.old_byte, candidate.new_byte)
+
+
+def candidate_summary_line(candidate: IdatDeflateCandidate) -> str:
+    operation = _candidate_operation(candidate)
     return (
         "-IDAT deflate candidate: stream=0x%x; file=0x%x; IDAT=%s; %s; "
         "status %s -> %s; scanlines %s/%s -> %s/%s; error_offset %s -> %s."
@@ -7737,12 +9708,7 @@ def candidate_summary_line(candidate: IdatDeflateCandidate) -> str:
 
 
 def diagnostic_candidate_summary_line(candidate: IdatDeflateCandidate) -> str:
-    if candidate.edit_kind == "insert":
-        operation = "insert %s" % (candidate.new_bytes.hex() or "%02x" % candidate.new_byte)
-    elif candidate.edit_kind == "remove":
-        operation = "remove %s" % (candidate.old_bytes.hex() or "%02x" % candidate.old_byte)
-    else:
-        operation = "byte %02x -> %02x" % (candidate.old_byte, candidate.new_byte)
+    operation = _candidate_operation(candidate)
     return (
         "-IDAT deflate diagnostic candidate rejected: stream=0x%x; file=0x%x; IDAT=%s; %s; "
         "scanlines %s/%s -> %s/%s; decompressed %s -> %s; error_offset %s -> %s."
@@ -7773,6 +9739,43 @@ def candidate_patch_note(candidate: IdatDeflateCandidate) -> str:
         return "Patch: remove %s at IDAT stream offset 0x%x." % (
             candidate.old_bytes.hex() or "%02x" % candidate.old_byte,
             candidate.stream_offset,
+        )
+    if candidate.edit_kind == "bit-flip-set":
+        return "Patch: flip IDAT stream bits %s." % (
+            _format_candidate_bit_offsets(candidate) or "unknown",
+        )
+    if candidate.edit_kind == "bit-delete":
+        return "Patch: delete IDAT stream bit %s." % (
+            _format_candidate_bit_offsets(candidate) or "unknown",
+        )
+    if candidate.edit_kind == "bit-insert":
+        return "Patch: insert bit %s at IDAT stream bit %s." % (
+            candidate.new_byte & 1,
+            _format_candidate_bit_offsets(candidate) or "unknown",
+        )
+    if candidate.edit_kind == "semantic-token":
+        return "Patch: rewrite dynamic Huffman length token at IDAT stream bit %s." % (
+            _format_candidate_bit_offsets(candidate) or "unknown",
+        )
+    if candidate.edit_kind == "alphabet-order":
+        return "Patch: rewrite dynamic Huffman code-length alphabet order at IDAT stream bits %s." % (
+            _format_candidate_bit_offsets(candidate) or "unknown",
+        )
+    if candidate.edit_kind == "alphabet-field":
+        return "Patch: rewrite dynamic Huffman code-length alphabet fields at IDAT stream bits %s." % (
+            _format_candidate_bit_offsets(candidate) or "unknown",
+        )
+    if candidate.edit_kind == "crc-guided-bitset":
+        return "Patch: CRC-guided dynamic Huffman bit flips at IDAT stream bits %s." % (
+            _format_candidate_bit_offsets(candidate) or "unknown",
+        )
+    if candidate.edit_kind == "crc-guided-semantic":
+        return "Patch: CRC-guided dynamic Huffman semantic rewrite at IDAT stream bits %s." % (
+            _format_candidate_bit_offsets(candidate) or "unknown",
+        )
+    if candidate.edit_kind == "crc-guided-alphabet":
+        return "Patch: CRC-guided dynamic Huffman alphabet rewrite at IDAT stream bits %s." % (
+            _format_candidate_bit_offsets(candidate) or "unknown",
         )
     return "Patch: IDAT stream offset 0x%x, byte %02x -> %02x." % (
         candidate.stream_offset,

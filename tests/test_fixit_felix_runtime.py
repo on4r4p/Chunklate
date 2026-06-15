@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 from chunklate import fixit_felix
 from chunklate import fixit_felix_runtime
 from chunklate import idat
+from chunklate import idat_bruteforce
 from chunklate import ultimate_reference_ui
 from chunklate import messages
 from chunklate.png import IEND_CHUNK, PNG_SIGNATURE, build_png_chunk, iter_chunks, validate_png_structure
@@ -27,6 +28,104 @@ def valid_png_bytes():
         + build_png_chunk(b"IDAT", idat)
         + IEND_CHUNK
     )
+
+
+def test_idat_diagnostic_artifact_uses_runtime_clone_folder(tmp_path):
+    side_notes = []
+    runtime = SimpleNamespace(
+        file_origin="Flag.1_Fixed.png",
+        file_dir=str(tmp_path),
+        side_notes=side_notes,
+    )
+    before = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=1,
+        expected_size=2,
+        decompressed_size=0,
+        error_offset=3,
+    )
+    after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="incomplete_stream",
+        height=1,
+        expected_size=2,
+        decompressed_size=1,
+        usable_scanlines=0,
+        error_offset=4,
+    )
+    candidate = idat_bruteforce.SuperMegaLinefeedCandidate(
+        data=b"not-a-final-png",
+        operations=(),
+        before=before,
+        after=after,
+        state_id=6,
+    )
+
+    path = fixit_felix_runtime._write_idat_diagnostic_artifact(
+        runtime,
+        candidate,
+        label="idat_lf_diagnostic",
+    )
+
+    assert path is not None
+    artifact = Path(path)
+    assert artifact.parent == tmp_path / "Folder_Flag.1_Fixed" / "Debug_Payloads"
+    assert artifact.name.startswith("Flag.1_Fixed_idat_lf_diagnostic_state6_")
+    assert artifact.read_bytes() == b"not-a-final-png"
+    assert not (tmp_path / "Folder_idat_diagnostic").exists()
+    assert any(
+        note.startswith("-IDAT diagnostic artifact: Debug_Payloads/")
+        for note in side_notes
+    )
+
+
+def test_idat_diagnostic_artifact_skips_missing_file_origin(tmp_path, monkeypatch):
+    side_notes = []
+    monkeypatch.chdir(tmp_path)
+    runtime = SimpleNamespace(
+        file_origin="",
+        file_dir="",
+        side_notes=side_notes,
+    )
+    before = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=1,
+        expected_size=2,
+        decompressed_size=0,
+        error_offset=3,
+    )
+    after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="incomplete_stream",
+        height=1,
+        expected_size=2,
+        decompressed_size=1,
+        usable_scanlines=0,
+        error_offset=4,
+    )
+    candidate = idat_bruteforce.SuperMegaLinefeedCandidate(
+        data=b"not-a-final-png",
+        operations=(),
+        before=before,
+        after=after,
+        state_id=6,
+    )
+
+    path = fixit_felix_runtime._write_idat_diagnostic_artifact(
+        runtime,
+        candidate,
+        label="idat_lf_diagnostic",
+    )
+
+    assert path is None
+    assert not (tmp_path / "Folder_idat_diagnostic").exists()
+    assert "-IDAT diagnostic artifact skipped: source file origin is unavailable." in side_notes
 
 
 def test_idat_bruteforce_target_prefers_crc_bad_idat_chunk():
@@ -1928,6 +2027,56 @@ def one_byte_corrupt_deflate_png_hex():
     return data.hex()
 
 
+def semantic_token_corrupt_deflate_png_hex():
+    ihdr = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x64\x08\x02\x00\x00\x00",
+    )
+    filtered = b"".join(
+        b"\x00" + bytes(((row * 3) % 256, (row * 7) % 256, (row * 11) % 256))
+        for row in range(100)
+    )
+    compressed = zlib.compress(filtered, 1)
+    corrupted = idat_bruteforce._replace_stream_bits_preserve_length(
+        compressed,
+        618,
+        619,
+        (1, 1, 0),
+    )
+    assert corrupted is not None
+    data = PNG_SIGNATURE + ihdr + build_png_chunk(b"IDAT", corrupted) + IEND_CHUNK
+    return data.hex()
+
+
+def crc_guided_deflate_png_hex():
+    ihdr = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x64\x08\x02\x00\x00\x00",
+    )
+    filtered = b"".join(
+        b"\x00" + bytes(((row * 3) % 256, (row * 7) % 256, (row * 11) % 256))
+        for row in range(100)
+    )
+    compressed = zlib.compress(filtered, 1)
+    data = (
+        PNG_SIGNATURE
+        + ihdr
+        + build_png_chunk(b"IDAT", compressed[:256])
+        + build_png_chunk(b"IDAT", compressed[256:])
+        + IEND_CHUNK
+    )
+    candidate = bytearray(data)
+    idat_chunks = [chunk for chunk in iter_chunks(data) if chunk.chunk_type == b"IDAT"]
+    for bit in (604, 618, 620):
+        remaining = bit // 8
+        for chunk in idat_chunks:
+            if remaining < chunk.length:
+                candidate[chunk.offset + 8 + remaining] ^= 1 << (bit % 8)
+                break
+            remaining -= chunk.length
+    return bytes(candidate).hex()
+
+
 def bad_adler_png_hex():
     ihdr = build_png_chunk(
         b"IHDR",
@@ -2271,6 +2420,109 @@ def test_apply_wrong_crc_writes_improved_deflate_probe_instead_of_crc_clone():
     assert [call for call in calls if call[0] == "write_clone"]
     assert "-Repair hypothesis tried: targeted IDAT deflate header probe." in calls[-1][1][1]
     assert any(note.startswith("-IDAT deflate candidate:") for note in side_notes)
+
+
+def test_hermesprobe_writes_dynamic_huffman_semantic_candidate():
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(),
+        side_notes=side_notes,
+        data_hex=data_hex,
+    )
+    analysis = idat.analyze_idat_stream(bytes.fromhex(data_hex))
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+
+    assert result == (True, "written")
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert write_calls
+    repaired = write_calls[-1][1][0]
+    assert idat.analyze_idat_stream(repaired).complete is True
+    assert any("strategy=dynamic-huffman-semantic" in note for note in side_notes)
+    assert any(note.startswith("-IDAT deflate candidate:") and "rewrite Huffman" in note for note in side_notes)
+
+
+def test_hermesprobe_writes_dynamic_huffman_crc_guided_candidate():
+    calls = []
+    side_notes = []
+    data_hex = crc_guided_deflate_png_hex()
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(),
+        side_notes=side_notes,
+        data_hex=data_hex,
+    )
+    analysis = idat.analyze_idat_stream(bytes.fromhex(data_hex))
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+
+    assert result == (True, "written")
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert write_calls
+    repaired = write_calls[-1][1][0]
+    repaired_analysis = idat.analyze_idat_stream(repaired)
+    assert repaired_analysis.complete is True
+    repaired_chunks = [chunk for chunk in iter_chunks(repaired) if chunk.chunk_type == b"IDAT"]
+    assert len(repaired_chunks) == 2
+    assert all(chunk.crc == chunk.computed_crc for chunk in repaired_chunks)
+    assert any("strategy=dynamic-huffman-crc-guided" in note for note in side_notes)
+    assert any(note.startswith("-IDAT deflate candidate:") and "CRC-guided" in note for note in side_notes)
+
+
+def test_hermesprobe_logs_dynamic_huffman_semantic_diagnostic_without_clone():
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    original_probe = fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates
+    original_lf = fixit_felix_runtime._probe_idat_lf_route_for_diagnostics
+
+    def no_candidate_probe(data, **_kwargs):
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        semantic_probe = fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            1,
+            7,
+            False,
+            "dynamic-huffman-semantic",
+            "semantic_headers=1; valid_headers=1; best_scanlines=0",
+        )
+        return fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            0,
+            7,
+            False,
+            "deflate-header",
+            "mocked",
+            subprobes=(semantic_probe,),
+        )
+
+    try:
+        fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = no_candidate_probe
+        fixit_felix_runtime._probe_idat_lf_route_for_diagnostics = lambda *_args, **_kwargs: False
+        runtime = wrong_crc_runtime(
+            calls,
+            answers=(),
+            side_notes=side_notes,
+            data_hex=data_hex,
+        )
+        analysis = idat.analyze_idat_stream(bytes.fromhex(data_hex))
+
+        result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+    finally:
+        fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = original_probe
+        fixit_felix_runtime._probe_idat_lf_route_for_diagnostics = original_lf
+
+    assert result is None
+    assert not [call for call in calls if call[0] == "write_clone"]
+    assert any("strategy=dynamic-huffman-semantic" in note for note in side_notes)
+    assert "-IDAT deflate header probe found no clone-worthy scanline progress." in side_notes
 
 
 def test_apply_wrong_crc_uses_focused_idat_crc_forge_before_blackfill():
@@ -2973,6 +3225,16 @@ def test_apply_wrong_chunk_name_runs_hermesprobe_after_idat_chain_repair():
     def no_candidate_probe(data, **_kwargs):
         probed.append(data)
         before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        dynamic_probe = fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            1,
+            12,
+            False,
+            "dynamic-huffman-header",
+            "bits=12",
+        )
         return fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
             before,
             None,
@@ -2982,6 +3244,7 @@ def test_apply_wrong_chunk_name_runs_hermesprobe_after_idat_chain_repair():
             False,
             "deflate-header",
             "mocked",
+            subprobes=(dynamic_probe,),
         )
 
     try:
@@ -3008,6 +3271,7 @@ def test_apply_wrong_chunk_name_runs_hermesprobe_after_idat_chain_repair():
     assert ("candy", ("Title", "probe_deflate_header_candidates"), {}) in calls
     assert any(call[0] == "write_clone" for call in calls)
     assert runtime.data_hex == source.hex()
+    assert any("strategy=dynamic-huffman-header" in note for note in side_notes)
 
 
 def test_apply_wrong_chunk_name_uses_deflate_probe_when_aligned_stream_is_bad():
@@ -4390,6 +4654,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
         "PAUSEERROR": True,
         "Sample": "sample.png",
         "FILE_Origin": "source.png",
+        "FILE_DIR": "/tmp/out/",
         "SMASH_BRUTE_BRAWL_FORCE_LEVEL": "2",
         "DATAX": "001122",
         "Raw_Crc": "deadbeef",
@@ -4413,6 +4678,8 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert wrong_crc.original_chunk_length_hex == "0000000d"
     assert wrong_crc.debug is True
     assert wrong_crc.pause_debug is False
+    assert wrong_crc.file_origin == "source.png"
+    assert wrong_crc.file_dir == "/tmp/out/"
     assert wrong_crc.preview_repair_image is namespace["Preview_Repair_Image"]
 
     libpng = fixit_felix_runtime.build_libpng_error_runtime_from_namespace(namespace)
@@ -4445,6 +4712,8 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert wrong_name.pandora_box is pandora_box
     assert wrong_name.cornucopia is cornucopia
     assert wrong_name.data_hex == "001122"
+    assert wrong_name.file_origin == "source.png"
+    assert wrong_name.file_dir == "/tmp/out/"
 
     no_next = fixit_felix_runtime.build_no_next_chunk_runtime_from_namespace(namespace)
     assert no_next.emit is namespace["PRINT"]
@@ -4461,6 +4730,8 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert no_next.debug is True
     assert no_next.pause_debug is False
     assert no_next.pause_error is True
+    assert no_next.file_origin == "source.png"
+    assert no_next.file_dir == "/tmp/out/"
     assert no_next.bad_missplaced is True
     assert no_next.set_skip_bad_no_next_chunk is namespace["FixItFelix_Set_Skip_Bad_No_Next_Chunk"]
     assert no_next.set_eof is namespace["FixItFelix_Set_EOF"]
@@ -4503,6 +4774,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert automatic.loadingbar is namespace["Loadingbar"]
     assert automatic.minibar is namespace["Minibar"]
     assert automatic.file_origin == "source.png"
+    assert automatic.file_dir == "/tmp/out/"
     assert automatic.interactive is False
     assert automatic.smash_brute_brawl_force_level == 2
 

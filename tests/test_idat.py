@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from chunklate import deflate_header
 from chunklate import gpu_runtime
 from chunklate import idat
 from chunklate import idat_bruteforce
@@ -55,6 +56,119 @@ def dynamic_header_corrupt_png():
     original = compressed[3]
     compressed[3] ^= 1 << 5
     return build_rgb_png(1, 100, filtered, idat_data=bytes(compressed)), 3, original
+
+
+def dynamic_header_two_bit_corrupt_png(*, bits=(604, 618)):
+    filtered = dynamic_filtered_rows()
+    compressed = bytearray(zlib.compress(filtered, 1))
+    original = bytes(compressed)
+    for bit in bits:
+        compressed[bit // 8] ^= 1 << (bit % 8)
+    return build_rgb_png(1, 100, filtered, idat_data=bytes(compressed)), tuple(sorted(bits)), original
+
+
+def dynamic_header_extra_bit_png():
+    filtered = dynamic_filtered_rows()
+    compressed = zlib.compress(filtered, 1)
+    bit_offset = 87
+    corrupted = idat_bruteforce._shift_stream_insert_bit(compressed, bit_offset, 0)
+    assert corrupted is not None
+    return build_rgb_png(1, 100, filtered, idat_data=corrupted), bit_offset, compressed
+
+
+def dynamic_header_semantic_token_corrupt_png():
+    filtered = dynamic_filtered_rows()
+    compressed = zlib.compress(filtered, 1)
+    bit_start = 618
+    bit_end = 619
+    corrupted = idat_bruteforce._replace_stream_bits_preserve_length(
+        compressed,
+        bit_start,
+        bit_end,
+        (1, 1, 0),
+    )
+    assert corrupted is not None
+    return build_rgb_png(1, 100, filtered, idat_data=corrupted), bit_start, compressed
+
+
+def dynamic_header_natural_alphabet_corrupt_png():
+    filtered = dynamic_filtered_rows()
+    compressed = zlib.compress(filtered, 1)
+    trace = deflate_header.trace_dynamic_header(compressed)
+    assert trace.status == "ok"
+    values_by_symbol = {symbol: value for symbol, value in enumerate(trace.code_length_lengths)}
+    replacements = []
+    for index, (_standard_symbol, bit_start, bit_end) in enumerate(trace.code_length_bits):
+        natural_symbol = index
+        new_value = values_by_symbol.get(natural_symbol, 0)
+        old_value = idat_bruteforce._stream_bits_value(compressed, bit_start, bit_end)
+        if new_value != old_value:
+            replacements.append(
+                (
+                    bit_start,
+                    bit_end,
+                    idat_bruteforce._bits_for_lsb_code(new_value, bit_end - bit_start),
+                )
+            )
+    corrupted = idat_bruteforce._apply_stream_bit_replacements(compressed, replacements)
+    assert corrupted is not None
+    return build_rgb_png(1, 100, filtered, idat_data=corrupted), tuple(
+        bit_start for bit_start, _bit_end, _bits in replacements
+    ), compressed
+
+
+def dynamic_header_crc_guided_bitset_corrupt_png(*, bits=(604, 618), split=True):
+    filtered = dynamic_filtered_rows()
+    compressed = zlib.compress(filtered, 1)
+    if split:
+        png_data = build_rgb_png(
+            1,
+            100,
+            filtered,
+            idat_data=compressed,
+            idat_parts=(compressed[:256], compressed[256:]),
+        )
+    else:
+        png_data = build_rgb_png(1, 100, filtered, idat_data=compressed)
+    candidate = bytearray(png_data)
+    idat_chunks = [chunk for chunk in iter_chunks(png_data) if chunk.chunk_type == b"IDAT"]
+    for bit in bits:
+        remaining = bit // 8
+        for chunk in idat_chunks:
+            if remaining < chunk.length:
+                candidate[chunk.offset + 8 + remaining] ^= 1 << (bit % 8)
+                break
+            remaining -= chunk.length
+    return bytes(candidate), tuple(sorted(bits)), compressed
+
+
+def dynamic_header_crc_guided_semantic_corrupt_png():
+    filtered = dynamic_filtered_rows()
+    compressed = zlib.compress(filtered, 1)
+    corrupted = idat_bruteforce._replace_stream_bits_preserve_length(
+        compressed,
+        618,
+        619,
+        (1, 1, 0),
+    )
+    assert corrupted is not None
+    png_data = build_rgb_png(1, 100, filtered, idat_data=compressed)
+    candidate = bytearray(png_data)
+    idat_chunk = next(chunk for chunk in iter_chunks(png_data) if chunk.chunk_type == b"IDAT")
+    candidate[idat_chunk.offset + 8 : idat_chunk.offset + 8 + idat_chunk.length] = corrupted
+    return bytes(candidate), (618,), compressed
+
+
+def dynamic_header_crc_guided_diagnostic_only_png():
+    filtered = dynamic_filtered_rows()
+    compressed = bytearray(zlib.compress(filtered, 1))
+    compressed[77] ^= 0x80
+    png_data = build_rgb_png(1, 100, filtered, idat_data=bytes(compressed))
+    candidate = bytearray(png_data)
+    idat_chunk = next(chunk for chunk in iter_chunks(png_data) if chunk.chunk_type == b"IDAT")
+    bit = 620
+    candidate[idat_chunk.offset + 8 + bit // 8] ^= 1 << (bit % 8)
+    return bytes(candidate), (bit,), bytes(compressed)
 
 
 def visual_scope_png(width=96, height=64, *, variant="scope"):
@@ -3750,6 +3864,339 @@ def test_deflate_header_probe_repairs_missing_header_byte():
     assert result.best.after.complete is True
 
 
+def test_dynamic_huffman_header_probe_repairs_two_bit_length_corruption():
+    candidate, bits, _original = dynamic_header_two_bit_corrupt_png()
+    before = idat.analyze_idat_stream(candidate)
+
+    assert before.status == "corrupt_deflate"
+    assert before.decompressed_size == 0
+    assert before.deflate_header is not None
+    assert before.deflate_header.status == "invalid_huffman_lengths"
+
+    result = idat_bruteforce.probe_dynamic_huffman_header_candidates(
+        candidate,
+        budget=1000,
+        max_bits=80,
+    )
+
+    assert result.best is not None
+    assert result.strategy == "dynamic-huffman-header"
+    assert result.best.edit_kind == "bit-flip-set"
+    assert result.best.bit_offsets == bits
+    assert result.best.after.complete is True
+    assert result.best.after.usable_scanlines == 100
+    idat_chunks = [chunk for chunk in iter_chunks(result.best.data) if chunk.chunk_type == b"IDAT"]
+    assert idat_chunks
+    assert all(chunk.crc == chunk.computed_crc for chunk in idat_chunks)
+
+
+def test_dynamic_huffman_header_probe_keeps_zero_scanline_candidate_diagnostic_only():
+    candidate, _bits, _original = dynamic_header_two_bit_corrupt_png(bits=(604, 22))
+    before = idat.analyze_idat_stream(candidate)
+
+    assert before.deflate_header is not None
+    assert before.deflate_header.status == "invalid_huffman_lengths"
+    result = idat_bruteforce.probe_dynamic_huffman_header_candidates(
+        candidate,
+        budget=2000,
+        max_bits=80,
+    )
+
+    assert result.best is None
+    assert result.diagnostic_best is not None
+    assert result.diagnostic_best.after.decompressed_size > result.before.decompressed_size
+    assert result.diagnostic_best.after.usable_scanlines == 0
+    assert idat_bruteforce.diagnostic_candidate_summary_lines(result)
+
+
+def test_dynamic_huffman_bitshift_probe_repairs_extra_header_bit():
+    candidate, bit_offset, _original = dynamic_header_extra_bit_png()
+    before = idat.analyze_idat_stream(candidate)
+
+    assert before.status == "corrupt_deflate"
+    assert before.decompressed_size == 0
+    assert before.deflate_header is not None
+    assert before.deflate_header.status == "invalid_huffman_lengths"
+
+    result = idat_bruteforce.probe_dynamic_huffman_bitshift_candidates(
+        candidate,
+        budget=3000,
+    )
+
+    assert result.best is not None
+    assert result.strategy == "dynamic-huffman-bitshift"
+    assert result.best.edit_kind == "bit-delete"
+    assert result.best.bit_offsets == (bit_offset,)
+    assert result.best.after.complete is True
+    assert result.best.after.usable_scanlines == 100
+    assert "valid_dynamic_headers=1" in result.reason
+
+
+def test_dynamic_huffman_semantic_probe_repairs_token_corruption():
+    candidate, bit_offset, _original = dynamic_header_semantic_token_corrupt_png()
+    before = idat.analyze_idat_stream(candidate)
+
+    assert before.status == "corrupt_deflate"
+    assert before.decompressed_size == 0
+    assert before.usable_scanlines == 0
+    assert before.deflate_header is not None
+    assert before.deflate_header.status == "invalid_huffman_lengths"
+    assert before.deflate_header.btype == 2
+
+    result = idat_bruteforce.probe_dynamic_huffman_semantic_candidates(
+        candidate,
+        budget=12000,
+        max_tokens=220,
+    )
+
+    assert result.best is not None
+    assert result.strategy == "dynamic-huffman-semantic"
+    assert result.best.edit_kind == "semantic-token"
+    assert result.best.bit_offsets == (bit_offset,)
+    assert result.best.after.complete is True
+    assert result.best.after.usable_scanlines == 100
+    assert "semantic_headers=" in result.reason
+    assert "valid_headers=1" in result.reason
+    idat_chunks = [chunk for chunk in iter_chunks(result.best.data) if chunk.chunk_type == b"IDAT"]
+    assert idat_chunks
+    assert all(chunk.crc == chunk.computed_crc for chunk in idat_chunks)
+    _chunks, repaired_stream = idat_bruteforce._idat_chunks_and_stream(result.best.data)
+    repaired_header = deflate_header.analyze_deflate_header(repaired_stream)
+    assert repaired_header.ok is True
+    assert repaired_header.btype == 2
+
+
+def test_dynamic_huffman_alphabet_probe_repairs_natural_order_corruption():
+    candidate, bit_offsets, _original = dynamic_header_natural_alphabet_corrupt_png()
+    before = idat.analyze_idat_stream(candidate)
+    _chunks, corrupted_stream = idat_bruteforce._idat_chunks_and_stream(candidate)
+    natural_trace = deflate_header.trace_dynamic_header(
+        corrupted_stream,
+        code_length_order=tuple(range(19)),
+    )
+
+    assert before.status == "corrupt_deflate"
+    assert before.decompressed_size == 0
+    assert before.deflate_header is not None
+    assert before.deflate_header.status == "bad_code_length_tree"
+    assert before.deflate_header.btype == 2
+    assert natural_trace.status == "ok"
+
+    result = idat_bruteforce.probe_dynamic_huffman_alphabet_candidates(candidate, budget=9000)
+
+    assert result.best is not None
+    assert result.strategy == "dynamic-huffman-alphabet"
+    assert result.best.edit_kind == "alphabet-order"
+    assert result.best.bit_offsets == bit_offsets
+    assert result.best.after.complete is True
+    assert result.best.after.usable_scanlines == 100
+    assert "orders=1" in result.reason
+    assert "valid_headers=1" in result.reason
+    idat_chunks = [chunk for chunk in iter_chunks(result.best.data) if chunk.chunk_type == b"IDAT"]
+    assert idat_chunks
+    assert all(chunk.crc == chunk.computed_crc for chunk in idat_chunks)
+    _chunks, repaired_stream = idat_bruteforce._idat_chunks_and_stream(result.best.data)
+    repaired_header = deflate_header.analyze_deflate_header(repaired_stream)
+    assert repaired_header.ok is True
+    assert repaired_header.btype == 2
+
+
+def test_dynamic_huffman_crc_guided_probe_repairs_crc_preserved_bitset_corruption():
+    candidate, bits, _original = dynamic_header_crc_guided_bitset_corrupt_png(
+        bits=(604, 618),
+        split=True,
+    )
+    before = idat.analyze_idat_stream(candidate)
+    original_idat_count = len([chunk for chunk in iter_chunks(candidate) if chunk.chunk_type == b"IDAT"])
+
+    assert before.status == "corrupt_deflate"
+    assert before.decompressed_size == 0
+    assert before.usable_scanlines == 0
+    assert before.deflate_header is not None
+    assert before.deflate_header.status == "invalid_huffman_lengths"
+    assert before.deflate_header.btype == 2
+    assert any(
+        chunk.chunk_type == b"IDAT" and chunk.crc != chunk.computed_crc
+        for chunk in iter_chunks(candidate)
+    )
+
+    result = idat_bruteforce.probe_dynamic_huffman_crc_guided_candidates(
+        candidate,
+        budget=1000,
+        max_solutions_per_group=64,
+    )
+
+    assert result.best is not None
+    assert result.strategy == "dynamic-huffman-crc-guided"
+    assert result.best.edit_kind == "crc-guided-bitset"
+    assert result.best.bit_offsets == bits
+    assert result.best.after.complete is True
+    assert result.best.after.usable_scanlines == 100
+    assert "crc_solutions=" in result.reason
+    assert "valid_headers=1" in result.reason
+    repaired_chunks = [chunk for chunk in iter_chunks(result.best.data) if chunk.chunk_type == b"IDAT"]
+    assert len(repaired_chunks) == original_idat_count
+    assert all(chunk.crc == chunk.computed_crc for chunk in repaired_chunks)
+    _chunks, repaired_stream = idat_bruteforce._idat_chunks_and_stream(result.best.data)
+    repaired_header = deflate_header.analyze_deflate_header(repaired_stream)
+    assert repaired_header.ok is True
+    assert repaired_header.btype == 2
+
+
+def test_dynamic_huffman_crc_guided_probe_repairs_crc_preserved_semantic_corruption():
+    candidate, bits, _original = dynamic_header_crc_guided_semantic_corrupt_png()
+    before = idat.analyze_idat_stream(candidate)
+
+    assert before.status == "corrupt_deflate"
+    assert before.decompressed_size == 0
+    assert before.usable_scanlines == 0
+    assert before.deflate_header is not None
+    assert before.deflate_header.status == "invalid_huffman_lengths"
+    assert before.deflate_header.btype == 2
+
+    result = idat_bruteforce.probe_dynamic_huffman_crc_guided_candidates(
+        candidate,
+        budget=2000,
+        max_solutions_per_group=64,
+    )
+
+    assert result.best is not None
+    assert result.strategy == "dynamic-huffman-crc-guided"
+    assert result.best.edit_kind == "crc-guided-semantic"
+    assert result.best.bit_offsets == bits
+    assert result.best.after.complete is True
+    assert result.best.after.usable_scanlines == 100
+    repaired_chunks = [chunk for chunk in iter_chunks(result.best.data) if chunk.chunk_type == b"IDAT"]
+    assert repaired_chunks
+    assert all(chunk.crc == chunk.computed_crc for chunk in repaired_chunks)
+    _chunks, repaired_stream = idat_bruteforce._idat_chunks_and_stream(result.best.data)
+    repaired_header = deflate_header.analyze_deflate_header(repaired_stream)
+    assert repaired_header.ok is True
+    assert repaired_header.btype == 2
+
+
+def test_dynamic_huffman_crc_guided_keeps_zero_scanline_candidate_diagnostic_only():
+    candidate, bits, _original = dynamic_header_crc_guided_diagnostic_only_png()
+    before = idat.analyze_idat_stream(candidate)
+
+    assert before.status == "corrupt_deflate"
+    assert before.decompressed_size == 0
+    assert before.usable_scanlines == 0
+    assert before.deflate_header is not None
+    assert before.deflate_header.status == "invalid_huffman_lengths"
+    assert before.deflate_header.btype == 2
+
+    result = idat_bruteforce.probe_dynamic_huffman_crc_guided_candidates(
+        candidate,
+        budget=5000,
+        max_solutions_per_group=64,
+    )
+
+    assert result.best is None
+    assert result.diagnostic_best is not None
+    assert result.diagnostic_best.edit_kind == "crc-guided-bitset"
+    assert result.diagnostic_best.bit_offsets == bits
+    assert result.diagnostic_best.after.usable_scanlines == 0
+    assert result.diagnostic_best.after.decompressed_size == 0
+    repaired_chunks = [chunk for chunk in iter_chunks(result.diagnostic_best.data) if chunk.chunk_type == b"IDAT"]
+    assert repaired_chunks
+    assert all(chunk.crc == chunk.computed_crc for chunk in repaired_chunks)
+    assert idat_bruteforce.diagnostic_candidate_summary_lines(result)
+
+
+def test_deflate_header_probe_runs_dynamic_huffman_phase_for_two_bit_corruption():
+    candidate, bits, _original = dynamic_header_two_bit_corrupt_png()
+
+    result = idat_bruteforce.probe_deflate_header_candidates(candidate, budget=5000)
+
+    assert result.best is not None
+    assert result.strategy == "deflate-header"
+    assert result.best.bit_offsets == bits
+    assert result.best.after.complete is True
+    assert any(subprobe.strategy == "dynamic-huffman-header" for subprobe in result.subprobes)
+    assert any(
+        "strategy=dynamic-huffman-header" in line
+        for line in idat_bruteforce.probe_detail_summary_lines(result)
+    )
+
+
+def test_deflate_header_probe_runs_dynamic_huffman_bitshift_phase():
+    candidate, bit_offset, _original = dynamic_header_extra_bit_png()
+
+    result = idat_bruteforce.probe_deflate_header_candidates(candidate, budget=6000)
+
+    assert result.best is not None
+    assert result.strategy == "deflate-header"
+    assert result.best.edit_kind == "bit-delete"
+    assert result.best.bit_offsets == (bit_offset,)
+    assert result.best.after.complete is True
+    assert any(subprobe.strategy == "dynamic-huffman-bitshift" for subprobe in result.subprobes)
+    assert any(
+        "strategy=dynamic-huffman-bitshift" in line
+        for line in idat_bruteforce.probe_detail_summary_lines(result)
+    )
+
+
+def test_deflate_header_probe_runs_dynamic_huffman_semantic_phase():
+    candidate, bit_offset, _original = dynamic_header_semantic_token_corrupt_png()
+
+    result = idat_bruteforce.probe_deflate_header_candidates(candidate, budget=20000)
+
+    assert result.best is not None
+    assert result.strategy == "deflate-header"
+    assert result.best.edit_kind == "semantic-token"
+    assert result.best.bit_offsets == (bit_offset,)
+    assert result.best.after.complete is True
+    assert any(subprobe.strategy == "dynamic-huffman-bitshift" for subprobe in result.subprobes)
+    assert any(subprobe.strategy == "dynamic-huffman-header" for subprobe in result.subprobes)
+    assert any(subprobe.strategy == "dynamic-huffman-semantic" for subprobe in result.subprobes)
+    assert any(
+        "strategy=dynamic-huffman-semantic" in line and "semantic_headers=" in line
+        for line in idat_bruteforce.probe_detail_summary_lines(result)
+    )
+
+
+def test_deflate_header_probe_runs_dynamic_huffman_alphabet_phase():
+    candidate, bit_offsets, _original = dynamic_header_natural_alphabet_corrupt_png()
+
+    result = idat_bruteforce.probe_deflate_header_candidates(candidate, budget=30000)
+
+    assert result.best is not None
+    assert result.strategy == "deflate-header"
+    assert result.best.edit_kind == "alphabet-order"
+    assert result.best.bit_offsets == bit_offsets
+    assert result.best.after.complete is True
+    assert any(subprobe.strategy == "dynamic-huffman-alphabet" for subprobe in result.subprobes)
+    assert any(
+        "strategy=dynamic-huffman-alphabet" in line and "valid_headers=1" in line
+        for line in idat_bruteforce.probe_detail_summary_lines(result)
+    )
+
+
+def test_deflate_header_probe_runs_dynamic_huffman_crc_guided_phase():
+    candidate, bits, _original = dynamic_header_crc_guided_bitset_corrupt_png(
+        bits=(604, 618, 620),
+        split=True,
+    )
+    original_idat_count = len([chunk for chunk in iter_chunks(candidate) if chunk.chunk_type == b"IDAT"])
+
+    result = idat_bruteforce.probe_deflate_header_candidates(candidate, budget=30000)
+
+    assert result.best is not None
+    assert result.strategy == "deflate-header"
+    assert result.best.edit_kind == "crc-guided-bitset"
+    assert result.best.bit_offsets == bits
+    assert result.best.after.complete is True
+    assert any(subprobe.strategy == "dynamic-huffman-crc-guided" for subprobe in result.subprobes)
+    assert any(
+        "strategy=dynamic-huffman-crc-guided" in line and "crc_solutions=" in line
+        for line in idat_bruteforce.probe_detail_summary_lines(result)
+    )
+    repaired_chunks = [chunk for chunk in iter_chunks(result.best.data) if chunk.chunk_type == b"IDAT"]
+    assert len(repaired_chunks) == original_idat_count
+    assert all(chunk.crc == chunk.computed_crc for chunk in repaired_chunks)
+
+
 def test_deflate_header_probe_does_not_accept_header_only_progress_without_scanlines():
     candidate = build_rgb_png(1, 1, b"\x00abc", idat_data=b"\x78\x9c\xff\xff")
 
@@ -4210,6 +4657,26 @@ def main():
         ("IDAT stream error mapping", test_analyze_idat_stream_maps_error_to_multi_idat_file_offset),
         ("IDAT deflate byte probe repair", test_idat_deflate_probe_repairs_single_byte_corruption),
         ("IDAT deflate header probe repair", test_deflate_header_probe_repairs_header_corruption),
+        (
+            "IDAT dynamic Huffman two-bit repair",
+            test_dynamic_huffman_header_probe_repairs_two_bit_length_corruption,
+        ),
+        (
+            "IDAT dynamic Huffman diagnostic-only",
+            test_dynamic_huffman_header_probe_keeps_zero_scanline_candidate_diagnostic_only,
+        ),
+        (
+            "IDAT dynamic Huffman bitshift repair",
+            test_dynamic_huffman_bitshift_probe_repairs_extra_header_bit,
+        ),
+        (
+            "IDAT deflate header dynamic phase",
+            test_deflate_header_probe_runs_dynamic_huffman_phase_for_two_bit_corruption,
+        ),
+        (
+            "IDAT deflate header bitshift phase",
+            test_deflate_header_probe_runs_dynamic_huffman_bitshift_phase,
+        ),
         (
             "IDAT deflate header probe no scanlines",
             test_deflate_header_probe_does_not_accept_header_only_progress_without_scanlines,

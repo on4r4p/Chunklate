@@ -1536,7 +1536,8 @@ def _try_unresolved_idat_deflate_route(namespace: dict[str, Any]) -> bool:
         loadingbar=namespace.get("Loadingbar"),
         minibar=namespace.get("Minibar"),
         preview_repair_image=namespace.get("Preview_Repair_Image"),
-        file_origin=namespace.get("FILE_Origin") or namespace.get("Sample") or "idat_diagnostic.png",
+        file_origin=namespace.get("FILE_Origin") or namespace.get("Sample") or "",
+        file_dir=namespace.get("FILE_DIR") or "",
     )
     result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
     return result is not None

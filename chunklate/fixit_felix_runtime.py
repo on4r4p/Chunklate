@@ -11,6 +11,7 @@ from typing import Callable
 
 from . import bruteforce
 from . import bruteforce_runtime
+from . import deflate_header
 from . import fixit_felix
 from . import idat
 from . import idat_bruteforce
@@ -78,6 +79,7 @@ class AutomaticRepairRuntime:
     loadingbar: Callable[..., Any] | None = None
     minibar: Callable[..., Any] | None = None
     file_origin: Any = ""
+    file_dir: Any = ""
     interactive: bool = False
     retry_state: dict[str, Any] | None = None
     input_func: Callable[[str], str] | None = None
@@ -139,6 +141,8 @@ class WrongCrcRuntime:
     loadingbar: Callable[..., Any] | None = None
     minibar: Callable[..., Any] | None = None
     preview_repair_image: Callable[..., Any] | None = None
+    file_origin: Any = ""
+    file_dir: Any = ""
 
 
 @dataclass(frozen=True)
@@ -162,6 +166,8 @@ class WrongChunkNameRuntime:
     is_wrong_chunk_name_route_tried: Callable[[Any, str, relics.WrongChunkNameTools, str], bool]
     loadingbar: Callable[..., Any] | None = None
     minibar: Callable[..., Any] | None = None
+    file_origin: Any = ""
+    file_dir: Any = ""
 
 
 @dataclass(frozen=True)
@@ -199,6 +205,8 @@ class NoNextChunkRuntime:
     chunks_history: tuple[Any, ...] = ()
     loadingbar: Callable[..., Any] | None = None
     minibar: Callable[..., Any] | None = None
+    file_origin: Any = ""
+    file_dir: Any = ""
     has_deferred_linefeed_repair: Callable[[], bool] = lambda: False
     apply_deferred_linefeed_repair: Callable[[], Any] | None = None
 
@@ -246,6 +254,8 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         loadingbar=namespace.get("Loadingbar"),
         minibar=namespace.get("Minibar"),
         preview_repair_image=namespace.get("Preview_Repair_Image"),
+        file_origin=namespace.get("FILE_Origin") or namespace.get("Sample") or "",
+        file_dir=namespace.get("FILE_DIR") or "",
     )
 
 
@@ -310,6 +320,8 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         ),
         loadingbar=namespace.get("Loadingbar"),
         minibar=namespace.get("Minibar"),
+        file_origin=namespace.get("FILE_Origin") or namespace.get("Sample") or "",
+        file_dir=namespace.get("FILE_DIR") or "",
     )
 
 
@@ -348,6 +360,8 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         chunks_history=tuple(namespace.get("Chunks_History", ())),
         loadingbar=namespace.get("Loadingbar"),
         minibar=namespace.get("Minibar"),
+        file_origin=namespace.get("FILE_Origin") or namespace.get("Sample") or "",
+        file_dir=namespace.get("FILE_DIR") or "",
         has_deferred_linefeed_repair=lambda: bool(namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR")),
         apply_deferred_linefeed_repair=namespace.get("Apply_Deferred_FindMagic_Repair"),
     )
@@ -394,6 +408,7 @@ def build_automatic_repair_runtime_from_namespace(namespace: dict[str, Any]) -> 
         loadingbar=namespace.get("Loadingbar"),
         minibar=namespace.get("Minibar"),
         file_origin=namespace.get("FILE_Origin") or namespace.get("Sample") or "",
+        file_dir=namespace.get("FILE_DIR") or "",
         interactive=namespace_interactive_prompts(namespace),
         retry_state=namespace.setdefault("_SBB_BLACKFILL_RETRY_STATE", {}),
         input_func=namespace.get("input", input),
@@ -2846,9 +2861,15 @@ def _write_idat_diagnostic_artifact(
     *,
     label: str,
 ) -> str | None:
-    file_origin = str(getattr(runtime, "file_origin", "") or "idat_diagnostic.png")
+    file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
+    file_dir = str(getattr(runtime, "file_dir", "") or "")
+    if not file_origin:
+        runtime.side_notes.append(
+            "-IDAT diagnostic artifact skipped: source file origin is unavailable."
+        )
+        return None
     try:
-        folder = Path(output.ensure_clone_folder(file_origin))
+        folder = Path(output.ensure_clone_folder(file_origin, file_dir))
         payload_folder = folder / "Debug_Payloads"
         payload_folder.mkdir(parents=True, exist_ok=True)
         digest = hashlib.sha1(candidate.data).hexdigest()[:8]
@@ -2881,6 +2902,36 @@ def _write_idat_diagnostic_artifact(
         )
     )
     return str(path)
+
+
+def _idat_deflate_header_for_data(data: bytes) -> deflate_header.DeflateHeaderAnalysis | None:
+    try:
+        stream = b"".join(
+            chunk.data for chunk in png.iter_chunks(data) if chunk.chunk_type == b"IDAT"
+        )
+    except Exception:
+        return None
+    if not stream:
+        return None
+    try:
+        return deflate_header.analyze_deflate_header(stream)
+    except Exception:
+        return None
+
+
+def _is_false_fixed_huffman_diagnostic(
+    before: idat.IdatStreamAnalysis,
+    candidate: idat_bruteforce.SuperMegaLinefeedCandidate,
+) -> bool:
+    if idat_bruteforce.is_material_improvement(before, candidate.after):
+        return False
+    before_header = before.deflate_header
+    if before_header is None:
+        return False
+    if before_header.btype != 2:
+        return False
+    after_header = candidate.after.deflate_header or _idat_deflate_header_for_data(candidate.data)
+    return bool(after_header is not None and after_header.ok and after_header.btype != before_header.btype)
 
 
 def _probe_idat_lf_route_for_diagnostics(runtime: Any, data: bytes, analysis: idat.IdatStreamAnalysis) -> None:
@@ -2926,7 +2977,11 @@ def _probe_idat_lf_route_for_diagnostics(runtime: Any, data: bytes, analysis: id
     runtime.side_notes.extend(idat_bruteforce.super_mega_linefeed_phase_summary_lines(super_probe))
     if super_probe.best is not None:
         runtime.side_notes.append(idat_bruteforce.super_mega_linefeed_candidate_summary_line(super_probe.best))
-        if super_probe.best.after.decompressed_size > analysis.decompressed_size:
+        if _is_false_fixed_huffman_diagnostic(analysis, super_probe.best):
+            runtime.side_notes.append(
+                "-IDAT diagnostic LF artifact skipped: candidate changes dynamic Huffman to fixed Huffman without usable scanlines."
+            )
+        elif super_probe.best.after.decompressed_size > analysis.decompressed_size:
             _write_idat_diagnostic_artifact(
                 runtime,
                 super_probe.best,
@@ -2990,6 +3045,7 @@ def try_idat_deflate_bruteforce(
             progress=_runtime_idat_queue_progress(runtime),
         )
         runtime.side_notes.append(idat_bruteforce.probe_summary_line(header_probe))
+        runtime.side_notes.extend(idat_bruteforce.probe_detail_summary_lines(header_probe))
 
         if header_probe.best is None:
             diagnostic_lines = idat_bruteforce.diagnostic_candidate_summary_lines(header_probe)
