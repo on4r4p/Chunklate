@@ -245,7 +245,7 @@ REPAIR_MATRIX: tuple[RepairCase, ...] = (
     RepairCase(
         fixture="Good-Chunk-lenght-Missing-Bit.png",
         corruption="chunk data with one missing bit and reliable length",
-        expected_strategy="recover missing byte from chunk data",
+        expected_strategy="rebuild malformed indexed PLTE",
         max_saves=1,
         expected_outputs=("Good-Chunk-lenght-Missing-Bit.0_Fixed.png",),
     ),
@@ -621,7 +621,7 @@ _SUMMARY_MARKERS_BY_FIXTURE = {
         "Found 1 extra byte(s) before Chunk[gAMA]",
     ),
     "Classic-Bad-Chunk-Crc.png": (
-        "rebuilt IHDR from IDAT scanline size",
+        "rebuilt fake IHDR prefix from valid chunk suffix and IDAT scanline size",
         "Selected IHDR 32x32",
     ),
     "Classic-Bad-Chunk-Length.png": (
@@ -629,17 +629,17 @@ _SUMMARY_MARKERS_BY_FIXTURE = {
         "Replaced with: 00000004",
     ),
     "Good-Chunk-lenght-Missing-Bit.png": (
-        "recovered missing data byte in PLTE chunk",
+        "rebuilt malformed indexed PLTE as grayscale palette",
     ),
     "IHDR-Messed-Up-Bad-Crc.png": (
         "restored IHDR values matching stored CRC",
     ),
     "IHDR-Wrong-Height-Above-Estimated-Max-Resolution.png": (
-        "rebuilt IHDR from IDAT scanline size",
+        "rebuilt fake IHDR prefix from valid chunk suffix and IDAT scanline size",
         "Selected IHDR 477x599",
     ),
     "IHDR-Wrong-Quick.png": (
-        "rebuilt IHDR from IDAT scanline size",
+        "rebuilt fake IHDR prefix from valid chunk suffix and IDAT scanline size",
         "Selected IHDR 477x599",
     ),
     "IHDR-Wrong-Width-Bad-Crc.png": (
@@ -649,7 +649,7 @@ _SUMMARY_MARKERS_BY_FIXTURE = {
         "restored IHDR values matching stored CRC",
     ),
     "IHDR_Messed_Up_Crc_Valid.png": (
-        "rebuilt IHDR from IDAT scanline size",
+        "rebuilt fake IHDR prefix from valid chunk suffix and IDAT scanline size",
         "Selected IHDR 32x32",
     ),
     "IHDR_Missplaced.png": (
@@ -714,7 +714,7 @@ _SUMMARY_MARKERS_BY_FIXTURE = {
         "Replaced with: 31e8965f",
     ),
     "chunk_crc.png": (
-        "rebuilt IHDR from IDAT scanline size",
+        "rebuilt fake IHDR prefix from valid chunk suffix and IDAT scanline size",
         "Selected IHDR 32x32",
     ),
     "chunk_private_critical.png": (
@@ -746,7 +746,7 @@ _SUMMARY_MARKERS_BY_FIXTURE = {
         "padded hIST length from 28 to 30 with zero frequencies and rebuilt CRC",
     ),
     "ihdr_image_size.png": (
-        "rebuilt IHDR from IDAT scanline size",
+        "rebuilt fake IHDR prefix from valid chunk suffix and IDAT scanline size",
         "Selected IHDR 32x32",
     ),
     "Unhandled-Critical-Chunk.png": (
@@ -957,7 +957,7 @@ for _fixture in _KAGEBUSHIN_IDAT_AUDIT_FIXTURES:
 
 _YOU_IDAT_AUDIT_FIXTURES = tuple(
     f"You_IDAT_Chunk00_Changed_{count:02d}_{'Byte' if count == 1 else 'Bytes'}_StoredOriginalCRC.png"
-    for count in range(1, 4)
+    for count in range(1, 7)
 )
 
 for _fixture in _YOU_IDAT_AUDIT_FIXTURES:
@@ -971,11 +971,18 @@ UNCOVERED_REPAIR_CASES.update(
         "One_IDAT_Missing.png": "single-IDAT missing stream fixture kept for manual IDAT salvage testing",
         "PLTE_2_Empty_Bad_Crc.png": "secondary empty PLTE fixture kept for palette repair exploration",
         "PLTE_2_Empty_Good_Crc.png": "secondary empty PLTE fixture kept for palette repair exploration",
+        "BfTst.png": "local brute-force fixture kept for manual repair exploration",
+        "Sample-png-image-100kbWrong-Width.png": "local wrong-width sample kept for manual IHDR repair exploration",
+        "Wrong-fake-data.png": "local malformed-data fixture kept for manual repair exploration",
         "badbkgd.png": "local bKGD fixture kept for manual ancillary repair exploration",
         "badice.png": "local ancillary fixture kept for manual repair exploration",
         "boob.png": "local fixture kept for manual repair exploration",
+        "color_plte2_sample.png": "local palette-color fixture kept for manual palette repair exploration",
+        "color_plte_sample.png": "local palette-color fixture kept for manual palette repair exploration",
         "dwice.png": "local fixture kept for manual repair exploration",
         "palette_empty.png": "local empty-palette fixture kept for manual palette repair exploration",
+        "tstplt.png": "local PLTE fixture kept for manual palette repair exploration",
+        "wrongdice2.png": "local ancillary fixture kept for manual repair exploration",
     }
 )
 

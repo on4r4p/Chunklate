@@ -3037,7 +3037,7 @@ def test_apply_wrong_chunk_name_uses_deflate_probe_when_aligned_stream_is_bad():
     assert not [call for call in calls if call[0] == "write_clone"]
     assert any(note.startswith("-IDAT stream diagnosis: status=corrupt_deflate") for note in side_notes)
     assert "-IDAT deflate header probe found no clone-worthy scanline progress." in side_notes
-    assert "-IDAT wide deflate probes skipped: header probe produced no usable scanline." in side_notes
+    assert "-IDAT diagnostic LF route found no clone-worthy scanline progress." in side_notes
 
 
 def test_apply_wrong_chunk_name_saves_existing_solution():
@@ -3897,7 +3897,7 @@ def test_apply_no_next_uses_deflate_probe_when_idat_chain_is_aligned_but_stream_
     assert not [call for call in calls if call[0] == "write_clone"]
     assert any(note.startswith("-IDAT stream diagnosis: status=corrupt_deflate") for note in side_notes)
     assert "-IDAT deflate header probe found no clone-worthy scanline progress." in side_notes
-    assert "-IDAT wide deflate probes skipped: header probe produced no usable scanline." in side_notes
+    assert "-IDAT diagnostic LF route found no clone-worthy scanline progress." in side_notes
 
 
 def test_apply_no_next_does_not_append_iend_when_nearby_already_found_one():

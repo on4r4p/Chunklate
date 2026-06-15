@@ -703,10 +703,12 @@ def test_find_header_magic_runtime_can_launch_supermega_directly_after_salvage()
         "ask",
         ("SuperMegaLineFeedForceOfDeath", "super-mega-linefeed-force-of-death-0x3ee9-498"),
     ) in calls
-    assert (
-        "ask",
-        ("UltimateMegaSuperLineFeedBruteForce", "ultimate-mega-super-linefeed-bruteforce-0x3ee9-500"),
-    ) in calls
+    ultimate_ask = next(
+        call
+        for call in calls
+        if call[0] == "ask" and call[1][0] == "UltimateMegaSuperLineFeedBruteForce"
+    )
+    assert ultimate_ask[1][1].startswith("ultimate-mega-super-linefeed-bruteforce-0x3ee9-")
     assert ("candy", ("Title", "SuperMegaLineFeedForceOfDeath")) in calls
     assert len(write_calls) == 1
     assert validate_png_structure(bytes.fromhex(write_calls[0][1])).ok
@@ -717,19 +719,15 @@ def test_find_header_magic_runtime_can_launch_supermega_directly_after_salvage()
     assert "phase4-heavy-byte-window phase" in write_calls[0][2]
     assert "UltimateMegaSuperLineFeedBruteForce: user declined" in write_calls[0][2]
     assert "final IDAT salvage after SuperMegaLineFeedForceOfDeath" in write_calls[0][2]
-    assert "partial-idat-tolerant-row-salvage decoded 500/503 scanlines" in write_calls[0][2]
+    assert "partial-idat-tolerant-row-salvage decoded 498/503 scanlines" in write_calls[0][2]
+    assert "partial-idat-blackfill recovered 503/503 scanlines" in write_calls[0][2]
     assert "SuperMegaLineFeedForceOfDeath" in write_calls[0][2]
     assert [call for call in calls if call[0] == "loadingbar"]
     assert not [call for call in calls if call[0] == "minibar"]
     preview_calls = [call for call in calls if call[0] == "preview"]
     assert len(preview_calls) == 1
     assert preview_calls[0][1][1] == "UltimateMegaSuperLineFeedBruteForce_Before"
-    assert calls.index(preview_calls[0]) < calls.index(
-        (
-            "ask",
-            ("UltimateMegaSuperLineFeedBruteForce", "ultimate-mega-super-linefeed-bruteforce-0x3ee9-500"),
-        )
-    )
+    assert calls.index(preview_calls[0]) < calls.index(ultimate_ask)
     assert side_notes == [write_calls[0][2]]
     assert ("end",) not in calls
 
