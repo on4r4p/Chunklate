@@ -2914,8 +2914,7 @@ def try_idat_deflate_bruteforce(
         )
         runtime.candy(
             "Cowsay",
-            "Patch: IDAT stream offset 0x%x, byte %02x -> %02x."
-            % (candidate.stream_offset, candidate.old_byte, candidate.new_byte),
+            idat_bruteforce.candidate_patch_note(candidate),
             "com",
         )
         summary = "\n".join(
@@ -2999,8 +2998,7 @@ def try_idat_deflate_bruteforce(
         )
         runtime.candy(
             "Cowsay",
-            "Patch: IDAT stream offset 0x%x, byte %02x -> %02x."
-            % (candidate.stream_offset, candidate.old_byte, candidate.new_byte),
+            idat_bruteforce.candidate_patch_note(candidate),
             "com",
         )
     else:
@@ -3013,13 +3011,8 @@ def try_idat_deflate_bruteforce(
         for index, candidate_patch in enumerate(candidates, start=1):
             runtime.candy(
                 "Cowsay",
-                "Patch %s: IDAT stream offset 0x%x, byte %02x -> %02x."
-                % (
-                    index,
-                    candidate_patch.stream_offset,
-                    candidate_patch.old_byte,
-                    candidate_patch.new_byte,
-                ),
+                "Step %s: %s"
+                % (index, idat_bruteforce.candidate_patch_note(candidate_patch)),
                 "com",
             )
     summary = "\n".join(
@@ -3877,6 +3870,16 @@ def stop_before_libpng_for_unresolved_findings(
         )
         if should_return:
             return True, result
+
+    if findings and all(is_idat_wrong_crc_finding(finding) for finding in findings):
+        runtime.candy(
+            "Cowsay",
+            "Only IDAT CRC wounds remain, and the IDAT stream is still invalid. I am handing this to HermesProbe instead of stopping here.",
+            "com",
+        )
+        probe_result = try_idat_deflate_bruteforce(runtime)
+        if probe_result is not None:
+            return probe_result
 
     if any(_is_chunk_order_finding(finding) for finding in findings):
         rustine = no_next_missplaced_tools(runtime)

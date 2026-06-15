@@ -5,7 +5,7 @@ import time
 from typing import Callable, Iterable
 import zlib
 
-from . import bruteforce, crc32_forge, deflate_crc_solver, deflate_probe, idat, png, smash_backend
+from . import bruteforce, crc32_forge, deflate_crc_solver, deflate_header, deflate_probe, idat, png, smash_backend
 
 
 SEED_BYTE_COUNTS = (1, 2, 3)
@@ -337,6 +337,8 @@ def _direct_crc_seed_windows(
         return windows
     payload_len = len(target_chunk.data)
     local_windows = tuple(window for window in windows if window.source != "full-direct-crc")
+    if local_windows and all(window.source == "deflate-header" for window in local_windows):
+        return local_windows
     nearby_windows = _merge_windows(
         ForgeWindow(
             max(0, int(window.start) - DIRECT_CRC_NEARBY_RADIUS),
@@ -354,6 +356,18 @@ def _direct_crc_seed_windows(
 
 def diagnostic_windows(source_data: bytes, payload_len: int, *, radius: int = DEFAULT_WINDOW_RADIUS) -> tuple[ForgeWindow, ...]:
     analysis = idat.analyze_idat_stream(source_data)
+    header = getattr(analysis, "deflate_header", None)
+    if (
+        header is not None
+        and not bool(getattr(header, "ok", False))
+        and int(getattr(analysis, "decompressed_size", 0) or 0) == 0
+    ):
+        header_end = getattr(header, "header_end_byte", None)
+        if header_end is None:
+            header_end = int(getattr(header, "byte_offset", 0) or 0) + 8
+        end = min(int(payload_len) + 1, max(2, int(header_end) + 16))
+        if end > 0:
+            return (ForgeWindow(0, end, "deflate-header"),)
     centers: list[int] = []
     complete_bad_adler_tail = _bad_adler_tail_is_nonlocal(analysis, payload_len)
     if analysis.error_idat_offset is not None and not complete_bad_adler_tail:
@@ -1004,6 +1018,64 @@ def _zlib_probe_accepts_candidate_before_yield(
     )
 
 
+def _target_is_first_idat(source_data: bytes, target_chunk: png.PngChunk) -> bool:
+    try:
+        for chunk in png.iter_chunks(source_data):
+            if chunk.chunk_type != b"IDAT":
+                continue
+            return chunk.offset == target_chunk.offset and chunk.length == target_chunk.length
+    except png.PngFormatError:
+        return False
+    return False
+
+
+def _header_crc_prefilter_enabled(source_data: bytes, target_chunk: png.PngChunk) -> bool:
+    if not _target_is_first_idat(source_data, target_chunk):
+        return False
+    try:
+        analysis = idat.analyze_idat_stream(source_data)
+    except Exception:
+        return False
+    header = getattr(analysis, "deflate_header", None)
+    return bool(
+        header is not None
+        and not bool(getattr(header, "ok", False))
+        and int(getattr(analysis, "decompressed_size", 0) or 0) == 0
+    )
+
+
+def _header_crc_prefilter_accepts(
+    enabled: bool,
+    payload: bytes,
+    position: int,
+    edit_kind: str,
+    byte_count: int,
+    brute_bytes: bytes,
+) -> bool:
+    if not enabled:
+        return True
+    if edit_kind == "insert":
+        if position < 0 or position > len(payload):
+            return False
+        repaired = payload[:position] + brute_bytes + payload[position:]
+    elif edit_kind == "replace":
+        end = position + int(byte_count)
+        if position < 0 or end > len(payload):
+            return False
+        repaired = payload[:position] + brute_bytes + payload[end:]
+    elif edit_kind == "remove":
+        end = position + int(byte_count)
+        if position < 0 or end > len(payload):
+            return False
+        repaired = payload[:position] + payload[end:]
+    else:
+        return False
+    try:
+        return bool(deflate_header.analyze_deflate_header(repaired).ok)
+    except Exception:
+        return False
+
+
 def operation_position_limit(payload_len: int, edit_kind: str, byte_count: int) -> int:
     if edit_kind == "insert":
         return payload_len + 1
@@ -1442,6 +1514,7 @@ def iter_forge_candidates(
     prefixes = crc32_forge.crc32_prefixes(target_chunk.chunk_type, payload)
     required = crc32_forge.crc32_required_before_suffixes(payload, target_crc)
     probe_settings = _zlib_probe_settings(source_data) if zlib_prefilter else None
+    header_prefilter_enabled = _header_crc_prefilter_enabled(source_data, target_chunk)
     tested = 0
     run_budget = _HermesProbeBudget(
         mode=str(mode),
@@ -1515,6 +1588,15 @@ def iter_forge_candidates(
                         if prefixes[position] != required[suffix_index]:
                             continue
                         brute_bytes = payload[position : position + byte_count]
+                        if not _header_crc_prefilter_accepts(
+                            header_prefilter_enabled,
+                            payload,
+                            position,
+                            seed_edit_kind,
+                            byte_count,
+                            brute_bytes,
+                        ):
+                            continue
                         if probe_checkpoint is not None and not _zlib_probe_accepts_candidate_before_yield(
                             probe_checkpoint,
                             payload,
@@ -1555,6 +1637,15 @@ def iter_forge_candidates(
                         )
                         if brute_bytes is None:
                             continue
+                        if not _header_crc_prefilter_accepts(
+                            header_prefilter_enabled,
+                            payload,
+                            position,
+                            seed_edit_kind,
+                            byte_count,
+                            brute_bytes,
+                        ):
+                            continue
                         if probe_checkpoint is not None and not _zlib_probe_accepts_candidate_before_yield(
                             probe_checkpoint,
                             payload,
@@ -1592,6 +1683,15 @@ def iter_forge_candidates(
                         if progress_callback is not None:
                             progress_callback(seed_edit_kind, byte_count, position, -1, tested)
                         if zlib.crc32(brute_bytes, prefixes[position]) & 0xFFFFFFFF != required[suffix_index]:
+                            continue
+                        if not _header_crc_prefilter_accepts(
+                            header_prefilter_enabled,
+                            payload,
+                            position,
+                            seed_edit_kind,
+                            byte_count,
+                            brute_bytes,
+                        ):
                             continue
                         if probe_checkpoint is not None and not _zlib_probe_accepts_candidate_before_yield(
                             probe_checkpoint,
@@ -1709,6 +1809,15 @@ def iter_forge_candidates(
                         if prefixes[position] != required[suffix_index]:
                             continue
                         removed = payload[position : position + byte_count]
+                        if not _header_crc_prefilter_accepts(
+                            header_prefilter_enabled,
+                            payload,
+                            position,
+                            edit_kind,
+                            byte_count,
+                            removed,
+                        ):
+                            continue
                         if probe_checkpoint is not None and not _zlib_probe_accepts_candidate_before_yield(
                             probe_checkpoint,
                             payload,
@@ -1826,6 +1935,15 @@ def iter_forge_candidates(
                                     )
                                 if zlib.crc32(brute_bytes, prefixes[position]) & 0xFFFFFFFF != required[suffix_index]:
                                     continue
+                                if not _header_crc_prefilter_accepts(
+                                    header_prefilter_enabled,
+                                    payload,
+                                    position,
+                                    edit_kind,
+                                    byte_count,
+                                    brute_bytes,
+                                ):
+                                    continue
                                 if edit_kind == "insert":
                                     repaired = payload[:position] + brute_bytes + payload[position:]
                                 else:
@@ -1892,6 +2010,15 @@ def iter_forge_candidates(
                                         )
                                     if zlib.crc32(brute_bytes, prefixes[position]) & 0xFFFFFFFF != required[suffix_index]:
                                         continue
+                                    if not _header_crc_prefilter_accepts(
+                                        header_prefilter_enabled,
+                                        payload,
+                                        position,
+                                        edit_kind,
+                                        byte_count,
+                                        brute_bytes,
+                                    ):
+                                        continue
                                     if edit_kind == "insert":
                                         repaired = payload[:position] + brute_bytes + payload[position:]
                                     else:
@@ -1935,6 +2062,15 @@ def iter_forge_candidates(
                                     tested,
                                 )
                             if zlib.crc32(brute_bytes, prefixes[position]) & 0xFFFFFFFF != required[suffix_index]:
+                                continue
+                            if not _header_crc_prefilter_accepts(
+                                header_prefilter_enabled,
+                                payload,
+                                position,
+                                edit_kind,
+                                byte_count,
+                                brute_bytes,
+                            ):
                                 continue
                             if probe_checkpoint is not None and not _zlib_probe_accepts_candidate_before_yield(
                                 probe_checkpoint,
@@ -1994,6 +2130,15 @@ def iter_forge_candidates(
                                     DEFLATE_GUIDED_FREE_INDEX_MARKER,
                                     tested,
                                 )
+                            if not _header_crc_prefilter_accepts(
+                                header_prefilter_enabled,
+                                payload,
+                                position,
+                                edit_kind,
+                                byte_count,
+                                brute_bytes,
+                            ):
+                                continue
                             if probe_checkpoint is not None and not _zlib_probe_accepts_candidate_before_yield(
                                 probe_checkpoint,
                                 payload,
@@ -2059,6 +2204,15 @@ def iter_forge_candidates(
                         tested += 1
                         if progress_callback is not None:
                             progress_callback(edit_kind, byte_count, position, free_index, tested)
+                        if not _header_crc_prefilter_accepts(
+                            header_prefilter_enabled,
+                            payload,
+                            position,
+                            edit_kind,
+                            byte_count,
+                            brute_bytes,
+                        ):
+                            continue
                         if probe_checkpoint is not None and not _zlib_probe_accepts_candidate_before_yield(
                             probe_checkpoint,
                             payload,

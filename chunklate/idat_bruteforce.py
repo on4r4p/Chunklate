@@ -87,6 +87,9 @@ class IdatDeflateCandidate:
     new_byte: int
     before: idat.IdatStreamAnalysis
     after: idat.IdatStreamAnalysis
+    edit_kind: str = "replace"
+    old_bytes: bytes = b""
+    new_bytes: bytes = b""
 
 
 @dataclass(frozen=True)
@@ -1091,8 +1094,14 @@ def _probe_linefeed_cr_insertions_in_offsets(
     )
 
 
-def mutate_idat_stream_byte(data: bytes, stream_offset: int, new_byte: int) -> IdatDeflateCandidate | None:
-    before = idat.analyze_idat_stream(data)
+def mutate_idat_stream_byte(
+    data: bytes,
+    stream_offset: int,
+    new_byte: int,
+    *,
+    before_analysis: idat.IdatStreamAnalysis | None = None,
+) -> IdatDeflateCandidate | None:
+    before = before_analysis or idat.analyze_idat_stream(data)
     if stream_offset < 0:
         return None
 
@@ -1134,6 +1143,91 @@ def mutate_idat_stream_byte(data: bytes, stream_offset: int, new_byte: int) -> I
         new_byte=new_byte,
         before=before,
         after=idat.analyze_idat_stream(candidate_data),
+        edit_kind="replace",
+        old_bytes=bytes((old_byte,)),
+        new_bytes=bytes((new_byte,)),
+    )
+
+
+def mutate_idat_stream_edit(
+    data: bytes,
+    stream_offset: int,
+    edit_kind: str,
+    *,
+    new_bytes: bytes = b"",
+    remove_count: int = 0,
+    before_analysis: idat.IdatStreamAnalysis | None = None,
+) -> IdatDeflateCandidate | None:
+    before = before_analysis or idat.analyze_idat_stream(data)
+    if stream_offset < 0:
+        return None
+
+    edit = str(edit_kind).strip().lower()
+    try:
+        idat_chunks, idat_stream = _idat_chunks_and_stream(data)
+    except png.PngFormatError:
+        return None
+
+    if edit == "insert":
+        if stream_offset > len(idat_stream):
+            return None
+        if stream_offset == len(idat_stream) and idat_chunks:
+            chunk = idat_chunks[-1]
+            location = (chunk, len(idat_chunks), chunk.length)
+        else:
+            locate_offset = min(stream_offset, max(0, len(idat_stream) - 1))
+            location = _locate_idat_stream_offset(idat_chunks, locate_offset)
+    else:
+        if stream_offset >= len(idat_stream):
+            return None
+        location = _locate_idat_stream_offset(idat_chunks, stream_offset)
+    if location is None:
+        return None
+
+    chunk, idat_index, idat_offset = location
+    payload_start = chunk.offset + 8
+    payload_end = payload_start + chunk.length
+    chunk_payload = data[payload_start:payload_end]
+    old_byte = chunk_payload[idat_offset] if idat_offset < len(chunk_payload) else 0
+    new_byte = new_bytes[0] if new_bytes else old_byte
+
+    if edit == "replace":
+        if not new_bytes:
+            return None
+        old_bytes = chunk_payload[idat_offset : idat_offset + len(new_bytes)]
+        if len(old_bytes) != len(new_bytes) or old_bytes == new_bytes:
+            return None
+        repaired_payload = chunk_payload[:idat_offset] + new_bytes + chunk_payload[idat_offset + len(new_bytes) :]
+    elif edit == "insert":
+        if not new_bytes:
+            return None
+        old_bytes = b""
+        repaired_payload = chunk_payload[:idat_offset] + new_bytes + chunk_payload[idat_offset:]
+    elif edit == "remove":
+        count = max(1, int(remove_count))
+        old_bytes = chunk_payload[idat_offset : idat_offset + count]
+        if len(old_bytes) != count:
+            return None
+        repaired_payload = chunk_payload[:idat_offset] + chunk_payload[idat_offset + count :]
+        new_bytes = b""
+    else:
+        return None
+
+    repaired_chunk = png.build_png_chunk(chunk.chunk_type, repaired_payload)
+    candidate_data = data[: chunk.offset] + repaired_chunk + data[payload_end + 4 :]
+    return IdatDeflateCandidate(
+        data=candidate_data,
+        stream_offset=stream_offset,
+        file_offset=payload_start + idat_offset,
+        idat_index=idat_index,
+        idat_offset=idat_offset,
+        old_byte=old_byte,
+        new_byte=new_byte,
+        before=before,
+        after=idat.analyze_idat_stream(candidate_data),
+        edit_kind=edit,
+        old_bytes=old_bytes,
+        new_bytes=new_bytes,
     )
 
 
@@ -6705,6 +6799,44 @@ def _deflate_header_window(
     return 0, max(0, hard_end)
 
 
+def _deflate_header_priority_offsets(
+    window_start: int,
+    window_end: int,
+    before: idat.IdatStreamAnalysis,
+    header: deflate_header.DeflateHeaderAnalysis,
+) -> tuple[int, ...]:
+    if window_end <= window_start:
+        return ()
+    offsets: list[int] = []
+
+    def add(offset: int) -> None:
+        if window_start <= offset < window_end:
+            offsets.append(offset)
+
+    # Keep the zlib and deflate block preamble early for small synthetic cases.
+    for offset in range(window_start, min(window_end, window_start + 16)):
+        add(offset)
+
+    anchors = []
+    for value in (
+        getattr(header, "byte_offset", None),
+        getattr(header, "header_end_byte", None),
+        before.error_offset,
+    ):
+        if value is None:
+            continue
+        anchors.append(int(value))
+    for anchor in anchors:
+        for radius in range(0, 33):
+            add(anchor - radius)
+            if radius:
+                add(anchor + radius)
+
+    for offset in range(window_start, window_end):
+        add(offset)
+    return tuple(dict.fromkeys(offsets))
+
+
 def _candidate_header_is_fixed(
     before: idat.IdatStreamAnalysis,
     candidate: IdatDeflateCandidate,
@@ -6723,7 +6855,7 @@ def _candidate_header_is_fixed(
 def probe_deflate_header_candidates(
     data: bytes,
     *,
-    budget: int = 4096,
+    budget: int = 65536,
     progress: QueueProgressCallback | None = None,
 ) -> IdatDeflateProbeResult:
     before = idat.analyze_idat_stream(data)
@@ -6745,19 +6877,86 @@ def probe_deflate_header_candidates(
         return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "deflate header already parses")
 
     window_start, window_end = _deflate_header_window(idat_stream, before, before_header)
+    offsets = _deflate_header_priority_offsets(window_start, window_end, before, before_header)
     best: IdatDeflateCandidate | None = None
     best_score = analysis_score(before)
     tested = 0
     budget_exhausted = False
 
+    def exhausted() -> IdatDeflateProbeResult:
+        return IdatDeflateProbeResult(
+            before,
+            best,
+            window_start,
+            window_end,
+            tested,
+            True,
+            strategy,
+            before_header.summary,
+        )
+
+    def consider(candidate: IdatDeflateCandidate | None) -> bool:
+        nonlocal best, best_score
+        if candidate is None:
+            return False
+        if not _candidate_header_is_fixed(before, candidate):
+            return False
+        if not is_material_improvement(before, candidate.after):
+            return False
+        candidate_score = analysis_score(candidate.after)
+        if candidate_score <= best_score:
+            return False
+        best = candidate
+        best_score = candidate_score
+        return bool(candidate.after.complete)
+
+    def header_prefilter(stream_offset: int, edit: str, payload: bytes = b"", remove_count: int = 0) -> bool:
+        if edit == "replace":
+            end = stream_offset + len(payload)
+            if not payload or stream_offset < 0 or end > len(idat_stream):
+                return False
+            candidate_stream = idat_stream[:stream_offset] + payload + idat_stream[end:]
+        elif edit == "insert":
+            if not payload or stream_offset < 0 or stream_offset > len(idat_stream):
+                return False
+            candidate_stream = idat_stream[:stream_offset] + payload + idat_stream[stream_offset:]
+        elif edit == "remove":
+            end = stream_offset + max(1, int(remove_count))
+            if stream_offset < 0 or end > len(idat_stream):
+                return False
+            candidate_stream = idat_stream[:stream_offset] + idat_stream[end:]
+        else:
+            return False
+        try:
+            return bool(deflate_header.analyze_deflate_header(candidate_stream).ok)
+        except Exception:
+            return False
+
     if progress is not None:
         progress("deflate-header-bit", 0, budget)
 
-    for stream_offset in range(window_start, window_end):
+    for stream_offset in offsets:
         old_byte = idat_stream[stream_offset]
         for bit in range(8):
             if tested >= budget:
                 budget_exhausted = True
+                return exhausted()
+            tested += 1
+            if progress is not None and tested % 100 == 0:
+                progress("deflate-header-bit", tested, budget)
+            new_byte = old_byte ^ (1 << bit)
+            if not header_prefilter(stream_offset, "replace", bytes((new_byte,))):
+                continue
+            if consider(
+                mutate_idat_stream_byte(
+                    data,
+                    stream_offset,
+                    new_byte,
+                    before_analysis=before,
+                )
+            ):
+                if progress is not None:
+                    progress("deflate-header-bit", tested, budget)
                 return IdatDeflateProbeResult(
                     before,
                     best,
@@ -6768,44 +6967,68 @@ def probe_deflate_header_candidates(
                     strategy,
                     before_header.summary,
                 )
+
+    if progress is not None:
+        progress("deflate-header-remove", tested, budget)
+
+    for remove_count in (1, 2):
+        for stream_offset in offsets:
+            if tested >= budget:
+                budget_exhausted = True
+                return exhausted()
             tested += 1
             if progress is not None and tested % 100 == 0:
-                progress("deflate-header-bit", tested, budget)
-            candidate = mutate_idat_stream_byte(data, stream_offset, old_byte ^ (1 << bit))
-            if candidate is None:
+                progress("deflate-header-remove", tested, budget)
+            if not header_prefilter(stream_offset, "remove", remove_count=remove_count):
                 continue
-            if not _candidate_header_is_fixed(before, candidate):
-                continue
-            if not is_material_improvement(before, candidate.after):
-                continue
-            candidate_score = analysis_score(candidate.after)
-            if candidate_score > best_score:
-                best = candidate
-                best_score = candidate_score
-                if candidate.after.complete:
-                    if progress is not None:
-                        progress("deflate-header-bit", tested, budget)
-                    return IdatDeflateProbeResult(
-                        before,
-                        best,
-                        window_start,
-                        window_end,
-                        tested,
-                        budget_exhausted,
-                        strategy,
-                        before_header.summary,
-                    )
+            if consider(
+                mutate_idat_stream_edit(
+                    data,
+                    stream_offset,
+                    "remove",
+                    remove_count=remove_count,
+                    before_analysis=before,
+                )
+            ):
+                if progress is not None:
+                    progress("deflate-header-remove", tested, budget)
+                return IdatDeflateProbeResult(
+                    before,
+                    best,
+                    window_start,
+                    window_end,
+                    tested,
+                    budget_exhausted,
+                    strategy,
+                    before_header.summary,
+                )
 
     if progress is not None:
         progress("deflate-header-byte", tested, budget)
 
-    for stream_offset in range(window_start, window_end):
+    for stream_offset in offsets:
         old_byte = idat_stream[stream_offset]
         for new_byte in range(256):
             if new_byte == old_byte:
                 continue
             if tested >= budget:
                 budget_exhausted = True
+                return exhausted()
+            tested += 1
+            if progress is not None and tested % 100 == 0:
+                progress("deflate-header-byte", tested, budget)
+            if not header_prefilter(stream_offset, "replace", bytes((new_byte,))):
+                continue
+            if consider(
+                mutate_idat_stream_byte(
+                    data,
+                    stream_offset,
+                    new_byte,
+                    before_analysis=before,
+                )
+            ):
+                if progress is not None:
+                    progress("deflate-header-byte", tested, budget)
                 return IdatDeflateProbeResult(
                     before,
                     best,
@@ -6816,33 +7039,43 @@ def probe_deflate_header_candidates(
                     strategy,
                     before_header.summary,
                 )
+
+    if progress is not None:
+        progress("deflate-header-insert", tested, budget)
+
+    insert_offsets = tuple(dict.fromkeys(offsets + (window_end,)))
+    for stream_offset in insert_offsets:
+        for new_byte in range(256):
+            if tested >= budget:
+                budget_exhausted = True
+                return exhausted()
             tested += 1
             if progress is not None and tested % 100 == 0:
-                progress("deflate-header-byte", tested, budget)
-            candidate = mutate_idat_stream_byte(data, stream_offset, new_byte)
-            if candidate is None:
+                progress("deflate-header-insert", tested, budget)
+            payload = bytes((new_byte,))
+            if not header_prefilter(stream_offset, "insert", payload):
                 continue
-            if not _candidate_header_is_fixed(before, candidate):
-                continue
-            if not is_material_improvement(before, candidate.after):
-                continue
-            candidate_score = analysis_score(candidate.after)
-            if candidate_score > best_score:
-                best = candidate
-                best_score = candidate_score
-                if candidate.after.complete:
-                    if progress is not None:
-                        progress("deflate-header-byte", tested, budget)
-                    return IdatDeflateProbeResult(
-                        before,
-                        best,
-                        window_start,
-                        window_end,
-                        tested,
-                        budget_exhausted,
-                        strategy,
-                        before_header.summary,
-                    )
+            if consider(
+                mutate_idat_stream_edit(
+                    data,
+                    stream_offset,
+                    "insert",
+                    new_bytes=payload,
+                    before_analysis=before,
+                )
+            ):
+                if progress is not None:
+                    progress("deflate-header-insert", tested, budget)
+                return IdatDeflateProbeResult(
+                    before,
+                    best,
+                    window_start,
+                    window_end,
+                    tested,
+                    budget_exhausted,
+                    strategy,
+                    before_header.summary,
+                )
 
     if progress is not None:
         progress("deflate-header-byte", tested, budget)
@@ -7279,15 +7512,20 @@ def ultimate_visual_candidate_summary_line(candidate: UltimateVisualCandidate) -
 
 
 def candidate_summary_line(candidate: IdatDeflateCandidate) -> str:
+    if candidate.edit_kind == "insert":
+        operation = "insert %s" % (candidate.new_bytes.hex() or "%02x" % candidate.new_byte)
+    elif candidate.edit_kind == "remove":
+        operation = "remove %s" % (candidate.old_bytes.hex() or "%02x" % candidate.old_byte)
+    else:
+        operation = "byte %02x -> %02x" % (candidate.old_byte, candidate.new_byte)
     return (
-        "-IDAT deflate candidate: stream=0x%x; file=0x%x; IDAT=%s; byte %02x -> %02x; "
+        "-IDAT deflate candidate: stream=0x%x; file=0x%x; IDAT=%s; %s; "
         "status %s -> %s; scanlines %s/%s -> %s/%s; error_offset %s -> %s."
         % (
             candidate.stream_offset,
             candidate.file_offset,
             candidate.idat_index,
-            candidate.old_byte,
-            candidate.new_byte,
+            operation,
             candidate.before.status,
             candidate.after.status,
             candidate.before.usable_scanlines,
@@ -7297,6 +7535,24 @@ def candidate_summary_line(candidate: IdatDeflateCandidate) -> str:
             candidate.before.error_offset,
             candidate.after.error_offset,
         )
+    )
+
+
+def candidate_patch_note(candidate: IdatDeflateCandidate) -> str:
+    if candidate.edit_kind == "insert":
+        return "Patch: insert %s at IDAT stream offset 0x%x." % (
+            candidate.new_bytes.hex() or "%02x" % candidate.new_byte,
+            candidate.stream_offset,
+        )
+    if candidate.edit_kind == "remove":
+        return "Patch: remove %s at IDAT stream offset 0x%x." % (
+            candidate.old_bytes.hex() or "%02x" % candidate.old_byte,
+            candidate.stream_offset,
+        )
+    return "Patch: IDAT stream offset 0x%x, byte %02x -> %02x." % (
+        candidate.stream_offset,
+        candidate.old_byte,
+        candidate.new_byte,
     )
 
 

@@ -800,6 +800,14 @@ def _emit_sbb_level_warning(
     )
 
 
+def _fallback_status(runtime: SmashBruteBrawlRuntime, message: str, mood: str = "com") -> None:
+    candy = getattr(runtime, "candy", None)
+    if callable(candy):
+        candy("Cowsay", message, mood)
+        return
+    runtime.emit(message)
+
+
 def _ask_sbb_fallback_decision(
     runtime: SmashBruteBrawlRuntime,
     context: SmashBruteBrawlContext,
@@ -809,28 +817,28 @@ def _ask_sbb_fallback_decision(
 ) -> SbbFallbackDecision:
     blackfill_available = _blackfill_fallback_available(context)
     runtime.emit("")
-    runtime.candy(
-        "Cowsay",
+    _fallback_status(
+        runtime,
         "-Targeted repair pass is handing off to broad DaedalusForce at detected level %s."
         % int(detected_level),
         "com",
     )
     
-    runtime.candy(
-        "Cowsay",
+    _fallback_status(
+        runtime,
         "-Reason: HermesProbe did not produce a fully validated PNG from the targeted IDAT search.",
         "bad",
     )
     if detected_byte_count:
-        runtime.candy(
-            "Cowsay",
+        _fallback_status(
+            runtime,
             "-Detected byte scope: up to %s byte(s)." % int(detected_byte_count),
             "com",
         )
     else:
         runtime.emit("-Detected byte scope: unknown; broad DaedalusForce will use the current runtime level.")
-    runtime.candy(
-        "Cowsay",
+    _fallback_status(
+        runtime,
         "-DaedalusForce is broader than HermesProbe and can become very slow; review the level before launching it.",
         "bad",
     )

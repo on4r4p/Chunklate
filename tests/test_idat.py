@@ -3659,6 +3659,47 @@ def test_deflate_header_probe_repairs_header_corruption():
     assert result.best.after.complete is True
 
 
+def test_deflate_header_probe_repairs_extra_header_byte():
+    filtered = dynamic_filtered_rows()
+    compressed = zlib.compress(filtered, 1)
+    stream_offset = 3
+    candidate = build_rgb_png(
+        1,
+        100,
+        filtered,
+        idat_data=compressed[:stream_offset] + b"\x00" + compressed[stream_offset:],
+    )
+
+    result = idat_bruteforce.probe_deflate_header_candidates(candidate)
+
+    assert result.best is not None
+    assert result.best.edit_kind == "remove"
+    assert result.best.stream_offset == stream_offset
+    assert result.best.old_bytes == b"\x00"
+    assert result.best.after.complete is True
+
+
+def test_deflate_header_probe_repairs_missing_header_byte():
+    filtered = dynamic_filtered_rows()
+    compressed = zlib.compress(filtered, 1)
+    stream_offset = 3
+    missing = compressed[stream_offset : stream_offset + 1]
+    candidate = build_rgb_png(
+        1,
+        100,
+        filtered,
+        idat_data=compressed[:stream_offset] + compressed[stream_offset + 1 :],
+    )
+
+    result = idat_bruteforce.probe_deflate_header_candidates(candidate)
+
+    assert result.best is not None
+    assert result.best.edit_kind == "insert"
+    assert result.best.stream_offset == stream_offset
+    assert result.best.new_bytes == missing
+    assert result.best.after.complete is True
+
+
 def test_deflate_header_probe_does_not_accept_header_only_progress_without_scanlines():
     candidate = build_rgb_png(1, 1, b"\x00abc", idat_data=b"\x78\x9c\xff\xff")
 

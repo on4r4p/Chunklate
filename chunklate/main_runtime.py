@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 from dataclasses import dataclass
 import json
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from . import cli, gpu_runtime, messages, output, runtime_state, smash_checkpoint
@@ -1476,6 +1477,70 @@ def explain_unimplemented_repair_route(namespace: dict[str, Any]) -> None:
     namespace["PRINT"]("-No repair route implemented for remaining findings.")
 
 
+def _remaining_findings_are_idat_wrong_crc(namespace: dict[str, Any]) -> bool:
+    pandora = namespace.get("PandoraBox", {})
+    if not pandora:
+        return False
+    if hasattr(pandora, "keys"):
+        findings = tuple(pandora.keys())
+    else:
+        findings = tuple(pandora)
+    if not findings:
+        return False
+    for finding in findings:
+        text = str(finding).lower()
+        if "no nextchunk" in text:
+            continue
+        if "wrong crc" not in text or "idat" not in text:
+            return False
+    return True
+
+
+def _try_unresolved_idat_deflate_route(namespace: dict[str, Any]) -> bool:
+    if not _remaining_findings_are_idat_wrong_crc(namespace):
+        return False
+    data_hex = namespace.get("DATAX")
+    if not isinstance(data_hex, str) or not data_hex:
+        return False
+    write_clone = namespace.get("WriteClone")
+    if not callable(write_clone):
+        return False
+
+    try:
+        data = bytes.fromhex(data_hex)
+    except (TypeError, ValueError):
+        return False
+
+    from . import fixit_felix_runtime, idat
+
+    analysis = idat.analyze_idat_stream(data)
+    if analysis.complete or not analysis.supported:
+        return False
+    if analysis.status not in ("corrupt_deflate", "incomplete_stream", "bad_adler"):
+        return False
+
+    candy = namespace.get("Candy")
+    emit = namespace.get("PRINT")
+    question = namespace.get("Question")
+    runtime = SimpleNamespace(
+        emit=emit if callable(emit) else (lambda _message: None),
+        candy=candy if callable(candy) else (lambda *_args, **_kwargs: None),
+        question=question if callable(question) else (lambda *_args, **_kwargs: False),
+        write_clone=write_clone,
+        side_notes=namespace.setdefault("SideNotes", []),
+        data_hex=data_hex,
+        remember_idat_deflate_probe=lambda probe_analysis: fixit_felix_runtime.remember_idat_deflate_probe(
+            namespace,
+            probe_analysis,
+        ),
+        loadingbar=namespace.get("Loadingbar"),
+        minibar=namespace.get("Minibar"),
+        preview_repair_image=namespace.get("Preview_Repair_Image"),
+    )
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+    return result is not None
+
+
 def _last_clone_is_valid_final(namespace: dict[str, Any]) -> bool:
     validation = namespace.get("LAST_CLONE_VALIDATION")
     if not isinstance(validation, dict):
@@ -1572,6 +1637,8 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
             namespace.get("Clear_Deferred_FindMagic_Repair", lambda: None)()
     if namespace["SAVE_COUNT"] == save_count_before:
         if has_unresolved_findings(namespace):
+            if _try_unresolved_idat_deflate_route(namespace):
+                return MainLoopIterationState()
             explain_unimplemented_repair_route(namespace)
         else:
             namespace.get("Open_Current_Final_Image_If_Valid", lambda: None)()
