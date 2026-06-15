@@ -1336,6 +1336,32 @@ def _bad_crc_idat_chunks(data: bytes) -> tuple[png.PngChunk, ...]:
     )
 
 
+def focused_idat_crc_target_chunk(
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+) -> png.PngChunk | None:
+    bad_chunks = _bad_crc_idat_chunks(data)
+    if len(bad_chunks) == 1:
+        return bad_chunks[0]
+
+    if analysis.error_idat_index is None:
+        return None
+
+    try:
+        idat_chunks = tuple(chunk for chunk in png.iter_chunks(data) if chunk.chunk_type == b"IDAT")
+    except png.PngFormatError:
+        return None
+
+    index = int(analysis.error_idat_index) - 1
+    if index < 0 or index >= len(idat_chunks):
+        return None
+
+    target_chunk = idat_chunks[index]
+    if target_chunk.crc == target_chunk.computed_crc:
+        return None
+    return target_chunk
+
+
 def _focused_idat_crc_window(
     target_chunk: png.PngChunk,
     analysis: idat.IdatStreamAnalysis,
@@ -1382,11 +1408,9 @@ def focused_idat_crc_forge(data: bytes, findings: Iterable[object]) -> Any | Non
     if analysis.status != "corrupt_deflate" or analysis.error_file_offset is None:
         return None
 
-    bad_chunks = _bad_crc_idat_chunks(data)
-    if len(bad_chunks) != 1:
+    target_chunk = focused_idat_crc_target_chunk(data, analysis)
+    if target_chunk is None:
         return None
-
-    target_chunk = bad_chunks[0]
     window = _focused_idat_crc_window(target_chunk, analysis, byte_count=4)
     if window is None:
         return None

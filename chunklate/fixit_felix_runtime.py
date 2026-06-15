@@ -2720,11 +2720,10 @@ def try_focused_idat_crc_forge(
         return None
     if analysis.error_file_offset is None:
         return None
-    bad_chunks = _bad_crc_idat_chunks(data)
-    if len(bad_chunks) != 1:
+    target_chunk = fixit_felix.focused_idat_crc_target_chunk(data, analysis)
+    if target_chunk is None:
         return None
 
-    target_chunk = bad_chunks[0]
     window = _focused_idat_crc_window(target_chunk, analysis, byte_count=4)
     if window is None:
         return None

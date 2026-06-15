@@ -1947,6 +1947,36 @@ def test_focused_idat_crc_forge_precedes_blackfill_for_color_plte2_sample():
     assert max(repaired_indices) < repaired_plte.length // 3
 
 
+def test_focused_idat_crc_target_uses_deflate_error_chunk_when_many_idats_have_bad_crc():
+    filtered = b"".join(b"\x00" + bytes((row, row, row)) for row in range(80))
+    compressed = zlib.compress(filtered)
+    split = len(compressed) // 2
+    ihdr = struct.pack("!IIBBBBB", 1, 80, 8, 2, 0, 0, 0)
+    data = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"IDAT", compressed[:split])
+        + build_png_chunk(b"IDAT", compressed[split:])
+        + IEND_CHUNK
+    )
+    idat_chunks = tuple(chunk for chunk in iter_chunks(data) if chunk.chunk_type == b"IDAT")
+
+    corrupted = bytearray(data)
+    corrupted[idat_chunks[0].offset + 8 + 2] ^= 0xFF
+    second_crc_offset = idat_chunks[1].offset + 8 + idat_chunks[1].length
+    corrupted[second_crc_offset] ^= 0x01
+    corrupted_data = bytes(corrupted)
+
+    analysis = idat.analyze_idat_stream(corrupted_data)
+    target = fixit_felix.focused_idat_crc_target_chunk(corrupted_data, analysis)
+
+    assert analysis.status == "corrupt_deflate"
+    assert analysis.error_idat_index == 1
+    assert len(fixit_felix._bad_crc_idat_chunks(corrupted_data)) == 2
+    assert target is not None
+    assert target.offset == idat_chunks[0].offset
+
+
 def test_partial_idat_blackfill_normalizes_complete_invalid_filter_type():
     original = build_rgb_png(1, 2, b"\x80abc" + b"\x00def")
 
