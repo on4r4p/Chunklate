@@ -103,6 +103,7 @@ class IdatDeflateProbeResult:
     strategy: str = "strict-byte"
     reason: str = ""
     chain: tuple[IdatDeflateCandidate, ...] = ()
+    diagnostic_best: IdatDeflateCandidate | None = None
 
     @property
     def improved(self) -> bool:
@@ -1028,11 +1029,12 @@ def _linefeed_probe_center(before: idat.IdatStreamAnalysis, idat_stream: bytes) 
     return _problem_stream_offset_for_analysis(before, idat_stream)
 
 
-def _probe_linefeed_cr_insertions_in_offsets(
+def _probe_linefeed_insertions_in_offsets(
     data: bytes,
     *,
     strategy: str,
     offsets: list[int],
+    inserted_byte: int,
     window_start: int,
     window_end: int,
     budget: int,
@@ -1057,7 +1059,8 @@ def _probe_linefeed_cr_insertions_in_offsets(
             budget_exhausted = True
             break
 
-        candidate_stream = idat_stream[:stream_offset] + b"\r" + idat_stream[stream_offset:]
+        insertion = bytes((int(inserted_byte) & 0xFF,))
+        candidate_stream = idat_stream[:stream_offset] + insertion + idat_stream[stream_offset:]
         candidate_data = _rebuild_with_single_idat_stream(chunks, candidate_stream)
         after = idat.analyze_idat_stream(candidate_data)
         tested += 1
@@ -1072,7 +1075,7 @@ def _probe_linefeed_cr_insertions_in_offsets(
         best = IdatLinefeedInsertCandidate(
             data=candidate_data,
             stream_offset=stream_offset,
-            inserted_byte=0x0D,
+            inserted_byte=int(inserted_byte) & 0xFF,
             before=before,
             after=after,
         )
@@ -1091,6 +1094,28 @@ def _probe_linefeed_cr_insertions_in_offsets(
         tested,
         budget_exhausted,
         strategy,
+    )
+
+
+def _probe_linefeed_cr_insertions_in_offsets(
+    data: bytes,
+    *,
+    strategy: str,
+    offsets: list[int],
+    window_start: int,
+    window_end: int,
+    budget: int,
+    progress: QueueProgressCallback | None = None,
+) -> IdatLinefeedInsertProbeResult:
+    return _probe_linefeed_insertions_in_offsets(
+        data,
+        strategy=strategy,
+        offsets=offsets,
+        inserted_byte=0x0D,
+        window_start=window_start,
+        window_end=window_end,
+        budget=budget,
+        progress=progress,
     )
 
 
@@ -1285,6 +1310,64 @@ def probe_idat_linefeed_cr_insertions(
         data,
         strategy=strategy,
         offsets=offsets,
+        window_start=window_start,
+        window_end=window_end,
+        budget=budget,
+        progress=progress,
+    )
+
+
+def probe_idat_linefeed_lf_insertions(
+    data: bytes,
+    *,
+    window_radius: int = 512,
+    budget: int = 1024,
+    progress: QueueProgressCallback | None = None,
+) -> IdatLinefeedInsertProbeResult:
+    strategy = "linefeed-lf-insert"
+    before = idat.analyze_idat_stream(data)
+    if not before.supported:
+        return IdatLinefeedInsertProbeResult(before, None, 0, 0, 0, False, strategy, before.reason)
+    if before.complete:
+        return IdatLinefeedInsertProbeResult(
+            before,
+            None,
+            0,
+            0,
+            0,
+            False,
+            strategy,
+            "IDAT stream is already complete",
+        )
+
+    try:
+        _chunks, idat_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatLinefeedInsertProbeResult(before, None, 0, 0, 0, False, strategy, str(exc))
+
+    center = _linefeed_probe_center(before, idat_stream)
+    if center is None:
+        return IdatLinefeedInsertProbeResult(
+            before,
+            None,
+            0,
+            0,
+            0,
+            False,
+            strategy,
+            "IDAT stream is missing",
+        )
+
+    window_start = max(0, center - window_radius)
+    window_end = min(len(idat_stream) + 1, center + window_radius + 1)
+    offsets = list(range(window_start, window_end))
+    offsets.sort(key=lambda offset: (abs(offset - center), offset))
+
+    return _probe_linefeed_insertions_in_offsets(
+        data,
+        strategy=strategy,
+        offsets=offsets,
+        inserted_byte=0x0A,
         window_start=window_start,
         window_end=window_end,
         budget=budget,
@@ -1771,6 +1854,37 @@ def _linefeed_structural_mutations(
                 stream[:offset] + b"\r" + stream[offset + 1 :],
                 SuperMegaLinefeedOperation("replace-lf-with-cr", offset, b"\n", b"\r"),
             )
+
+
+def _linefeed_lf_insert_mutations(
+    stream: bytes,
+    *,
+    center: int,
+    search_start: int,
+    backtrack: int,
+    forward: int,
+) -> Iterable[tuple[bytes, SuperMegaLinefeedOperation]]:
+    insert_start = max(search_start, center - backtrack)
+    insert_end = min(len(stream) + 1, center + forward + 1)
+
+    for offset in _offsets_by_distance(insert_start, insert_end, center):
+        yield (
+            stream[:offset] + b"\n" + stream[offset:],
+            SuperMegaLinefeedOperation("insert-lf-near-error", offset, b"", b"\n"),
+        )
+
+
+def _count_linefeed_lf_insert_mutations(
+    stream: bytes,
+    *,
+    center: int,
+    search_start: int,
+    backtrack: int,
+    forward: int,
+) -> int:
+    insert_start = max(search_start, center - backtrack)
+    insert_end = min(len(stream) + 1, center + forward + 1)
+    return max(0, insert_end - insert_start)
 
 
 def _count_linefeed_structural_mutations(
@@ -2474,6 +2588,10 @@ def _ultimate_mutations_for_offset(
         )
 
     value = stream[offset]
+    yield (
+        stream[:offset] + b"\n" + stream[offset:],
+        SuperMegaLinefeedOperation("ultimate-insert-lf", offset, b"", b"\n"),
+    )
     if value == 0x0A and not (offset > 0 and stream[offset - 1] == 0x0D):
         yield (
             stream[:offset] + b"\r" + stream[offset:],
@@ -6252,6 +6370,7 @@ def probe_super_mega_linefeed_force_of_death(
     local_byte_budget: int = 1024,
     heavy_byte_budget: int = 1024,
     adler_budget: int = 16,
+    lf_insert_budget: int = 1024,
     structural_forward: int = 256,
     structural_insert_radius: int = 96,
     local_bit_backtrack: int = 128,
@@ -6361,6 +6480,7 @@ def probe_super_mega_linefeed_force_of_death(
     remaining_budgets = {
         "phase0-known-gap-linefeed": max(0, known_gap_budget),
         "phase1-linefeed-global": max(0, linefeed_budget),
+        "phase2-lf-insert": max(0, lf_insert_budget),
         "phase2-crlf-structural": max(0, structural_budget),
         "phase3-deflate-bit": max(0, local_bit_budget),
         "phase3-deflate-byte": max(0, local_byte_budget),
@@ -6428,6 +6548,26 @@ def probe_super_mega_linefeed_force_of_death(
                     len(parent_stream),
                     linefeed_budget,
                     _count_linefeed_global_mutations(parent_stream, search_start=search_start),
+                ),
+                (
+                    "phase2-lf-insert",
+                    _linefeed_lf_insert_mutations(
+                        parent_stream,
+                        center=center,
+                        search_start=search_start,
+                        backtrack=resolved_pre_error_backtrack,
+                        forward=structural_forward,
+                    ),
+                    structural_window_start,
+                    structural_window_end,
+                    lf_insert_budget,
+                    _count_linefeed_lf_insert_mutations(
+                        parent_stream,
+                        center=center,
+                        search_start=search_start,
+                        backtrack=resolved_pre_error_backtrack,
+                        forward=structural_forward,
+                    ),
                 ),
                 (
                     "phase2-crlf-structural",
@@ -6848,7 +6988,7 @@ def _candidate_header_is_fixed(
     if before_header.ok:
         return False
     if after_header is None:
-        return candidate.after.complete
+        return candidate.after.complete or candidate.after.decompressed_size > before.decompressed_size
     return after_header.ok
 
 
@@ -6880,6 +7020,8 @@ def probe_deflate_header_candidates(
     offsets = _deflate_header_priority_offsets(window_start, window_end, before, before_header)
     best: IdatDeflateCandidate | None = None
     best_score = analysis_score(before)
+    diagnostic_best: IdatDeflateCandidate | None = None
+    diagnostic_score = analysis_score(before)
     tested = 0
     budget_exhausted = False
 
@@ -6893,17 +7035,21 @@ def probe_deflate_header_candidates(
             True,
             strategy,
             before_header.summary,
+            diagnostic_best=diagnostic_best,
         )
 
     def consider(candidate: IdatDeflateCandidate | None) -> bool:
-        nonlocal best, best_score
+        nonlocal best, best_score, diagnostic_best, diagnostic_score
         if candidate is None:
             return False
         if not _candidate_header_is_fixed(before, candidate):
             return False
+        candidate_score = analysis_score(candidate.after)
+        if candidate_score > diagnostic_score:
+            diagnostic_best = candidate
+            diagnostic_score = candidate_score
         if not is_material_improvement(before, candidate.after):
             return False
-        candidate_score = analysis_score(candidate.after)
         if candidate_score <= best_score:
             return False
         best = candidate
@@ -6966,6 +7112,7 @@ def probe_deflate_header_candidates(
                     budget_exhausted,
                     strategy,
                     before_header.summary,
+                    diagnostic_best=diagnostic_best,
                 )
 
     if progress is not None:
@@ -7001,6 +7148,7 @@ def probe_deflate_header_candidates(
                     budget_exhausted,
                     strategy,
                     before_header.summary,
+                    diagnostic_best=diagnostic_best,
                 )
 
     if progress is not None:
@@ -7038,6 +7186,7 @@ def probe_deflate_header_candidates(
                     budget_exhausted,
                     strategy,
                     before_header.summary,
+                    diagnostic_best=diagnostic_best,
                 )
 
     if progress is not None:
@@ -7075,6 +7224,7 @@ def probe_deflate_header_candidates(
                     budget_exhausted,
                     strategy,
                     before_header.summary,
+                    diagnostic_best=diagnostic_best,
                 )
 
     if progress is not None:
@@ -7088,6 +7238,7 @@ def probe_deflate_header_candidates(
         budget_exhausted,
         strategy,
         before_header.summary,
+        diagnostic_best=diagnostic_best,
     )
 
 
@@ -7281,6 +7432,53 @@ def probe_idat_deflate_strategy_queue(
         "strategy-queue",
         last_result.reason,
     )
+
+
+def idat_crc_evidence_summary_lines(data: bytes, *, limit: int = 8) -> tuple[str, ...]:
+    try:
+        chunks = tuple(png.iter_chunks(data))
+    except png.PngFormatError as exc:
+        return ("-IDAT CRC evidence unavailable: %s." % exc,)
+
+    idat_chunks = tuple(chunk for chunk in chunks if chunk.chunk_type == b"IDAT")
+    if not idat_chunks:
+        return ("-IDAT CRC evidence: no IDAT chunks.",)
+
+    bad_indexes = tuple(
+        index
+        for index, chunk in enumerate(idat_chunks)
+        if chunk.crc != chunk.computed_crc
+    )
+    ok_count = len(idat_chunks) - len(bad_indexes)
+    bad_label = ",".join(str(index) for index in bad_indexes[:limit])
+    if len(bad_indexes) > limit:
+        bad_label += ",..."
+    lines = [
+        "-IDAT CRC evidence: chunks=%s; current_crc_ok=%s; stored_crc_mismatch=%s; mismatch_indexes=%s."
+        % (
+            len(idat_chunks),
+            ok_count,
+            len(bad_indexes),
+            bad_label or "none",
+        )
+    ]
+    detail_parts = []
+    for index, chunk in enumerate(idat_chunks[:limit]):
+        detail_parts.append(
+            "#%02d len=%s stored=%08x computed=%08x %s"
+            % (
+                index,
+                chunk.length,
+                chunk.crc,
+                chunk.computed_crc,
+                "ok" if chunk.crc == chunk.computed_crc else "stored-original?",
+            )
+        )
+    if detail_parts:
+        if len(idat_chunks) > limit:
+            detail_parts.append("...")
+        lines.append("-IDAT CRC evidence detail: %s." % "; ".join(detail_parts))
+    return tuple(lines)
 
 
 def probe_summary_line(result: IdatDeflateProbeResult) -> str:
@@ -7538,6 +7736,33 @@ def candidate_summary_line(candidate: IdatDeflateCandidate) -> str:
     )
 
 
+def diagnostic_candidate_summary_line(candidate: IdatDeflateCandidate) -> str:
+    if candidate.edit_kind == "insert":
+        operation = "insert %s" % (candidate.new_bytes.hex() or "%02x" % candidate.new_byte)
+    elif candidate.edit_kind == "remove":
+        operation = "remove %s" % (candidate.old_bytes.hex() or "%02x" % candidate.old_byte)
+    else:
+        operation = "byte %02x -> %02x" % (candidate.old_byte, candidate.new_byte)
+    return (
+        "-IDAT deflate diagnostic candidate rejected: stream=0x%x; file=0x%x; IDAT=%s; %s; "
+        "scanlines %s/%s -> %s/%s; decompressed %s -> %s; error_offset %s -> %s."
+        % (
+            candidate.stream_offset,
+            candidate.file_offset,
+            candidate.idat_index,
+            operation,
+            candidate.before.usable_scanlines,
+            candidate.before.height,
+            candidate.after.usable_scanlines,
+            candidate.after.height,
+            candidate.before.decompressed_size,
+            candidate.after.decompressed_size,
+            candidate.before.error_offset,
+            candidate.after.error_offset,
+        )
+    )
+
+
 def candidate_patch_note(candidate: IdatDeflateCandidate) -> str:
     if candidate.edit_kind == "insert":
         return "Patch: insert %s at IDAT stream offset 0x%x." % (
@@ -7615,3 +7840,9 @@ def candidate_summary_lines(result: IdatDeflateProbeResult) -> tuple[str, ...]:
     if result.best is not None:
         return (candidate_summary_line(result.best),)
     return ()
+
+
+def diagnostic_candidate_summary_lines(result: IdatDeflateProbeResult) -> tuple[str, ...]:
+    if result.best is not None or result.diagnostic_best is None:
+        return ()
+    return (diagnostic_candidate_summary_line(result.diagnostic_best),)

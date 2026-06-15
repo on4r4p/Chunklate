@@ -709,6 +709,56 @@ def test_super_mega_linefeed_force_recovers_multiple_crlf_deletions():
     assert zlib.decompress(b"".join(chunk.data for chunk in iter_chunks(probe.best.data) if chunk.chunk_type == b"IDAT")) == filtered
 
 
+def test_linefeed_lf_insert_mutations_insert_lf_near_error():
+    stream = b"abcdef"
+
+    mutations = list(
+        idat_bruteforce._linefeed_lf_insert_mutations(
+            stream,
+            center=2,
+            search_start=0,
+            backtrack=2,
+            forward=1,
+        )
+    )
+
+    assert mutations[0] == (
+        b"ab\ncdef",
+        idat_bruteforce.SuperMegaLinefeedOperation("insert-lf-near-error", 2, b"", b"\n"),
+    )
+    assert idat_bruteforce._count_linefeed_lf_insert_mutations(
+        stream,
+        center=2,
+        search_start=0,
+        backtrack=2,
+        forward=1,
+    ) == 4
+
+
+def test_ultimate_operation_pool_includes_direct_lf_insertions():
+    operations = idat_bruteforce._ultimate_operation_pool(
+        b"abcdef",
+        (2,),
+        target_adler=None,
+        computed_adler=None,
+    )
+
+    assert idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-lf", 2, b"", b"\n") in operations
+
+
+def test_idat_crc_evidence_summary_reports_stored_crc_mismatches():
+    clean = build_rgb_png(1, 1, b"\x00abc")
+    chunk = next(chunk for chunk in iter_chunks(clean) if chunk.chunk_type == b"IDAT")
+    crc_start = chunk.offset + 8 + chunk.length
+    corrupt_crc = clean[:crc_start] + b"\x12\x34\x56\x78" + clean[crc_start + 4 :]
+
+    lines = idat_bruteforce.idat_crc_evidence_summary_lines(corrupt_crc)
+
+    assert lines[0].startswith("-IDAT CRC evidence: chunks=1; current_crc_ok=0; stored_crc_mismatch=1")
+    assert "stored=12345678" in lines[1]
+    assert "stored-original?" in lines[1]
+
+
 def test_super_mega_linefeed_force_uses_known_gap_phase_before_broad_search():
     filtered = b"".join(b"\x00" + bytes((13, 10, row)) for row in range(20))
     compressed = bytearray(zlib.compress(filtered, level=0))
@@ -3706,6 +3756,10 @@ def test_deflate_header_probe_does_not_accept_header_only_progress_without_scanl
     result = idat_bruteforce.probe_deflate_header_candidates(candidate, budget=128)
 
     assert result.best is None
+    assert result.diagnostic_best is not None
+    assert result.diagnostic_best.after.decompressed_size > result.before.decompressed_size
+    assert result.diagnostic_best.after.usable_scanlines == 0
+    assert idat_bruteforce.diagnostic_candidate_summary_lines(result)
     assert result.strategy == "deflate-header"
 
 

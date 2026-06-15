@@ -3,6 +3,7 @@ from __future__ import annotations
 import binascii
 from dataclasses import dataclass
 from dataclasses import replace
+import hashlib
 from pathlib import Path
 import random
 from typing import Any
@@ -16,6 +17,7 @@ from . import idat_bruteforce
 from . import idat_crc_forge
 from . import idat_chain
 from . import messages
+from . import output
 from . import png
 from . import repair_routes
 from . import relics
@@ -2839,6 +2841,100 @@ def _ask_idat_heavy_probe(runtime: Any, analysis: idat.IdatStreamAnalysis) -> bo
     return False
 
 
+def _write_idat_diagnostic_artifact(
+    runtime: Any,
+    candidate: idat_bruteforce.SuperMegaLinefeedCandidate,
+    *,
+    label: str,
+) -> str | None:
+    file_origin = str(getattr(runtime, "file_origin", "") or "idat_diagnostic.png")
+    try:
+        folder = Path(output.ensure_clone_folder(file_origin))
+        payload_folder = folder / "Debug_Payloads"
+        payload_folder.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha1(candidate.data).hexdigest()[:8]
+        path = payload_folder / (
+            "%s_%s_state%s_%s.png"
+            % (
+                output.source_stem(file_origin),
+                label,
+                candidate.state_id,
+                digest,
+            )
+        )
+        path.write_bytes(candidate.data)
+    except Exception as exc:
+        runtime.side_notes.append("-IDAT diagnostic artifact write failed: %s." % exc)
+        return None
+
+    relative_path = path.relative_to(folder).as_posix()
+    runtime.side_notes.append(
+        "-IDAT diagnostic artifact: %s; not a final fix; status=%s; scanlines=%s/%s; "
+        "decompressed=%s/%s; error_offset=%s."
+        % (
+            relative_path,
+            candidate.after.status,
+            candidate.after.usable_scanlines,
+            candidate.after.height,
+            candidate.after.decompressed_size,
+            candidate.after.expected_size,
+            candidate.after.error_offset,
+        )
+    )
+    return str(path)
+
+
+def _probe_idat_lf_route_for_diagnostics(runtime: Any, data: bytes, analysis: idat.IdatStreamAnalysis) -> None:
+    runtime.candy(
+        "Cowsay",
+        "I am also trying the missing-LF hypothesis around the deflate wound and logging the trail.",
+        "com",
+    )
+    runtime.candy("Title", "probe_idat_linefeed_lf_insertions")
+    lf_probe = idat_bruteforce.probe_idat_linefeed_lf_insertions(
+        data,
+        window_radius=512,
+        budget=1024,
+        progress=_runtime_idat_queue_progress(runtime),
+    )
+    runtime.side_notes.append(idat_bruteforce.linefeed_insert_probe_summary_line(lf_probe))
+    if lf_probe.best is not None:
+        runtime.side_notes.append(idat_bruteforce.linefeed_insert_candidate_summary_line(lf_probe.best))
+        runtime.candy(
+            "Cowsay",
+            "The LF route moves zlib, but I still need usable PNG scanlines before I write anything.",
+            "com",
+        )
+
+    runtime.candy("Title", "probe_super_mega_linefeed_force_of_death")
+    super_probe = idat_bruteforce.probe_super_mega_linefeed_force_of_death(
+        data,
+        start_offset=analysis.error_offset,
+        pre_error_backtrack=512,
+        beam_width=8,
+        max_depth=2,
+        linefeed_budget=0,
+        structural_budget=0,
+        local_bit_budget=0,
+        local_byte_budget=0,
+        heavy_byte_budget=0,
+        adler_budget=0,
+        lf_insert_budget=2048,
+        structural_forward=256,
+        progress=_runtime_idat_queue_progress(runtime),
+    )
+    runtime.side_notes.append(idat_bruteforce.super_mega_linefeed_probe_summary_line(super_probe))
+    runtime.side_notes.extend(idat_bruteforce.super_mega_linefeed_phase_summary_lines(super_probe))
+    if super_probe.best is not None:
+        runtime.side_notes.append(idat_bruteforce.super_mega_linefeed_candidate_summary_line(super_probe.best))
+        if super_probe.best.after.decompressed_size > analysis.decompressed_size:
+            _write_idat_diagnostic_artifact(
+                runtime,
+                super_probe.best,
+                label="idat_lf_diagnostic",
+            )
+
+
 def try_idat_deflate_bruteforce(
     runtime: Any,
     analysis: idat.IdatStreamAnalysis | None = None,
@@ -2876,6 +2972,7 @@ def try_idat_deflate_bruteforce(
         "bad",
     )
     runtime.side_notes.append(idat_stream_diagnosis_note(analysis))
+    runtime.side_notes.extend(idat_bruteforce.idat_crc_evidence_summary_lines(data))
     if analysis.decompressed_size == 0:
         runtime.candy(
             "Cowsay",
@@ -2896,13 +2993,27 @@ def try_idat_deflate_bruteforce(
         runtime.side_notes.append(idat_bruteforce.probe_summary_line(header_probe))
 
         if header_probe.best is None:
+            diagnostic_lines = idat_bruteforce.diagnostic_candidate_summary_lines(header_probe)
+            runtime.side_notes.extend(diagnostic_lines)
+            if diagnostic_lines:
+                runtime.candy(
+                    "Cowsay",
+                    "I found a pre-scanline deflate route, but it still gives me zero usable PNG scanlines.",
+                    "com",
+                )
+                runtime.candy(
+                    "Cowsay",
+                    "I am logging it as diagnostic evidence, not writing it as a repair.",
+                    "com",
+                )
             runtime.candy(
                 "Cowsay",
-                "I did not get a usable scanline from the deflate-header probe. No clone, no wider brute force yet.",
+                "I did not get a usable scanline from the deflate-header probe. I will keep probing routes, but still no blind clone.",
                 "bad",
             )
+            _probe_idat_lf_route_for_diagnostics(runtime, data, analysis)
             runtime.side_notes.append("-IDAT deflate header probe found no clone-worthy scanline progress.")
-            runtime.side_notes.append("-IDAT wide deflate probes skipped: header probe produced no usable scanline.")
+            runtime.side_notes.append("-IDAT diagnostic LF route found no clone-worthy scanline progress.")
             return None
 
         candidate = header_probe.best
