@@ -18,6 +18,7 @@ import zlib
 from typing import Any, Callable, Iterable
 
 from . import deflate_header
+from . import deflate_probe
 from . import idat
 from . import png
 
@@ -395,6 +396,28 @@ class IdatHuffmanKraftSolverResult:
     cpu_batches: int = 0
     kraft_prefilter_hits: int = 0
     strategy: str = "huffman-kraft"
+    reason: str = ""
+    source_hash: str = ""
+
+    @property
+    def improved(self) -> bool:
+        return self.best is not None
+
+
+@dataclass(frozen=True)
+class IdatKraftBackrefRepairResult:
+    before: idat.IdatStreamAnalysis
+    best: IdatDeepBeamCandidate | None
+    top_candidates: tuple[IdatDeepBeamCandidate, ...]
+    tested_candidates: int
+    budget_exhausted: bool
+    checkpoint_path: str = ""
+    progress_path: str = ""
+    seed_checkpoint_path: str = ""
+    repaired_backrefs: int = 0
+    png_prefix_hits: int = 0
+    best_prefix_rows: int = 0
+    strategy: str = "kraft-backref-repair"
     reason: str = ""
     source_hash: str = ""
 
@@ -7894,6 +7917,9 @@ HUFFMAN_KRAFT_DEFAULT_MAX_DEPTH = 4
 HUFFMAN_KRAFT_DEFAULT_WIDTH = 128
 HUFFMAN_KRAFT_DEFAULT_TOP_CANDIDATES = 25
 HUFFMAN_KRAFT_CHECKPOINT_EVERY = 25_000
+KRAFT_BACKREF_DEFAULT_BUDGET = 250_000
+KRAFT_BACKREF_DEFAULT_TOP_CANDIDATES = 25
+KRAFT_BACKREF_CHECKPOINT_EVERY = 25_000
 HUFFMAN_ORACLE_DEFAULT_BUDGET = 750_000
 HUFFMAN_ORACLE_DEFAULT_MAX_DEPTH = 3
 HUFFMAN_ORACLE_DEFAULT_WIDTH = 96
@@ -8892,6 +8918,10 @@ def crc_periodic_progress_state(data: bytes, progress_path: str = "") -> IdatFro
 
 def huffman_kraft_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
     return _frontier_progress_state(data, progress_path, label="huffman kraft")
+
+
+def kraft_backref_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
+    return _frontier_progress_state(data, progress_path, label="kraft-backref")
 
 
 def global_crc_residue_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
@@ -10146,6 +10176,438 @@ def probe_idat_huffman_kraft_solver(
         gpu_shards=gpu_shards,
         cpu_batches=cpu_batches,
         kraft_prefilter_hits=kraft_prefilter_hits,
+        strategy=strategy,
+        reason=reason,
+        source_hash=source_hash,
+    )
+
+
+@dataclass(frozen=True)
+class _InvalidDistanceBackref:
+    token_index: int
+    bit_start: int
+    bit_end: int
+    output_before: int
+    length: int
+    distance_symbol: int
+    distance: int
+    distance_table: dict[tuple[int, int], int]
+
+
+def _png_valid_prefix_rows(raw: bytes, analysis: idat.IdatStreamAnalysis) -> int:
+    scanline_size = int(getattr(analysis, "scanline_size", 0) or 0)
+    if not raw or scanline_size <= 0:
+        return 0
+    rows = len(raw) // scanline_size
+    valid = 0
+    for row in range(rows):
+        if raw[row * scanline_size] not in (0, 1, 2, 3, 4):
+            break
+        valid += 1
+    return valid
+
+
+def _locate_first_invalid_distance_backref(
+    stream: bytes,
+    *,
+    max_tokens: int = 8192,
+) -> _InvalidDistanceBackref | None:
+    if not deflate_header.zlib_header_is_valid(stream):
+        return None
+    reader = deflate_header.BitReader(stream, start_byte=2)
+    output_size = 0
+    try:
+        reader.read(1)
+        btype = reader.read(2)
+        if btype == 0:
+            return None
+        if btype == 1:
+            literal_table, literal_max, distance_table, distance_max = deflate_probe._FIXED_TABLES
+        elif btype == 2:
+            literal_table, literal_max, distance_table, distance_max = deflate_probe._read_dynamic_tables(reader)
+        else:
+            return None
+        for token_index in range(max(1, int(max_tokens))):
+            symbol = deflate_header._decode_symbol(reader, literal_table, literal_max)
+            if symbol < 256:
+                output_size += 1
+                continue
+            if symbol == 256:
+                return None
+            if not (257 <= symbol <= 285):
+                return None
+            length_index = symbol - 257
+            length = deflate_probe.LENGTH_BASES[length_index]
+            extra_bits = deflate_probe.LENGTH_EXTRAS[length_index]
+            if extra_bits:
+                length += reader.read(extra_bits)
+            distance_symbol, distance_bit_start, _distance_bit_end = deflate_header._decode_symbol_with_bits(
+                reader,
+                distance_table,
+                distance_max,
+            )
+            if distance_symbol >= len(deflate_probe.DISTANCE_BASES):
+                return None
+            distance = deflate_probe.DISTANCE_BASES[distance_symbol]
+            distance_extra_bits = deflate_probe.DISTANCE_EXTRAS[distance_symbol]
+            if distance_extra_bits:
+                distance += reader.read(distance_extra_bits)
+            distance_bit_end = reader.bit_offset
+            if distance > output_size:
+                return _InvalidDistanceBackref(
+                    token_index=int(token_index),
+                    bit_start=int(distance_bit_start),
+                    bit_end=int(distance_bit_end),
+                    output_before=int(output_size),
+                    length=int(length),
+                    distance_symbol=int(distance_symbol),
+                    distance=int(distance),
+                    distance_table=dict(distance_table),
+                )
+            output_size += length
+    except (deflate_header._NeedBits, deflate_header._InvalidHuffman, IndexError):
+        return None
+    return None
+
+
+def _kraft_backref_bits_for_code(code: int, width: int) -> tuple[int, ...]:
+    return tuple((int(code) >> index) & 1 for index in range(int(width)))
+
+
+def _kraft_backref_distance_operations(
+    stream: bytes,
+    invalid: _InvalidDistanceBackref,
+    *,
+    max_operations: int,
+) -> tuple[IdatDeepBeamOperation, ...]:
+    if max_operations <= 0 or invalid.output_before <= 0:
+        return ()
+    distance_codes = {
+        int(symbol): (int(code), int(width))
+        for (code, width), symbol in invalid.distance_table.items()
+    }
+    choices: list[tuple[int, int, int, tuple[int, ...]]] = []
+    for distance_symbol in range(len(deflate_probe.DISTANCE_BASES)):
+        if distance_symbol not in distance_codes:
+            continue
+        base = int(deflate_probe.DISTANCE_BASES[distance_symbol])
+        extra_width = int(deflate_probe.DISTANCE_EXTRAS[distance_symbol])
+        max_extra = 1 << extra_width
+        code, width = distance_codes[distance_symbol]
+        for extra_value in range(max_extra):
+            distance = base + extra_value
+            if distance <= 0 or distance > int(invalid.output_before):
+                continue
+            replacement_bits = (
+                _kraft_backref_bits_for_code(code, width)
+                + _kraft_backref_bits_for_code(extra_value, extra_width)
+            )
+            choices.append((distance, distance_symbol, extra_value, replacement_bits))
+    choices.sort(key=lambda item: (-item[0], item[1], item[2], item[3]))
+    old_bytes = _stream_bit_range_to_bytes(stream, invalid.bit_start, invalid.bit_end)
+    operations: list[IdatDeepBeamOperation] = []
+    seen: set[tuple[int, tuple[int, ...]]] = set()
+    for distance, distance_symbol, _extra_value, replacement_bits in choices:
+        key = (distance, replacement_bits)
+        if key in seen:
+            continue
+        seen.add(key)
+        operations.append(
+            IdatDeepBeamOperation(
+                "kraft-backref-distance",
+                int(invalid.bit_start) // 8,
+                old_bytes,
+                bytes(int(bit) & 1 for bit in replacement_bits),
+                tuple(range(int(invalid.bit_start), int(invalid.bit_end))),
+            )
+        )
+        if len(operations) >= int(max_operations):
+            break
+    return tuple(operations)
+
+
+def _kraft_backref_candidate_from_operation(
+    parent: IdatDeepBeamCandidate,
+    operation: IdatDeepBeamOperation,
+    *,
+    chunks: tuple[png.PngChunk, ...],
+    before: idat.IdatStreamAnalysis,
+    state_id: int,
+    original_idat_count: int,
+) -> IdatDeepBeamCandidate | None:
+    if not operation.bit_offsets:
+        return None
+    stream = _replace_stream_bits_preserve_length(
+        parent.stream,
+        min(operation.bit_offsets),
+        max(operation.bit_offsets) + 1,
+        tuple(int(value) & 1 for value in operation.new_bytes),
+    )
+    if stream is None:
+        return None
+    candidate = _frontier_candidate_from_stream(
+        parent,
+        stream,
+        operation,
+        chunks=chunks,
+        before=before,
+        state_id=int(state_id),
+        original_idat_count=original_idat_count,
+        source_kind="candidate_from_kraft_backref_repair",
+    )
+    if candidate is None:
+        return None
+    raw_limit = max(8192, int(getattr(before, "scanline_size", 0) or 0) * 64)
+    raw_prefix = idat_partial_raw_prefix(stream, max_output=raw_limit)
+    raw_score = score_png_raw_prefix(raw_prefix.raw, before)
+    prefix_rows = _png_valid_prefix_rows(raw_prefix.raw, before)
+    score = (
+        int(candidate.after.usable_scanlines),
+        int(prefix_rows),
+        int(raw_score.valid_filter_rows),
+        int(raw_score.first_filter_rank),
+        int(raw_score.alpha_rank),
+        int(raw_score.raw_size),
+        int(candidate.after.decompressed_size),
+        int(candidate.after.error_offset if candidate.after.error_offset is not None else -1),
+        -len(candidate.operations),
+        -int(candidate.state_id),
+    )
+    return replace(candidate, score=score)
+
+
+def probe_idat_kraft_backref_repair(
+    data: bytes,
+    *,
+    budget: int = KRAFT_BACKREF_DEFAULT_BUDGET,
+    top_candidates: int = KRAFT_BACKREF_DEFAULT_TOP_CANDIDATES,
+    checkpoint_path: str = "",
+    progress_path: str = "",
+    seed_candidates: Iterable[IdatDeepBeamCandidate] = (),
+    seed_checkpoint_path: str = "",
+    progress: QueueProgressCallback | None = None,
+) -> IdatKraftBackrefRepairResult:
+    strategy = "kraft-backref-repair"
+    budget_int = max(0, int(budget))
+    before = idat.analyze_idat_stream(data)
+    if not before.supported or before.complete:
+        return IdatKraftBackrefRepairResult(before, None, (), 0, False, strategy=strategy, reason=before.reason)
+    try:
+        chunks, root_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatKraftBackrefRepairResult(before, None, (), 0, False, strategy=strategy, reason=str(exc))
+    source_hash = _stream_state_key(root_stream)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    progress_state = kraft_backref_progress_state(data, progress_path)
+    progress_reason = str(progress_state.reason or "")
+    if (
+        progress_state.available
+        and progress_state.source_matches
+        and progress_state.exhausted
+        and progress_state.budget >= budget_int
+        and "no Kraft seed candidates" not in progress_reason
+    ):
+        _before, _chunks, _stream, _source_hash, _count, top = _load_frontier_candidates_for_progress(
+            data,
+            checkpoint_path,
+            top_candidates=top_candidates,
+            max_operation_depth=None,
+        )
+        best = _frontier_best_candidate(before, top)
+        best_prefix = 0
+        if top:
+            best_prefix = _png_valid_prefix_rows(
+                idat_partial_raw_prefix(top[0].stream, max_output=max(8192, int(before.scanline_size or 0) * 64)).raw,
+                before,
+            )
+        return IdatKraftBackrefRepairResult(
+            before,
+            best,
+            top,
+            progress_state.tested,
+            True,
+            checkpoint_path=checkpoint_path,
+            progress_path=progress_path,
+            seed_checkpoint_path=seed_checkpoint_path,
+            best_prefix_rows=best_prefix,
+            strategy=strategy,
+            reason="kraft backref already exhausted for this source/budget",
+            source_hash=source_hash,
+        )
+
+    seeds: list[IdatDeepBeamCandidate] = [
+        seed for seed in seed_candidates if getattr(seed, "stream", b"")
+    ]
+    if seed_checkpoint_path:
+        try:
+            _before, _chunks, _stream, _source_hash, _count, checkpoint_seeds = _load_frontier_candidates_for_progress(
+                data,
+                seed_checkpoint_path,
+                top_candidates=max(1, int(top_candidates)),
+                max_operation_depth=None,
+            )
+            seeds.extend(checkpoint_seeds)
+        except Exception:
+            pass
+    seeds = list(_deep_beam_ranked_unique(seeds, limit=max(1, int(top_candidates))))
+    if not seeds:
+        _write_frontier_progress(
+            progress_path,
+            source_hash=source_hash,
+            tested=0,
+            budget=budget_int,
+            best=None,
+            top_count=0,
+            exhausted=False,
+            reason="no Kraft seed candidates available",
+            strategy=strategy,
+        )
+        return IdatKraftBackrefRepairResult(
+            before,
+            None,
+            (),
+            0,
+            False,
+            checkpoint_path=checkpoint_path,
+            progress_path=progress_path,
+            seed_checkpoint_path=seed_checkpoint_path,
+            strategy=strategy,
+            reason="no Kraft seed candidates available",
+            source_hash=source_hash,
+        )
+
+    if progress is not None:
+        progress(strategy, 0, budget_int)
+
+    top: list[IdatDeepBeamCandidate] = []
+    visited: set[str] = {_stream_state_key(root_stream)}
+    tested = 0
+    repaired_backrefs = 0
+    png_prefix_hits = 0
+    next_state_id = 1
+    last_checkpoint_at = 0
+    checkpointed_hashes: set[str] = set()
+
+    for seed in seeds:
+        if tested >= budget_int:
+            break
+        invalid = _locate_first_invalid_distance_backref(seed.stream)
+        if invalid is None:
+            continue
+        operations = _kraft_backref_distance_operations(
+            seed.stream,
+            invalid,
+            max_operations=max(0, budget_int - tested),
+        )
+        if not operations:
+            continue
+        repaired_backrefs += 1
+        for operation in operations:
+            if tested >= budget_int:
+                break
+            candidate = _kraft_backref_candidate_from_operation(
+                seed,
+                operation,
+                chunks=chunks,
+                before=before,
+                state_id=next_state_id,
+                original_idat_count=original_idat_count,
+            )
+            tested += 1
+            next_state_id += 1
+            if candidate is None:
+                continue
+            key = _stream_state_key(candidate.stream)
+            if key in visited:
+                continue
+            visited.add(key)
+            raw_prefix = idat_partial_raw_prefix(
+                candidate.stream,
+                max_output=max(8192, int(before.scanline_size or 0) * 64),
+            )
+            prefix_rows = _png_valid_prefix_rows(raw_prefix.raw, before)
+            if prefix_rows > 0:
+                png_prefix_hits += 1
+            top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
+            if progress is not None and (tested % 1000 == 0 or tested == budget_int):
+                progress(strategy, min(tested, budget_int), budget_int)
+            if checkpoint_path and top and tested - last_checkpoint_at >= KRAFT_BACKREF_CHECKPOINT_EVERY:
+                for item in top:
+                    item_key = _stream_state_key(item.stream)
+                    if item_key in checkpointed_hashes:
+                        continue
+                    _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
+                    checkpointed_hashes.add(item_key)
+                _write_frontier_progress(
+                    progress_path,
+                    source_hash=source_hash,
+                    tested=tested,
+                    budget=budget_int,
+                    best=_frontier_best_candidate(before, top),
+                    top_count=len(top),
+                    exhausted=False,
+                    reason="kraft backref checkpoint",
+                    strategy=strategy,
+                    extra={
+                        "repaired_backrefs": int(repaired_backrefs),
+                        "png_prefix_hits": int(png_prefix_hits),
+                    },
+                )
+                last_checkpoint_at = tested
+
+    top = list(_deep_beam_ranked_unique(top, limit=top_candidates))
+    best = _frontier_best_candidate(before, top)
+    best_prefix_rows = 0
+    if top:
+        best_prefix_rows = _png_valid_prefix_rows(
+            idat_partial_raw_prefix(top[0].stream, max_output=max(8192, int(before.scanline_size or 0) * 64)).raw,
+            before,
+        )
+    if checkpoint_path:
+        for item in top:
+            key = _stream_state_key(item.stream)
+            if key in checkpointed_hashes:
+                continue
+            _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
+            checkpointed_hashes.add(key)
+    reason = "seeds=%s; repaired_backrefs=%s; png_prefix_hits=%s; best_prefix_rows=%s; top=%s" % (
+        len(seeds),
+        repaired_backrefs,
+        png_prefix_hits,
+        best_prefix_rows,
+        len(top),
+    )
+    _write_frontier_progress(
+        progress_path,
+        source_hash=source_hash,
+        tested=tested,
+        budget=budget_int,
+        best=best,
+        top_count=len(top),
+        exhausted=True,
+        reason=reason,
+        strategy=strategy,
+        extra={
+            "seed_checkpoint_path": seed_checkpoint_path,
+            "repaired_backrefs": int(repaired_backrefs),
+            "png_prefix_hits": int(png_prefix_hits),
+            "best_prefix_rows": int(best_prefix_rows),
+        },
+    )
+    if progress is not None:
+        progress(strategy, min(tested, budget_int), budget_int)
+    return IdatKraftBackrefRepairResult(
+        before,
+        best,
+        tuple(top),
+        tested,
+        tested >= budget_int,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        seed_checkpoint_path=seed_checkpoint_path,
+        repaired_backrefs=repaired_backrefs,
+        png_prefix_hits=png_prefix_hits,
+        best_prefix_rows=best_prefix_rows,
         strategy=strategy,
         reason=reason,
         source_hash=source_hash,
@@ -15504,6 +15966,43 @@ def huffman_kraft_summary_line(result: IdatHuffmanKraftSolverResult) -> str:
 
 def huffman_kraft_candidate_summary_lines(
     result: IdatHuffmanKraftSolverResult,
+    *,
+    limit: int = 5,
+) -> tuple[str, ...]:
+    return tuple(
+        deep_beam_candidate_summary_line(candidate)
+        for candidate in result.top_candidates[: max(1, int(limit))]
+    )
+
+
+def kraft_backref_repair_summary_line(result: IdatKraftBackrefRepairResult) -> str:
+    line = (
+        "-IDAT kraft-backref: tested=%s; budget_exhausted=%s; repaired_backrefs=%s; "
+        "png_prefix_hits=%s; best_prefix_rows=%s; top=%s"
+        % (
+            result.tested_candidates,
+            "yes" if result.budget_exhausted else "no",
+            result.repaired_backrefs,
+            result.png_prefix_hits,
+            result.best_prefix_rows,
+            len(result.top_candidates),
+        )
+    )
+    if result.best is not None:
+        line += "; best_score=%s" % (result.best.score,)
+    if result.seed_checkpoint_path:
+        line += "; seed_checkpoint=%s" % result.seed_checkpoint_path
+    if result.checkpoint_path:
+        line += "; checkpoint=%s" % result.checkpoint_path
+    if result.progress_path:
+        line += "; progress=%s" % result.progress_path
+    if result.reason:
+        line += "; reason=%s" % result.reason
+    return line + "."
+
+
+def kraft_backref_repair_candidate_summary_lines(
+    result: IdatKraftBackrefRepairResult,
     *,
     limit: int = 5,
 ) -> tuple[str, ...]:

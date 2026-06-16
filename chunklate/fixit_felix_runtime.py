@@ -161,6 +161,7 @@ class WrongCrcRuntime:
     huffman_kraft_budget: Any = None
     huffman_kraft_workers: Any = None
     huffman_kraft_gpu_config: Any = None
+    kraft_backref_budget: Any = None
     global_crc_residue_budget: Any = None
     affine_corruption_budget: Any = None
     deflate_salvage_budget: Any = None
@@ -203,6 +204,7 @@ class WrongChunkNameRuntime:
     huffman_kraft_budget: Any = None
     huffman_kraft_workers: Any = None
     huffman_kraft_gpu_config: Any = None
+    kraft_backref_budget: Any = None
     global_crc_residue_budget: Any = None
     affine_corruption_budget: Any = None
     deflate_salvage_budget: Any = None
@@ -262,6 +264,7 @@ class NoNextChunkRuntime:
     huffman_kraft_budget: Any = None
     huffman_kraft_workers: Any = None
     huffman_kraft_gpu_config: Any = None
+    kraft_backref_budget: Any = None
     global_crc_residue_budget: Any = None
     affine_corruption_budget: Any = None
     deflate_salvage_budget: Any = None
@@ -352,6 +355,7 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
         huffman_kraft_workers=_namespace_idat_huffman_kraft_workers(namespace),
         huffman_kraft_gpu_config=namespace.get("GPU_CONFIG"),
+        kraft_backref_budget=namespace.get("IDAT_KRAFT_BACKREF_BUDGET"),
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
         deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
@@ -435,6 +439,7 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
         huffman_kraft_workers=_namespace_idat_huffman_kraft_workers(namespace),
         huffman_kraft_gpu_config=namespace.get("GPU_CONFIG"),
+        kraft_backref_budget=namespace.get("IDAT_KRAFT_BACKREF_BUDGET"),
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
         deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
@@ -495,6 +500,7 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
         huffman_kraft_workers=_namespace_idat_huffman_kraft_workers(namespace),
         huffman_kraft_gpu_config=namespace.get("GPU_CONFIG"),
+        kraft_backref_budget=namespace.get("IDAT_KRAFT_BACKREF_BUDGET"),
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
         deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
@@ -3133,6 +3139,10 @@ def _idat_huffman_kraft_paths(runtime: Any) -> tuple[str, str]:
     return _idat_frontier_paths(runtime, "huffman_kraft")
 
 
+def _idat_kraft_backref_paths(runtime: Any) -> tuple[str, str]:
+    return _idat_frontier_paths(runtime, "kraft_backref")
+
+
 def _idat_global_crc_residue_paths(runtime: Any) -> tuple[str, str]:
     return _idat_frontier_paths(runtime, "global_crc_residue")
 
@@ -3233,6 +3243,13 @@ def _runtime_huffman_kraft_budget(runtime: Any) -> int:
     return _deep_beam_positive_int(
         getattr(runtime, "huffman_kraft_budget", None),
         idat_bruteforce.HUFFMAN_KRAFT_DEFAULT_BUDGET,
+    )
+
+
+def _runtime_kraft_backref_budget(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "kraft_backref_budget", None),
+        idat_bruteforce.KRAFT_BACKREF_DEFAULT_BUDGET,
     )
 
 
@@ -3663,6 +3680,81 @@ def _write_huffman_kraft_best_clone(
             idat_deflate_header_note(analysis),
             idat_bruteforce.huffman_kraft_summary_line(result),
             *idat_bruteforce.huffman_kraft_candidate_summary_lines(result),
+            idat_stream_diagnosis_note(candidate.after),
+        )
+    )
+    return True, runtime.write_clone(candidate.data, summary)
+
+
+def _run_idat_kraft_backref_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+) -> idat_bruteforce.IdatKraftBackrefRepairResult | None:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None
+    checkpoint_path, progress_path = _idat_kraft_backref_paths(runtime)
+    kraft_checkpoint_path, _kraft_progress_path = _idat_huffman_kraft_paths(runtime)
+    budget = _runtime_kraft_backref_budget(runtime)
+    progress_state = idat_bruteforce.kraft_backref_progress_state(data, progress_path)
+    if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= budget:
+        runtime.side_notes.append(
+            "-IDAT kraft-backref already consumed for this source/budget: tested=%s; budget=%s; reason=%s."
+            % (progress_state.tested, progress_state.budget, progress_state.reason)
+        )
+        return None
+    runtime.candy(
+        "Cowsay",
+        "I am repairing impossible Kraft backref distances before the oracle and wide beam.",
+        "com",
+    )
+    runtime.candy("Title", "probe_idat_kraft_backref_repair")
+    result = idat_bruteforce.probe_idat_kraft_backref_repair(
+        data,
+        budget=budget,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        seed_candidates=seed_candidates,
+        seed_checkpoint_path=kraft_checkpoint_path,
+        progress=_runtime_idat_queue_progress(runtime),
+    )
+    runtime.side_notes.append(idat_bruteforce.kraft_backref_repair_summary_line(result))
+    runtime.side_notes.extend(idat_bruteforce.kraft_backref_repair_candidate_summary_lines(result))
+    if result.top_candidates:
+        _write_idat_deep_beam_debug_artifacts(runtime, result, label="idat_kraft_backref", include_dynamic_trace=True)
+    if result.best is None:
+        if result.top_candidates:
+            runtime.candy(
+                "Cowsay",
+                "The Kraft backref route kept stronger PNG-prefix seeds, but no final clone yet.",
+                "com",
+            )
+        else:
+            runtime.candy(
+                "Cowsay",
+                "The Kraft backref route found no useful distance repair yet.",
+                "bad",
+            )
+    return result
+
+
+def _write_kraft_backref_best_clone(
+    runtime: Any,
+    analysis: idat.IdatStreamAnalysis,
+    result: idat_bruteforce.IdatKraftBackrefRepairResult,
+) -> tuple[bool, Any]:
+    candidate = result.best
+    if candidate is None:
+        raise ValueError("kraft backref result has no best candidate")
+    runtime.candy("Cowsay", "The Kraft backref route found real image progress.", "good")
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: Kraft backref distance repair.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.kraft_backref_repair_summary_line(result),
+            *idat_bruteforce.kraft_backref_repair_candidate_summary_lines(result),
             idat_stream_diagnosis_note(candidate.after),
         )
     )
@@ -4162,6 +4254,18 @@ def _run_idat_frontier_routes_runtime(
         if kraft_result.best is not None:
             return _write_huffman_kraft_best_clone(runtime, analysis, kraft_result), ()
         seed_groups.append(kraft_result.top_candidates)
+
+    kraft_backref_seed_candidates = kraft_result.top_candidates if kraft_result is not None else ()
+    kraft_backref_result = _run_idat_kraft_backref_runtime(
+        runtime,
+        data,
+        analysis,
+        seed_candidates=kraft_backref_seed_candidates,
+    )
+    if kraft_backref_result is not None:
+        if kraft_backref_result.best is not None:
+            return _write_kraft_backref_best_clone(runtime, analysis, kraft_backref_result), ()
+        seed_groups.append(kraft_backref_result.top_candidates)
 
     huffman_result = _run_idat_huffman_oracle_runtime(runtime, data, analysis)
     if huffman_result is not None:

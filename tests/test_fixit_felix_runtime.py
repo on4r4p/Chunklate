@@ -2117,6 +2117,7 @@ def wrong_crc_runtime(
     huffman_kraft_budget=None,
     huffman_kraft_workers=None,
     huffman_kraft_gpu_config=None,
+    kraft_backref_budget=None,
     global_crc_residue_budget=None,
     affine_corruption_budget=None,
     deflate_salvage_budget=None,
@@ -2195,6 +2196,7 @@ def wrong_crc_runtime(
         huffman_kraft_budget=huffman_kraft_budget,
         huffman_kraft_workers=huffman_kraft_workers,
         huffman_kraft_gpu_config=huffman_kraft_gpu_config,
+        kraft_backref_budget=kraft_backref_budget,
         global_crc_residue_budget=global_crc_residue_budget,
         affine_corruption_budget=affine_corruption_budget,
         deflate_salvage_budget=deflate_salvage_budget,
@@ -2205,6 +2207,7 @@ def mock_frontier_routes_empty(monkeypatch):
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_periodic_model_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_affine_corruption_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_huffman_kraft_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_kraft_backref_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_huffman_oracle_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_global_crc_residue_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_crc_periodic_runtime", lambda *_args, **_kwargs: None)
@@ -3085,11 +3088,13 @@ def test_runtime_idat_queue_progress_pads_counter_to_budget_width():
 
     progress("deep-beam", 208670, 50000000)
     progress("huffman-kraft", 548314, 1000000)
+    progress("kraft-backref", 123, 250000)
     progress("phase2-lf-insert", 298, 298)
 
     assert calls == [
         "IDAT deep-beam 00208670/50000000",
         "IDAT huffman-kraft 0548314/1000000",
+        "IDAT kraft-backref 000123/250000",
         "IDAT phase2-lf-insert 298/298",
     ]
 
@@ -3436,6 +3441,51 @@ def test_hermesprobe_huffman_kraft_uses_configured_workers(tmp_path, monkeypatch
     assert kraft_call[1]["gpu_config"] == gpu_config
     assert result.workers == 6
     assert any("workers=6" in note and "gpu=opengl-active" in note for note in side_notes)
+
+
+def test_hermesprobe_kraft_backref_uses_kraft_checkpoint_seed(tmp_path, monkeypatch):
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+
+    def backref_probe(probe_data, **kwargs):
+        calls.append(("backref_probe_kwargs", kwargs, {}))
+        before = fixit_felix_runtime.idat.analyze_idat_stream(probe_data)
+        return fixit_felix_runtime.idat_bruteforce.IdatKraftBackrefRepairResult(
+            before,
+            None,
+            (),
+            3,
+            False,
+            checkpoint_path=kwargs["checkpoint_path"],
+            progress_path=kwargs["progress_path"],
+            seed_checkpoint_path=kwargs["seed_checkpoint_path"],
+            repaired_backrefs=1,
+            png_prefix_hits=0,
+            reason="mocked",
+        )
+
+    monkeypatch.setattr(fixit_felix_runtime, "_block_deep_beam_if_chunk_names_are_stale", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_kraft_backref_repair", backref_probe)
+    runtime = wrong_crc_runtime(
+        calls,
+        side_notes=side_notes,
+        data_hex=data_hex,
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        kraft_backref_budget="77",
+    )
+    data = bytes.fromhex(data_hex)
+    analysis = idat.analyze_idat_stream(data)
+
+    result = fixit_felix_runtime._run_idat_kraft_backref_runtime(runtime, data, analysis)
+
+    assert result is not None
+    backref_call = next(call for call in calls if call[0] == "backref_probe_kwargs")
+    kraft_checkpoint_path, _kraft_progress_path = fixit_felix_runtime._idat_huffman_kraft_paths(runtime)
+    assert backref_call[1]["budget"] == 77
+    assert backref_call[1]["seed_checkpoint_path"] == kraft_checkpoint_path
+    assert any(note.startswith("-IDAT kraft-backref: tested=3;") for note in side_notes)
 
 
 def test_hermesprobe_writes_deep_beam_candidate_after_short_probes_stall(monkeypatch):
@@ -6231,6 +6281,7 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
         "IDAT_DEEP_BEAM_BUDGET": "123456",
         "IDAT_HUFFMAN_KRAFT_BUDGET": "1000001",
         "IDAT_HUFFMAN_KRAFT_WORKERS": "7",
+        "IDAT_KRAFT_BACKREF_BUDGET": "250003",
         "IDAT_GLOBAL_CRC_RESIDUE_BUDGET": "750001",
         "IDAT_AFFINE_CORRUPTION_BUDGET": "250001",
         "IDAT_DEFLATE_SALVAGE_BUDGET": "250002",
@@ -6248,6 +6299,7 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
     assert wrong_name.huffman_kraft_budget == "1000001"
     assert wrong_name.huffman_kraft_workers == "7"
     assert wrong_name.huffman_kraft_gpu_config == gpu_config
+    assert wrong_name.kraft_backref_budget == "250003"
     assert wrong_name.global_crc_residue_budget == "750001"
     assert wrong_name.affine_corruption_budget == "250001"
     assert wrong_name.deflate_salvage_budget == "250002"
@@ -6259,6 +6311,7 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
     assert no_next.huffman_kraft_budget == "1000001"
     assert no_next.huffman_kraft_workers == "7"
     assert no_next.huffman_kraft_gpu_config == gpu_config
+    assert no_next.kraft_backref_budget == "250003"
     assert no_next.global_crc_residue_budget == "750001"
     assert no_next.affine_corruption_budget == "250001"
     assert no_next.deflate_salvage_budget == "250002"

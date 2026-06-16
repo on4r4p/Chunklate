@@ -4479,6 +4479,91 @@ def test_idat_huffman_kraft_gpu_prefilter_reports_active(monkeypatch):
     assert result.gpu_hits >= 1
 
 
+def test_idat_kraft_backref_repair_uses_kraft_seed_and_writes_progress(tmp_path, monkeypatch):
+    corrupt, _bits, _original = dynamic_header_semantic_token_corrupt_png()
+    before = idat.analyze_idat_stream(corrupt)
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    root = idat_bruteforce._frontier_root_candidate(
+        data=corrupt,
+        stream=stream,
+        before=before,
+        original_idat_count=1,
+    )
+    repaired_raw = dynamic_filtered_rows(4)
+    repaired_data = build_rgb_png(1, 4, repaired_raw)
+    _repaired_chunks, repaired_stream = idat_bruteforce._all_chunks_and_idat_stream(repaired_data)
+    repaired_after = idat.analyze_idat_stream(repaired_data)
+    operation = idat_bruteforce.IdatDeepBeamOperation(
+        "kraft-backref-distance",
+        7,
+        b"\x00",
+        b"\x01",
+        (56, 57),
+    )
+    repaired_candidate = idat_bruteforce.IdatDeepBeamCandidate(
+        data=repaired_data,
+        stream=repaired_stream,
+        operations=(operation,),
+        before=before,
+        after=repaired_after,
+        state_id=1,
+        parent_id=root.state_id,
+        score=(repaired_after.usable_scanlines, 1),
+    )
+    invalid = idat_bruteforce._InvalidDistanceBackref(
+        token_index=3,
+        bit_start=56,
+        bit_end=58,
+        output_before=4,
+        length=3,
+        distance_symbol=4,
+        distance=9,
+        distance_table={},
+    )
+
+    monkeypatch.setattr(idat_bruteforce, "_locate_first_invalid_distance_backref", lambda *_args, **_kwargs: invalid)
+    monkeypatch.setattr(idat_bruteforce, "_kraft_backref_distance_operations", lambda *_args, **_kwargs: (operation,))
+    monkeypatch.setattr(idat_bruteforce, "_kraft_backref_candidate_from_operation", lambda *_args, **_kwargs: repaired_candidate)
+
+    checkpoint = tmp_path / "kraft_backref.checkpoint.jsonl"
+    progress = tmp_path / "kraft_backref.progress.json"
+    result = idat_bruteforce.probe_idat_kraft_backref_repair(
+        corrupt,
+        budget=10,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+        seed_candidates=(root,),
+    )
+
+    assert result.best == repaired_candidate
+    assert result.top_candidates == (repaired_candidate,)
+    assert result.tested_candidates == 1
+    assert result.repaired_backrefs == 1
+    assert checkpoint.exists()
+    progress_payload = json.loads(progress.read_text(encoding="utf-8"))
+    assert progress_payload["strategy"] == "kraft-backref-repair"
+    assert progress_payload["tested_candidates"] == 1
+    assert progress_payload["source_hash"] == idat_bruteforce._stream_state_key(stream)
+
+
+def test_idat_kraft_backref_without_seeds_does_not_mark_exhausted(tmp_path):
+    corrupt, _bits, _original = dynamic_header_semantic_token_corrupt_png()
+    progress = tmp_path / "kraft_backref.progress.json"
+
+    result = idat_bruteforce.probe_idat_kraft_backref_repair(
+        corrupt,
+        budget=10,
+        progress_path=str(progress),
+    )
+
+    assert result.best is None
+    assert result.tested_candidates == 0
+    payload = json.loads(progress.read_text(encoding="utf-8"))
+    assert payload["strategy"] == "kraft-backref-repair"
+    assert payload["exhausted"] is False
+    assert payload["reason"] == "no Kraft seed candidates available"
+
+
 def test_idat_affine_corruption_refuses_hash_mismatch(tmp_path):
     candidate, _stream_offset, _original = dynamic_header_corrupt_png()
     model = tmp_path / "model.json"
