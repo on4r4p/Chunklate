@@ -2510,13 +2510,14 @@ def test_hermesprobe_writes_dynamic_huffman_crc_guided_candidate():
     assert any(note.startswith("-IDAT deflate candidate:") and "CRC-guided" in note for note in side_notes)
 
 
-def test_hermesprobe_logs_dynamic_huffman_semantic_diagnostic_without_clone():
+def test_hermesprobe_logs_dynamic_huffman_semantic_diagnostic_without_clone(monkeypatch):
     calls = []
     side_notes = []
     data_hex = semantic_token_corrupt_deflate_png_hex()
     original_probe = fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates
     original_lf = fixit_felix_runtime._probe_idat_lf_route_for_diagnostics
     original_deep = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam
+    mock_frontier_routes_empty(monkeypatch)
 
     def no_candidate_probe(data, **_kwargs):
         before = fixit_felix_runtime.idat.analyze_idat_stream(data)
@@ -3016,6 +3017,7 @@ def test_hermesprobe_resume_mismatch_runs_short_probes(tmp_path, monkeypatch):
     side_notes = []
     data_hex = semantic_token_corrupt_deflate_png_hex()
     data = bytes.fromhex(data_hex)
+    mock_frontier_routes_empty(monkeypatch)
     runtime = wrong_crc_runtime(
         calls,
         answers=(),
