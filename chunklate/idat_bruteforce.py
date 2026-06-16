@@ -167,6 +167,48 @@ class PngRawPrefixScore:
 
 
 @dataclass(frozen=True)
+class RawPngOracleDecision:
+    raw_prefix: IdatRawPrefix
+    raw_score: PngRawPrefixScore
+    rejected: bool
+    reject_reason: str = ""
+
+    @property
+    def first_filter(self) -> int | None:
+        return self.raw_score.first_filter
+
+    @property
+    def first_filter_ok(self) -> bool:
+        return self.raw_score.first_filter_ok
+
+    @property
+    def valid_filter_rows(self) -> int:
+        return self.raw_score.valid_filter_rows
+
+    @property
+    def raw_len(self) -> int:
+        return self.raw_score.raw_size
+
+    @property
+    def zlib_error(self) -> str:
+        return self.raw_prefix.zlib_error
+
+    @property
+    def png_plausible(self) -> bool:
+        return bool(self.raw_score.first_filter_ok and not self.rejected)
+
+    @property
+    def rank(self) -> tuple[int, int, int, int, int]:
+        return (
+            0 if self.rejected else 1,
+            self.raw_score.first_filter_rank,
+            int(self.raw_score.valid_filter_rows),
+            int(self.raw_score.alpha_rank),
+            int(self.raw_score.raw_size),
+        )
+
+
+@dataclass(frozen=True)
 class IdatDeepBeamOperation:
     kind: str
     stream_offset: int
@@ -256,6 +298,7 @@ class IdatPeriodicProgressState:
     source_matches: bool
     exhausted: bool = False
     tested: int = 0
+    budget: int = 0
     reason: str = ""
 
 
@@ -276,6 +319,142 @@ class IdatPeriodicCorruptionModelResult:
     @property
     def improved(self) -> bool:
         return self.best is not None
+
+
+@dataclass(frozen=True)
+class IdatFrontierProgressState:
+    available: bool
+    source_matches: bool
+    exhausted: bool = False
+    tested: int = 0
+    budget: int = 0
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class IdatHuffmanOracleSolverResult:
+    before: idat.IdatStreamAnalysis
+    best: IdatDeepBeamCandidate | None
+    top_candidates: tuple[IdatDeepBeamCandidate, ...]
+    tested_candidates: int
+    budget_exhausted: bool
+    checkpoint_path: str = ""
+    progress_path: str = ""
+    valid_headers: int = 0
+    png_plausible: int = 0
+    reached_depth: int = 0
+    strategy: str = "dynamic-huffman-png-oracle"
+    reason: str = ""
+    source_hash: str = ""
+
+    @property
+    def improved(self) -> bool:
+        return self.best is not None
+
+
+@dataclass(frozen=True)
+class IdatCrcPeriodicPayloadSolverResult:
+    before: idat.IdatStreamAnalysis
+    best: IdatDeepBeamCandidate | None
+    top_candidates: tuple[IdatDeepBeamCandidate, ...]
+    tested_candidates: int
+    budget_exhausted: bool
+    checkpoint_path: str = ""
+    progress_path: str = ""
+    model_path: str = ""
+    crc_hits: int = 0
+    png_plausible: int = 0
+    strategy: str = "crc-periodic-payload"
+    reason: str = ""
+    source_hash: str = ""
+
+    @property
+    def improved(self) -> bool:
+        return self.best is not None
+
+
+@dataclass(frozen=True)
+class IdatHuffmanKraftSolverResult:
+    before: idat.IdatStreamAnalysis
+    best: IdatDeepBeamCandidate | None
+    top_candidates: tuple[IdatDeepBeamCandidate, ...]
+    tested_candidates: int
+    budget_exhausted: bool
+    checkpoint_path: str = ""
+    progress_path: str = ""
+    valid_headers: int = 0
+    complete_trees: int = 0
+    first_symbol_ok: int = 0
+    best_literal_debt: int = 0
+    best_distance_debt: int = 0
+    reached_depth: int = 0
+    strategy: str = "huffman-kraft"
+    reason: str = ""
+    source_hash: str = ""
+
+    @property
+    def improved(self) -> bool:
+        return self.best is not None
+
+
+@dataclass(frozen=True)
+class IdatGlobalCrcResidueSolverResult:
+    before: idat.IdatStreamAnalysis
+    best: IdatDeepBeamCandidate | None
+    top_candidates: tuple[IdatDeepBeamCandidate, ...]
+    tested_candidates: int
+    budget_exhausted: bool
+    checkpoint_path: str = ""
+    progress_path: str = ""
+    model_path: str = ""
+    rules: int = 0
+    explained_chunks: int = 0
+    crc_hits: int = 0
+    png_plausible: int = 0
+    strategy: str = "global-crc-residue"
+    reason: str = ""
+    source_hash: str = ""
+
+    @property
+    def improved(self) -> bool:
+        return self.best is not None
+
+
+@dataclass(frozen=True)
+class IdatAffineCorruptionModelResult:
+    before: idat.IdatStreamAnalysis
+    best: IdatDeepBeamCandidate | None
+    top_candidates: tuple[IdatDeepBeamCandidate, ...]
+    tested_candidates: int
+    budget_exhausted: bool
+    checkpoint_path: str = ""
+    progress_path: str = ""
+    model_path: str = ""
+    rules: int = 0
+    projected_hits: int = 0
+    png_plausible: int = 0
+    strategy: str = "affine-corruption-model"
+    reason: str = ""
+    source_hash: str = ""
+
+    @property
+    def improved(self) -> bool:
+        return self.best is not None
+
+
+@dataclass(frozen=True)
+class DeflateResyncSalvageResult:
+    before: idat.IdatStreamAnalysis
+    anchors: tuple[int, ...]
+    partial_rows: int = 0
+    known_pixels: int = 0
+    preview_path: str = ""
+    tested_candidates: int = 0
+    budget_exhausted: bool = False
+    progress_path: str = ""
+    strategy: str = "deflate-resync-salvage"
+    reason: str = ""
+    source_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -7701,6 +7880,28 @@ PERIODIC_MODEL_DEFAULT_BUDGET = 250_000
 PERIODIC_MODEL_DEFAULT_MAX_DEPTH = 3
 PERIODIC_MODEL_DEFAULT_TOP_CANDIDATES = 25
 PERIODIC_MODEL_CHECKPOINT_EVERY = 25_000
+AFFINE_CORRUPTION_DEFAULT_BUDGET = 250_000
+AFFINE_CORRUPTION_DEFAULT_TOP_CANDIDATES = 25
+AFFINE_CORRUPTION_CHECKPOINT_EVERY = 25_000
+HUFFMAN_KRAFT_DEFAULT_BUDGET = 1_000_000
+HUFFMAN_KRAFT_DEFAULT_MAX_DEPTH = 4
+HUFFMAN_KRAFT_DEFAULT_WIDTH = 128
+HUFFMAN_KRAFT_DEFAULT_TOP_CANDIDATES = 25
+HUFFMAN_KRAFT_CHECKPOINT_EVERY = 25_000
+HUFFMAN_ORACLE_DEFAULT_BUDGET = 750_000
+HUFFMAN_ORACLE_DEFAULT_MAX_DEPTH = 3
+HUFFMAN_ORACLE_DEFAULT_WIDTH = 96
+HUFFMAN_ORACLE_DEFAULT_TOP_CANDIDATES = 25
+HUFFMAN_ORACLE_CHECKPOINT_EVERY = 25_000
+GLOBAL_CRC_RESIDUE_DEFAULT_BUDGET = 750_000
+GLOBAL_CRC_RESIDUE_DEFAULT_MAX_RULES = 4
+GLOBAL_CRC_RESIDUE_DEFAULT_TOP_CANDIDATES = 25
+GLOBAL_CRC_RESIDUE_CHECKPOINT_EVERY = 25_000
+CRC_PERIODIC_DEFAULT_BUDGET = 500_000
+CRC_PERIODIC_DEFAULT_MAX_EDITS = 4
+CRC_PERIODIC_DEFAULT_TOP_CANDIDATES = 25
+CRC_PERIODIC_CHECKPOINT_EVERY = 25_000
+DEFLATE_SALVAGE_DEFAULT_BUDGET = 250_000
 DEEP_BEAM_COMMON_BYTES = (0x00, 0x0A, 0x0D, 0xFF)
 DEEP_BEAM_FOCUS_OFFSETS = (0x02, 0x56, 0x5E, 0x5F, 0x60, 0x61, 0x62, 0x63, 0x6E)
 DEEP_BEAM_FOCUS_BIT_RANGES = (
@@ -7772,6 +7973,30 @@ def score_png_raw_prefix(raw: bytes, analysis: idat.IdatStreamAnalysis) -> PngRa
         valid_filter_rows=valid_rows,
         alpha_checked=alpha_checked,
         alpha_plausible=alpha_plausible,
+    )
+
+
+def raw_png_oracle_decision(
+    stream: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    min_rows: int = 0,
+    max_output: int = 8192,
+) -> RawPngOracleDecision:
+    raw_prefix = idat_partial_raw_prefix(stream, max_output=max_output)
+    raw_score = score_png_raw_prefix(raw_prefix.raw, analysis)
+    reject_reason = ""
+    if not raw_prefix.raw:
+        reject_reason = "no raw prefix"
+    elif not raw_score.first_filter_ok:
+        reject_reason = "first raw byte is not a PNG filter"
+    elif int(min_rows) > 0 and raw_score.valid_filter_rows < int(min_rows):
+        reject_reason = "not enough valid PNG filter rows"
+    return RawPngOracleDecision(
+        raw_prefix=raw_prefix,
+        raw_score=raw_score,
+        rejected=bool(reject_reason),
+        reject_reason=reject_reason,
     )
 
 
@@ -8615,8 +8840,59 @@ def periodic_model_progress_state(data: bytes, progress_path: str = "") -> IdatP
         matches,
         exhausted=bool(payload.get("exhausted", False)),
         tested=int(payload.get("tested_candidates", 0) or 0),
+        budget=int(payload.get("budget", 0) or 0),
         reason="periodic model progress %s source hash" % ("matches" if matches else "does not match"),
     )
+
+
+def _frontier_progress_state(data: bytes, progress_path: str = "", *, label: str = "frontier") -> IdatFrontierProgressState:
+    if not progress_path or not os.path.exists(progress_path):
+        return IdatFrontierProgressState(False, False, reason="no %s progress" % label)
+    try:
+        _chunks, stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatFrontierProgressState(True, False, reason="source PNG is not parseable: %s" % exc)
+    source_hash = _stream_state_key(stream)
+    try:
+        with open(progress_path, "r", encoding="utf-8") as file:
+            payload = json.load(file)
+    except (OSError, json.JSONDecodeError) as exc:
+        return IdatFrontierProgressState(True, False, reason="%s progress is unreadable: %s" % (label, exc))
+    if not isinstance(payload, dict):
+        return IdatFrontierProgressState(True, False, reason="%s progress is not a JSON object" % label)
+    matches = str(payload.get("source_hash") or "") == source_hash
+    return IdatFrontierProgressState(
+        True,
+        matches,
+        exhausted=bool(payload.get("exhausted", False)),
+        tested=int(payload.get("tested_candidates", 0) or 0),
+        budget=int(payload.get("budget", 0) or 0),
+        reason="%s progress %s source hash" % (label, "matches" if matches else "does not match"),
+    )
+
+
+def huffman_oracle_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
+    return _frontier_progress_state(data, progress_path, label="huffman oracle")
+
+
+def crc_periodic_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
+    return _frontier_progress_state(data, progress_path, label="crc-periodic")
+
+
+def huffman_kraft_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
+    return _frontier_progress_state(data, progress_path, label="huffman kraft")
+
+
+def global_crc_residue_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
+    return _frontier_progress_state(data, progress_path, label="global-crc-residue")
+
+
+def affine_corruption_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
+    return _frontier_progress_state(data, progress_path, label="affine-corruption")
+
+
+def deflate_salvage_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
+    return _frontier_progress_state(data, progress_path, label="deflate-salvage")
 
 
 def _write_periodic_model_progress(
@@ -8657,7 +8933,64 @@ def _write_periodic_model_progress(
         return
 
 
+def _write_frontier_progress(
+    progress_path: str,
+    *,
+    source_hash: str,
+    tested: int,
+    budget: int,
+    best: IdatDeepBeamCandidate | None,
+    top_count: int,
+    exhausted: bool,
+    reason: str,
+    strategy: str,
+    extra: dict[str, object] | None = None,
+) -> None:
+    if not progress_path:
+        return
+    try:
+        directory = os.path.dirname(progress_path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        payload = {
+            "version": 1,
+            "source_hash": source_hash,
+            "strategy": strategy,
+            "tested_candidates": int(tested),
+            "budget": int(budget),
+            "exhausted": bool(exhausted),
+            "best_score": list(best.score) if best is not None else None,
+            "top_count": int(top_count),
+            "reason": reason,
+            "timestamp": time.time(),
+        }
+        if extra:
+            payload.update(extra)
+        tmp_path = _hidden_tmp_path(progress_path)
+        with open(tmp_path, "w", encoding="utf-8") as file:
+            json.dump(payload, file, sort_keys=True)
+        os.replace(tmp_path, progress_path)
+    except OSError:
+        return
+
+
 def _append_periodic_model_checkpoint(
+    checkpoint_path: str,
+    candidate: IdatDeepBeamCandidate,
+    *,
+    source_hash: str,
+    source_stream: bytes,
+) -> None:
+    _append_deep_beam_checkpoint(
+        checkpoint_path,
+        candidate,
+        source_hash=source_hash,
+        source_stream=source_stream,
+        depth=len(candidate.operations),
+    )
+
+
+def _append_frontier_checkpoint(
     checkpoint_path: str,
     candidate: IdatDeepBeamCandidate,
     *,
@@ -8797,6 +9130,1586 @@ def _periodic_candidate_from_operation(
             data=data,
             original_idat_count=original_idat_count,
         ),
+    )
+
+
+def _frontier_candidate_from_stream(
+    parent: IdatDeepBeamCandidate,
+    stream: bytes,
+    operation: IdatDeepBeamOperation,
+    *,
+    chunks: tuple[png.PngChunk, ...],
+    before: idat.IdatStreamAnalysis,
+    state_id: int,
+    original_idat_count: int,
+    source_kind: str,
+) -> IdatDeepBeamCandidate | None:
+    if not stream or stream == parent.stream:
+        return None
+    data = _rebuild_with_single_idat_stream(chunks, stream)
+    analysis = idat.analyze_idat_stream(
+        data,
+        source_kind=source_kind,
+        crc_provenance="rebuilt_by_chunklate",
+    )
+    operations = parent.operations + (operation,)
+    return IdatDeepBeamCandidate(
+        data=data,
+        stream=stream,
+        operations=operations,
+        before=before,
+        after=analysis,
+        state_id=state_id,
+        parent_id=parent.state_id,
+        source_offsets=parent.source_offsets + (operation.stream_offset,),
+        score=_deep_beam_score(
+            analysis,
+            stream,
+            len(operations),
+            data=data,
+            original_idat_count=original_idat_count,
+        ),
+    )
+
+
+def _frontier_root_candidate(
+    *,
+    data: bytes,
+    stream: bytes,
+    before: idat.IdatStreamAnalysis,
+    original_idat_count: int,
+) -> IdatDeepBeamCandidate:
+    return IdatDeepBeamCandidate(
+        data=data,
+        stream=stream,
+        operations=(),
+        before=before,
+        after=before,
+        state_id=0,
+        parent_id=None,
+        source_offsets=(),
+        score=_deep_beam_score(
+            before,
+            stream,
+            0,
+            data=data,
+            original_idat_count=original_idat_count,
+        ),
+    )
+
+
+def _huffman_oracle_rank(stream: bytes, analysis: idat.IdatStreamAnalysis) -> tuple[int, ...]:
+    oracle = raw_png_oracle_decision(stream, analysis)
+    header_rank, has_eob, literal_debt, distance_debt, length_count, bit_offset = _deep_beam_huffman_score(stream)
+    return (
+        int(oracle.raw_score.first_filter_rank),
+        int(oracle.raw_score.valid_filter_rows),
+        int(oracle.raw_score.alpha_rank),
+        int(analysis.usable_scanlines),
+        int(analysis.complete_scanlines),
+        int(header_rank),
+        int(has_eob),
+        -int(literal_debt),
+        -int(distance_debt),
+        int(length_count),
+        int(analysis.decompressed_size),
+        int(analysis.error_offset if analysis.error_offset is not None else -1),
+        int(bit_offset),
+    )
+
+
+def _huffman_oracle_accepts(parent: IdatDeepBeamCandidate, candidate: IdatDeepBeamCandidate) -> bool:
+    if candidate.after.complete or candidate.after.usable_scanlines > parent.after.usable_scanlines:
+        return True
+    return _huffman_oracle_rank(candidate.stream, candidate.after) > _huffman_oracle_rank(parent.stream, parent.after)
+
+
+def _candidate_png_plausible(candidate: IdatDeepBeamCandidate) -> bool:
+    return raw_png_oracle_decision(candidate.stream, candidate.after).png_plausible
+
+
+def _candidate_dynamic_header_valid(candidate: IdatDeepBeamCandidate) -> bool:
+    try:
+        header = deflate_header.analyze_deflate_header(candidate.stream)
+    except Exception:
+        return False
+    return bool(header.ok and header.btype == 2)
+
+
+def _frontier_best_candidate(
+    before: idat.IdatStreamAnalysis,
+    candidates: Iterable[IdatDeepBeamCandidate],
+) -> IdatDeepBeamCandidate | None:
+    best: IdatDeepBeamCandidate | None = None
+    for candidate in candidates:
+        if not is_material_improvement(before, candidate.after):
+            continue
+        if best is None or candidate.score > best.score:
+            best = candidate
+    return best
+
+
+def _load_frontier_candidates_for_progress(
+    data: bytes,
+    checkpoint_path: str,
+    *,
+    top_candidates: int,
+    max_operation_depth: int | None,
+) -> tuple[
+    idat.IdatStreamAnalysis,
+    tuple[png.PngChunk, ...],
+    bytes,
+    str,
+    int,
+    tuple[IdatDeepBeamCandidate, ...],
+]:
+    before = idat.analyze_idat_stream(data)
+    chunks, root_stream = _all_chunks_and_idat_stream(data)
+    source_hash = _stream_state_key(root_stream)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    checkpoint_candidates, _visited, _next_state_id, _records = _load_deep_beam_checkpoint(
+        checkpoint_path,
+        source_hash=source_hash,
+        source_stream=root_stream,
+        chunks=chunks,
+        before=before,
+        original_idat_count=original_idat_count,
+        candidate_limit=top_candidates,
+        max_operation_depth=max_operation_depth,
+    )
+    return (
+        before,
+        chunks,
+        root_stream,
+        source_hash,
+        original_idat_count,
+        _deep_beam_ranked_unique(checkpoint_candidates, limit=top_candidates),
+    )
+
+
+def _huffman_oracle_subprobes(
+    data: bytes,
+    *,
+    budget_left: int,
+) -> tuple[tuple[tuple[IdatDeflateCandidate | None, str], ...], int]:
+    if budget_left <= 0:
+        return (), 0
+    probes: list[tuple[IdatDeflateProbeResult, str]] = []
+    remaining = int(budget_left)
+    tested = 0
+
+    def run(label: str, call: Callable[[int], IdatDeflateProbeResult], cap: int) -> None:
+        nonlocal remaining, tested
+        if remaining <= 0:
+            return
+        probe = call(min(cap, remaining))
+        probes.append((probe, label))
+        consumed = max(0, int(probe.tested_candidates))
+        tested += consumed
+        remaining = max(0, remaining - consumed)
+
+    run(
+        "huffman-oracle-bitshift",
+        lambda budget: probe_dynamic_huffman_bitshift_candidates(data, budget=budget),
+        4096,
+    )
+    run(
+        "huffman-oracle-header",
+        lambda budget: probe_dynamic_huffman_header_candidates(data, budget=budget, max_bits=192, max_bit_flips=2),
+        32768,
+    )
+    run(
+        "huffman-oracle-semantic",
+        lambda budget: probe_dynamic_huffman_semantic_candidates(data, budget=budget, max_tokens=96),
+        12000,
+    )
+    run(
+        "huffman-oracle-alphabet",
+        lambda budget: probe_dynamic_huffman_alphabet_candidates(data, budget=budget, max_fields=12),
+        8192,
+    )
+    run(
+        "huffman-oracle-crc-guided",
+        lambda budget: probe_dynamic_huffman_crc_guided_candidates(
+            data,
+            budget=budget,
+            max_group_bits=24,
+            max_solutions_per_group=32,
+        ),
+        8192,
+    )
+
+    items: list[tuple[IdatDeflateCandidate | None, str]] = []
+    for probe, label in probes:
+        items.append((probe.best, label))
+        if probe.diagnostic_best is not probe.best:
+            items.append((probe.diagnostic_best, "%s-diagnostic" % label))
+    return tuple(items), tested
+
+
+def _huffman_kraft_metrics(stream: bytes) -> tuple[int, int, int, int, int, int, int]:
+    trace = deflate_header.trace_dynamic_header(stream)
+    literal_left, literal_debt, literal_used, _literal_bits = _huffman_balance(trace.literal_lengths)
+    distance_left, distance_debt, distance_used, _distance_bits = _huffman_balance(trace.distance_lengths)
+    has_eob = 1 if len(trace.literal_lengths) > 256 and trace.literal_lengths[256] > 0 else 0
+    literal_complete = 1 if literal_left == 0 and not trace.literal_error else 0
+    distance_complete = 1 if distance_left == 0 and not trace.distance_error else 0
+    return (
+        int(literal_debt),
+        int(distance_debt),
+        int(has_eob),
+        int(literal_complete),
+        int(distance_complete),
+        int(literal_used),
+        int(distance_used),
+    )
+
+
+def _huffman_kraft_rank(stream: bytes, analysis: idat.IdatStreamAnalysis) -> tuple[int, ...]:
+    literal_debt, distance_debt, has_eob, literal_complete, distance_complete, literal_used, distance_used = _huffman_kraft_metrics(stream)
+    oracle = raw_png_oracle_decision(stream, analysis, max_output=max(1, min(8192, int(analysis.scanline_size or 8192))))
+    header_rank, _eob, _lit, _dist, length_count, bit_offset = _deep_beam_huffman_score(stream)
+    return (
+        int(analysis.usable_scanlines),
+        int(analysis.complete_scanlines),
+        int(literal_complete and distance_complete),
+        int(oracle.raw_score.first_filter_rank),
+        int(oracle.raw_score.valid_filter_rows),
+        int(oracle.raw_score.alpha_rank),
+        int(header_rank),
+        int(has_eob),
+        -int(literal_debt),
+        -int(distance_debt),
+        int(length_count),
+        int(literal_used + distance_used),
+        int(analysis.decompressed_size),
+        int(analysis.error_offset if analysis.error_offset is not None else -1),
+        int(bit_offset),
+    )
+
+
+def _huffman_kraft_accepts(parent: IdatDeepBeamCandidate, candidate: IdatDeepBeamCandidate) -> bool:
+    parent_metrics = _huffman_kraft_metrics(parent.stream)
+    candidate_metrics = _huffman_kraft_metrics(candidate.stream)
+    parent_literal_debt, parent_distance_debt, parent_eob, parent_literal_complete, parent_distance_complete, _plu, _pdu = parent_metrics
+    literal_debt, distance_debt, has_eob, literal_complete, distance_complete, _lu, _du = candidate_metrics
+    if literal_complete and distance_complete:
+        oracle = raw_png_oracle_decision(candidate.stream, candidate.after, max_output=1)
+        if oracle.raw_prefix.raw and not oracle.first_filter_ok:
+            return False
+        return True
+    if literal_debt < parent_literal_debt or distance_debt < parent_distance_debt:
+        return True
+    if has_eob and not parent_eob:
+        return True
+    if literal_complete > parent_literal_complete or distance_complete > parent_distance_complete:
+        return True
+    return _huffman_kraft_rank(candidate.stream, candidate.after) > _huffman_kraft_rank(parent.stream, parent.after)
+
+
+def _huffman_kraft_token_operations(
+    stream: bytes,
+    trace: deflate_header.DynamicHeaderTrace,
+    *,
+    max_tokens: int,
+) -> tuple[IdatDeepBeamOperation, ...]:
+    try:
+        symbol_codes = _dynamic_code_length_symbol_codes(trace)
+    except Exception:
+        return ()
+    operations: list[IdatDeepBeamOperation] = []
+    seen: set[tuple[int, int, tuple[int, ...]]] = set()
+    tokens = _dynamic_semantic_priority_tokens(trace, limit=max_tokens)
+    for token in tokens:
+        bit_start = int(token.bit_start)
+        bit_end = _dynamic_length_token_bit_end(token)
+        old_context = _stream_bit_range_to_bytes(stream, bit_start, bit_end)
+        for replacement_bits in _dynamic_semantic_token_options(token, symbol_codes):
+            key = (bit_start, bit_end, tuple(int(bit) for bit in replacement_bits))
+            if key in seen:
+                continue
+            seen.add(key)
+            if len(replacement_bits) > 48:
+                continue
+            operations.append(
+                IdatDeepBeamOperation(
+                    "huffman-kraft-token",
+                    bit_start // 8,
+                    old_context,
+                    bytes(int(bit) & 1 for bit in replacement_bits),
+                    tuple(range(bit_start, bit_end)),
+                )
+            )
+    return tuple(operations)
+
+
+def _huffman_kraft_candidate_from_operation(
+    parent: IdatDeepBeamCandidate,
+    operation: IdatDeepBeamOperation,
+    *,
+    chunks: tuple[png.PngChunk, ...],
+    before: idat.IdatStreamAnalysis,
+    state_id: int,
+    original_idat_count: int,
+) -> IdatDeepBeamCandidate | None:
+    if not operation.bit_offsets:
+        return None
+    replacement_bits = tuple(int(value) & 1 for value in operation.new_bytes)
+    bit_start = min(operation.bit_offsets)
+    bit_end = max(operation.bit_offsets) + 1
+    stream = _replace_stream_bits_preserve_length(parent.stream, bit_start, bit_end, replacement_bits)
+    if stream is None:
+        return None
+    return _frontier_candidate_from_stream(
+        parent,
+        stream,
+        operation,
+        chunks=chunks,
+        before=before,
+        state_id=state_id,
+        original_idat_count=original_idat_count,
+        source_kind="candidate_from_huffman_kraft",
+    )
+
+
+def probe_idat_huffman_kraft_solver(
+    data: bytes,
+    *,
+    budget: int = HUFFMAN_KRAFT_DEFAULT_BUDGET,
+    max_depth: int = HUFFMAN_KRAFT_DEFAULT_MAX_DEPTH,
+    beam_width: int = HUFFMAN_KRAFT_DEFAULT_WIDTH,
+    top_candidates: int = HUFFMAN_KRAFT_DEFAULT_TOP_CANDIDATES,
+    checkpoint_path: str = "",
+    progress_path: str = "",
+    seed_candidates: Iterable[IdatDeepBeamCandidate] = (),
+    progress: QueueProgressCallback | None = None,
+) -> IdatHuffmanKraftSolverResult:
+    strategy = "huffman-kraft"
+    before = idat.analyze_idat_stream(data)
+    if not before.supported or before.complete:
+        return IdatHuffmanKraftSolverResult(before, None, (), 0, False, strategy=strategy, reason=before.reason)
+    try:
+        chunks, root_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatHuffmanKraftSolverResult(before, None, (), 0, False, strategy=strategy, reason=str(exc))
+    source_hash = _stream_state_key(root_stream)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    progress_state = huffman_kraft_progress_state(data, progress_path)
+    if (
+        progress_state.available
+        and progress_state.source_matches
+        and progress_state.exhausted
+        and progress_state.budget >= int(budget)
+    ):
+        _before, _chunks, _stream, _source_hash, _count, top = _load_frontier_candidates_for_progress(
+            data,
+            checkpoint_path,
+            top_candidates=top_candidates,
+            max_operation_depth=max_depth,
+        )
+        best = _frontier_best_candidate(before, top)
+        literal_debt, distance_debt, _eob, _lc, _dc, _lu, _du = _huffman_kraft_metrics(top[0].stream if top else root_stream)
+        return IdatHuffmanKraftSolverResult(
+            before,
+            best,
+            top,
+            progress_state.tested,
+            True,
+            checkpoint_path=checkpoint_path,
+            progress_path=progress_path,
+            best_literal_debt=literal_debt,
+            best_distance_debt=distance_debt,
+            strategy=strategy,
+            reason="huffman kraft already exhausted for this source/budget",
+            source_hash=source_hash,
+        )
+
+    root = _frontier_root_candidate(
+        data=data,
+        stream=root_stream,
+        before=before,
+        original_idat_count=original_idat_count,
+    )
+    frontier = [root]
+    top: list[IdatDeepBeamCandidate] = []
+    visited = {_stream_state_key(root_stream)}
+    next_state_id = 1
+    tested = 0
+    valid_headers = 0
+    complete_trees = 0
+    first_symbol_ok = 0
+    budget_exhausted = False
+    reached_depth = 0
+    last_checkpoint_at = 0
+
+    for seed in seed_candidates:
+        if seed.stream and _stream_state_key(seed.stream) not in visited:
+            visited.add(_stream_state_key(seed.stream))
+            top.append(seed)
+            if _huffman_kraft_accepts(root, seed):
+                frontier.append(seed)
+
+    def remember(parent: IdatDeepBeamCandidate, candidate: IdatDeepBeamCandidate) -> bool:
+        nonlocal top, valid_headers, complete_trees, first_symbol_ok
+        key = _stream_state_key(candidate.stream)
+        if key in visited:
+            return False
+        if not _huffman_kraft_accepts(parent, candidate):
+            return False
+        visited.add(key)
+        trace = deflate_header.trace_dynamic_header(candidate.stream)
+        if trace.status == "ok":
+            valid_headers += 1
+        literal_debt, distance_debt, _eob, literal_complete, distance_complete, _lu, _du = _huffman_kraft_metrics(candidate.stream)
+        if literal_complete and distance_complete:
+            complete_trees += 1
+            oracle = raw_png_oracle_decision(candidate.stream, candidate.after, max_output=1)
+            if oracle.first_filter_ok:
+                first_symbol_ok += 1
+        top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
+        return True
+
+    if progress is not None:
+        progress(strategy, 0, int(budget))
+
+    for depth in range(1, max(1, int(max_depth)) + 1):
+        reached_depth = depth
+        next_frontier: list[IdatDeepBeamCandidate] = []
+        for parent in frontier:
+            if tested >= int(budget):
+                budget_exhausted = True
+                break
+            trace = deflate_header.trace_dynamic_header(parent.stream)
+            if trace.btype != 2 or not trace.tokens:
+                continue
+            operations = _huffman_kraft_token_operations(parent.stream, trace, max_tokens=96 if depth == 1 else 48)
+            for operation in operations:
+                if tested >= int(budget):
+                    budget_exhausted = True
+                    break
+                tested += 1
+                candidate = _huffman_kraft_candidate_from_operation(
+                    parent,
+                    operation,
+                    chunks=chunks,
+                    before=before,
+                    state_id=next_state_id,
+                    original_idat_count=original_idat_count,
+                )
+                if candidate is None:
+                    continue
+                next_state_id += 1
+                if remember(parent, candidate):
+                    next_frontier.append(candidate)
+                if progress is not None and (tested == 1 or tested % 100 == 0):
+                    progress(strategy, min(tested, int(budget)), int(budget))
+                if checkpoint_path and top and tested - last_checkpoint_at >= HUFFMAN_KRAFT_CHECKPOINT_EVERY:
+                    for item in top:
+                        _append_frontier_checkpoint(
+                            checkpoint_path,
+                            item,
+                            source_hash=source_hash,
+                            source_stream=root_stream,
+                        )
+                    last_checkpoint_at = tested
+            if budget_exhausted:
+                break
+        frontier = list(
+            sorted(
+                _deep_beam_ranked_unique(next_frontier, limit=max(1, int(beam_width))),
+                key=lambda item: _huffman_kraft_rank(item.stream, item.after),
+                reverse=True,
+            )
+        )[: max(1, int(beam_width))]
+        if budget_exhausted or not frontier:
+            break
+
+    if checkpoint_path:
+        for item in top:
+            _append_frontier_checkpoint(
+                checkpoint_path,
+                item,
+                source_hash=source_hash,
+                source_stream=root_stream,
+            )
+    top = list(
+        sorted(
+            _deep_beam_ranked_unique(top, limit=top_candidates),
+            key=lambda item: _huffman_kraft_rank(item.stream, item.after),
+            reverse=True,
+        )
+    )[: max(1, int(top_candidates))]
+    best = _frontier_best_candidate(before, top)
+    best_literal_debt, best_distance_debt, _eob, _lc, _dc, _lu, _du = _huffman_kraft_metrics(top[0].stream if top else root_stream)
+    reason = (
+        "depth=%s; states=%s; valid_headers=%s; complete_trees=%s; first_symbol_ok=%s; "
+        "literal_debt=%s; distance_debt=%s; top=%s"
+        % (
+            reached_depth,
+            len(visited),
+            valid_headers,
+            complete_trees,
+            first_symbol_ok,
+            best_literal_debt,
+            best_distance_debt,
+            len(top),
+        )
+    )
+    _write_frontier_progress(
+        progress_path,
+        source_hash=source_hash,
+        tested=tested,
+        budget=budget,
+        best=best,
+        top_count=len(top),
+        exhausted=True,
+        reason=reason,
+        strategy=strategy,
+        extra={
+            "valid_headers": int(valid_headers),
+            "complete_trees": int(complete_trees),
+            "first_symbol_ok": int(first_symbol_ok),
+            "literal_debt": int(best_literal_debt),
+            "distance_debt": int(best_distance_debt),
+            "reached_depth": int(reached_depth),
+        },
+    )
+    if progress is not None:
+        progress(strategy, min(tested, int(budget)), int(budget))
+    return IdatHuffmanKraftSolverResult(
+        before,
+        best,
+        tuple(top),
+        tested,
+        budget_exhausted or tested >= int(budget),
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        valid_headers=valid_headers,
+        complete_trees=complete_trees,
+        first_symbol_ok=first_symbol_ok,
+        best_literal_debt=best_literal_debt,
+        best_distance_debt=best_distance_debt,
+        reached_depth=reached_depth,
+        strategy=strategy,
+        reason=reason,
+        source_hash=source_hash,
+    )
+
+
+def probe_idat_dynamic_huffman_png_oracle_solver(
+    data: bytes,
+    *,
+    budget: int = HUFFMAN_ORACLE_DEFAULT_BUDGET,
+    max_depth: int = HUFFMAN_ORACLE_DEFAULT_MAX_DEPTH,
+    beam_width: int = HUFFMAN_ORACLE_DEFAULT_WIDTH,
+    top_candidates: int = HUFFMAN_ORACLE_DEFAULT_TOP_CANDIDATES,
+    checkpoint_path: str = "",
+    progress_path: str = "",
+    progress: QueueProgressCallback | None = None,
+) -> IdatHuffmanOracleSolverResult:
+    strategy = "dynamic-huffman-png-oracle"
+    before = idat.analyze_idat_stream(data)
+    if not before.supported or before.complete:
+        return IdatHuffmanOracleSolverResult(before, None, (), 0, False, strategy=strategy, reason=before.reason)
+    try:
+        chunks, root_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatHuffmanOracleSolverResult(before, None, (), 0, False, strategy=strategy, reason=str(exc))
+    source_hash = _stream_state_key(root_stream)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    progress_state = huffman_oracle_progress_state(data, progress_path)
+    if (
+        progress_state.available
+        and progress_state.source_matches
+        and progress_state.exhausted
+        and progress_state.budget >= int(budget)
+    ):
+        _before, _chunks, _stream, _source_hash, _count, top = _load_frontier_candidates_for_progress(
+            data,
+            checkpoint_path,
+            top_candidates=top_candidates,
+            max_operation_depth=max_depth,
+        )
+        best = _frontier_best_candidate(before, top)
+        return IdatHuffmanOracleSolverResult(
+            before,
+            best,
+            top,
+            progress_state.tested,
+            True,
+            checkpoint_path=checkpoint_path,
+            progress_path=progress_path,
+            strategy=strategy,
+            reason="huffman oracle already exhausted for this source/budget",
+            source_hash=source_hash,
+        )
+
+    root = _frontier_root_candidate(
+        data=data,
+        stream=root_stream,
+        before=before,
+        original_idat_count=original_idat_count,
+    )
+    frontier: list[IdatDeepBeamCandidate] = [root]
+    top: list[IdatDeepBeamCandidate] = []
+    visited = {_stream_state_key(root_stream)}
+    tested = 0
+    next_state_id = 1
+    valid_headers = 0
+    png_plausible = 0
+    budget_exhausted = False
+    last_checkpoint_at = 0
+    reached_depth = 0
+
+    def remember(candidate: IdatDeepBeamCandidate) -> None:
+        nonlocal top, valid_headers, png_plausible
+        key = _stream_state_key(candidate.stream)
+        if key in visited:
+            return
+        visited.add(key)
+        if _candidate_dynamic_header_valid(candidate):
+            valid_headers += 1
+        if _candidate_png_plausible(candidate):
+            png_plausible += 1
+        top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
+
+    if progress is not None:
+        progress(strategy, 0, int(budget))
+
+    for depth in range(1, max(1, int(max_depth)) + 1):
+        reached_depth = depth
+        next_frontier: list[IdatDeepBeamCandidate] = []
+        for parent in frontier:
+            if tested >= int(budget):
+                budget_exhausted = True
+                break
+            sub_items, sub_tested = _huffman_oracle_subprobes(parent.data, budget_left=max(0, int(budget) - tested))
+            tested = min(int(budget), tested + sub_tested)
+            for deflate_candidate, kind in sub_items:
+                if tested >= int(budget):
+                    budget_exhausted = True
+                successor = _deep_beam_candidate_from_deflate_candidate(
+                    parent,
+                    deflate_candidate,
+                    before=before,
+                    state_id=next_state_id,
+                    original_idat_count=original_idat_count,
+                    kind=kind,
+                )
+                if successor is None:
+                    continue
+                next_state_id += 1
+                if not _huffman_oracle_accepts(parent, successor):
+                    continue
+                remember(successor)
+                next_frontier.append(successor)
+            if progress is not None:
+                progress(strategy, tested, int(budget))
+            if checkpoint_path and top and tested - last_checkpoint_at >= HUFFMAN_ORACLE_CHECKPOINT_EVERY:
+                for item in top:
+                    _append_frontier_checkpoint(
+                        checkpoint_path,
+                        item,
+                        source_hash=source_hash,
+                        source_stream=root_stream,
+                    )
+                last_checkpoint_at = tested
+        if budget_exhausted:
+            break
+        frontier = list(_deep_beam_ranked_unique(next_frontier, limit=beam_width))
+        if not frontier:
+            break
+
+    if checkpoint_path:
+        for item in top:
+            _append_frontier_checkpoint(
+                checkpoint_path,
+                item,
+                source_hash=source_hash,
+                source_stream=root_stream,
+            )
+    best = _frontier_best_candidate(before, top)
+    exhausted = budget_exhausted or tested >= int(budget) or not frontier
+    reason = (
+        "depth=%s; states=%s; valid_headers=%s; png_plausible=%s; top=%s"
+        % (reached_depth, len(visited), valid_headers, png_plausible, len(top))
+    )
+    _write_frontier_progress(
+        progress_path,
+        source_hash=source_hash,
+        tested=tested,
+        budget=budget,
+        best=best,
+        top_count=len(top),
+        exhausted=True,
+        reason=reason,
+        strategy=strategy,
+        extra={
+            "valid_headers": int(valid_headers),
+            "png_plausible": int(png_plausible),
+            "reached_depth": int(reached_depth),
+        },
+    )
+    if progress is not None:
+        progress(strategy, min(tested, int(budget)), int(budget))
+    return IdatHuffmanOracleSolverResult(
+        before,
+        best,
+        tuple(top),
+        tested,
+        exhausted,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        valid_headers=valid_headers,
+        png_plausible=png_plausible,
+        reached_depth=reached_depth,
+        strategy=strategy,
+        reason=reason,
+        source_hash=source_hash,
+    )
+
+
+def _periodic_model_classes(model: dict[str, object]) -> tuple[int, ...]:
+    raw = model.get("idat_classes_mod8", ())
+    if not isinstance(raw, list | tuple):
+        return ()
+    classes: list[int] = []
+    for item in raw:
+        try:
+            classes.append(int(item) % 8)
+        except (TypeError, ValueError):
+            continue
+    return tuple(dict.fromkeys(classes))
+
+
+def _crc_periodic_target_chunks(
+    chunks: tuple[png.PngChunk, ...],
+    before: idat.IdatStreamAnalysis,
+    model: dict[str, object],
+) -> tuple[png.PngChunk, ...]:
+    idat_chunks = tuple(chunk for chunk in chunks if chunk.chunk_type == b"IDAT")
+    classes = set(_periodic_model_classes(model))
+    preferred = _dynamic_crc_guided_target_chunk(chunks, before)
+
+    def priority(item: tuple[int, png.PngChunk]) -> tuple[int, int]:
+        index, chunk = item
+        if preferred is not None and chunk.offset == preferred.offset:
+            return (0, index)
+        if classes and (index % 8) in classes and chunk.crc != chunk.computed_crc:
+            return (1, index)
+        if chunk.crc != chunk.computed_crc:
+            return (2, index)
+        return (3, index)
+
+    return tuple(chunk for _index, chunk in sorted(enumerate(idat_chunks), key=priority) if chunk.crc != chunk.computed_crc)
+
+
+def _crc_periodic_stream_offsets(
+    root_stream: bytes,
+    model: dict[str, object],
+    diagnostic: IdatLocalDeflateDiagnostic | None,
+    *,
+    target_stream_start: int,
+    target_stream_end: int,
+) -> tuple[int, ...]:
+    offsets = list(_periodic_model_offsets(diagnostic, len(root_stream)))
+    for focus in DEEP_BEAM_FOCUS_OFFSETS:
+        offsets.append(int(target_stream_start) + int(focus))
+    if diagnostic is not None and diagnostic.stream_offset is not None:
+        center = int(diagnostic.stream_offset)
+        offsets.extend(range(max(0, center - 64), min(len(root_stream), center + 65)))
+
+    model_chunks = model.get("idat_chunks", ())
+    classes = set(_periodic_model_classes(model))
+    if isinstance(model_chunks, list | tuple) and classes:
+        for item in model_chunks:
+            if not isinstance(item, dict):
+                continue
+            try:
+                index = int(item.get("index", -1))
+                length = int(item.get("length", 0))
+            except (TypeError, ValueError):
+                continue
+            if index % 8 not in classes:
+                continue
+            for focus in DEEP_BEAM_FOCUS_OFFSETS:
+                if focus < length:
+                    offsets.append(int(target_stream_start) + int(focus))
+
+    return tuple(
+        dict.fromkeys(
+            int(offset)
+            for offset in offsets
+            if int(target_stream_start) <= int(offset) < int(target_stream_end)
+        )
+    )
+
+
+def _crc_periodic_payload_bit_groups(
+    payload: bytes,
+    stream_offsets: tuple[int, ...],
+    *,
+    target_stream_start: int,
+    xors: tuple[int, ...],
+    max_group_bits: int,
+) -> tuple[tuple[str, tuple[int, ...]], ...]:
+    xor_bits = tuple(
+        dict.fromkeys(
+            bit
+            for xor in sorted(xors, key=lambda value: (int(value).bit_count(), int(value)))
+            if 0 < int(xor).bit_count() <= 4
+            for bit in range(8)
+            if int(xor) & (1 << bit)
+        )
+    )
+    if not xor_bits:
+        xor_bits = tuple(range(8))
+    groups: list[tuple[str, tuple[int, ...]]] = []
+    seen: set[tuple[int, ...]] = set()
+    group_width = max(8, min(32, int(max_group_bits)))
+    for offset in stream_offsets:
+        local = int(offset) - int(target_stream_start)
+        if local < 0 or local >= len(payload):
+            continue
+        bits = tuple(local * 8 + bit for bit in xor_bits if local * 8 + bit < len(payload) * 8)
+        if not bits or bits in seen:
+            continue
+        seen.add(bits)
+        groups.append(("offset-0x%x" % offset, bits[:group_width]))
+
+    for index in range(0, len(stream_offsets), 4):
+        window = stream_offsets[index : index + 4]
+        bits: list[int] = []
+        for offset in window:
+            local = int(offset) - int(target_stream_start)
+            if local < 0 or local >= len(payload):
+                continue
+            bits.extend(local * 8 + bit for bit in xor_bits)
+        key = tuple(dict.fromkeys(bit for bit in bits if 0 <= bit < len(payload) * 8))[:group_width]
+        if key and key not in seen:
+            seen.add(key)
+            groups.append(("window-%s" % (index // 4), key))
+    return tuple(groups)
+
+
+def probe_idat_crc_periodic_payload_solver(
+    data: bytes,
+    *,
+    convoy_model_path: str = "",
+    budget: int = CRC_PERIODIC_DEFAULT_BUDGET,
+    max_edits: int = CRC_PERIODIC_DEFAULT_MAX_EDITS,
+    top_candidates: int = CRC_PERIODIC_DEFAULT_TOP_CANDIDATES,
+    checkpoint_path: str = "",
+    progress_path: str = "",
+    progress: QueueProgressCallback | None = None,
+) -> IdatCrcPeriodicPayloadSolverResult:
+    strategy = "crc-periodic-payload"
+    before = idat.analyze_idat_stream(data)
+    if not before.supported or before.complete:
+        return IdatCrcPeriodicPayloadSolverResult(before, None, (), 0, False, strategy=strategy, reason=before.reason)
+    try:
+        chunks, root_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatCrcPeriodicPayloadSolverResult(before, None, (), 0, False, strategy=strategy, reason=str(exc))
+    source_hash = _stream_state_key(root_stream)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    model, model_error = _load_idat_convoy_model(convoy_model_path)
+    if model is None:
+        return IdatCrcPeriodicPayloadSolverResult(
+            before,
+            None,
+            (),
+            0,
+            False,
+            model_path=convoy_model_path,
+            strategy=strategy,
+            reason=model_error,
+            source_hash=source_hash,
+        )
+    if str(model.get("convoy_stream_hash") or "") != source_hash:
+        return IdatCrcPeriodicPayloadSolverResult(
+            before,
+            None,
+            (),
+            0,
+            False,
+            model_path=convoy_model_path,
+            strategy=strategy,
+            reason="convoy model hash does not match current IDAT stream",
+            source_hash=source_hash,
+        )
+
+    progress_state = crc_periodic_progress_state(data, progress_path)
+    if (
+        progress_state.available
+        and progress_state.source_matches
+        and progress_state.exhausted
+        and progress_state.budget >= int(budget)
+    ):
+        _before, _chunks, _stream, _source_hash, _count, top = _load_frontier_candidates_for_progress(
+            data,
+            checkpoint_path,
+            top_candidates=top_candidates,
+            max_operation_depth=max(1, int(max_edits)),
+        )
+        best = _frontier_best_candidate(before, top)
+        return IdatCrcPeriodicPayloadSolverResult(
+            before,
+            best,
+            top,
+            progress_state.tested,
+            True,
+            checkpoint_path=checkpoint_path,
+            progress_path=progress_path,
+            model_path=convoy_model_path,
+            strategy=strategy,
+            reason="crc-periodic solver already exhausted for this source/budget",
+            source_hash=source_hash,
+        )
+
+    diagnostic = idat_local_deflate_diagnostic(data, analysis=before)
+    idat_chunks = tuple(chunk for chunk in chunks if chunk.chunk_type == b"IDAT")
+    targets = _crc_periodic_target_chunks(chunks, before, model)
+    root = _frontier_root_candidate(
+        data=data,
+        stream=root_stream,
+        before=before,
+        original_idat_count=original_idat_count,
+    )
+    xors = _periodic_model_ints(model, "xors")
+    max_group_bits = max(8, min(32, int(max_edits) * 8))
+    tested = 0
+    next_state_id = 1
+    crc_hits = 0
+    png_plausible = 0
+    budget_exhausted = False
+    top: list[IdatDeepBeamCandidate] = []
+    visited = {_stream_state_key(root_stream)}
+    last_checkpoint_at = 0
+
+    if progress is not None:
+        progress(strategy, 0, int(budget))
+
+    def remember(candidate: IdatDeepBeamCandidate) -> None:
+        nonlocal top, png_plausible
+        key = _stream_state_key(candidate.stream)
+        if key in visited:
+            return
+        visited.add(key)
+        if _candidate_png_plausible(candidate):
+            png_plausible += 1
+        top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
+
+    for target in targets:
+        if tested >= int(budget):
+            budget_exhausted = True
+            break
+        target_range = _idat_stream_range_for_chunk_offset(chunks, target.offset)
+        if target_range is None:
+            continue
+        target_stream_start, target_stream_end = target_range
+        payload = bytes(target.data)
+        offsets = _crc_periodic_stream_offsets(
+            root_stream,
+            model,
+            diagnostic,
+            target_stream_start=target_stream_start,
+            target_stream_end=target_stream_end,
+        )
+        groups = _crc_periodic_payload_bit_groups(
+            payload,
+            offsets,
+            target_stream_start=target_stream_start,
+            xors=xors,
+            max_group_bits=max_group_bits,
+        )
+        for label, payload_bits in groups:
+            if tested >= int(budget):
+                budget_exhausted = True
+                break
+            solutions = _crc_guided_solutions_for_payload_bits(
+                payload,
+                payload_bits,
+                int(target.crc),
+                max_solutions=16,
+            )
+            tested += 1
+            if progress is not None and (tested == 1 or tested % 100 == 0):
+                progress(strategy, min(tested, int(budget)), int(budget))
+            for solution_payload_bits in solutions:
+                if tested >= int(budget):
+                    budget_exhausted = True
+                    break
+                if len(solution_payload_bits) > max(1, int(max_edits)) * 8:
+                    continue
+                fixed_payload = _flip_payload_bits(payload, solution_payload_bits)
+                if fixed_payload is None or fixed_payload == payload:
+                    continue
+                global_bits = tuple(int(target_stream_start) * 8 + bit for bit in solution_payload_bits)
+                deflate_candidate = _crc_guided_candidate_from_payload(
+                    data,
+                    before=before,
+                    chunks=chunks,
+                    idat_chunks=idat_chunks,
+                    target_chunk=target,
+                    target_stream_start=target_stream_start,
+                    original_payload=payload,
+                    payload=fixed_payload,
+                    global_bit_offsets=global_bits,
+                    edit_kind="crc-periodic-%s" % label,
+                )
+                tested += 1
+                if deflate_candidate is None:
+                    continue
+                crc_hits += 1
+                successor = _deep_beam_candidate_from_deflate_candidate(
+                    root,
+                    deflate_candidate,
+                    before=before,
+                    state_id=next_state_id,
+                    original_idat_count=original_idat_count,
+                    kind="crc-periodic-%s" % label,
+                )
+                if successor is None:
+                    continue
+                next_state_id += 1
+                remember(successor)
+                if checkpoint_path and top and tested - last_checkpoint_at >= CRC_PERIODIC_CHECKPOINT_EVERY:
+                    for item in top:
+                        _append_frontier_checkpoint(
+                            checkpoint_path,
+                            item,
+                            source_hash=source_hash,
+                            source_stream=root_stream,
+                        )
+                    last_checkpoint_at = tested
+            if budget_exhausted:
+                break
+
+    if checkpoint_path:
+        for item in top:
+            _append_frontier_checkpoint(
+                checkpoint_path,
+                item,
+                source_hash=source_hash,
+                source_stream=root_stream,
+            )
+    best = _frontier_best_candidate(before, top)
+    exhausted = budget_exhausted or tested >= int(budget) or not targets
+    reason = "targets=%s; tested=%s; crc_hits=%s; png_plausible=%s; top=%s" % (
+        len(targets),
+        tested,
+        crc_hits,
+        png_plausible,
+        len(top),
+    )
+    _write_frontier_progress(
+        progress_path,
+        source_hash=source_hash,
+        tested=tested,
+        budget=budget,
+        best=best,
+        top_count=len(top),
+        exhausted=True,
+        reason=reason,
+        strategy=strategy,
+        extra={
+            "model_path": convoy_model_path,
+            "crc_hits": int(crc_hits),
+            "png_plausible": int(png_plausible),
+        },
+    )
+    if progress is not None:
+        progress(strategy, min(tested, int(budget)), int(budget))
+    return IdatCrcPeriodicPayloadSolverResult(
+        before,
+        best,
+        tuple(top),
+        tested,
+        exhausted,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        model_path=convoy_model_path,
+        crc_hits=crc_hits,
+        png_plausible=png_plausible,
+        strategy=strategy,
+        reason=reason,
+        source_hash=source_hash,
+    )
+
+
+def _crc32_idat_payload(payload: bytes) -> int:
+    return zlib.crc32(b"IDAT" + payload) & 0xFFFFFFFF
+
+
+def _crc_match_count_for_stream(
+    stream: bytes,
+    ranges: tuple[tuple[int, png.PngChunk, int, int], ...],
+) -> int:
+    matches = 0
+    for _index, chunk, start, end in ranges:
+        payload = stream[start:end]
+        if len(payload) == chunk.length and _crc32_idat_payload(payload) == int(chunk.crc):
+            matches += 1
+    return matches
+
+
+def _global_crc_residue_rules(
+    root_stream: bytes,
+    chunks: tuple[png.PngChunk, ...],
+    model: dict[str, object],
+    diagnostic: IdatLocalDeflateDiagnostic | None,
+    *,
+    max_rules: int,
+) -> tuple[dict[str, object], ...]:
+    xors = sorted(_periodic_model_ints(model, "xors"), key=lambda value: (int(value).bit_count(), int(value)))
+    if not xors:
+        xors = tuple(1 << bit for bit in range(8))
+    ranges = _idat_stream_ranges_by_index(chunks)
+    base_offsets = _periodic_model_offsets(diagnostic, len(root_stream))
+    base_offsets = tuple(dict.fromkeys(tuple(DEEP_BEAM_FOCUS_OFFSETS) + base_offsets + tuple(range(0, min(0x120, len(root_stream))))))
+    classes = _periodic_model_classes(model) or tuple(range(8))
+    rules: list[dict[str, object]] = []
+    seen: set[tuple[int, int, int]] = set()
+    for class_mod8 in classes:
+        for local_offset in base_offsets:
+            affected = [
+                (index, chunk, start, end)
+                for index, chunk, start, end in ranges
+                if index % 8 == int(class_mod8) % 8 and 0 <= int(local_offset) < chunk.length
+            ]
+            if len(affected) < 2:
+                continue
+            for xor in xors:
+                key = (int(class_mod8) % 8, int(local_offset), int(xor) & 0xFF)
+                if key in seen:
+                    continue
+                seen.add(key)
+                before_matches = sum(
+                    1
+                    for _index, chunk, start, end in affected
+                    if _crc32_idat_payload(root_stream[start:end]) == int(chunk.crc)
+                )
+                after_matches = 0
+                for _index, chunk, start, end in affected:
+                    stream_offset = start + int(local_offset)
+                    payload = bytearray(root_stream[start:end])
+                    payload[int(local_offset)] ^= int(xor) & 0xFF
+                    if _crc32_idat_payload(bytes(payload)) == int(chunk.crc):
+                        after_matches += 1
+                explained = after_matches - before_matches
+                residue_votes = 0
+                for _index, chunk, start, end in affected:
+                    computed = _crc32_idat_payload(root_stream[start:end])
+                    if (computed ^ int(chunk.crc)) & int(xor):
+                        residue_votes += 1
+                rules.append(
+                    {
+                        "class_mod8": int(class_mod8) % 8,
+                        "local_offset": int(local_offset),
+                        "xor": int(xor) & 0xFF,
+                        "affected": len(affected),
+                        "crc_hits": int(after_matches),
+                        "explained": int(max(0, explained)),
+                        "residue_votes": int(residue_votes),
+                    }
+                )
+    rules.sort(
+        key=lambda item: (
+            int(item.get("crc_hits", 0)),
+            int(item.get("explained", 0)),
+            int(item.get("residue_votes", 0)),
+            int(item.get("affected", 0)),
+            -int(item.get("local_offset", 0)),
+        ),
+        reverse=True,
+    )
+    return tuple(rules[: max(1, int(max_rules)) * 256])
+
+
+def _apply_global_crc_rule(
+    stream: bytes,
+    chunks: tuple[png.PngChunk, ...],
+    rule: dict[str, object],
+) -> tuple[bytes | None, IdatDeepBeamOperation | None, int]:
+    try:
+        class_mod8 = int(rule.get("class_mod8", 0)) % 8
+        local_offset = int(rule.get("local_offset", -1))
+        xor = int(rule.get("xor", 0)) & 0xFF
+    except (TypeError, ValueError):
+        return None, None, 0
+    if local_offset < 0 or not xor:
+        return None, None, 0
+    mutated = bytearray(stream)
+    bit_offsets: list[int] = []
+    first_offset: int | None = None
+    affected = 0
+    for index, chunk, start, _end in _idat_stream_ranges_by_index(chunks):
+        if index % 8 != class_mod8 or local_offset >= chunk.length:
+            continue
+        stream_offset = start + local_offset
+        if stream_offset >= len(mutated):
+            continue
+        if first_offset is None:
+            first_offset = stream_offset
+        mutated[stream_offset] ^= xor
+        affected += 1
+        bit_offsets.extend(stream_offset * 8 + bit for bit in range(8) if xor & (1 << bit))
+    if affected <= 0 or bytes(mutated) == stream:
+        return None, None, 0
+    operation = IdatDeepBeamOperation(
+        "global-crc-residue-xor",
+        int(first_offset or 0),
+        b"",
+        bytes((xor,)),
+        tuple(bit_offsets),
+    )
+    return bytes(mutated), operation, affected
+
+
+def probe_idat_global_crc_residue_solver(
+    data: bytes,
+    *,
+    convoy_model_path: str = "",
+    budget: int = GLOBAL_CRC_RESIDUE_DEFAULT_BUDGET,
+    max_rules: int = GLOBAL_CRC_RESIDUE_DEFAULT_MAX_RULES,
+    top_candidates: int = GLOBAL_CRC_RESIDUE_DEFAULT_TOP_CANDIDATES,
+    checkpoint_path: str = "",
+    progress_path: str = "",
+    progress: QueueProgressCallback | None = None,
+) -> IdatGlobalCrcResidueSolverResult:
+    strategy = "global-crc-residue"
+    before = idat.analyze_idat_stream(data)
+    if not before.supported or before.complete:
+        return IdatGlobalCrcResidueSolverResult(before, None, (), 0, False, strategy=strategy, reason=before.reason)
+    try:
+        chunks, root_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatGlobalCrcResidueSolverResult(before, None, (), 0, False, strategy=strategy, reason=str(exc))
+    source_hash = _stream_state_key(root_stream)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    model, model_error = _load_idat_convoy_model(convoy_model_path)
+    if model is None:
+        return IdatGlobalCrcResidueSolverResult(before, None, (), 0, False, model_path=convoy_model_path, strategy=strategy, reason=model_error, source_hash=source_hash)
+    if str(model.get("convoy_stream_hash") or "") != source_hash:
+        return IdatGlobalCrcResidueSolverResult(
+            before,
+            None,
+            (),
+            0,
+            False,
+            model_path=convoy_model_path,
+            strategy=strategy,
+            reason="convoy model hash does not match current IDAT stream",
+            source_hash=source_hash,
+        )
+    progress_state = global_crc_residue_progress_state(data, progress_path)
+    if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= int(budget):
+        _before, _chunks, _stream, _source_hash, _count, top = _load_frontier_candidates_for_progress(
+            data,
+            checkpoint_path,
+            top_candidates=top_candidates,
+            max_operation_depth=max(1, int(max_rules)),
+        )
+        best = _frontier_best_candidate(before, top)
+        return IdatGlobalCrcResidueSolverResult(
+            before,
+            best,
+            top,
+            progress_state.tested,
+            True,
+            checkpoint_path=checkpoint_path,
+            progress_path=progress_path,
+            model_path=convoy_model_path,
+            strategy=strategy,
+            reason="global CRC residue solver already exhausted for this source/budget",
+            source_hash=source_hash,
+        )
+
+    diagnostic = idat_local_deflate_diagnostic(data, analysis=before)
+    rules = _global_crc_residue_rules(root_stream, chunks, model, diagnostic, max_rules=max_rules)
+    root = _frontier_root_candidate(data=data, stream=root_stream, before=before, original_idat_count=original_idat_count)
+    ranges = _idat_stream_ranges_by_index(chunks)
+    top: list[IdatDeepBeamCandidate] = []
+    visited = {_stream_state_key(root_stream)}
+    tested = 0
+    next_state_id = 1
+    crc_hits = 0
+    explained_chunks = 0
+    png_plausible = 0
+    budget_exhausted = False
+    last_checkpoint_at = 0
+
+    if progress is not None:
+        progress(strategy, 0, int(budget))
+
+    for rule in rules:
+        if tested >= int(budget):
+            budget_exhausted = True
+            break
+        stream, operation, affected = _apply_global_crc_rule(root_stream, chunks, rule)
+        tested += 1
+        if stream is None or operation is None:
+            continue
+        matches = _crc_match_count_for_stream(stream, ranges)
+        crc_hits = max(crc_hits, matches)
+        explained_chunks = max(explained_chunks, int(rule.get("explained", 0) or 0), matches)
+        candidate = _frontier_candidate_from_stream(
+            root,
+            stream,
+            operation,
+            chunks=chunks,
+            before=before,
+            state_id=next_state_id,
+            original_idat_count=original_idat_count,
+            source_kind="candidate_from_global_crc_residue",
+        )
+        if candidate is None:
+            continue
+        next_state_id += 1
+        key = _stream_state_key(candidate.stream)
+        if key in visited:
+            continue
+        visited.add(key)
+        if _candidate_png_plausible(candidate):
+            png_plausible += 1
+        top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
+        if checkpoint_path and top and tested - last_checkpoint_at >= GLOBAL_CRC_RESIDUE_CHECKPOINT_EVERY:
+            for item in top:
+                _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
+            last_checkpoint_at = tested
+        if progress is not None and (tested == 1 or tested % 1000 == 0):
+            progress(strategy, min(tested, int(budget)), int(budget))
+
+    if checkpoint_path:
+        for item in top:
+            _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
+    best = _frontier_best_candidate(before, top)
+    reason = "rules=%s; tested=%s; crc_hits=%s; explained_chunks=%s; png_plausible=%s; top=%s" % (
+        len(rules),
+        tested,
+        crc_hits,
+        explained_chunks,
+        png_plausible,
+        len(top),
+    )
+    _write_frontier_progress(
+        progress_path,
+        source_hash=source_hash,
+        tested=tested,
+        budget=budget,
+        best=best,
+        top_count=len(top),
+        exhausted=True,
+        reason=reason,
+        strategy=strategy,
+        extra={
+            "model_path": convoy_model_path,
+            "rules": int(len(rules)),
+            "explained_chunks": int(explained_chunks),
+            "crc_hits": int(crc_hits),
+            "png_plausible": int(png_plausible),
+        },
+    )
+    if progress is not None:
+        progress(strategy, min(tested, int(budget)), int(budget))
+    return IdatGlobalCrcResidueSolverResult(
+        before,
+        best,
+        tuple(top),
+        tested,
+        budget_exhausted or tested >= int(budget),
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        model_path=convoy_model_path,
+        rules=len(rules),
+        explained_chunks=explained_chunks,
+        crc_hits=crc_hits,
+        png_plausible=png_plausible,
+        strategy=strategy,
+        reason=reason,
+        source_hash=source_hash,
+    )
+
+
+def _read_lsb_bit_window(stream: bytes, bit_offset: int, width: int) -> int | None:
+    bit_offset = int(bit_offset)
+    width = int(width)
+    if bit_offset < 0 or width < 0 or bit_offset + width > len(stream) * 8:
+        return None
+    value = 0
+    for index in range(width):
+        absolute = bit_offset + index
+        value |= ((stream[absolute // 8] >> (absolute % 8)) & 1) << index
+    return value
+
+
+def png_erasure_unfilter_preview(
+    raw: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    path: str,
+    *,
+    max_rows: int = 64,
+) -> tuple[int, int]:
+    if not path or not raw:
+        return 0, 0
+    width = int(getattr(analysis, "width", 0) or 0)
+    height = int(getattr(analysis, "height", 0) or 0)
+    bit_depth = int(getattr(analysis, "bit_depth", 0) or 0)
+    color_type = int(getattr(analysis, "color_type", -1) or -1)
+    scanline_size = int(getattr(analysis, "scanline_size", 0) or 0)
+    if width <= 0 or height <= 0 or bit_depth != 8 or color_type not in (2, 6) or scanline_size <= 1:
+        return 0, 0
+    channels = 4 if color_type == 6 else 3
+    row_bytes = width * channels
+    rows = min(max_rows, height, len(raw) // scanline_size)
+    if rows <= 0:
+        return 0, 0
+    previous = bytearray(row_bytes)
+    pixels = bytearray()
+    known_pixels = 0
+
+    for row in range(rows):
+        start = row * scanline_size
+        filter_type = raw[start]
+        encoded = bytearray(raw[start + 1 : start + 1 + row_bytes])
+        if len(encoded) < row_bytes or filter_type not in (0, 1, 2, 3, 4):
+            break
+        decoded = bytearray(row_bytes)
+        for index, value in enumerate(encoded):
+            left = decoded[index - channels] if index >= channels else 0
+            up = previous[index]
+            up_left = previous[index - channels] if index >= channels else 0
+            if filter_type == 0:
+                predictor = 0
+            elif filter_type == 1:
+                predictor = left
+            elif filter_type == 2:
+                predictor = up
+            elif filter_type == 3:
+                predictor = (left + up) // 2
+            else:
+                p = left + up - up_left
+                pa = abs(p - left)
+                pb = abs(p - up)
+                pc = abs(p - up_left)
+                predictor = left if pa <= pb and pa <= pc else up if pb <= pc else up_left
+            decoded[index] = (value + predictor) & 0xFF
+        if channels == 4:
+            pixels.extend(decoded[index] for index in range(row_bytes) if index % 4 != 3)
+        else:
+            pixels.extend(decoded)
+        known_pixels += width
+        previous = decoded
+
+    if known_pixels <= 0:
+        return 0, 0
+    try:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        header = ("P6\n%s %s\n255\n" % (width, known_pixels // width)).encode("ascii")
+        tmp_path = _hidden_tmp_path(path)
+        with open(tmp_path, "wb") as file:
+            file.write(header)
+            file.write(bytes(pixels))
+        os.replace(tmp_path, path)
+    except OSError:
+        return known_pixels // width, known_pixels
+    return known_pixels // width, known_pixels
+
+
+def probe_deflate_resync_salvage(
+    data: bytes,
+    *,
+    budget: int = DEFLATE_SALVAGE_DEFAULT_BUDGET,
+    progress_path: str = "",
+    preview_path: str = "",
+    progress: QueueProgressCallback | None = None,
+) -> DeflateResyncSalvageResult:
+    strategy = "deflate-resync-salvage"
+    before = idat.analyze_idat_stream(data)
+    if not before.supported or before.complete:
+        return DeflateResyncSalvageResult(before, (), strategy=strategy, reason=before.reason)
+    try:
+        _chunks, root_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return DeflateResyncSalvageResult(before, (), strategy=strategy, reason=str(exc))
+    source_hash = _stream_state_key(root_stream)
+    progress_state = deflate_salvage_progress_state(data, progress_path)
+    if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= int(budget):
+        return DeflateResyncSalvageResult(
+            before,
+            (),
+            tested_candidates=progress_state.tested,
+            budget_exhausted=True,
+            progress_path=progress_path,
+            strategy=strategy,
+            reason="deflate salvage already exhausted for this source/budget",
+            source_hash=source_hash,
+        )
+    start_bit = max(0, int(before.error_offset or 0) * 8)
+    tested = 0
+    anchors: list[int] = []
+    if progress is not None:
+        progress(strategy, 0, int(budget))
+    for bit_offset in range(start_bit, len(root_stream) * 8 - 3):
+        if tested >= int(budget):
+            break
+        tested += 1
+        header = _read_lsb_bit_window(root_stream, bit_offset, 3)
+        if header is None:
+            continue
+        btype = (header >> 1) & 0x03
+        if btype in (1, 2):
+            anchors.append(bit_offset)
+            if len(anchors) >= 256:
+                break
+        if progress is not None and tested % 10_000 == 0:
+            progress(strategy, min(tested, int(budget)), int(budget))
+
+    raw_prefix = idat_partial_raw_prefix(root_stream, max_output=max(8192, int(before.scanline_size or 0) * 8))
+    partial_rows = 0
+    known_pixels = 0
+    if raw_prefix.raw and preview_path:
+        partial_rows, known_pixels = png_erasure_unfilter_preview(raw_prefix.raw, before, preview_path)
+    reason = "anchors=%s; raw=%s; partial_rows=%s; known_pixels=%s" % (
+        len(anchors),
+        len(raw_prefix.raw),
+        partial_rows,
+        known_pixels,
+    )
+    _write_frontier_progress(
+        progress_path,
+        source_hash=source_hash,
+        tested=tested,
+        budget=budget,
+        best=None,
+        top_count=0,
+        exhausted=True,
+        reason=reason,
+        strategy=strategy,
+        extra={
+            "anchors": [int(anchor) for anchor in anchors[:256]],
+            "partial_rows": int(partial_rows),
+            "known_pixels": int(known_pixels),
+            "preview_path": preview_path if known_pixels else "",
+        },
+    )
+    if progress is not None:
+        progress(strategy, min(tested, int(budget)), int(budget))
+    return DeflateResyncSalvageResult(
+        before,
+        tuple(anchors),
+        partial_rows=partial_rows,
+        known_pixels=known_pixels,
+        preview_path=preview_path if known_pixels else "",
+        tested_candidates=tested,
+        budget_exhausted=tested >= int(budget),
+        progress_path=progress_path,
+        strategy=strategy,
+        reason=reason,
+        source_hash=source_hash,
     )
 
 
@@ -9076,6 +10989,362 @@ def probe_idat_periodic_corruption_model(
         checkpoint_path=checkpoint_path,
         progress_path=progress_path,
         model_path=convoy_model_path,
+        strategy=strategy,
+        reason=reason,
+        source_hash=source_hash,
+    )
+
+
+def _idat_stream_ranges_by_index(chunks: tuple[png.PngChunk, ...]) -> tuple[tuple[int, png.PngChunk, int, int], ...]:
+    ranges: list[tuple[int, png.PngChunk, int, int]] = []
+    stream_offset = 0
+    index = 0
+    for chunk in chunks:
+        if chunk.chunk_type != b"IDAT":
+            continue
+        start = stream_offset
+        end = start + chunk.length
+        ranges.append((index, chunk, start, end))
+        stream_offset = end
+        index += 1
+    return tuple(ranges)
+
+
+def _idat_local_offset_for_stream_offset(
+    chunks: tuple[png.PngChunk, ...],
+    stream_offset: int | None,
+) -> int | None:
+    if stream_offset is None:
+        return None
+    offset = int(stream_offset)
+    for _index, _chunk, start, end in _idat_stream_ranges_by_index(chunks):
+        if start <= offset < end:
+            return offset - start
+    return None
+
+
+def _model_repair_records(model: dict[str, object]) -> tuple[dict[str, object], ...]:
+    records = model.get("byte_repairs", ())
+    if not isinstance(records, list | tuple):
+        return ()
+    return tuple(item for item in records if isinstance(item, dict))
+
+
+def _affine_rules_from_model(model: dict[str, object]) -> tuple[dict[str, object], ...]:
+    groups: dict[tuple[object, ...], list[tuple[int, int, int]]] = {}
+    for record in _model_repair_records(model):
+        try:
+            idat_index = int(record.get("idat_index"))
+            xor_value = int(record.get("xor", 0)) & 0xFF
+            delta_value = int(record.get("delta", 0)) & 0xFF
+        except (TypeError, ValueError):
+            continue
+        key = (
+            record.get("field"),
+            record.get("field_index"),
+            record.get("idat_class_mod8"),
+        )
+        groups.setdefault(key, []).append((idat_index, xor_value, delta_value))
+
+    rules: list[dict[str, object]] = []
+    seen: set[tuple[object, ...]] = set()
+    for key, observations in groups.items():
+        observations = sorted(observations)
+        for mode, value_index in (("xor", 1), ("delta", 2)):
+            values = [(obs[0], obs[value_index]) for obs in observations]
+            values = [(index, value) for index, value in values if value]
+            if not values:
+                continue
+            if len(values) >= 2:
+                first_index, first_value = values[0]
+                second_index, second_value = values[1]
+                denominator = max(1, second_index - first_index)
+                stride = ((second_value - first_value) // denominator) & 0xFF
+                base = (first_value - stride * first_index) & 0xFF
+            else:
+                first_index, first_value = values[0]
+                stride = 0
+                base = first_value & 0xFF
+            rule_key = key + (mode, base, stride)
+            if rule_key in seen:
+                continue
+            seen.add(rule_key)
+            rules.append(
+                {
+                    "field": key[0],
+                    "field_index": key[1],
+                    "idat_class_mod8": key[2],
+                    "mode": mode,
+                    "base": int(base) & 0xFF,
+                    "stride": int(stride) & 0xFF,
+                    "observations": len(values),
+                }
+            )
+
+    for mode, key_name in (("xor", "xors"), ("delta", "deltas")):
+        for value in _periodic_model_ints(model, key_name):
+            rule_key = ("global", mode, value)
+            if rule_key in seen:
+                continue
+            seen.add(rule_key)
+            rules.append(
+                {
+                    "field": "global",
+                    "field_index": None,
+                    "idat_class_mod8": None,
+                    "mode": mode,
+                    "base": int(value) & 0xFF,
+                    "stride": 0,
+                    "observations": 1,
+                }
+            )
+    return tuple(rules)
+
+
+def _affine_rule_value(rule: dict[str, object], occurrence: int) -> int:
+    try:
+        base = int(rule.get("base", 0)) & 0xFF
+        stride = int(rule.get("stride", 0)) & 0xFF
+    except (TypeError, ValueError):
+        return 0
+    return (base + stride * int(occurrence)) & 0xFF
+
+
+def _projected_model_offsets(
+    root_stream: bytes,
+    chunks: tuple[png.PngChunk, ...],
+    diagnostic: IdatLocalDeflateDiagnostic | None,
+    *,
+    early_floor: int = 0x120,
+    local_radius: int = 64,
+) -> tuple[tuple[int, int, int], ...]:
+    ranges = _idat_stream_ranges_by_index(chunks)
+    max_chunk_length = max((chunk.length for _index, chunk, _start, _end in ranges), default=0)
+    focus_offsets = list(DEEP_BEAM_FOCUS_OFFSETS)
+    for start, end in DEEP_BEAM_FOCUS_BIT_RANGES:
+        focus_offsets.extend(range(max(0, start // 8), max(0, (end + 7) // 8) + 1))
+    early_limit = min(
+        max_chunk_length,
+        max(
+            max(0, int(early_floor)),
+            max(focus_offsets, default=0) + 1,
+        ),
+    )
+
+    local_offsets: list[int] = list(range(0, max(0, early_limit)))
+    local_offsets.extend(focus_offsets)
+    if diagnostic is not None:
+        diagnostic_globals = [
+            diagnostic.stream_offset,
+            diagnostic.window_start,
+            max(0, diagnostic.window_end - 1),
+            *diagnostic.suspect_byte_offsets,
+            *_local_deflate_priority_offsets(diagnostic, max_offsets=256),
+        ]
+        for global_offset in diagnostic_globals:
+            local_offset = _idat_local_offset_for_stream_offset(chunks, global_offset)
+            if local_offset is None:
+                continue
+            local_offsets.extend(
+                range(
+                    max(0, local_offset - int(local_radius)),
+                    min(max_chunk_length, local_offset + int(local_radius) + 1),
+                )
+            )
+
+    projected: list[tuple[int, int, int]] = []
+    for idat_index, chunk, start, _end in ranges:
+        for local in dict.fromkeys(offset for offset in local_offsets if 0 <= int(offset) < chunk.length):
+            projected.append((idat_index, start + int(local), int(local)))
+    return tuple(dict.fromkeys(projected))
+
+
+def _affine_apply_rule_to_offset(stream: bytes, offset: int, rule: dict[str, object], occurrence: int) -> tuple[bytes | None, IdatDeepBeamOperation | None]:
+    if offset < 0 or offset >= len(stream):
+        return None, None
+    value = _affine_rule_value(rule, occurrence)
+    if not value:
+        return None, None
+    old = stream[offset]
+    mode = str(rule.get("mode") or "xor")
+    if mode == "delta":
+        new = (old + value) & 0xFF
+    else:
+        new = old ^ value
+    if new == old:
+        return None, None
+    mutated = stream[:offset] + bytes((new,)) + stream[offset + 1 :]
+    operation = IdatDeepBeamOperation(
+        "affine-%s" % mode,
+        int(offset),
+        bytes((old,)),
+        bytes((new,)),
+    )
+    return mutated, operation
+
+
+def probe_idat_affine_corruption_model(
+    data: bytes,
+    *,
+    convoy_model_path: str = "",
+    budget: int = AFFINE_CORRUPTION_DEFAULT_BUDGET,
+    top_candidates: int = AFFINE_CORRUPTION_DEFAULT_TOP_CANDIDATES,
+    checkpoint_path: str = "",
+    progress_path: str = "",
+    progress: QueueProgressCallback | None = None,
+) -> IdatAffineCorruptionModelResult:
+    strategy = "affine-corruption-model"
+    before = idat.analyze_idat_stream(data)
+    if not before.supported or before.complete:
+        return IdatAffineCorruptionModelResult(before, None, (), 0, False, strategy=strategy, reason=before.reason)
+    try:
+        chunks, root_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatAffineCorruptionModelResult(before, None, (), 0, False, strategy=strategy, reason=str(exc))
+    source_hash = _stream_state_key(root_stream)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    model, model_error = _load_idat_convoy_model(convoy_model_path)
+    if model is None:
+        return IdatAffineCorruptionModelResult(before, None, (), 0, False, model_path=convoy_model_path, strategy=strategy, reason=model_error, source_hash=source_hash)
+    if str(model.get("convoy_stream_hash") or "") != source_hash:
+        return IdatAffineCorruptionModelResult(
+            before,
+            None,
+            (),
+            0,
+            False,
+            model_path=convoy_model_path,
+            strategy=strategy,
+            reason="convoy model hash does not match current IDAT stream",
+            source_hash=source_hash,
+        )
+    progress_state = affine_corruption_progress_state(data, progress_path)
+    if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= int(budget):
+        _before, _chunks, _stream, _source_hash, _count, top = _load_frontier_candidates_for_progress(
+            data,
+            checkpoint_path,
+            top_candidates=top_candidates,
+            max_operation_depth=1,
+        )
+        best = _frontier_best_candidate(before, top)
+        return IdatAffineCorruptionModelResult(
+            before,
+            best,
+            top,
+            progress_state.tested,
+            True,
+            checkpoint_path=checkpoint_path,
+            progress_path=progress_path,
+            model_path=convoy_model_path,
+            strategy=strategy,
+            reason="affine corruption model already exhausted for this source/budget",
+            source_hash=source_hash,
+        )
+
+    rules = _affine_rules_from_model(model)
+    diagnostic = idat_local_deflate_diagnostic(data, analysis=before)
+    projections = _projected_model_offsets(root_stream, chunks, diagnostic)
+    root = _frontier_root_candidate(data=data, stream=root_stream, before=before, original_idat_count=original_idat_count)
+    top: list[IdatDeepBeamCandidate] = []
+    visited = {_stream_state_key(root_stream)}
+    tested = 0
+    next_state_id = 1
+    png_plausible = 0
+    projected_hits = 0
+    budget_exhausted = False
+    last_checkpoint_at = 0
+
+    if progress is not None:
+        progress(strategy, 0, int(budget))
+
+    for rule in rules:
+        rule_class = rule.get("idat_class_mod8")
+        for idat_index, offset, _local in projections:
+            if tested >= int(budget):
+                budget_exhausted = True
+                break
+            if rule_class is not None:
+                try:
+                    if idat_index % 8 != int(rule_class) % 8:
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            stream, operation = _affine_apply_rule_to_offset(root_stream, offset, rule, idat_index)
+            tested += 1
+            if stream is None or operation is None:
+                continue
+            projected_hits += 1
+            candidate = _frontier_candidate_from_stream(
+                root,
+                stream,
+                operation,
+                chunks=chunks,
+                before=before,
+                state_id=next_state_id,
+                original_idat_count=original_idat_count,
+                source_kind="candidate_from_affine_corruption",
+            )
+            if candidate is None:
+                continue
+            next_state_id += 1
+            key = _stream_state_key(candidate.stream)
+            if key in visited:
+                continue
+            visited.add(key)
+            if _candidate_png_plausible(candidate):
+                png_plausible += 1
+            top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
+            if checkpoint_path and top and tested - last_checkpoint_at >= AFFINE_CORRUPTION_CHECKPOINT_EVERY:
+                for item in top:
+                    _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
+                last_checkpoint_at = tested
+            if progress is not None and (tested == 1 or tested % 1000 == 0):
+                progress(strategy, min(tested, int(budget)), int(budget))
+        if budget_exhausted:
+            break
+
+    if checkpoint_path:
+        for item in top:
+            _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
+    best = _frontier_best_candidate(before, top)
+    reason = "rules=%s; projections=%s; projected_hits=%s; png_plausible=%s; top=%s" % (
+        len(rules),
+        len(projections),
+        projected_hits,
+        png_plausible,
+        len(top),
+    )
+    _write_frontier_progress(
+        progress_path,
+        source_hash=source_hash,
+        tested=tested,
+        budget=budget,
+        best=best,
+        top_count=len(top),
+        exhausted=True,
+        reason=reason,
+        strategy=strategy,
+        extra={
+            "model_path": convoy_model_path,
+            "rules": int(len(rules)),
+            "projected_hits": int(projected_hits),
+            "png_plausible": int(png_plausible),
+        },
+    )
+    if progress is not None:
+        progress(strategy, min(tested, int(budget)), int(budget))
+    return IdatAffineCorruptionModelResult(
+        before,
+        best,
+        tuple(top),
+        tested,
+        budget_exhausted or tested >= int(budget),
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        model_path=convoy_model_path,
+        rules=len(rules),
+        projected_hits=projected_hits,
+        png_plausible=png_plausible,
         strategy=strategy,
         reason=reason,
         source_hash=source_hash,
@@ -10335,6 +12604,14 @@ def _flip_stream_bits(stream: bytes, bit_offsets: Iterable[int]) -> bytes | None
             return None
         candidate[bit_offset // 8] ^= 1 << (bit_offset % 8)
     return bytes(candidate)
+
+
+def _stream_bit_range_to_bytes(stream: bytes, bit_start: int, bit_end: int) -> bytes:
+    bit_start = max(0, int(bit_start))
+    bit_end = max(bit_start, min(int(bit_end), len(stream) * 8))
+    start = bit_start // 8
+    end = (bit_end + 7) // 8
+    return stream[start:end]
 
 
 def _replace_stream_bits_preserve_length(
@@ -12697,6 +14974,206 @@ def periodic_corruption_model_candidate_summary_lines(
         deep_beam_candidate_summary_line(candidate)
         for candidate in result.top_candidates[: max(1, int(limit))]
     )
+
+
+def affine_corruption_model_summary_line(result: IdatAffineCorruptionModelResult) -> str:
+    line = (
+        "-IDAT affine-corruption: tested=%s; budget_exhausted=%s; rules=%s; projected_hits=%s; png_plausible=%s; top=%s"
+        % (
+            result.tested_candidates,
+            "yes" if result.budget_exhausted else "no",
+            result.rules,
+            result.projected_hits,
+            result.png_plausible,
+            len(result.top_candidates),
+        )
+    )
+    if result.best is not None:
+        line += "; best_score=%s" % (result.best.score,)
+    if result.model_path:
+        line += "; model=%s" % result.model_path
+    if result.checkpoint_path:
+        line += "; checkpoint=%s" % result.checkpoint_path
+    if result.progress_path:
+        line += "; progress=%s" % result.progress_path
+    if result.reason:
+        line += "; reason=%s" % result.reason
+    return line + "."
+
+
+def affine_corruption_model_candidate_summary_lines(
+    result: IdatAffineCorruptionModelResult,
+    *,
+    limit: int = 5,
+) -> tuple[str, ...]:
+    return tuple(
+        deep_beam_candidate_summary_line(candidate)
+        for candidate in result.top_candidates[: max(1, int(limit))]
+    )
+
+
+def huffman_kraft_summary_line(result: IdatHuffmanKraftSolverResult) -> str:
+    line = (
+        "-IDAT huffman-kraft: tested=%s; budget_exhausted=%s; depth=%s; literal_debt=%s; distance_debt=%s; "
+        "complete_trees=%s; first_symbol_ok=%s; valid_headers=%s; top=%s"
+        % (
+            result.tested_candidates,
+            "yes" if result.budget_exhausted else "no",
+            result.reached_depth,
+            result.best_literal_debt,
+            result.best_distance_debt,
+            result.complete_trees,
+            result.first_symbol_ok,
+            result.valid_headers,
+            len(result.top_candidates),
+        )
+    )
+    if result.best is not None:
+        line += "; best_score=%s" % (result.best.score,)
+    if result.checkpoint_path:
+        line += "; checkpoint=%s" % result.checkpoint_path
+    if result.progress_path:
+        line += "; progress=%s" % result.progress_path
+    if result.reason:
+        line += "; reason=%s" % result.reason
+    return line + "."
+
+
+def huffman_kraft_candidate_summary_lines(
+    result: IdatHuffmanKraftSolverResult,
+    *,
+    limit: int = 5,
+) -> tuple[str, ...]:
+    return tuple(
+        deep_beam_candidate_summary_line(candidate)
+        for candidate in result.top_candidates[: max(1, int(limit))]
+    )
+
+
+def huffman_oracle_summary_line(result: IdatHuffmanOracleSolverResult) -> str:
+    line = (
+        "-IDAT huffman-oracle: tested=%s; budget_exhausted=%s; depth=%s; valid_headers=%s; png_plausible=%s; top=%s"
+        % (
+            result.tested_candidates,
+            "yes" if result.budget_exhausted else "no",
+            result.reached_depth,
+            result.valid_headers,
+            result.png_plausible,
+            len(result.top_candidates),
+        )
+    )
+    if result.best is not None:
+        line += "; best_score=%s" % (result.best.score,)
+    if result.checkpoint_path:
+        line += "; checkpoint=%s" % result.checkpoint_path
+    if result.progress_path:
+        line += "; progress=%s" % result.progress_path
+    if result.reason:
+        line += "; reason=%s" % result.reason
+    return line + "."
+
+
+def huffman_oracle_candidate_summary_lines(
+    result: IdatHuffmanOracleSolverResult,
+    *,
+    limit: int = 5,
+) -> tuple[str, ...]:
+    return tuple(
+        deep_beam_candidate_summary_line(candidate)
+        for candidate in result.top_candidates[: max(1, int(limit))]
+    )
+
+
+def crc_periodic_payload_summary_line(result: IdatCrcPeriodicPayloadSolverResult) -> str:
+    line = (
+        "-IDAT crc-periodic: tested=%s; budget_exhausted=%s; crc_hits=%s; png_plausible=%s; top=%s"
+        % (
+            result.tested_candidates,
+            "yes" if result.budget_exhausted else "no",
+            result.crc_hits,
+            result.png_plausible,
+            len(result.top_candidates),
+        )
+    )
+    if result.best is not None:
+        line += "; best_score=%s" % (result.best.score,)
+    if result.model_path:
+        line += "; model=%s" % result.model_path
+    if result.checkpoint_path:
+        line += "; checkpoint=%s" % result.checkpoint_path
+    if result.progress_path:
+        line += "; progress=%s" % result.progress_path
+    if result.reason:
+        line += "; reason=%s" % result.reason
+    return line + "."
+
+
+def crc_periodic_payload_candidate_summary_lines(
+    result: IdatCrcPeriodicPayloadSolverResult,
+    *,
+    limit: int = 5,
+) -> tuple[str, ...]:
+    return tuple(
+        deep_beam_candidate_summary_line(candidate)
+        for candidate in result.top_candidates[: max(1, int(limit))]
+    )
+
+
+def global_crc_residue_summary_line(result: IdatGlobalCrcResidueSolverResult) -> str:
+    line = (
+        "-IDAT global-crc-residue: tested=%s; budget_exhausted=%s; rules=%s; explained_chunks=%s; crc_hits=%s; png_plausible=%s; top=%s"
+        % (
+            result.tested_candidates,
+            "yes" if result.budget_exhausted else "no",
+            result.rules,
+            result.explained_chunks,
+            result.crc_hits,
+            result.png_plausible,
+            len(result.top_candidates),
+        )
+    )
+    if result.best is not None:
+        line += "; best_score=%s" % (result.best.score,)
+    if result.model_path:
+        line += "; model=%s" % result.model_path
+    if result.checkpoint_path:
+        line += "; checkpoint=%s" % result.checkpoint_path
+    if result.progress_path:
+        line += "; progress=%s" % result.progress_path
+    if result.reason:
+        line += "; reason=%s" % result.reason
+    return line + "."
+
+
+def global_crc_residue_candidate_summary_lines(
+    result: IdatGlobalCrcResidueSolverResult,
+    *,
+    limit: int = 5,
+) -> tuple[str, ...]:
+    return tuple(
+        deep_beam_candidate_summary_line(candidate)
+        for candidate in result.top_candidates[: max(1, int(limit))]
+    )
+
+
+def deflate_resync_salvage_summary_line(result: DeflateResyncSalvageResult) -> str:
+    line = (
+        "-IDAT deflate-salvage: tested=%s; budget_exhausted=%s; anchors=%s; partial_rows=%s; known_pixels=%s"
+        % (
+            result.tested_candidates,
+            "yes" if result.budget_exhausted else "no",
+            len(result.anchors),
+            result.partial_rows,
+            result.known_pixels,
+        )
+    )
+    if result.preview_path:
+        line += "; preview=%s" % result.preview_path
+    if result.progress_path:
+        line += "; progress=%s" % result.progress_path
+    if result.reason:
+        line += "; reason=%s" % result.reason
+    return line + "."
 
 
 def deep_beam_candidate_summary_line(candidate: IdatDeepBeamCandidate) -> str:

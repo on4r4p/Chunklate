@@ -4,6 +4,8 @@ import binascii
 from dataclasses import dataclass
 from dataclasses import replace
 import hashlib
+import itertools
+import json
 import multiprocessing
 from pathlib import Path
 import random
@@ -154,6 +156,12 @@ class WrongCrcRuntime:
     deep_beam_gpu_shard_size: Any = None
     deep_beam_cpu_batch_size: Any = None
     deep_beam_prompt_cache: dict[str, Any] | None = None
+    huffman_oracle_budget: Any = None
+    crc_periodic_budget: Any = None
+    huffman_kraft_budget: Any = None
+    global_crc_residue_budget: Any = None
+    affine_corruption_budget: Any = None
+    deflate_salvage_budget: Any = None
 
 
 @dataclass(frozen=True)
@@ -188,6 +196,12 @@ class WrongChunkNameRuntime:
     deep_beam_gpu_shard_size: Any = None
     deep_beam_cpu_batch_size: Any = None
     deep_beam_prompt_cache: dict[str, Any] | None = None
+    huffman_oracle_budget: Any = None
+    crc_periodic_budget: Any = None
+    huffman_kraft_budget: Any = None
+    global_crc_residue_budget: Any = None
+    affine_corruption_budget: Any = None
+    deflate_salvage_budget: Any = None
     queue_existing_clone: Callable[[str], Any] | None = None
 
 
@@ -239,6 +253,12 @@ class NoNextChunkRuntime:
     deep_beam_gpu_shard_size: Any = None
     deep_beam_cpu_batch_size: Any = None
     deep_beam_prompt_cache: dict[str, Any] | None = None
+    huffman_oracle_budget: Any = None
+    crc_periodic_budget: Any = None
+    huffman_kraft_budget: Any = None
+    global_crc_residue_budget: Any = None
+    affine_corruption_budget: Any = None
+    deflate_salvage_budget: Any = None
     queue_existing_clone: Callable[[str], Any] | None = None
 
 
@@ -307,6 +327,12 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         deep_beam_gpu_shard_size=namespace.get("IDAT_DEEP_BEAM_GPU_SHARD_SIZE"),
         deep_beam_cpu_batch_size=namespace.get("IDAT_DEEP_BEAM_CPU_BATCH_SIZE"),
         deep_beam_prompt_cache=namespace.setdefault("IDAT_DEEP_BEAM_PROMPT_CACHE", {}),
+        huffman_oracle_budget=namespace.get("IDAT_HUFFMAN_ORACLE_BUDGET"),
+        crc_periodic_budget=namespace.get("IDAT_CRC_PERIODIC_BUDGET"),
+        huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
+        global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
+        affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
+        deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
     )
 
 
@@ -382,6 +408,12 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         deep_beam_gpu_shard_size=namespace.get("IDAT_DEEP_BEAM_GPU_SHARD_SIZE"),
         deep_beam_cpu_batch_size=namespace.get("IDAT_DEEP_BEAM_CPU_BATCH_SIZE"),
         deep_beam_prompt_cache=namespace.setdefault("IDAT_DEEP_BEAM_PROMPT_CACHE", {}),
+        huffman_oracle_budget=namespace.get("IDAT_HUFFMAN_ORACLE_BUDGET"),
+        crc_periodic_budget=namespace.get("IDAT_CRC_PERIODIC_BUDGET"),
+        huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
+        global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
+        affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
+        deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
         queue_existing_clone=lambda path: queue_existing_clone_from_namespace(namespace, path),
     )
 
@@ -434,6 +466,12 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         deep_beam_gpu_shard_size=namespace.get("IDAT_DEEP_BEAM_GPU_SHARD_SIZE"),
         deep_beam_cpu_batch_size=namespace.get("IDAT_DEEP_BEAM_CPU_BATCH_SIZE"),
         deep_beam_prompt_cache=namespace.setdefault("IDAT_DEEP_BEAM_PROMPT_CACHE", {}),
+        huffman_oracle_budget=namespace.get("IDAT_HUFFMAN_ORACLE_BUDGET"),
+        crc_periodic_budget=namespace.get("IDAT_CRC_PERIODIC_BUDGET"),
+        huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
+        global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
+        affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
+        deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
         queue_existing_clone=lambda path: queue_existing_clone_from_namespace(namespace, path),
     )
 
@@ -3019,6 +3057,79 @@ def _idat_periodic_model_paths(runtime: Any) -> tuple[str, str]:
     return str(checkpoint_path), str(progress_path)
 
 
+def _idat_huffman_oracle_paths(runtime: Any) -> tuple[str, str]:
+    file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
+    file_dir = str(getattr(runtime, "file_dir", "") or "")
+    if not file_origin:
+        return "", ""
+    folder = Path(output.ensure_clone_folder(file_origin, file_dir))
+    payload_folder = folder / "Debug_Payloads"
+    payload_folder.mkdir(parents=True, exist_ok=True)
+    stem = output.source_stem(file_origin)
+    checkpoint_path = payload_folder / ("%s_huffman_oracle.checkpoint.jsonl" % stem)
+    progress_path = payload_folder / ("%s_huffman_oracle.progress.json" % stem)
+    return str(checkpoint_path), str(progress_path)
+
+
+def _idat_crc_periodic_paths(runtime: Any) -> tuple[str, str]:
+    file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
+    file_dir = str(getattr(runtime, "file_dir", "") or "")
+    if not file_origin:
+        return "", ""
+    folder = Path(output.ensure_clone_folder(file_origin, file_dir))
+    payload_folder = folder / "Debug_Payloads"
+    payload_folder.mkdir(parents=True, exist_ok=True)
+    stem = output.source_stem(file_origin)
+    checkpoint_path = payload_folder / ("%s_crc_periodic.checkpoint.jsonl" % stem)
+    progress_path = payload_folder / ("%s_crc_periodic.progress.json" % stem)
+    return str(checkpoint_path), str(progress_path)
+
+
+def _idat_frontier_paths(runtime: Any, label: str) -> tuple[str, str]:
+    file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
+    file_dir = str(getattr(runtime, "file_dir", "") or "")
+    if not file_origin:
+        return "", ""
+    folder = Path(output.ensure_clone_folder(file_origin, file_dir))
+    payload_folder = folder / "Debug_Payloads"
+    payload_folder.mkdir(parents=True, exist_ok=True)
+    stem = output.source_stem(file_origin)
+    checkpoint_path = payload_folder / ("%s_%s.checkpoint.jsonl" % (stem, label))
+    progress_path = payload_folder / ("%s_%s.progress.json" % (stem, label))
+    return str(checkpoint_path), str(progress_path)
+
+
+def _idat_affine_corruption_paths(runtime: Any) -> tuple[str, str]:
+    return _idat_frontier_paths(runtime, "affine_corruption")
+
+
+def _idat_huffman_kraft_paths(runtime: Any) -> tuple[str, str]:
+    return _idat_frontier_paths(runtime, "huffman_kraft")
+
+
+def _idat_global_crc_residue_paths(runtime: Any) -> tuple[str, str]:
+    return _idat_frontier_paths(runtime, "global_crc_residue")
+
+
+def _idat_deflate_salvage_paths(runtime: Any) -> tuple[str, str]:
+    return _idat_frontier_paths(runtime, "deflate_salvage")
+
+
+def _idat_deflate_salvage_preview_path(runtime: Any) -> str:
+    file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
+    file_dir = str(getattr(runtime, "file_dir", "") or "")
+    if not file_origin:
+        return ""
+    try:
+        folder = Path(output.ensure_clone_folder(file_origin, file_dir))
+        payload_folder = folder / "Debug_Payloads"
+        payload_folder.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return ""
+    stem = output.source_stem(file_origin)
+    return str(payload_folder / ("%s_deflate_salvage_preview.ppm" % stem))
+
+
 def _idat_convoy_model_path(runtime: Any) -> str:
     file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
     file_dir = str(getattr(runtime, "file_dir", "") or "")
@@ -3075,6 +3186,48 @@ def _runtime_deep_beam_budget(runtime: Any) -> int:
     return _deep_beam_positive_int(
         getattr(runtime, "deep_beam_budget", None),
         idat_bruteforce.DEEP_BEAM_DEFAULT_BUDGET,
+    )
+
+
+def _runtime_huffman_oracle_budget(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "huffman_oracle_budget", None),
+        idat_bruteforce.HUFFMAN_ORACLE_DEFAULT_BUDGET,
+    )
+
+
+def _runtime_crc_periodic_budget(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "crc_periodic_budget", None),
+        idat_bruteforce.CRC_PERIODIC_DEFAULT_BUDGET,
+    )
+
+
+def _runtime_huffman_kraft_budget(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "huffman_kraft_budget", None),
+        idat_bruteforce.HUFFMAN_KRAFT_DEFAULT_BUDGET,
+    )
+
+
+def _runtime_global_crc_residue_budget(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "global_crc_residue_budget", None),
+        idat_bruteforce.GLOBAL_CRC_RESIDUE_DEFAULT_BUDGET,
+    )
+
+
+def _runtime_affine_corruption_budget(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "affine_corruption_budget", None),
+        idat_bruteforce.AFFINE_CORRUPTION_DEFAULT_BUDGET,
+    )
+
+
+def _runtime_deflate_salvage_budget(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "deflate_salvage_budget", None),
+        idat_bruteforce.DEFLATE_SALVAGE_DEFAULT_BUDGET,
     )
 
 
@@ -3174,9 +3327,10 @@ def _runtime_deep_beam_options(runtime: Any) -> tuple[str | int, bool, gpu_runti
 
 def _write_idat_deep_beam_debug_artifacts(
     runtime: Any,
-    result: idat_bruteforce.IdatDeepBeamProbeResult,
+    result: Any,
     *,
     label: str = "idat_deep_beam",
+    include_dynamic_trace: bool = False,
 ) -> tuple[str, ...]:
     file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
     file_dir = str(getattr(runtime, "file_dir", "") or "")
@@ -3194,7 +3348,7 @@ def _write_idat_deep_beam_debug_artifacts(
     saved: list[str] = []
     stem = output.source_stem(file_origin)
     for stale_path in payload_folder.glob("%s_%s_rank*" % (stem, label)):
-        if stale_path.suffix not in (".png", ".bin"):
+        if stale_path.suffix not in (".png", ".bin", ".json"):
             continue
         try:
             stale_path.unlink()
@@ -3212,19 +3366,44 @@ def _write_idat_deep_beam_debug_artifacts(
         png_path = payload_folder / ("%s.png" % base)
         stream_path = payload_folder / ("%s_idat.bin" % base)
         raw_path = payload_folder / ("%s_raw_prefix.bin" % base)
+        trace_path = payload_folder / ("%s_dynamic_trace.json" % base)
         try:
             png_path.write_bytes(candidate.data)
             stream_path.write_bytes(candidate.stream)
             raw_path.write_bytes(idat_bruteforce.idat_partial_raw_prefix(candidate.stream).raw)
+            if include_dynamic_trace:
+                trace = deflate_header.trace_dynamic_header(candidate.stream)
+                trace_path.write_text(
+                    json.dumps(
+                        {
+                            "status": trace.status,
+                            "summary": trace.summary,
+                            "bfinal": trace.bfinal,
+                            "btype": trace.btype,
+                            "hlit": trace.hlit,
+                            "hdist": trace.hdist,
+                            "hclen": trace.hclen,
+                            "length_count": trace.length_count,
+                            "bit_offset": trace.bit_offset,
+                            "header_end_bit": trace.header_end_bit,
+                            "literal_error": trace.literal_error,
+                            "distance_error": trace.distance_error,
+                        },
+                        sort_keys=True,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
         except OSError:
             continue
-        saved.extend(
-            (
-                png_path.relative_to(folder).as_posix(),
-                stream_path.relative_to(folder).as_posix(),
-                raw_path.relative_to(folder).as_posix(),
-            )
-        )
+        saved_items = [
+            png_path.relative_to(folder).as_posix(),
+            stream_path.relative_to(folder).as_posix(),
+            raw_path.relative_to(folder).as_posix(),
+        ]
+        if include_dynamic_trace:
+            saved_items.append(trace_path.relative_to(folder).as_posix())
+        saved.extend(saved_items)
     if saved:
         runtime.side_notes.append(
             "-IDAT deep beam artifacts: %s." % ", ".join(saved[: min(len(saved), 12)])
@@ -3309,6 +3488,395 @@ def _write_periodic_model_best_clone(
     return True, runtime.write_clone(candidate.data, summary)
 
 
+def _run_idat_affine_corruption_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+) -> idat_bruteforce.IdatAffineCorruptionModelResult | None:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None
+    model_path = _idat_convoy_model_path(runtime)
+    checkpoint_path, progress_path = _idat_affine_corruption_paths(runtime)
+    budget = _runtime_affine_corruption_budget(runtime)
+    progress_state = idat_bruteforce.affine_corruption_progress_state(data, progress_path)
+    if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= budget:
+        runtime.side_notes.append(
+            "-IDAT affine-corruption already consumed for this source/budget: tested=%s; budget=%s; reason=%s."
+            % (progress_state.tested, progress_state.budget, progress_state.reason)
+        )
+        return None
+    runtime.candy(
+        "Cowsay",
+        "I am projecting affine corruption rules learned from the IDAT convoy.",
+        "com",
+    )
+    runtime.candy("Title", "probe_idat_affine_corruption_model")
+    result = idat_bruteforce.probe_idat_affine_corruption_model(
+        data,
+        convoy_model_path=model_path,
+        budget=budget,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        progress=_runtime_idat_queue_progress(runtime),
+    )
+    runtime.side_notes.append(idat_bruteforce.affine_corruption_model_summary_line(result))
+    runtime.side_notes.extend(idat_bruteforce.affine_corruption_model_candidate_summary_lines(result))
+    if result.top_candidates:
+        _write_idat_deep_beam_debug_artifacts(runtime, result, label="idat_affine_corruption", include_dynamic_trace=True)
+    if result.best is None:
+        runtime.candy(
+            "Cowsay",
+            "The affine corruption model produced no clone-worthy PNG scanline yet.",
+            "bad",
+        )
+    return result
+
+
+def _write_affine_corruption_best_clone(
+    runtime: Any,
+    analysis: idat.IdatStreamAnalysis,
+    result: idat_bruteforce.IdatAffineCorruptionModelResult,
+) -> tuple[bool, Any]:
+    candidate = result.best
+    if candidate is None:
+        raise ValueError("affine corruption result has no best candidate")
+    runtime.candy("Cowsay", "The affine corruption model found real image progress.", "good")
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: affine IDAT corruption model.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.affine_corruption_model_summary_line(result),
+            *idat_bruteforce.affine_corruption_model_candidate_summary_lines(result),
+            idat_stream_diagnosis_note(candidate.after),
+        )
+    )
+    return True, runtime.write_clone(candidate.data, summary)
+
+
+def _run_idat_huffman_kraft_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+) -> idat_bruteforce.IdatHuffmanKraftSolverResult | None:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None
+    checkpoint_path, progress_path = _idat_huffman_kraft_paths(runtime)
+    budget = _runtime_huffman_kraft_budget(runtime)
+    progress_state = idat_bruteforce.huffman_kraft_progress_state(data, progress_path)
+    if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= budget:
+        runtime.side_notes.append(
+            "-IDAT huffman-kraft already consumed for this source/budget: tested=%s; budget=%s; reason=%s."
+            % (progress_state.tested, progress_state.budget, progress_state.reason)
+        )
+        return None
+    runtime.candy(
+        "Cowsay",
+        "I am solving the dynamic Huffman trees by Kraft debt before the wide beam.",
+        "com",
+    )
+    runtime.candy("Title", "probe_idat_huffman_kraft_solver")
+    result = idat_bruteforce.probe_idat_huffman_kraft_solver(
+        data,
+        budget=budget,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        seed_candidates=seed_candidates,
+        progress=_runtime_idat_queue_progress(runtime),
+    )
+    runtime.side_notes.append(idat_bruteforce.huffman_kraft_summary_line(result))
+    runtime.side_notes.extend(idat_bruteforce.huffman_kraft_candidate_summary_lines(result))
+    if result.top_candidates:
+        _write_idat_deep_beam_debug_artifacts(runtime, result, label="idat_huffman_kraft", include_dynamic_trace=True)
+    if result.best is None:
+        runtime.candy(
+            "Cowsay",
+            "The Kraft solver kept diagnostic seeds, but no usable PNG scanline yet.",
+            "bad",
+        )
+    return result
+
+
+def _write_huffman_kraft_best_clone(
+    runtime: Any,
+    analysis: idat.IdatStreamAnalysis,
+    result: idat_bruteforce.IdatHuffmanKraftSolverResult,
+) -> tuple[bool, Any]:
+    candidate = result.best
+    if candidate is None:
+        raise ValueError("huffman kraft result has no best candidate")
+    runtime.candy("Cowsay", "The Kraft Huffman solver found real image progress.", "good")
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: Kraft-constrained dynamic Huffman solver.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.huffman_kraft_summary_line(result),
+            *idat_bruteforce.huffman_kraft_candidate_summary_lines(result),
+            idat_stream_diagnosis_note(candidate.after),
+        )
+    )
+    return True, runtime.write_clone(candidate.data, summary)
+
+
+def _run_idat_huffman_oracle_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+) -> idat_bruteforce.IdatHuffmanOracleSolverResult | None:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None
+    checkpoint_path, progress_path = _idat_huffman_oracle_paths(runtime)
+    budget = _runtime_huffman_oracle_budget(runtime)
+    progress_state = idat_bruteforce.huffman_oracle_progress_state(data, progress_path)
+    if (
+        progress_state.available
+        and progress_state.source_matches
+        and progress_state.exhausted
+        and progress_state.budget >= budget
+    ):
+        runtime.side_notes.append(
+            "-IDAT huffman-oracle already consumed for this source/budget: tested=%s; budget=%s; reason=%s."
+            % (progress_state.tested, progress_state.budget, progress_state.reason)
+        )
+        return None
+
+    runtime.candy(
+        "Cowsay",
+        "I am trying a constrained dynamic-Huffman route with a PNG raw-filter oracle.",
+        "com",
+    )
+    runtime.candy("Title", "probe_idat_dynamic_huffman_png_oracle_solver")
+    result = idat_bruteforce.probe_idat_dynamic_huffman_png_oracle_solver(
+        data,
+        budget=budget,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        progress=_runtime_idat_queue_progress(runtime),
+    )
+    runtime.side_notes.append(idat_bruteforce.huffman_oracle_summary_line(result))
+    runtime.side_notes.extend(idat_bruteforce.huffman_oracle_candidate_summary_lines(result))
+    if result.top_candidates:
+        _write_idat_deep_beam_debug_artifacts(runtime, result, label="idat_huffman_oracle", include_dynamic_trace=True)
+    if result.best is None:
+        runtime.candy(
+            "Cowsay",
+            "The Huffman oracle kept diagnostic seeds, but no usable PNG scanline yet.",
+            "bad",
+        )
+    return result
+
+
+def _write_huffman_oracle_best_clone(
+    runtime: Any,
+    analysis: idat.IdatStreamAnalysis,
+    result: idat_bruteforce.IdatHuffmanOracleSolverResult,
+) -> tuple[bool, Any]:
+    candidate = result.best
+    if candidate is None:
+        raise ValueError("huffman oracle result has no best candidate")
+    runtime.candy(
+        "Cowsay",
+        "The Huffman oracle found real image progress.",
+        "good",
+    )
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: constrained dynamic-Huffman PNG oracle.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.huffman_oracle_summary_line(result),
+            *idat_bruteforce.huffman_oracle_candidate_summary_lines(result),
+            idat_stream_diagnosis_note(candidate.after),
+        )
+    )
+    return True, runtime.write_clone(candidate.data, summary)
+
+
+def _run_idat_crc_periodic_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+) -> idat_bruteforce.IdatCrcPeriodicPayloadSolverResult | None:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None
+    model_path = _idat_convoy_model_path(runtime)
+    checkpoint_path, progress_path = _idat_crc_periodic_paths(runtime)
+    budget = _runtime_crc_periodic_budget(runtime)
+    progress_state = idat_bruteforce.crc_periodic_progress_state(data, progress_path)
+    if (
+        progress_state.available
+        and progress_state.source_matches
+        and progress_state.exhausted
+        and progress_state.budget >= budget
+    ):
+        runtime.side_notes.append(
+            "-IDAT crc-periodic already consumed for this source/budget: tested=%s; budget=%s; reason=%s."
+            % (progress_state.tested, progress_state.budget, progress_state.reason)
+        )
+        return None
+
+    runtime.candy(
+        "Cowsay",
+        "I am trying a CRC-guided periodic payload route. CRCs nominate; PNG raw bytes judge.",
+        "com",
+    )
+    runtime.candy("Title", "probe_idat_crc_periodic_payload_solver")
+    result = idat_bruteforce.probe_idat_crc_periodic_payload_solver(
+        data,
+        convoy_model_path=model_path,
+        budget=budget,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        progress=_runtime_idat_queue_progress(runtime),
+    )
+    runtime.side_notes.append(idat_bruteforce.crc_periodic_payload_summary_line(result))
+    runtime.side_notes.extend(idat_bruteforce.crc_periodic_payload_candidate_summary_lines(result))
+    if result.top_candidates:
+        _write_idat_deep_beam_debug_artifacts(runtime, result, label="idat_crc_periodic", include_dynamic_trace=True)
+    if result.best is None:
+        runtime.candy(
+            "Cowsay",
+            "The CRC-periodic route produced no clone-worthy PNG scanline yet.",
+            "bad",
+        )
+    return result
+
+
+def _write_crc_periodic_best_clone(
+    runtime: Any,
+    analysis: idat.IdatStreamAnalysis,
+    result: idat_bruteforce.IdatCrcPeriodicPayloadSolverResult,
+) -> tuple[bool, Any]:
+    candidate = result.best
+    if candidate is None:
+        raise ValueError("crc-periodic result has no best candidate")
+    runtime.candy(
+        "Cowsay",
+        "The CRC-periodic route found real image progress.",
+        "good",
+    )
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: CRC-guided periodic IDAT payload solver.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.crc_periodic_payload_summary_line(result),
+            *idat_bruteforce.crc_periodic_payload_candidate_summary_lines(result),
+            idat_stream_diagnosis_note(candidate.after),
+        )
+    )
+    return True, runtime.write_clone(candidate.data, summary)
+
+
+def _run_idat_global_crc_residue_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+) -> idat_bruteforce.IdatGlobalCrcResidueSolverResult | None:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None
+    model_path = _idat_convoy_model_path(runtime)
+    checkpoint_path, progress_path = _idat_global_crc_residue_paths(runtime)
+    budget = _runtime_global_crc_residue_budget(runtime)
+    progress_state = idat_bruteforce.global_crc_residue_progress_state(data, progress_path)
+    if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= budget:
+        runtime.side_notes.append(
+            "-IDAT global-crc-residue already consumed for this source/budget: tested=%s; budget=%s; reason=%s."
+            % (progress_state.tested, progress_state.budget, progress_state.reason)
+        )
+        return None
+    runtime.candy(
+        "Cowsay",
+        "I am trying a global CRC residue model. CRCs nominate; deflate and PNG raw bytes judge.",
+        "com",
+    )
+    runtime.candy("Title", "probe_idat_global_crc_residue_solver")
+    result = idat_bruteforce.probe_idat_global_crc_residue_solver(
+        data,
+        convoy_model_path=model_path,
+        budget=budget,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        progress=_runtime_idat_queue_progress(runtime),
+    )
+    runtime.side_notes.append(idat_bruteforce.global_crc_residue_summary_line(result))
+    runtime.side_notes.extend(idat_bruteforce.global_crc_residue_candidate_summary_lines(result))
+    if result.top_candidates:
+        _write_idat_deep_beam_debug_artifacts(runtime, result, label="idat_global_crc_residue", include_dynamic_trace=True)
+    if result.best is None:
+        runtime.candy(
+            "Cowsay",
+            "The global CRC residue route produced no clone-worthy PNG scanline yet.",
+            "bad",
+        )
+    return result
+
+
+def _write_global_crc_residue_best_clone(
+    runtime: Any,
+    analysis: idat.IdatStreamAnalysis,
+    result: idat_bruteforce.IdatGlobalCrcResidueSolverResult,
+) -> tuple[bool, Any]:
+    candidate = result.best
+    if candidate is None:
+        raise ValueError("global CRC residue result has no best candidate")
+    runtime.candy("Cowsay", "The global CRC residue route found real image progress.", "good")
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: global CRC residue IDAT solver.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.global_crc_residue_summary_line(result),
+            *idat_bruteforce.global_crc_residue_candidate_summary_lines(result),
+            idat_stream_diagnosis_note(candidate.after),
+        )
+    )
+    return True, runtime.write_clone(candidate.data, summary)
+
+
+def _run_deflate_resync_salvage_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+) -> idat_bruteforce.DeflateResyncSalvageResult | None:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None
+    _checkpoint_path, progress_path = _idat_deflate_salvage_paths(runtime)
+    budget = _runtime_deflate_salvage_budget(runtime)
+    progress_state = idat_bruteforce.deflate_salvage_progress_state(data, progress_path)
+    if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= budget:
+        runtime.side_notes.append(
+            "-IDAT deflate-salvage already consumed for this source/budget: tested=%s; budget=%s; reason=%s."
+            % (progress_state.tested, progress_state.budget, progress_state.reason)
+        )
+        return None
+    runtime.candy(
+        "Cowsay",
+        "I am trying a deflate resync salvage preview route. This writes debug evidence only, not a Fixed clone.",
+        "com",
+    )
+    runtime.candy("Title", "probe_deflate_resync_salvage")
+    result = idat_bruteforce.probe_deflate_resync_salvage(
+        data,
+        budget=budget,
+        progress_path=progress_path,
+        preview_path=_idat_deflate_salvage_preview_path(runtime),
+        progress=_runtime_idat_queue_progress(runtime),
+    )
+    runtime.side_notes.append(idat_bruteforce.deflate_resync_salvage_summary_line(result))
+    if result.preview_path:
+        runtime.candy(
+            "Cowsay",
+            "The salvage route wrote a partial preview artifact, but it is not a final PNG repair.",
+            "com",
+        )
+    else:
+        runtime.candy(
+            "Cowsay",
+            "The salvage route found no usable partial preview yet.",
+            "bad",
+        )
+    return result
+
+
 def _block_deep_beam_if_chunk_names_are_stale(runtime: Any, data: bytes) -> bool:
     _chunks, problems, status = _chunk_name_audit(data)
     if status == "ok" and not problems:
@@ -3364,7 +3932,7 @@ def _run_idat_deep_beam_runtime(
     deep_workers, deep_gpu, deep_gpu_config, deep_budget, deep_gpu_shard_size, deep_cpu_batch_size = _runtime_deep_beam_options(runtime)
     if seed_candidates:
         runtime.side_notes.append(
-            "-IDAT deep beam seeded with %s periodic model candidate(s)." % len(seed_candidates)
+            "-IDAT deep beam seeded with %s frontier candidate(s)." % len(seed_candidates)
         )
     runtime.candy("Title", "probe_idat_deflate_deep_beam")
     deep_probe = idat_bruteforce.probe_idat_deflate_deep_beam(
@@ -3514,6 +4082,62 @@ def _probe_idat_lf_route_for_diagnostics(runtime: Any, data: bytes, analysis: id
             )
 
 
+def _run_idat_frontier_routes_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+) -> tuple[tuple[bool, Any] | None, tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]]:
+    seed_groups: list[tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]] = []
+
+    periodic_result = _run_idat_periodic_model_runtime(runtime, data, analysis)
+    if periodic_result is not None:
+        if periodic_result.best is not None:
+            return _write_periodic_model_best_clone(runtime, analysis, periodic_result), ()
+        seed_groups.append(periodic_result.top_candidates)
+
+    affine_result = _run_idat_affine_corruption_runtime(runtime, data, analysis)
+    if affine_result is not None:
+        if affine_result.best is not None:
+            return _write_affine_corruption_best_clone(runtime, analysis, affine_result), ()
+        seed_groups.append(affine_result.top_candidates)
+
+    kraft_seed_candidates = tuple(itertools.chain.from_iterable(seed_groups))
+    kraft_result = _run_idat_huffman_kraft_runtime(
+        runtime,
+        data,
+        analysis,
+        seed_candidates=kraft_seed_candidates,
+    )
+    if kraft_result is not None:
+        if kraft_result.best is not None:
+            return _write_huffman_kraft_best_clone(runtime, analysis, kraft_result), ()
+        seed_groups.append(kraft_result.top_candidates)
+
+    huffman_result = _run_idat_huffman_oracle_runtime(runtime, data, analysis)
+    if huffman_result is not None:
+        if huffman_result.best is not None:
+            return _write_huffman_oracle_best_clone(runtime, analysis, huffman_result), ()
+        seed_groups.append(huffman_result.top_candidates)
+
+    global_crc_result = _run_idat_global_crc_residue_runtime(runtime, data, analysis)
+    if global_crc_result is not None:
+        if global_crc_result.best is not None:
+            return _write_global_crc_residue_best_clone(runtime, analysis, global_crc_result), ()
+        seed_groups.append(global_crc_result.top_candidates)
+
+    crc_periodic_result = _run_idat_crc_periodic_runtime(runtime, data, analysis)
+    if crc_periodic_result is not None:
+        if crc_periodic_result.best is not None:
+            return _write_crc_periodic_best_clone(runtime, analysis, crc_periodic_result), ()
+        seed_groups.append(crc_periodic_result.top_candidates)
+
+    return None, tuple(itertools.chain.from_iterable(seed_groups))
+
+
+def _maybe_run_deflate_salvage_after_frontier(runtime: Any, data: bytes, analysis: idat.IdatStreamAnalysis) -> None:
+    _run_deflate_resync_salvage_runtime(runtime, data, analysis)
+
+
 def try_idat_deflate_bruteforce(
     runtime: Any,
     analysis: idat.IdatStreamAnalysis | None = None,
@@ -3538,9 +4162,9 @@ def try_idat_deflate_bruteforce(
     resume_state = idat_bruteforce.deep_beam_resume_state(data, checkpoint_path, progress_path)
     deep_budget = _runtime_deep_beam_budget(runtime)
     if resume_state.available and resume_state.source_matches:
-        periodic_result = _run_idat_periodic_model_runtime(runtime, data, analysis)
-        if periodic_result is not None and periodic_result.best is not None:
-            return _write_periodic_model_best_clone(runtime, analysis, periodic_result)
+        frontier_clone, seed_candidates = _run_idat_frontier_routes_runtime(runtime, data, analysis)
+        if frontier_clone is not None:
+            return frontier_clone
         if not resume_state.interrupted and resume_state.tested >= deep_budget:
             runtime.side_notes.append(
                 "-IDAT deep beam budget exhausted for this source/budget; not relaunching automatically."
@@ -3550,18 +4174,22 @@ def try_idat_deflate_bruteforce(
                 "The existing deep-beam progress already reached this budget. Increase IDAT_DEEP_BEAM_BUDGET or delete the checkpoint/progress to run it again.",
                 "bad",
             )
+            _maybe_run_deflate_salvage_after_frontier(runtime, data, analysis)
             return False, None
         runtime.side_notes.append("-IDAT deep beam resume-first: existing checkpoint/progress matches this IDAT stream.")
         runtime.side_notes.append(idat_stream_diagnosis_note(analysis))
-        return _run_idat_deep_beam_runtime(
+        deep_result = _run_idat_deep_beam_runtime(
             runtime,
             data,
             analysis,
             checkpoint_path=checkpoint_path,
             progress_path=progress_path,
             resume_state=resume_state,
-            seed_candidates=tuple(periodic_result.top_candidates) if periodic_result is not None else (),
+            seed_candidates=seed_candidates,
         )
+        if deep_result is None or deep_result == (False, None):
+            _maybe_run_deflate_salvage_after_frontier(runtime, data, analysis)
+        return deep_result
     if resume_state.available and not resume_state.source_matches:
         runtime.side_notes.append("-IDAT deep beam resume ignored: %s." % resume_state.reason)
 
@@ -3645,17 +4273,20 @@ def try_idat_deflate_bruteforce(
             _probe_idat_lf_route_for_diagnostics(runtime, data, analysis)
             runtime.side_notes.append("-IDAT deflate header probe found no clone-worthy scanline progress.")
             runtime.side_notes.append("-IDAT diagnostic LF route found no clone-worthy scanline progress.")
-            periodic_result = _run_idat_periodic_model_runtime(runtime, data, analysis)
-            if periodic_result is not None and periodic_result.best is not None:
-                return _write_periodic_model_best_clone(runtime, analysis, periodic_result)
-            return _run_idat_deep_beam_runtime(
+            frontier_clone, seed_candidates = _run_idat_frontier_routes_runtime(runtime, data, analysis)
+            if frontier_clone is not None:
+                return frontier_clone
+            deep_result = _run_idat_deep_beam_runtime(
                 runtime,
                 data,
                 analysis,
                 checkpoint_path=checkpoint_path,
                 progress_path=progress_path,
-                seed_candidates=tuple(periodic_result.top_candidates) if periodic_result is not None else (),
+                seed_candidates=seed_candidates,
             )
+            if deep_result is None or deep_result == (False, None):
+                _maybe_run_deflate_salvage_after_frontier(runtime, data, analysis)
+            return deep_result
 
         candidate = header_probe.best
         runtime.side_notes.extend(idat_bruteforce.candidate_summary_lines(header_probe))

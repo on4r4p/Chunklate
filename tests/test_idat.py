@@ -4010,6 +4010,26 @@ def test_idat_raw_prefix_score_counts_multiple_scanline_filters():
     assert score.valid_filter_rows == 2
 
 
+def test_idat_raw_png_oracle_rejects_noise_first_filter():
+    bad_raw = b"\xbdxxx"
+    good_raw = b"\x04xxx"
+    bad_data = build_rgb_png(1, 1, bad_raw, idat_data=zlib.compress(bad_raw))
+    good_data = build_rgb_png(1, 1, good_raw, idat_data=zlib.compress(good_raw))
+    bad_analysis = idat.analyze_idat_stream(bad_data)
+    good_analysis = idat.analyze_idat_stream(good_data)
+    _bad_chunks, bad_stream = idat_bruteforce._all_chunks_and_idat_stream(bad_data)
+    _good_chunks, good_stream = idat_bruteforce._all_chunks_and_idat_stream(good_data)
+
+    bad = idat_bruteforce.raw_png_oracle_decision(bad_stream, bad_analysis)
+    good = idat_bruteforce.raw_png_oracle_decision(good_stream, good_analysis)
+
+    assert bad.rejected is True
+    assert "first raw byte" in bad.reject_reason
+    assert good.rejected is False
+    assert good.png_plausible is True
+    assert good.rank > bad.rank
+
+
 def test_idat_deep_beam_default_budget_is_ten_million():
     assert idat_bruteforce.DEEP_BEAM_DEFAULT_BUDGET == 10_000_000
 
@@ -4186,6 +4206,197 @@ def test_idat_periodic_model_refuses_hash_mismatch(tmp_path):
     assert result.best is None
     assert result.tested_candidates == 0
     assert "does not match" in result.reason
+
+
+def test_idat_huffman_oracle_progress_same_budget_skips(tmp_path):
+    candidate, _stream_offset, _original = dynamic_header_corrupt_png()
+    _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
+    progress = tmp_path / "huffman.progress.json"
+    checkpoint = tmp_path / "huffman.checkpoint.jsonl"
+    progress.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "source_hash": idat_bruteforce._stream_state_key(stream),
+                "strategy": "dynamic-huffman-png-oracle",
+                "tested_candidates": 123,
+                "budget": 750000,
+                "exhausted": True,
+            }
+        )
+    )
+
+    result = idat_bruteforce.probe_idat_dynamic_huffman_png_oracle_solver(
+        candidate,
+        budget=750000,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+    )
+
+    assert result.tested_candidates == 123
+    assert result.budget_exhausted is True
+    assert "already exhausted" in result.reason
+
+
+def test_idat_huffman_kraft_progress_same_budget_skips(tmp_path):
+    candidate, _stream_offset, _original = dynamic_header_corrupt_png()
+    _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
+    progress = tmp_path / "kraft.progress.json"
+    checkpoint = tmp_path / "kraft.checkpoint.jsonl"
+    progress.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "source_hash": idat_bruteforce._stream_state_key(stream),
+                "strategy": "huffman-kraft",
+                "tested_candidates": 321,
+                "budget": idat_bruteforce.HUFFMAN_KRAFT_DEFAULT_BUDGET,
+                "exhausted": True,
+            }
+        )
+    )
+
+    result = idat_bruteforce.probe_idat_huffman_kraft_solver(
+        candidate,
+        budget=idat_bruteforce.HUFFMAN_KRAFT_DEFAULT_BUDGET,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+    )
+
+    assert result.tested_candidates == 321
+    assert result.budget_exhausted is True
+    assert "already exhausted" in result.reason
+
+
+def test_idat_affine_corruption_refuses_hash_mismatch(tmp_path):
+    candidate, _stream_offset, _original = dynamic_header_corrupt_png()
+    model = tmp_path / "model.json"
+    model.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "convoy_stream_hash": "not-this-stream",
+                "xors": [1],
+                "deltas": [1],
+                "byte_repairs": [],
+            }
+        )
+    )
+
+    result = idat_bruteforce.probe_idat_affine_corruption_model(
+        candidate,
+        convoy_model_path=str(model),
+        budget=100,
+    )
+
+    assert result.best is None
+    assert result.tested_candidates == 0
+    assert "does not match" in result.reason
+
+
+def test_idat_affine_projection_adapts_to_late_local_deflate_error():
+    chunks = (
+        idat_bruteforce.png.PngChunk(8, 0x500, b"IDAT", bytes(0x500), 0),
+        idat_bruteforce.png.PngChunk(0x520, 0x500, b"IDAT", bytes(0x500), 0),
+    )
+    root_stream = bytes(0xA00)
+    before = idat.analyze_idat_stream(build_rgb_png(1, 1, b"\x00abc"))
+    diagnostic = idat_bruteforce.IdatLocalDeflateDiagnostic(
+        before=before,
+        trace=deflate_header.DynamicHeaderTrace("invalid_huffman_lengths"),
+        stream_size=len(root_stream),
+        stream_offset=0x340,
+        file_offset=None,
+        idat_index=1,
+        idat_offset=0x340,
+        window_start=0x320,
+        window_end=0x360,
+        context_hex="",
+        suspect_byte_offsets=(0x345,),
+    )
+
+    projected = idat_bruteforce._projected_model_offsets(root_stream, chunks, diagnostic)
+    locals_by_chunk = {
+        index: {local for candidate_index, _stream_offset, local in projected if candidate_index == index}
+        for index, _chunk, _start, _end in idat_bruteforce._idat_stream_ranges_by_index(chunks)
+    }
+
+    assert 0x6E in locals_by_chunk[0]
+    assert 0x340 in locals_by_chunk[0]
+    assert 0x345 in locals_by_chunk[1]
+    assert max(locals_by_chunk[0]) > 0x120
+
+
+def test_idat_crc_periodic_refuses_hash_mismatch(tmp_path):
+    candidate, _stream_offset, _original = dynamic_header_corrupt_png()
+    model = tmp_path / "model.json"
+    model.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "convoy_stream_hash": "not-this-stream",
+                "xors": [1],
+                "deltas": [1],
+            }
+        )
+    )
+
+    result = idat_bruteforce.probe_idat_crc_periodic_payload_solver(
+        candidate,
+        convoy_model_path=str(model),
+        budget=100,
+    )
+
+    assert result.best is None
+    assert result.tested_candidates == 0
+    assert "does not match" in result.reason
+
+
+def test_idat_global_crc_residue_refuses_hash_mismatch(tmp_path):
+    candidate, _stream_offset, _original = dynamic_header_corrupt_png()
+    model = tmp_path / "model.json"
+    model.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "convoy_stream_hash": "not-this-stream",
+                "xors": [1],
+                "deltas": [1],
+                "byte_repairs": [],
+            }
+        )
+    )
+
+    result = idat_bruteforce.probe_idat_global_crc_residue_solver(
+        candidate,
+        convoy_model_path=str(model),
+        budget=100,
+    )
+
+    assert result.best is None
+    assert result.tested_candidates == 0
+    assert "does not match" in result.reason
+
+
+def test_idat_deflate_resync_salvage_writes_progress(tmp_path):
+    candidate, _stream_offset, _original = dynamic_header_corrupt_png()
+    progress = tmp_path / "salvage.progress.json"
+    preview = tmp_path / "salvage.ppm"
+
+    result = idat_bruteforce.probe_deflate_resync_salvage(
+        candidate,
+        budget=64,
+        progress_path=str(progress),
+        preview_path=str(preview),
+    )
+
+    assert result.strategy == "deflate-resync-salvage"
+    assert result.tested_candidates <= 64
+    assert progress.exists()
+    state = idat_bruteforce.deflate_salvage_progress_state(candidate, str(progress))
+    assert state.available is True
+    assert state.source_matches is True
+    assert state.exhausted is True
 
 
 def test_idat_periodic_model_repairs_model_xor_without_deep_beam(tmp_path):
