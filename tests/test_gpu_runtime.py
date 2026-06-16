@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from dataclasses import replace
 import struct
 from types import SimpleNamespace
 import zlib
@@ -82,6 +83,104 @@ def test_ultimate_opengl_backend_rejects_missing_idat_before_probe():
 
     assert decision.runnable is False
     assert "needs an IDAT stream" in decision.reason
+
+
+def test_ultimate_analysis_session_reuses_harness_and_shader():
+    calls = []
+
+    class FakeUniform:
+        value = 0
+
+    class FakeShader:
+        def __init__(self, harness):
+            self.harness = harness
+            self.uniforms = {}
+
+        def __getitem__(self, name):
+            uniform = FakeUniform()
+            self.uniforms[name] = uniform
+            return uniform
+
+        def run(self, *_groups):
+            output = self.harness.storage_buffers[2]
+            batch_count = int(self.uniforms["batch_count"].value)
+            output.data = struct.pack("<III", 0, batch_count, 0)
+
+        def release(self):
+            calls.append("shader_release")
+
+    class FakeBuffer:
+        def __init__(self, harness, data=b""):
+            self.harness = harness
+            self.data = data
+
+        def bind_to_storage_buffer(self, binding):
+            self.harness.storage_buffers[binding] = self
+
+        def write(self, data):
+            self.data = data
+
+        def read(self):
+            return self.data
+
+        def release(self):
+            calls.append("buffer_release")
+
+    class FakeHarness:
+        def __init__(self):
+            calls.append("harness_create")
+            self.storage_buffers = {}
+
+        def compile_compute_shader(self, _source):
+            calls.append("compile")
+            return FakeShader(self)
+
+        def buffer(self, data=None, *, reserve=None):
+            return FakeBuffer(self, data or (b"\x00" * int(reserve)))
+
+        def dispatch(self, shader, *, group_x, group_y=1, group_z=1):
+            calls.append("dispatch")
+            shader.run(group_x, group_y, group_z)
+
+        def memory_barrier(self):
+            calls.append("barrier")
+
+        def release(self):
+            calls.append("harness_release")
+
+    operations = (
+        SimpleNamespace(stream_offset=0, old_bytes=b"x", new_bytes=b"y"),
+        SimpleNamespace(stream_offset=1, old_bytes=b"\x9c", new_bytes=b"\x01"),
+    )
+    plan = ultimate_opengl_backend.build_analysis_plan(
+        b"x\x9c",
+        width=1,
+        height=1,
+        bit_depth=8,
+        color_type=2,
+        scanline_size=4,
+        expected_size=4,
+        operation_pool=operations,
+        depth=1,
+        start_rank=0,
+        end_rank=1,
+    )
+    session = ultimate_opengl_backend.UltimateOpenGLAnalysisSession(
+        gpu_runtime.GpuRuntimeConfig(enabled=True),
+        harness_factory=lambda **_kwargs: FakeHarness(),
+    )
+    try:
+        first = session.run(plan, max_ranks=1)
+        second = session.run(replace(plan, start_rank=1, end_rank=2), max_ranks=1)
+    finally:
+        session.close()
+
+    assert first.tested == 1
+    assert second.tested == 1
+    assert calls.count("harness_create") == 1
+    assert calls.count("compile") == 1
+    assert calls.count("dispatch") == 2
+    assert calls.count("harness_release") == 1
 
 
 def test_ultimate_opengl_backend_offset_preflight_returns_cr_lf_and_trailer_offsets():

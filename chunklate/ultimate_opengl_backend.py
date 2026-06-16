@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import math
 import struct
+import time
 from typing import Any, Callable
 
 from . import gpu_opengl, gpu_runtime, idat, png
@@ -489,6 +490,56 @@ class UltimateOpenGLAnalysisResult:
     covered_rank_count: int = 0
     fallback_reason: str = ""
     shader_used: bool = False
+    setup_ms: float = 0.0
+    dispatch_ms: float = 0.0
+
+
+@dataclass
+class UltimateOpenGLAnalysisSession:
+    gpu_config: gpu_runtime.GpuRuntimeConfig
+    harness_factory: Callable[..., gpu_opengl.OpenGLComputeHarness] = gpu_opengl.create_compute_harness
+    harness: Any = None
+    shader: Any = None
+    setup_ms: float = 0.0
+    dispatch_ms: float = 0.0
+    shards: int = 0
+
+    def ensure(self) -> float:
+        setup_started = time.perf_counter()
+        if self.harness is None:
+            self.harness = self.harness_factory(auto_install=self.gpu_config.install_missing)
+        if self.shader is None:
+            self.shader = self.harness.compile_compute_shader(ULTIMATE_OPENGL_ANALYSIS_SHADER)
+        elapsed = (time.perf_counter() - setup_started) * 1000.0
+        self.setup_ms += elapsed
+        return elapsed
+
+    def run(
+        self,
+        plan: UltimateOpenGLAnalysisPlan,
+        *,
+        max_ranks: int | None = ULTIMATE_OPENGL_ANALYSIS_BATCH_SIZE,
+    ) -> UltimateOpenGLAnalysisResult:
+        setup_delta = self.ensure()
+        result = _run_analysis_shader_with_resources(
+            plan,
+            self.harness,
+            self.shader,
+            max_ranks=max_ranks,
+        )
+        self.dispatch_ms += result.dispatch_ms
+        self.shards += 1
+        return replace(result, setup_ms=setup_delta)
+
+    def close(self) -> None:
+        _release_resource(self.shader)
+        self.shader = None
+        if self.harness is not None:
+            try:
+                self.harness.release()
+            except Exception:
+                pass
+        self.harness = None
 
 
 def _idat_stream_from_png(data: bytes) -> bytes:
@@ -957,11 +1008,11 @@ def _read_analysis_hits(
     return ranked, int(tested), int(pruned), int(count) > int(max_results)
 
 
-def _run_analysis_shader(
+def _run_analysis_shader_with_resources(
     plan: UltimateOpenGLAnalysisPlan,
-    gpu_config: gpu_runtime.GpuRuntimeConfig,
+    harness: Any,
+    shader: Any,
     *,
-    harness_factory: Callable[..., gpu_opengl.OpenGLComputeHarness] = gpu_opengl.create_compute_harness,
     max_ranks: int | None = ULTIMATE_OPENGL_ANALYSIS_BATCH_SIZE,
 ) -> UltimateOpenGLAnalysisResult:
     if plan.depth != 1:
@@ -988,14 +1039,11 @@ def _run_analysis_shader(
             "Ultimate OpenGL shader cannot start a shard above 32-bit operation rank yet."
         )
 
-    harness = None
-    shader = None
     stream_buffer = None
     operation_buffer = None
     output_buffer = None
+    dispatch_ms = 0.0
     try:
-        harness = harness_factory(auto_install=gpu_config.install_missing)
-        shader = harness.compile_compute_shader(ULTIMATE_OPENGL_ANALYSIS_SHADER)
         stream_buffer = harness.buffer(_uint_buffer_data(list(plan.root_stream)))
         operation_buffer = harness.buffer(_encode_analysis_operations(plan.operation_pool))
         output_words = 3 + (int(plan.max_hits) * ULTIMATE_OPENGL_ANALYSIS_HIT_WORDS)
@@ -1021,6 +1069,7 @@ def _run_analysis_shader(
         _set_uniform(shader, "expected_size", plan.expected_size)
         _set_uniform(shader, "target_adler", 0 if plan.target_adler is None else int(plan.target_adler))
         _set_uniform(shader, "has_target_adler", 0 if plan.target_adler is None else 1)
+        dispatch_started = time.perf_counter()
         harness.dispatch(shader, group_x=max(1, (batch_count + 127) // 128))
         harness.memory_barrier()
         hits, tested, pruned, truncated = _read_analysis_hits(
@@ -1028,13 +1077,11 @@ def _run_analysis_shader(
             max_results=plan.max_hits,
             default_end_rank=end_rank,
         )
+        dispatch_ms = (time.perf_counter() - dispatch_started) * 1000.0
     finally:
         _release_resource(output_buffer)
         _release_resource(operation_buffer)
         _release_resource(stream_buffer)
-        _release_resource(shader)
-        if harness is not None:
-            harness.release()
 
     return UltimateOpenGLAnalysisResult(
         hits,
@@ -1047,7 +1094,36 @@ def _run_analysis_shader(
         reason="" if end_rank >= plan.bounded_end_rank else "rank cap reached",
         covered_rank_count=max(0, end_rank - start_rank),
         shader_used=True,
+        dispatch_ms=dispatch_ms,
     )
+
+
+def _run_analysis_shader(
+    plan: UltimateOpenGLAnalysisPlan,
+    gpu_config: gpu_runtime.GpuRuntimeConfig,
+    *,
+    harness_factory: Callable[..., gpu_opengl.OpenGLComputeHarness] = gpu_opengl.create_compute_harness,
+    max_ranks: int | None = ULTIMATE_OPENGL_ANALYSIS_BATCH_SIZE,
+) -> UltimateOpenGLAnalysisResult:
+    harness = None
+    shader = None
+    setup_ms = 0.0
+    try:
+        setup_started = time.perf_counter()
+        harness = harness_factory(auto_install=gpu_config.install_missing)
+        shader = harness.compile_compute_shader(ULTIMATE_OPENGL_ANALYSIS_SHADER)
+        setup_ms = (time.perf_counter() - setup_started) * 1000.0
+        result = _run_analysis_shader_with_resources(
+            plan,
+            harness,
+            shader,
+            max_ranks=max_ranks,
+        )
+        return replace(result, setup_ms=setup_ms)
+    finally:
+        _release_resource(shader)
+        if harness is not None:
+            harness.release()
 
 
 def _run_analysis_host(

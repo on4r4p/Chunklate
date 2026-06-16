@@ -207,9 +207,10 @@ def run_name_shift(runtime: NameShiftRuntime, context: NameShiftContext) -> Any:
     ]
     real_length = runtime.spec_length(candidate.chunk_name, file_length)
 
-    if name_shift.length_part_is_corrupted(file_length, real_length):
+    if name_shift.length_part_is_corrupted(file_length, real_length) or candidate.is_after:
         runtime.candy("Cowsay", "I knew there was something odd..", "bad")
-        runtime.candy("Cowsay", "That error seems to come from the length part .", "good")
+        if name_shift.length_part_is_corrupted(file_length, real_length):
+            runtime.candy("Cowsay", "That error seems to come from the length part .", "good")
         crc_view = name_shift.shifted_chunk_crc_view(
             context.name_shift_context.data_hex,
             candidate.type_offset,

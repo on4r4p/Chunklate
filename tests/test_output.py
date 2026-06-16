@@ -79,6 +79,20 @@ def test_next_clone_target_uses_next_available_fixed_name(tmp_path):
     assert Path(second.directory).is_dir()
 
 
+def test_clone_artifact_target_uses_debug_payloads_and_avoids_fixed_name(tmp_path):
+    fixed = output.next_clone_target("sample.png", str(tmp_path))
+    first = output.clone_artifact_target(fixed)
+    Path(first.path).write_bytes(b"artifact")
+
+    second = output.clone_artifact_target(fixed)
+
+    assert first.name == "sample.0_Artifact.bin"
+    assert first.directory == str(tmp_path / "Folder_sample" / "Debug_Payloads")
+    assert second.name == "sample.0_Artifact.1.bin"
+    assert "_Fixed" not in first.name
+    assert not first.name.endswith(".png")
+
+
 def test_clone_bytes_accepts_hex_and_bytes():
     assert output.clone_bytes("89504e47") == b"\x89PNG"
     assert output.clone_bytes(b"\x89PNG") == b"\x89PNG"
@@ -453,6 +467,10 @@ def main():
         ("realpng names use inner PNG stem", lambda: test_realpng_names_use_inner_png_stem(tmp_path)),
         ("LockDown folder lines", lambda: test_lockdown_folder_lines_preserve_legacy_printed_paths(tmp_path)),
         ("Clone target uses next fixed name", lambda: test_next_clone_target_uses_next_available_fixed_name(tmp_path)),
+        (
+            "Clone artifact target uses Debug_Payloads",
+            lambda: test_clone_artifact_target_uses_debug_payloads_and_avoids_fixed_name(tmp_path),
+        ),
         ("Clone bytes accepts hex and bytes", test_clone_bytes_accepts_hex_and_bytes),
         ("Write clone writes PNG bytes", lambda: test_write_clone_writes_png_bytes(tmp_path)),
         ("Summary path uses clone folder", lambda: test_summary_path_uses_clone_folder(tmp_path)),

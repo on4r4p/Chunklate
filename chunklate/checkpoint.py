@@ -277,6 +277,9 @@ def check_chunk_name_decision(
     if "corrupted due to some missing bytes." in info:
         return CheckPointActionDecision(action="save_clone_missing_bytes")
 
+    if "Extra bytes has been found." in info or "extra byte(s) before Chunk" in info:
+        return CheckPointActionDecision(action="save_clone_missing_bytes")
+
     return CheckPointActionDecision()
 
 

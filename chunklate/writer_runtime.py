@@ -4,6 +4,7 @@ import hashlib
 import os
 from collections.abc import MutableSequence
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import Any, Callable
 
 from . import idat, output, png, writer
@@ -261,7 +262,15 @@ def _should_block_invalid_full_png_clone(
     fixed_hex: str,
     start: int,
     end: int,
+    infos: Any,
 ) -> tuple[bool, dict[str, Any] | None, str]:
+    guarded_markers = (
+        "DaedalusForce",
+        "HermesProbe",
+        "Previous Crc checksum",
+    )
+    if not any(marker in str(infos) for marker in guarded_markers):
+        return False, None, ""
     if start != 0:
         return False, None, ""
     if end >= 0 and end < len(runtime.data_hex):
@@ -366,6 +375,39 @@ def clone_validation_is_artifact_only(validation: dict[str, Any]) -> bool:
     return any(marker in marker_text for marker in blocking_markers)
 
 
+def clone_validation_allows_structural_intermediate(
+    validation: dict[str, Any],
+    infos: Any,
+) -> bool:
+    if clone_validation_is_final(validation):
+        return False
+
+    info_text = str(infos)
+    structural_markers = (
+        "IDAT chain header repair",
+        "direct chunk-name recovery",
+        "has Wrong length at offset",
+    )
+    if not any(marker in info_text for marker in structural_markers):
+        return False
+
+    errors = tuple(str(error) for error in (validation.get("errors") or ()))
+    if not errors:
+        return False
+
+    allowed_errors = {
+        "Chunk IDAT has invalid CRC",
+        "IDAT zlib stream is invalid",
+        "IDAT decompressed size does not match IHDR dimensions",
+        "IDAT scanline filter type is invalid",
+    }
+    if any(error not in allowed_errors for error in errors):
+        return False
+
+    idat_status = str(validation.get("idat_status") or "")
+    return idat_status not in {"unsupported", "validation_error", "analysis_error"}
+
+
 def _clone_validation_failure_reason(validation: dict[str, Any]) -> str:
     errors = tuple(validation.get("errors") or ())
     if errors:
@@ -409,6 +451,22 @@ def run_write_clone(
     target = clone_plan.target
     clone_validation = clone_validation_summary(clone_plan.data)
     runtime.record_clone_validation(clone_validation)
+    structural_intermediate = clone_validation_allows_structural_intermediate(
+        clone_validation,
+        infos,
+    )
+    artifact_only = (
+        clone_validation_is_artifact_only(clone_validation)
+        and not structural_intermediate
+    )
+    if artifact_only:
+        clone_plan = replace(
+            clone_plan,
+            target=output.clone_artifact_target(target),
+            max_saves_reached=False,
+        )
+        target = clone_plan.target
+
     announce_clone_write(runtime, context, clone_plan, infos)
     runtime.emit(runtime.candy("Color", "green", "-Saving to : %s") % target.path)
     runtime.side_notes.append("-Saving to : %s" % target.path)
@@ -424,7 +482,7 @@ def run_write_clone(
         runtime.end()
         return None
 
-    if clone_validation_is_artifact_only(clone_validation):
+    if artifact_only:
         reason = _clone_validation_failure_reason(clone_validation)
         artifact_note = (
             "-Clone written as artifact only; PNG/IDAT validation failed: %s"
@@ -438,6 +496,15 @@ def run_write_clone(
         )
         runtime.summarise(artifact_summary)
         return None
+
+    if structural_intermediate:
+        reason = _clone_validation_failure_reason(clone_validation)
+        intermediate_note = (
+            "-Clone promoted as structural intermediate; remaining PNG/IDAT validation errors: %s"
+            % reason
+        )
+        runtime.emit(runtime.candy("Color", "yellow", intermediate_note))
+        runtime.side_notes.append(intermediate_note)
 
     runtime.set_sample(target.path)
     runtime.set_save_count(clone_plan.save_count)
@@ -527,6 +594,7 @@ def run_save_clone(
         fix,
         start,
         end,
+        infos,
     )
     if block_invalid_full_png:
         runtime.candy(

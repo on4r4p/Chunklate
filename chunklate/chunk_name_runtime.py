@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 import zlib
 
-from . import ancillary, decisions, prompts, sorting, specs
+from . import ancillary, decisions, nearby, prompts, sorting, specs
 
 
 LegacyCall = Callable[..., Any]
@@ -298,16 +298,29 @@ def _private_chunk_remove_prompt(
 def _run_name_shift_probe(
     runtime: ChunkNameRuntime,
     context: ChunkNameContext,
+    last_chunk_type: bytes,
     from_error: Any,
 ) -> Any:
     shifted_bit = runtime.name_shift()
     if not shifted_bit:
         return None
 
-    solved_msg = "-Chunk length has been corrupted due to some missing bytes."
     fixed = shifted_bit[0]
     fixed_length = shifted_bit[1]
     fixed_offset = shifted_bit[2]
+    if fixed_length > len(fixed):
+        chunk_type = bytes.fromhex(fixed[8:16])
+        extra_bytes = int((fixed_length - len(fixed)) / 2)
+        solved_msg = nearby.extra_bytes_solved_message(
+            nearby.ExtraBytesCandidate(
+                current_offset=int(fixed_offset / 2),
+                chunk_type=chunk_type,
+                extra_bytes=extra_bytes,
+            ),
+            last_chunk_type,
+        )
+    else:
+        solved_msg = "-Chunk length has been corrupted due to some missing bytes."
     return runtime.checkpoint(
         True,
         True,
@@ -460,7 +473,7 @@ def run_brute_chunk(
     if removal is not None:
         return removal
 
-    shifted_result = _run_name_shift_probe(runtime, context, from_error)
+    shifted_result = _run_name_shift_probe(runtime, context, last_chunk_type, from_error)
     if shifted_result is not None:
         return shifted_result
 

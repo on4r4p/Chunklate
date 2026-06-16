@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import sys
 import tempfile
 import zlib
@@ -2107,6 +2108,14 @@ def wrong_crc_runtime(
     preview_repair_image=None,
     loadingbar=None,
     minibar=None,
+    interactive=False,
+    input_func=None,
+    deep_beam_workers=None,
+    deep_beam_gpu=None,
+    deep_beam_gpu_config=None,
+    deep_beam_budget=None,
+    file_origin="",
+    file_dir="",
 ):
     answer_iter = iter(answers)
     if deferred_routes is None:
@@ -2169,6 +2178,14 @@ def wrong_crc_runtime(
         preview_repair_image=preview_repair_image,
         loadingbar=loadingbar,
         minibar=minibar,
+        file_origin=file_origin,
+        file_dir=file_dir,
+        interactive=interactive,
+        input_func=input_func,
+        deep_beam_workers=deep_beam_workers,
+        deep_beam_gpu=deep_beam_gpu,
+        deep_beam_gpu_config=deep_beam_gpu_config,
+        deep_beam_budget=deep_beam_budget,
     )
 
 
@@ -2415,10 +2432,13 @@ def test_apply_wrong_crc_writes_improved_deflate_probe_instead_of_crc_clone():
     assert result == (True, "written")
     assert not [call for call in calls if call[0] == "save_clone"]
     assert not [call for call in calls if call[0] == "question"]
+    assert ("candy", ("Title", "probe_idat_deflate_local_candidates"), {}) in calls
     assert ("candy", ("Title", "probe_deflate_header_candidates"), {}) in calls
     assert any(call[0] == "minibar" and "IDAT deflate-header" in call[1][0] for call in calls)
     assert [call for call in calls if call[0] == "write_clone"]
     assert "-Repair hypothesis tried: targeted IDAT deflate header probe." in calls[-1][1][1]
+    assert any(note.startswith("-IDAT local deflate diagnostic:") for note in side_notes)
+    assert any(note.startswith("-IDAT deflate probe: strategy=deflate-local") for note in side_notes)
     assert any(note.startswith("-IDAT deflate candidate:") for note in side_notes)
 
 
@@ -2478,6 +2498,7 @@ def test_hermesprobe_logs_dynamic_huffman_semantic_diagnostic_without_clone():
     data_hex = semantic_token_corrupt_deflate_png_hex()
     original_probe = fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates
     original_lf = fixit_felix_runtime._probe_idat_lf_route_for_diagnostics
+    original_deep = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam
 
     def no_candidate_probe(data, **_kwargs):
         before = fixit_felix_runtime.idat.analyze_idat_stream(data)
@@ -2503,9 +2524,45 @@ def test_hermesprobe_logs_dynamic_huffman_semantic_diagnostic_without_clone():
             subprobes=(semantic_probe,),
         )
 
+    def no_deep_candidate(data, **_kwargs):
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        operation = fixit_felix_runtime.idat_bruteforce.IdatDeepBeamOperation(
+            "crc-guided-diagnostic",
+            0,
+            b"\x00",
+            b"\x00",
+            (1,),
+        )
+        diagnostic = fixit_felix_runtime.idat_bruteforce.IdatDeepBeamCandidate(
+            data=data,
+            stream=b"",
+            operations=(operation,),
+            before=before,
+            after=before,
+            state_id=1,
+            parent_id=0,
+            source_offsets=(0,),
+            score=(1, 0, 0),
+        )
+        return fixit_felix_runtime.idat_bruteforce.IdatDeepBeamProbeResult(
+            before,
+            None,
+            (diagnostic,),
+            0,
+            1,
+            3,
+            False,
+            1,
+            1,
+            1,
+            workers=1,
+            reason="mocked",
+        )
+
     try:
         fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = no_candidate_probe
         fixit_felix_runtime._probe_idat_lf_route_for_diagnostics = lambda *_args, **_kwargs: False
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = no_deep_candidate
         runtime = wrong_crc_runtime(
             calls,
             answers=(),
@@ -2518,11 +2575,709 @@ def test_hermesprobe_logs_dynamic_huffman_semantic_diagnostic_without_clone():
     finally:
         fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = original_probe
         fixit_felix_runtime._probe_idat_lf_route_for_diagnostics = original_lf
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = original_deep
 
     assert result is None
     assert not [call for call in calls if call[0] == "write_clone"]
     assert any("strategy=dynamic-huffman-semantic" in note for note in side_notes)
+    assert any(note.startswith("-IDAT deflate deep beam:") for note in side_notes)
+    assert any("crc-guided-diagnostic" in note for note in side_notes)
     assert "-IDAT deflate header probe found no clone-worthy scanline progress." in side_notes
+    assert "-IDAT deep beam found no clone-worthy scanline progress." in side_notes
+
+
+def test_hermesprobe_interrupted_deep_beam_stops_instead_of_relaunching():
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    original_probe = fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates
+    original_lf = fixit_felix_runtime._probe_idat_lf_route_for_diagnostics
+    original_deep = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam
+
+    def no_candidate_probe(data, **_kwargs):
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            1,
+            7,
+            False,
+            "deflate-header",
+            "mocked",
+        )
+
+    def interrupted_deep_probe(data, **_kwargs):
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeepBeamProbeResult(
+            before,
+            None,
+            (),
+            0,
+            1,
+            3,
+            False,
+            1,
+            1,
+            1,
+            workers=1,
+            progress_path="/tmp/deep.progress.json",
+            reason="mocked",
+            interrupted=True,
+        )
+
+    try:
+        fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = no_candidate_probe
+        fixit_felix_runtime._probe_idat_lf_route_for_diagnostics = lambda *_args, **_kwargs: False
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = interrupted_deep_probe
+        runtime = wrong_crc_runtime(
+            calls,
+            answers=(),
+            side_notes=side_notes,
+            data_hex=data_hex,
+        )
+        analysis = idat.analyze_idat_stream(bytes.fromhex(data_hex))
+
+        try:
+            fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+        except SystemExit as exc:
+            exit_code = exc.code
+        else:
+            exit_code = None
+    finally:
+        fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = original_probe
+        fixit_felix_runtime._probe_idat_lf_route_for_diagnostics = original_lf
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = original_deep
+
+    assert exit_code == 130
+    assert not [call for call in calls if call[0] == "write_clone"]
+    assert any(note.startswith("-IDAT deflate deep beam:") and "interrupted" in note for note in side_notes)
+    assert "-IDAT deep beam interrupted by user; checkpoint/progress saved, stopping repair pass." in side_notes
+    assert "-IDAT deep beam found no clone-worthy scanline progress." not in side_notes
+
+
+def _write_matching_deep_beam_progress(path, data: bytes, *, source_hash: str | None = None):
+    if source_hash is None:
+        _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+        source_hash = idat_bruteforce._stream_state_key(stream)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "source_hash": source_hash,
+                "tested_candidates": 1234,
+                "depth": 2,
+                "interrupted": True,
+                "gpu_shard_size": idat_bruteforce.DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE,
+                "gpu_done_shards": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_hermesprobe_resume_deep_beam_skips_short_probes(tmp_path, monkeypatch):
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    data = bytes.fromhex(data_hex)
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(),
+        side_notes=side_notes,
+        data_hex=data_hex,
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        deep_beam_budget=4321,
+    )
+    checkpoint_path, progress_path = fixit_felix_runtime._idat_deep_beam_paths(runtime)
+    _write_matching_deep_beam_progress(progress_path, data)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("short pre-deep-beam probe should not run during resume")
+
+    monkeypatch.setattr(fixit_felix_runtime, "try_focused_idat_crc_forge", forbidden)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_local_candidates", forbidden)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_deflate_header_candidates", forbidden)
+    monkeypatch.setattr(fixit_felix_runtime, "_probe_idat_lf_route_for_diagnostics", forbidden)
+
+    def deep_probe(probe_data, **kwargs):
+        calls.append(("deep_probe_kwargs", kwargs, {}))
+        before = fixit_felix_runtime.idat.analyze_idat_stream(probe_data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeepBeamProbeResult(
+            before,
+            None,
+            (),
+            0,
+            1,
+            3,
+            False,
+            2,
+            1,
+            1,
+            checkpoint_path=kwargs["checkpoint_path"],
+            progress_path=kwargs["progress_path"],
+            progress_resumed=True,
+            workers=1,
+            reason="mocked",
+        )
+
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_deep_beam", deep_probe)
+    analysis = idat.analyze_idat_stream(data)
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+
+    assert result == (False, None)
+    assert not [call for call in calls if call[0] == "remember_idat_deflate_probe"]
+    deep_call = next(call for call in calls if call[0] == "deep_probe_kwargs")
+    assert deep_call[1]["checkpoint_path"] == checkpoint_path
+    assert deep_call[1]["progress_path"] == progress_path
+    assert deep_call[1]["budget"] == 4321
+    assert "-IDAT deep beam resume-first: existing checkpoint/progress matches this IDAT stream." in side_notes
+    assert any(note.startswith("-IDAT deep beam resume: source matched;") for note in side_notes)
+    assert "-IDAT deep beam resume did not return to short probes; checkpoint/progress remain the next state." in side_notes
+
+
+def test_hermesprobe_resume_deep_beam_seeds_from_periodic_model(tmp_path, monkeypatch):
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    data = bytes.fromhex(data_hex)
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(),
+        side_notes=side_notes,
+        data_hex=data_hex,
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        deep_beam_budget=4321,
+    )
+    _checkpoint_path, progress_path = fixit_felix_runtime._idat_deep_beam_paths(runtime)
+    _write_matching_deep_beam_progress(progress_path, data)
+    before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+    _chunks, stream = fixit_felix_runtime.idat_bruteforce._all_chunks_and_idat_stream(data)
+    seed = fixit_felix_runtime.idat_bruteforce.IdatDeepBeamCandidate(
+        data=data,
+        stream=stream,
+        operations=(
+            fixit_felix_runtime.idat_bruteforce.IdatDeepBeamOperation(
+                "periodic-replace-xor",
+                2,
+                stream[2:3],
+                bytes((stream[2] ^ 1,)),
+            ),
+        ),
+        before=before,
+        after=before,
+        state_id=77,
+        parent_id=0,
+        source_offsets=(2,),
+        score=(0,),
+    )
+
+    def periodic_probe(probe_data, **kwargs):
+        return fixit_felix_runtime.idat_bruteforce.IdatPeriodicCorruptionModelResult(
+            fixit_felix_runtime.idat.analyze_idat_stream(probe_data),
+            None,
+            (seed,),
+            12,
+            True,
+            checkpoint_path=kwargs["checkpoint_path"],
+            progress_path=kwargs["progress_path"],
+            model_path=kwargs["convoy_model_path"],
+            reason="mocked",
+        )
+
+    def deep_probe(probe_data, **kwargs):
+        calls.append(("deep_probe_kwargs", kwargs, {}))
+        return fixit_felix_runtime.idat_bruteforce.IdatDeepBeamProbeResult(
+            fixit_felix_runtime.idat.analyze_idat_stream(probe_data),
+            None,
+            (),
+            0,
+            1,
+            3,
+            False,
+            2,
+            1,
+            1,
+            checkpoint_path=kwargs["checkpoint_path"],
+            progress_path=kwargs["progress_path"],
+            progress_resumed=True,
+            workers=1,
+            reason="mocked",
+        )
+
+    monkeypatch.setattr(
+        fixit_felix_runtime.idat_bruteforce,
+        "probe_idat_periodic_corruption_model",
+        periodic_probe,
+    )
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_deep_beam", deep_probe)
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, before)
+
+    assert result == (False, None)
+    deep_call = next(call for call in calls if call[0] == "deep_probe_kwargs")
+    assert deep_call[1]["seed_candidates"] == (seed,)
+    assert any(note.startswith("-IDAT periodic corruption model:") for note in side_notes)
+    assert "-IDAT deep beam seeded with 1 periodic model candidate(s)." in side_notes
+
+
+def test_hermesprobe_resume_mismatch_runs_short_probes(tmp_path, monkeypatch):
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    data = bytes.fromhex(data_hex)
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(),
+        side_notes=side_notes,
+        data_hex=data_hex,
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+    )
+    _checkpoint_path, progress_path = fixit_felix_runtime._idat_deep_beam_paths(runtime)
+    _write_matching_deep_beam_progress(progress_path, data, source_hash="wrong-source")
+
+    def no_candidate_probe(probe_data, **_kwargs):
+        calls.append(("short_probe", (), {}))
+        before = fixit_felix_runtime.idat.analyze_idat_stream(probe_data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            1,
+            7,
+            False,
+            "deflate-header",
+            "mocked",
+        )
+
+    monkeypatch.setattr(fixit_felix_runtime, "try_focused_idat_crc_forge", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_local_candidates", no_candidate_probe)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_deflate_header_candidates", no_candidate_probe)
+    monkeypatch.setattr(fixit_felix_runtime, "_probe_idat_lf_route_for_diagnostics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        fixit_felix_runtime.idat_bruteforce,
+        "probe_idat_deflate_deep_beam",
+        lambda probe_data, **_kwargs: fixit_felix_runtime.idat_bruteforce.IdatDeepBeamProbeResult(
+            fixit_felix_runtime.idat.analyze_idat_stream(probe_data),
+            None,
+            (),
+            0,
+            1,
+            3,
+            False,
+            1,
+            1,
+            1,
+            workers=1,
+            reason="mocked",
+        ),
+    )
+    analysis = idat.analyze_idat_stream(data)
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+
+    assert result is None
+    assert [call for call in calls if call[0] == "short_probe"]
+    assert any(note.startswith("-IDAT deep beam resume ignored:") for note in side_notes)
+
+
+def test_runtime_idat_queue_progress_pads_deep_beam_counter_only():
+    calls = []
+    runtime = SimpleNamespace(minibar=lambda text: calls.append(text))
+    progress = fixit_felix_runtime._runtime_idat_queue_progress(runtime)
+
+    progress("deep-beam", 208670, 50000000)
+    progress("phase2-lf-insert", 298, 298)
+
+    assert calls == [
+        "IDAT deep-beam 00208670/50000000",
+        "IDAT phase2-lf-insert 298/298",
+    ]
+
+
+def test_hermesprobe_prompts_deep_beam_workers_and_gpu_when_unconfigured():
+    calls = []
+    side_notes = []
+    prompts = []
+    answers = iter(("2", "yes"))
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    original_probe = fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates
+    original_lf = fixit_felix_runtime._probe_idat_lf_route_for_diagnostics
+    original_deep = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam
+
+    def no_candidate_probe(data, **_kwargs):
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            1,
+            7,
+            False,
+            "deflate-header",
+            "mocked",
+        )
+
+    def input_func(prompt):
+        calls.append(("input_func", (prompt,), {}))
+        prompts.append(prompt)
+        return next(answers)
+
+    def deep_probe(data, **kwargs):
+        calls.append(("deep_probe_kwargs", kwargs, {}))
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeepBeamProbeResult(
+            before,
+            None,
+            (),
+            0,
+            1,
+            3,
+            False,
+            1,
+            1,
+            1,
+            workers=2,
+            gpu_requested=True,
+            gpu_backend="opengl-active",
+            reason="mocked",
+        )
+
+    try:
+        fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = no_candidate_probe
+        fixit_felix_runtime._probe_idat_lf_route_for_diagnostics = lambda *_args, **_kwargs: False
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = deep_probe
+        runtime = wrong_crc_runtime(
+            calls,
+            answers=(),
+            side_notes=side_notes,
+            data_hex=data_hex,
+            interactive=True,
+            input_func=input_func,
+        )
+        analysis = idat.analyze_idat_stream(bytes.fromhex(data_hex))
+
+        result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+    finally:
+        fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = original_probe
+        fixit_felix_runtime._probe_idat_lf_route_for_diagnostics = original_lf
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = original_deep
+
+    assert result == (False, None)
+    assert prompts == [
+        "Deep beam worker profile [auto] > ",
+        "Enable OpenGL GPU prefilter for deep beam? [no] > ",
+    ]
+    launch_index = next(
+        index
+        for index, call in enumerate(calls)
+        if call[0] == "candy"
+        and call[1][0] == "Cowsay"
+        and call[1][1]
+        == "I am launching the aggressive deep IDAT beam now. It is checkpointed; CRCs remain evidence, not a final proof."
+    )
+    prompt_index = next(index for index, call in enumerate(calls) if call[0] == "input_func")
+    assert launch_index < prompt_index
+    deep_call = next(call for call in calls if call[0] == "deep_probe_kwargs")
+    assert deep_call[1]["workers"] == 2
+    assert deep_call[1]["gpu"] is True
+    assert deep_call[1]["gpu_config"] == fixit_felix_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True, backend="opengl")
+    assert deep_call[1]["budget"] == fixit_felix_runtime.idat_bruteforce.DEEP_BEAM_DEFAULT_BUDGET
+    assert deep_call[1]["gpu_shard_size"] == fixit_felix_runtime.idat_bruteforce.DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE
+    assert deep_call[1]["cpu_batch_size"] == fixit_felix_runtime.idat_bruteforce.DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE
+    assert any(
+        note.startswith("-IDAT deep beam configuration: workers=2; gpu_requested=yes; gpu_backend=opengl;")
+        for note in side_notes
+    )
+    assert "-IDAT deep beam GPU prefilter enabled; CPU workers remain the validation path." in side_notes
+
+
+def test_hermesprobe_deep_beam_options_prompt_gpu_when_disabled_config_default():
+    calls = []
+    prompts = []
+    answers = iter(("yes",))
+    side_notes = []
+
+    def candy(*args, **kwargs):
+        calls.append(("candy", args, kwargs))
+
+    def input_func(prompt):
+        prompts.append(prompt)
+        return next(answers)
+
+    runtime = SimpleNamespace(
+        interactive=True,
+        input_func=input_func,
+        candy=candy,
+        side_notes=side_notes,
+        deep_beam_workers=1,
+        deep_beam_gpu=None,
+        deep_beam_gpu_config=fixit_felix_runtime.gpu_runtime.GpuRuntimeConfig(enabled=False),
+    )
+
+    workers, gpu_requested, gpu_config, budget, gpu_shard_size, cpu_batch_size = fixit_felix_runtime._runtime_deep_beam_options(runtime)
+
+    assert workers == 1
+    assert gpu_requested is True
+    assert gpu_config == fixit_felix_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True, backend="opengl")
+    assert budget == fixit_felix_runtime.idat_bruteforce.DEEP_BEAM_DEFAULT_BUDGET
+    assert gpu_shard_size == fixit_felix_runtime.idat_bruteforce.DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE
+    assert cpu_batch_size == fixit_felix_runtime.idat_bruteforce.DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE
+    assert prompts == ["Enable OpenGL GPU prefilter for deep beam? [no] > "]
+    assert any(
+        note.startswith("-IDAT deep beam configuration: workers=1; gpu_requested=yes; gpu_backend=opengl;")
+        for note in side_notes
+    )
+
+
+def test_hermesprobe_deep_beam_gpu_argument_overrides_enabled_global_config():
+    side_notes = []
+    runtime = SimpleNamespace(
+        interactive=True,
+        input_func=lambda prompt: (_ for _ in ()).throw(AssertionError("unexpected prompt: %s" % prompt)),
+        candy=lambda *args, **kwargs: None,
+        side_notes=side_notes,
+        deep_beam_workers=1,
+        deep_beam_gpu=False,
+        deep_beam_gpu_config=fixit_felix_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True, backend="opengl"),
+    )
+
+    workers, gpu_requested, gpu_config, budget, gpu_shard_size, cpu_batch_size = fixit_felix_runtime._runtime_deep_beam_options(runtime)
+
+    assert workers == 1
+    assert gpu_requested is False
+    assert gpu_config.enabled is False
+    assert budget == fixit_felix_runtime.idat_bruteforce.DEEP_BEAM_DEFAULT_BUDGET
+    assert gpu_shard_size == fixit_felix_runtime.idat_bruteforce.DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE
+    assert cpu_batch_size == fixit_felix_runtime.idat_bruteforce.DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE
+    assert any(
+        note.startswith("-IDAT deep beam configuration: workers=1; gpu_requested=no; gpu_backend=none;")
+        for note in side_notes
+    )
+
+
+def test_hermesprobe_deep_beam_advanced_sizes_are_runtime_options_not_prompts():
+    prompts = []
+    side_notes = []
+    runtime = SimpleNamespace(
+        interactive=True,
+        input_func=lambda prompt: prompts.append(prompt) or "yes",
+        candy=lambda *args, **kwargs: None,
+        side_notes=side_notes,
+        deep_beam_workers=1,
+        deep_beam_gpu=False,
+        deep_beam_gpu_config=None,
+        deep_beam_budget="12345",
+        deep_beam_gpu_shard_size="4096",
+        deep_beam_cpu_batch_size="64",
+    )
+
+    workers, gpu_requested, gpu_config, budget, gpu_shard_size, cpu_batch_size = fixit_felix_runtime._runtime_deep_beam_options(runtime)
+
+    assert workers == 1
+    assert gpu_requested is False
+    assert gpu_config.enabled is False
+    assert budget == 12345
+    assert gpu_shard_size == 4096
+    assert cpu_batch_size == 64
+    assert prompts == []
+    assert any("budget=12345; gpu_shard_size=4096; cpu_batch_size=64" in note for note in side_notes)
+
+
+def test_hermesprobe_deep_beam_invalid_budget_falls_back_to_default():
+    side_notes = []
+    runtime = SimpleNamespace(
+        interactive=False,
+        input_func=None,
+        candy=lambda *args, **kwargs: None,
+        side_notes=side_notes,
+        deep_beam_workers=1,
+        deep_beam_gpu=False,
+        deep_beam_gpu_config=None,
+        deep_beam_budget="not-a-number",
+        deep_beam_gpu_shard_size=None,
+        deep_beam_cpu_batch_size=None,
+    )
+
+    _workers, _gpu_requested, _gpu_config, budget, _gpu_shard_size, _cpu_batch_size = fixit_felix_runtime._runtime_deep_beam_options(runtime)
+
+    assert budget == fixit_felix_runtime.idat_bruteforce.DEEP_BEAM_DEFAULT_BUDGET
+    assert any("budget=%s" % fixit_felix_runtime.idat_bruteforce.DEEP_BEAM_DEFAULT_BUDGET in note for note in side_notes)
+
+
+def test_hermesprobe_uses_explicit_deep_beam_workers_and_gpu_config_without_prompts():
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    original_probe = fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates
+    original_lf = fixit_felix_runtime._probe_idat_lf_route_for_diagnostics
+    original_deep = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam
+    gpu_config = fixit_felix_runtime.gpu_runtime.GpuRuntimeConfig(
+        enabled=True,
+        backend="opengl",
+        install_missing=False,
+    )
+
+    def no_candidate_probe(data, **_kwargs):
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            1,
+            7,
+            False,
+            "deflate-header",
+            "mocked",
+        )
+
+    def input_func(prompt):
+        raise AssertionError("unexpected prompt: %s" % prompt)
+
+    def deep_probe(data, **kwargs):
+        calls.append(("deep_probe_kwargs", kwargs, {}))
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeepBeamProbeResult(
+            before,
+            None,
+            (),
+            0,
+            1,
+            3,
+            False,
+            1,
+            1,
+            1,
+            workers=3,
+            gpu_requested=True,
+            gpu_backend="opengl-active",
+            reason="mocked",
+        )
+
+    try:
+        fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = no_candidate_probe
+        fixit_felix_runtime._probe_idat_lf_route_for_diagnostics = lambda *_args, **_kwargs: False
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = deep_probe
+        runtime = wrong_crc_runtime(
+            calls,
+            answers=(),
+            side_notes=side_notes,
+            data_hex=data_hex,
+            interactive=True,
+            input_func=input_func,
+            deep_beam_workers=3,
+            deep_beam_gpu_config=gpu_config,
+            deep_beam_budget=9876,
+        )
+        analysis = idat.analyze_idat_stream(bytes.fromhex(data_hex))
+
+        result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+    finally:
+        fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = original_probe
+        fixit_felix_runtime._probe_idat_lf_route_for_diagnostics = original_lf
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = original_deep
+
+    assert result == (False, None)
+    deep_call = next(call for call in calls if call[0] == "deep_probe_kwargs")
+    assert deep_call[1]["workers"] == 3
+    assert deep_call[1]["gpu"] is True
+    assert deep_call[1]["gpu_config"] == gpu_config
+    assert deep_call[1]["budget"] == 9876
+    assert deep_call[1]["gpu_shard_size"] == fixit_felix_runtime.idat_bruteforce.DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE
+    assert deep_call[1]["cpu_batch_size"] == fixit_felix_runtime.idat_bruteforce.DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE
+    assert any(
+        note.startswith("-IDAT deep beam configuration: workers=3; gpu_requested=yes; gpu_backend=opengl;")
+        for note in side_notes
+    )
+
+
+def test_hermesprobe_writes_deep_beam_candidate_after_short_probes_stall():
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    original_probe = fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates
+    original_lf = fixit_felix_runtime._probe_idat_lf_route_for_diagnostics
+    original_deep = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam
+
+    def no_candidate_probe(data, **_kwargs):
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
+            before,
+            None,
+            0,
+            1,
+            7,
+            False,
+            "deflate-header",
+            "mocked",
+        )
+
+    def deep_candidate_probe(data, **_kwargs):
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        repaired = valid_png_bytes()
+        _chunks, stream = fixit_felix_runtime.idat_bruteforce._idat_chunks_and_stream(repaired)
+        after = fixit_felix_runtime.idat.analyze_idat_stream(repaired)
+        candidate = fixit_felix_runtime.idat_bruteforce.IdatDeepBeamCandidate(
+            data=repaired,
+            stream=stream,
+            operations=(
+                fixit_felix_runtime.idat_bruteforce.IdatDeepBeamOperation(
+                    "replace",
+                    2,
+                    b"\x00",
+                    b"\x01",
+                ),
+            ),
+            before=before,
+            after=after,
+            state_id=9,
+            parent_id=0,
+            source_offsets=(2,),
+            score=(1, 1, 1, 2, 8, 5, 1, 0, 0, 0, 0, 0, 0, -1, 0),
+        )
+        return fixit_felix_runtime.idat_bruteforce.IdatDeepBeamProbeResult(
+            before,
+            candidate,
+            (candidate,),
+            0,
+            1,
+            11,
+            False,
+            1,
+            2,
+            2,
+            workers=1,
+            reason="mocked",
+        )
+
+    try:
+        fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = no_candidate_probe
+        fixit_felix_runtime._probe_idat_lf_route_for_diagnostics = lambda *_args, **_kwargs: False
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = deep_candidate_probe
+        runtime = wrong_crc_runtime(
+            calls,
+            answers=(),
+            side_notes=side_notes,
+            data_hex=data_hex,
+        )
+        analysis = idat.analyze_idat_stream(bytes.fromhex(data_hex))
+
+        result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+    finally:
+        fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = original_probe
+        fixit_felix_runtime._probe_idat_lf_route_for_diagnostics = original_lf
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = original_deep
+
+    assert result == (True, "written")
+    assert ("candy", ("Title", "probe_idat_deflate_deep_beam"), {}) in calls
+    assert [call for call in calls if call[0] == "write_clone"]
+    assert "-Repair hypothesis tried: aggressive IDAT deflate deep beam." in calls[-1][1][1]
+    assert any(note.startswith("-IDAT deep beam candidate:") for note in side_notes)
 
 
 def test_apply_wrong_crc_uses_focused_idat_crc_forge_before_blackfill():
@@ -2885,6 +3640,25 @@ def raw_png_chunk(declared_length, chunk_type, payload):
     return declared_length.to_bytes(4, "big") + chunk_type + payload + b"\x00\x00\x00\x00"
 
 
+def png_with_wrong_idat_like_name(chunk_type=b"IDA^", payload=b"abcd", *, crc_type=b"IDAT"):
+    ihdr = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00",
+    )
+    first_idat = build_png_chunk(b"IDAT", b"first")
+    stored_crc = zlib.crc32(crc_type + payload) & 0xFFFFFFFF
+    wrong_chunk = (
+        len(payload).to_bytes(4, "big")
+        + chunk_type
+        + payload
+        + stored_crc.to_bytes(4, "big")
+    )
+    bad_chunk_offset = len(PNG_SIGNATURE) + len(ihdr) + len(first_idat)
+    type_index = (bad_chunk_offset + 4) * 2
+    data = PNG_SIGNATURE + ihdr + first_idat + wrong_chunk + IEND_CHUNK
+    return data, type_index
+
+
 def idat_chain_candidate_hex():
     data = (
         PNG_SIGNATURE
@@ -3019,6 +3793,7 @@ def wrong_chunk_name_runtime(
     *,
     answers=(),
     bad_ancillary=False,
+    nearby_result="nearby-result",
     pandora_box=None,
     cornucopia=None,
     side_notes=None,
@@ -3047,7 +3822,7 @@ def wrong_chunk_name_runtime(
         candy=record("candy"),
         question=question,
         ancillary=record("ancillary"),
-        nearby_chunk=record("nearby_chunk", "nearby-result"),
+        nearby_chunk=record("nearby_chunk", nearby_result),
         brute_chunk=record("brute_chunk", "brute-result"),
         save_clone=record("save_clone", "saved"),
         write_clone=record("write_clone", "written"),
@@ -3095,13 +3870,14 @@ def test_apply_wrong_chunk_name_length_probe_accepts_nearby_chunk():
     )
 
 
-def test_apply_wrong_chunk_name_length_probe_decline_then_bruteforce_decline_sets_skips():
+def test_apply_wrong_chunk_name_length_probe_without_repair_skips_bruteforce_question():
     calls = []
     finding = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42 and length is not the same than before."
     chkd = "zzzz_Tool_"
     runtime = wrong_chunk_name_runtime(
         calls,
-        answers=(False, False),
+        answers=(),
+        nearby_result=None,
         pandora_box={finding: {chkd + "0": b"zzzz"}},
     )
 
@@ -3113,6 +3889,48 @@ def test_apply_wrong_chunk_name_length_probe_decline_then_bruteforce_decline_set
     )
 
     assert result == (False, None)
+    assert not [call for call in calls if call[0] == "question"]
+    assert not [call for call in calls if call[0] == "brute_chunk"]
+    assert ("nearby_chunk", (b"zzzz", "13", 128, False, finding), {}) in calls
+    assert ("set_skip_bad_next_name", (True,), {}) in calls
+    assert calls[-1] == ("set_skip_bad_current_name", (True,), {})
+
+
+def test_apply_wrong_chunk_name_length_probe_deja_vu_skips_bruteforce_question():
+    calls = []
+    finding = "CheckChunkName_Error_1:has Wrong Chunk name at offset: 42 and length is not the same than before."
+    chkd = "zzzz_Tool_"
+    tools = wrong_chunk_name_tools()
+    tried_routes = {
+        fixit_felix_runtime.wrong_chunk_name_route_key(
+            "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42 and length is not the same than before.",
+            chkd,
+            tools,
+            "length_probe",
+        )
+    }
+    runtime = wrong_chunk_name_runtime(
+        calls,
+        answers=(),
+        nearby_result="nearby-result",
+        pandora_box={finding: {chkd + "0": b"zzzz"}},
+        tried_routes=tried_routes,
+    )
+
+    result = fixit_felix_runtime.apply_wrong_chunk_name(
+        runtime,
+        fixit_felix.WrongChunkNameDecision("ask_length_probe", finding, True),
+        chkd,
+        tools,
+    )
+
+    assert result == (False, None)
+    assert not [call for call in calls if call[0] == "emit"]
+    assert not [call for call in calls if call[0] == "ancillary"]
+    assert not [call for call in calls if call[0] == "candy"]
+    assert not [call for call in calls if call[0] == "question"]
+    assert not [call for call in calls if call[0] == "nearby_chunk"]
+    assert not [call for call in calls if call[0] == "brute_chunk"]
     assert ("set_skip_bad_next_name", (True,), {}) in calls
     assert calls[-1] == ("set_skip_bad_current_name", (True,), {})
 
@@ -3143,6 +3961,83 @@ def test_apply_wrong_chunk_name_bruteforce_accepts_brute_chunk():
         {},
     )
     assert side_notes == ["-Repair hypothesis tried: chunk-name recovery for zzzz at 0x80."]
+
+
+def test_apply_wrong_chunk_name_repairs_idat_typo_at_recorded_offset_without_question():
+    calls = []
+    side_notes = []
+    data, type_index = png_with_wrong_idat_like_name(b"IDA^", crc_type=b"IDAT")
+    type_offset = type_index // 2
+    finding = "CheckChunkName_Error_0:Found Chunk[b'IDA^'] has Wrong Chunk name after Chunk[b'IDAT']"
+    chkd = "IDA^_Tool_"
+    tools = SimpleNamespace(
+        chunk_type=b"IDA^",
+        chunk_length="4",
+        chunk_type_offset=type_index,
+        previous_chunk=b"IDAT",
+    )
+    runtime = wrong_chunk_name_runtime(
+        calls,
+        answers=(),
+        pandora_box={finding: {chkd + "0": b"IDA^"}},
+        side_notes=side_notes,
+        data_hex=data.hex(),
+    )
+
+    result = fixit_felix_runtime.apply_wrong_chunk_name(
+        runtime,
+        fixit_felix.WrongChunkNameDecision("ask_bruteforce", finding, True),
+        chkd,
+        tools,
+    )
+
+    assert result == (True, "written")
+    assert not [call for call in calls if call[0] == "question"]
+    assert not [call for call in calls if call[0] == "brute_chunk"]
+    assert not [call for call in calls if call[0] == "nearby_chunk"]
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert len(write_calls) == 1
+    fixed = write_calls[0][1][0]
+    assert fixed[type_offset : type_offset + 4] == b"IDAT"
+    assert any("direct chunk-name recovery for IDA^" in note for note in side_notes)
+    assert any("stored CRC matches after renaming to IDAT" in note for note in side_notes)
+
+
+def test_apply_wrong_chunk_name_keeps_idat_typo_repair_when_crc_still_mismatches():
+    calls = []
+    side_notes = []
+    data, type_index = png_with_wrong_idat_like_name(b"@DAT", crc_type=b"JUNK")
+    finding = (
+        "CheckChunkName_Error_0:Found Chunk[b'@DAT'] has Wrong Chunk name after Chunk[b'IDAT'] "
+        "and length is not the same than before."
+    )
+    chkd = "@DAT_Tool_"
+    tools = SimpleNamespace(
+        chunk_type=b"@DAT",
+        chunk_length="4",
+        chunk_type_offset=type_index,
+        previous_chunk=b"IDAT",
+    )
+    runtime = wrong_chunk_name_runtime(
+        calls,
+        answers=(),
+        pandora_box={finding: {chkd + "0": b"@DAT"}},
+        side_notes=side_notes,
+        data_hex=data.hex(),
+    )
+
+    result = fixit_felix_runtime.apply_wrong_chunk_name(
+        runtime,
+        fixit_felix.WrongChunkNameDecision("ask_length_probe", finding, True),
+        chkd,
+        tools,
+    )
+
+    assert result == (True, "written")
+    assert not [call for call in calls if call[0] == "question"]
+    assert not [call for call in calls if call[0] == "nearby_chunk"]
+    assert any("direct chunk-name recovery for @DAT" in note for note in side_notes)
+    assert any("stored CRC still mismatches" in note for note in side_notes)
 
 
 def test_apply_wrong_chunk_name_bruteforce_skips_known_route_without_question():
@@ -3183,14 +4078,14 @@ def test_apply_wrong_chunk_name_bruteforce_skips_known_route_without_question():
     ) in side_notes
 
 
-def test_apply_wrong_chunk_name_uses_idat_chain_batch_before_bruteforce():
+def test_apply_wrong_chunk_name_uses_idat_chain_batch_after_bruteforce_decline():
     calls = []
     side_notes = []
     finding = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"
     chkd = "zzzz_Tool_"
     runtime = wrong_chunk_name_runtime(
         calls,
-        answers=(),
+        answers=(False,),
         pandora_box={finding: {chkd + "0": b"zzzz"}},
         side_notes=side_notes,
         data_hex=idat_chain_candidate_hex(),
@@ -3204,54 +4099,66 @@ def test_apply_wrong_chunk_name_uses_idat_chain_batch_before_bruteforce():
     )
 
     assert result == (True, "written")
-    assert not [call for call in calls if call[0] == "question"]
-    assert not [call for call in calls if call[0] == "ancillary"]
+    assert [call for call in calls if call[0] == "question"]
+    assert [call for call in calls if call[0] == "ancillary"]
     assert not [call for call in calls if call[0] == "brute_chunk"]
     assert any(call[0] == "write_clone" for call in calls)
+    assert any("chunk-name recovery" in note and "declined" in note for note in side_notes)
+    assert any(note.startswith("-IDAT convoy chunk-name gate: current parser") for note in side_notes)
+    assert any(note.startswith("-IDAT convoy chunk-name gate: after proposed realignment") for note in side_notes)
     assert "-Repair hypothesis tried: IDAT chain header repair." in side_notes
     assert any("type @DAT -> IDAT" in note for note in side_notes)
 
 
-def test_apply_wrong_chunk_name_runs_hermesprobe_after_idat_chain_repair():
+def test_idat_chain_chunk_name_gate_blocks_unclean_realign_candidate():
+    calls = []
+    side_notes = []
+
+    def record(name, result=None):
+        def callback(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return result
+
+        return callback
+
+    runtime = SimpleNamespace(
+        candy=record("candy"),
+        side_notes=side_notes,
+    )
+    original = PNG_SIGNATURE + build_png_chunk(b"IHDR", b"\x00" * 13) + IEND_CHUNK
+    fixed = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", b"\x00" * 13)
+        + raw_png_chunk(0, b"BA\x00D", b"")
+        + IEND_CHUNK
+    )
+
+    result = fixit_felix_runtime._confirm_chunk_names_for_idat_chain(runtime, original, fixed)
+
+    assert result is False
+    assert any(note.startswith("-IDAT convoy chunk-name gate: blocked") for note in side_notes)
+    assert ("candy", ("Cowsay", "I am not launching the IDAT convoy because the realigned candidate still has bad chunk names.", "bad"), {}) in calls
+
+
+def test_apply_wrong_chunk_name_stops_after_idat_chain_convoy_clone_boundary():
     calls = []
     side_notes = []
     finding = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"
     chkd = "zzzz_Tool_"
     source = bytes.fromhex(idat_chain_repairable_bad_deflate_hex())
     fixed = fixit_felix_runtime.idat_chain.analyze_idat_chain_headers(source).fixed_data
-    probed = []
     original_probe = fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates
+    original_deep = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam
 
-    def no_candidate_probe(data, **_kwargs):
-        probed.append(data)
-        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
-        dynamic_probe = fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
-            before,
-            None,
-            0,
-            1,
-            12,
-            False,
-            "dynamic-huffman-header",
-            "bits=12",
-        )
-        return fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
-            before,
-            None,
-            0,
-            0,
-            0,
-            False,
-            "deflate-header",
-            "mocked",
-            subprobes=(dynamic_probe,),
-        )
+    def forbidden_probe(*_args, **_kwargs):
+        raise AssertionError("deflate probing must wait for the next clone pass")
 
     try:
-        fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = no_candidate_probe
+        fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = forbidden_probe
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = forbidden_probe
         runtime = wrong_chunk_name_runtime(
             calls,
-            answers=(),
+            answers=(False,),
             pandora_box={finding: {chkd + "0": b"zzzz"}},
             side_notes=side_notes,
             data_hex=source.hex(),
@@ -3265,13 +4172,111 @@ def test_apply_wrong_chunk_name_runs_hermesprobe_after_idat_chain_repair():
         )
     finally:
         fixit_felix_runtime.idat_bruteforce.probe_deflate_header_candidates = original_probe
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = original_deep
 
     assert result == (True, "written")
-    assert probed == [fixed]
-    assert ("candy", ("Title", "probe_deflate_header_candidates"), {}) in calls
-    assert any(call[0] == "write_clone" for call in calls)
+    assert ("candy", ("Title", "probe_deflate_header_candidates"), {}) not in calls
+    assert ("candy", ("Title", "probe_idat_deflate_deep_beam"), {}) not in calls
+    write_calls = [call for call in calls if call[0] == "write_clone"]
+    assert write_calls
+    assert write_calls[0][1][0] == fixed
+    assert "-IDAT convoy clone written after clean chunk-name gate." in side_notes
+    assert "-IDAT convoy clone boundary: deep-beam deferred until the next pass from this clone." in side_notes
     assert runtime.data_hex == source.hex()
-    assert any("strategy=dynamic-huffman-header" in note for note in side_notes)
+
+
+def test_idat_chain_header_repair_writes_convoy_model_sidecar(tmp_path):
+    calls = []
+    side_notes = []
+    source = bytes.fromhex(idat_chain_repairable_bad_deflate_hex())
+    runtime = SimpleNamespace(
+        data_hex=source.hex(),
+        side_notes=side_notes,
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        candy=lambda *args: calls.append(("candy", args)),
+        write_clone=lambda *_args: "written",
+    )
+
+    result = fixit_felix_runtime.try_idat_chain_header_repair(runtime)
+
+    model_path = (
+        Path(fixit_felix_runtime.output.ensure_clone_folder("Flag.png", str(tmp_path)))
+        / "Debug_Payloads"
+        / "Flag_idat_convoy_model.json"
+    )
+    payload = json.loads(model_path.read_text())
+    assert result == (True, "written")
+    assert model_path.exists()
+    assert payload["version"] == 1
+    assert payload["convoy_stream_hash"]
+    assert payload["byte_repairs"]
+    assert payload["xors"]
+    assert any(note.startswith("-IDAT convoy model written:") for note in side_notes)
+
+
+def test_idat_convoy_clone_reuses_existing_fixed_file(tmp_path):
+    calls = []
+    side_notes = []
+    data = b"convoy-working-data"
+    folder = Path(fixit_felix_runtime.output.ensure_clone_folder("Flag.png", str(tmp_path)))
+    existing = folder / "Flag.0_Fixed.png"
+    existing.write_bytes(data)
+    queued = []
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        side_notes=side_notes,
+        candy=lambda *args: calls.append(("candy", args)),
+        write_clone=lambda *_args: calls.append(("write_clone",)),
+        queue_existing_clone=lambda path: queued.append(path) or path,
+    )
+
+    result, reused = fixit_felix_runtime._write_or_reuse_idat_convoy_clone(
+        runtime,
+        data,
+        "summary",
+    )
+
+    assert reused is True
+    assert result == str(existing)
+    assert queued == [str(existing)]
+    assert not [call for call in calls if call[0] == "write_clone"]
+    assert any(note.startswith("-IDAT convoy clone reused:") for note in side_notes)
+
+
+def test_idat_deep_beam_debug_artifacts_replace_previous_rank_files(tmp_path):
+    side_notes = []
+    folder = Path(fixit_felix_runtime.output.ensure_clone_folder("Flag.png", str(tmp_path)))
+    payload = folder / "Debug_Payloads"
+    payload.mkdir(parents=True, exist_ok=True)
+    stale_png = payload / "Flag_idat_deep_beam_rank01_stateold_deadbeef.png"
+    stale_bin = payload / "Flag_idat_deep_beam_rank01_stateold_deadbeef_idat.bin"
+    stale_raw = payload / "Flag_idat_deep_beam_rank01_stateold_deadbeef_raw_prefix.bin"
+    stale_png.write_bytes(b"old")
+    stale_bin.write_bytes(b"old")
+    stale_raw.write_bytes(b"old")
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        side_notes=side_notes,
+    )
+    result = SimpleNamespace(
+        top_candidates=(
+            SimpleNamespace(data=b"new-png", stream=b"new-stream", state_id=7),
+        )
+    )
+
+    saved = fixit_felix_runtime._write_idat_deep_beam_debug_artifacts(runtime, result)
+
+    assert saved
+    assert not stale_png.exists()
+    assert not stale_bin.exists()
+    assert sorted(path.name for path in payload.iterdir()) == [
+        "Flag_idat_deep_beam_rank01_state7_74e584d7.png",
+        "Flag_idat_deep_beam_rank01_state7_74e584d7_idat.bin",
+        "Flag_idat_deep_beam_rank01_state7_74e584d7_raw_prefix.bin",
+    ]
 
 
 def test_apply_wrong_chunk_name_uses_deflate_probe_when_aligned_stream_is_bad():
@@ -3279,24 +4284,47 @@ def test_apply_wrong_chunk_name_uses_deflate_probe_when_aligned_stream_is_bad():
     side_notes = []
     finding = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"
     chkd = "zzzz_Tool_"
+    original_deep = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam
+
+    def no_candidate_deep(data, **_kwargs):
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeepBeamProbeResult(
+            before,
+            None,
+            (),
+            0,
+            1,
+            0,
+            False,
+            0,
+            1,
+            1,
+            strategy="deep-beam",
+            reason="mocked",
+        )
+
     runtime = wrong_chunk_name_runtime(
         calls,
-        answers=(True,),
+        answers=(False,),
         pandora_box={finding: {chkd + "0": b"zzzz"}},
         side_notes=side_notes,
         data_hex=idat_chain_aligned_bad_deflate_hex(),
     )
 
-    result = fixit_felix_runtime.apply_wrong_chunk_name(
-        runtime,
-        fixit_felix.WrongChunkNameDecision("ask_bruteforce", finding, True),
-        chkd,
-        wrong_chunk_name_tools(),
-    )
+    try:
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = no_candidate_deep
+        result = fixit_felix_runtime.apply_wrong_chunk_name(
+            runtime,
+            fixit_felix.WrongChunkNameDecision("ask_bruteforce", finding, True),
+            chkd,
+            wrong_chunk_name_tools(),
+        )
+    finally:
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = original_deep
 
     assert result == (False, None)
-    assert not [call for call in calls if call[0] == "question"]
-    assert not [call for call in calls if call[0] == "ancillary"]
+    assert [call for call in calls if call[0] == "question"]
+    assert [call for call in calls if call[0] == "ancillary"]
     assert not [call for call in calls if call[0] == "brute_chunk"]
     assert not [call for call in calls if call[0] == "write_clone"]
     assert any(note.startswith("-IDAT stream diagnosis: status=corrupt_deflate") for note in side_notes)
@@ -4118,6 +5146,73 @@ def test_apply_no_next_append_missing_iend_uses_dummy_at_crc_tail():
     assert calls[-1] == ("dummy_chunk", (b"IEND", 8, 8, 8, finding), {})
 
 
+def test_apply_no_next_append_missing_iend_replaces_partial_iend_tail():
+    calls = []
+    finding = "CheckLength_Error_0:-No NextChunk"
+    partial_iend = fixit_felix.GOOD_IEND_HEX[:4]
+    runtime, side_notes, _state = no_next_runtime(
+        calls,
+        data_hex="aabbccdd" + partial_iend,
+    )
+
+    result = fixit_felix_runtime.apply_no_next_chunk(
+        runtime,
+        fixit_felix.NoNextChunkDecision("append_missing_iend", b"IDAT", b"IDAT", "12"),
+        finding,
+        "IDAT_Tool_",
+        no_next_tools(),
+    )
+
+    assert result == (True, "write-result")
+    assert side_notes == [
+        "-Extra bits detected:%s" % partial_iend,
+        "-Part or full IEND chunk detected:%s" % partial_iend,
+        "-FixItFelix:replaced partial IEND tail with canonical IEND chunk.",
+    ]
+    assert calls[-1] == (
+        "write_clone",
+        (
+            bytes.fromhex("aabbccdd" + fixit_felix.GOOD_IEND_HEX),
+            "-FixItFelix:replaced partial IEND tail with canonical IEND chunk.",
+        ),
+        {},
+    )
+
+
+def test_apply_no_next_length_probe_replaces_partial_iend_tail_before_nearby():
+    calls = []
+    finding = "CheckLength_Error_0:-No NextChunk"
+    partial_iend = fixit_felix.GOOD_IEND_HEX[:2]
+    runtime, side_notes, _state = no_next_runtime(
+        calls,
+        data_hex="aabbccdd" + partial_iend,
+    )
+
+    result = fixit_felix_runtime.apply_no_next_chunk(
+        runtime,
+        fixit_felix.NoNextChunkDecision("ask_length_probe", b"IDAT", b"IDAT", "12"),
+        finding,
+        "IDAT_Tool_",
+        no_next_tools(),
+    )
+
+    assert result == (True, "write-result")
+    assert side_notes == [
+        "-Extra bits detected:%s" % partial_iend,
+        "-Part or full IEND chunk detected:%s" % partial_iend,
+        "-FixItFelix:replaced partial IEND tail with canonical IEND chunk.",
+    ]
+    assert not [call for call in calls if call[0] in ("question", "nearby_chunk")]
+    assert calls[-1] == (
+        "write_clone",
+        (
+            bytes.fromhex("aabbccdd" + fixit_felix.GOOD_IEND_HEX),
+            "-FixItFelix:replaced partial IEND tail with canonical IEND chunk.",
+        ),
+        {},
+    )
+
+
 def test_apply_no_next_uses_idat_chain_batch_before_iend_append():
     calls = []
     finding = "CheckLength_Error_0:-No NextChunk"
@@ -4143,18 +5238,41 @@ def test_apply_no_next_uses_idat_chain_batch_before_iend_append():
 def test_apply_no_next_uses_deflate_probe_when_idat_chain_is_aligned_but_stream_is_bad():
     calls = []
     finding = "CheckLength_Error_0:-No NextChunk"
+    original_deep = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam
+
+    def no_candidate_deep(data, **_kwargs):
+        before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeepBeamProbeResult(
+            before,
+            None,
+            (),
+            0,
+            1,
+            0,
+            False,
+            0,
+            1,
+            1,
+            strategy="deep-beam",
+            reason="mocked",
+        )
+
     runtime, side_notes, _state = no_next_runtime(
         calls,
         data_hex=idat_chain_aligned_bad_deflate_hex(),
     )
 
-    result = fixit_felix_runtime.apply_no_next_chunk(
-        runtime,
-        fixit_felix.NoNextChunkDecision("append_missing_iend", b"IDAT", b"IDAT", "12"),
-        finding,
-        "IDAT_Tool_",
-        no_next_tools(),
-    )
+    try:
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = no_candidate_deep
+        result = fixit_felix_runtime.apply_no_next_chunk(
+            runtime,
+            fixit_felix.NoNextChunkDecision("append_missing_iend", b"IDAT", b"IDAT", "12"),
+            finding,
+            "IDAT_Tool_",
+            no_next_tools(),
+        )
+    finally:
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = original_deep
 
     assert result == (False, None)
     assert not [call for call in calls if call[0] == "dummy_chunk"]
@@ -4779,6 +5897,103 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert automatic.smash_brute_brawl_force_level == 2
 
 
+def test_namespace_interactive_prompts_uses_stdin_not_captured_stdout():
+    namespace = {
+        "AUTO": False,
+        "NODIALOGUE": False,
+        "sys": SimpleNamespace(
+            stdin=SimpleNamespace(isatty=lambda: True),
+            stdout=SimpleNamespace(isatty=lambda: False),
+        ),
+    }
+
+    assert fixit_felix_runtime.namespace_interactive_prompts(namespace) is True
+
+    namespace["NODIALOGUE"] = True
+    assert fixit_felix_runtime.namespace_interactive_prompts(namespace) is False
+
+
+def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
+    calls = []
+    side_notes = []
+    pandora_box = {}
+    cornucopia = {}
+    gpu_config = fixit_felix_runtime.gpu_runtime.GpuRuntimeConfig(enabled=False)
+
+    def callback(name):
+        def inner(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return name
+
+        return inner
+
+    def transcript_input(prompt):
+        calls.append(("Transcript_Input", (prompt,), {}))
+        return "1"
+
+    namespace = {
+        "PRINT": callback("PRINT"),
+        "Candy": callback("Candy"),
+        "Question": callback("Question"),
+        "SaveClone": callback("SaveClone"),
+        "WriteClone": callback("WriteClone"),
+        "ChunkStory": callback("ChunkStory"),
+        "FixItFelix_Set_Skip_Bad_Next_Name": callback("set_skip_bad_next_name"),
+        "FixItFelix_Set_Skip_Bad_Current_Name": callback("set_skip_bad_current_name"),
+        "FixItFelix_Set_Skip_Bad_No_Next_Chunk": callback("set_skip_bad_no_next_chunk"),
+        "FixItFelix_Set_EOF": callback("set_eof"),
+        "Ancillary": callback("Ancillary"),
+        "NearbyChunk": callback("NearbyChunk"),
+        "BruteChunk": callback("BruteChunk"),
+        "CheckChunkOrder": callback("CheckChunkOrder"),
+        "LibpngCheck": callback("LibpngCheck"),
+        "Relics": callback("Relics"),
+        "TheGoodPlace": callback("TheGoodPlace"),
+        "TheEnd": callback("TheEnd"),
+        "Pause": callback("Pause"),
+        "DummyChunk": callback("DummyChunk"),
+        "PandoraBox": pandora_box,
+        "Cornucopia": cornucopia,
+        "SideNotes": side_notes,
+        "DATAX": "001122",
+        "Bad_Ancillary": False,
+        "Sample": "sample.png",
+        "FILE_Origin": "source.png",
+        "FILE_DIR": "/tmp/out/",
+        "CLoffI": 12,
+        "CrcoffI": 40,
+        "Orig_CL": "0000000d",
+        "Raw_Crc": "deadbeef",
+        "DEBUG": True,
+        "PAUSEDEBUG": False,
+        "PAUSEERROR": False,
+        "Bad_Missplaced": False,
+        "EOF": False,
+        "AUTO": False,
+        "NODIALOGUE": False,
+        "sys": SimpleNamespace(stdin=SimpleNamespace(isatty=lambda: True)),
+        "Transcript_Input": transcript_input,
+        "IDAT_DEEP_BEAM_WORKERS": None,
+        "IDAT_DEEP_BEAM_GPU": None,
+        "IDAT_DEEP_BEAM_BUDGET": "123456",
+        "GPU_CONFIG": gpu_config,
+    }
+
+    wrong_name = fixit_felix_runtime.build_wrong_chunk_name_runtime_from_namespace(namespace)
+    no_next = fixit_felix_runtime.build_no_next_chunk_runtime_from_namespace(namespace)
+
+    assert wrong_name.interactive is True
+    assert wrong_name.input_func is transcript_input
+    assert wrong_name.deep_beam_workers is None
+    assert wrong_name.deep_beam_budget == "123456"
+    assert wrong_name.deep_beam_gpu_config == gpu_config
+    assert no_next.interactive is True
+    assert no_next.input_func is transcript_input
+    assert no_next.deep_beam_workers is None
+    assert no_next.deep_beam_budget == "123456"
+    assert no_next.deep_beam_gpu_config == gpu_config
+
+
 def test_namespace_pipeline_builder_preserves_debug_and_repair_wiring():
     calls = []
     pandora_box = {"finding": {"IDAT_Tool_0": "tool-data"}}
@@ -5034,6 +6249,54 @@ def main():
             test_apply_wrong_crc_writes_improved_deflate_probe_instead_of_crc_clone,
         ),
         (
+            "HermesProbe logs deep beam diagnostic",
+            test_hermesprobe_logs_dynamic_huffman_semantic_diagnostic_without_clone,
+        ),
+        (
+            "HermesProbe interrupted deep beam stops",
+            test_hermesprobe_interrupted_deep_beam_stops_instead_of_relaunching,
+        ),
+        (
+            "HermesProbe resume deep beam skips short probes",
+            test_hermesprobe_resume_deep_beam_skips_short_probes,
+        ),
+        (
+            "HermesProbe resume mismatch runs short probes",
+            test_hermesprobe_resume_mismatch_runs_short_probes,
+        ),
+        (
+            "IDAT queue progress pads deep beam",
+            test_runtime_idat_queue_progress_pads_deep_beam_counter_only,
+        ),
+        (
+            "HermesProbe prompts deep beam resources",
+            test_hermesprobe_prompts_deep_beam_workers_and_gpu_when_unconfigured,
+        ),
+        (
+            "HermesProbe prompts GPU with disabled default config",
+            test_hermesprobe_deep_beam_options_prompt_gpu_when_disabled_config_default,
+        ),
+        (
+            "HermesProbe deep GPU false overrides global config",
+            test_hermesprobe_deep_beam_gpu_argument_overrides_enabled_global_config,
+        ),
+        (
+            "HermesProbe deep beam advanced sizes",
+            test_hermesprobe_deep_beam_advanced_sizes_are_runtime_options_not_prompts,
+        ),
+        (
+            "HermesProbe deep beam invalid budget",
+            test_hermesprobe_deep_beam_invalid_budget_falls_back_to_default,
+        ),
+        (
+            "HermesProbe uses explicit deep beam config",
+            test_hermesprobe_uses_explicit_deep_beam_workers_and_gpu_config_without_prompts,
+        ),
+        (
+            "HermesProbe writes deep beam candidate",
+            test_hermesprobe_writes_deep_beam_candidate_after_short_probes_stall,
+        ),
+        (
             "Apply wrong CRC focused IDAT CRC forge before blackfill",
             test_apply_wrong_crc_uses_focused_idat_crc_forge_before_blackfill,
         ),
@@ -5070,8 +6333,12 @@ def main():
             test_apply_wrong_chunk_name_length_probe_accepts_nearby_chunk,
         ),
         (
-            "Apply wrong chunk name length probe declines",
-            test_apply_wrong_chunk_name_length_probe_decline_then_bruteforce_decline_sets_skips,
+            "Apply wrong chunk name length probe skips brute question",
+            test_apply_wrong_chunk_name_length_probe_without_repair_skips_bruteforce_question,
+        ),
+        (
+            "Apply wrong chunk name length probe deja-vu skips brute question",
+            test_apply_wrong_chunk_name_length_probe_deja_vu_skips_bruteforce_question,
         ),
         ("Apply wrong chunk name bruteforce accepts", test_apply_wrong_chunk_name_bruteforce_accepts_brute_chunk),
         (
@@ -5079,12 +6346,24 @@ def main():
             test_apply_wrong_chunk_name_bruteforce_skips_known_route_without_question,
         ),
         (
-            "Apply wrong chunk name IDAT chain batch",
-            test_apply_wrong_chunk_name_uses_idat_chain_batch_before_bruteforce,
+            "Apply wrong chunk name IDAT chain fallback",
+            test_apply_wrong_chunk_name_uses_idat_chain_batch_after_bruteforce_decline,
         ),
         (
-            "Apply wrong chunk name HermesProbe after IDAT chain",
-            test_apply_wrong_chunk_name_runs_hermesprobe_after_idat_chain_repair,
+            "IDAT chain chunk-name gate blocks dirty candidate",
+            test_idat_chain_chunk_name_gate_blocks_unclean_realign_candidate,
+        ),
+        (
+            "Apply wrong chunk name stops at IDAT convoy boundary",
+            test_apply_wrong_chunk_name_stops_after_idat_chain_convoy_clone_boundary,
+        ),
+        (
+            "IDAT convoy clone reuses existing Fixed file",
+            test_idat_convoy_clone_reuses_existing_fixed_file,
+        ),
+        (
+            "IDAT deep beam artifacts replace previous ranks",
+            test_idat_deep_beam_debug_artifacts_replace_previous_rank_files,
         ),
         (
             "Apply wrong chunk name probes after aligned bad stream",
@@ -5152,6 +6431,14 @@ def main():
         ("Apply no-next wrong IEND length rebuilds IEND", test_apply_no_next_wrong_iend_length_rebuilds_canonical_iend),
         ("Apply no-next appends dummy at CRC tail", test_apply_no_next_append_missing_iend_uses_dummy_at_crc_tail),
         (
+            "Apply no-next replaces partial IEND tail",
+            test_apply_no_next_append_missing_iend_replaces_partial_iend_tail,
+        ),
+        (
+            "Apply no-next length probe replaces partial IEND tail",
+            test_apply_no_next_length_probe_replaces_partial_iend_tail_before_nearby,
+        ),
+        (
             "Apply no-next IDAT chain batch",
             test_apply_no_next_uses_idat_chain_batch_before_iend_append,
         ),
@@ -5185,6 +6472,11 @@ def main():
         ("Apply finding work item dispatches", test_apply_finding_work_item_dispatches_through_fixit_felix_dispatch),
         ("Runtime uses automatic repair and callbacks", test_runtime_uses_automatic_repair_and_legacy_callbacks),
         ("Namespace runtime builders", test_namespace_runtime_builders_preserve_legacy_wiring),
+        ("Namespace interactive prompts use stdin", test_namespace_interactive_prompts_uses_stdin_not_captured_stdout),
+        (
+            "Namespace convoy runtimes preserve deep beam options",
+            test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options,
+        ),
         ("Namespace pipeline builder", test_namespace_pipeline_builder_preserves_debug_and_repair_wiring),
     ]
 

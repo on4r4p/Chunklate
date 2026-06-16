@@ -356,6 +356,26 @@ def test_checkpoint_action_decision_handles_chunk_name_missing_bytes():
     assert decision.action == "save_clone_missing_bytes"
 
 
+def test_checkpoint_action_decision_handles_chunk_name_extra_bytes():
+    side_note_decision = checkpoint.action_decision(
+        error=True,
+        function="CheckChunkName",
+        chunk=b"gAMA",
+        info="-NameShift: Extra bytes has been found.",
+        toolkit=("fixed", 18, 10, "-NameShift: Extra bytes has been found."),
+    )
+    solved_decision = checkpoint.action_decision(
+        error=True,
+        function="CheckChunkName",
+        chunk=b"gAMA",
+        info="-Found 1 extra byte(s) before Chunk[gAMA] after Chunk[IHDR] at offset: 0x21",
+        toolkit=("fixed", 18, 10, "-Found 1 extra byte(s) before Chunk[gAMA] after Chunk[IHDR] at offset: 0x21"),
+    )
+
+    assert side_note_decision.action == "save_clone_missing_bytes"
+    assert solved_decision.action == "save_clone_missing_bytes"
+
+
 def test_checkpoint_action_decision_handles_simple_smash_brute_brawl_paths():
     replaced = checkpoint.action_decision(
         error=True,
@@ -509,6 +529,7 @@ def main():
         ("Checkpoint action handles chunk name fixes", test_checkpoint_action_decision_handles_chunk_name_fixes),
         ("Checkpoint action handles chunk name flags", test_checkpoint_action_decision_handles_chunk_name_flags),
         ("Checkpoint action handles chunk name missing bytes", test_checkpoint_action_decision_handles_chunk_name_missing_bytes),
+        ("Checkpoint action handles chunk name extra bytes", test_checkpoint_action_decision_handles_chunk_name_extra_bytes),
         ("Checkpoint action handles simple SmashBruteBrawl paths", test_checkpoint_action_decision_handles_simple_smash_brute_brawl_paths),
         ("SmashBruteBrawl failure decision routes retry paths", test_smash_brute_brawl_failure_decision_routes_retry_paths),
         ("Checkpoint action handles SmashBruteBrawl failures", test_checkpoint_action_decision_handles_smash_brute_brawl_failures),

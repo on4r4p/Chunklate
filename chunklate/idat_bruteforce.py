@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 import hashlib
 import heapq
@@ -106,6 +106,172 @@ class IdatDeflateProbeResult:
     chain: tuple[IdatDeflateCandidate, ...] = ()
     diagnostic_best: IdatDeflateCandidate | None = None
     subprobes: tuple["IdatDeflateProbeResult", ...] = ()
+
+    @property
+    def improved(self) -> bool:
+        return self.best is not None
+
+
+@dataclass(frozen=True)
+class IdatLocalDeflateDiagnostic:
+    before: idat.IdatStreamAnalysis
+    trace: deflate_header.DynamicHeaderTrace
+    stream_size: int
+    stream_offset: int
+    file_offset: int | None
+    idat_index: int | None
+    idat_offset: int | None
+    window_start: int
+    window_end: int
+    context_hex: str
+    suspect_bits: tuple[int, ...] = ()
+    suspect_byte_offsets: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class IdatRawPrefix:
+    raw: bytes
+    error_offset: int | None = None
+    zlib_error: str = ""
+    complete: bool = False
+
+
+@dataclass(frozen=True)
+class PngRawPrefixScore:
+    raw_size: int
+    first_filter: int | None
+    first_filter_ok: bool
+    checked_filter_rows: int
+    valid_filter_rows: int
+    alpha_checked: int = 0
+    alpha_plausible: int = 0
+
+    @property
+    def first_filter_rank(self) -> int:
+        return 1 if self.first_filter_ok else 0
+
+    @property
+    def alpha_rank(self) -> int:
+        if self.alpha_checked <= 0:
+            return 0
+        return int((self.alpha_plausible * 1000) / self.alpha_checked)
+
+    @property
+    def rank(self) -> tuple[int, int, int, int]:
+        return (
+            self.first_filter_rank,
+            int(self.valid_filter_rows),
+            int(self.alpha_rank),
+            int(self.raw_size),
+        )
+
+
+@dataclass(frozen=True)
+class IdatDeepBeamOperation:
+    kind: str
+    stream_offset: int
+    old_bytes: bytes = b""
+    new_bytes: bytes = b""
+    bit_offsets: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class IdatDeepBeamCandidate:
+    data: bytes
+    stream: bytes
+    operations: tuple[IdatDeepBeamOperation, ...]
+    before: idat.IdatStreamAnalysis
+    after: idat.IdatStreamAnalysis
+    state_id: int = 0
+    parent_id: int | None = None
+    source_offsets: tuple[int, ...] = ()
+    score: tuple[int, ...] = ()
+
+
+@dataclass
+class IdatDeepBeamRuntimeStats:
+    gpu_setup_ms: float = 0.0
+    gpu_dispatch_ms: float = 0.0
+    gpu_hits: int = 0
+    gpu_shards: int = 0
+    gpu_skipped_resume: int = 0
+    cpu_batches: int = 0
+    cpu_validate_ms: float = 0.0
+    wall_ms: float = 0.0
+
+
+@dataclass(frozen=True)
+class IdatDeepBeamProgressResume:
+    gpu_done_shards: set[str]
+    resumed: bool = False
+    tested_candidates: int = 0
+    depth: int = 0
+    state_count: int = 0
+    visited_count: int = 0
+
+
+@dataclass(frozen=True)
+class IdatDeepBeamResumeState:
+    available: bool
+    source_matches: bool
+    interrupted: bool = False
+    tested: int = 0
+    depth: int = 0
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class IdatDeepBeamProbeResult:
+    before: idat.IdatStreamAnalysis
+    best: IdatDeepBeamCandidate | None
+    top_candidates: tuple[IdatDeepBeamCandidate, ...]
+    window_start: int
+    window_end: int
+    tested_candidates: int
+    budget_exhausted: bool
+    reached_depth: int
+    state_count: int
+    visited_count: int
+    checkpoint_path: str = ""
+    progress_path: str = ""
+    progress_resumed: bool = False
+    workers: int = 1
+    gpu_requested: bool = False
+    gpu_backend: str = "none"
+    strategy: str = "deep-beam"
+    reason: str = ""
+    gpu_warning: str = ""
+    gpu_shards_done: int = 0
+    interrupted: bool = False
+    timing: IdatDeepBeamRuntimeStats = field(default_factory=IdatDeepBeamRuntimeStats)
+
+    @property
+    def improved(self) -> bool:
+        return self.best is not None
+
+
+@dataclass(frozen=True)
+class IdatPeriodicProgressState:
+    available: bool
+    source_matches: bool
+    exhausted: bool = False
+    tested: int = 0
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class IdatPeriodicCorruptionModelResult:
+    before: idat.IdatStreamAnalysis
+    best: IdatDeepBeamCandidate | None
+    top_candidates: tuple[IdatDeepBeamCandidate, ...]
+    tested_candidates: int
+    budget_exhausted: bool
+    checkpoint_path: str = ""
+    progress_path: str = ""
+    model_path: str = ""
+    strategy: str = "periodic-corruption-model"
+    reason: str = ""
+    source_hash: str = ""
 
     @property
     def improved(self) -> bool:
@@ -7155,6 +7321,3012 @@ def _dynamic_huffman_suspect_bits(
     return tuple(dict.fromkeys(bits))[:max_bits]
 
 
+def _stream_context_hex(stream: bytes, stream_offset: int, *, radius: int = 16) -> str:
+    if not stream:
+        return ""
+    center = min(max(0, int(stream_offset)), max(0, len(stream) - 1))
+    start = max(0, center - int(radius))
+    end = min(len(stream), center + int(radius) + 1)
+    return stream[start:end].hex()
+
+
+def idat_local_deflate_diagnostic(
+    data: bytes,
+    *,
+    analysis: idat.IdatStreamAnalysis | None = None,
+    window_limit: int = 0x120,
+    context_radius: int = 24,
+    max_suspect_bits: int = 192,
+) -> IdatLocalDeflateDiagnostic | None:
+    before = analysis or idat.analyze_idat_stream(data)
+    if not before.supported:
+        return None
+
+    try:
+        idat_chunks, idat_stream = _idat_chunks_and_stream(data)
+    except png.PngFormatError:
+        return None
+    if not idat_stream:
+        return None
+
+    trace = deflate_header.trace_dynamic_header(idat_stream)
+    anchors = [
+        before.error_offset,
+        before.error_idat_offset,
+        getattr(before.deflate_header, "byte_offset", None) if before.deflate_header is not None else None,
+        trace.byte_offset,
+    ]
+    stream_offset = next((int(anchor) for anchor in anchors if anchor is not None), 0)
+    stream_offset = min(max(0, stream_offset), max(0, len(idat_stream) - 1))
+
+    location = _locate_idat_stream_offset(idat_chunks, stream_offset)
+    if location is None:
+        file_offset = None
+        idat_index = None
+        idat_offset = None
+    else:
+        chunk, idat_index, idat_offset = location
+        file_offset = chunk.offset + 8 + idat_offset
+
+    if before.decompressed_size == 0:
+        window_start = 0
+    else:
+        window_start = max(0, stream_offset - int(context_radius))
+    hard_end = max(
+        stream_offset + int(context_radius) + 1,
+        int(before.error_offset or 0) + int(context_radius) + 1,
+        int(trace.byte_offset or 0) + int(context_radius) + 1,
+    )
+    if before.decompressed_size == 0:
+        hard_end = max(hard_end, int(window_limit))
+    window_end = min(len(idat_stream), max(window_start + 1, hard_end))
+    if window_limit > 0 and before.decompressed_size == 0:
+        window_end = min(window_end, int(window_limit))
+
+    suspect_bits = _dynamic_huffman_suspect_bits(
+        trace,
+        idat_stream,
+        max_bits=max_suspect_bits,
+    )
+    suspect_bytes = tuple(
+        dict.fromkeys(
+            bit // 8
+            for bit in suspect_bits
+            if window_start <= bit // 8 < window_end
+        )
+    )
+
+    return IdatLocalDeflateDiagnostic(
+        before=before,
+        trace=trace,
+        stream_size=len(idat_stream),
+        stream_offset=stream_offset,
+        file_offset=file_offset,
+        idat_index=idat_index,
+        idat_offset=idat_offset,
+        window_start=window_start,
+        window_end=window_end,
+        context_hex=_stream_context_hex(idat_stream, stream_offset, radius=context_radius),
+        suspect_bits=suspect_bits,
+        suspect_byte_offsets=suspect_bytes,
+    )
+
+
+def _fmt_optional_hex(value: int | None) -> str:
+    return "?" if value is None else "0x%x" % int(value)
+
+
+def _format_bit_range(start: int | None, end: int | None) -> str:
+    if start is None or end is None:
+        return "?"
+    return "%s..%s" % (int(start), int(end))
+
+
+def _dynamic_token_summary(
+    trace: deflate_header.DynamicHeaderTrace,
+    *,
+    limit: int = 8,
+) -> str:
+    if not trace.tokens:
+        return "none"
+    priority = _dynamic_semantic_priority_tokens(trace, limit=limit)
+    parts = []
+    for token in priority:
+        label = (
+            "sym=%s bits=%s lengths=%s..%s repeat=%s"
+            % (
+                token.symbol,
+                _format_bit_range(token.bit_start, _dynamic_length_token_bit_end(token)),
+                token.length_start,
+                token.length_end,
+                token.repeat,
+            )
+        )
+        if token.error:
+            label += " error=%s" % token.error
+        parts.append(label)
+    return "; ".join(parts)
+
+
+def _limited_csv(values: Iterable[int], *, formatter: Callable[[int], str], limit: int = 24) -> str:
+    items = tuple(values)
+    if not items:
+        return "none"
+    shown = ", ".join(formatter(value) for value in items[:limit])
+    if len(items) > limit:
+        shown += ", ..."
+    return shown
+
+
+def idat_local_deflate_diagnostic_summary_lines(
+    data: bytes,
+    *,
+    analysis: idat.IdatStreamAnalysis | None = None,
+) -> tuple[str, ...]:
+    diagnostic = idat_local_deflate_diagnostic(data, analysis=analysis)
+    if diagnostic is None:
+        return ("-IDAT local deflate diagnostic: unavailable.",)
+
+    trace = diagnostic.trace
+    lines = [
+        (
+            "-IDAT local deflate diagnostic: status=%s; stream=0x%x/%s; file=%s; "
+            "IDAT=%s; idat_offset=%s; window=0x%x..0x%x; context=%s."
+            % (
+                trace.status,
+                diagnostic.stream_offset,
+                diagnostic.stream_size,
+                _fmt_optional_hex(diagnostic.file_offset),
+                "?" if diagnostic.idat_index is None else diagnostic.idat_index,
+                _fmt_optional_hex(diagnostic.idat_offset),
+                diagnostic.window_start,
+                diagnostic.window_end,
+                diagnostic.context_hex or "none",
+            )
+        ),
+        (
+            "-IDAT dynamic Huffman fields: bfinal=%s; btype=%s; HLIT=%s; HDIST=%s; HCLEN=%s; "
+            "count_bits=%s; code_length_lengths=%s."
+            % (
+                trace.bfinal,
+                trace.btype,
+                trace.hlit,
+                trace.hdist,
+                trace.hclen,
+                ", ".join("%s:%s" % (name, _format_bit_range(start, end)) for name, start, end in trace.count_bits)
+                or "none",
+                ",".join(str(value) for value in trace.code_length_lengths) or "none",
+            )
+        ),
+        (
+            "-IDAT dynamic Huffman failure: tokens=%s; lengths=%s; literal_error=%s; "
+            "distance_error=%s; reason=%s."
+            % (
+                len(trace.tokens),
+                trace.length_count,
+                trace.literal_error or "none",
+                trace.distance_error or "none",
+                trace.reason or "none",
+            )
+        ),
+        (
+            "-IDAT dynamic Huffman suspect bytes: %s; suspect_bits=%s."
+            % (
+                _limited_csv(diagnostic.suspect_byte_offsets, formatter=lambda value: "0x%x" % value),
+                _limited_csv(diagnostic.suspect_bits, formatter=lambda value: "0x%x.%s" % (value // 8, value % 8)),
+            )
+        ),
+        "-IDAT dynamic Huffman token suspects: %s." % _dynamic_token_summary(trace),
+    ]
+    return tuple(lines)
+
+
+def _local_deflate_score(analysis: idat.IdatStreamAnalysis) -> tuple[int, int, int, int, int, int, int]:
+    status_rank = {
+        "complete": 6,
+        "bad_adler": 5,
+        "partial": 4,
+        "incomplete_stream": 3,
+        "corrupt_deflate": 2,
+        "bad_zlib_header": 1,
+    }.get(analysis.status, 0)
+    header = analysis.deflate_header
+    header_rank = {
+        "ok": 4,
+        "invalid_huffman_lengths": 3,
+        "bad_code_length_tree": 2,
+        "truncated_header": 1,
+    }.get(header.status if header is not None else "", 0)
+    return (
+        1 if analysis.complete else 0,
+        analysis.usable_scanlines,
+        analysis.complete_scanlines,
+        analysis.decompressed_size,
+        status_rank,
+        header_rank,
+        analysis.error_offset if analysis.error_offset is not None else -1,
+    )
+
+
+def _local_deflate_priority_offsets(
+    diagnostic: IdatLocalDeflateDiagnostic,
+    *,
+    max_offsets: int,
+) -> tuple[int, ...]:
+    offsets: list[int] = []
+    start = diagnostic.window_start
+    end = diagnostic.window_end
+
+    def add(offset: int) -> None:
+        if start <= offset < end:
+            offsets.append(int(offset))
+
+    for offset in range(start, min(end, start + 16)):
+        add(offset)
+    for offset in diagnostic.suspect_byte_offsets:
+        add(offset)
+    for anchor in (diagnostic.stream_offset, diagnostic.trace.byte_offset):
+        for radius in range(0, 33):
+            add(anchor - radius)
+            if radius:
+                add(anchor + radius)
+    for offset in range(start, end):
+        add(offset)
+    return tuple(dict.fromkeys(offsets))[: max(1, int(max_offsets))]
+
+
+def probe_idat_deflate_local_candidates(
+    data: bytes,
+    *,
+    budget: int = 2048,
+    max_offsets: int = 96,
+    max_bits: int = 160,
+    progress: QueueProgressCallback | None = None,
+) -> IdatDeflateProbeResult:
+    before = idat.analyze_idat_stream(data)
+    strategy = "deflate-local"
+    diagnostic = idat_local_deflate_diagnostic(data, analysis=before)
+    if diagnostic is None:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "local diagnostic unavailable")
+    if before.complete:
+        return IdatDeflateProbeResult(before, None, diagnostic.window_start, diagnostic.window_end, 0, False, strategy, "IDAT stream is already complete")
+
+    offsets = _local_deflate_priority_offsets(diagnostic, max_offsets=max_offsets)
+    bits = tuple(
+        bit
+        for bit in diagnostic.suspect_bits
+        if diagnostic.window_start * 8 <= bit < diagnostic.window_end * 8
+    )[: max(1, int(max_bits))]
+    common_bytes = (0x00, 0x0A, 0x0D, 0xFF)
+    best: IdatDeflateCandidate | None = None
+    best_score = analysis_score(before)
+    diagnostic_best: IdatDeflateCandidate | None = None
+    diagnostic_score = _local_deflate_score(before)
+    tested = 0
+    budget_exhausted = False
+    seen_candidates: set[bytes] = set()
+
+    def consider(candidate: IdatDeflateCandidate | None) -> bool:
+        nonlocal best, best_score, diagnostic_best, diagnostic_score, tested, budget_exhausted
+        if tested >= budget:
+            budget_exhausted = True
+            return True
+        tested += 1
+        if progress is not None and tested % 100 == 0:
+            progress(strategy, tested, budget)
+        if candidate is None:
+            return False
+        digest = hashlib.sha1(candidate.data).digest()
+        if digest in seen_candidates:
+            return False
+        seen_candidates.add(digest)
+
+        candidate_diagnostic_score = _local_deflate_score(candidate.after)
+        if candidate_diagnostic_score > diagnostic_score:
+            diagnostic_best = candidate
+            diagnostic_score = candidate_diagnostic_score
+
+        if not is_material_improvement(before, candidate.after):
+            return False
+        candidate_score = analysis_score(candidate.after)
+        if candidate_score <= best_score:
+            return False
+        best = candidate
+        best_score = candidate_score
+        return bool(candidate.after.complete)
+
+    if progress is not None:
+        progress(strategy, 0, budget)
+
+    for offset in offsets:
+        if consider(mutate_idat_stream_edit(data, offset, "remove", remove_count=1, before_analysis=before)):
+            break
+        for value in common_bytes:
+            if consider(mutate_idat_stream_edit(data, offset, "insert", new_bytes=bytes((value,)), before_analysis=before)):
+                break
+            if consider(mutate_idat_stream_byte(data, offset, value, before_analysis=before)):
+                break
+        if budget_exhausted or (best is not None and best.after.complete):
+            break
+
+    if not budget_exhausted and not (best is not None and best.after.complete):
+        for bit in bits:
+            if consider(mutate_idat_stream_bit_flips(data, (bit,), before_analysis=before)):
+                break
+            if consider(mutate_idat_stream_bit_shift(data, bit, "bit-delete", before_analysis=before)):
+                break
+            for value in (0, 1):
+                if consider(mutate_idat_stream_bit_shift(data, bit, "bit-insert", bit_value=value, before_analysis=before)):
+                    break
+            if budget_exhausted or (best is not None and best.after.complete):
+                break
+
+    if progress is not None:
+        progress(strategy, tested, budget)
+
+    reason = (
+        "offsets=%s; bits=%s; %s"
+        % (
+            len(offsets),
+            len(bits),
+            diagnostic.trace.summary,
+        )
+    )
+    return IdatDeflateProbeResult(
+        before,
+        best,
+        diagnostic.window_start,
+        diagnostic.window_end,
+        tested,
+        budget_exhausted,
+        strategy,
+        reason,
+        diagnostic_best=diagnostic_best,
+    )
+
+
+DEEP_BEAM_DEFAULT_BUDGET = 10_000_000
+DEEP_BEAM_DEFAULT_MAX_DEPTH = 5
+DEEP_BEAM_DEFAULT_WIDTH = 256
+DEEP_BEAM_DEFAULT_TOP_CANDIDATES = 25
+DEEP_BEAM_DEFAULT_CHECKPOINT_EVERY = 25_000
+DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE = 262_144
+DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE = 128
+DEEP_BEAM_SUCCESSOR_KEEP_LIMIT = 512
+DEEP_BEAM_WORKER_IN_FLIGHT_LIMIT = 16
+DEEP_BEAM_AUTO_WORKER_LIMIT = 4
+DEEP_BEAM_MIN_AVAILABLE_MEMORY_BYTES = 512 * 1024 * 1024
+DEEP_BEAM_GPU_MAX_HITS = 128
+PERIODIC_MODEL_DEFAULT_BUDGET = 250_000
+PERIODIC_MODEL_DEFAULT_MAX_DEPTH = 3
+PERIODIC_MODEL_DEFAULT_TOP_CANDIDATES = 25
+PERIODIC_MODEL_CHECKPOINT_EVERY = 25_000
+DEEP_BEAM_COMMON_BYTES = (0x00, 0x0A, 0x0D, 0xFF)
+DEEP_BEAM_FOCUS_OFFSETS = (0x02, 0x56, 0x5E, 0x5F, 0x60, 0x61, 0x62, 0x63, 0x6E)
+DEEP_BEAM_FOCUS_BIT_RANGES = (
+    (19, 33),
+    (101, 166),
+    (689, 695),
+    (764, 774),
+)
+
+
+def idat_partial_raw_prefix(stream: bytes, *, max_output: int = 8192) -> IdatRawPrefix:
+    limit = max(0, int(max_output))
+    if not stream or limit <= 0:
+        return IdatRawPrefix(b"")
+    decompressor = zlib.decompressobj()
+    raw = bytearray()
+    for offset, value in enumerate(stream):
+        try:
+            chunk = decompressor.decompress(bytes((value,)), max(0, limit - len(raw)))
+        except zlib.error as exc:
+            return IdatRawPrefix(bytes(raw), offset, str(exc), False)
+        if chunk:
+            raw.extend(chunk)
+            if len(raw) >= limit:
+                return IdatRawPrefix(bytes(raw[:limit]), offset, "", bool(decompressor.eof))
+    try:
+        if len(raw) < limit:
+            raw.extend(decompressor.flush(max(0, limit - len(raw))))
+    except zlib.error as exc:
+        return IdatRawPrefix(bytes(raw[:limit]), len(stream), str(exc), False)
+    return IdatRawPrefix(bytes(raw[:limit]), None, "", bool(decompressor.eof))
+
+
+def score_png_raw_prefix(raw: bytes, analysis: idat.IdatStreamAnalysis) -> PngRawPrefixScore:
+    first_filter = raw[0] if raw else None
+    first_filter_ok = first_filter in (0, 1, 2, 3, 4)
+    scanline_size = max(0, int(getattr(analysis, "scanline_size", 0) or 0))
+    checked_rows = 0
+    valid_rows = 0
+    if scanline_size > 0 and raw:
+        max_rows = min(int(getattr(analysis, "height", 0) or 0) or 1, len(raw) // scanline_size + 1)
+        for row in range(max_rows):
+            row_start = row * scanline_size
+            if row_start >= len(raw):
+                break
+            checked_rows += 1
+            if raw[row_start] in (0, 1, 2, 3, 4):
+                valid_rows += 1
+
+    alpha_checked = 0
+    alpha_plausible = 0
+    if (
+        first_filter_ok
+        and int(getattr(analysis, "color_type", -1) or -1) == 6
+        and int(getattr(analysis, "bit_depth", 0) or 0) == 8
+        and scanline_size > 1
+    ):
+        row_payload = raw[1 : min(len(raw), scanline_size)]
+        for alpha in row_payload[3::4][:64]:
+            alpha_checked += 1
+            if alpha in (0, 255):
+                alpha_plausible += 1
+
+    return PngRawPrefixScore(
+        raw_size=len(raw),
+        first_filter=first_filter,
+        first_filter_ok=bool(first_filter_ok),
+        checked_filter_rows=checked_rows,
+        valid_filter_rows=valid_rows,
+        alpha_checked=alpha_checked,
+        alpha_plausible=alpha_plausible,
+    )
+
+
+def _deep_beam_workers(workers: str | int | None) -> int:
+    if workers is None or str(workers).strip().lower() == "auto":
+        return max(1, min(DEEP_BEAM_AUTO_WORKER_LIMIT, multiprocessing.cpu_count()))
+    try:
+        return max(1, int(workers))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _deep_beam_gpu_requested(gpu: bool | str | int | None) -> bool:
+    if isinstance(gpu, str):
+        value = gpu.strip().lower()
+        return value in ("1", "true", "yes", "y", "on", "gpu", "cuda", "opencl")
+    return bool(gpu)
+
+
+def _deep_beam_gpu_config(gpu: bool | str | int | None, gpu_config: Any = None) -> Any:
+    if gpu_config is not None:
+        return gpu_config
+    from . import gpu_runtime
+
+    return gpu_runtime.GpuRuntimeConfig(enabled=_deep_beam_gpu_requested(gpu))
+
+
+def _huffman_balance(lengths: tuple[int, ...] | list[int]) -> tuple[int, int, int, int]:
+    used = [int(length) for length in lengths if int(length) > 0]
+    if not used:
+        return 0, 999, 0, 0
+    max_bits = max(used)
+    counts = [0] * (max_bits + 1)
+    for length in used:
+        counts[length] += 1
+    left = 1
+    worst_oversubscribe = 0
+    for bits in range(1, max_bits + 1):
+        left <<= 1
+        left -= counts[bits]
+        if left < 0:
+            worst_oversubscribe = max(worst_oversubscribe, abs(left))
+    debt = abs(left) + (worst_oversubscribe * 4)
+    return left, debt, len(used), max_bits
+
+
+def _deep_beam_huffman_score(stream: bytes) -> tuple[int, int, int, int, int, int]:
+    trace = deflate_header.trace_dynamic_header(stream)
+    if trace.status == "ok":
+        return 5, 1, 0, 0, trace.length_count, int(trace.header_end_bit or 0)
+    if trace.btype != 2:
+        return (2 if trace.status == "ok" else 0), 0, 999, 999, trace.length_count, int(trace.bit_offset or 0)
+    literal_left, literal_debt, literal_used, _literal_bits = _huffman_balance(trace.literal_lengths)
+    distance_left, distance_debt, distance_used, _distance_bits = _huffman_balance(trace.distance_lengths)
+    has_eob = 1 if len(trace.literal_lengths) > 256 and trace.literal_lengths[256] > 0 else 0
+    header_rank = {
+        "ok": 5,
+        "invalid_huffman_lengths": 4,
+        "bad_code_length_tree": 2,
+        "truncated_header": 1,
+    }.get(trace.status, 0)
+    return (
+        header_rank,
+        has_eob,
+        literal_debt + (0 if literal_left == 0 else 1),
+        distance_debt + (0 if distance_left == 0 else 1),
+        literal_used + distance_used,
+        int(trace.bit_offset or 0),
+    )
+
+
+def _idat_crc_match_count_for_original_shape(data: bytes, original_idat_count: int) -> int:
+    try:
+        idat_chunks = tuple(chunk for chunk in png.iter_chunks(data) if chunk.chunk_type == b"IDAT")
+    except png.PngFormatError:
+        return 0
+    if len(idat_chunks) != int(original_idat_count):
+        return 0
+    return sum(1 for chunk in idat_chunks if chunk.crc == chunk.computed_crc)
+
+
+def _deep_beam_score(
+    analysis: idat.IdatStreamAnalysis,
+    stream: bytes,
+    operation_count: int,
+    *,
+    data: bytes,
+    original_idat_count: int,
+) -> tuple[int, ...]:
+    status_rank = {
+        "complete": 8,
+        "bad_adler": 7,
+        "partial": 6,
+        "incomplete_stream": 5,
+        "corrupt_deflate": 4,
+        "bad_zlib_header": 1,
+    }.get(analysis.status, 0)
+    header_rank, has_eob, literal_debt, distance_debt, length_count, bit_offset = _deep_beam_huffman_score(stream)
+    expected_delta = abs(int(analysis.expected_size or 0) - int(analysis.decompressed_size or 0))
+    raw_prefix = idat_partial_raw_prefix(stream)
+    raw_score = score_png_raw_prefix(raw_prefix.raw, analysis)
+    return (
+        1 if analysis.complete else 0,
+        int(analysis.usable_scanlines),
+        int(analysis.complete_scanlines),
+        int(raw_score.first_filter_rank),
+        int(raw_score.valid_filter_rows),
+        int(raw_score.alpha_rank),
+        int(raw_score.raw_size),
+        int(analysis.decompressed_size),
+        status_rank,
+        header_rank,
+        has_eob,
+        -int(literal_debt),
+        -int(distance_debt),
+        int(length_count),
+        int(analysis.error_offset if analysis.error_offset is not None else -1),
+        -expected_delta,
+        _idat_crc_match_count_for_original_shape(data, original_idat_count),
+        -int(operation_count),
+        int(bit_offset),
+    )
+
+
+def _deep_beam_operation_to_json(operation: IdatDeepBeamOperation) -> dict[str, object]:
+    return {
+        "kind": operation.kind,
+        "stream_offset": int(operation.stream_offset),
+        "old": operation.old_bytes.hex(),
+        "new": operation.new_bytes.hex(),
+        "bits": list(operation.bit_offsets),
+    }
+
+
+def _deep_beam_operation_from_json(record: object) -> IdatDeepBeamOperation | None:
+    if not isinstance(record, dict):
+        return None
+    try:
+        return IdatDeepBeamOperation(
+            str(record["kind"]),
+            int(record.get("stream_offset", 0)),
+            bytes.fromhex(str(record.get("old", ""))),
+            bytes.fromhex(str(record.get("new", ""))),
+            tuple(int(bit) for bit in record.get("bits", ()) if isinstance(bit, int) or str(bit).isdigit()),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _deep_beam_record_operations(record: dict[str, object]) -> tuple[IdatDeepBeamOperation, ...]:
+    raw_operations = record.get("operations", ())
+    if not isinstance(raw_operations, (list, tuple)):
+        raw_operations = ()
+    return tuple(
+        operation
+        for operation in (_deep_beam_operation_from_json(item) for item in raw_operations)
+        if operation is not None
+    )
+
+
+def _deep_beam_context_start_candidates(stream: bytes, offset: int, expected: bytes) -> tuple[int, ...]:
+    if not expected:
+        return (max(0, min(int(offset), len(stream))),)
+    start_min = max(0, int(offset) - 8)
+    start_max = min(len(stream), int(offset) + 1)
+    starts = [int(offset), *range(start_min, start_max)]
+    return tuple(dict.fromkeys(start for start in starts if 0 <= start <= len(stream) - len(expected)))
+
+
+def _deep_beam_context_matches_near(stream: bytes, offset: int, expected: bytes) -> bool:
+    if not expected:
+        return True
+    return any(
+        stream[start : start + len(expected)] == expected
+        for start in _deep_beam_context_start_candidates(stream, offset, expected)
+    )
+
+
+def _deep_beam_apply_byte_context_operation(stream: bytes, operation: IdatDeepBeamOperation) -> bytes | None:
+    offset = int(operation.stream_offset)
+    if offset < 0 or offset > len(stream):
+        return None
+    old = operation.old_bytes
+    new = operation.new_bytes
+    kind = operation.kind.strip().lower()
+
+    if "remove" in kind:
+        if not old or offset + len(old) > len(stream) or stream[offset : offset + len(old)] != old:
+            return None
+        return stream[:offset] + stream[offset + len(old) :]
+    if "insert" in kind and "bit-insert" not in kind:
+        return stream[:offset] + new + stream[offset:]
+    if "replace" in kind and "bit-range" not in kind:
+        if not old or offset + len(old) > len(stream) or stream[offset : offset + len(old)] != old:
+            return None
+        return stream[:offset] + new + stream[offset + len(old) :]
+
+    if old or new:
+        for start in _deep_beam_context_start_candidates(stream, offset, old):
+            if old and stream[start : start + len(old)] != old:
+                continue
+            return stream[:start] + new + stream[start + len(old) :]
+    return None
+
+
+def _deep_beam_apply_operation_to_stream(stream: bytes, operation: IdatDeepBeamOperation) -> bytes | None:
+    kind = operation.kind.strip().lower()
+    if "bit-delete" in kind and operation.bit_offsets:
+        shifted = _shift_stream_delete_bit(stream, int(operation.bit_offsets[0]))
+        if shifted is not None and _deep_beam_context_matches_near(shifted, operation.stream_offset, operation.new_bytes):
+            return shifted
+        return None
+    if "bit-insert" in kind and operation.bit_offsets:
+        for bit_value in (0, 1):
+            shifted = _shift_stream_insert_bit(stream, int(operation.bit_offsets[0]), bit_value)
+            if shifted is not None and _deep_beam_context_matches_near(shifted, operation.stream_offset, operation.new_bytes):
+                return shifted
+        return None
+    if "bit-flip" in kind and operation.bit_offsets:
+        return _flip_stream_bits(stream, operation.bit_offsets)
+    return _deep_beam_apply_byte_context_operation(stream, operation)
+
+
+def _deep_beam_replay_operations(
+    source_stream: bytes,
+    operations: tuple[IdatDeepBeamOperation, ...],
+) -> bytes | None:
+    stream = source_stream
+    for operation in operations:
+        stream = _deep_beam_apply_operation_to_stream(stream, operation)
+        if stream is None:
+            return None
+    return stream
+
+
+def _deep_beam_stream_from_record(
+    record: dict[str, object],
+    *,
+    source_stream: bytes,
+) -> tuple[bytes | None, tuple[IdatDeepBeamOperation, ...]]:
+    operations = _deep_beam_record_operations(record)
+    expected_hash = str(record.get("stream_hash") or "")
+    if operations or expected_hash == _stream_state_key(source_stream):
+        replayed = _deep_beam_replay_operations(source_stream, operations)
+        if replayed is not None and (not expected_hash or _stream_state_key(replayed) == expected_hash):
+            return replayed, operations
+    try:
+        return bytes.fromhex(str(record["stream"])), operations
+    except (KeyError, TypeError, ValueError):
+        return None, operations
+
+
+def _deep_beam_candidate_to_record(
+    candidate: IdatDeepBeamCandidate,
+    *,
+    source_hash: str,
+    source_stream: bytes = b"",
+    depth: int,
+) -> dict[str, object]:
+    stream_hash = _stream_state_key(candidate.stream)
+    operations = tuple(candidate.operations)
+    record = {
+        "version": 3,
+        "source_hash": source_hash,
+        "stream_hash": stream_hash,
+        "state_id": candidate.state_id,
+        "parent_id": candidate.parent_id,
+        "depth": int(depth),
+        "operations": [_deep_beam_operation_to_json(operation) for operation in operations],
+        "score": list(candidate.score),
+        "status": candidate.after.status,
+        "usable_scanlines": candidate.after.usable_scanlines,
+        "decompressed": candidate.after.decompressed_size,
+        "error_offset": candidate.after.error_offset,
+    }
+    replayed = _deep_beam_replay_operations(source_stream, operations) if source_stream else None
+    if replayed is None or _stream_state_key(replayed) != stream_hash:
+        record["stream"] = candidate.stream.hex()
+    return record
+
+
+def _compact_deep_beam_record(
+    record: dict[str, object],
+    *,
+    source_hash: str,
+    source_stream: bytes,
+) -> tuple[dict[str, object], bool]:
+    if record.get("source_hash") != source_hash:
+        return record, False
+    stream, operations = _deep_beam_stream_from_record(record, source_stream=source_stream)
+    if stream is None:
+        return record, False
+    stream_hash = _stream_state_key(stream)
+    expected_hash = str(record.get("stream_hash") or "")
+    if expected_hash and expected_hash != stream_hash:
+        return record, False
+
+    compact = dict(record)
+    compact["version"] = 3
+    compact["stream_hash"] = stream_hash
+    compact["operations"] = [_deep_beam_operation_to_json(operation) for operation in operations]
+    had_stream = "stream" in compact
+    compact.pop("stream", None)
+    return compact, had_stream
+
+
+def _compact_deep_beam_checkpoint_file(
+    checkpoint_path: str,
+    *,
+    source_hash: str,
+    source_stream: bytes,
+) -> bool:
+    if not checkpoint_path or not os.path.exists(checkpoint_path):
+        return False
+    tmp_path = _hidden_tmp_path(checkpoint_path)
+    changed = False
+    try:
+        with open(checkpoint_path, "r", encoding="utf-8") as source, open(tmp_path, "w", encoding="utf-8") as target:
+            for line in source:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    target.write(line)
+                    continue
+                if not isinstance(record, dict):
+                    target.write(line)
+                    continue
+                compact, compacted = _compact_deep_beam_record(
+                    record,
+                    source_hash=source_hash,
+                    source_stream=source_stream,
+                )
+                changed = changed or compacted
+                target.write(json.dumps(compact, sort_keys=True) + "\n")
+        if changed:
+            os.replace(tmp_path, checkpoint_path)
+        else:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        return changed
+    except OSError:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return False
+
+
+def _append_deep_beam_checkpoint(
+    checkpoint_path: str,
+    candidate: IdatDeepBeamCandidate,
+    *,
+    source_hash: str,
+    source_stream: bytes = b"",
+    depth: int,
+) -> None:
+    if not checkpoint_path:
+        return
+    try:
+        directory = os.path.dirname(checkpoint_path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(checkpoint_path, "a", encoding="utf-8") as file:
+            file.write(
+                json.dumps(
+                    _deep_beam_candidate_to_record(
+                        candidate,
+                        source_hash=source_hash,
+                        source_stream=source_stream,
+                        depth=depth,
+                    ),
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+    except OSError:
+        return
+
+
+def _deep_beam_timing_record(timing: IdatDeepBeamRuntimeStats | None) -> dict[str, object]:
+    if timing is None:
+        return {}
+    return {
+        "gpu_setup_ms": round(float(timing.gpu_setup_ms), 3),
+        "gpu_dispatch_ms": round(float(timing.gpu_dispatch_ms), 3),
+        "gpu_hits": int(timing.gpu_hits),
+        "gpu_shards": int(timing.gpu_shards),
+        "gpu_skipped_resume": int(timing.gpu_skipped_resume),
+        "cpu_batches": int(timing.cpu_batches),
+        "cpu_validate_ms": round(float(timing.cpu_validate_ms), 3),
+        "wall_ms": round(float(timing.wall_ms), 3),
+    }
+
+
+def _write_deep_beam_progress(
+    progress_path: str,
+    *,
+    source_hash: str,
+    tested: int,
+    depth: int,
+    max_depth: int,
+    budget: int,
+    hard_depth_limit: int | None = None,
+    state_count: int,
+    visited_count: int,
+    best: IdatDeepBeamCandidate | None,
+    workers: int,
+    gpu_backend: str = "none",
+    gpu_warning: str = "",
+    gpu_done_shards: Iterable[str] = (),
+    gpu_shard_size: int = DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE,
+    timing: IdatDeepBeamRuntimeStats | None = None,
+    current_gpu_shard: str = "",
+    interrupted: bool = False,
+) -> None:
+    if not progress_path:
+        return
+    try:
+        directory = os.path.dirname(progress_path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        payload = {
+            "version": 2,
+            "source_hash": source_hash,
+            "tested_candidates": int(tested),
+            "depth": int(depth),
+            "max_depth": int(max_depth),
+            "hard_depth_limit": int(hard_depth_limit if hard_depth_limit is not None else int(max_depth) + 1),
+            "budget": int(budget),
+            "state_count": int(state_count),
+            "visited_count": int(visited_count),
+            "workers": int(workers),
+            "gpu_backend": str(gpu_backend or "none"),
+            "gpu_warning": str(gpu_warning or ""),
+            "gpu_done_shards": sorted(str(item) for item in gpu_done_shards),
+            "gpu_shard_size": int(gpu_shard_size or 0),
+            "gpu_stats": _deep_beam_timing_record(timing),
+            "current_gpu_shard": str(current_gpu_shard or ""),
+            "interrupted": bool(interrupted),
+            "best_score": list(best.score) if best is not None else None,
+            "best_status": best.after.status if best is not None else "",
+            "timestamp": time.time(),
+        }
+        tmp_path = _hidden_tmp_path(progress_path)
+        with open(tmp_path, "w", encoding="utf-8") as file:
+            json.dump(payload, file, sort_keys=True)
+        os.replace(tmp_path, progress_path)
+    except OSError:
+        return
+
+
+def _load_deep_beam_progress(
+    progress_path: str,
+    *,
+    source_hash: str,
+    gpu_shard_size: int = DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE,
+) -> IdatDeepBeamProgressResume:
+    if not progress_path or not os.path.exists(progress_path):
+        return IdatDeepBeamProgressResume(set(), False)
+    try:
+        with open(progress_path, "r", encoding="utf-8") as file:
+            record = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        return IdatDeepBeamProgressResume(set(), False)
+    if not isinstance(record, dict) or record.get("source_hash") != source_hash:
+        return IdatDeepBeamProgressResume(set(), False)
+    try:
+        tested_candidates = max(0, int(record.get("tested_candidates", 0) or 0))
+    except (TypeError, ValueError):
+        tested_candidates = 0
+    try:
+        depth = max(0, int(record.get("depth", 0) or 0))
+    except (TypeError, ValueError):
+        depth = 0
+    try:
+        state_count = max(0, int(record.get("state_count", 0) or 0))
+    except (TypeError, ValueError):
+        state_count = 0
+    try:
+        visited_count = max(0, int(record.get("visited_count", 0) or 0))
+    except (TypeError, ValueError):
+        visited_count = 0
+    stored_gpu_shard_size = record.get("gpu_shard_size")
+    if stored_gpu_shard_size is not None:
+        try:
+            if int(stored_gpu_shard_size) != int(gpu_shard_size):
+                return IdatDeepBeamProgressResume(
+                    set(),
+                    bool(record),
+                    tested_candidates=tested_candidates,
+                    depth=depth,
+                    state_count=state_count,
+                    visited_count=visited_count,
+                )
+        except (TypeError, ValueError):
+            return IdatDeepBeamProgressResume(
+                set(),
+                bool(record),
+                tested_candidates=tested_candidates,
+                depth=depth,
+                state_count=state_count,
+                visited_count=visited_count,
+            )
+    done = record.get("gpu_done_shards", ())
+    if not isinstance(done, list):
+        done = ()
+    return IdatDeepBeamProgressResume(
+        {str(item) for item in done},
+        bool(record),
+        tested_candidates=tested_candidates,
+        depth=depth,
+        state_count=state_count,
+        visited_count=visited_count,
+    )
+
+
+def deep_beam_resume_state(
+    data: bytes,
+    checkpoint_path: str = "",
+    progress_path: str = "",
+) -> IdatDeepBeamResumeState:
+    try:
+        _chunks, root_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatDeepBeamResumeState(False, False, reason="source PNG is not parseable for IDAT resume: %s" % exc)
+    if not root_stream:
+        return IdatDeepBeamResumeState(False, False, reason="source IDAT stream is missing")
+
+    source_hash = _stream_state_key(root_stream)
+    if progress_path and os.path.exists(progress_path):
+        try:
+            with open(progress_path, "r", encoding="utf-8") as file:
+                record = json.load(file)
+        except (OSError, json.JSONDecodeError) as exc:
+            return IdatDeepBeamResumeState(True, False, reason="deep-beam progress is unreadable: %s" % exc)
+        if not isinstance(record, dict):
+            return IdatDeepBeamResumeState(True, False, reason="deep-beam progress is not a JSON object")
+        record_hash = str(record.get("source_hash") or "")
+        matches = record_hash == source_hash
+        return IdatDeepBeamResumeState(
+            True,
+            matches,
+            interrupted=bool(record.get("interrupted", False)),
+            tested=int(record.get("tested_candidates", 0) or 0),
+            depth=int(record.get("depth", 0) or 0),
+            reason="deep-beam progress %s source hash" % ("matches" if matches else "does not match"),
+        )
+
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        try:
+            with open(checkpoint_path, "r", encoding="utf-8") as file:
+                for line in file:
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(record, dict):
+                        continue
+                    record_hash = str(record.get("source_hash") or "")
+                    matches = record_hash == source_hash
+                    return IdatDeepBeamResumeState(
+                        True,
+                        matches,
+                        tested=0,
+                        depth=int(record.get("depth", 0) or 0),
+                        reason="deep-beam checkpoint %s source hash" % ("matches" if matches else "does not match"),
+                    )
+        except OSError as exc:
+            return IdatDeepBeamResumeState(True, False, reason="deep-beam checkpoint is unreadable: %s" % exc)
+        return IdatDeepBeamResumeState(True, False, reason="deep-beam checkpoint has no readable records")
+
+    return IdatDeepBeamResumeState(False, False, reason="no deep-beam checkpoint/progress")
+
+
+def _load_deep_beam_checkpoint(
+    checkpoint_path: str,
+    *,
+    source_hash: str,
+    source_stream: bytes,
+    chunks: tuple[png.PngChunk, ...],
+    before: idat.IdatStreamAnalysis,
+    original_idat_count: int,
+    candidate_limit: int,
+    max_operation_depth: int | None = None,
+) -> tuple[list[IdatDeepBeamCandidate], set[str], int, int]:
+    if not checkpoint_path or not os.path.exists(checkpoint_path):
+        return [], set(), 1, 0
+    recent_records: list[dict[str, object]] = []
+    visited: set[str] = set()
+    next_state_id = 1
+    limit = max(1, int(candidate_limit))
+    max_depth = None if max_operation_depth is None else max(0, int(max_operation_depth))
+    matched_records = 0
+    try:
+        with open(checkpoint_path, "r", encoding="utf-8") as file:
+            for line in file:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                if record.get("source_hash") != source_hash:
+                    continue
+                matched_records += 1
+                stream_hash = str(record.get("stream_hash") or "")
+                if stream_hash and stream_hash in visited:
+                    continue
+                if stream_hash:
+                    visited.add(stream_hash)
+                try:
+                    next_state_id = max(next_state_id, int(record.get("state_id", 0)) + 1)
+                except (TypeError, ValueError):
+                    pass
+                operations = _deep_beam_record_operations(record)
+                if max_depth is not None and len(operations) > max_depth:
+                    continue
+                recent_records.append(record)
+                if len(recent_records) > limit:
+                    recent_records.pop(0)
+    except OSError:
+        return [], set(), 1, 0
+
+    candidates: list[IdatDeepBeamCandidate] = []
+    for record in recent_records:
+        stream, operations = _deep_beam_stream_from_record(record, source_stream=source_stream)
+        if stream is None:
+            continue
+        data = _rebuild_with_single_idat_stream(chunks, stream)
+        analysis = idat.analyze_idat_stream(
+            data,
+            crc_provenance="rebuilt_by_chunklate",
+            source_kind="candidate_from_checkpoint",
+        )
+        try:
+            state_id = int(record.get("state_id", next_state_id))
+            parent_id = None if record.get("parent_id") is None else int(record.get("parent_id"))
+        except (TypeError, ValueError):
+            state_id = next_state_id
+            parent_id = None
+        candidates.append(
+            IdatDeepBeamCandidate(
+                data=data,
+                stream=stream,
+                operations=operations,
+                before=before,
+                after=analysis,
+                state_id=state_id,
+                parent_id=parent_id,
+                source_offsets=tuple(operation.stream_offset for operation in operations),
+                score=_deep_beam_score(
+                    analysis,
+                    stream,
+                    len(operations),
+                    data=data,
+                    original_idat_count=original_idat_count,
+                ),
+            )
+        )
+    return candidates, visited, next_state_id, matched_records
+
+
+def _deep_beam_progress_path_from_checkpoint(checkpoint_path: str) -> str:
+    if not checkpoint_path:
+        return ""
+    if checkpoint_path.endswith(".checkpoint.jsonl"):
+        return checkpoint_path[: -len(".checkpoint.jsonl")] + ".progress.json"
+    return checkpoint_path + ".progress.json"
+
+
+def idat_convoy_model_payload(
+    original_data: bytes,
+    fixed_data: bytes,
+    chain_analysis: Any,
+) -> dict[str, object]:
+    try:
+        chunks, convoy_stream = _all_chunks_and_idat_stream(fixed_data)
+    except png.PngFormatError:
+        chunks, convoy_stream = (), b""
+    idat_chunks = tuple(chunk for chunk in chunks if chunk.chunk_type == b"IDAT")
+    idat_index_by_offset = {chunk.offset: index for index, chunk in enumerate(idat_chunks)}
+    byte_repairs: list[dict[str, object]] = []
+    patch_records: list[dict[str, object]] = []
+    for patch in tuple(getattr(chain_analysis, "patches", ()) or ()):
+        header_offset = int(getattr(patch, "header_offset", 0) or 0)
+        old_length = int(getattr(patch, "old_length", 0) or 0)
+        new_length = int(getattr(patch, "new_length", 0) or 0)
+        old_type = bytes(getattr(patch, "old_type", b"") or b"")
+        new_type = bytes(getattr(patch, "new_type", b"IDAT") or b"IDAT")
+        idat_index = idat_index_by_offset.get(header_offset)
+        patch_records.append(
+            {
+                "header_offset": header_offset,
+                "idat_index": idat_index,
+                "idat_class_mod8": None if idat_index is None else idat_index % 8,
+                "old_length": old_length,
+                "new_length": new_length,
+                "old_type_hex": old_type.hex(),
+                "new_type_hex": new_type.hex(),
+            }
+        )
+        old_length_bytes = old_length.to_bytes(4, "big", signed=False)
+        new_length_bytes = new_length.to_bytes(4, "big", signed=False)
+        for index, (old, new) in enumerate(zip(old_length_bytes, new_length_bytes)):
+            if old == new:
+                continue
+            byte_repairs.append(
+                {
+                    "file_offset": header_offset + index,
+                    "header_offset": header_offset,
+                    "field": "length",
+                    "field_index": index,
+                    "idat_index": idat_index,
+                    "idat_class_mod8": None if idat_index is None else idat_index % 8,
+                    "old": old,
+                    "new": new,
+                    "xor": old ^ new,
+                    "delta": (new - old) & 0xFF,
+                }
+            )
+        for index, (old, new) in enumerate(zip(old_type, new_type)):
+            if old == new:
+                continue
+            byte_repairs.append(
+                {
+                    "file_offset": header_offset + 4 + index,
+                    "header_offset": header_offset,
+                    "field": "type",
+                    "field_index": index,
+                    "idat_index": idat_index,
+                    "idat_class_mod8": None if idat_index is None else idat_index % 8,
+                    "old": old,
+                    "new": new,
+                    "xor": old ^ new,
+                    "delta": (new - old) & 0xFF,
+                }
+            )
+
+    xors = sorted({int(item["xor"]) for item in byte_repairs if int(item["xor"])})
+    deltas = sorted({int(item["delta"]) for item in byte_repairs if int(item["delta"])})
+    idat_classes = sorted(
+        {
+            int(item["idat_class_mod8"])
+            for item in byte_repairs
+            if item.get("idat_class_mod8") is not None
+        }
+    )
+    return {
+        "version": 1,
+        "original_hash": hashlib.blake2b(original_data, digest_size=16).hexdigest(),
+        "fixed_hash": hashlib.blake2b(fixed_data, digest_size=16).hexdigest(),
+        "convoy_stream_hash": _stream_state_key(convoy_stream),
+        "chunk_count": len(chunks),
+        "idat_count": len(idat_chunks),
+        "expected_idat_length": getattr(chain_analysis, "expected_length", None),
+        "iend_offset": getattr(chain_analysis, "iend_offset", None),
+        "idat_chunks": [
+            {
+                "index": index,
+                "offset": chunk.offset,
+                "length": chunk.length,
+                "crc": chunk.crc,
+                "computed_crc": chunk.computed_crc,
+                "crc_ok": chunk.crc_ok,
+            }
+            for index, chunk in enumerate(idat_chunks)
+        ],
+        "patches": patch_records,
+        "byte_repairs": byte_repairs,
+        "xors": xors,
+        "deltas": deltas,
+        "idat_classes_mod8": idat_classes,
+    }
+
+
+def write_idat_convoy_model(
+    path: str,
+    original_data: bytes,
+    fixed_data: bytes,
+    chain_analysis: Any,
+) -> bool:
+    if not path:
+        return False
+    payload = idat_convoy_model_payload(original_data, fixed_data, chain_analysis)
+    encoded = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    try:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        if os.path.exists(path):
+            try:
+                with open(path, "rb") as existing:
+                    if existing.read() == encoded:
+                        return False
+            except OSError:
+                pass
+        tmp_path = _hidden_tmp_path(path)
+        with open(tmp_path, "wb") as file:
+            file.write(encoded)
+        os.replace(tmp_path, path)
+        return True
+    except OSError:
+        return False
+
+
+def _load_idat_convoy_model(path: str) -> tuple[dict[str, object] | None, str]:
+    if not path:
+        return None, "convoy model path is empty"
+    if not os.path.exists(path):
+        return None, "convoy model is missing"
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            payload = json.load(file)
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, "convoy model is unreadable: %s" % exc
+    if not isinstance(payload, dict):
+        return None, "convoy model is not a JSON object"
+    return payload, ""
+
+
+def periodic_model_progress_state(data: bytes, progress_path: str = "") -> IdatPeriodicProgressState:
+    if not progress_path or not os.path.exists(progress_path):
+        return IdatPeriodicProgressState(False, False, reason="no periodic model progress")
+    try:
+        _chunks, stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatPeriodicProgressState(True, False, reason="source PNG is not parseable: %s" % exc)
+    source_hash = _stream_state_key(stream)
+    try:
+        with open(progress_path, "r", encoding="utf-8") as file:
+            payload = json.load(file)
+    except (OSError, json.JSONDecodeError) as exc:
+        return IdatPeriodicProgressState(True, False, reason="periodic model progress is unreadable: %s" % exc)
+    if not isinstance(payload, dict):
+        return IdatPeriodicProgressState(True, False, reason="periodic model progress is not a JSON object")
+    matches = str(payload.get("source_hash") or "") == source_hash
+    return IdatPeriodicProgressState(
+        True,
+        matches,
+        exhausted=bool(payload.get("exhausted", False)),
+        tested=int(payload.get("tested_candidates", 0) or 0),
+        reason="periodic model progress %s source hash" % ("matches" if matches else "does not match"),
+    )
+
+
+def _write_periodic_model_progress(
+    progress_path: str,
+    *,
+    source_hash: str,
+    model_path: str,
+    tested: int,
+    budget: int,
+    best: IdatDeepBeamCandidate | None,
+    top_count: int,
+    exhausted: bool,
+    reason: str,
+) -> None:
+    if not progress_path:
+        return
+    try:
+        directory = os.path.dirname(progress_path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        payload = {
+            "version": 1,
+            "source_hash": source_hash,
+            "model_path": model_path,
+            "tested_candidates": int(tested),
+            "budget": int(budget),
+            "exhausted": bool(exhausted),
+            "best_score": list(best.score) if best is not None else None,
+            "top_count": int(top_count),
+            "reason": reason,
+            "timestamp": time.time(),
+        }
+        tmp_path = _hidden_tmp_path(progress_path)
+        with open(tmp_path, "w", encoding="utf-8") as file:
+            json.dump(payload, file, sort_keys=True)
+        os.replace(tmp_path, progress_path)
+    except OSError:
+        return
+
+
+def _append_periodic_model_checkpoint(
+    checkpoint_path: str,
+    candidate: IdatDeepBeamCandidate,
+    *,
+    source_hash: str,
+    source_stream: bytes,
+) -> None:
+    _append_deep_beam_checkpoint(
+        checkpoint_path,
+        candidate,
+        source_hash=source_hash,
+        source_stream=source_stream,
+        depth=len(candidate.operations),
+    )
+
+
+def _periodic_model_ints(model: dict[str, object], key: str) -> tuple[int, ...]:
+    values = model.get(key, ())
+    if not isinstance(values, list | tuple):
+        return ()
+    normalized: list[int] = []
+    for value in values:
+        try:
+            integer = int(value) & 0xFF
+        except (TypeError, ValueError):
+            continue
+        if integer:
+            normalized.append(integer)
+    return tuple(dict.fromkeys(normalized))
+
+
+def _periodic_model_offsets(diagnostic: IdatLocalDeflateDiagnostic | None, stream_size: int) -> tuple[int, ...]:
+    if diagnostic is None:
+        base = list(DEEP_BEAM_FOCUS_OFFSETS)
+        base.extend(range(0, min(stream_size, 0x120)))
+        return tuple(dict.fromkeys(offset for offset in base if 0 <= offset < stream_size))
+    offsets = list(
+        _deep_beam_offsets(
+            diagnostic,
+            max_offsets=min(512, max(1, stream_size)),
+            widened_limit=0x120,
+        )
+    )
+    for start, end in DEEP_BEAM_FOCUS_BIT_RANGES:
+        offsets.extend(bit // 8 for bit in range(start, end))
+    return tuple(dict.fromkeys(offset for offset in offsets if 0 <= offset < stream_size))
+
+
+def _periodic_operation_pool(stream: bytes, model: dict[str, object], offsets: tuple[int, ...]) -> tuple[IdatDeepBeamOperation, ...]:
+    xors = sorted(_periodic_model_ints(model, "xors"), key=lambda value: (int(value).bit_count(), int(value)))
+    deltas = _periodic_model_ints(model, "deltas")
+    operations: list[IdatDeepBeamOperation] = []
+    seen: set[tuple[object, ...]] = set()
+
+    def add(operation: IdatDeepBeamOperation) -> None:
+        key = (
+            operation.kind,
+            int(operation.stream_offset),
+            operation.old_bytes,
+            operation.new_bytes,
+            operation.bit_offsets,
+        )
+        if key in seen:
+            return
+        seen.add(key)
+        operations.append(operation)
+
+    for offset in offsets:
+        old = stream[offset]
+        for xor in xors:
+            if xor.bit_count() <= 4:
+                bits = tuple(offset * 8 + bit for bit in range(8) if xor & (1 << bit))
+                add(
+                    IdatDeepBeamOperation(
+                        "periodic-bit-flip",
+                        offset,
+                        bytes((old,)),
+                        bytes((old ^ xor,)),
+                        bits,
+                    )
+                )
+            add(
+                IdatDeepBeamOperation(
+                    "periodic-replace-xor",
+                    offset,
+                    bytes((old,)),
+                    bytes((old ^ xor,)),
+                )
+            )
+        for delta in deltas:
+            for signed_delta in (delta, (-delta) & 0xFF):
+                add(
+                    IdatDeepBeamOperation(
+                        "periodic-replace-delta",
+                        offset,
+                        bytes((old,)),
+                        bytes(((old + signed_delta) & 0xFF,)),
+                    )
+                )
+        add(IdatDeepBeamOperation("periodic-remove", offset, bytes((old,)), b""))
+        for value in DEEP_BEAM_COMMON_BYTES:
+            add(IdatDeepBeamOperation("periodic-insert", offset, b"", bytes((value,))))
+    return tuple(operations)
+
+
+def _periodic_candidate_from_operation(
+    parent: IdatDeepBeamCandidate,
+    operation: IdatDeepBeamOperation,
+    *,
+    chunks: tuple[png.PngChunk, ...],
+    before: idat.IdatStreamAnalysis,
+    state_id: int,
+    original_idat_count: int,
+) -> IdatDeepBeamCandidate | None:
+    stream = _deep_beam_apply_operation_to_stream(parent.stream, operation)
+    if stream is None:
+        return None
+    data = _rebuild_with_single_idat_stream(chunks, stream)
+    analysis = idat.analyze_idat_stream(
+        data,
+        source_kind="candidate_from_periodic_model",
+        crc_provenance="rebuilt_by_chunklate",
+    )
+    operations = parent.operations + (operation,)
+    return IdatDeepBeamCandidate(
+        data=data,
+        stream=stream,
+        operations=operations,
+        before=before,
+        after=analysis,
+        state_id=state_id,
+        parent_id=parent.state_id,
+        source_offsets=parent.source_offsets + (operation.stream_offset,),
+        score=_deep_beam_score(
+            analysis,
+            stream,
+            len(operations),
+            data=data,
+            original_idat_count=original_idat_count,
+        ),
+    )
+
+
+def _periodic_dynamic_successors(
+    parent: IdatDeepBeamCandidate,
+    *,
+    before: idat.IdatStreamAnalysis,
+    state_id_start: int,
+    original_idat_count: int,
+    budget_left: int,
+) -> tuple[list[IdatDeepBeamCandidate], int]:
+    successors: list[IdatDeepBeamCandidate] = []
+    tested = 0
+    next_state_id = int(state_id_start)
+    if budget_left <= 0:
+        return successors, tested
+
+    semantic = probe_dynamic_huffman_semantic_candidates(
+        parent.data,
+        budget=min(4096, max(1, int(budget_left))),
+        max_tokens=64,
+    )
+    tested += semantic.tested_candidates
+    for candidate, kind in ((semantic.best, "periodic-semantic-token"), (semantic.diagnostic_best, "periodic-semantic-token-diagnostic")):
+        successor = _deep_beam_candidate_from_deflate_candidate(
+            parent,
+            candidate,
+            before=before,
+            state_id=next_state_id,
+            original_idat_count=original_idat_count,
+            kind=kind,
+        )
+        if successor is not None:
+            successors.append(successor)
+            next_state_id += 1
+
+    remaining = max(0, int(budget_left) - tested)
+    if remaining <= 0:
+        return successors, tested
+    alphabet = probe_dynamic_huffman_alphabet_candidates(
+        parent.data,
+        budget=min(2048, remaining),
+        max_fields=12,
+    )
+    tested += alphabet.tested_candidates
+    for candidate, kind in ((alphabet.best, "periodic-alphabet"), (alphabet.diagnostic_best, "periodic-alphabet-diagnostic")):
+        successor = _deep_beam_candidate_from_deflate_candidate(
+            parent,
+            candidate,
+            before=before,
+            state_id=next_state_id,
+            original_idat_count=original_idat_count,
+            kind=kind,
+        )
+        if successor is not None:
+            successors.append(successor)
+            next_state_id += 1
+    return successors, tested
+
+
+def probe_idat_periodic_corruption_model(
+    data: bytes,
+    *,
+    convoy_model_path: str = "",
+    budget: int = PERIODIC_MODEL_DEFAULT_BUDGET,
+    max_depth: int = PERIODIC_MODEL_DEFAULT_MAX_DEPTH,
+    top_candidates: int = PERIODIC_MODEL_DEFAULT_TOP_CANDIDATES,
+    checkpoint_path: str = "",
+    progress_path: str = "",
+    progress: QueueProgressCallback | None = None,
+) -> IdatPeriodicCorruptionModelResult:
+    before = idat.analyze_idat_stream(data)
+    strategy = "periodic-corruption-model"
+    if not before.supported or before.complete:
+        return IdatPeriodicCorruptionModelResult(before, None, (), 0, False, strategy=strategy, reason=before.reason)
+    try:
+        chunks, root_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatPeriodicCorruptionModelResult(before, None, (), 0, False, strategy=strategy, reason=str(exc))
+    source_hash = _stream_state_key(root_stream)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    model, model_error = _load_idat_convoy_model(convoy_model_path)
+    if model is None:
+        return IdatPeriodicCorruptionModelResult(
+            before,
+            None,
+            (),
+            0,
+            False,
+            checkpoint_path=checkpoint_path,
+            progress_path=progress_path,
+            model_path=convoy_model_path,
+            strategy=strategy,
+            reason=model_error,
+            source_hash=source_hash,
+        )
+    if str(model.get("convoy_stream_hash") or "") != source_hash:
+        return IdatPeriodicCorruptionModelResult(
+            before,
+            None,
+            (),
+            0,
+            False,
+            checkpoint_path=checkpoint_path,
+            progress_path=progress_path,
+            model_path=convoy_model_path,
+            strategy=strategy,
+            reason="convoy model hash does not match current IDAT stream",
+            source_hash=source_hash,
+        )
+
+    progress_state = periodic_model_progress_state(data, progress_path)
+    if progress_state.available and progress_state.source_matches and progress_state.exhausted:
+        checkpoint_candidates, _visited, _next_state_id, _records = _load_deep_beam_checkpoint(
+            checkpoint_path,
+            source_hash=source_hash,
+            source_stream=root_stream,
+            chunks=chunks,
+            before=before,
+            original_idat_count=original_idat_count,
+            candidate_limit=top_candidates,
+            max_operation_depth=max_depth,
+        )
+        top = _deep_beam_ranked_unique(checkpoint_candidates, limit=top_candidates)
+        best = next((candidate for candidate in top if is_material_improvement(before, candidate.after)), None)
+        return IdatPeriodicCorruptionModelResult(
+            before,
+            best,
+            tuple(top),
+            progress_state.tested,
+            True,
+            checkpoint_path=checkpoint_path,
+            progress_path=progress_path,
+            model_path=convoy_model_path,
+            strategy=strategy,
+            reason="periodic model already exhausted for this source",
+            source_hash=source_hash,
+        )
+
+    diagnostic = idat_local_deflate_diagnostic(data, analysis=before)
+    offsets = _periodic_model_offsets(diagnostic, len(root_stream))
+    operations = _periodic_operation_pool(root_stream, model, offsets)
+    root = IdatDeepBeamCandidate(
+        data=data,
+        stream=root_stream,
+        operations=(),
+        before=before,
+        after=before,
+        state_id=0,
+        parent_id=None,
+        source_offsets=(),
+        score=_deep_beam_score(
+            before,
+            root_stream,
+            0,
+            data=data,
+            original_idat_count=original_idat_count,
+        ),
+    )
+    tested = 0
+    next_state_id = 1
+    visited = {_stream_state_key(root_stream)}
+    top: list[IdatDeepBeamCandidate] = []
+    best: IdatDeepBeamCandidate | None = None
+    frontier: list[IdatDeepBeamCandidate] = []
+    budget_exhausted = False
+    last_checkpoint_at = 0
+
+    def remember(candidate: IdatDeepBeamCandidate) -> None:
+        nonlocal best, top
+        key = _stream_state_key(candidate.stream)
+        if key in visited:
+            return
+        visited.add(key)
+        top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
+        if is_material_improvement(before, candidate.after):
+            if best is None or candidate.score > best.score:
+                best = candidate
+
+    for operation in operations:
+        if tested >= int(budget):
+            budget_exhausted = True
+            break
+        candidate = _periodic_candidate_from_operation(
+            root,
+            operation,
+            chunks=chunks,
+            before=before,
+            state_id=next_state_id,
+            original_idat_count=original_idat_count,
+        )
+        tested += 1
+        if candidate is None:
+            continue
+        next_state_id += 1
+        remember(candidate)
+        frontier.append(candidate)
+        if checkpoint_path and tested - last_checkpoint_at >= PERIODIC_MODEL_CHECKPOINT_EVERY:
+            for item in top:
+                _append_periodic_model_checkpoint(
+                    checkpoint_path,
+                    item,
+                    source_hash=source_hash,
+                    source_stream=root_stream,
+                )
+            last_checkpoint_at = tested
+        if progress is not None and (tested == 1 or tested % 1000 == 0):
+            progress(strategy, min(tested, int(budget)), int(budget))
+        if best is not None and best.after.complete:
+            break
+
+    depth = 2
+    frontier = list(_deep_beam_ranked_unique(frontier, limit=min(top_candidates, 16)))
+    while depth <= max(1, int(max_depth)) and frontier and tested < int(budget):
+        next_frontier: list[IdatDeepBeamCandidate] = []
+        for parent in frontier:
+            if tested >= int(budget):
+                budget_exhausted = True
+                break
+            successors, sub_tested = _periodic_dynamic_successors(
+                parent,
+                before=before,
+                state_id_start=next_state_id,
+                original_idat_count=original_idat_count,
+                budget_left=max(0, int(budget) - tested),
+            )
+            tested += min(sub_tested, max(0, int(budget) - tested))
+            next_state_id += len(successors)
+            for candidate in successors:
+                key = _stream_state_key(candidate.stream)
+                if key in visited:
+                    continue
+                next_frontier.append(candidate)
+                remember(candidate)
+            if progress is not None:
+                progress(strategy, min(tested, int(budget)), int(budget))
+            if best is not None and best.after.complete:
+                break
+        if best is not None and best.after.complete:
+            break
+        frontier = list(_deep_beam_ranked_unique(next_frontier, limit=min(top_candidates, 16)))
+        depth += 1
+
+    if checkpoint_path:
+        for item in top:
+            _append_periodic_model_checkpoint(
+                checkpoint_path,
+                item,
+                source_hash=source_hash,
+                source_stream=root_stream,
+            )
+    exhausted = budget_exhausted or tested >= int(budget) or not operations
+    if progress_path:
+        _write_periodic_model_progress(
+            progress_path,
+            source_hash=source_hash,
+            model_path=convoy_model_path,
+            tested=tested,
+            budget=budget,
+            best=best,
+            top_count=len(top),
+            exhausted=True,
+            reason="model_offsets=%s; operations=%s; top=%s" % (len(offsets), len(operations), len(top)),
+        )
+    if progress is not None:
+        progress(strategy, min(tested, int(budget)), int(budget))
+    reason = (
+        "model_offsets=%s; operations=%s; tested=%s; top=%s; best=%s; source=%s"
+        % (len(offsets), len(operations), tested, len(top), "yes" if best is not None else "no", source_hash)
+    )
+    return IdatPeriodicCorruptionModelResult(
+        before,
+        best,
+        tuple(top),
+        tested,
+        exhausted,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        model_path=convoy_model_path,
+        strategy=strategy,
+        reason=reason,
+        source_hash=source_hash,
+    )
+
+
+def _deep_beam_bit_offsets(diagnostic: IdatLocalDeflateDiagnostic, *, max_bits: int) -> tuple[int, ...]:
+    bits: list[int] = []
+    for start, end in DEEP_BEAM_FOCUS_BIT_RANGES:
+        bits.extend(range(start, end))
+    bits.extend(diagnostic.suspect_bits)
+    start_bit = diagnostic.window_start * 8
+    end_bit = diagnostic.window_end * 8
+    return tuple(dict.fromkeys(bit for bit in bits if start_bit <= bit < end_bit))[: max(1, int(max_bits))]
+
+
+def _deep_beam_offsets(
+    diagnostic: IdatLocalDeflateDiagnostic,
+    *,
+    max_offsets: int,
+    widened_limit: int,
+) -> tuple[int, ...]:
+    offsets: list[int] = []
+
+    def add(offset: int) -> None:
+        if 0 <= int(offset) < diagnostic.stream_size:
+            offsets.append(int(offset))
+
+    for offset in DEEP_BEAM_FOCUS_OFFSETS:
+        add(offset)
+    for offset in diagnostic.suspect_byte_offsets:
+        add(offset)
+    for offset in _local_deflate_priority_offsets(diagnostic, max_offsets=max_offsets):
+        add(offset)
+    for offset in range(0, min(diagnostic.stream_size, int(widened_limit))):
+        add(offset)
+    return tuple(dict.fromkeys(offsets))[: max(1, int(max_offsets))]
+
+
+def _deep_beam_operation_from_candidate(candidate: IdatDeflateCandidate, kind: str | None = None) -> IdatDeepBeamOperation:
+    return IdatDeepBeamOperation(
+        kind or candidate.edit_kind,
+        int(candidate.stream_offset),
+        candidate.old_bytes or bytes((candidate.old_byte & 0xFF,)),
+        candidate.new_bytes or (b"" if candidate.edit_kind == "remove" else bytes((candidate.new_byte & 0xFF,))),
+        tuple(candidate.bit_offsets),
+    )
+
+
+def _deep_beam_candidate_from_deflate_candidate(
+    parent: IdatDeepBeamCandidate,
+    candidate: IdatDeflateCandidate | None,
+    *,
+    before: idat.IdatStreamAnalysis,
+    state_id: int,
+    original_idat_count: int,
+    kind: str | None = None,
+) -> IdatDeepBeamCandidate | None:
+    if candidate is None:
+        return None
+    try:
+        _chunks, stream = _all_chunks_and_idat_stream(candidate.data)
+    except png.PngFormatError:
+        return None
+    operation = _deep_beam_operation_from_candidate(candidate, kind=kind)
+    operations = parent.operations + (operation,)
+    return IdatDeepBeamCandidate(
+        data=candidate.data,
+        stream=stream,
+        operations=operations,
+        before=before,
+        after=candidate.after,
+        state_id=state_id,
+        parent_id=parent.state_id,
+        source_offsets=parent.source_offsets + (operation.stream_offset,),
+        score=_deep_beam_score(
+            candidate.after,
+            stream,
+            len(operations),
+            data=candidate.data,
+            original_idat_count=original_idat_count,
+        ),
+    )
+
+
+def _deep_beam_subprobe_successors(
+    parent: IdatDeepBeamCandidate,
+    *,
+    before: idat.IdatStreamAnalysis,
+    state_id_start: int,
+    original_idat_count: int,
+    depth: int,
+) -> tuple[list[IdatDeepBeamCandidate], int]:
+    successors: list[IdatDeepBeamCandidate] = []
+    tested = 0
+    next_state_id = int(state_id_start)
+    if depth >= 1:
+        semantic = probe_dynamic_huffman_semantic_candidates(parent.data, budget=4096, max_tokens=64)
+        tested += semantic.tested_candidates
+        for candidate, kind in ((semantic.best, "semantic-token"), (semantic.diagnostic_best, "semantic-token-diagnostic")):
+            successor = _deep_beam_candidate_from_deflate_candidate(
+                parent,
+                candidate,
+                before=before,
+                state_id=next_state_id,
+                original_idat_count=original_idat_count,
+                kind=kind,
+            )
+            if successor is not None:
+                successors.append(successor)
+                next_state_id += 1
+
+        alphabet = probe_dynamic_huffman_alphabet_candidates(parent.data, budget=2048, max_fields=12)
+        tested += alphabet.tested_candidates
+        for candidate, kind in ((alphabet.best, "alphabet"), (alphabet.diagnostic_best, "alphabet-diagnostic")):
+            successor = _deep_beam_candidate_from_deflate_candidate(
+                parent,
+                candidate,
+                before=before,
+                state_id=next_state_id,
+                original_idat_count=original_idat_count,
+                kind=kind,
+            )
+            if successor is not None:
+                successors.append(successor)
+                next_state_id += 1
+    if depth >= 2:
+        crc_guided = probe_dynamic_huffman_crc_guided_candidates(
+            parent.data,
+            budget=4096,
+            max_group_bits=24,
+            max_solutions_per_group=32,
+        )
+        tested += crc_guided.tested_candidates
+        for candidate, kind in ((crc_guided.best, "crc-guided"), (crc_guided.diagnostic_best, "crc-guided-diagnostic")):
+            successor = _deep_beam_candidate_from_deflate_candidate(
+                parent,
+                candidate,
+                before=before,
+                state_id=next_state_id,
+                original_idat_count=original_idat_count,
+                kind=kind,
+            )
+            if successor is not None:
+                successors.append(successor)
+                next_state_id += 1
+    return successors, tested
+
+
+def _deep_beam_mutation_specs(
+    offsets: Iterable[int],
+    bits: Iterable[int],
+    *,
+    budget_left: int,
+) -> tuple[tuple[str, int, int], ...]:
+    specs: list[tuple[str, int, int]] = []
+
+    def add(kind: str, offset: int, value: int = 0) -> bool:
+        if len(specs) >= int(budget_left):
+            return True
+        specs.append((kind, int(offset), int(value)))
+        return False
+
+    for offset in offsets:
+        if add("remove", offset):
+            return tuple(specs)
+        for value in DEEP_BEAM_COMMON_BYTES:
+            if add("insert", offset, value):
+                return tuple(specs)
+            if add("replace", offset, value):
+                return tuple(specs)
+    for bit in bits:
+        if add("bit-flip", bit):
+            return tuple(specs)
+        if add("bit-delete", bit):
+            return tuple(specs)
+        for value in (0, 1):
+            if add("bit-insert", bit, value):
+                return tuple(specs)
+    return tuple(specs)
+
+
+def _deep_beam_apply_mutation_spec(
+    args: tuple[bytes, idat.IdatStreamAnalysis, tuple[str, int, int]],
+) -> IdatDeflateCandidate | None:
+    data, before_analysis, spec = args
+    kind, offset, value = spec
+    if kind == "remove":
+        return mutate_idat_stream_edit(data, offset, "remove", remove_count=1, before_analysis=before_analysis)
+    if kind == "insert":
+        return mutate_idat_stream_edit(data, offset, "insert", new_bytes=bytes((value & 0xFF,)), before_analysis=before_analysis)
+    if kind == "replace":
+        return mutate_idat_stream_byte(data, offset, value & 0xFF, before_analysis=before_analysis)
+    if kind == "bit-flip":
+        return mutate_idat_stream_bit_flips(data, (offset,), before_analysis=before_analysis)
+    if kind == "bit-delete":
+        return mutate_idat_stream_bit_shift(data, offset, "bit-delete", before_analysis=before_analysis)
+    if kind == "bit-insert":
+        return mutate_idat_stream_bit_shift(data, offset, "bit-insert", bit_value=value & 1, before_analysis=before_analysis)
+    return None
+
+
+def _deep_beam_apply_mutation_batch(
+    args: tuple[bytes, idat.IdatStreamAnalysis, tuple[tuple[str, int, int], ...]],
+) -> tuple[IdatDeflateCandidate | None, ...]:
+    data, before_analysis, specs = args
+    return tuple(
+        _deep_beam_apply_mutation_spec((data, before_analysis, spec))
+        for spec in specs
+    )
+
+
+def _deep_beam_worker_init() -> None:
+    try:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+    except (OSError, ValueError):
+        pass
+
+
+def _deep_beam_cpu_batch_size(spec_count: int, workers: int, cpu_batch_size: int) -> int:
+    configured = max(1, int(cpu_batch_size or DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE))
+    if int(workers) <= 1 or int(spec_count) <= 0:
+        return min(configured, 256)
+    adaptive = max(32, min(256, max(1, int(spec_count) // max(1, int(workers) * 4))))
+    if configured == DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE:
+        return adaptive
+    return min(configured, 256)
+
+
+def _deep_beam_worker_in_flight_limit(workers: int, batch_count: int) -> int:
+    batch_count = max(0, int(batch_count))
+    if batch_count <= 0:
+        return 0
+    worker_count = max(1, int(workers))
+    return max(1, min(worker_count, DEEP_BEAM_WORKER_IN_FLIGHT_LIMIT, batch_count))
+
+
+def _deep_beam_spec_batches(
+    specs: tuple[tuple[str, int, int], ...],
+    *,
+    workers: int,
+    cpu_batch_size: int,
+) -> tuple[tuple[tuple[str, int, int], ...], ...]:
+    if not specs:
+        return ()
+    batch_size = _deep_beam_cpu_batch_size(len(specs), workers, cpu_batch_size)
+    return tuple(
+        tuple(specs[index : index + batch_size])
+        for index in range(0, len(specs), batch_size)
+    )
+
+
+def _deep_beam_collect_batch_futures(
+    futures: tuple[Any, ...],
+    *,
+    fallback_data: bytes,
+    fallback_before: idat.IdatStreamAnalysis,
+    fallback_batches: tuple[tuple[tuple[str, int, int], ...], ...],
+    timing: IdatDeepBeamRuntimeStats | None,
+    started_at: float,
+) -> tuple[IdatDeflateCandidate | None, ...]:
+    try:
+        results: list[IdatDeflateCandidate | None] = []
+        for future in futures:
+            results.extend(future.result())
+        if timing is not None:
+            timing.cpu_batches += len(fallback_batches)
+            timing.cpu_validate_ms += (time.perf_counter() - started_at) * 1000.0
+        return tuple(results)
+    except (OSError, RuntimeError, ValueError, KeyboardInterrupt):
+        for future in futures:
+            canceller = getattr(future, "cancel", None)
+            if callable(canceller):
+                canceller()
+        raise
+    except Exception:
+        if timing is not None:
+            timing.cpu_batches += len(fallback_batches)
+            timing.cpu_validate_ms += (time.perf_counter() - started_at) * 1000.0
+        fallback_results: list[IdatDeflateCandidate | None] = []
+        for batch in fallback_batches:
+            fallback_results.extend(_deep_beam_apply_mutation_batch((fallback_data, fallback_before, batch)))
+        return tuple(fallback_results)
+
+
+def _deep_beam_validate_specs(
+    data: bytes,
+    before_analysis: idat.IdatStreamAnalysis,
+    specs: tuple[tuple[str, int, int], ...],
+    *,
+    workers: int,
+    worker_executor: ProcessPoolExecutor | None,
+    cpu_batch_size: int,
+    timing: IdatDeepBeamRuntimeStats | None,
+) -> tuple[IdatDeflateCandidate | None, ...]:
+    if not specs:
+        return ()
+    batches = _deep_beam_spec_batches(
+        specs,
+        workers=workers,
+        cpu_batch_size=cpu_batch_size,
+    )
+    started_at = time.perf_counter()
+    if worker_executor is not None and len(batches) > 1:
+        try:
+            futures = tuple(
+                worker_executor.submit(
+                    _deep_beam_apply_mutation_batch,
+                    (data, before_analysis, batch),
+                )
+                for batch in batches
+            )
+            return _deep_beam_collect_batch_futures(
+                futures,
+                fallback_data=data,
+                fallback_before=before_analysis,
+                fallback_batches=batches,
+                timing=timing,
+                started_at=started_at,
+            )
+        except KeyboardInterrupt:
+            raise
+        except Exception:
+            pass
+
+    results: list[IdatDeflateCandidate | None] = []
+    for batch in batches:
+        results.extend(_deep_beam_apply_mutation_batch((data, before_analysis, batch)))
+    if timing is not None:
+        timing.cpu_batches += len(batches)
+        timing.cpu_validate_ms += (time.perf_counter() - started_at) * 1000.0
+    return tuple(results)
+
+
+def _deep_beam_consume_validated_specs(
+    data: bytes,
+    before_analysis: idat.IdatStreamAnalysis,
+    specs: tuple[tuple[str, int, int], ...],
+    *,
+    workers: int,
+    worker_executor: ProcessPoolExecutor | None,
+    cpu_batch_size: int,
+    timing: IdatDeepBeamRuntimeStats | None,
+    consume: Callable[[tuple[IdatDeflateCandidate | None, ...]], None],
+) -> None:
+    if not specs:
+        return
+    batches = _deep_beam_spec_batches(
+        specs,
+        workers=workers,
+        cpu_batch_size=cpu_batch_size,
+    )
+    if not batches:
+        return
+    started_at = time.perf_counter()
+    completed_batches = 0
+
+    def consume_batch(batch: tuple[tuple[str, int, int], ...]) -> None:
+        nonlocal completed_batches
+        results = _deep_beam_apply_mutation_batch((data, before_analysis, batch))
+        try:
+            consume(results)
+        finally:
+            completed_batches += 1
+
+    if worker_executor is not None and len(batches) > 1:
+        pending: dict[Any, tuple[tuple[str, int, int], ...]] = {}
+        iterator = iter(batches)
+        max_in_flight = _deep_beam_worker_in_flight_limit(workers, len(batches))
+
+        def submit_next() -> bool:
+            try:
+                batch = next(iterator)
+            except StopIteration:
+                return False
+            pending[
+                worker_executor.submit(
+                    _deep_beam_apply_mutation_batch,
+                    (data, before_analysis, batch),
+                )
+            ] = batch
+            return True
+
+        try:
+            for _index in range(max_in_flight):
+                submit_next()
+            while pending:
+                done, _pending = wait(tuple(pending), return_when=FIRST_COMPLETED)
+                for future in done:
+                    batch = pending.pop(future)
+                    try:
+                        results = future.result()
+                    except KeyboardInterrupt:
+                        for waiting in pending:
+                            canceller = getattr(waiting, "cancel", None)
+                            if callable(canceller):
+                                canceller()
+                        raise
+                    except (OSError, RuntimeError, ValueError):
+                        for waiting in pending:
+                            canceller = getattr(waiting, "cancel", None)
+                            if callable(canceller):
+                                canceller()
+                        raise
+                    except Exception:
+                        results = _deep_beam_apply_mutation_batch((data, before_analysis, batch))
+                    try:
+                        consume(tuple(results))
+                    finally:
+                        completed_batches += 1
+                    submit_next()
+            return
+        except KeyboardInterrupt:
+            for waiting in pending:
+                canceller = getattr(waiting, "cancel", None)
+                if callable(canceller):
+                    canceller()
+            raise
+        except (OSError, RuntimeError, ValueError):
+            for waiting in pending:
+                canceller = getattr(waiting, "cancel", None)
+                if callable(canceller):
+                    canceller()
+            raise
+        finally:
+            if timing is not None:
+                timing.cpu_batches += completed_batches
+                timing.cpu_validate_ms += (time.perf_counter() - started_at) * 1000.0
+
+    try:
+        for batch in batches:
+            consume_batch(batch)
+    finally:
+        if timing is not None:
+            timing.cpu_batches += completed_batches
+            timing.cpu_validate_ms += (time.perf_counter() - started_at) * 1000.0
+
+
+def _deep_beam_spec_to_operation(stream: bytes, spec: tuple[str, int, int]) -> IdatDeepBeamOperation | None:
+    kind, offset, value = spec
+    offset = int(offset)
+    if offset < 0:
+        return None
+    if kind == "remove":
+        if offset >= len(stream):
+            return None
+        return IdatDeepBeamOperation(kind, offset, stream[offset : offset + 1], b"")
+    if kind == "insert":
+        if offset > len(stream):
+            return None
+        return IdatDeepBeamOperation(kind, offset, b"", bytes((int(value) & 0xFF,)))
+    if kind == "replace":
+        if offset >= len(stream) or stream[offset] == (int(value) & 0xFF):
+            return None
+        return IdatDeepBeamOperation(kind, offset, stream[offset : offset + 1], bytes((int(value) & 0xFF,)))
+    return None
+
+
+def _deep_beam_gpu_compatible_specs(
+    stream: bytes,
+    specs: tuple[tuple[str, int, int], ...],
+) -> tuple[tuple[int, tuple[str, int, int], IdatDeepBeamOperation], ...]:
+    compatible: list[tuple[int, tuple[str, int, int], IdatDeepBeamOperation]] = []
+    for index, spec in enumerate(specs):
+        operation = _deep_beam_spec_to_operation(stream, spec)
+        if operation is not None:
+            compatible.append((index, spec, operation))
+    return tuple(compatible)
+
+
+def _deep_beam_gpu_shard_key(parent: IdatDeepBeamCandidate, *, depth: int, start_rank: int, end_rank: int) -> str:
+    return "%s:%s:%s:%s:%s" % (
+        _stream_state_key(parent.stream),
+        int(parent.state_id),
+        int(depth),
+        int(start_rank),
+        int(end_rank),
+    )
+
+
+def _deep_beam_gpu_byte_successors(
+    parent: IdatDeepBeamCandidate,
+    *,
+    before: idat.IdatStreamAnalysis,
+    state_id_start: int,
+    original_idat_count: int,
+    depth: int,
+    specs: tuple[tuple[str, int, int], ...],
+    budget_left: int,
+    checkpoint_every: int,
+    gpu_config: Any,
+    gpu_done_shards: set[str],
+    workers: int,
+    worker_executor: ProcessPoolExecutor | None = None,
+    cpu_batch_size: int = DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE,
+    gpu_shard_size: int = DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE,
+    gpu_session: Any = None,
+    timing: IdatDeepBeamRuntimeStats | None = None,
+    compatible: tuple[tuple[int, tuple[str, int, int], IdatDeepBeamOperation], ...] | None = None,
+) -> tuple[list[IdatDeepBeamCandidate], int, bool, str, str, set[int]]:
+    enabled = bool(getattr(gpu_config, "enabled", False))
+    if not enabled or depth != 1 or not specs:
+        return [], 0, False, "off", "", set()
+
+    compatible = compatible if compatible is not None else _deep_beam_gpu_compatible_specs(parent.stream, specs)
+    if not compatible:
+        return [], 0, False, "opengl-requested", "", set()
+
+    try:
+        from . import ultimate_opengl_backend
+    except Exception as exc:
+        return [], 0, False, "unavailable:%s" % exc, str(exc), set()
+
+    operation_pool = tuple(operation for _index, _spec, operation in compatible)
+    base_plan = ultimate_opengl_backend.build_analysis_plan(
+        parent.stream,
+        width=before.width,
+        height=before.height,
+        bit_depth=before.bit_depth,
+        color_type=before.color_type,
+        scanline_size=before.scanline_size,
+        expected_size=before.expected_size,
+        operation_pool=operation_pool,
+        depth=1,
+        max_hits=min(DEEP_BEAM_GPU_MAX_HITS, max(1, len(operation_pool))),
+    )
+    decision = ultimate_opengl_backend.explain_analysis(base_plan, gpu_config)
+    if not decision.runnable:
+        return [], 0, False, "unavailable:%s" % decision.reason, decision.reason, set()
+
+    successors: list[IdatDeepBeamCandidate] = []
+    next_state_id = int(state_id_start)
+    tested = 0
+    covered_spec_indices: set[int] = set()
+    hit_specs: list[tuple[int, tuple[str, int, int]]] = []
+    shard_size = max(1, min(int(gpu_shard_size or DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE), max(1, int(budget_left))))
+    start_rank = 0
+    backend = "opengl-active"
+    warning = ""
+
+    def add(candidate: IdatDeflateCandidate | None, kind: str | None = None) -> None:
+        nonlocal next_state_id
+        successor = _deep_beam_candidate_from_deflate_candidate(
+            parent,
+            candidate,
+            before=before,
+            state_id=next_state_id,
+            original_idat_count=original_idat_count,
+            kind=kind,
+        )
+        if successor is not None:
+            successors.append(successor)
+            next_state_id += 1
+
+    while start_rank < len(operation_pool) and tested < int(budget_left):
+        end_rank = min(len(operation_pool), start_rank + shard_size, start_rank + max(0, int(budget_left) - tested))
+        if end_rank <= start_rank:
+            break
+        shard_key = _deep_beam_gpu_shard_key(parent, depth=depth, start_rank=start_rank, end_rank=end_rank)
+        if shard_key in gpu_done_shards:
+            covered_spec_indices.update(int(compatible[index][0]) for index in range(start_rank, end_rank))
+            if timing is not None:
+                timing.gpu_skipped_resume += 1
+            start_rank = end_rank
+            continue
+        plan = ultimate_opengl_backend.build_analysis_plan(
+            parent.stream,
+            width=before.width,
+            height=before.height,
+            bit_depth=before.bit_depth,
+            color_type=before.color_type,
+            scanline_size=before.scanline_size,
+            expected_size=before.expected_size,
+            operation_pool=operation_pool,
+            depth=1,
+            start_rank=start_rank,
+            end_rank=end_rank,
+            max_hits=min(DEEP_BEAM_GPU_MAX_HITS, max(1, end_rank - start_rank)),
+        )
+        try:
+            if gpu_session is not None and hasattr(gpu_session, "run"):
+                result = gpu_session.run(plan, max_ranks=end_rank - start_rank)
+            else:
+                result = ultimate_opengl_backend.run_analysis_gpu(
+                    plan,
+                    gpu_config,
+                    max_ranks=end_rank - start_rank,
+                    allow_host_fallback=False,
+                )
+        except Exception as exc:
+            return [], tested, False, "fallback-cpu", str(exc), set()
+
+        tested += max(0, int(result.covered_rank_count or (end_rank - start_rank)))
+        gpu_done_shards.add(shard_key)
+        if timing is not None:
+            timing.gpu_shards += 1
+            timing.gpu_hits += len(result.hits)
+            timing.gpu_setup_ms += float(getattr(result, "setup_ms", 0.0) or 0.0)
+            timing.gpu_dispatch_ms += float(getattr(result, "dispatch_ms", 0.0) or 0.0)
+        covered_spec_indices.update(int(compatible[index][0]) for index in range(start_rank, end_rank))
+        if result.fallback_reason:
+            backend = "fallback-cpu"
+            warning = result.fallback_reason
+        for hit in result.hits:
+            if not hit.operation_indices:
+                continue
+            pool_index = int(hit.operation_indices[0])
+            if pool_index < 0 or pool_index >= len(compatible):
+                continue
+            original_index, spec, _operation = compatible[pool_index]
+            covered_spec_indices.add(original_index)
+            hit_specs.append((original_index, spec))
+        start_rank = end_rank
+
+    hit_candidates = _deep_beam_validate_specs(
+        parent.data,
+        parent.after,
+        tuple(spec for _original_index, spec in hit_specs),
+        workers=workers,
+        worker_executor=worker_executor,
+        cpu_batch_size=cpu_batch_size,
+        timing=timing,
+    )
+    for (_original_index, spec), candidate in zip(hit_specs, hit_candidates):
+        add(candidate, kind="gpu-%s" % spec[0])
+
+    return successors, tested, True, backend, warning, covered_spec_indices
+
+
+def _deep_beam_byte_bit_successors(
+    parent: IdatDeepBeamCandidate,
+    *,
+    before: idat.IdatStreamAnalysis,
+    state_id_start: int,
+    original_idat_count: int,
+    max_offsets: int,
+    max_bits: int,
+    widened_limit: int,
+    budget_left: int,
+    workers: int,
+    depth: int = 1,
+    gpu_config: Any = None,
+    gpu_done_shards: set[str] | None = None,
+    checkpoint_every: int = DEEP_BEAM_DEFAULT_CHECKPOINT_EVERY,
+    worker_executor: ProcessPoolExecutor | None = None,
+    cpu_batch_size: int = DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE,
+    gpu_shard_size: int = DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE,
+    overlap_gpu_cpu: bool = False,
+    gpu_session: Any = None,
+    timing: IdatDeepBeamRuntimeStats | None = None,
+    successor_limit: int = DEEP_BEAM_SUCCESSOR_KEEP_LIMIT,
+) -> tuple[list[IdatDeepBeamCandidate], int, str, str]:
+    diagnostic = idat_local_deflate_diagnostic(parent.data, analysis=parent.after)
+    if diagnostic is None:
+        return [], 0, "off", ""
+    offsets = _deep_beam_offsets(diagnostic, max_offsets=max_offsets, widened_limit=widened_limit)
+    bits = _deep_beam_bit_offsets(diagnostic, max_bits=max_bits)
+    specs = _deep_beam_mutation_specs(offsets, bits, budget_left=budget_left)
+    successor_map: dict[str, IdatDeepBeamCandidate] = {}
+    next_state_id = int(state_id_start)
+    keep_limit = max(1, int(successor_limit or DEEP_BEAM_SUCCESSOR_KEEP_LIMIT))
+    gpu_done_shards = gpu_done_shards if gpu_done_shards is not None else set()
+    compatible = (
+        _deep_beam_gpu_compatible_specs(parent.stream, specs)
+        if bool(getattr(gpu_config, "enabled", False)) and depth == 1
+        else ()
+    )
+    compatible_indices = {int(index) for index, _spec, _operation in compatible}
+    overlapped_specs: tuple[tuple[str, int, int], ...] = ()
+    overlapped_batches: tuple[tuple[tuple[str, int, int], ...], ...] = ()
+    overlapped_futures: tuple[Any, ...] = ()
+    overlapped_started = 0.0
+    if (
+        overlap_gpu_cpu
+        and worker_executor is not None
+        and compatible_indices
+        and len(compatible_indices) < len(specs)
+    ):
+        overlapped_specs = tuple(
+            spec
+            for index, spec in enumerate(specs)
+            if index not in compatible_indices
+        )
+        overlapped_batches = _deep_beam_spec_batches(
+            overlapped_specs,
+            workers=workers,
+            cpu_batch_size=cpu_batch_size,
+        )
+        if overlapped_batches:
+            overlapped_started = time.perf_counter()
+            try:
+                overlapped_futures = tuple(
+                    worker_executor.submit(
+                        _deep_beam_apply_mutation_batch,
+                        (parent.data, parent.after, batch),
+                    )
+                    for batch in overlapped_batches
+                )
+            except Exception:
+                overlapped_futures = ()
+
+    gpu_successors, gpu_tested, gpu_used, gpu_backend, gpu_warning, gpu_indices = _deep_beam_gpu_byte_successors(
+        parent,
+        before=before,
+        state_id_start=next_state_id,
+        original_idat_count=original_idat_count,
+        depth=depth,
+        specs=specs,
+        budget_left=budget_left,
+        checkpoint_every=checkpoint_every,
+        gpu_config=gpu_config,
+        gpu_done_shards=gpu_done_shards,
+        workers=workers,
+        worker_executor=worker_executor,
+        cpu_batch_size=cpu_batch_size,
+        gpu_shard_size=gpu_shard_size,
+        gpu_session=gpu_session,
+        timing=timing,
+        compatible=compatible,
+    )
+    for successor in gpu_successors:
+        successor_map[_stream_state_key(successor.stream)] = successor
+    if len(successor_map) > keep_limit:
+        _deep_beam_prune_candidate_map(successor_map, limit=keep_limit)
+    next_state_id += len(gpu_successors)
+
+    def add(candidate: IdatDeflateCandidate | None, kind: str | None = None) -> None:
+        nonlocal next_state_id
+        successor = _deep_beam_candidate_from_deflate_candidate(
+            parent,
+            candidate,
+            before=before,
+            state_id=next_state_id,
+            original_idat_count=original_idat_count,
+            kind=kind,
+        )
+        if successor is not None:
+            key = _stream_state_key(successor.stream)
+            previous = successor_map.get(key)
+            if previous is None or successor.score > previous.score:
+                successor_map[key] = successor
+            if len(successor_map) > keep_limit * 2:
+                _deep_beam_prune_candidate_map(successor_map, limit=keep_limit)
+            next_state_id += 1
+
+    def consume_candidates(candidates: tuple[IdatDeflateCandidate | None, ...]) -> None:
+        for candidate in candidates:
+            add(candidate)
+
+    cpu_tested = 0
+    if overlapped_futures:
+        cpu_candidates = _deep_beam_collect_batch_futures(
+            overlapped_futures,
+            fallback_data=parent.data,
+            fallback_before=parent.after,
+            fallback_batches=overlapped_batches,
+            timing=timing,
+            started_at=overlapped_started,
+        )
+        for candidate in cpu_candidates:
+            add(candidate)
+        cpu_tested += len(overlapped_specs)
+        if gpu_used:
+            specs_for_cpu = ()
+        else:
+            specs_for_cpu = tuple(
+                spec
+                for index, spec in enumerate(specs)
+                if index in compatible_indices
+            )
+    else:
+        specs_for_cpu = tuple(
+            spec
+            for index, spec in enumerate(specs)
+            if not gpu_used or index not in gpu_indices
+        )
+
+    _deep_beam_consume_validated_specs(
+        parent.data,
+        parent.after,
+        specs_for_cpu,
+        workers=workers,
+        worker_executor=worker_executor,
+        cpu_batch_size=cpu_batch_size,
+        timing=timing,
+        consume=consume_candidates,
+    )
+    cpu_tested += len(specs_for_cpu)
+    if len(successor_map) > keep_limit:
+        _deep_beam_prune_candidate_map(successor_map, limit=keep_limit)
+    ranked = _deep_beam_ranked_unique(successor_map.values(), limit=keep_limit)
+    successors = [
+        replace(candidate, state_id=int(state_id_start) + index)
+        for index, candidate in enumerate(ranked)
+    ]
+    return successors, gpu_tested + cpu_tested, gpu_backend, gpu_warning
+
+
+def _deep_beam_ranked_unique(
+    candidates: Iterable[IdatDeepBeamCandidate],
+    *,
+    limit: int,
+) -> tuple[IdatDeepBeamCandidate, ...]:
+    best_by_stream: dict[str, IdatDeepBeamCandidate] = {}
+    for candidate in candidates:
+        key = _stream_state_key(candidate.stream)
+        previous = best_by_stream.get(key)
+        if previous is None or candidate.score > previous.score:
+            best_by_stream[key] = candidate
+    return tuple(
+        sorted(
+            best_by_stream.values(),
+            key=lambda candidate: (candidate.score, -len(candidate.operations), -candidate.state_id),
+            reverse=True,
+        )[: max(1, int(limit))]
+    )
+
+
+def _deep_beam_prune_candidate_map(
+    candidates: dict[str, IdatDeepBeamCandidate],
+    *,
+    limit: int,
+) -> None:
+    keep = _deep_beam_ranked_unique(candidates.values(), limit=limit)
+    candidates.clear()
+    candidates.update((_stream_state_key(candidate.stream), candidate) for candidate in keep)
+
+
+def _deep_beam_memory_available_bytes() -> int | None:
+    try:
+        with open("/proc/meminfo", "r", encoding="utf-8") as file:
+            for line in file:
+                if line.startswith("MemAvailable:"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return int(parts[1]) * 1024
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _deep_beam_memory_guard_tripped() -> bool:
+    available = _deep_beam_memory_available_bytes()
+    return available is not None and available < DEEP_BEAM_MIN_AVAILABLE_MEMORY_BYTES
+
+
+def probe_idat_deflate_deep_beam(
+    data: bytes,
+    *,
+    budget: int = DEEP_BEAM_DEFAULT_BUDGET,
+    max_depth: int = DEEP_BEAM_DEFAULT_MAX_DEPTH,
+    beam_width: int = DEEP_BEAM_DEFAULT_WIDTH,
+    top_candidates: int = DEEP_BEAM_DEFAULT_TOP_CANDIDATES,
+    workers: str | int | None = "auto",
+    gpu: bool | str | int | None = None,
+    gpu_config: Any = None,
+    checkpoint_every: int = DEEP_BEAM_DEFAULT_CHECKPOINT_EVERY,
+    gpu_shard_size: int = DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE,
+    cpu_batch_size: int = DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE,
+    overlap_gpu_cpu: bool = False,
+    profile_timing: bool = True,
+    checkpoint_path: str = "",
+    progress_path: str = "",
+    seed_candidates: Iterable[IdatDeepBeamCandidate] | None = None,
+    progress: QueueProgressCallback | None = None,
+) -> IdatDeepBeamProbeResult:
+    before = idat.analyze_idat_stream(data)
+    strategy = "deep-beam"
+    if not before.supported:
+        return IdatDeepBeamProbeResult(before, None, (), 0, 0, 0, False, 0, 0, 0, strategy=strategy, reason=before.reason)
+    if before.complete:
+        return IdatDeepBeamProbeResult(before, None, (), 0, 0, 0, False, 0, 0, 0, strategy=strategy, reason="IDAT stream is already complete")
+    try:
+        chunks, root_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatDeepBeamProbeResult(before, None, (), 0, 0, 0, False, 0, 0, 0, strategy=strategy, reason=str(exc))
+    if not root_stream:
+        return IdatDeepBeamProbeResult(before, None, (), 0, 0, 0, False, 0, 0, 0, strategy=strategy, reason="IDAT stream is missing")
+
+    worker_count = _deep_beam_workers(workers)
+    resolved_gpu_config = _deep_beam_gpu_config(gpu, gpu_config)
+    gpu_requested = bool(getattr(resolved_gpu_config, "enabled", False))
+    gpu_backend = "off" if not gpu_requested else "opengl-requested"
+    gpu_warning = ""
+    if not progress_path and checkpoint_path:
+        progress_path = _deep_beam_progress_path_from_checkpoint(checkpoint_path)
+    source_hash = _stream_state_key(root_stream)
+    soft_max_depth = max(0, int(max_depth))
+    hard_depth_limit = soft_max_depth + 1
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    diagnostic = idat_local_deflate_diagnostic(data, analysis=before)
+    window_start = diagnostic.window_start if diagnostic is not None else 0
+    window_end = diagnostic.window_end if diagnostic is not None else min(len(root_stream), 0x120)
+
+    root = IdatDeepBeamCandidate(
+        data=data,
+        stream=root_stream,
+        operations=(),
+        before=before,
+        after=before,
+        state_id=0,
+        parent_id=None,
+        source_offsets=(),
+        score=_deep_beam_score(
+            before,
+            root_stream,
+            0,
+            data=data,
+            original_idat_count=original_idat_count,
+        ),
+    )
+
+    checkpoint_candidates, checkpoint_visited, next_state_id, resumed_states = _load_deep_beam_checkpoint(
+        checkpoint_path,
+        source_hash=source_hash,
+        source_stream=root_stream,
+        chunks=chunks,
+        before=before,
+        original_idat_count=original_idat_count,
+        candidate_limit=max(int(beam_width), int(top_candidates), 1),
+        max_operation_depth=hard_depth_limit,
+    )
+    if checkpoint_candidates:
+        _compact_deep_beam_checkpoint_file(
+            checkpoint_path,
+            source_hash=source_hash,
+            source_stream=root_stream,
+        )
+    seed_list: list[IdatDeepBeamCandidate] = []
+    for seed in tuple(seed_candidates or ()):
+        try:
+            seed_stream = bytes(seed.stream)
+        except (TypeError, ValueError):
+            continue
+        seed_hash = _stream_state_key(seed_stream)
+        if seed_hash == _stream_state_key(root_stream):
+            continue
+        seed_data = _rebuild_with_single_idat_stream(chunks, seed_stream)
+        seed_analysis = idat.analyze_idat_stream(
+            seed_data,
+            crc_provenance="rebuilt_by_chunklate",
+            source_kind="candidate_from_periodic_seed",
+        )
+        operations = tuple(seed.operations)
+        seed_list.append(
+            IdatDeepBeamCandidate(
+                data=seed_data,
+                stream=seed_stream,
+                operations=operations,
+                before=before,
+                after=seed_analysis,
+                state_id=next_state_id,
+                parent_id=seed.parent_id,
+                source_offsets=tuple(operation.stream_offset for operation in operations),
+                score=_deep_beam_score(
+                    seed_analysis,
+                    seed_stream,
+                    len(operations),
+                    data=seed_data,
+                    original_idat_count=original_idat_count,
+                ),
+            )
+        )
+        next_state_id += 1
+    progress_resume = _load_deep_beam_progress(
+        progress_path,
+        source_hash=source_hash,
+        gpu_shard_size=gpu_shard_size,
+    )
+    gpu_done_shards = progress_resume.gpu_done_shards
+    progress_resumed = bool(checkpoint_candidates) or progress_resume.resumed
+    visited = {_stream_state_key(root_stream), *checkpoint_visited}
+    initial_candidates = [*checkpoint_candidates, *seed_list]
+    frontier = list(
+        _deep_beam_ranked_unique(initial_candidates, limit=beam_width)
+    ) if initial_candidates else [root]
+    top = _deep_beam_ranked_unique([root, *initial_candidates], limit=top_candidates)
+    best = next((candidate for candidate in top if is_material_improvement(before, candidate.after)), None)
+    resume_floor = max(
+        0,
+        int(progress_resume.tested_candidates or 0),
+        int(progress_resume.state_count or 0),
+        int(progress_resume.visited_count or 0),
+        int(next_state_id) - 1,
+    )
+    tested = resume_floor
+    state_count = max(1, next_state_id, int(progress_resume.state_count or 0))
+    reached_depth = max(
+        min(int(progress_resume.depth or 0), hard_depth_limit),
+        max((len(candidate.operations) for candidate in frontier), default=0),
+    )
+    budget_exhausted = False
+    last_checkpoint_at = tested
+    interrupted = False
+    timing = IdatDeepBeamRuntimeStats()
+    active_timing = timing if profile_timing else None
+    checkpoint_written: set[str] = set(checkpoint_visited)
+
+    def append_checkpoint_once(candidate: IdatDeepBeamCandidate, depth_value: int) -> None:
+        if not checkpoint_path:
+            return
+        key = _stream_state_key(candidate.stream)
+        if key in checkpoint_written:
+            return
+        _append_deep_beam_checkpoint(
+            checkpoint_path,
+            candidate,
+            source_hash=source_hash,
+            source_stream=root_stream,
+            depth=depth_value,
+        )
+        checkpoint_written.add(key)
+
+    wall_started_at = time.perf_counter()
+    if checkpoint_path:
+        for seed in seed_list:
+            append_checkpoint_once(seed, len(seed.operations))
+    worker_executor: ProcessPoolExecutor | None = None
+    gpu_session: Any = None
+    if worker_count > 1:
+        try:
+            worker_executor = ProcessPoolExecutor(max_workers=worker_count, initializer=_deep_beam_worker_init)
+        except (OSError, RuntimeError, ValueError) as exc:
+            worker_executor = None
+            gpu_warning = gpu_warning or "worker pool unavailable: %s" % exc
+    if gpu_requested:
+        try:
+            from . import ultimate_opengl_backend
+
+            gpu_session = ultimate_opengl_backend.UltimateOpenGLAnalysisSession(resolved_gpu_config)
+        except Exception as exc:
+            gpu_session = None
+            gpu_warning = gpu_warning or str(exc)
+
+    widened_limits = (0x120, 0x400, 0x1000)
+    stop_reason = ""
+    hard_depth_limit_hit = False
+    frontier_pool_limit = max(1, min(DEEP_BEAM_SUCCESSOR_KEEP_LIMIT, max(int(beam_width), int(top_candidates), 16)))
+    successor_keep_limit = max(1, min(DEEP_BEAM_SUCCESSOR_KEEP_LIMIT, max(int(beam_width), int(top_candidates) * 4, 16)))
+
+    def prune_working_frontiers() -> None:
+        nonlocal next_frontier, fallback_frontier
+        if len(next_frontier) > frontier_pool_limit * 2:
+            next_frontier = list(_deep_beam_ranked_unique(next_frontier, limit=frontier_pool_limit))
+        if len(fallback_frontier) > frontier_pool_limit * 2:
+            fallback_frontier = list(_deep_beam_ranked_unique(fallback_frontier, limit=frontier_pool_limit))
+
+    try:
+        if progress is not None and progress_resumed:
+            progress(strategy, min(tested, int(budget)), int(budget))
+        while frontier:
+            if tested >= int(budget):
+                budget_exhausted = True
+                stop_reason = "budget exhausted"
+                break
+            next_frontier: list[IdatDeepBeamCandidate] = []
+            fallback_frontier: list[IdatDeepBeamCandidate] = []
+            for parent in frontier:
+                if _deep_beam_memory_guard_tripped():
+                    stop_reason = "memory guard"
+                    break
+                if tested >= int(budget):
+                    budget_exhausted = True
+                    stop_reason = "budget exhausted"
+                    break
+                effective_depth = len(parent.operations) + 1
+                if effective_depth > hard_depth_limit:
+                    hard_depth_limit_hit = True
+                    continue
+                reached_depth = max(reached_depth, effective_depth)
+                widened_limit = widened_limits[min(effective_depth - 1, len(widened_limits) - 1)]
+                byte_bit_successors, byte_bit_tested, byte_gpu_backend, byte_gpu_warning = _deep_beam_byte_bit_successors(
+                    parent,
+                    before=before,
+                    state_id_start=next_state_id,
+                    original_idat_count=original_idat_count,
+                    max_offsets=128 if effective_depth <= 2 else 256,
+                    max_bits=192 if effective_depth <= 2 else 384,
+                    widened_limit=widened_limit,
+                    budget_left=max(0, int(budget) - tested),
+                    workers=worker_count,
+                    depth=effective_depth,
+                    gpu_config=resolved_gpu_config,
+                    gpu_done_shards=gpu_done_shards,
+                    checkpoint_every=checkpoint_every,
+                    worker_executor=worker_executor,
+                    cpu_batch_size=cpu_batch_size,
+                    gpu_shard_size=gpu_shard_size,
+                    overlap_gpu_cpu=overlap_gpu_cpu,
+                    gpu_session=gpu_session,
+                    timing=active_timing,
+                    successor_limit=successor_keep_limit,
+                )
+                tested += byte_bit_tested
+                next_state_id += len(byte_bit_successors)
+                if byte_gpu_backend != "off":
+                    gpu_backend = byte_gpu_backend
+                if byte_gpu_warning:
+                    gpu_warning = byte_gpu_warning
+                if tested < int(budget):
+                    subprobe_successors, subprobe_tested = _deep_beam_subprobe_successors(
+                        parent,
+                        before=before,
+                        state_id_start=next_state_id,
+                        original_idat_count=original_idat_count,
+                        depth=effective_depth,
+                    )
+                    tested += min(subprobe_tested, max(0, int(budget) - tested))
+                    next_state_id += len(subprobe_successors)
+                else:
+                    subprobe_successors = []
+                    subprobe_tested = 0
+                state_count = max(state_count, next_state_id)
+
+                for candidate in itertools.chain(byte_bit_successors, subprobe_successors):
+                    key = _stream_state_key(candidate.stream)
+                    if key in visited:
+                        continue
+                    visited.add(key)
+                    if candidate.score <= parent.score and not is_material_improvement(before, candidate.after):
+                        fallback_frontier.append(candidate)
+                        prune_working_frontiers()
+                        continue
+                    next_frontier.append(candidate)
+                    prune_working_frontiers()
+                    if is_material_improvement(before, candidate.after):
+                        if best is None or candidate.score > best.score:
+                            best = candidate
+
+                next_frontier = list(_deep_beam_ranked_unique(next_frontier, limit=frontier_pool_limit))
+                fallback_frontier = list(_deep_beam_ranked_unique(fallback_frontier, limit=frontier_pool_limit))
+                top = _deep_beam_ranked_unique(itertools.chain(top, next_frontier), limit=top_candidates)
+                if checkpoint_path and next_frontier and tested - last_checkpoint_at >= int(checkpoint_every):
+                    for candidate in top:
+                        append_checkpoint_once(candidate, effective_depth)
+                    last_checkpoint_at = tested
+                if progress_path and (tested == 0 or tested % max(1, int(checkpoint_every)) < byte_bit_tested + subprobe_tested):
+                    _write_deep_beam_progress(
+                        progress_path,
+                        source_hash=source_hash,
+                        tested=tested,
+                        depth=reached_depth,
+                        max_depth=soft_max_depth,
+                        budget=budget,
+                        hard_depth_limit=hard_depth_limit,
+                        state_count=state_count,
+                        visited_count=len(visited),
+                        best=best,
+                        workers=worker_count,
+                        gpu_backend=gpu_backend,
+                        gpu_warning=gpu_warning,
+                        gpu_done_shards=gpu_done_shards,
+                        gpu_shard_size=gpu_shard_size,
+                        timing=active_timing,
+                    )
+                if progress is not None:
+                    progress(strategy, min(tested, int(budget)), int(budget))
+                if best is not None and best.after.complete:
+                    stop_reason = "complete candidate"
+                    break
+            if stop_reason == "memory guard":
+                break
+            if not next_frontier:
+                if fallback_frontier and tested < int(budget):
+                    next_frontier = list(
+                        _deep_beam_ranked_unique(fallback_frontier, limit=beam_width)
+                    )
+                elif not stop_reason:
+                    stop_reason = "hard depth limit reached" if hard_depth_limit_hit else "frontier exhausted"
+                    break
+            frontier = list(_deep_beam_ranked_unique(next_frontier, limit=beam_width))
+            top = _deep_beam_ranked_unique(itertools.chain(top, frontier), limit=top_candidates)
+            if best is not None and best.after.complete:
+                stop_reason = "complete candidate"
+                break
+    except KeyboardInterrupt:
+        interrupted = True
+        gpu_warning = gpu_warning or "interrupted"
+    finally:
+        timing.wall_ms = (time.perf_counter() - wall_started_at) * 1000.0
+        if gpu_session is not None:
+            closer = getattr(gpu_session, "close", None)
+            if callable(closer):
+                closer()
+        if worker_executor is not None:
+            if interrupted:
+                _ultimate_shutdown_parallel_executor(
+                    worker_executor,
+                    grace_seconds=0.05,
+                )
+            else:
+                try:
+                    worker_executor.shutdown()
+                except TypeError:
+                    worker_executor.shutdown()
+
+    if checkpoint_path:
+        for candidate in top:
+            append_checkpoint_once(candidate, len(candidate.operations))
+    if progress_path:
+        _write_deep_beam_progress(
+            progress_path,
+            source_hash=source_hash,
+            tested=tested,
+            depth=reached_depth,
+            max_depth=soft_max_depth,
+            budget=budget,
+            hard_depth_limit=hard_depth_limit,
+            state_count=state_count,
+            visited_count=len(visited),
+            best=best,
+            workers=worker_count,
+            gpu_backend=gpu_backend,
+            gpu_warning=gpu_warning,
+            gpu_done_shards=gpu_done_shards,
+            gpu_shard_size=gpu_shard_size,
+            timing=active_timing,
+            interrupted=interrupted,
+        )
+    if not stop_reason and budget_exhausted:
+        stop_reason = "budget exhausted"
+    reason = (
+        "beam_width=%s; soft_max_depth=%s; hard_depth_limit=%s; reached_depth=%s; top=%s; workers=%s; resumed=%s; stop=%s; source=%s"
+        % (beam_width, soft_max_depth, hard_depth_limit, reached_depth, len(top), worker_count, resumed_states, stop_reason or "unknown", source_hash)
+    )
+    return IdatDeepBeamProbeResult(
+        before,
+        best,
+        tuple(top),
+        window_start,
+        window_end,
+        tested,
+        budget_exhausted,
+        reached_depth,
+        state_count,
+        len(visited),
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        progress_resumed=progress_resumed,
+        workers=worker_count,
+        gpu_requested=gpu_requested,
+        gpu_backend=gpu_backend,
+        strategy=strategy,
+        reason=reason,
+        gpu_warning=gpu_warning,
+        gpu_shards_done=len(gpu_done_shards),
+        interrupted=interrupted,
+        timing=timing,
+    )
+
+
 def _flip_stream_bits(stream: bytes, bit_offsets: Iterable[int]) -> bytes | None:
     candidate = bytearray(stream)
     for bit_offset in bit_offsets:
@@ -9412,6 +12584,161 @@ def probe_summary_line(result: IdatDeflateProbeResult) -> str:
     if result.reason:
         line += "; reason=%s" % result.reason
     return line + "."
+
+
+def _format_deep_beam_operation(operation: IdatDeepBeamOperation) -> str:
+    if operation.bit_offsets:
+        bits = ",".join("0x%x.%s" % (bit // 8, bit % 8) for bit in operation.bit_offsets[:8])
+        if len(operation.bit_offsets) > 8:
+            bits += ",..."
+        return "%s@bits[%s]" % (operation.kind, bits)
+    old_hex = operation.old_bytes.hex() if operation.old_bytes else "-"
+    new_hex = operation.new_bytes.hex() if operation.new_bytes else "-"
+    return "%s@0x%x:%s>%s" % (operation.kind, operation.stream_offset, old_hex, new_hex)
+
+
+def deep_beam_summary_line(result: IdatDeepBeamProbeResult) -> str:
+    line = (
+        "-IDAT deflate deep beam: strategy=%s; window=0x%x..0x%x; tested=%s; "
+        "depth=%s; states=%s; visited=%s; top=%s; workers=%s"
+        % (
+            result.strategy,
+            result.window_start,
+            result.window_end,
+            result.tested_candidates,
+            result.reached_depth,
+            result.state_count,
+            result.visited_count,
+            len(result.top_candidates),
+            result.workers,
+        )
+    )
+    if result.gpu_requested:
+        line += "; gpu=%s" % (result.gpu_backend or "opengl-requested")
+    else:
+        line += "; gpu=off"
+    if result.gpu_warning:
+        warning = result.gpu_warning
+        if len(warning) > 160:
+            warning = warning[:157] + "..."
+        line += "; gpu_warning=%s" % warning
+    if result.gpu_shards_done:
+        line += "; gpu_shards=%s" % result.gpu_shards_done
+    timing = result.timing
+    if any(
+        (
+            timing.gpu_shards,
+            timing.gpu_hits,
+            timing.cpu_batches,
+            timing.gpu_setup_ms,
+            timing.gpu_dispatch_ms,
+            timing.cpu_validate_ms,
+            timing.wall_ms,
+        )
+    ):
+        line += (
+            "; gpu_runtime_shards=%s; gpu_hits=%s; cpu_batches=%s; "
+            "gpu_setup_ms=%.1f; gpu_dispatch_ms=%.1f; cpu_validate_ms=%.1f; wall_ms=%.1f"
+            % (
+                timing.gpu_shards,
+                timing.gpu_hits,
+                timing.cpu_batches,
+                timing.gpu_setup_ms,
+                timing.gpu_dispatch_ms,
+                timing.cpu_validate_ms,
+                timing.wall_ms,
+            )
+        )
+    if timing.gpu_skipped_resume:
+        line += "; gpu_skipped_resume=%s" % timing.gpu_skipped_resume
+    if result.interrupted:
+        line += "; interrupted"
+    if result.checkpoint_path:
+        line += "; checkpoint=%s" % result.checkpoint_path
+    if result.progress_path:
+        line += "; progress=%s" % result.progress_path
+    if result.progress_resumed:
+        line += "; progress resumed"
+    if result.best is not None:
+        line += "; best_score=%s" % (result.best.score,)
+    if result.budget_exhausted:
+        line += "; budget exhausted"
+    if result.reason:
+        line += "; reason=%s" % result.reason
+    return line + "."
+
+
+def periodic_corruption_model_summary_line(result: IdatPeriodicCorruptionModelResult) -> str:
+    line = (
+        "-IDAT periodic corruption model: strategy=%s; tested=%s; top=%s"
+        % (result.strategy, result.tested_candidates, len(result.top_candidates))
+    )
+    if result.best is not None:
+        line += "; best_score=%s" % (result.best.score,)
+    if result.budget_exhausted:
+        line += "; budget exhausted/consumed"
+    if result.model_path:
+        line += "; model=%s" % result.model_path
+    if result.checkpoint_path:
+        line += "; checkpoint=%s" % result.checkpoint_path
+    if result.progress_path:
+        line += "; progress=%s" % result.progress_path
+    if result.reason:
+        line += "; reason=%s" % result.reason
+    return line + "."
+
+
+def periodic_corruption_model_candidate_summary_lines(
+    result: IdatPeriodicCorruptionModelResult,
+    *,
+    limit: int = 5,
+) -> tuple[str, ...]:
+    return tuple(
+        deep_beam_candidate_summary_line(candidate)
+        for candidate in result.top_candidates[: max(1, int(limit))]
+    )
+
+
+def deep_beam_candidate_summary_line(candidate: IdatDeepBeamCandidate) -> str:
+    operations = ", ".join(_format_deep_beam_operation(operation) for operation in candidate.operations)
+    if len(operations) > 240:
+        operations = operations[:237] + "..."
+    return (
+        "-IDAT deep beam candidate: state=%s parent=%s; operations=%s; score=%s; "
+        "status %s -> %s; scanlines %s/%s -> %s/%s; decompressed %s/%s -> %s/%s; "
+        "error_offset %s -> %s."
+        % (
+            candidate.state_id,
+            "root" if candidate.parent_id is None else candidate.parent_id,
+            operations or "none",
+            candidate.score,
+            candidate.before.status,
+            candidate.after.status,
+            candidate.before.usable_scanlines,
+            candidate.before.height,
+            candidate.after.usable_scanlines,
+            candidate.after.height,
+            candidate.before.decompressed_size,
+            candidate.before.expected_size,
+            candidate.after.decompressed_size,
+            candidate.after.expected_size,
+            candidate.before.error_offset,
+            candidate.after.error_offset,
+        )
+    )
+
+
+def deep_beam_candidate_summary_lines(
+    result: IdatDeepBeamProbeResult,
+    *,
+    limit: int = 5,
+) -> tuple[str, ...]:
+    if not result.top_candidates:
+        return ()
+    return tuple(
+        deep_beam_candidate_summary_line(candidate)
+        for candidate in result.top_candidates[: max(1, int(limit))]
+    )
 
 
 def probe_detail_summary_lines(result: IdatDeflateProbeResult) -> tuple[str, ...]:

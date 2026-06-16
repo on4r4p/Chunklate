@@ -87,6 +87,7 @@ NoNextAppendIendAction = Literal[
     "dummy_at_crc_tail",
     "dummy_at_eof",
     "end_iend_inside_exceeding",
+    "write_partial_iend_tail",
 ]
 AutomaticRepairHandler = Literal[
     "color_profile_cleanup",
@@ -168,6 +169,10 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "known_chunk_type_case",
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
+    "focused_idat_crc_forge",
+    "partial_idat_blackfill",
+)
+IDAT_PAYLOAD_AUTOMATIC_REPAIRS: tuple[AutomaticRepairHandler, ...] = (
     "focused_idat_crc_forge",
     "partial_idat_blackfill",
 )
@@ -615,12 +620,12 @@ def effective_pandora_box_len(findings: Iterable[object], *, bad_next_name: bool
     return length - 1
 
 
+def _is_wrong_chunk_name_work_item(item: FixItFelixWorkItem) -> bool:
+    return item.kind == "finding" and item.handler == "wrong_chunk_name"
+
+
 def repair_work_items(findings: Iterable[object], *, skip_bad_crc: bool) -> tuple[FixItFelixWorkItem, ...]:
-    items: list[FixItFelixWorkItem] = [
-        FixItFelixWorkItem("automatic_repair", handler)
-        for handler in automatic_repair_order()
-    ]
-    items.extend(
+    finding_items = tuple(
         FixItFelixWorkItem(
             "finding",
             route_finding(finding, skip_bad_crc=skip_bad_crc).handler,
@@ -628,6 +633,21 @@ def repair_work_items(findings: Iterable[object], *, skip_bad_crc: bool) -> tupl
         )
         for finding in findings
     )
+    has_wrong_chunk_name = any(_is_wrong_chunk_name_work_item(item) for item in finding_items)
+    delayed_automatic = set(IDAT_PAYLOAD_AUTOMATIC_REPAIRS if has_wrong_chunk_name else ())
+
+    items: list[FixItFelixWorkItem] = [
+        FixItFelixWorkItem("automatic_repair", handler)
+        for handler in automatic_repair_order()
+        if handler not in delayed_automatic
+    ]
+    items.extend(item for item in finding_items if _is_wrong_chunk_name_work_item(item))
+    items.extend(
+        FixItFelixWorkItem("automatic_repair", handler)
+        for handler in automatic_repair_order()
+        if handler in delayed_automatic
+    )
+    items.extend(item for item in finding_items if not _is_wrong_chunk_name_work_item(item))
     return tuple(items)
 
 
@@ -891,6 +911,9 @@ def no_next_append_iend_decision(
         if good_ending in exceeding:
             return NoNextAppendIendDecision("end_iend_inside_exceeding", exceeding)
         return NoNextAppendIendDecision("dummy_at_crc_tail", exceeding)
+
+    if exceeding and exceeding.startswith(good_ending[:len(exceeding)]):
+        return NoNextAppendIendDecision("write_partial_iend_tail", exceeding)
 
     if exceeding.startswith(good_ending[:len(exceeding)]):
         return NoNextAppendIendDecision("dummy_at_eof", exceeding)

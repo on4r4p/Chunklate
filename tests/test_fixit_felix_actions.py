@@ -25,6 +25,25 @@ def valid_png_bytes():
     )
 
 
+def png_with_wrong_idat_like_name(chunk_type=b"IDA^", payload=b"abcd", *, crc_type=b"IDAT"):
+    ihdr = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00",
+    )
+    first_idat = build_png_chunk(b"IDAT", b"first")
+    stored_crc = zlib.crc32(crc_type + payload) & 0xFFFFFFFF
+    wrong_chunk = (
+        len(payload).to_bytes(4, "big")
+        + chunk_type
+        + payload
+        + stored_crc.to_bytes(4, "big")
+    )
+    bad_chunk_offset = len(PNG_SIGNATURE) + len(ihdr) + len(first_idat)
+    type_index = (bad_chunk_offset + 4) * 2
+    data = PNG_SIGNATURE + ihdr + first_idat + wrong_chunk + IEND_CHUNK
+    return data, type_index
+
+
 @contextmanager
 def patched_attrs(module, **attrs):
     missing = object()
@@ -332,20 +351,57 @@ def test_wrong_chunk_name_length_probe_accept_routes_to_nearby_chunk():
     assert Chunklate.Skip_Bad_Current_Name is False
 
 
-def test_wrong_chunk_name_length_probe_decline_then_bruteforce_decline_sets_skips():
+def test_wrong_chunk_name_length_probe_without_repair_skips_bruteforce_question():
     reset_fixit_globals()
     key = "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42 and length is not the same than before."
     chkd = "zzzz_Tool_"
-    answers = iter((False, False))
     Chunklate.Bad_Crc = True
     Chunklate.PandoraBox = wrong_chunk_name_pandora_box(key, chkd)
+
+    def fail_question(**_kwargs):
+        raise AssertionError("length-probe wrong chunk names should not ask BruteChunk questions")
+
+    def fail_brute(*_args):
+        raise AssertionError("length-probe wrong chunk names should not call BruteChunk")
 
     with patched_attrs(
         Chunklate,
         PRINT=lambda *args, **kwargs: None,
         Candy=lambda *args, **kwargs: "",
-        Question=lambda **kwargs: next(answers),
+        Question=fail_question,
         Ancillary=lambda chunk: None,
+        NearbyChunk=lambda *args: None,
+        BruteChunk=fail_brute,
+    ):
+        should_return, result = Chunklate.FixItFelix_Wrong_Chunk_Name(key, chkd)
+
+    assert should_return is False
+    assert result is None
+    assert Chunklate.Skip_Bad_Next_Name is True
+    assert Chunklate.Skip_Bad_Current_Name is True
+
+
+def test_wrong_chunk_name_length_probe_deja_vu_skips_name_noise():
+    reset_fixit_globals()
+    key = "CheckChunkName_Error_1:has Wrong Chunk name at offset: 42 and length is not the same than before."
+    chkd = "zzzz_Tool_"
+    Chunklate.Bad_Crc = True
+    Chunklate.PandoraBox = wrong_chunk_name_pandora_box(key, chkd)
+    Chunklate.WRONG_CHUNK_NAME_TRIED_ROUTES = {
+        ("wrong_chunk_name", "length_probe", "zzzz", "0x80", "13", "IHDR")
+    }
+
+    def fail_output(*_args, **_kwargs):
+        raise AssertionError("length-probe deja-vu should stay quiet before fallback/defer")
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=fail_output,
+        Candy=fail_output,
+        Question=fail_output,
+        Ancillary=fail_output,
+        NearbyChunk=fail_output,
+        BruteChunk=fail_output,
     ):
         should_return, result = Chunklate.FixItFelix_Wrong_Chunk_Name(key, chkd)
 
@@ -377,6 +433,49 @@ def test_wrong_chunk_name_bruteforce_accept_routes_to_brute_chunk():
     assert result == "brute-result"
     assert brute_calls == [(b"zzzz", b"IHDR", "13", key)]
     assert Chunklate.Skip_Bad_Current_Name is False
+
+
+def test_wrong_chunk_name_idat_typo_uses_recorded_offset_without_brute_chunk():
+    reset_fixit_globals()
+    data, type_index = png_with_wrong_idat_like_name(b"IDA^", crc_type=b"IDAT")
+    type_offset = type_index // 2
+    key = "CheckChunkName_Error_0:Found Chunk[b'IDA^'] has Wrong Chunk name after Chunk[b'IDAT']"
+    chkd = "IDA^_Tool_"
+    Chunklate.Bad_Crc = True
+    Chunklate.DATAX = data.hex()
+    Chunklate.PandoraBox = {
+        key: {
+            chkd + "0": b"IDA^",
+            chkd + "1": "4",
+            chkd + "2": type_index,
+            chkd + "3": b"IDAT",
+        }
+    }
+    write_calls = []
+
+    def fail_question(**_kwargs):
+        raise AssertionError("IDAT-ish direct repair should not ask a question")
+
+    def fail_brute(*_args):
+        raise AssertionError("IDAT-ish direct repair should not call BruteChunk")
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        Question=fail_question,
+        Ancillary=lambda chunk: None,
+        BruteChunk=fail_brute,
+        WriteClone=lambda *args: write_calls.append(args) or "written",
+    ):
+        should_return, result = Chunklate.FixItFelix_Wrong_Chunk_Name(key, chkd)
+
+    assert should_return is True
+    assert result == "written"
+    assert len(write_calls) == 1
+    fixed = write_calls[0][0]
+    assert fixed[type_offset : type_offset + 4] == b"IDAT"
+    assert any("direct chunk-name recovery for IDA^" in note for note in Chunklate.SideNotes)
 
 
 def test_wrong_chunk_name_save_existing_solution_uses_cornucopia():
@@ -745,6 +844,34 @@ def test_no_next_false_positive_iend_writes_clean_cut_when_extra_bytes_follow_ie
     ]
 
 
+def test_no_next_resolves_tool_prefix_when_deferred_chunk_context_changed():
+    reset_fixit_globals()
+    key = "CheckLength_Error_0:-No NextChunk"
+    stored_chkd = "IEND_Tool_"
+    Chunklate.PandoraBox = no_next_pandora_box(
+        key,
+        stored_chkd,
+        chunk_type=b"IEND",
+        chunk_length="0",
+        previous_chunk=b"IDAT",
+    )
+    Chunklate.DATAX = "aabbccdd" + fixit_felix.GOOD_IEND_HEX + "ffee"
+    writes = []
+
+    with patched_attrs(
+        Chunklate,
+        PRINT=lambda *args, **kwargs: None,
+        Candy=lambda *args, **kwargs: "",
+        ChunkStory=lambda *args: None,
+        WriteClone=lambda *args: writes.append(args) or "write-result",
+    ):
+        should_return, result = Chunklate.FixItFelix_No_NextChunk(key, "_Tool_", b"")
+
+    assert should_return is True
+    assert result == "write-result"
+    assert writes == [(bytes.fromhex("aabbccdd" + fixit_felix.GOOD_IEND_HEX), "-Saved")]
+
+
 def test_no_next_wrong_iend_length_rebuilds_canonical_iend():
     reset_fixit_globals()
     key = "CheckLength_Error_0:-No NextChunk"
@@ -814,7 +941,7 @@ def test_no_next_append_missing_iend_uses_dummy_at_crc_tail():
     assert Chunklate.SideNotes == ["-Extra bits detected:ff"]
 
 
-def test_no_next_append_missing_iend_uses_dummy_at_eof_for_partial_iend():
+def test_no_next_append_missing_iend_replaces_partial_iend_tail():
     reset_fixit_globals()
     key = "CheckLength_Error_0:-No NextChunk"
     chkd = "IDAT_Tool_"
@@ -823,23 +950,29 @@ def test_no_next_append_missing_iend_uses_dummy_at_eof_for_partial_iend():
     partial_iend = fixit_felix.GOOD_IEND_HEX[:10]
     Chunklate.DATAX = "aabbccdd" + partial_iend
     Chunklate.PandoraBox = no_next_pandora_box(key, chkd)
-    dummy_calls = []
+    write_calls = []
 
     with patched_attrs(
         Chunklate,
         PRINT=lambda *args, **kwargs: None,
         Candy=lambda *args, **kwargs: "",
         print=lambda *args, **kwargs: None,
-        DummyChunk=lambda *args: dummy_calls.append(args) or "dummy-eof",
+        WriteClone=lambda *args: write_calls.append(args) or "write-result",
     ):
         should_return, result = Chunklate.FixItFelix_No_NextChunk(key, chkd, b"IDAT")
 
     assert should_return is True
-    assert result == "dummy-eof"
-    assert dummy_calls == [(b"IEND", len(Chunklate.DATAX), len(Chunklate.DATAX), len(Chunklate.DATAX), key)]
+    assert result == "write-result"
+    assert write_calls == [
+        (
+            bytes.fromhex("aabbccdd" + fixit_felix.GOOD_IEND_HEX),
+            "-FixItFelix:replaced partial IEND tail with canonical IEND chunk.",
+        )
+    ]
     assert Chunklate.SideNotes == [
         "-Extra bits detected:%s" % partial_iend,
         "-Part or full IEND chunk detected:%s" % partial_iend,
+        "-FixItFelix:replaced partial IEND tail with canonical IEND chunk.",
     ]
 
 
@@ -989,8 +1122,12 @@ def main():
             test_wrong_chunk_name_length_probe_accept_routes_to_nearby_chunk,
         ),
         (
-            "Wrong chunk name length probe decline sets skips",
-            test_wrong_chunk_name_length_probe_decline_then_bruteforce_decline_sets_skips,
+            "Wrong chunk name length probe skips brute question",
+            test_wrong_chunk_name_length_probe_without_repair_skips_bruteforce_question,
+        ),
+        (
+            "Wrong chunk name length probe deja-vu skips noise",
+            test_wrong_chunk_name_length_probe_deja_vu_skips_name_noise,
         ),
         (
             "Wrong chunk name bruteforce accepts BruteChunk",
@@ -1025,13 +1162,17 @@ def main():
             test_no_next_false_positive_iend_writes_clean_cut_when_extra_bytes_follow_iend,
         ),
         (
+            "No-next resolves deferred tool prefix",
+            test_no_next_resolves_tool_prefix_when_deferred_chunk_context_changed,
+        ),
+        (
             "No-next wrong IEND length rebuilds canonical IEND",
             test_no_next_wrong_iend_length_rebuilds_canonical_iend,
         ),
         ("No-next append missing IEND uses dummy chunk", test_no_next_append_missing_iend_uses_dummy_at_crc_tail),
         (
-            "No-next append missing IEND uses dummy at EOF",
-            test_no_next_append_missing_iend_uses_dummy_at_eof_for_partial_iend,
+            "No-next append missing IEND replaces partial tail",
+            test_no_next_append_missing_iend_replaces_partial_iend_tail,
         ),
         (
             "No-next append missing IEND inside exceeding ends",

@@ -37,6 +37,7 @@ def build_runtime(calls, side_notes=None, *, excluded=(), clean_result=None, bad
         get_bad_critical=lambda: bad_critical,
         remember_later_iend=lambda *args: calls.append(("remember_later_iend", args)),
         side_notes=side_notes,
+        write_clone=lambda *args: calls.append(("write_clone", args)) or "write-result",
     )
 
 
@@ -153,7 +154,7 @@ def test_nearby_runtime_known_chunk_routes_length_repair_checkpoint():
         repair.fixed_length,
         repair.replace_start,
         repair.replace_end,
-        b"IHDR",
+        bytes.fromhex(repair.old_length),
         "Relics",
     )
 
@@ -337,6 +338,42 @@ def test_nearby_runtime_doublecheck_missing_critical_routes_fixit():
     assert ("check_chunk_order", (b"IHDR", "Critical")) in calls
     assert ("fix_it_felix", (b"IHDR",)) in calls
     assert side_notes == ["-NearbyChunk:Critical Chunk Missing: b'IEND'"]
+
+
+def test_nearby_runtime_missing_iend_replaces_partial_tail_before_fixit():
+    calls = []
+    side_notes = []
+    runtime = build_runtime(calls, side_notes, bad_critical=True)
+    data_prefix = b"IDAT".hex() + "aabbccdd"
+    context = base_context(
+        data_hex=data_prefix + nearby_runtime.fixit_felix.GOOD_IEND_HEX[:2],
+        current_length_offset=len(data_prefix) + 8,
+        chunks_history=(b"PNG", b"IHDR", b"IDAT"),
+    )
+
+    result = nearby_runtime.run_nearby_chunk(
+        runtime,
+        context,
+        b"",
+        "0",
+        b"IDAT",
+        True,
+    )
+
+    assert result == "write-result"
+    assert not [call for call in calls if call[0] == "fix_it_felix"]
+    assert calls[-1] == (
+        "write_clone",
+        (
+            bytes.fromhex(data_prefix + nearby_runtime.fixit_felix.GOOD_IEND_HEX),
+            "-FixItFelix:replaced partial IEND tail with canonical IEND chunk.",
+        ),
+    )
+    assert side_notes == [
+        "-NearbyChunk:Critical Chunk Missing: True",
+        "-Part or full IEND chunk detected:%s" % nearby_runtime.fixit_felix.GOOD_IEND_HEX[:2],
+        "-FixItFelix:replaced partial IEND tail with canonical IEND chunk.",
+    ]
 
 
 def test_remove_extra_bytes_runtime_routes_save_clone():
@@ -557,6 +594,7 @@ def main():
         ("Debug bingo details", test_nearby_runtime_keeps_bingo_details_in_debug_mode),
         ("Aligned repair", test_nearby_runtime_alignment_still_routes_repair_without_summary),
         ("Doublecheck critical", test_nearby_runtime_doublecheck_missing_critical_routes_fixit),
+        ("Doublecheck partial IEND", test_nearby_runtime_missing_iend_replaces_partial_tail_before_fixit),
         ("Remove extra bytes", test_remove_extra_bytes_runtime_routes_save_clone),
         ("Remove extra bytes none", test_remove_extra_bytes_runtime_returns_none_without_candidate),
         ("Double check", test_double_check_runtime_routes_safety_off_nearby_search),

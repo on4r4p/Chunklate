@@ -42,6 +42,9 @@ SMASH_BRUTE_BRAWL_TERMINAL_PROGRESS_STATUSES = {
     "success",
     "targeted_retry_requested",
 }
+IDAT_DEEP_BEAM_DEBUG_FOLDER_NAME = "Debug_Payloads"
+IDAT_DEEP_BEAM_CHECKPOINT_SUFFIX = "_deep_beam.checkpoint.jsonl"
+IDAT_DEEP_BEAM_PROGRESS_SUFFIX = "_deep_beam.progress.json"
 
 
 @dataclass(frozen=True)
@@ -419,6 +422,7 @@ def offer_existing_output_folder_cleanup(
     *,
     file_origin: str,
     file_dir: str,
+    warning: str = "",
 ) -> None:
     folder = runtime.clone_folder(file_origin, file_dir)
     entries = _existing_output_folder_entries(runtime, folder)
@@ -431,6 +435,8 @@ def offer_existing_output_folder_cleanup(
         "Ok, the output folder already exists and there is stuff in it. I can wipe it, but I am asking first because this smells like evidence.",
         "com",
     )
+    if warning:
+        runtime.candy("Cowsay", warning, "bad")
     if ask_existing_output_folder_cleanup(runtime, folder):
         runtime.remove_tree(folder)
         runtime.candy(
@@ -442,7 +448,7 @@ def offer_existing_output_folder_cleanup(
 
     runtime.candy(
         "Cowsay",
-        "Fine, I am not touching it. We keep the old folder, but I am keeping one eyebrow up.",
+        "Fine, I am not touching it. We keep the old folder and any resume state inside it.",
         "com",
     )
 
@@ -851,6 +857,87 @@ def predecide_smash_brute_brawl_resume_from_namespace(namespace: dict[str, Any])
         runtime.exit_process(130)
 
 
+def idat_deep_beam_folder_paths(
+    runtime: MainCliOptionsRuntime,
+    *,
+    file_origin: str,
+    file_dir: str,
+) -> tuple[str, str, str, str]:
+    folder = runtime.clone_folder(file_origin, file_dir)
+    source_stem = output.source_stem(file_origin)
+    payload_folder = runtime.join(folder, IDAT_DEEP_BEAM_DEBUG_FOLDER_NAME)
+    return (
+        folder,
+        payload_folder,
+        runtime.join(payload_folder, source_stem + IDAT_DEEP_BEAM_CHECKPOINT_SUFFIX),
+        runtime.join(payload_folder, source_stem + IDAT_DEEP_BEAM_PROGRESS_SUFFIX),
+    )
+
+
+def _runtime_dir_entries(runtime: MainCliOptionsRuntime, folder: str) -> set[str]:
+    if not runtime.path_exists(folder):
+        return set()
+    if not runtime.path_is_dir(folder):
+        return set()
+    try:
+        return set(runtime.list_dir(folder))
+    except OSError:
+        return set()
+
+
+def _idat_deep_beam_resume_evidence_exists(
+    runtime: MainCliOptionsRuntime,
+    folder: str,
+    payload_folder: str,
+    checkpoint_path: str,
+    progress_path: str,
+) -> bool:
+    folder_entries = _runtime_dir_entries(runtime, folder)
+    checkpoint_name = checkpoint_path.rsplit("/", 1)[-1]
+    progress_name = progress_path.rsplit("/", 1)[-1]
+    if checkpoint_name in folder_entries or progress_name in folder_entries:
+        return True
+    if IDAT_DEEP_BEAM_DEBUG_FOLDER_NAME not in folder_entries:
+        return False
+
+    payload_entries = _runtime_dir_entries(runtime, payload_folder)
+    if checkpoint_name in payload_entries or progress_name in payload_entries:
+        return True
+    return runtime.path_exists(checkpoint_path) or runtime.path_exists(progress_path)
+
+
+def predecide_idat_deep_beam_resume_from_namespace(namespace: dict[str, Any]) -> None:
+    if "os" not in namespace or "shutil" not in namespace:
+        return
+    runtime = build_cli_options_runtime_from_namespace(namespace)
+    folder, payload_folder, checkpoint_path, progress_path = idat_deep_beam_folder_paths(
+        runtime,
+        file_origin=namespace["FILE_Origin"],
+        file_dir=namespace["FILE_DIR"],
+    )
+    namespace["IDAT_DEEP_BEAM_FOLDER"] = folder
+    namespace["IDAT_DEEP_BEAM_PAYLOAD_FOLDER"] = payload_folder
+    namespace["IDAT_DEEP_BEAM_CHECKPOINT_PATH"] = checkpoint_path
+    namespace["IDAT_DEEP_BEAM_PROGRESS_PATH"] = progress_path
+
+    if not _idat_deep_beam_resume_evidence_exists(
+        runtime,
+        folder,
+        payload_folder,
+        checkpoint_path,
+        progress_path,
+    ):
+        namespace["IDAT_DEEP_BEAM_RESUME_DECISION"] = "missing"
+        return
+
+    namespace["IDAT_DEEP_BEAM_RESUME_DECISION"] = "available"
+    namespace["OUTPUT_FOLDER_CLEANUP_WARNING"] = (
+        "IDAT deep-beam checkpoint/progress were found in this output folder. "
+        "If you delete it, that beam cannot resume and the run will restart from fresh diagnostics. "
+        "Answer no to keep the checkpoints/progress and allow resume after the IDAT convoy clone is rebuilt."
+    )
+
+
 def apply_main_cli_options(
     runtime: MainCliOptionsRuntime,
     args: Any,
@@ -1170,6 +1257,7 @@ def run_pending_output_folder_cleanup_from_namespace(namespace: dict[str, Any]) 
         build_cli_options_runtime_from_namespace(namespace),
         file_origin=namespace["FILE_Origin"],
         file_dir=namespace["FILE_DIR"],
+        warning=str(namespace.get("OUTPUT_FOLDER_CLEANUP_WARNING") or ""),
     )
 
 
@@ -1434,14 +1522,18 @@ def deferred_linefeed_repair_is_ready(namespace: dict[str, Any]) -> bool:
 def should_defer_fix_it_felix_until_file_tour(namespace: dict[str, Any]) -> bool:
     maybe_seed_internal_idat_linefeed_repair(namespace)
     if namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR"):
-        if _deferred_linefeed_repair_boundary_reached(namespace):
-            return False
-        if namespace.get("Bad_No_Next_Chunk", False):
-            return _deferred_linefeed_visible_marker_tour_reached_iend(namespace)
         return True
     if not namespace.get("PandoraBox", {}):
         return False
-    return not _fix_it_felix_repair_boundary_reached(namespace)
+    return True
+
+
+def should_run_fix_it_felix_after_file_tour(namespace: dict[str, Any]) -> bool:
+    if not has_unresolved_findings(namespace):
+        return False
+    if namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR") and deferred_linefeed_repair_is_ready(namespace):
+        return False
+    return True
 
 
 def maybe_explain_deferred_fix_it_felix(namespace: dict[str, Any]) -> None:
@@ -1451,7 +1543,7 @@ def maybe_explain_deferred_fix_it_felix(namespace: dict[str, Any]) -> None:
     if callable(candy):
         candy(
             "Cowsay",
-            "I found repairable problems, but the chunk road is still walkable. I am finishing the file tour before Felix touches it.",
+            "I found repairable problems. I am finishing the file tour before Felix touches it.",
             "com",
         )
     namespace["DEFERRED_FIXIT_NOTICE_SHOWN"] = True
@@ -1603,6 +1695,7 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
     sync_loaded_sample_to_namespace(namespace, loaded_sample)
     predecide_ultimate_linefeed_resume_from_namespace(namespace)
     predecide_smash_brute_brawl_resume_from_namespace(namespace)
+    predecide_idat_deep_beam_resume_from_namespace(namespace)
     run_pending_output_folder_cleanup_from_namespace(namespace)
     namespace.get("Prepare_Immediate_Summary", lambda: None)()
     if namespace.get("ULTIMATE_LINEFEED_RESUME_DECISION") == "resume":
@@ -1625,7 +1718,11 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
         ),
     )
     walk_finished = chunk_walk_reached_end(walk_state, namespace["DATAX"])
-    if namespace["SAVE_COUNT"] == save_count_before:
+    clone_progress = (
+        namespace["SAVE_COUNT"] != save_count_before
+        or bool(namespace.get("CLONE_HANDOFF_PENDING"))
+    )
+    if not clone_progress:
         deferred_ready = bool(
             namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR")
             and deferred_linefeed_repair_is_ready(namespace)
@@ -1637,7 +1734,11 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
     else:
         if not _apply_deferred_after_weak_clone(namespace):
             namespace.get("Clear_Deferred_FindMagic_Repair", lambda: None)()
-    if namespace["SAVE_COUNT"] == save_count_before:
+    clone_progress = (
+        namespace["SAVE_COUNT"] != save_count_before
+        or bool(namespace.get("CLONE_HANDOFF_PENDING"))
+    )
+    if not clone_progress:
         if has_unresolved_findings(namespace):
             if _try_unresolved_idat_deflate_route(namespace):
                 return MainLoopIterationState()
@@ -1665,6 +1766,7 @@ def run_main_chunk_walk(
     if offset is None:
         return MainChunkWalkState(offset=offset)
 
+    stopped_early = False
     while offset < len(context.data_hex):
         runtime.chunk_by_chunk(offset)
         namespace = runtime.namespace
@@ -1675,6 +1777,7 @@ def run_main_chunk_walk(
             namespace["Orig_CT"],
         )
         if stop_chunk_walk_after_clone(runtime):
+            stopped_early = True
             break
 
         runtime.check_chunk_name(
@@ -1683,10 +1786,12 @@ def run_main_chunk_walk(
             namespace["Chunks_History"][-1],
         )
         if stop_chunk_walk_after_clone(runtime):
+            stopped_early = True
             break
 
         runtime.get_info(namespace["Orig_CT"], namespace["Raw_Data"])
         if stop_chunk_walk_after_clone(runtime):
+            stopped_early = True
             break
 
         runtime.checksum(
@@ -1695,25 +1800,11 @@ def run_main_chunk_walk(
             namespace["Raw_Crc"],
         )
         if stop_chunk_walk_after_clone(runtime):
+            stopped_early = True
             break
 
         if should_defer_fix_it_felix_until_file_tour(namespace):
             maybe_explain_deferred_fix_it_felix(namespace)
-            offset = runtime.next_chunk_offset(
-                offset,
-                namespace["Raw_Length"],
-                namespace["Raw_Type"],
-                namespace["Raw_Data"],
-                namespace["Raw_Crc"],
-            )
-            if stop_chunk_walk_after_clone(runtime):
-                break
-            continue
-
-        while True:
-            runtime.fix_it_felix(namespace["Orig_CT"])
-            if namespace["Show_Must_Go_On"] is True or namespace["Have_A_KitKat"] is True:
-                break
 
         offset = runtime.next_chunk_offset(
             offset,
@@ -1724,6 +1815,14 @@ def run_main_chunk_walk(
         )
 
         if stop_chunk_walk_after_clone(runtime):
+            stopped_early = True
             break
+
+    namespace = runtime.namespace
+    if not stopped_early and should_run_fix_it_felix_after_file_tour(namespace):
+        while True:
+            runtime.fix_it_felix(namespace["Orig_CT"])
+            if namespace["Show_Must_Go_On"] is True or namespace["Have_A_KitKat"] is True:
+                break
 
     return MainChunkWalkState(offset=offset)

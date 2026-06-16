@@ -100,6 +100,7 @@ def main_loop_error_reset_values() -> dict[str, object]:
         "EOF": False,
         "Have_A_KitKat": False,
         "Show_Must_Go_On": False,
+        "CLONE_HANDOFF_PENDING": False,
     }
 
 

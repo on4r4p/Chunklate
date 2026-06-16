@@ -1176,7 +1176,6 @@ def test_run_main_chunk_walk_runs_legacy_callback_order_and_updates_offset():
         ("check_chunk_name", (b"IHDR", "orig-len", b"IHDR")),
         ("get_info", (b"IHDR", b"data")),
         ("checksum", (b"IHDR", b"data", b"crc!")),
-        ("fix_it_felix", (b"IHDR",)),
     ]
     assert namespace["Have_A_KitKat"] is False
 
@@ -1244,7 +1243,7 @@ def test_run_main_chunk_walk_defers_ihdr_value_repair_until_file_tour_ends():
         "candy",
         (
             "Cowsay",
-            "I found repairable problems, but the chunk road is still walkable. I am finishing the file tour before Felix touches it.",
+            "I found repairable problems. I am finishing the file tour before Felix touches it.",
             "com",
         ),
     ) in calls
@@ -1303,14 +1302,14 @@ def test_run_main_chunk_walk_defers_generic_findings_until_iend_even_with_immedi
                 "candy",
                 (
                     "Cowsay",
-                    "I found repairable problems, but the chunk road is still walkable. I am finishing the file tour before Felix touches it.",
+                    "I found repairable problems. I am finishing the file tour before Felix touches it.",
                     "com",
                 ),
             )
         ], label
 
 
-def test_run_main_chunk_walk_allows_felix_on_non_iend_no_next_chunk_boundary():
+def test_run_main_chunk_walk_runs_no_next_repair_after_file_tour():
     calls = []
     namespace = chunk_namespace(
         PandoraBox={"CheckLength_Error_0:-No NextChunk after IDAT": {}},
@@ -1334,7 +1333,19 @@ def test_run_main_chunk_walk_allows_felix_on_non_iend_no_next_chunk_boundary():
     assert [call for call in calls if call[0] == "fix_it_felix"] == [
         ("fix_it_felix", (b"IDAT",))
     ]
-    assert [call for call in calls if call[0] == "candy"] == []
+    idat_checksum_index = calls.index(("checksum", (b"IDAT", b"data", b"crc!")))
+    fix_index = calls.index(("fix_it_felix", (b"IDAT",)))
+    assert idat_checksum_index < fix_index
+    assert [call for call in calls if call[0] == "candy"] == [
+        (
+            "candy",
+            (
+                "Cowsay",
+                "I found repairable problems. I am finishing the file tour before Felix touches it.",
+                "com",
+            ),
+        )
+    ]
 
 
 def test_run_main_chunk_walk_allows_no_next_route_when_deferred_has_no_visible_iend():
@@ -1583,7 +1594,7 @@ def test_run_main_loop_once_from_namespace_resets_loads_and_walks_sample():
     finally:
         os.unlink(sample_path)
 
-    assert state == main_runtime.MainLoopIterationState()
+    assert state == main_runtime.MainLoopIterationState(should_return=True)
     assert namespace["FirStart"] is True
     assert namespace["Sample"] == sample_path
     assert namespace["Sample_Name"] == os.path.basename(sample_path)
@@ -1599,7 +1610,7 @@ def test_run_main_loop_once_from_namespace_resets_loads_and_walks_sample():
     assert ("check_chunk_name", (b"IHDR", "orig-len", b"PNG")) in calls
     assert ("get_info", (b"IHDR", "raw-data")) in calls
     assert ("checksum", ("raw-type", "raw-data", "raw-crc")) in calls
-    assert ("fix_it_felix", b"IHDR") in calls
+    assert ("fix_it_felix", b"IHDR") not in calls
     assert namespace["Have_A_KitKat"] is False
 
 
@@ -2398,6 +2409,72 @@ def test_run_main_loop_once_routes_deferred_idat_crc_to_deflate_probe(monkeypatc
     assert ("emit", "-No repair route implemented for remaining findings.") not in calls
 
 
+def test_run_main_loop_once_treats_clone_handoff_as_progress(monkeypatch):
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    namespace = {}
+
+    def fake_chunk_walk(_runtime, _context):
+        calls.append(("chunk_walk",))
+        namespace["PandoraBox"] = {"Checksum_Error_0:-Wrong Crc b'IDAT'": {}}
+        namespace["Sample"] = "existing-convoy-clone.png"
+        namespace["CLONE_HANDOFF_PENDING"] = True
+        namespace["Have_A_KitKat"] = True
+        return main_runtime.MainChunkWalkState(offset=len(namespace["DATAX"]))
+
+    def forbidden_unresolved(_namespace):
+        raise AssertionError("old sample must not run unresolved IDAT route after clone handoff")
+
+    monkeypatch.setattr(main_runtime, "run_main_chunk_walk", fake_chunk_walk)
+    monkeypatch.setattr(main_runtime, "_try_unresolved_idat_deflate_route", forbidden_unresolved)
+
+    namespace.update(
+        {
+            "sys": SimpleNamespace(
+                stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+                exit=lambda code: calls.append(("exit", code)),
+            ),
+            "os": os,
+            "CLEAR": False,
+            "FirStart": True,
+            "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+            "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+            "Chunklate": lambda mode: calls.append(("banner", mode)),
+            "Sample": sample_path,
+            "CLONESWAR": False,
+            "SAVE_COUNT": 0,
+            "PandoraBox": {},
+            "SideNotes": [],
+            "Candy": lambda *args: calls.append(("candy", args)),
+            "PRINT": lambda message: calls.append(("emit", message)),
+            "Question": lambda **_kwargs: False,
+            "WriteClone": lambda *_args: "clone",
+            "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+            "FindMagic": lambda: calls.append(("find_magic",)) or 0,
+            "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+            "CheckLength": lambda *args: calls.append(("check_length", args)),
+            "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+            "GetInfo": lambda *args: calls.append(("get_info", args)),
+            "Checksum": lambda *args: calls.append(("checksum", args)),
+            "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+        }
+    )
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState()
+    assert namespace["SAVE_COUNT"] == 0
+    assert namespace["Sample"] == "existing-convoy-clone.png"
+    assert ("emit", "-No new clone produced, stopping main loop.") not in calls
+    assert ("candy", ("Cowsay", messages.UNIMPLEMENTED_REPAIR_ROUTE_MESSAGE, "bad")) not in calls
+
+
 def test_run_main_loop_once_asks_output_cleanup_after_banner():
     calls = []
     with tempfile.NamedTemporaryFile(delete=False) as handle:
@@ -2841,6 +2918,107 @@ def test_run_main_loop_once_skips_output_cleanup_when_smash_resume_is_accepted()
     assert ("find_magic",) in calls
 
 
+def test_run_main_loop_once_warns_output_cleanup_when_idat_deep_beam_resume_exists():
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    original_input = builtins.input
+    stem = output.source_stem(sample_path)
+    progress_name = stem + main_runtime.IDAT_DEEP_BEAM_PROGRESS_SUFFIX
+
+    def answer_cleanup(prompt):
+        calls.append(("input", prompt))
+        return "no"
+
+    def fake_listdir(path):
+        calls.append(("listdir", path))
+        if path.endswith(main_runtime.IDAT_DEEP_BEAM_DEBUG_FOLDER_NAME):
+            return [progress_name]
+        return [main_runtime.IDAT_DEEP_BEAM_DEBUG_FOLDER_NAME, "old.png"]
+
+    def find_magic():
+        calls.append(("find_magic",))
+        namespace["SAVE_COUNT"] += 1
+        return None
+
+    fake_os = SimpleNamespace(
+        name="posix",
+        system=lambda command: calls.append(("system", command)),
+        makedirs=lambda path, **kwargs: calls.append(("makedirs", path, kwargs)),
+        listdir=fake_listdir,
+        path=SimpleNamespace(
+            basename=os.path.basename,
+            exists=lambda path: calls.append(("exists", path)) or True,
+            isdir=lambda path: calls.append(("isdir", path)) or True,
+            abspath=lambda path: "/abs/" + path,
+            join=lambda *parts: "/".join(parts),
+        ),
+        remove=lambda path: calls.append(("remove_file", path)),
+    )
+
+    namespace = {
+        "sys": SimpleNamespace(
+            stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+            exit=lambda code: calls.append(("exit", code)),
+        ),
+        "os": fake_os,
+        "shutil": SimpleNamespace(rmtree=lambda path: calls.append(("remove_tree", path))),
+        "CLEAR": False,
+        "FirStart": True,
+        "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+        "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+        "Chunklate": lambda mode: calls.append(("banner", mode)),
+        "FILE_Origin": sample_path,
+        "FILE_DIR": "/out/",
+        "OUTPUT_FOLDER_CLEANUP_PENDING": True,
+        "ULTIMATE_LINEFEED_RESUME": "ask",
+        "SMASH_BRUTE_BRAWL_RESUME": "ask",
+        "Sample": sample_path,
+        "CLONESWAR": False,
+        "SAVE_COUNT": 0,
+        "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Clear_Terminal_Dialogue_Pause": lambda: calls.append(("clear_dialogue_pause",)),
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "FindMagic": find_magic,
+        "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+        "CheckLength": lambda *args: calls.append(("check_length", args)),
+        "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+        "GetInfo": lambda *args: calls.append(("get_info", args)),
+        "Checksum": lambda *args: calls.append(("checksum", args)),
+        "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+    }
+
+    builtins.input = answer_cleanup
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        builtins.input = original_input
+        os.unlink(sample_path)
+
+    folder = "/out/Folder_%s" % stem
+    progress_path = "/out/Folder_%s/%s/%s" % (
+        stem,
+        main_runtime.IDAT_DEEP_BEAM_DEBUG_FOLDER_NAME,
+        progress_name,
+    )
+    assert state == main_runtime.MainLoopIterationState()
+    assert namespace["IDAT_DEEP_BEAM_RESUME_DECISION"] == "available"
+    assert namespace["IDAT_DEEP_BEAM_PROGRESS_PATH"] == progress_path
+    assert namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] is False
+    assert ("remove_tree", folder) not in calls
+    assert ("input", "-Delete existing output folder '%s'? (yes/no): " % folder) in calls
+    assert any(
+        call[0] == "candy"
+        and call[1][0] == "Cowsay"
+        and "If you delete it, that beam cannot resume" in str(call[1][1])
+        for call in calls
+    )
+    assert ("find_magic",) in calls
+
+
 def test_run_main_loop_once_directly_resumes_smash_before_find_magic():
     calls = []
     with tempfile.NamedTemporaryFile(delete=False) as handle:
@@ -3113,8 +3291,8 @@ def main():
             test_run_main_chunk_walk_defers_generic_findings_until_iend_even_with_immediate_flags,
         ),
         (
-            "chunk walk no-next boundary",
-            test_run_main_chunk_walk_allows_felix_on_non_iend_no_next_chunk_boundary,
+            "chunk walk no-next after file tour",
+            test_run_main_chunk_walk_runs_no_next_repair_after_file_tour,
         ),
         (
             "chunk walk deferred FindMagic allows missing IEND route",
@@ -3152,6 +3330,10 @@ def main():
         ),
         ("main loop counts FindMagic clone", test_run_main_loop_once_counts_clone_written_by_find_magic),
         ("main loop opens final image on clean no-clone exit", test_run_main_loop_once_opens_valid_final_image_when_no_clone_written),
+        (
+            "main loop clone handoff counts as progress",
+            test_run_main_loop_once_treats_clone_handoff_as_progress,
+        ),
         ("main loop cleanup after banner", test_run_main_loop_once_asks_output_cleanup_after_banner),
         (
             "main loop ultimate resume skips cleanup",
@@ -3168,6 +3350,10 @@ def main():
         (
             "main loop SmashBruteBrawl resume skips cleanup",
             test_run_main_loop_once_skips_output_cleanup_when_smash_resume_is_accepted,
+        ),
+        (
+            "main loop IDAT deep beam resume warns cleanup",
+            test_run_main_loop_once_warns_output_cleanup_when_idat_deep_beam_resume_exists,
         ),
         (
             "main loop SmashBruteBrawl direct resume",

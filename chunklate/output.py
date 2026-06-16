@@ -100,6 +100,27 @@ def next_clone_target(file_origin: str, file_dir: str = "") -> CloneTarget:
     return CloneTarget(name=name, directory=directory, path=path)
 
 
+def clone_artifact_target(target: CloneTarget) -> CloneTarget:
+    directory = os.path.join(target.directory, "Debug_Payloads")
+    os.makedirs(directory, exist_ok=True)
+
+    if target.name.endswith("_Fixed.png"):
+        basename = target.name[: -len("_Fixed.png")] + "_Artifact"
+    elif target.name.endswith(".png"):
+        basename = target.name[: -len(".png")] + "_Artifact"
+    else:
+        basename = target.name + "_Artifact"
+
+    name = basename + ".bin"
+    path = os.path.join(directory, name)
+    fileid = 1
+    while os.path.exists(path):
+        name = "%s.%s.bin" % (basename, fileid)
+        path = os.path.join(directory, name)
+        fileid += 1
+    return CloneTarget(name=name, directory=directory, path=path)
+
+
 def clone_bytes(data: str | bytes | bytearray) -> bytes:
     if isinstance(data, bytes):
         return data

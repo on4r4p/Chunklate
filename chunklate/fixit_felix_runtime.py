@@ -4,6 +4,7 @@ import binascii
 from dataclasses import dataclass
 from dataclasses import replace
 import hashlib
+import multiprocessing
 from pathlib import Path
 import random
 from typing import Any
@@ -13,6 +14,7 @@ from . import bruteforce
 from . import bruteforce_runtime
 from . import deflate_header
 from . import fixit_felix
+from . import gpu_runtime
 from . import idat
 from . import idat_bruteforce
 from . import idat_crc_forge
@@ -143,6 +145,15 @@ class WrongCrcRuntime:
     preview_repair_image: Callable[..., Any] | None = None
     file_origin: Any = ""
     file_dir: Any = ""
+    interactive: bool = False
+    input_func: Callable[[str], str] | None = None
+    deep_beam_workers: Any = None
+    deep_beam_gpu: Any = None
+    deep_beam_gpu_config: Any = None
+    deep_beam_budget: Any = None
+    deep_beam_gpu_shard_size: Any = None
+    deep_beam_cpu_batch_size: Any = None
+    deep_beam_prompt_cache: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -168,6 +179,16 @@ class WrongChunkNameRuntime:
     minibar: Callable[..., Any] | None = None
     file_origin: Any = ""
     file_dir: Any = ""
+    interactive: bool = False
+    input_func: Callable[[str], str] | None = None
+    deep_beam_workers: Any = None
+    deep_beam_gpu: Any = None
+    deep_beam_gpu_config: Any = None
+    deep_beam_budget: Any = None
+    deep_beam_gpu_shard_size: Any = None
+    deep_beam_cpu_batch_size: Any = None
+    deep_beam_prompt_cache: dict[str, Any] | None = None
+    queue_existing_clone: Callable[[str], Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -209,6 +230,16 @@ class NoNextChunkRuntime:
     file_dir: Any = ""
     has_deferred_linefeed_repair: Callable[[], bool] = lambda: False
     apply_deferred_linefeed_repair: Callable[[], Any] | None = None
+    interactive: bool = False
+    input_func: Callable[[str], str] | None = None
+    deep_beam_workers: Any = None
+    deep_beam_gpu: Any = None
+    deep_beam_gpu_config: Any = None
+    deep_beam_budget: Any = None
+    deep_beam_gpu_shard_size: Any = None
+    deep_beam_cpu_batch_size: Any = None
+    deep_beam_prompt_cache: dict[str, Any] | None = None
+    queue_existing_clone: Callable[[str], Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -225,6 +256,17 @@ class LibpngErrorRuntime:
     cornucopia: Any
     sample: Any
     try_idat_decision_gate: Callable[[Any], Any] | None = None
+
+
+def queue_existing_clone_from_namespace(namespace: dict[str, Any], path: str) -> str:
+    namespace["Sample"] = path
+    namespace["CLONESWAR"] = False
+    namespace["Have_A_KitKat"] = True
+    namespace["CLONE_HANDOFF_PENDING"] = True
+    namespace.setdefault("SideNotes", []).append(
+        "-Existing clone queued as next sample: %s" % path
+    )
+    return path
 
 
 def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCrcRuntime:
@@ -256,6 +298,15 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         preview_repair_image=namespace.get("Preview_Repair_Image"),
         file_origin=namespace.get("FILE_Origin") or namespace.get("Sample") or "",
         file_dir=namespace.get("FILE_DIR") or "",
+        interactive=namespace_interactive_prompts(namespace),
+        input_func=namespace.get("Transcript_Input") or namespace.get("input") or input,
+        deep_beam_workers=namespace.get("IDAT_DEEP_BEAM_WORKERS"),
+        deep_beam_gpu=namespace.get("IDAT_DEEP_BEAM_GPU"),
+        deep_beam_gpu_config=namespace.get("GPU_CONFIG"),
+        deep_beam_budget=namespace.get("IDAT_DEEP_BEAM_BUDGET"),
+        deep_beam_gpu_shard_size=namespace.get("IDAT_DEEP_BEAM_GPU_SHARD_SIZE"),
+        deep_beam_cpu_batch_size=namespace.get("IDAT_DEEP_BEAM_CPU_BATCH_SIZE"),
+        deep_beam_prompt_cache=namespace.setdefault("IDAT_DEEP_BEAM_PROMPT_CACHE", {}),
     )
 
 
@@ -322,6 +373,16 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         minibar=namespace.get("Minibar"),
         file_origin=namespace.get("FILE_Origin") or namespace.get("Sample") or "",
         file_dir=namespace.get("FILE_DIR") or "",
+        interactive=namespace_interactive_prompts(namespace),
+        input_func=namespace.get("Transcript_Input") or namespace.get("input") or input,
+        deep_beam_workers=namespace.get("IDAT_DEEP_BEAM_WORKERS"),
+        deep_beam_gpu=namespace.get("IDAT_DEEP_BEAM_GPU"),
+        deep_beam_gpu_config=namespace.get("GPU_CONFIG"),
+        deep_beam_budget=namespace.get("IDAT_DEEP_BEAM_BUDGET"),
+        deep_beam_gpu_shard_size=namespace.get("IDAT_DEEP_BEAM_GPU_SHARD_SIZE"),
+        deep_beam_cpu_batch_size=namespace.get("IDAT_DEEP_BEAM_CPU_BATCH_SIZE"),
+        deep_beam_prompt_cache=namespace.setdefault("IDAT_DEEP_BEAM_PROMPT_CACHE", {}),
+        queue_existing_clone=lambda path: queue_existing_clone_from_namespace(namespace, path),
     )
 
 
@@ -364,6 +425,16 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         file_dir=namespace.get("FILE_DIR") or "",
         has_deferred_linefeed_repair=lambda: bool(namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR")),
         apply_deferred_linefeed_repair=namespace.get("Apply_Deferred_FindMagic_Repair"),
+        interactive=namespace_interactive_prompts(namespace),
+        input_func=namespace.get("Transcript_Input") or namespace.get("input") or input,
+        deep_beam_workers=namespace.get("IDAT_DEEP_BEAM_WORKERS"),
+        deep_beam_gpu=namespace.get("IDAT_DEEP_BEAM_GPU"),
+        deep_beam_gpu_config=namespace.get("GPU_CONFIG"),
+        deep_beam_budget=namespace.get("IDAT_DEEP_BEAM_BUDGET"),
+        deep_beam_gpu_shard_size=namespace.get("IDAT_DEEP_BEAM_GPU_SHARD_SIZE"),
+        deep_beam_cpu_batch_size=namespace.get("IDAT_DEEP_BEAM_CPU_BATCH_SIZE"),
+        deep_beam_prompt_cache=namespace.setdefault("IDAT_DEEP_BEAM_PROMPT_CACHE", {}),
+        queue_existing_clone=lambda path: queue_existing_clone_from_namespace(namespace, path),
     )
 
 
@@ -451,13 +522,15 @@ def namespace_interactive_prompts(namespace: dict[str, Any]) -> bool:
     configured = namespace.get("INTERACTIVE_REPAIR_PROMPTS")
     if configured is not None:
         return bool(configured)
+    if namespace.get("AUTO", False) or namespace.get("NODIALOGUE", False):
+        return False
 
     sys_module = namespace.get("sys")
     stdin = getattr(sys_module, "stdin", None)
-    stdout = getattr(sys_module, "stdout", None)
-    if stdin is None or stdout is None:
+    if stdin is None:
         return False
-    return bool(stdin.isatty() and stdout.isatty())
+    isatty = getattr(stdin, "isatty", None)
+    return bool(isatty is not None and isatty())
 
 
 def _ihdr_validation_errors(repair: Any) -> tuple[str, ...]:
@@ -2687,13 +2760,21 @@ def _runtime_idat_heavy_progress(runtime: Any):
     return progress
 
 
+def _format_idat_queue_progress_counter(stage: str, tested: int, budget: int) -> str:
+    tested_text = str(int(tested))
+    budget_text = str(int(budget))
+    if str(stage) == "deep-beam":
+        tested_text = tested_text.zfill(len(budget_text))
+    return "%s/%s" % (tested_text, budget_text)
+
+
 def _runtime_idat_queue_progress(runtime: Any):
     minibar = getattr(runtime, "minibar", None)
     if minibar is None:
         return None
 
     def progress(stage: str, tested: int, budget: int) -> None:
-        minibar("IDAT %s %s/%s" % (stage, tested, budget))
+        minibar("IDAT %s %s" % (stage, _format_idat_queue_progress_counter(stage, tested, budget)))
 
     return progress
 
@@ -2904,6 +2985,450 @@ def _write_idat_diagnostic_artifact(
     return str(path)
 
 
+def _idat_deep_beam_paths(runtime: Any) -> tuple[str, str]:
+    file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
+    file_dir = str(getattr(runtime, "file_dir", "") or "")
+    if not file_origin:
+        return "", ""
+    try:
+        folder = Path(output.ensure_clone_folder(file_origin, file_dir))
+        payload_folder = folder / "Debug_Payloads"
+        payload_folder.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return "", ""
+    stem = output.source_stem(file_origin)
+    checkpoint_path = payload_folder / ("%s_deep_beam.checkpoint.jsonl" % stem)
+    progress_path = payload_folder / ("%s_deep_beam.progress.json" % stem)
+    return str(checkpoint_path), str(progress_path)
+
+
+def _idat_periodic_model_paths(runtime: Any) -> tuple[str, str]:
+    file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
+    file_dir = str(getattr(runtime, "file_dir", "") or "")
+    if not file_origin:
+        return "", ""
+    try:
+        folder = Path(output.ensure_clone_folder(file_origin, file_dir))
+        payload_folder = folder / "Debug_Payloads"
+        payload_folder.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return "", ""
+    stem = output.source_stem(file_origin)
+    checkpoint_path = payload_folder / ("%s_periodic_model.checkpoint.jsonl" % stem)
+    progress_path = payload_folder / ("%s_periodic_model.progress.json" % stem)
+    return str(checkpoint_path), str(progress_path)
+
+
+def _idat_convoy_model_path(runtime: Any) -> str:
+    file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
+    file_dir = str(getattr(runtime, "file_dir", "") or "")
+    if not file_origin:
+        return ""
+    try:
+        folder = Path(output.ensure_clone_folder(file_origin, file_dir))
+        payload_folder = folder / "Debug_Payloads"
+        payload_folder.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return ""
+    return str(payload_folder / ("%s_idat_convoy_model.json" % output.source_stem(file_origin)))
+
+
+def _deep_beam_workers_from_profile(value: Any) -> str | int:
+    if value is None:
+        return "auto"
+    if isinstance(value, int):
+        return max(1, value)
+    choice = str(value).strip().lower()
+    if choice in ("", "auto"):
+        return "auto"
+    cpu_count = max(1, multiprocessing.cpu_count())
+    if choice == "min":
+        return max(1, cpu_count // 4)
+    if choice == "normal":
+        return max(1, min(idat_bruteforce.DEEP_BEAM_AUTO_WORKER_LIMIT, cpu_count // 2))
+    if choice == "max":
+        return max(1, cpu_count - 1)
+    if choice in ("1", "single", "off", "disabled", "0"):
+        return 1
+    try:
+        return max(1, int(choice))
+    except ValueError:
+        return "auto"
+
+
+def _deep_beam_gpu_from_value(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "y", "on", "gpu", "opengl", "cuda", "opencl")
+    return bool(value)
+
+
+def _deep_beam_positive_int(value: Any, default: int) -> int:
+    if value is None or str(value).strip() == "":
+        return int(default)
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _runtime_deep_beam_budget(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "deep_beam_budget", None),
+        idat_bruteforce.DEEP_BEAM_DEFAULT_BUDGET,
+    )
+
+
+def _runtime_deep_beam_options(runtime: Any) -> tuple[str | int, bool, gpu_runtime.GpuRuntimeConfig, int, int, int]:
+    configured_workers = getattr(runtime, "deep_beam_workers", None)
+    configured_gpu = getattr(runtime, "deep_beam_gpu", None)
+    configured_gpu_config = getattr(runtime, "deep_beam_gpu_config", None)
+    prompt_cache = getattr(runtime, "deep_beam_prompt_cache", None)
+    if isinstance(prompt_cache, dict):
+        if configured_workers is None and "workers" in prompt_cache:
+            configured_workers = prompt_cache.get("workers")
+        if configured_gpu is None and "gpu" in prompt_cache:
+            configured_gpu = prompt_cache.get("gpu")
+    budget = _runtime_deep_beam_budget(runtime)
+    gpu_shard_size = _deep_beam_positive_int(
+        getattr(runtime, "deep_beam_gpu_shard_size", None),
+        idat_bruteforce.DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE,
+    )
+    cpu_batch_size = _deep_beam_positive_int(
+        getattr(runtime, "deep_beam_cpu_batch_size", None),
+        idat_bruteforce.DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE,
+    )
+    workers: str | int = _deep_beam_workers_from_profile(configured_workers)
+    if isinstance(configured_gpu_config, gpu_runtime.GpuRuntimeConfig):
+        gpu_config = configured_gpu_config
+    else:
+        gpu_config = gpu_runtime.GpuRuntimeConfig(enabled=_deep_beam_gpu_from_value(configured_gpu))
+    if configured_gpu is None:
+        gpu_requested = bool(gpu_config.enabled)
+    else:
+        gpu_requested = _deep_beam_gpu_from_value(configured_gpu)
+        gpu_config = replace(gpu_config, enabled=gpu_requested)
+
+    input_func = getattr(runtime, "input_func", None)
+    if getattr(runtime, "interactive", False) and input_func is not None:
+        if configured_workers is None:
+            cpu_count = max(1, multiprocessing.cpu_count())
+            runtime.candy(
+                "Cowsay",
+                "\n".join(
+                    (
+                        "Deep IDAT beam worker setup:",
+                        "auto. CPU auto, capped at %s" % idat_bruteforce.DEEP_BEAM_AUTO_WORKER_LIMIT,
+                        "min. CPU / 4",
+                        "normal. CPU / 2, capped at %s" % idat_bruteforce.DEEP_BEAM_AUTO_WORKER_LIMIT,
+                        "max. CPU - 1",
+                        "1. single process",
+                        "or enter an exact worker count",
+                        "Detected CPU cores: %s" % cpu_count,
+                    )
+                ),
+                "com",
+            )
+            try:
+                answer = input_func("Deep beam worker profile [auto] > ")
+            except EOFError:
+                answer = "auto"
+            if isinstance(prompt_cache, dict):
+                prompt_cache["workers"] = answer
+            workers = _deep_beam_workers_from_profile(answer)
+
+        if configured_gpu is None and not bool(getattr(gpu_config, "enabled", False)):
+            runtime.candy(
+                "Cowsay",
+                "Deep IDAT beam can use the OpenGL compute backend as a mutation prefilter; CPU workers will still validate candidates.",
+                "com",
+            )
+            try:
+                answer = str(input_func("Enable OpenGL GPU prefilter for deep beam? [no] > ")).strip().lower()
+            except EOFError:
+                answer = ""
+            gpu_requested = answer in ("1", "true", "yes", "y", "on", "gpu", "opengl", "cuda", "opencl")
+            if isinstance(prompt_cache, dict):
+                prompt_cache["gpu"] = "yes" if gpu_requested else "no"
+            if gpu_requested:
+                gpu_config = gpu_runtime.GpuRuntimeConfig(enabled=True, backend="opengl")
+
+    if gpu_requested and not gpu_config.enabled:
+        gpu_config = gpu_runtime.GpuRuntimeConfig(enabled=True, backend="opengl")
+
+    worker_count = idat_bruteforce._deep_beam_workers(workers)
+    runtime.side_notes.append(
+        "-IDAT deep beam configuration: workers=%s; gpu_requested=%s; gpu_backend=%s; budget=%s; gpu_shard_size=%s; cpu_batch_size=%s."
+        % (
+            worker_count,
+            "yes" if gpu_requested else "no",
+            gpu_config.backend if gpu_requested else "none",
+            budget,
+            gpu_shard_size,
+            cpu_batch_size,
+        )
+    )
+    if gpu_requested:
+        runtime.side_notes.append("-IDAT deep beam GPU prefilter enabled; CPU workers remain the validation path.")
+    return workers, gpu_requested, gpu_config, budget, gpu_shard_size, cpu_batch_size
+
+
+def _write_idat_deep_beam_debug_artifacts(
+    runtime: Any,
+    result: idat_bruteforce.IdatDeepBeamProbeResult,
+    *,
+    label: str = "idat_deep_beam",
+) -> tuple[str, ...]:
+    file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
+    file_dir = str(getattr(runtime, "file_dir", "") or "")
+    if not file_origin:
+        runtime.side_notes.append("-IDAT deep beam artifacts skipped: source file origin is unavailable.")
+        return ()
+    try:
+        folder = Path(output.ensure_clone_folder(file_origin, file_dir))
+        payload_folder = folder / "Debug_Payloads"
+        payload_folder.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        runtime.side_notes.append("-IDAT deep beam artifact write failed: %s." % exc)
+        return ()
+
+    saved: list[str] = []
+    stem = output.source_stem(file_origin)
+    for stale_path in payload_folder.glob("%s_%s_rank*" % (stem, label)):
+        if stale_path.suffix not in (".png", ".bin"):
+            continue
+        try:
+            stale_path.unlink()
+        except OSError:
+            continue
+    for rank, candidate in enumerate(result.top_candidates, start=1):
+        digest = hashlib.sha1(candidate.data).hexdigest()[:8]
+        base = "%s_%s_rank%02d_state%s_%s" % (
+            stem,
+            label,
+            rank,
+            candidate.state_id,
+            digest,
+        )
+        png_path = payload_folder / ("%s.png" % base)
+        stream_path = payload_folder / ("%s_idat.bin" % base)
+        raw_path = payload_folder / ("%s_raw_prefix.bin" % base)
+        try:
+            png_path.write_bytes(candidate.data)
+            stream_path.write_bytes(candidate.stream)
+            raw_path.write_bytes(idat_bruteforce.idat_partial_raw_prefix(candidate.stream).raw)
+        except OSError:
+            continue
+        saved.extend(
+            (
+                png_path.relative_to(folder).as_posix(),
+                stream_path.relative_to(folder).as_posix(),
+                raw_path.relative_to(folder).as_posix(),
+            )
+        )
+    if saved:
+        runtime.side_notes.append(
+            "-IDAT deep beam artifacts: %s." % ", ".join(saved[: min(len(saved), 12)])
+        )
+    else:
+        runtime.side_notes.append("-IDAT deep beam artifacts: no candidate artifacts written.")
+    return tuple(saved)
+
+
+def _run_idat_periodic_model_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+) -> idat_bruteforce.IdatPeriodicCorruptionModelResult | None:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None
+    model_path = _idat_convoy_model_path(runtime)
+    checkpoint_path, progress_path = _idat_periodic_model_paths(runtime)
+    progress_state = idat_bruteforce.periodic_model_progress_state(data, progress_path)
+    if progress_state.available and progress_state.source_matches and progress_state.exhausted:
+        runtime.side_notes.append(
+            "-IDAT periodic corruption model already consumed for this source: tested=%s; reason=%s."
+            % (progress_state.tested, progress_state.reason)
+        )
+        return None
+
+    runtime.candy(
+        "Cowsay",
+        "I am trying the periodic IDAT corruption model before the wide deep beam.",
+        "com",
+    )
+    runtime.candy("Title", "probe_idat_periodic_corruption_model")
+    result = idat_bruteforce.probe_idat_periodic_corruption_model(
+        data,
+        convoy_model_path=model_path,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        progress=_runtime_idat_queue_progress(runtime),
+    )
+    runtime.side_notes.append(idat_bruteforce.periodic_corruption_model_summary_line(result))
+    runtime.side_notes.extend(idat_bruteforce.periodic_corruption_model_candidate_summary_lines(result))
+    if result.top_candidates:
+        _write_idat_deep_beam_debug_artifacts(runtime, result, label="idat_periodic_model")
+    if result.best is None:
+        if result.top_candidates:
+            runtime.candy(
+                "Cowsay",
+                "The periodic model produced diagnostic seeds, but still no usable PNG scanline.",
+                "com",
+            )
+        else:
+            runtime.candy(
+                "Cowsay",
+                "The periodic model had no clone-worthy candidate.",
+                "bad",
+            )
+    return result
+
+
+def _write_periodic_model_best_clone(
+    runtime: Any,
+    analysis: idat.IdatStreamAnalysis,
+    result: idat_bruteforce.IdatPeriodicCorruptionModelResult,
+) -> tuple[bool, Any]:
+    candidate = result.best
+    if candidate is None:
+        raise ValueError("periodic model result has no best candidate")
+    runtime.candy(
+        "Cowsay",
+        "The periodic corruption model found real image progress.",
+        "good",
+    )
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: periodic IDAT corruption model.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.periodic_corruption_model_summary_line(result),
+            *idat_bruteforce.periodic_corruption_model_candidate_summary_lines(result),
+            idat_stream_diagnosis_note(candidate.after),
+        )
+    )
+    return True, runtime.write_clone(candidate.data, summary)
+
+
+def _block_deep_beam_if_chunk_names_are_stale(runtime: Any, data: bytes) -> bool:
+    _chunks, problems, status = _chunk_name_audit(data)
+    if status == "ok" and not problems:
+        return False
+    details = "; ".join(problems) if problems else status
+    runtime.side_notes.append(
+        "-IDAT deep beam blocked: convoy clone not active/stale; chunk-name audit still reports %s."
+        % details
+    )
+    runtime.candy(
+        "Cowsay",
+        "I am not launching the deep IDAT beam because chunk names are not clean in the active PNG. Convoy clone not active/stale.",
+        "bad",
+    )
+    return True
+
+
+def _run_idat_deep_beam_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    checkpoint_path: str,
+    progress_path: str,
+    resume_state: idat_bruteforce.IdatDeepBeamResumeState | None = None,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+) -> tuple[bool, Any] | None:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return False, None
+
+    if resume_state is not None and resume_state.available and resume_state.source_matches:
+        runtime.candy(
+            "Cowsay",
+            "I found an existing deep-beam checkpoint/progress for this IDAT stream. Resuming from there.",
+            "com",
+        )
+        runtime.side_notes.append(
+            "-IDAT deep beam resume: source matched; tested=%s; depth=%s; interrupted=%s; reason=%s."
+            % (
+                resume_state.tested,
+                resume_state.depth,
+                "yes" if resume_state.interrupted else "no",
+                resume_state.reason,
+            )
+        )
+    else:
+        runtime.candy(
+            "Cowsay",
+            "I am launching the aggressive deep IDAT beam now. It is checkpointed; CRCs remain evidence, not a final proof.",
+            "com",
+        )
+
+    deep_workers, deep_gpu, deep_gpu_config, deep_budget, deep_gpu_shard_size, deep_cpu_batch_size = _runtime_deep_beam_options(runtime)
+    if seed_candidates:
+        runtime.side_notes.append(
+            "-IDAT deep beam seeded with %s periodic model candidate(s)." % len(seed_candidates)
+        )
+    runtime.candy("Title", "probe_idat_deflate_deep_beam")
+    deep_probe = idat_bruteforce.probe_idat_deflate_deep_beam(
+        data,
+        budget=deep_budget,
+        workers=deep_workers,
+        gpu=deep_gpu,
+        gpu_config=deep_gpu_config,
+        gpu_shard_size=deep_gpu_shard_size,
+        cpu_batch_size=deep_cpu_batch_size,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        seed_candidates=seed_candidates,
+        progress=_runtime_idat_queue_progress(runtime),
+    )
+    runtime.side_notes.append(idat_bruteforce.deep_beam_summary_line(deep_probe))
+    runtime.side_notes.extend(idat_bruteforce.deep_beam_candidate_summary_lines(deep_probe))
+    _write_idat_deep_beam_debug_artifacts(runtime, deep_probe)
+    if deep_probe.interrupted:
+        runtime.candy(
+            "Cowsay",
+            "Deep beam interrupted; checkpoint/progress are saved, so I am stopping this run now.",
+            "bad",
+        )
+        runtime.side_notes.append(
+            "-IDAT deep beam interrupted by user; checkpoint/progress saved, stopping repair pass."
+        )
+        raise SystemExit(130)
+    if deep_probe.best is None:
+        runtime.candy(
+            "Cowsay",
+            "The deep beam kept diagnostic candidates, but none reached usable scanlines yet.",
+            "bad",
+        )
+        runtime.side_notes.append("-IDAT deep beam found no clone-worthy scanline progress.")
+        if deep_probe.budget_exhausted:
+            runtime.side_notes.append(
+                "-IDAT deep beam budget exhausted for this source/budget; increase IDAT_DEEP_BEAM_BUDGET or remove checkpoint/progress to relaunch."
+            )
+        if resume_state is not None and resume_state.available and resume_state.source_matches:
+            runtime.side_notes.append("-IDAT deep beam resume did not return to short probes; checkpoint/progress remain the next state.")
+            return False, None
+        if getattr(runtime, "interactive", False):
+            return False, None
+        return None
+
+    candidate = deep_probe.best
+    runtime.candy(
+        "Cowsay",
+        "The deep beam found a candidate with real image progress.",
+        "good",
+    )
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: aggressive IDAT deflate deep beam.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.deep_beam_summary_line(deep_probe),
+            *idat_bruteforce.deep_beam_candidate_summary_lines(deep_probe),
+            idat_stream_diagnosis_note(candidate.after),
+        )
+    )
+    return True, runtime.write_clone(candidate.data, summary)
+
+
 def _idat_deflate_header_for_data(data: bytes) -> deflate_header.DeflateHeaderAnalysis | None:
     try:
         stream = b"".join(
@@ -3008,6 +3533,38 @@ def try_idat_deflate_bruteforce(
         return None
     if analysis.error_offset is None:
         return None
+
+    checkpoint_path, progress_path = _idat_deep_beam_paths(runtime)
+    resume_state = idat_bruteforce.deep_beam_resume_state(data, checkpoint_path, progress_path)
+    deep_budget = _runtime_deep_beam_budget(runtime)
+    if resume_state.available and resume_state.source_matches:
+        periodic_result = _run_idat_periodic_model_runtime(runtime, data, analysis)
+        if periodic_result is not None and periodic_result.best is not None:
+            return _write_periodic_model_best_clone(runtime, analysis, periodic_result)
+        if not resume_state.interrupted and resume_state.tested >= deep_budget:
+            runtime.side_notes.append(
+                "-IDAT deep beam budget exhausted for this source/budget; not relaunching automatically."
+            )
+            runtime.candy(
+                "Cowsay",
+                "The existing deep-beam progress already reached this budget. Increase IDAT_DEEP_BEAM_BUDGET or delete the checkpoint/progress to run it again.",
+                "bad",
+            )
+            return False, None
+        runtime.side_notes.append("-IDAT deep beam resume-first: existing checkpoint/progress matches this IDAT stream.")
+        runtime.side_notes.append(idat_stream_diagnosis_note(analysis))
+        return _run_idat_deep_beam_runtime(
+            runtime,
+            data,
+            analysis,
+            checkpoint_path=checkpoint_path,
+            progress_path=progress_path,
+            resume_state=resume_state,
+            seed_candidates=tuple(periodic_result.top_candidates) if periodic_result is not None else (),
+        )
+    if resume_state.available and not resume_state.source_matches:
+        runtime.side_notes.append("-IDAT deep beam resume ignored: %s." % resume_state.reason)
+
     if not _remember_runtime_idat_probe(runtime, analysis):
         runtime.candy(
             "Cowsay",
@@ -3033,6 +3590,25 @@ def try_idat_deflate_bruteforce(
             "The first deflate table breaks before I can even pull one scanline out.",
             "bad",
         )
+        runtime.candy(
+            "Cowsay",
+            "I am logging the local dynamic-Huffman evidence before trying a repair.",
+            "com",
+        )
+        runtime.candy("Title", "probe_idat_deflate_local_candidates")
+        runtime.side_notes.extend(
+            idat_bruteforce.idat_local_deflate_diagnostic_summary_lines(
+                data,
+                analysis=analysis,
+            )
+        )
+        local_probe = idat_bruteforce.probe_idat_deflate_local_candidates(
+            data,
+            progress=_runtime_idat_queue_progress(runtime),
+        )
+        runtime.side_notes.append(idat_bruteforce.probe_summary_line(local_probe))
+        runtime.side_notes.extend(idat_bruteforce.candidate_summary_lines(local_probe))
+        runtime.side_notes.extend(idat_bruteforce.diagnostic_candidate_summary_lines(local_probe))
         runtime.candy(
             "Cowsay",
             "I will probe the deflate header first. No wide fishing net until this table makes sense.",
@@ -3069,7 +3645,17 @@ def try_idat_deflate_bruteforce(
             _probe_idat_lf_route_for_diagnostics(runtime, data, analysis)
             runtime.side_notes.append("-IDAT deflate header probe found no clone-worthy scanline progress.")
             runtime.side_notes.append("-IDAT diagnostic LF route found no clone-worthy scanline progress.")
-            return None
+            periodic_result = _run_idat_periodic_model_runtime(runtime, data, analysis)
+            if periodic_result is not None and periodic_result.best is not None:
+                return _write_periodic_model_best_clone(runtime, analysis, periodic_result)
+            return _run_idat_deep_beam_runtime(
+                runtime,
+                data,
+                analysis,
+                checkpoint_path=checkpoint_path,
+                progress_path=progress_path,
+                seed_candidates=tuple(periodic_result.top_candidates) if periodic_result is not None else (),
+            )
 
         candidate = header_probe.best
         runtime.side_notes.extend(idat_bruteforce.candidate_summary_lines(header_probe))
@@ -3449,6 +4035,92 @@ def _idat_chain_summary(analysis: idat_chain.IdatChainAnalysis) -> str:
     return "\n".join(lines)
 
 
+PNG_KNOWN_CRITICAL_CHUNKS = {b"IHDR", b"PLTE", b"IDAT", b"IEND"}
+
+
+def _chunk_type_label(chunk_type: bytes) -> str:
+    try:
+        return chunk_type.decode("ascii")
+    except UnicodeDecodeError:
+        return repr(chunk_type)
+
+
+def _chunk_type_name_problem(chunk_type: bytes) -> str | None:
+    if len(chunk_type) != 4:
+        return "type length is %s, expected 4" % len(chunk_type)
+    if not all(65 <= value <= 90 or 97 <= value <= 122 for value in chunk_type):
+        return "not ASCII alphabetic"
+    if chunk_type[2] & 0x20:
+        return "reserved bit is lowercase"
+    if not (chunk_type[0] & 0x20) and chunk_type not in PNG_KNOWN_CRITICAL_CHUNKS:
+        return "unknown critical chunk"
+    return None
+
+
+def _chunk_name_audit(data: bytes) -> tuple[tuple[png.PngChunk, ...], tuple[str, ...], str]:
+    try:
+        chunks = tuple(png.iter_chunks(data))
+    except Exception as exc:
+        return (), ("parser stopped before chunk-name audit completed: %s" % exc,), "unparseable"
+
+    problems: list[str] = []
+    for chunk in chunks:
+        problem = _chunk_type_name_problem(chunk.chunk_type)
+        if problem is None:
+            continue
+        problems.append(
+            "%s@0x%x (%s)" % (
+                _chunk_type_label(chunk.chunk_type),
+                chunk.offset,
+                problem,
+            )
+        )
+    return chunks, tuple(problems), "ok"
+
+
+def _confirm_chunk_names_for_idat_chain(runtime: Any, original_data: bytes, fixed_data: bytes) -> bool:
+    original_chunks, original_problems, original_status = _chunk_name_audit(original_data)
+    fixed_chunks, fixed_problems, fixed_status = _chunk_name_audit(fixed_data)
+
+    if fixed_status != "ok" or fixed_problems:
+        details = "; ".join(fixed_problems) if fixed_problems else fixed_status
+        runtime.side_notes.append(
+            "-IDAT convoy chunk-name gate: blocked; proposed realignment still has bad chunk name(s): %s."
+            % details
+        )
+        runtime.candy(
+            "Cowsay",
+            "I am not launching the IDAT convoy because the realigned candidate still has bad chunk names.",
+            "bad",
+        )
+        return False
+
+    fixed_types = ",".join(_chunk_type_label(chunk.chunk_type) for chunk in fixed_chunks)
+    if original_status != "ok" or original_problems:
+        details = "; ".join(original_problems) if original_problems else original_status
+        runtime.side_notes.append(
+            "-IDAT convoy chunk-name gate: current parser still sees bad chunk name(s): %s."
+            % details
+        )
+        runtime.side_notes.append(
+            "-IDAT convoy chunk-name gate: after proposed realignment, chunk names are valid/known: %s."
+            % fixed_types
+        )
+        runtime.candy(
+            "Cowsay",
+            "Chunk-name check: the current parse is not clean, but the proposed IDAT realignment produces clean chunk names.",
+            "com",
+        )
+        return True
+
+    original_types = ",".join(_chunk_type_label(chunk.chunk_type) for chunk in original_chunks)
+    runtime.side_notes.append(
+        "-IDAT convoy chunk-name gate: current chunk names are valid/known before convoy: %s."
+        % original_types
+    )
+    return True
+
+
 def _explain_idat_stream_after_header_repair(
     runtime: Any,
     analysis: idat.IdatStreamAnalysis,
@@ -3504,16 +4176,49 @@ def _block_isolated_idat_repairs_after_chain_diagnostic(
     return False, None
 
 
-def _try_idat_deflate_probe_on_candidate(
-    runtime: Any,
-    data: bytes,
-    analysis: idat.IdatStreamAnalysis,
-) -> tuple[bool, Any] | None:
-    try:
-        probe_runtime = replace(runtime, data_hex=data.hex())
-    except TypeError:
+def _existing_fixed_clone_with_data(file_origin: Any, file_dir: Any, data: bytes) -> Path | None:
+    origin = str(file_origin or "").strip()
+    if not origin:
         return None
-    return try_idat_deflate_bruteforce(probe_runtime, analysis)
+    try:
+        folder = Path(output.clone_folder(origin, str(file_dir or "")))
+    except Exception:
+        return None
+    if not folder.exists() or not folder.is_dir():
+        return None
+    pattern = "%s.*_Fixed.png" % output.source_stem(origin)
+    for candidate in sorted(folder.glob(pattern)):
+        if not candidate.is_file():
+            continue
+        try:
+            if candidate.read_bytes() == data:
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def _write_or_reuse_idat_convoy_clone(runtime: Any, data: bytes, summary: str) -> tuple[Any, bool]:
+    existing = _existing_fixed_clone_with_data(
+        getattr(runtime, "file_origin", ""),
+        getattr(runtime, "file_dir", ""),
+        data,
+    )
+    if existing is not None:
+        runtime.side_notes.append(
+            "-IDAT convoy clone reused: %s already contains this working data."
+            % existing
+        )
+        runtime.candy(
+            "Cowsay",
+            "The IDAT-convoy working clone already exists, so I am reusing it instead of writing another Fixed file.",
+            "com",
+        )
+        queue_existing_clone = getattr(runtime, "queue_existing_clone", None)
+        if callable(queue_existing_clone):
+            return queue_existing_clone(str(existing)), True
+        return str(existing), True
+    return runtime.write_clone(data, summary), False
 
 
 def try_idat_chain_header_repair(
@@ -3535,6 +4240,8 @@ def try_idat_chain_header_repair(
 
     if not analysis.repairable:
         return None
+    if not _confirm_chunk_names_for_idat_chain(runtime, data, analysis.fixed_data):
+        return None
 
     runtime.candy(
         "Cowsay",
@@ -3550,16 +4257,39 @@ def try_idat_chain_header_repair(
     runtime.side_notes.extend(summary.splitlines())
     stream_analysis = idat.analyze_idat_stream(analysis.fixed_data)
     _explain_idat_stream_after_header_repair(runtime, stream_analysis)
-    summary = "\n".join([summary, idat_stream_diagnosis_note(stream_analysis)])
-    if not stream_analysis.complete and stream_analysis.supported:
-        probe_result = _try_idat_deflate_probe_on_candidate(
-            runtime,
+    summary = "\n".join(
+        [
+            summary,
+            idat_stream_diagnosis_note(stream_analysis),
+            "-IDAT convoy clone: intermediate working clone before deflate deep beam.",
+        ]
+    )
+    convoy_clone, convoy_reused = _write_or_reuse_idat_convoy_clone(runtime, analysis.fixed_data, summary)
+    model_path = _idat_convoy_model_path(runtime)
+    if model_path:
+        model_written = idat_bruteforce.write_idat_convoy_model(
+            model_path,
+            data,
             analysis.fixed_data,
-            stream_analysis,
+            analysis,
         )
-        if probe_result is not None:
-            return probe_result
-    return True, runtime.write_clone(analysis.fixed_data, summary)
+        runtime.side_notes.append(
+            "-IDAT convoy model %s: %s."
+            % ("written" if model_written else "reused", model_path)
+        )
+    if convoy_reused:
+        runtime.side_notes.append("-IDAT convoy clone reused after clean chunk-name gate.")
+    else:
+        runtime.side_notes.append("-IDAT convoy clone written after clean chunk-name gate.")
+    runtime.candy(
+        "Cowsay",
+        "IDAT convoy clone written/reused; restart from this clone before deflate probing.",
+        "com",
+    )
+    runtime.side_notes.append(
+        "-IDAT convoy clone boundary: deep-beam deferred until the next pass from this clone."
+    )
+    return True, convoy_clone
 
 
 def wrong_chunk_name_precedes_first_parsed_idat(data_hex: str, tools: relics.WrongChunkNameTools) -> bool:
@@ -3630,6 +4360,172 @@ def describe_wrong_chunk_name(
                 "Or....SOMEHTING !!",
                 "com",
             )
+
+
+def _chunk_type_bytes(value: Any) -> bytes | None:
+    if isinstance(value, bytes) and len(value) == 4:
+        return value
+    if isinstance(value, str) and len(value) == 4:
+        try:
+            return value.encode("latin1")
+        except UnicodeEncodeError:
+            return None
+    return None
+
+
+def _idat_typo_distance(chunk_type: bytes) -> int:
+    return sum(1 for left, right in zip(chunk_type, b"IDAT") if left != right)
+
+
+def _wrong_chunk_name_has_idat_context(
+    decision: fixit_felix.WrongChunkNameDecision,
+    tools: relics.WrongChunkNameTools,
+) -> bool:
+    previous_chunk = _chunk_type_bytes(tools.previous_chunk)
+    next_marker = _chunk_type_bytes(getattr(tools, "next_marker", None))
+    finding = str(decision.finding)
+    return (
+        previous_chunk == b"IDAT"
+        or next_marker == b"IDAT"
+        or "Chunk[b'IDAT']" in finding
+        or 'Chunk["IDAT"]' in finding
+    )
+
+
+def _idatish_wrong_chunk_name(
+    decision: fixit_felix.WrongChunkNameDecision,
+    tools: relics.WrongChunkNameTools,
+) -> bytes | None:
+    chunk_type = _chunk_type_bytes(tools.chunk_type)
+    if chunk_type is None or chunk_type == b"IDAT":
+        return None
+    if decision.bad_crc is not True:
+        return None
+    if _idat_typo_distance(chunk_type) > 1:
+        return None
+    if not _wrong_chunk_name_has_idat_context(decision, tools):
+        return None
+    return chunk_type
+
+
+def _wrong_chunk_type_index_candidates(value: Any) -> tuple[int, ...]:
+    try:
+        offset = value if isinstance(value, int) else int(str(value), 0)
+    except (TypeError, ValueError):
+        return ()
+    candidates = [offset]
+    doubled = offset * 2
+    if doubled != offset:
+        candidates.append(doubled)
+    return tuple(candidates)
+
+
+def _wrong_chunk_at_stored_type_offset(
+    data: bytes,
+    tools: relics.WrongChunkNameTools,
+    expected_type: bytes,
+) -> tuple[int, png.PngChunk] | None:
+    for type_index in _wrong_chunk_type_index_candidates(tools.chunk_type_offset):
+        if type_index < 8 or type_index % 2:
+            continue
+        type_offset = type_index // 2
+        if data[type_offset : type_offset + 4] != expected_type:
+            continue
+        chunk = png.chunk_at(data, type_offset - 4)
+        if chunk is not None and chunk.chunk_type == expected_type:
+            return type_index, chunk
+    return None
+
+
+def _idat_name_repair_crc_note(chunk: png.PngChunk) -> str:
+    computed_crc = binascii.crc32(b"IDAT" + chunk.data) & 0xFFFFFFFF
+    if computed_crc == chunk.crc:
+        return "-Direct IDAT chunk-name repair: stored CRC matches after renaming to IDAT."
+    return (
+        "-Direct IDAT chunk-name repair: stored CRC still mismatches after renaming "
+        "to IDAT; keeping the repaired name and leaving CRC/data repair for later."
+    )
+
+
+def try_direct_idatish_chunk_name_repair(
+    runtime: WrongChunkNameRuntime,
+    decision: fixit_felix.WrongChunkNameDecision,
+    chkd: str,
+    tools: relics.WrongChunkNameTools,
+) -> tuple[bool, Any] | None:
+    chunk_type = _idatish_wrong_chunk_name(decision, tools)
+    if chunk_type is None:
+        return None
+
+    route_action = "direct_idat_name"
+    if runtime.is_wrong_chunk_name_route_tried(decision.finding, chkd, tools, route_action):
+        _emit_wrong_chunk_name_deja_vu(runtime, tools)
+        if decision.action == "ask_length_probe":
+            runtime.set_skip_bad_next_name(True)
+        else:
+            runtime.set_skip_bad_current_name(True)
+        return False, None
+
+    try:
+        data = bytes.fromhex(runtime.data_hex)
+    except ValueError:
+        return None
+
+    located = _wrong_chunk_at_stored_type_offset(data, tools, chunk_type)
+    if located is None:
+        return None
+
+    type_index, chunk = located
+    type_offset = type_index // 2
+    fixed_data = bytearray(data)
+    fixed_data[type_offset : type_offset + 4] = b"IDAT"
+
+    changed = _idat_typo_distance(chunk_type)
+    chunk_label = chunk_type.decode("latin1", errors="replace")
+    repair_note = (
+        "-Repair hypothesis tried: direct chunk-name recovery for %s at %s; "
+        "changed %s byte%s -> IDAT."
+        % (
+            chunk_label,
+            _route_offset(type_index),
+            changed,
+            "" if changed == 1 else "s",
+        )
+    )
+    crc_note = _idat_name_repair_crc_note(chunk)
+    runtime.side_notes.extend((repair_note, crc_note))
+    runtime.remember_wrong_chunk_name_route(decision.finding, chkd, tools, route_action)
+    runtime.candy(
+        "Cowsay",
+        "This chunk name looks like a damaged IDAT at the recorded offset, so I am fixing that sign first.",
+        "good",
+    )
+    runtime.candy(
+        "Cowsay",
+        "CRC can still complain after the rename; if it does, I am leaving that as the next problem.",
+        "com",
+    )
+    return True, runtime.write_clone(bytes(fixed_data), "\n".join((repair_note, crc_note)))
+
+
+def _nearby_result_is_scan_summary(result: Any) -> bool:
+    return getattr(result, "action", None) == "scan_summary"
+
+
+def _defer_length_symptom_name_bruteforce(
+    runtime: WrongChunkNameRuntime,
+    tools: relics.WrongChunkNameTools,
+    reason: str,
+) -> tuple[bool, None]:
+    _remember_wrong_chunk_name_note(
+        runtime,
+        tools,
+        "deferred",
+        "%s; not brute-forcing a chunk name that is probably payload bytes" % reason,
+    )
+    runtime.set_skip_bad_next_name(True)
+    runtime.set_skip_bad_current_name(True)
+    return False, None
 
 
 def ask_wrong_chunk_name_bruteforce(
@@ -3705,25 +4601,44 @@ def apply_wrong_chunk_name(
     if tools is None:
         raise ValueError("FixItFelix wrong-chunk-name action needs chunk tools: %s" % decision.action)
 
-    emit_wrong_chunk_name_critical(runtime, decision.finding)
-    block_after_alignment = not wrong_chunk_name_precedes_first_parsed_idat(runtime.data_hex, tools)
-    idat_chain_repair = try_idat_chain_header_repair(
-        runtime,
-        block_if_aligned_bad_stream=block_after_alignment,
-    )
-    if idat_chain_repair is not None:
-        return idat_chain_repair
+    def idat_chain_fallback() -> tuple[bool, Any] | None:
+        route_action = "idat_chain"
+        if runtime.is_wrong_chunk_name_route_tried(decision.finding, chkd, tools, route_action):
+            _emit_wrong_chunk_name_deja_vu(runtime, tools)
+            runtime.set_skip_bad_current_name(True)
+            return False, None
+        runtime.remember_wrong_chunk_name_route(decision.finding, chkd, tools, route_action)
+        block_after_alignment = not wrong_chunk_name_precedes_first_parsed_idat(runtime.data_hex, tools)
+        return try_idat_chain_header_repair(
+            runtime,
+            block_if_aligned_bad_stream=block_after_alignment,
+        )
 
+    if decision.action == "ask_length_probe" and runtime.is_wrong_chunk_name_route_tried(
+        decision.finding,
+        chkd,
+        tools,
+        "length_probe",
+    ):
+        fallback = idat_chain_fallback()
+        if fallback is not None:
+            return fallback
+        return _defer_length_symptom_name_bruteforce(
+            runtime,
+            tools,
+            "length probe route was already tried",
+        )
+
+    emit_wrong_chunk_name_critical(runtime, decision.finding)
     runtime.ancillary(tools.chunk_type)
     describe_wrong_chunk_name(runtime, decision)
 
+    direct_idat_name_repair = try_direct_idatish_chunk_name_repair(runtime, decision, chkd, tools)
+    if direct_idat_name_repair is not None:
+        return direct_idat_name_repair
+
     if decision.action == "ask_length_probe":
         route_action = "length_probe"
-        if runtime.is_wrong_chunk_name_route_tried(decision.finding, chkd, tools, route_action):
-            _emit_wrong_chunk_name_deja_vu(runtime, tools)
-            runtime.set_skip_bad_next_name(True)
-            return ask_wrong_chunk_name_bruteforce(runtime, decision, chkd, tools)
-
         runtime.candy(
             "Cowsay",
             "By the way IDAT chunk's length is different from the one usually used for some reason..",
@@ -3734,31 +4649,35 @@ def apply_wrong_chunk_name(
             "May i suggest to start by checking if this a length problem ?",
             "good",
         )
-        uniqh = relics.question_hash(runtime.pandora_box, decision.finding, chkd)
-        answer = runtime.question(id=decision.finding, idhash=uniqh)
-        if answer is True:
-            runtime.remember_wrong_chunk_name_route(decision.finding, chkd, tools, route_action)
-            _remember_wrong_chunk_name_note(runtime, tools, "tried")
-            return True, runtime.nearby_chunk(
-                tools.chunk_type,
-                tools.chunk_length,
-                tools.chunk_type_offset,
-                False,
-                decision.finding,
-            )
-
         runtime.remember_wrong_chunk_name_route(decision.finding, chkd, tools, route_action)
-        _remember_wrong_chunk_name_note(
+        _remember_wrong_chunk_name_note(runtime, tools, "tried")
+        result = runtime.nearby_chunk(
+            tools.chunk_type,
+            tools.chunk_length,
+            tools.chunk_type_offset,
+            False,
+            decision.finding,
+        )
+        if result is not None and not _nearby_result_is_scan_summary(result):
+            return True, result
+
+        fallback = idat_chain_fallback()
+        if fallback is not None:
+            return fallback
+        return _defer_length_symptom_name_bruteforce(
             runtime,
             tools,
-            "deferred",
-            "length probe was declined",
+            "length probe found no clone-worthy repair",
         )
-        runtime.set_skip_bad_next_name(True)
-        return ask_wrong_chunk_name_bruteforce(runtime, decision, chkd, tools)
 
     if decision.action == "ask_bruteforce":
-        return ask_wrong_chunk_name_bruteforce(runtime, decision, chkd, tools)
+        result = ask_wrong_chunk_name_bruteforce(runtime, decision, chkd, tools)
+        if result[0]:
+            return result
+        fallback = idat_chain_fallback()
+        if fallback is not None:
+            return fallback
+        return result
 
     raise ValueError("Unknown FixItFelix wrong-chunk-name action: %s" % decision.action)
 
@@ -4203,6 +5122,18 @@ def apply_no_next_append_iend(
         runtime.the_end()
         return False, None
 
+    if decision.action == "write_partial_iend_tail":
+        runtime.candy("Cowsay", "And it seems that it matches with some part of IEND chunk ..", "com")
+        runtime.candy("Cowsay", "I am replacing that partial tail with a clean IEND chunk.", "good")
+        runtime.side_notes.append("-Part or full IEND chunk detected:%s" % (str(exceeding)))
+        runtime.debug_print("-iendsample:", fixit_felix.GOOD_IEND_HEX)
+        runtime.debug_print("-exceeding:", exceeding)
+        cut_hex = runtime.data_hex[: runtime.crc_offset + 8]
+        fixed = bytes.fromhex(cut_hex + fixit_felix.GOOD_IEND_HEX)
+        note = "-FixItFelix:replaced partial IEND tail with canonical IEND chunk."
+        runtime.side_notes.append(note)
+        return True, runtime.write_clone(fixed, note)
+
     if decision.action == "dummy_at_crc_tail":
         if len(exceeding) > len(fixit_felix.GOOD_IEND_HEX):
             runtime.candy("Cowsay", "But i don't know what to do with those bytes  ..", "com")
@@ -4271,12 +5202,30 @@ def handle_no_next_append_missing_iend(
     return apply_no_next_append_iend(runtime, append_decision, finding)
 
 
+def try_no_next_partial_iend_tail(
+    runtime: NoNextChunkRuntime,
+    finding: Any,
+) -> tuple[bool, Any] | None:
+    append_decision = fixit_felix.no_next_append_iend_decision(
+        runtime.data_hex,
+        crc_offset=runtime.crc_offset,
+    )
+    if append_decision.action != "write_partial_iend_tail":
+        return None
+    report_no_next_exceeding(runtime, append_decision.exceeding)
+    return apply_no_next_append_iend(runtime, append_decision, finding)
+
+
 def handle_no_next_ask_length_probe(
     runtime: NoNextChunkRuntime,
     finding: Any,
     chkd: str,
     tools: relics.NoNextChunkTools,
 ) -> tuple[bool, Any]:
+    partial_iend_tail = try_no_next_partial_iend_tail(runtime, finding)
+    if partial_iend_tail is not None:
+        return partial_iend_tail
+
     runtime.emit(
         "\n-End of File Reached but IEND Chunk is %s ! %s"
         % (runtime.candy("Color", "red", " MISSING! "), runtime.candy("Chunky", "bad"))

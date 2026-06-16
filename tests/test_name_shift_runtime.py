@@ -92,6 +92,28 @@ def test_name_shift_runtime_repairs_extra_bytes_when_crc_matches():
     assert ("spec_length", b"tEXt", "00000000") in calls
 
 
+def test_name_shift_runtime_repairs_extra_bytes_when_length_is_already_valid():
+    calls = []
+    side_notes = []
+    runtime = build_runtime(calls, side_notes)
+    data_hex = "aaaaaaaa" + chunk_hex(file_length="00000003")
+
+    result = name_shift_runtime.run_name_shift(
+        runtime,
+        build_context(
+            data_hex,
+            12,
+            indexes=("0:0:4:0",),
+            chunks=(b"PNG",),
+        ),
+    )
+
+    fixed = chunk_hex(file_length="00000003")
+    assert result == name_shift.extra_bytes_repair_result(fixed, 4, 12)
+    assert name_shift.crc_valid_note() in side_notes
+    assert name_shift.extra_bytes_found_note() in side_notes
+
+
 def test_name_shift_runtime_repairs_missing_bytes_when_crc_matches():
     calls = []
     side_notes = []
@@ -166,6 +188,10 @@ def main():
     checks = [
         ("No candidate", test_name_shift_runtime_returns_false_without_candidate),
         ("Extra bytes repair", test_name_shift_runtime_repairs_extra_bytes_when_crc_matches),
+        (
+            "Extra bytes repair with valid length",
+            test_name_shift_runtime_repairs_extra_bytes_when_length_is_already_valid,
+        ),
         ("Missing bytes repair", test_name_shift_runtime_repairs_missing_bytes_when_crc_matches),
         ("Legacy double end", test_name_shift_runtime_keeps_legacy_double_end_when_length_is_not_corrupted),
         ("Namespace bridge", test_name_shift_namespace_helper_builds_runtime_and_context),

@@ -45,6 +45,36 @@ def test_dummy_chunk_decision_completes_iend_tail():
     assert validate_png_structure(bytes.fromhex(decision.fixed_data_hex)).ok
 
 
+def test_dummy_chunk_decision_replaces_partial_iend_prefix_at_eof():
+    data = PNG_SIGNATURE + build_png_chunk(b"IHDR", rgb_ihdr()) + build_png_chunk(
+        b"IDAT",
+        zlib.compress(b"\x00abc"),
+    )
+    partial = data + IEND_CHUNK[:1]
+
+    decision = dummy_chunk.decide_dummy_chunk(b"IEND", partial.hex(), len(partial) * 2)
+    fixed = bytes.fromhex(decision.fixed_data_hex)
+
+    assert decision.action == "complete_iend"
+    assert fixed == data + IEND_CHUNK
+    assert validate_png_structure(fixed).ok
+
+
+def test_dummy_chunk_decision_cuts_extra_tail_byte_before_iend():
+    data = PNG_SIGNATURE + build_png_chunk(b"IHDR", rgb_ihdr()) + build_png_chunk(
+        b"IDAT",
+        zlib.compress(b"\x00abc"),
+    )
+    extra_tail = data + b"\x82"
+
+    decision = dummy_chunk.decide_dummy_chunk(b"IEND", extra_tail.hex(), len(extra_tail) * 2)
+    fixed = bytes.fromhex(decision.fixed_data_hex)
+
+    assert decision.action == "complete_iend"
+    assert fixed == data + IEND_CHUNK
+    assert validate_png_structure(fixed).ok
+
+
 def test_dummy_chunk_decision_keeps_unknown_chunks_on_legacy_fallback():
     decision = dummy_chunk.decide_dummy_chunk(b"PLTE", "", 0)
 
@@ -82,6 +112,8 @@ def main():
     checks = [
         ("Missing IHDR decision", test_dummy_chunk_decision_rebuilds_missing_ihdr_from_idat),
         ("IEND completion decision", test_dummy_chunk_decision_completes_iend_tail),
+        ("IEND partial prefix decision", test_dummy_chunk_decision_replaces_partial_iend_prefix_at_eof),
+        ("IEND extra tail byte decision", test_dummy_chunk_decision_cuts_extra_tail_byte_before_iend),
         ("Fallback decision", test_dummy_chunk_decision_keeps_unknown_chunks_on_legacy_fallback),
         ("Legacy IHDR dummy build", test_dummy_chunk_builds_legacy_ihdr_dummy_with_injected_helpers),
     ]

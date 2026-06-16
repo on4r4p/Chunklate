@@ -1743,13 +1743,28 @@ def FixItFelix_No_NextChunk_Runtime():
     return fixit_felix_runtime.build_no_next_chunk_runtime_from_namespace(globals())
 
 
+def FixItFelix_No_NextChunk_Decision_Chunk(Chunk, chkd, no_next_chkd, tools):
+    if Chunk in (None, b"", ""):
+        return tools.chunk_type
+    if no_next_chkd != chkd:
+        return tools.chunk_type
+    return Chunk
+
+
 def FixItFelix_No_NextChunk(key, chkd, Chunk):
     global Skip_Bad_No_Next_Chunk
 
     if Skip_Bad_No_Next_Chunk is False:
-        NoNextTools = relics.no_next_chunk_tools(PandoraBox[key], chkd)
+        no_next_chkd = relics.resolve_tool_prefix(PandoraBox[key], chkd)
+        NoNextTools = relics.no_next_chunk_tools(PandoraBox[key], no_next_chkd)
+        decision_chunk = FixItFelix_No_NextChunk_Decision_Chunk(
+            Chunk,
+            chkd,
+            no_next_chkd,
+            NoNextTools,
+        )
         NoNextDecision = fixit_felix.no_next_chunk_decision(
-            current_chunk=Chunk,
+            current_chunk=decision_chunk,
             chunk_type=NoNextTools.chunk_type,
             chunk_length=NoNextTools.chunk_length,
             bad_critical=Bad_Critical,
@@ -1758,7 +1773,7 @@ def FixItFelix_No_NextChunk(key, chkd, Chunk):
             FixItFelix_No_NextChunk_Runtime(),
             NoNextDecision,
             key,
-            chkd,
+            no_next_chkd,
             NoNextTools,
         )
 

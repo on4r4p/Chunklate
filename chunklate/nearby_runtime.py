@@ -4,6 +4,7 @@ from collections.abc import Callable, MutableSequence
 from dataclasses import dataclass
 from typing import Any
 
+from . import fixit_felix
 from . import nearby
 
 
@@ -43,6 +44,7 @@ class NearbyChunkRuntime:
     get_bad_critical: Callable[[], Any]
     remember_later_iend: LegacyCall
     side_notes: MutableSequence[Any]
+    write_clone: LegacyCall | None = None
 
 
 @dataclass(frozen=True)
@@ -191,6 +193,10 @@ def _route_length_repair(
     repair,
     from_error: Any,
 ) -> Any:
+    try:
+        source_preview = bytes.fromhex(repair.old_length)
+    except Exception:
+        source_preview = repair.solved_message
     runtime.emit(
         "-Chunk position is %s %s\n"
         % (_color(runtime, "green", "Valid "), _chunky(runtime, "good"))
@@ -205,7 +211,7 @@ def _route_length_repair(
         repair.fixed_length,
         repair.replace_start,
         repair.replace_end,
-        context.original_chunk_type,
+        source_preview,
         from_error,
     )
     if result is None:
@@ -434,6 +440,48 @@ def run_double_check(
     return runtime.nearby_chunk(chunk_type, chunk_length, last_chunk_type, DoubleCheck=True)
 
 
+def write_partial_iend_tail_from_nearby(
+    runtime: NearbyChunkRuntime,
+    context: NearbyChunkContext,
+) -> Any | None:
+    if runtime.write_clone is None:
+        return None
+    try:
+        tail_start = int(context.current_length_offset)
+    except (TypeError, ValueError):
+        return None
+
+    starts: list[int] = []
+    for candidate in (tail_start, tail_start - 8):
+        if 0 <= candidate <= len(context.data_hex) and candidate not in starts:
+            starts.append(candidate)
+    if tail_start >= len(context.data_hex) - len(fixit_felix.GOOD_IEND_HEX):
+        for suffix_len in range(2, min(len(fixit_felix.GOOD_IEND_HEX), len(context.data_hex)) + 1, 2):
+            candidate = len(context.data_hex) - suffix_len
+            if candidate not in starts:
+                starts.append(candidate)
+
+    tail = ""
+    for candidate in starts:
+        candidate_tail = context.data_hex[candidate:]
+        if (
+            candidate_tail
+            and len(candidate_tail) <= len(fixit_felix.GOOD_IEND_HEX)
+            and fixit_felix.GOOD_IEND_HEX.startswith(candidate_tail)
+        ):
+            tail_start = candidate
+            tail = candidate_tail
+            break
+    if not tail:
+        return None
+
+    fixed = bytes.fromhex(context.data_hex[:tail_start] + fixit_felix.GOOD_IEND_HEX)
+    note = "-FixItFelix:replaced partial IEND tail with canonical IEND chunk."
+    runtime.side_notes.append("-Part or full IEND chunk detected:%s" % tail)
+    runtime.side_notes.append(note)
+    return runtime.write_clone(fixed, note)
+
+
 def run_nearby_chunk(
     runtime: NearbyChunkRuntime,
     context: NearbyChunkContext,
@@ -485,6 +533,10 @@ def run_nearby_chunk(
             runtime.end()
         else:
             runtime.side_notes.append("-NearbyChunk:Critical Chunk Missing: %s" % bad_critical)
+            if bad_critical:
+                partial_iend_tail = write_partial_iend_tail_from_nearby(runtime, context)
+                if partial_iend_tail is not None:
+                    return partial_iend_tail
             return runtime.fix_it_felix(chunk_type)
     else:
         if not scan_summary:
@@ -588,6 +640,7 @@ def build_nearby_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> Near
             },
         ),
         side_notes=namespace["SideNotes"],
+        write_clone=namespace.get("WriteClone"),
     )
 
 

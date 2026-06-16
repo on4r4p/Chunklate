@@ -396,7 +396,8 @@ def test_check_chunk_name_explains_safe_unknown_private_before_prompt():
 
 def test_brute_chunk_routes_nameshift_repair_to_checkpoint():
     calls = []
-    runtime = build_runtime(calls, name_shift=lambda: ["fixed", 7, 12])
+    fixed = "0000000467414d41"
+    runtime = build_runtime(calls, name_shift=lambda: [fixed, 14, 12])
 
     result = chunk_name_runtime.run_brute_chunk(
         runtime,
@@ -414,10 +415,40 @@ def test_brute_chunk_routes_nameshift_repair_to_checkpoint():
         "CheckChunkName",
         b"bad!",
         ["-Chunk length has been corrupted due to some missing bytes."],
-        "fixed",
-        7,
+        fixed,
+        14,
         12,
         "-Chunk length has been corrupted due to some missing bytes.",
+        "Relics",
+    )
+
+
+def test_brute_chunk_routes_nameshift_extra_bytes_to_checkpoint():
+    calls = []
+    fixed = "0000000467414d41000186a031e8965f"
+    solved_msg = "-Found 1 extra byte(s) before Chunk[gAMA] after Chunk[IHDR] at offset: 0x21"
+    runtime = build_runtime(calls, name_shift=lambda: [fixed, 34, 66])
+
+    result = chunk_name_runtime.run_brute_chunk(
+        runtime,
+        base_context(original_chunk_type=b"\x04gAM"),
+        b"\x04gAM",
+        b"IHDR",
+        "00000004",
+        "Relics",
+    )
+
+    assert result == "checkpoint-result"
+    assert checkpoint_args(calls) == (
+        True,
+        True,
+        "CheckChunkName",
+        b"\x04gAM",
+        [solved_msg],
+        fixed,
+        34,
+        66,
+        solved_msg,
         "Relics",
     )
 
@@ -697,6 +728,7 @@ def main():
             test_check_chunk_name_explains_safe_unknown_private_before_prompt,
         ),
         ("NameShift repair", test_brute_chunk_routes_nameshift_repair_to_checkpoint),
+        ("NameShift extra bytes repair", test_brute_chunk_routes_nameshift_extra_bytes_to_checkpoint),
         ("CRC auto name", test_brute_chunk_prefers_single_crc_match_auto_name),
         ("Pokemon length", test_brute_chunk_pokemon_length_choice_routes_nearby_chunk),
         ("Namespace builders", test_chunk_name_namespace_builders_preserve_runtime_callbacks_and_context),

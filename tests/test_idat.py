@@ -2,6 +2,7 @@
 import json
 import sys
 import struct
+import tempfile
 import zlib
 import math
 from pathlib import Path
@@ -3909,6 +3910,1045 @@ def test_dynamic_huffman_header_probe_keeps_zero_scanline_candidate_diagnostic_o
     assert idat_bruteforce.diagnostic_candidate_summary_lines(result)
 
 
+def test_idat_local_deflate_diagnostic_reports_dynamic_huffman_context():
+    candidate, _bits, _original = dynamic_header_two_bit_corrupt_png()
+    before = idat.analyze_idat_stream(candidate)
+
+    lines = idat_bruteforce.idat_local_deflate_diagnostic_summary_lines(
+        candidate,
+        analysis=before,
+    )
+
+    assert any(line.startswith("-IDAT local deflate diagnostic:") for line in lines)
+    assert any("HLIT=" in line and "HDIST=" in line and "HCLEN=" in line for line in lines)
+    assert any(line.startswith("-IDAT dynamic Huffman suspect bytes:") for line in lines)
+    assert any(line.startswith("-IDAT dynamic Huffman token suspects:") for line in lines)
+
+
+def test_idat_local_deflate_probe_keeps_search_bounded_and_scores_progress():
+    candidate, _bits, _original = dynamic_header_two_bit_corrupt_png()
+
+    result = idat_bruteforce.probe_idat_deflate_local_candidates(
+        candidate,
+        budget=1200,
+        max_bits=80,
+    )
+
+    assert result.strategy == "deflate-local"
+    assert result.tested_candidates <= 1200
+    assert result.window_start == 0
+    assert result.window_end <= 0x120
+    assert result.best is not None or result.diagnostic_best is not None
+
+
+def test_idat_deep_beam_chases_depth_two_progress():
+    candidate, _bits, _original = dynamic_header_two_bit_corrupt_png()
+
+    result = idat_bruteforce.probe_idat_deflate_deep_beam(
+        candidate,
+        budget=5000,
+        max_depth=2,
+        beam_width=8,
+        top_candidates=4,
+        workers=1,
+        checkpoint_every=999999,
+    )
+
+    assert result.strategy == "deep-beam"
+    assert result.workers == 1
+    assert result.reached_depth == 2
+    assert result.best is not None
+    assert len(result.best.operations) >= 2
+    assert result.best.after.decompressed_size > result.before.decompressed_size
+    assert idat_bruteforce.deep_beam_candidate_summary_lines(result)
+
+
+def test_idat_raw_prefix_score_prefers_png_filter_over_longer_noise():
+    bad_raw = b"\xbd" + b"x" * 200
+    good_raw = b"\x00abc"
+    bad_data = build_rgb_png(1, 1, bad_raw, idat_data=zlib.compress(bad_raw))
+    good_data = build_rgb_png(1, 1, good_raw, idat_data=zlib.compress(good_raw))
+    bad_analysis = idat.analyze_idat_stream(bad_data)
+    good_analysis = idat.analyze_idat_stream(good_data)
+    _bad_chunks, bad_stream = idat_bruteforce._all_chunks_and_idat_stream(bad_data)
+    _good_chunks, good_stream = idat_bruteforce._all_chunks_and_idat_stream(good_data)
+
+    bad_prefix = idat_bruteforce.idat_partial_raw_prefix(bad_stream)
+    good_prefix = idat_bruteforce.idat_partial_raw_prefix(good_stream)
+    bad_raw_score = idat_bruteforce.score_png_raw_prefix(bad_prefix.raw, bad_analysis)
+    good_raw_score = idat_bruteforce.score_png_raw_prefix(good_prefix.raw, good_analysis)
+    bad_score = idat_bruteforce._deep_beam_score(
+        bad_analysis,
+        bad_stream,
+        0,
+        data=bad_data,
+        original_idat_count=1,
+    )
+    good_score = idat_bruteforce._deep_beam_score(
+        good_analysis,
+        good_stream,
+        0,
+        data=good_data,
+        original_idat_count=1,
+    )
+
+    assert bad_raw_score.first_filter_ok is False
+    assert good_raw_score.first_filter_ok is True
+    assert good_raw_score.rank > bad_raw_score.rank
+    assert good_score > bad_score
+
+
+def test_idat_raw_prefix_score_counts_multiple_scanline_filters():
+    raw = b"\x00abc\x04def\x09ghi"
+    data = build_rgb_png(1, 3, raw, idat_data=zlib.compress(raw))
+    analysis = idat.analyze_idat_stream(data)
+
+    score = idat_bruteforce.score_png_raw_prefix(raw, analysis)
+
+    assert analysis.scanline_size == 4
+    assert score.checked_filter_rows == 3
+    assert score.valid_filter_rows == 2
+
+
+def test_idat_deep_beam_default_budget_is_ten_million():
+    assert idat_bruteforce.DEEP_BEAM_DEFAULT_BUDGET == 10_000_000
+
+
+def test_idat_deep_beam_auto_workers_are_memory_capped():
+    assert idat_bruteforce._deep_beam_workers("auto") <= idat_bruteforce.DEEP_BEAM_AUTO_WORKER_LIMIT
+    assert idat_bruteforce._deep_beam_workers(None) <= idat_bruteforce.DEEP_BEAM_AUTO_WORKER_LIMIT
+
+
+def test_idat_deep_beam_cpu_batch_default_and_clamp():
+    assert idat_bruteforce.DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE == 128
+    assert idat_bruteforce._deep_beam_cpu_batch_size(0, 1, 999) == 256
+    assert idat_bruteforce._deep_beam_cpu_batch_size(10_000, 4, 999) == 256
+    assert (
+        idat_bruteforce._deep_beam_cpu_batch_size(
+            10_000,
+            4,
+            idat_bruteforce.DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE,
+        )
+        == 256
+    )
+    assert (
+        idat_bruteforce._deep_beam_cpu_batch_size(
+            64,
+            4,
+            idat_bruteforce.DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE,
+        )
+        == 32
+    )
+
+
+def test_idat_deep_beam_in_flight_batches_scale_with_workers():
+    assert idat_bruteforce._deep_beam_worker_in_flight_limit(4, 100) == 4
+    assert idat_bruteforce._deep_beam_worker_in_flight_limit(8, 100) == 8
+    assert (
+        idat_bruteforce._deep_beam_worker_in_flight_limit(32, 100)
+        == idat_bruteforce.DEEP_BEAM_WORKER_IN_FLIGHT_LIMIT
+    )
+    assert idat_bruteforce._deep_beam_worker_in_flight_limit(8, 3) == 3
+
+
+def test_idat_deep_beam_checkpoint_resume_round_trips(tmp_path=None):
+    if tmp_path is None:
+        with tempfile.TemporaryDirectory() as directory:
+            return test_idat_deep_beam_checkpoint_resume_round_trips(Path(directory))
+
+    candidate, _bits, _original = dynamic_header_two_bit_corrupt_png()
+    checkpoint = tmp_path / "_deep_beam.checkpoint.jsonl"
+    progress = tmp_path / "_deep_beam.progress.json"
+
+    first = idat_bruteforce.probe_idat_deflate_deep_beam(
+        candidate,
+        budget=900,
+        max_depth=1,
+        beam_width=4,
+        top_candidates=3,
+        workers=1,
+        checkpoint_every=100,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+    )
+    second = idat_bruteforce.probe_idat_deflate_deep_beam(
+        candidate,
+        budget=300,
+        max_depth=1,
+        beam_width=4,
+        top_candidates=3,
+        workers=1,
+        checkpoint_every=100,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+    )
+
+    assert first.top_candidates
+    assert checkpoint.exists()
+    assert progress.exists()
+    assert second.progress_resumed is True
+    assert second.top_candidates
+    assert second.visited_count >= len(first.top_candidates)
+
+
+def test_idat_deep_beam_byte_successors_prune_per_parent(monkeypatch):
+    candidate, _bits, _original = dynamic_header_two_bit_corrupt_png()
+    before = idat.analyze_idat_stream(candidate)
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    parent = idat_bruteforce.IdatDeepBeamCandidate(
+        data=candidate,
+        stream=stream,
+        operations=(),
+        before=before,
+        after=before,
+        state_id=0,
+        parent_id=None,
+        source_offsets=(),
+        score=idat_bruteforce._deep_beam_score(
+            before,
+            stream,
+            0,
+            data=candidate,
+            original_idat_count=original_idat_count,
+        ),
+    )
+    fake_candidates = []
+    for index in range(10):
+        new_byte = (stream[0] + index + 1) & 0xFF
+        variant_stream = bytes((new_byte,)) + stream[1:]
+        variant_data = idat_bruteforce._rebuild_with_single_idat_stream(chunks, variant_stream)
+        fake_candidates.append(
+            idat_bruteforce.IdatDeflateCandidate(
+                data=variant_data,
+                stream_offset=0,
+                file_offset=0,
+                idat_index=1,
+                idat_offset=0,
+                old_byte=stream[0],
+                new_byte=new_byte,
+                before=before,
+                after=idat.analyze_idat_stream(variant_data),
+                edit_kind="replace",
+                old_bytes=stream[:1],
+                new_bytes=bytes((new_byte,)),
+            )
+        )
+
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "_deep_beam_mutation_specs",
+        lambda *_args, **_kwargs: tuple(("replace", index, index) for index in range(10)),
+    )
+
+    def consume_all(_data, _before, _specs, *, consume, **_kwargs):
+        consume(tuple(fake_candidates))
+
+    monkeypatch.setattr(idat_bruteforce, "_deep_beam_consume_validated_specs", consume_all)
+
+    successors, tested, _backend, _warning = idat_bruteforce._deep_beam_byte_bit_successors(
+        parent,
+        before=before,
+        state_id_start=1,
+        original_idat_count=original_idat_count,
+        max_offsets=128,
+        max_bits=192,
+        widened_limit=0x120,
+        budget_left=10,
+        workers=1,
+        successor_limit=3,
+    )
+
+    assert tested == 10
+    assert len(successors) == 3
+
+
+def test_idat_periodic_model_refuses_hash_mismatch(tmp_path):
+    candidate, _stream_offset, _original = dynamic_header_corrupt_png()
+    model = tmp_path / "model.json"
+    model.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "convoy_stream_hash": "not-this-stream",
+                "xors": [1],
+                "deltas": [1],
+            }
+        )
+    )
+
+    result = idat_bruteforce.probe_idat_periodic_corruption_model(
+        candidate,
+        convoy_model_path=str(model),
+        budget=100,
+    )
+
+    assert result.best is None
+    assert result.tested_candidates == 0
+    assert "does not match" in result.reason
+
+
+def test_idat_periodic_model_repairs_model_xor_without_deep_beam(tmp_path):
+    candidate, stream_offset, original_byte = dynamic_header_corrupt_png()
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
+    corrupt_byte = stream[stream_offset]
+    model = tmp_path / "model.json"
+    progress = tmp_path / "periodic.progress.json"
+    checkpoint = tmp_path / "periodic.checkpoint.jsonl"
+    model.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "convoy_stream_hash": idat_bruteforce._stream_state_key(stream),
+                "xors": [corrupt_byte ^ original_byte],
+                "deltas": [],
+                "byte_repairs": [],
+            }
+        )
+    )
+
+    result = idat_bruteforce.probe_idat_periodic_corruption_model(
+        candidate,
+        convoy_model_path=str(model),
+        budget=500,
+        max_depth=1,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+    )
+
+    assert result.strategy == "periodic-corruption-model"
+    assert result.best is not None
+    assert result.best.after.complete is True
+    assert result.best.after.usable_scanlines == 100
+    assert any(operation.kind == "periodic-bit-flip" for operation in result.best.operations)
+    assert checkpoint.exists()
+    assert progress.exists()
+    state = idat_bruteforce.periodic_model_progress_state(candidate, str(progress))
+    assert state.available is True
+    assert state.source_matches is True
+    assert state.exhausted is True
+
+
+def test_idat_deep_beam_gpu_prefilter_hits_are_validated_by_cpu(monkeypatch):
+    filtered = b"\x00abc"
+    good_stream = zlib.compress(filtered)
+    corrupt_stream = bytearray(good_stream)
+    corrupt_stream[-1] ^= 0xFF
+    data = build_rgb_png(1, 1, filtered, idat_data=bytes(corrupt_stream))
+    before = idat.analyze_idat_stream(data)
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    parent = idat_bruteforce.IdatDeepBeamCandidate(
+        data=data,
+        stream=stream,
+        operations=(),
+        before=before,
+        after=before,
+        state_id=0,
+        parent_id=None,
+        source_offsets=(),
+        score=idat_bruteforce._deep_beam_score(
+            before,
+            stream,
+            0,
+            data=data,
+            original_idat_count=original_idat_count,
+        ),
+    )
+
+    monkeypatch.setattr(
+        ultimate_opengl_backend,
+        "explain_analysis",
+        lambda plan, gpu_config: ultimate_opengl_backend.UltimateOpenGLDecision(True, "mock"),
+    )
+
+    def fake_run(plan, gpu_config, **_kwargs):
+        hit = ultimate_opengl_backend.UltimateOpenGLAnalysisHit(
+            0,
+            1,
+            plan.start_rank,
+            (0,),
+            "complete",
+            len(filtered),
+            1,
+            None,
+            None,
+            None,
+            "adler_match",
+            (1, 1, 1),
+            ("host-deflate-required",),
+        )
+        return ultimate_opengl_backend.UltimateOpenGLAnalysisResult(
+            (hit,),
+            1,
+            0,
+            plan.start_rank,
+            plan.bounded_end_rank,
+            plan.bounded_end_rank,
+            covered_rank_count=plan.bounded_end_rank - plan.start_rank,
+            shader_used=True,
+        )
+
+    monkeypatch.setattr(ultimate_opengl_backend, "run_analysis_gpu", fake_run)
+
+    successors, tested, used_gpu, backend, warning, covered = idat_bruteforce._deep_beam_gpu_byte_successors(
+        parent,
+        before=before,
+        state_id_start=1,
+        original_idat_count=original_idat_count,
+        depth=1,
+        specs=(("replace", len(stream) - 1, good_stream[-1]),),
+        budget_left=10,
+        checkpoint_every=10,
+        gpu_config=gpu_runtime.GpuRuntimeConfig(enabled=True, install_missing=False),
+        gpu_done_shards=set(),
+        workers=1,
+    )
+
+    assert used_gpu is True
+    assert backend == "opengl-active"
+    assert warning == ""
+    assert tested == 1
+    assert covered == {0}
+    assert len(successors) == 1
+    assert successors[0].operations[-1].kind == "gpu-replace"
+    assert successors[0].after.complete is True
+
+
+def test_idat_deep_beam_batch_validation_matches_spec_by_spec():
+    filtered = b"\x00abc"
+    good_stream = zlib.compress(filtered)
+    corrupt_stream = bytearray(good_stream)
+    corrupt_stream[-1] ^= 0xFF
+    data = build_rgb_png(1, 1, filtered, idat_data=bytes(corrupt_stream))
+    before = idat.analyze_idat_stream(data)
+    specs = (
+        ("replace", len(good_stream) - 1, good_stream[-1]),
+        ("insert", 0, 0x00),
+        ("remove", 0, 0),
+    )
+
+    batched = idat_bruteforce._deep_beam_apply_mutation_batch((data, before, specs))
+    singles = tuple(
+        idat_bruteforce._deep_beam_apply_mutation_spec((data, before, spec))
+        for spec in specs
+    )
+
+    assert tuple(None if item is None else item.data for item in batched) == tuple(
+        None if item is None else item.data for item in singles
+    )
+    assert tuple(None if item is None else item.after.status for item in batched) == tuple(
+        None if item is None else item.after.status for item in singles
+    )
+
+
+def test_idat_deep_beam_gpu_shard_size_is_independent_from_checkpoint(tmp_path, monkeypatch):
+    filtered = b"\x00abc"
+    good_stream = zlib.compress(filtered)
+    corrupt_stream = bytearray(good_stream)
+    corrupt_stream[-1] ^= 0xFF
+    data = build_rgb_png(1, 1, filtered, idat_data=bytes(corrupt_stream))
+    before = idat.analyze_idat_stream(data)
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    parent = idat_bruteforce.IdatDeepBeamCandidate(
+        data=data,
+        stream=stream,
+        operations=(),
+        before=before,
+        after=before,
+        state_id=0,
+        parent_id=None,
+        source_offsets=(),
+        score=idat_bruteforce._deep_beam_score(
+            before,
+            stream,
+            0,
+            data=data,
+            original_idat_count=original_idat_count,
+        ),
+    )
+    specs = tuple(("replace", index, stream[index] ^ 1) for index in range(5))
+    calls = []
+
+    monkeypatch.setattr(
+        ultimate_opengl_backend,
+        "explain_analysis",
+        lambda plan, gpu_config: ultimate_opengl_backend.UltimateOpenGLDecision(True, "mock"),
+    )
+
+    def fake_run(plan, gpu_config, **kwargs):
+        calls.append((plan.start_rank, plan.bounded_end_rank, kwargs.get("max_ranks")))
+        return ultimate_opengl_backend.UltimateOpenGLAnalysisResult(
+            (),
+            plan.bounded_end_rank - plan.start_rank,
+            0,
+            plan.start_rank,
+            plan.bounded_end_rank,
+            plan.bounded_end_rank,
+            covered_rank_count=plan.bounded_end_rank - plan.start_rank,
+            shader_used=True,
+        )
+
+    monkeypatch.setattr(ultimate_opengl_backend, "run_analysis_gpu", fake_run)
+    done_shards: set[str] = set()
+    timing = idat_bruteforce.IdatDeepBeamRuntimeStats()
+
+    successors, tested, used_gpu, backend, warning, covered = idat_bruteforce._deep_beam_gpu_byte_successors(
+        parent,
+        before=before,
+        state_id_start=1,
+        original_idat_count=original_idat_count,
+        depth=1,
+        specs=specs,
+        budget_left=5,
+        checkpoint_every=2,
+        gpu_config=gpu_runtime.GpuRuntimeConfig(enabled=True, install_missing=False),
+        gpu_done_shards=done_shards,
+        workers=1,
+        gpu_shard_size=3,
+        timing=timing,
+    )
+
+    assert successors == []
+    assert used_gpu is True
+    assert backend == "opengl-active"
+    assert warning == ""
+    assert tested == 5
+    assert covered == set(range(5))
+    assert calls == [(0, 3, 3), (3, 5, 2)]
+    assert timing.gpu_shards == 2
+
+    progress = tmp_path / "_deep_beam.progress.json"
+    source_hash = idat_bruteforce._stream_state_key(stream)
+    idat_bruteforce._write_deep_beam_progress(
+        str(progress),
+        source_hash=source_hash,
+        tested=tested,
+        depth=1,
+        max_depth=1,
+        budget=5,
+        state_count=1,
+        visited_count=1,
+        best=None,
+        workers=1,
+        gpu_backend=backend,
+        gpu_done_shards=done_shards,
+        gpu_shard_size=3,
+        timing=timing,
+    )
+    loaded = idat_bruteforce._load_deep_beam_progress(
+        str(progress),
+        source_hash=source_hash,
+        gpu_shard_size=2,
+    )
+    assert loaded.resumed is True
+    assert loaded.gpu_done_shards == set()
+    assert loaded.tested_candidates == tested
+
+
+def test_idat_deep_beam_creates_one_worker_pool_per_run(monkeypatch):
+    candidate, _bits, _original = dynamic_header_two_bit_corrupt_png()
+    created = []
+    shutdowns = []
+
+    class FakeExecutor:
+        def __init__(self, **kwargs):
+            created.append(kwargs)
+
+        def shutdown(self, **_kwargs):
+            shutdowns.append(_kwargs)
+
+    monkeypatch.setattr(idat_bruteforce, "ProcessPoolExecutor", FakeExecutor)
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "_deep_beam_byte_bit_successors",
+        lambda *_args, **_kwargs: ([], 0, "off", ""),
+    )
+
+    result = idat_bruteforce.probe_idat_deflate_deep_beam(
+        candidate,
+        budget=20,
+        max_depth=3,
+        beam_width=2,
+        top_candidates=2,
+        workers=4,
+        checkpoint_every=999999,
+    )
+
+    assert result.workers == 4
+    assert created == [
+        {
+            "max_workers": 4,
+            "initializer": idat_bruteforce._deep_beam_worker_init,
+        }
+    ]
+    assert shutdowns == [{}]
+
+
+def test_idat_deep_beam_resume_keeps_committed_progress_floor(tmp_path, monkeypatch):
+    candidate, _bits, _original = dynamic_header_two_bit_corrupt_png()
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
+    source_hash = idat_bruteforce._stream_state_key(stream)
+    checkpoint = tmp_path / "_deep_beam.checkpoint.jsonl"
+    progress = tmp_path / "_deep_beam.progress.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "source_hash": source_hash,
+                "stream_hash": source_hash + "-candidate",
+                "state_id": 1500,
+                "parent_id": 0,
+                "depth": 1,
+                "stream": stream.hex(),
+                "operations": [],
+                "score": [0],
+                "status": "corrupt_deflate",
+                "usable_scanlines": 0,
+                "decompressed": 0,
+                "error_offset": 0,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    idat_bruteforce._write_deep_beam_progress(
+        str(progress),
+        source_hash=source_hash,
+        tested=1234,
+        depth=1,
+        max_depth=5,
+        budget=5000,
+        state_count=1200,
+        visited_count=1100,
+        best=None,
+        workers=1,
+    )
+
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "_deep_beam_byte_bit_successors",
+        lambda *_args, **_kwargs: ([], 0, "off", ""),
+    )
+
+    progress_calls = []
+    result = idat_bruteforce.probe_idat_deflate_deep_beam(
+        candidate,
+        budget=5000,
+        max_depth=5,
+        beam_width=2,
+        top_candidates=2,
+        workers=1,
+        checkpoint_every=999999,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+        progress=lambda stage, tested, total: progress_calls.append((stage, tested, total)),
+    )
+
+    assert result.progress_resumed is True
+    assert result.tested_candidates >= 1500
+    assert progress_calls[0] == ("deep-beam", 1500, 5000)
+    record = json.loads(progress.read_text(encoding="utf-8"))
+    assert record["tested_candidates"] >= 1500
+
+
+def test_idat_deep_beam_soft_depth_stops_at_hard_guard(monkeypatch):
+    candidate, _bits, _original = dynamic_header_two_bit_corrupt_png()
+    before = idat.analyze_idat_stream(candidate)
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    operation = idat_bruteforce.IdatDeepBeamOperation("replace", 0, stream[:1], stream[:1])
+    checkpoint_candidate = idat_bruteforce.IdatDeepBeamCandidate(
+        data=candidate,
+        stream=stream,
+        operations=(operation,) * 5,
+        before=before,
+        after=before,
+        state_id=42,
+        parent_id=1,
+        source_offsets=(0,) * 5,
+        score=idat_bruteforce._deep_beam_score(
+            before,
+            stream,
+            5,
+            data=candidate,
+            original_idat_count=original_idat_count,
+        ),
+    )
+    depths = []
+    hard_guard_candidate = idat_bruteforce.IdatDeepBeamCandidate(
+        data=candidate,
+        stream=stream + b"\x00",
+        operations=(operation,) * 6,
+        before=before,
+        after=before,
+        state_id=43,
+        parent_id=42,
+        source_offsets=(0,) * 6,
+        score=checkpoint_candidate.score,
+    )
+
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "_load_deep_beam_checkpoint",
+        lambda *_args, **_kwargs: ([checkpoint_candidate], {idat_bruteforce._stream_state_key(stream)}, 43, 1),
+    )
+
+    def record_depth(*_args, **kwargs):
+        depths.append(kwargs["depth"])
+        return ([hard_guard_candidate] if kwargs["depth"] == 6 else [], 1, "off", "")
+
+    monkeypatch.setattr(idat_bruteforce, "_deep_beam_byte_bit_successors", record_depth)
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "_deep_beam_subprobe_successors",
+        lambda *_args, **_kwargs: ([], 0),
+    )
+
+    result = idat_bruteforce.probe_idat_deflate_deep_beam(
+        candidate,
+        budget=50,
+        max_depth=5,
+        beam_width=2,
+        top_candidates=2,
+        workers=1,
+        checkpoint_every=999999,
+    )
+
+    assert depths == [6]
+    assert result.reached_depth == 6
+    assert "soft_max_depth=5" in result.reason
+    assert "hard_depth_limit=6" in result.reason
+    assert "stop=hard depth limit reached" in result.reason
+
+
+def test_idat_deep_beam_loads_compact_checkpoint_record_without_stream(tmp_path):
+    filtered = b"\x00abc"
+    source_stream = zlib.compress(filtered)
+    new_stream = bytes((source_stream[0] ^ 1,)) + source_stream[1:]
+    data = build_rgb_png(1, 1, filtered, idat_data=source_stream)
+    before = idat.analyze_idat_stream(data)
+    chunks, _stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    source_hash = idat_bruteforce._stream_state_key(source_stream)
+    checkpoint = tmp_path / "_deep_beam.checkpoint.jsonl"
+    operation = idat_bruteforce.IdatDeepBeamOperation(
+        "replace",
+        0,
+        source_stream[:1],
+        new_stream[:1],
+    )
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "version": 3,
+                "source_hash": source_hash,
+                "stream_hash": idat_bruteforce._stream_state_key(new_stream),
+                "state_id": 7,
+                "parent_id": 0,
+                "depth": 1,
+                "operations": [idat_bruteforce._deep_beam_operation_to_json(operation)],
+                "score": [0],
+                "status": "corrupt_deflate",
+                "usable_scanlines": 0,
+                "decompressed": 0,
+                "error_offset": 0,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    candidates, visited, next_state_id, resumed = idat_bruteforce._load_deep_beam_checkpoint(
+        str(checkpoint),
+        source_hash=source_hash,
+        source_stream=source_stream,
+        chunks=chunks,
+        before=before,
+        original_idat_count=1,
+        candidate_limit=4,
+        max_operation_depth=2,
+    )
+
+    assert resumed == 1
+    assert next_state_id == 8
+    assert visited == {idat_bruteforce._stream_state_key(new_stream)}
+    assert len(candidates) == 1
+    assert candidates[0].stream == new_stream
+    assert candidates[0].operations == (operation,)
+
+
+def test_idat_deep_beam_checkpoint_loader_keeps_only_recent_candidates(tmp_path):
+    filtered = b"\x00abc"
+    source_stream = zlib.compress(filtered)
+    data = build_rgb_png(1, 1, filtered, idat_data=source_stream)
+    before = idat.analyze_idat_stream(data)
+    chunks, _stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    source_hash = idat_bruteforce._stream_state_key(source_stream)
+    checkpoint = tmp_path / "_deep_beam.checkpoint.jsonl"
+
+    records = []
+    for state_id in range(1, 21):
+        new_byte = (source_stream[0] + state_id) & 0xFF
+        new_stream = bytes((new_byte,)) + source_stream[1:]
+        operation = idat_bruteforce.IdatDeepBeamOperation(
+            "replace",
+            0,
+            source_stream[:1],
+            bytes((new_byte,)),
+        )
+        records.append(
+            json.dumps(
+                {
+                    "version": 3,
+                    "source_hash": source_hash,
+                    "stream_hash": idat_bruteforce._stream_state_key(new_stream),
+                    "state_id": state_id,
+                    "parent_id": 0,
+                    "depth": 1,
+                    "operations": [idat_bruteforce._deep_beam_operation_to_json(operation)],
+                },
+                sort_keys=True,
+            )
+        )
+    checkpoint.write_text("\n".join(records) + "\n", encoding="utf-8")
+
+    candidates, visited, next_state_id, resumed = idat_bruteforce._load_deep_beam_checkpoint(
+        str(checkpoint),
+        source_hash=source_hash,
+        source_stream=source_stream,
+        chunks=chunks,
+        before=before,
+        original_idat_count=1,
+        candidate_limit=3,
+        max_operation_depth=2,
+    )
+
+    assert resumed == 20
+    assert len(visited) == 20
+    assert next_state_id == 21
+    assert [candidate.state_id for candidate in candidates] == [18, 19, 20]
+
+
+def test_idat_deep_beam_resume_compacts_legacy_stream_checkpoint(tmp_path, monkeypatch):
+    filtered = b"\x00abc"
+    source_stream = bytearray(zlib.compress(filtered))
+    source_stream[-1] ^= 0xFF
+    source_stream = bytes(source_stream)
+    new_stream = bytes((source_stream[0] ^ 1,)) + source_stream[1:]
+    data = build_rgb_png(1, 1, filtered, idat_data=source_stream)
+    source_hash = idat_bruteforce._stream_state_key(source_stream)
+    checkpoint = tmp_path / "_deep_beam.checkpoint.jsonl"
+    operation = idat_bruteforce.IdatDeepBeamOperation(
+        "replace",
+        0,
+        source_stream[:1],
+        new_stream[:1],
+    )
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "source_hash": source_hash,
+                "stream_hash": idat_bruteforce._stream_state_key(new_stream),
+                "state_id": 7,
+                "parent_id": 0,
+                "depth": 1,
+                "stream": new_stream.hex(),
+                "operations": [idat_bruteforce._deep_beam_operation_to_json(operation)],
+                "score": [0],
+                "status": "corrupt_deflate",
+                "usable_scanlines": 0,
+                "decompressed": 0,
+                "error_offset": 0,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "_deep_beam_byte_bit_successors",
+        lambda *_args, **_kwargs: ([], 0, "off", ""),
+    )
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "_deep_beam_subprobe_successors",
+        lambda *_args, **_kwargs: ([], 0),
+    )
+
+    result = idat_bruteforce.probe_idat_deflate_deep_beam(
+        data,
+        budget=1,
+        max_depth=1,
+        beam_width=2,
+        top_candidates=2,
+        workers=1,
+        checkpoint_every=999999,
+        checkpoint_path=str(checkpoint),
+    )
+
+    assert result.progress_resumed is True
+    compact_records = [
+        json.loads(line)
+        for line in checkpoint.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert compact_records
+    assert all("stream" not in record for record in compact_records)
+    assert all(record.get("version") == 3 for record in compact_records)
+
+
+def test_idat_deep_beam_keyboard_interrupt_closes_gpu_session(monkeypatch):
+    candidate, _bits, _original = dynamic_header_two_bit_corrupt_png()
+    closed = []
+
+    class FakeSession:
+        def __init__(self, _gpu_config):
+            pass
+
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(ultimate_opengl_backend, "UltimateOpenGLAnalysisSession", FakeSession)
+
+    def interrupt(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(idat_bruteforce, "_deep_beam_byte_bit_successors", interrupt)
+
+    result = idat_bruteforce.probe_idat_deflate_deep_beam(
+        candidate,
+        budget=20,
+        max_depth=1,
+        beam_width=2,
+        top_candidates=2,
+        workers=1,
+        gpu=True,
+        checkpoint_every=999999,
+    )
+
+    assert result.interrupted is True
+    assert closed == [True]
+
+
+def test_idat_deep_beam_keyboard_interrupt_cancels_worker_pool(monkeypatch):
+    candidate, _bits, _original = dynamic_header_two_bit_corrupt_png()
+    created = []
+    shutdowns = []
+
+    class FakeExecutor:
+        _processes = {}
+
+        def __init__(self, **kwargs):
+            created.append(kwargs)
+
+        def shutdown(self, **kwargs):
+            shutdowns.append(kwargs)
+
+    def interrupt(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(idat_bruteforce, "ProcessPoolExecutor", FakeExecutor)
+    monkeypatch.setattr(idat_bruteforce, "_deep_beam_byte_bit_successors", interrupt)
+
+    result = idat_bruteforce.probe_idat_deflate_deep_beam(
+        candidate,
+        budget=20,
+        max_depth=1,
+        beam_width=2,
+        top_candidates=2,
+        workers=4,
+        checkpoint_every=999999,
+    )
+
+    assert result.interrupted is True
+    assert created == [
+        {
+            "max_workers": 4,
+            "initializer": idat_bruteforce._deep_beam_worker_init,
+        }
+    ]
+    assert shutdowns == [{"wait": False, "cancel_futures": True}]
+
+
+def test_idat_deep_beam_keyboard_interrupt_flushes_progress(tmp_path, monkeypatch):
+    candidate, _bits, _original = dynamic_header_two_bit_corrupt_png()
+    checkpoint = tmp_path / "_deep_beam.checkpoint.jsonl"
+    progress = tmp_path / "_deep_beam.progress.json"
+
+    def interrupt(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(idat_bruteforce, "_deep_beam_byte_bit_successors", interrupt)
+
+    result = idat_bruteforce.probe_idat_deflate_deep_beam(
+        candidate,
+        budget=20,
+        max_depth=1,
+        beam_width=2,
+        top_candidates=2,
+        workers=1,
+        checkpoint_every=5,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+    )
+
+    assert result.interrupted is True
+    assert progress.exists()
+    record = json.loads(progress.read_text(encoding="utf-8"))
+    assert record["interrupted"] is True
+    assert checkpoint.exists()
+
+
+def test_idat_deep_beam_scores_crc_guided_diagnostic_without_promoting_to_best():
+    candidate, bits, _original = dynamic_header_crc_guided_diagnostic_only_png()
+    before = idat.analyze_idat_stream(candidate)
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    root = idat_bruteforce.IdatDeepBeamCandidate(
+        data=candidate,
+        stream=stream,
+        operations=(),
+        before=before,
+        after=before,
+        state_id=0,
+        parent_id=None,
+        source_offsets=(),
+        score=idat_bruteforce._deep_beam_score(
+            before,
+            stream,
+            0,
+            data=candidate,
+            original_idat_count=original_idat_count,
+        ),
+    )
+
+    crc_probe = idat_bruteforce.probe_dynamic_huffman_crc_guided_candidates(
+        candidate,
+        budget=5000,
+        max_solutions_per_group=64,
+    )
+    deep_candidate = idat_bruteforce._deep_beam_candidate_from_deflate_candidate(
+        root,
+        crc_probe.diagnostic_best,
+        before=before,
+        state_id=1,
+        original_idat_count=original_idat_count,
+        kind="crc-guided-diagnostic",
+    )
+
+    assert crc_probe.best is None
+    assert deep_candidate is not None
+    assert deep_candidate.operations[-1].kind == "crc-guided-diagnostic"
+    assert deep_candidate.operations[-1].bit_offsets == bits
+    assert deep_candidate.score > root.score
+    assert idat_bruteforce._idat_crc_match_count_for_original_shape(root.data, original_idat_count) == 0
+    assert idat_bruteforce._idat_crc_match_count_for_original_shape(deep_candidate.data, original_idat_count) == 1
+    assert deep_candidate.after.usable_scanlines == 0
+    assert deep_candidate.after.decompressed_size == 0
+    assert not idat_bruteforce.is_material_improvement(before, deep_candidate.after)
+
+
 def test_dynamic_huffman_bitshift_probe_repairs_extra_header_bit():
     candidate, bit_offset, _original = dynamic_header_extra_bit_png()
     before = idat.analyze_idat_stream(candidate)
@@ -4664,6 +5704,62 @@ def main():
         (
             "IDAT dynamic Huffman diagnostic-only",
             test_dynamic_huffman_header_probe_keeps_zero_scanline_candidate_diagnostic_only,
+        ),
+        (
+            "IDAT local deflate diagnostic",
+            test_idat_local_deflate_diagnostic_reports_dynamic_huffman_context,
+        ),
+        (
+            "IDAT local deflate probe",
+            test_idat_local_deflate_probe_keeps_search_bounded_and_scores_progress,
+        ),
+        (
+            "IDAT deep beam depth two",
+            test_idat_deep_beam_chases_depth_two_progress,
+        ),
+        (
+            "IDAT deep beam default budget",
+            test_idat_deep_beam_default_budget_is_ten_million,
+        ),
+        (
+            "IDAT deep beam checkpoint resume",
+            test_idat_deep_beam_checkpoint_resume_round_trips,
+        ),
+        (
+            "IDAT deep beam GPU prefilter",
+            test_idat_deep_beam_gpu_prefilter_hits_are_validated_by_cpu,
+        ),
+        (
+            "IDAT deep beam batch validation",
+            test_idat_deep_beam_batch_validation_matches_spec_by_spec,
+        ),
+        (
+            "IDAT deep beam GPU shard size",
+            test_idat_deep_beam_gpu_shard_size_is_independent_from_checkpoint,
+        ),
+        (
+            "IDAT deep beam worker pool",
+            test_idat_deep_beam_creates_one_worker_pool_per_run,
+        ),
+        (
+            "IDAT deep beam resume progress floor",
+            test_idat_deep_beam_resume_keeps_committed_progress_floor,
+        ),
+        (
+            "IDAT deep beam extends past soft max depth",
+            test_idat_deep_beam_resume_extends_past_soft_max_depth,
+        ),
+        (
+            "IDAT deep beam interrupt closes GPU",
+            test_idat_deep_beam_keyboard_interrupt_closes_gpu_session,
+        ),
+        (
+            "IDAT deep beam interrupt progress",
+            test_idat_deep_beam_keyboard_interrupt_flushes_progress,
+        ),
+        (
+            "IDAT deep beam CRC diagnostic score",
+            test_idat_deep_beam_scores_crc_guided_diagnostic_without_promoting_to_best,
         ),
         (
             "IDAT dynamic Huffman bitshift repair",

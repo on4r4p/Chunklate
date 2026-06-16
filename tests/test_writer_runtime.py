@@ -24,6 +24,18 @@ def tiny_png_bytes():
     )
 
 
+def structurally_aligned_bad_idat_bytes():
+    ihdr = struct.pack("!IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    payload = b"not-zlib"
+    bad_idat = (
+        len(payload).to_bytes(4, "big")
+        + b"IDAT"
+        + payload
+        + b"\x00\x00\x00\x00"
+    )
+    return PNG_SIGNATURE + build_png_chunk(b"IHDR", ihdr) + bad_idat + IEND_CHUNK
+
+
 def clone_plan(*, save_count=1, max_saves_reached=False, data=None):
     if data is None:
         data = tiny_png_bytes()
@@ -36,6 +48,21 @@ def clone_plan(*, save_count=1, max_saves_reached=False, data=None):
         data=data,
         save_count=save_count,
         max_saves_reached=max_saves_reached,
+    )
+
+
+def artifact_clone_plan(*, save_count=1, data=None):
+    if data is None:
+        data = tiny_png_bytes()
+    return writer.CloneWritePlan(
+        target=output.CloneTarget(
+            name="sample.0_Artifact.bin",
+            directory="/tmp/Folder_sample/Debug_Payloads",
+            path="/tmp/Folder_sample/Debug_Payloads/sample.0_Artifact.bin",
+        ),
+        data=data,
+        save_count=save_count,
+        max_saves_reached=False,
     )
 
 
@@ -233,7 +260,7 @@ def test_write_clone_invalid_png_is_artifact_only_not_final_sample():
     result = writer_runtime.run_write_clone(runtime, base_context(), "89504e47", "summary")
 
     assert result is None
-    assert ("write", clone_plan(data=b"fixed")) in calls
+    assert ("write", artifact_clone_plan(data=b"fixed")) in calls
     assert state == {
         "sample": None,
         "save_count": None,
@@ -252,7 +279,7 @@ def test_write_clone_invalid_png_is_artifact_only_not_final_sample():
         "summary\n-Clone written as artifact only; PNG/IDAT validation failed: PNG signature is not at offset 0",
     ) in calls
     assert side_notes == [
-        "-Saving to : /tmp/Folder_sample/sample.0_Fixed.png",
+        "-Saving to : /tmp/Folder_sample/Debug_Payloads/sample.0_Artifact.bin",
         "-Clone written as artifact only; PNG/IDAT validation failed: PNG signature is not at offset 0",
     ]
 
@@ -277,6 +304,55 @@ def test_write_clone_structural_intermediate_can_still_be_promoted():
         for call in calls
     )
     assert ("summarise", "summary") in calls
+
+
+def test_write_clone_structural_idat_repair_promotes_despite_remaining_idat_errors():
+    calls = []
+    side_notes = []
+    intermediate = structurally_aligned_bad_idat_bytes()
+    runtime, state = build_runtime(calls, side_notes, plan=clone_plan(data=intermediate))
+    summary = "-Repair hypothesis tried: IDAT chain header repair."
+
+    result = writer_runtime.run_write_clone(runtime, base_context(), "89504e47", summary)
+
+    assert result is None
+    assert ("write", clone_plan(data=intermediate)) in calls
+    assert state == {
+        "sample": "/tmp/Folder_sample/sample.0_Fixed.png",
+        "save_count": 1,
+        "have_a_kitkat": True,
+    }
+    assert not any(
+        call[0] == "emit" and "artifact only" in str(call[1])
+        for call in calls
+    )
+    assert any(
+        call[0] == "emit" and "structural intermediate" in str(call[1])
+        for call in calls
+    )
+    assert any("structural intermediate" in note for note in side_notes)
+    assert ("summarise", summary) in calls
+
+
+def test_write_clone_unmarked_bad_idat_stays_artifact_only():
+    calls = []
+    side_notes = []
+    bad_idat = structurally_aligned_bad_idat_bytes()
+    runtime, state = build_runtime(calls, side_notes, plan=clone_plan(data=bad_idat))
+
+    result = writer_runtime.run_write_clone(runtime, base_context(), "89504e47", "summary")
+
+    assert result is None
+    assert ("write", artifact_clone_plan(data=bad_idat)) in calls
+    assert state == {
+        "sample": None,
+        "save_count": None,
+        "have_a_kitkat": False,
+    }
+    assert any(
+        call[0] == "emit" and "artifact only" in str(call[1])
+        for call in calls
+    )
 
 
 def test_write_clone_runtime_preserves_pause_and_max_saves_exit():
@@ -527,6 +603,25 @@ def test_run_save_clone_blocks_invalid_full_png_before_writing_fixed_file():
     assert any("Rejected full clone before write" in note for note in side_notes)
 
 
+def test_run_save_clone_allows_structural_full_png_replacement_without_brawl_marker():
+    calls = []
+    source = tiny_png_bytes()
+    structural_candidate = PNG_SIGNATURE + IEND_CHUNK
+    runtime, state = clone_patch_runtime(calls, data_hex=source.hex())
+
+    result = writer_runtime.run_save_clone(
+        runtime,
+        structural_candidate.hex(),
+        0,
+        len(source.hex()),
+        "-NameShift: Extra bytes has been found.",
+    )
+
+    assert result == "written"
+    assert state == {"show_must_go_on": True}
+    assert any(call[0] == "write_clone" for call in calls)
+
+
 def test_run_save_clone_full_png_sentinel_replaces_entire_source():
     calls = []
     source = tiny_png_bytes() + b"stale-tail"
@@ -593,6 +688,11 @@ def main():
         ("Write builders", test_write_clone_builders_wire_namespace_and_context),
         ("Write namespace bridge", test_write_clone_namespace_bridge_builds_runtime_and_context),
         ("Write and state", test_write_clone_runtime_writes_updates_state_and_summarises),
+        (
+            "Write structural IDAT intermediate",
+            test_write_clone_structural_idat_repair_promotes_despite_remaining_idat_errors,
+        ),
+        ("Write unmarked bad IDAT artifact", test_write_clone_unmarked_bad_idat_stays_artifact_only),
         ("Pause and max saves", test_write_clone_runtime_preserves_pause_and_max_saves_exit),
         ("Prepare error", test_write_clone_runtime_prepare_error_routes_betterror_and_end),
         ("Write error", test_write_clone_runtime_write_error_routes_betterror_emit_and_end),
@@ -603,6 +703,14 @@ def main():
         (
             "Save clone blocks broken IDAT CRC-only patch",
             test_run_save_clone_blocks_idat_crc_only_when_deflate_still_breaks,
+        ),
+        (
+            "Save clone blocks invalid Daedalus full PNG",
+            test_run_save_clone_blocks_invalid_full_png_before_writing_fixed_file,
+        ),
+        (
+            "Save clone allows structural full PNG replacement",
+            test_run_save_clone_allows_structural_full_png_replacement_without_brawl_marker,
         ),
         ("Save clone debug payload files", test_save_clone_debug_payloads_writes_large_payload_files),
         ("Save clone bad hex", test_run_save_clone_preserves_bad_hex_error_path_before_write),

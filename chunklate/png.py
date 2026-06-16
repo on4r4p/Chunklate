@@ -1420,7 +1420,36 @@ def _is_critical_chunk(chunk_type: bytes) -> bool:
     return len(chunk_type) == 4 and not bool(chunk_type[0] & 0x20)
 
 
+def _iend_prefix_tail_length(data: bytes) -> int:
+    max_length = min(len(IEND_CHUNK) - 1, len(data))
+    for length in range(max_length, 0, -1):
+        if data[-length:] == IEND_CHUNK[:length]:
+            return length
+    return 0
+
+
+def _first_incomplete_chunk_offset(data: bytes) -> int | None:
+    offset = len(PNG_SIGNATURE)
+    while offset < len(data):
+        if offset + 8 > len(data):
+            return offset
+        length = int.from_bytes(data[offset : offset + 4], "big")
+        chunk_end = offset + 8 + length + 4
+        if chunk_end > len(data):
+            return offset
+        offset = chunk_end
+    return None
+
+
 def complete_iend_tail(data: bytes, insert_offset: int) -> bytes:
+    if insert_offset >= len(data):
+        prefix_length = _iend_prefix_tail_length(data)
+        if prefix_length:
+            return data[:-prefix_length] + IEND_CHUNK
+        incomplete_offset = _first_incomplete_chunk_offset(data)
+        if incomplete_offset is not None:
+            return data[:incomplete_offset] + IEND_CHUNK
+
     tail = data[insert_offset:]
 
     if not tail:
@@ -1430,6 +1459,9 @@ def complete_iend_tail(data: bytes, insert_offset: int) -> bytes:
         return data[: insert_offset + len(IEND_CHUNK)]
 
     if IEND_CHUNK in tail:
+        return data[:insert_offset] + IEND_CHUNK
+
+    if len(tail) < len(IEND_CHUNK) and IEND_CHUNK.startswith(tail):
         return data[:insert_offset] + IEND_CHUNK
 
     if len(tail) < len(IEND_CHUNK) and IEND_CHUNK.endswith(tail):

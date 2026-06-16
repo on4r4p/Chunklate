@@ -301,7 +301,7 @@ def test_no_next_append_iend_decision_routes_exceeding_bytes():
     )
 
     assert empty.action == "dummy_at_eof"
-    assert partial_iend.action == "dummy_at_eof"
+    assert partial_iend.action == "write_partial_iend_tail"
     assert partial_iend.exceeding == fixit_felix.GOOD_IEND_HEX[:4]
     assert garbage.action == "dummy_at_crc_tail"
     assert long_garbage.action == "dummy_at_crc_tail"
@@ -491,11 +491,37 @@ def test_effective_pandora_box_len_preserves_bad_next_name_adjustment():
     assert fixit_felix.effective_pandora_box_len(findings, bad_next_name=True) == 1
 
 
-def test_repair_work_items_runs_automatic_repairs_before_pandorabox_routes():
+def test_repair_work_items_prioritizes_wrong_chunk_names_before_idat_payload_repairs():
     findings = {
         "Checksum_Error_0:Wrong Crc": {},
         "Libpng_Error_0:libpng error: bad adaptive filter": {},
         "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42": {},
+    }
+
+    items = fixit_felix.repair_work_items(findings, skip_bad_crc=False)
+
+    wrong_name_index = next(index for index, item in enumerate(items) if item.handler == "wrong_chunk_name")
+    delayed_indexes = [
+        index
+        for index, item in enumerate(items)
+        if item.kind == "automatic_repair"
+        and item.handler in fixit_felix.IDAT_PAYLOAD_AUTOMATIC_REPAIRS
+    ]
+    wrong_crc_index = next(index for index, item in enumerate(items) if item.handler == "wrong_crc")
+    libpng_index = next(index for index, item in enumerate(items) if item.handler == "libpng_error")
+
+    assert [(item.kind, item.handler, item.finding) for item in items[wrong_name_index:wrong_name_index + 1]] == [
+        ("finding", "wrong_chunk_name", "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"),
+    ]
+    assert all(wrong_name_index < index for index in delayed_indexes)
+    assert all(index < wrong_crc_index for index in delayed_indexes)
+    assert all(index < libpng_index for index in delayed_indexes)
+
+
+def test_repair_work_items_keeps_automatic_repairs_first_without_wrong_chunk_name():
+    findings = {
+        "Checksum_Error_0:Wrong Crc": {},
+        "Libpng_Error_0:libpng error: bad adaptive filter": {},
     }
 
     items = fixit_felix.repair_work_items(findings, skip_bad_crc=False)
@@ -506,7 +532,6 @@ def test_repair_work_items_runs_automatic_repairs_before_pandorabox_routes():
     assert [(item.kind, item.handler, item.finding) for item in items[automatic_count:]] == [
         ("finding", "wrong_crc", "Checksum_Error_0:Wrong Crc"),
         ("finding", "libpng_error", "Libpng_Error_0:libpng error: bad adaptive filter"),
-        ("finding", "wrong_chunk_name", "CheckChunkName_Error_0:has Wrong Chunk name at offset: 42"),
     ]
 
 
@@ -719,12 +744,16 @@ def test_run_repair_pipeline_builds_work_items_and_adjusted_pandora_len():
         chunk=b"IDAT",
     )
 
-    automatic_count = len(fixit_felix.automatic_repair_order())
-    assert result == fixit_felix.FixItFelixRunResult(True, "handled")
-    assert calls[:automatic_count] == [
-        ("auto", handler) for handler in fixit_felix.automatic_repair_order()
+    early_automatic = [
+        handler
+        for handler in fixit_felix.automatic_repair_order()
+        if handler not in fixit_felix.IDAT_PAYLOAD_AUTOMATIC_REPAIRS
     ]
-    assert calls[automatic_count] == (
+    assert result == fixit_felix.FixItFelixRunResult(True, "handled")
+    assert calls[:len(early_automatic)] == [
+        ("auto", handler) for handler in early_automatic
+    ]
+    assert calls[len(early_automatic)] == (
         fixit_felix.FixItFelixWorkItem(
             "finding",
             "wrong_chunk_name",
@@ -733,6 +762,10 @@ def test_run_repair_pipeline_builds_work_items_and_adjusted_pandora_len():
         "IDAT_Tool_",
         1,
         b"IDAT",
+    )
+    assert all(
+        ("auto", handler) not in calls
+        for handler in fixit_felix.IDAT_PAYLOAD_AUTOMATIC_REPAIRS
     )
 
 
@@ -2062,7 +2095,14 @@ def main():
             test_automatic_repair_failure_explains_private_compression_false_positive,
         ),
         ("Effective PandoraBox len preserves Bad_Next_Name adjustment", test_effective_pandora_box_len_preserves_bad_next_name_adjustment),
-        ("Repair work items run automatic repairs first", test_repair_work_items_runs_automatic_repairs_before_pandorabox_routes),
+        (
+            "Repair work items prioritize wrong chunk names before IDAT payload repairs",
+            test_repair_work_items_prioritizes_wrong_chunk_names_before_idat_payload_repairs,
+        ),
+        (
+            "Repair work items keep automatic repairs first without wrong chunk name",
+            test_repair_work_items_keeps_automatic_repairs_first_without_wrong_chunk_name,
+        ),
         ("Repair work items respect skip-bad-crc fallthrough", test_repair_work_items_respects_skip_bad_crc_route_fallthrough),
         ("Debug flag values selects legacy flags", test_debug_flag_values_selects_legacy_flags_in_order),
         ("Debug report lines preserve legacy order", test_debug_report_lines_preserve_legacy_order_and_mapping_details),
