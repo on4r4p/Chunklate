@@ -2901,9 +2901,10 @@ def test_hermesprobe_resume_runs_frontier_routes_before_deep_beam(tmp_path, monk
     periodic_seed = seed("periodic", 1)
     affine_seed = seed("affine", 2)
     kraft_seed = seed("kraft", 3)
-    huffman_seed = seed("huffman", 4)
-    global_crc_seed = seed("global-crc", 5)
-    crc_seed = seed("crc-periodic", 6)
+    backref_seed = seed("kraft-backref", 4)
+    huffman_seed = seed("huffman", 5)
+    global_crc_seed = seed("global-crc", 6)
+    crc_seed = seed("crc-periodic", 7)
     order = []
 
     monkeypatch.setattr(
@@ -2938,6 +2939,18 @@ def test_hermesprobe_resume_runs_frontier_routes_before_deep_beam(tmp_path, monk
             before,
             None,
             (kraft_seed,),
+            1,
+            True,
+        ),
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_kraft_backref_runtime",
+        lambda *_args, **_kwargs: order.append("backref")
+        or fixit_felix_runtime.idat_bruteforce.IdatKraftBackrefRepairResult(
+            before,
+            None,
+            (backref_seed,),
             1,
             True,
         ),
@@ -3006,17 +3019,18 @@ def test_hermesprobe_resume_runs_frontier_routes_before_deep_beam(tmp_path, monk
     result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, before)
 
     assert result == (False, None)
-    assert order == ["periodic", "affine", "kraft", "huffman", "global-crc", "crc", "deep"]
+    assert order == ["periodic", "affine", "kraft", "backref", "huffman", "global-crc", "crc", "deep"]
     deep_call = next(call for call in calls if call[0] == "deep_probe_kwargs")
     assert deep_call[1]["seed_candidates"] == (
         periodic_seed,
         affine_seed,
         kraft_seed,
+        backref_seed,
         huffman_seed,
         global_crc_seed,
         crc_seed,
     )
-    assert "-IDAT deep beam seeded with 6 frontier candidate(s)." in side_notes
+    assert "-IDAT deep beam seeded with 7 frontier candidate(s)." in side_notes
 
 
 def test_hermesprobe_resume_mismatch_runs_short_probes(tmp_path, monkeypatch):
@@ -3441,6 +3455,54 @@ def test_hermesprobe_huffman_kraft_uses_configured_workers(tmp_path, monkeypatch
     assert kraft_call[1]["gpu_config"] == gpu_config
     assert result.workers == 6
     assert any("workers=6" in note and "gpu=opengl-active" in note for note in side_notes)
+
+
+def test_hermesprobe_affine_corruption_uses_global_workers_and_gpu(tmp_path, monkeypatch):
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    gpu_config = fixit_felix_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True, backend="opengl")
+
+    def affine_probe(probe_data, **kwargs):
+        calls.append(("affine_probe_kwargs", kwargs, {}))
+        before = fixit_felix_runtime.idat.analyze_idat_stream(probe_data)
+        return fixit_felix_runtime.idat_bruteforce.IdatAffineCorruptionModelResult(
+            before,
+            None,
+            (),
+            5,
+            False,
+            checkpoint_path=kwargs["checkpoint_path"],
+            progress_path=kwargs["progress_path"],
+            model_path=kwargs["convoy_model_path"],
+            workers=int(kwargs["workers"]),
+            gpu_status="opengl-active" if kwargs["gpu"] else "off",
+            cpu_batches=2,
+            reason="mocked",
+        )
+
+    monkeypatch.setattr(fixit_felix_runtime, "_block_deep_beam_if_chunk_names_are_stale", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_affine_corruption_model", affine_probe)
+    runtime = wrong_crc_runtime(
+        calls,
+        side_notes=side_notes,
+        data_hex=data_hex,
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        deep_beam_workers="9",
+        huffman_kraft_gpu_config=gpu_config,
+    )
+    data = bytes.fromhex(data_hex)
+    analysis = idat.analyze_idat_stream(data)
+
+    result = fixit_felix_runtime._run_idat_affine_corruption_runtime(runtime, data, analysis)
+
+    assert result is not None
+    affine_call = next(call for call in calls if call[0] == "affine_probe_kwargs")
+    assert affine_call[1]["workers"] == "9"
+    assert affine_call[1]["gpu"] is True
+    assert affine_call[1]["gpu_config"] == gpu_config
+    assert any("workers=9" in note and "gpu=opengl-active" in note for note in side_notes)
 
 
 def test_hermesprobe_kraft_backref_uses_kraft_checkpoint_seed(tmp_path, monkeypatch):

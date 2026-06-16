@@ -3560,6 +3560,8 @@ def _run_idat_affine_corruption_runtime(
     model_path = _idat_convoy_model_path(runtime)
     checkpoint_path, progress_path = _idat_affine_corruption_paths(runtime)
     budget = _runtime_affine_corruption_budget(runtime)
+    workers = _runtime_huffman_kraft_workers(runtime)
+    gpu_config = _runtime_huffman_kraft_gpu_config(runtime)
     progress_state = idat_bruteforce.affine_corruption_progress_state(data, progress_path)
     if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= budget:
         runtime.side_notes.append(
@@ -3577,6 +3579,9 @@ def _run_idat_affine_corruption_runtime(
         data,
         convoy_model_path=model_path,
         budget=budget,
+        workers=workers,
+        gpu=getattr(gpu_config, "enabled", False),
+        gpu_config=gpu_config,
         checkpoint_path=checkpoint_path,
         progress_path=progress_path,
         progress=_runtime_idat_queue_progress(runtime),

@@ -462,6 +462,11 @@ class IdatAffineCorruptionModelResult:
     rules: int = 0
     projected_hits: int = 0
     png_plausible: int = 0
+    workers: int = 1
+    gpu_status: str = "off"
+    gpu_hits: int = 0
+    gpu_shards: int = 0
+    cpu_batches: int = 0
     strategy: str = "affine-corruption-model"
     reason: str = ""
     source_hash: str = ""
@@ -12107,11 +12112,25 @@ def probe_idat_affine_corruption_model(
     convoy_model_path: str = "",
     budget: int = AFFINE_CORRUPTION_DEFAULT_BUDGET,
     top_candidates: int = AFFINE_CORRUPTION_DEFAULT_TOP_CANDIDATES,
+    workers: str | int | None = "auto",
+    gpu: bool | str | int | None = False,
+    gpu_config: Any = None,
+    cpu_batch_size: int = DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE,
+    gpu_shard_size: int = DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE,
     checkpoint_path: str = "",
     progress_path: str = "",
     progress: QueueProgressCallback | None = None,
 ) -> IdatAffineCorruptionModelResult:
     strategy = "affine-corruption-model"
+    budget_int = max(0, int(budget))
+    worker_count = _deep_beam_workers(workers)
+    gpu_requested = _deep_beam_gpu_requested(gpu)
+    resolved_gpu_config = _deep_beam_gpu_config(gpu, gpu_config)
+    if gpu_requested and not bool(getattr(resolved_gpu_config, "enabled", False)):
+        try:
+            resolved_gpu_config = replace(resolved_gpu_config, enabled=True)
+        except Exception:
+            pass
     before = idat.analyze_idat_stream(data)
     if not before.supported or before.complete:
         return IdatAffineCorruptionModelResult(before, None, (), 0, False, strategy=strategy, reason=before.reason)
@@ -12123,7 +12142,19 @@ def probe_idat_affine_corruption_model(
     original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
     model, model_error = _load_idat_convoy_model(convoy_model_path)
     if model is None:
-        return IdatAffineCorruptionModelResult(before, None, (), 0, False, model_path=convoy_model_path, strategy=strategy, reason=model_error, source_hash=source_hash)
+        return IdatAffineCorruptionModelResult(
+            before,
+            None,
+            (),
+            0,
+            False,
+            model_path=convoy_model_path,
+            workers=worker_count,
+            gpu_status="fallback-cpu" if gpu_requested else "off",
+            strategy=strategy,
+            reason=model_error,
+            source_hash=source_hash,
+        )
     if str(model.get("convoy_stream_hash") or "") != source_hash:
         return IdatAffineCorruptionModelResult(
             before,
@@ -12132,12 +12163,14 @@ def probe_idat_affine_corruption_model(
             0,
             False,
             model_path=convoy_model_path,
+            workers=worker_count,
+            gpu_status="fallback-cpu" if gpu_requested else "off",
             strategy=strategy,
             reason="convoy model hash does not match current IDAT stream",
             source_hash=source_hash,
         )
     progress_state = affine_corruption_progress_state(data, progress_path)
-    if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= int(budget):
+    if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= budget_int:
         _before, _chunks, _stream, _source_hash, _count, top = _load_frontier_candidates_for_progress(
             data,
             checkpoint_path,
@@ -12154,6 +12187,8 @@ def probe_idat_affine_corruption_model(
             checkpoint_path=checkpoint_path,
             progress_path=progress_path,
             model_path=convoy_model_path,
+            workers=worker_count,
+            gpu_status="fallback-cpu" if gpu_requested else "off",
             strategy=strategy,
             reason="affine corruption model already exhausted for this source/budget",
             source_hash=source_hash,
@@ -12171,59 +12206,160 @@ def probe_idat_affine_corruption_model(
     projected_hits = 0
     budget_exhausted = False
     last_checkpoint_at = 0
+    gpu_status = "off"
+    gpu_hits = 0
+    gpu_shards = 0
+    cpu_batches = 0
+    checkpointed_hashes: set[str] = set()
 
     if progress is not None:
-        progress(strategy, 0, int(budget))
+        progress(strategy, 0, budget_int)
 
+    specs: list[tuple[str, int, int]] = []
+    seen_specs: set[tuple[str, int, int]] = set()
     for rule in rules:
         rule_class = rule.get("idat_class_mod8")
         for idat_index, offset, _local in projections:
-            if tested >= int(budget):
-                budget_exhausted = True
-                break
             if rule_class is not None:
                 try:
                     if idat_index % 8 != int(rule_class) % 8:
                         continue
                 except (TypeError, ValueError):
                     pass
-            stream, operation = _affine_apply_rule_to_offset(root_stream, offset, rule, idat_index)
-            tested += 1
-            if stream is None or operation is None:
+            _stream, operation = _affine_apply_rule_to_offset(root_stream, offset, rule, idat_index)
+            if operation is None or not operation.new_bytes:
                 continue
-            projected_hits += 1
-            candidate = _frontier_candidate_from_stream(
-                root,
-                stream,
-                operation,
-                chunks=chunks,
-                before=before,
-                state_id=next_state_id,
-                original_idat_count=original_idat_count,
-                source_kind="candidate_from_affine_corruption",
-            )
-            if candidate is None:
+            spec = ("replace", int(operation.stream_offset), int(operation.new_bytes[0]))
+            if spec in seen_specs:
                 continue
-            next_state_id += 1
-            key = _stream_state_key(candidate.stream)
-            if key in visited:
-                continue
-            visited.add(key)
-            if _candidate_png_plausible(candidate):
-                png_plausible += 1
-            top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
-            if checkpoint_path and top and tested - last_checkpoint_at >= AFFINE_CORRUPTION_CHECKPOINT_EVERY:
-                for item in top:
-                    _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
-                last_checkpoint_at = tested
-            if progress is not None and (tested == 1 or tested % 1000 == 0):
-                progress(strategy, min(tested, int(budget)), int(budget))
+            seen_specs.add(spec)
+            specs.append(spec)
+            if len(specs) >= budget_int:
+                budget_exhausted = True
+                break
         if budget_exhausted:
             break
 
+    projected_hits = len(specs)
+    worker_executor: ProcessPoolExecutor | None = None
+    if worker_count > 1:
+        try:
+            worker_executor = ProcessPoolExecutor(max_workers=worker_count, initializer=_deep_beam_worker_init)
+        except (OSError, RuntimeError, ValueError):
+            worker_executor = None
+            worker_count = 1
+
+    gpu_session: Any = None
+    if gpu_requested:
+        try:
+            from . import ultimate_opengl_backend
+
+            gpu_session = ultimate_opengl_backend.UltimateOpenGLAnalysisSession(resolved_gpu_config)
+            gpu_status = "fallback-cpu"
+        except Exception:
+            gpu_session = None
+            gpu_status = "fallback-cpu"
+
+    def remember(candidate: IdatDeepBeamCandidate | None) -> None:
+        nonlocal top, png_plausible, next_state_id
+        if candidate is None:
+            return
+        key = _stream_state_key(candidate.stream)
+        if key in visited:
+            return
+        visited.add(key)
+        if _candidate_png_plausible(candidate):
+            png_plausible += 1
+        top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
+        next_state_id = max(next_state_id, int(candidate.state_id) + 1)
+
+    try:
+        gpu_indices: set[int] = set()
+        if specs and gpu_requested:
+            gpu_successors, gpu_tested, gpu_used, batch_gpu_status, _gpu_warning, covered_indices = _deep_beam_gpu_byte_successors(
+                root,
+                before=before,
+                state_id=next_state_id,
+                original_idat_count=original_idat_count,
+                depth=1,
+                specs=tuple(specs),
+                budget_left=max(0, budget_int - tested),
+                checkpoint_every=AFFINE_CORRUPTION_CHECKPOINT_EVERY,
+                gpu_config=resolved_gpu_config,
+                gpu_done_shards=set(),
+                workers=worker_count,
+                worker_executor=worker_executor,
+                cpu_batch_size=cpu_batch_size,
+                gpu_shard_size=gpu_shard_size,
+                gpu_session=gpu_session,
+            )
+            tested += gpu_tested
+            if batch_gpu_status != "off":
+                gpu_status = batch_gpu_status
+            if gpu_used:
+                gpu_indices = set(covered_indices)
+                gpu_hits += len(gpu_successors)
+                gpu_shards += 1
+            for successor in gpu_successors:
+                remember(successor)
+
+        cpu_specs = tuple(
+            spec for index, spec in enumerate(specs) if index not in gpu_indices
+        )
+        cpu_specs = cpu_specs[: max(0, budget_int - tested)]
+        cpu_candidates = _deep_beam_validate_specs(
+            data,
+            before,
+            cpu_specs,
+            workers=worker_count,
+            worker_executor=worker_executor,
+            cpu_batch_size=cpu_batch_size,
+            timing=None,
+        )
+        cpu_batches += len(
+            _deep_beam_spec_batches(
+                cpu_specs,
+                workers=worker_count,
+                cpu_batch_size=cpu_batch_size,
+            )
+        )
+        tested += len(cpu_specs)
+        for candidate in cpu_candidates:
+            successor = _deep_beam_candidate_from_deflate_candidate(
+                root,
+                candidate,
+                before=before,
+                state_id=next_state_id,
+                original_idat_count=original_idat_count,
+                kind="affine-cpu",
+            )
+            remember(successor)
+            if progress is not None and (tested == 1 or tested % 1000 == 0):
+                progress(strategy, min(tested, budget_int), budget_int)
+            if checkpoint_path and top and tested - last_checkpoint_at >= AFFINE_CORRUPTION_CHECKPOINT_EVERY:
+                for item in top:
+                    key = _stream_state_key(item.stream)
+                    if key in checkpointed_hashes:
+                        continue
+                    _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
+                    checkpointed_hashes.add(key)
+                last_checkpoint_at = tested
+    finally:
+        if gpu_session is not None:
+            try:
+                gpu_session.close()
+            except Exception:
+                pass
+        if worker_executor is not None:
+            worker_executor.shutdown(cancel_futures=True)
+
     if checkpoint_path:
         for item in top:
+            key = _stream_state_key(item.stream)
+            if key in checkpointed_hashes:
+                continue
             _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
+            checkpointed_hashes.add(key)
     best = _frontier_best_candidate(before, top)
     reason = "rules=%s; projections=%s; projected_hits=%s; png_plausible=%s; top=%s" % (
         len(rules),
@@ -12236,7 +12372,7 @@ def probe_idat_affine_corruption_model(
         progress_path,
         source_hash=source_hash,
         tested=tested,
-        budget=budget,
+        budget=budget_int,
         best=best,
         top_count=len(top),
         exhausted=True,
@@ -12247,22 +12383,32 @@ def probe_idat_affine_corruption_model(
             "rules": int(len(rules)),
             "projected_hits": int(projected_hits),
             "png_plausible": int(png_plausible),
+            "workers": int(worker_count),
+            "gpu_status": str(gpu_status),
+            "gpu_hits": int(gpu_hits),
+            "gpu_shards": int(gpu_shards),
+            "cpu_batches": int(cpu_batches),
         },
     )
     if progress is not None:
-        progress(strategy, min(tested, int(budget)), int(budget))
+        progress(strategy, min(tested, budget_int), budget_int)
     return IdatAffineCorruptionModelResult(
         before,
         best,
         tuple(top),
         tested,
-        budget_exhausted or tested >= int(budget),
+        budget_exhausted or tested >= budget_int,
         checkpoint_path=checkpoint_path,
         progress_path=progress_path,
         model_path=convoy_model_path,
         rules=len(rules),
         projected_hits=projected_hits,
         png_plausible=png_plausible,
+        workers=worker_count,
+        gpu_status=gpu_status,
+        gpu_hits=gpu_hits,
+        gpu_shards=gpu_shards,
+        cpu_batches=cpu_batches,
         strategy=strategy,
         reason=reason,
         source_hash=source_hash,
@@ -15896,10 +16042,16 @@ def periodic_corruption_model_candidate_summary_lines(
 
 def affine_corruption_model_summary_line(result: IdatAffineCorruptionModelResult) -> str:
     line = (
-        "-IDAT affine-corruption: tested=%s; budget_exhausted=%s; rules=%s; projected_hits=%s; png_plausible=%s; top=%s"
+        "-IDAT affine-corruption: tested=%s; budget_exhausted=%s; workers=%s; gpu=%s; "
+        "cpu_batches=%s; gpu_shards=%s; gpu_hits=%s; rules=%s; projected_hits=%s; png_plausible=%s; top=%s"
         % (
             result.tested_candidates,
             "yes" if result.budget_exhausted else "no",
+            result.workers,
+            result.gpu_status,
+            result.cpu_batches,
+            result.gpu_shards,
+            result.gpu_hits,
             result.rules,
             result.projected_hits,
             result.png_plausible,

@@ -4590,6 +4590,83 @@ def test_idat_affine_corruption_refuses_hash_mismatch(tmp_path):
     assert "does not match" in result.reason
 
 
+def _write_matching_affine_model(path, data: bytes):
+    _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "convoy_stream_hash": idat_bruteforce._stream_state_key(stream),
+                "xors": [1],
+                "deltas": [],
+                "byte_repairs": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_idat_affine_corruption_uses_worker_pool(tmp_path, monkeypatch):
+    candidate, _stream_offset, _original = dynamic_header_corrupt_png()
+    model = tmp_path / "model.json"
+    _write_matching_affine_model(model, candidate)
+    created = []
+    shutdowns = []
+
+    class FakeExecutor:
+        def __init__(self, **kwargs):
+            created.append(kwargs)
+
+        def shutdown(self, **kwargs):
+            shutdowns.append(kwargs)
+
+    monkeypatch.setattr(idat_bruteforce, "ProcessPoolExecutor", FakeExecutor)
+
+    result = idat_bruteforce.probe_idat_affine_corruption_model(
+        candidate,
+        convoy_model_path=str(model),
+        budget=8,
+        workers=4,
+    )
+
+    assert result.workers == 4
+    assert result.cpu_batches >= 1
+    assert created == [
+        {
+            "max_workers": 4,
+            "initializer": idat_bruteforce._deep_beam_worker_init,
+        }
+    ]
+    assert shutdowns == [{"cancel_futures": True}]
+
+
+def test_idat_affine_corruption_gpu_prefilter_can_cover_specs(tmp_path, monkeypatch):
+    candidate, _stream_offset, _original = dynamic_header_corrupt_png()
+    model = tmp_path / "model.json"
+    _write_matching_affine_model(model, candidate)
+
+    def fake_gpu(parent, **kwargs):
+        specs = kwargs["specs"]
+        return [], len(specs), True, "opengl-active", "", set(range(len(specs)))
+
+    monkeypatch.setattr(idat_bruteforce, "_deep_beam_gpu_byte_successors", fake_gpu)
+
+    result = idat_bruteforce.probe_idat_affine_corruption_model(
+        candidate,
+        convoy_model_path=str(model),
+        budget=12,
+        workers=1,
+        gpu=True,
+        gpu_config=gpu_runtime.GpuRuntimeConfig(enabled=True, install_missing=False),
+    )
+
+    assert result.gpu_status == "opengl-active"
+    assert result.gpu_shards == 1
+    assert result.gpu_hits == 0
+    assert result.cpu_batches == 0
+    assert result.tested_candidates == result.projected_hits
+
+
 def test_idat_affine_projection_adapts_to_late_local_deflate_error():
     chunks = (
         idat_bruteforce.png.PngChunk(8, 0x500, b"IDAT", bytes(0x500), 0),
