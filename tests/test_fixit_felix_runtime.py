@@ -3078,16 +3078,18 @@ def test_hermesprobe_resume_mismatch_runs_short_probes(tmp_path, monkeypatch):
     assert any(note.startswith("-IDAT deep beam resume ignored:") for note in side_notes)
 
 
-def test_runtime_idat_queue_progress_pads_deep_beam_counter_only():
+def test_runtime_idat_queue_progress_pads_counter_to_budget_width():
     calls = []
     runtime = SimpleNamespace(minibar=lambda text: calls.append(text))
     progress = fixit_felix_runtime._runtime_idat_queue_progress(runtime)
 
     progress("deep-beam", 208670, 50000000)
+    progress("huffman-kraft", 548314, 1000000)
     progress("phase2-lf-insert", 298, 298)
 
     assert calls == [
         "IDAT deep-beam 00208670/50000000",
+        "IDAT huffman-kraft 0548314/1000000",
         "IDAT phase2-lf-insert 298/298",
     ]
 
@@ -6533,8 +6535,8 @@ def main():
             test_hermesprobe_resume_mismatch_runs_short_probes,
         ),
         (
-            "IDAT queue progress pads deep beam",
-            test_runtime_idat_queue_progress_pads_deep_beam_counter_only,
+            "IDAT queue progress pads counters",
+            test_runtime_idat_queue_progress_pads_counter_to_budget_width,
         ),
         (
             "HermesProbe prompts deep beam resources",

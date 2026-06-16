@@ -2813,7 +2813,7 @@ def _runtime_idat_heavy_progress(runtime: Any):
 def _format_idat_queue_progress_counter(stage: str, tested: int, budget: int) -> str:
     tested_text = str(int(tested))
     budget_text = str(int(budget))
-    if str(stage) == "deep-beam":
+    if len(budget_text) > len(tested_text):
         tested_text = tested_text.zfill(len(budget_text))
     return "%s/%s" % (tested_text, budget_text)
 

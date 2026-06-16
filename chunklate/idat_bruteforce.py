@@ -9642,6 +9642,7 @@ def _huffman_kraft_operation_batches(
 
 
 def _huffman_kraft_gpu_prefilter_compact_operations(
+    parent_stream: bytes,
     compact_operations: tuple[HuffmanKraftCompactOperation, ...],
     *,
     gpu_session: Any = None,
@@ -9651,8 +9652,16 @@ def _huffman_kraft_gpu_prefilter_compact_operations(
     try:
         from . import idat_kraft_opengl_backend
 
-        flags = tuple(1 for _operation in compact_operations)
-        plan = idat_kraft_opengl_backend.KraftOpenGLPlan(flags)
+        parent_metrics = _huffman_kraft_metrics(parent_stream)
+        flags = []
+        for compact in compact_operations:
+            stream = _huffman_kraft_apply_compact_operation(parent_stream, compact)
+            flags.append(
+                1
+                if stream is not None and _huffman_kraft_prefilter_accepts_metrics(parent_metrics, stream)
+                else 0
+            )
+        plan = idat_kraft_opengl_backend.KraftOpenGLPlan(tuple(flags))
         result = gpu_session.run(plan)
     except Exception:
         return compact_operations, 0, 0, "fallback-cpu"
@@ -9685,6 +9694,7 @@ def _huffman_kraft_validate_operations(
         if compact is not None
     )
     compact_operations, gpu_shards, gpu_hits, gpu_status = _huffman_kraft_gpu_prefilter_compact_operations(
+        parent.stream,
         compact_operations,
         gpu_session=gpu_session,
     )
