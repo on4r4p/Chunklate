@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import sys
 import struct
 import tempfile
@@ -54,11 +55,12 @@ def clone_plan(*, save_count=1, max_saves_reached=False, data=None):
 def artifact_clone_plan(*, save_count=1, data=None):
     if data is None:
         data = tiny_png_bytes()
+    directory = os.path.join("/tmp/Folder_sample", "Debug_Payloads")
     return writer.CloneWritePlan(
         target=output.CloneTarget(
             name="sample.0_Artifact.bin",
-            directory="/tmp/Folder_sample/Debug_Payloads",
-            path="/tmp/Folder_sample/Debug_Payloads/sample.0_Artifact.bin",
+            directory=directory,
+            path=os.path.join(directory, "sample.0_Artifact.bin"),
         ),
         data=data,
         save_count=save_count,
@@ -260,7 +262,8 @@ def test_write_clone_invalid_png_is_artifact_only_not_final_sample():
     result = writer_runtime.run_write_clone(runtime, base_context(), "89504e47", "summary")
 
     assert result is None
-    assert ("write", artifact_clone_plan(data=b"fixed")) in calls
+    expected_plan = artifact_clone_plan(data=b"fixed")
+    assert ("write", expected_plan) in calls
     assert state == {
         "sample": None,
         "save_count": None,
@@ -279,7 +282,7 @@ def test_write_clone_invalid_png_is_artifact_only_not_final_sample():
         "summary\n-Clone written as artifact only; PNG/IDAT validation failed: PNG signature is not at offset 0",
     ) in calls
     assert side_notes == [
-        "-Saving to : /tmp/Folder_sample/Debug_Payloads/sample.0_Artifact.bin",
+        "-Saving to : %s" % expected_plan.target.path,
         "-Clone written as artifact only; PNG/IDAT validation failed: PNG signature is not at offset 0",
     ]
 
