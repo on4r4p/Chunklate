@@ -1212,6 +1212,7 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "SMASH_BRUTE_BRAWL_CRC_FORGE": options.smash_brute_brawl_crc_forge,
         "SMASH_BRUTE_BRAWL_CRC_FORGE_BYTES": options.smash_brute_brawl_crc_forge_bytes,
         "SMASH_BRUTE_BRAWL_CRC_FORGE_WINDOW": options.smash_brute_brawl_crc_forge_window,
+        "IDAT_DEEP_BEAM_WORKERS": options.idat_huffman_kraft_workers,
         "IDAT_HUFFMAN_KRAFT_WORKERS": options.idat_huffman_kraft_workers,
         "GPU": options.gpu_config.enabled,
         "GPU_CONFIG": options.gpu_config,

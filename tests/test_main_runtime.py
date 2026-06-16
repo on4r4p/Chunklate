@@ -752,6 +752,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         "SMASH_BRUTE_BRAWL_CRC_FORGE": "auto",
         "SMASH_BRUTE_BRAWL_CRC_FORGE_BYTES": None,
         "SMASH_BRUTE_BRAWL_CRC_FORGE_WINDOW": None,
+        "IDAT_DEEP_BEAM_WORKERS": "8",
         "IDAT_HUFFMAN_KRAFT_WORKERS": "8",
         "GPU": True,
         "GPU_CONFIG": main_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True),
@@ -823,6 +824,7 @@ def test_apply_main_cli_options_from_namespace_updates_legacy_globals():
     assert namespace["SMASH_BRUTE_BRAWL_RESUME"] == "ask"
     assert namespace["SMASH_BRUTE_BRAWL_WORKERS"] is None
     assert namespace["SMASH_BRUTE_BRAWL_FORCE_LEVEL"] is None
+    assert namespace["IDAT_DEEP_BEAM_WORKERS"] is None
     assert namespace["IDAT_HUFFMAN_KRAFT_WORKERS"] is None
     assert "Brute_LvL" not in namespace
     assert namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] is True
