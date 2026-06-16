@@ -40,6 +40,7 @@ class WriteCloneRuntime:
     set_have_a_kitkat: Callable[[bool], Any]
     side_notes: MutableSequence[str]
     record_clone_validation: Callable[[dict[str, Any]], Any] = lambda validation: None
+    set_clone_handoff_pending: Callable[[bool], Any] = lambda value: None
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,9 @@ def build_write_clone_runtime(
         side_notes=side_notes,
         record_clone_validation=lambda validation: namespace.__setitem__(
             "LAST_CLONE_VALIDATION", validation
+        ),
+        set_clone_handoff_pending=lambda value: namespace.__setitem__(
+            "CLONE_HANDOFF_PENDING", value
         ),
     )
 
@@ -421,6 +425,59 @@ def _clone_validation_failure_reason(validation: dict[str, Any]) -> str:
     return "PNG/IDAT validation failed"
 
 
+def _summary_with_notes(infos: Any, notes: tuple[str, ...]) -> str:
+    detail = "\n".join(note for note in notes if note)
+    if infos is None or infos == "":
+        return detail
+    if not detail:
+        return str(infos)
+    return "%s\n%s" % (str(infos).rstrip(), detail)
+
+
+def _finish_existing_clone(
+    runtime: WriteCloneRuntime,
+    context: WriteCloneContext,
+    clone_plan: writer.CloneWritePlan,
+    infos: Any,
+    clone_validation: dict[str, Any],
+    structural_intermediate: bool,
+    artifact_only: bool,
+) -> None:
+    existing_note = "-Clone already present with matching SHA: %s" % clone_plan.target.path
+    runtime.emit(runtime.candy("Color", "yellow", existing_note))
+    runtime.side_notes.append(existing_note)
+
+    notes = [existing_note]
+    if artifact_only:
+        reason = _clone_validation_failure_reason(clone_validation)
+        artifact_note = (
+            "-Existing clone matches requested bytes but is not promoted; PNG/IDAT validation failed: %s"
+            % reason
+        )
+        runtime.emit(runtime.candy("Color", "yellow", artifact_note))
+        runtime.side_notes.append(artifact_note)
+        notes.append(artifact_note)
+        runtime.summarise(_summary_with_notes(infos, tuple(notes)))
+        return None
+
+    if structural_intermediate:
+        reason = _clone_validation_failure_reason(clone_validation)
+        intermediate_note = (
+            "-Clone promoted as structural intermediate; remaining PNG/IDAT validation errors: %s"
+            % reason
+        )
+        runtime.emit(runtime.candy("Color", "yellow", intermediate_note))
+        runtime.side_notes.append(intermediate_note)
+        notes.append(intermediate_note)
+
+    runtime.set_sample(clone_plan.target.path)
+    runtime.set_save_count(context.save_count)
+    runtime.set_have_a_kitkat(True)
+    runtime.set_clone_handoff_pending(True)
+    runtime.summarise(_summary_with_notes(infos, tuple(notes)))
+    return None
+
+
 def run_write_clone(
     runtime: WriteCloneRuntime,
     context: WriteCloneContext,
@@ -459,6 +516,17 @@ def run_write_clone(
         clone_validation_is_artifact_only(clone_validation)
         and not structural_intermediate
     )
+    if clone_plan.already_exists:
+        return _finish_existing_clone(
+            runtime,
+            context,
+            clone_plan,
+            infos,
+            clone_validation,
+            structural_intermediate,
+            artifact_only,
+        )
+
     if artifact_only:
         clone_plan = replace(
             clone_plan,
@@ -490,11 +558,7 @@ def run_write_clone(
         )
         runtime.emit(runtime.candy("Color", "yellow", artifact_note))
         runtime.side_notes.append(artifact_note)
-        artifact_summary = artifact_note if infos is None or infos == "" else "%s\n%s" % (
-            str(infos).rstrip(),
-            artifact_note,
-        )
-        runtime.summarise(artifact_summary)
+        runtime.summarise(_summary_with_notes(infos, (artifact_note,)))
         return None
 
     if structural_intermediate:

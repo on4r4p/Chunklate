@@ -37,7 +37,7 @@ def structurally_aligned_bad_idat_bytes():
     return PNG_SIGNATURE + build_png_chunk(b"IHDR", ihdr) + bad_idat + IEND_CHUNK
 
 
-def clone_plan(*, save_count=1, max_saves_reached=False, data=None):
+def clone_plan(*, save_count=1, max_saves_reached=False, data=None, already_exists=False):
     if data is None:
         data = tiny_png_bytes()
     return writer.CloneWritePlan(
@@ -49,6 +49,7 @@ def clone_plan(*, save_count=1, max_saves_reached=False, data=None):
         data=data,
         save_count=save_count,
         max_saves_reached=max_saves_reached,
+        already_exists=already_exists,
     )
 
 
@@ -71,7 +72,12 @@ def artifact_clone_plan(*, save_count=1, data=None):
 def build_runtime(calls, side_notes=None, *, plan=None, prepare_error=None, write_error=None):
     if side_notes is None:
         side_notes = []
-    state = {"sample": None, "save_count": None, "have_a_kitkat": False}
+    state = {
+        "sample": None,
+        "save_count": None,
+        "have_a_kitkat": False,
+        "clone_handoff_pending": False,
+    }
     if plan is None:
         plan = clone_plan()
 
@@ -106,6 +112,9 @@ def build_runtime(calls, side_notes=None, *, plan=None, prepare_error=None, writ
         set_sample=lambda value: state.__setitem__("sample", value),
         set_save_count=lambda value: state.__setitem__("save_count", value),
         set_have_a_kitkat=lambda value: state.__setitem__("have_a_kitkat", value),
+        set_clone_handoff_pending=lambda value: state.__setitem__(
+            "clone_handoff_pending", value
+        ),
         side_notes=side_notes,
     )
     return runtime, state
@@ -183,6 +192,7 @@ def test_write_clone_namespace_bridge_builds_runtime_and_context():
         "PAUSE": True,
         "Sample": "old.png",
         "Have_A_KitKat": False,
+        "CLONE_HANDOFF_PENDING": False,
         "Pandemonium_Remember_Current_Sample": lambda: calls.append(("remember",)),
         "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
         "TheEnd": lambda: calls.append(("end",)),
@@ -214,6 +224,7 @@ def test_write_clone_namespace_bridge_builds_runtime_and_context():
         runtime.set_sample("new.png")
         runtime.set_save_count(4)
         runtime.set_have_a_kitkat(True)
+        runtime.set_clone_handoff_pending(True)
         return "written"
 
     result = writer_runtime.run_write_clone_from_namespace(
@@ -227,6 +238,7 @@ def test_write_clone_namespace_bridge_builds_runtime_and_context():
     assert namespace["Sample"] == "new.png"
     assert namespace["SAVE_COUNT"] == 4
     assert namespace["Have_A_KitKat"] is True
+    assert namespace["CLONE_HANDOFF_PENDING"] is True
 
 
 def test_write_clone_runtime_writes_updates_state_and_summarises():
@@ -251,6 +263,40 @@ def test_write_clone_runtime_writes_updates_state_and_summarises():
         "sample": "/tmp/Folder_sample/sample.0_Fixed.png",
         "save_count": 1,
         "have_a_kitkat": True,
+        "clone_handoff_pending": False,
+    }
+
+
+def test_write_clone_runtime_reuses_same_sha_clone_without_writing():
+    calls = []
+    side_notes = []
+    runtime, state = build_runtime(
+        calls,
+        side_notes,
+        plan=clone_plan(save_count=0, already_exists=True),
+    )
+
+    result = writer_runtime.run_write_clone(runtime, base_context(), "89504e47", "summary")
+
+    assert result is None
+    assert ("remember",) in calls
+    assert not [call for call in calls if call[0] == "write"]
+    assert (
+        "emit",
+        "<yellow:-Clone already present with matching SHA: /tmp/Folder_sample/sample.0_Fixed.png>",
+    ) in calls
+    assert (
+        "summarise",
+        "summary\n-Clone already present with matching SHA: /tmp/Folder_sample/sample.0_Fixed.png",
+    ) in calls
+    assert side_notes == [
+        "-Clone already present with matching SHA: /tmp/Folder_sample/sample.0_Fixed.png"
+    ]
+    assert state == {
+        "sample": "/tmp/Folder_sample/sample.0_Fixed.png",
+        "save_count": 0,
+        "have_a_kitkat": True,
+        "clone_handoff_pending": True,
     }
 
 
@@ -268,6 +314,7 @@ def test_write_clone_invalid_png_is_artifact_only_not_final_sample():
         "sample": None,
         "save_count": None,
         "have_a_kitkat": False,
+        "clone_handoff_pending": False,
     }
     assert not [call for call in calls if call[0] == "exit"]
     assert any(
@@ -301,6 +348,7 @@ def test_write_clone_structural_intermediate_can_still_be_promoted():
         "sample": "/tmp/Folder_sample/sample.0_Fixed.png",
         "save_count": 1,
         "have_a_kitkat": True,
+        "clone_handoff_pending": False,
     }
     assert not any(
         call[0] == "emit" and "artifact only" in str(call[1])
@@ -324,6 +372,7 @@ def test_write_clone_structural_idat_repair_promotes_despite_remaining_idat_erro
         "sample": "/tmp/Folder_sample/sample.0_Fixed.png",
         "save_count": 1,
         "have_a_kitkat": True,
+        "clone_handoff_pending": False,
     }
     assert not any(
         call[0] == "emit" and "artifact only" in str(call[1])
@@ -351,6 +400,7 @@ def test_write_clone_unmarked_bad_idat_stays_artifact_only():
         "sample": None,
         "save_count": None,
         "have_a_kitkat": False,
+        "clone_handoff_pending": False,
     }
     assert any(
         call[0] == "emit" and "artifact only" in str(call[1])
@@ -691,6 +741,7 @@ def main():
         ("Write builders", test_write_clone_builders_wire_namespace_and_context),
         ("Write namespace bridge", test_write_clone_namespace_bridge_builds_runtime_and_context),
         ("Write and state", test_write_clone_runtime_writes_updates_state_and_summarises),
+        ("Reuse same SHA clone", test_write_clone_runtime_reuses_same_sha_clone_without_writing),
         (
             "Write structural IDAT intermediate",
             test_write_clone_structural_idat_repair_promotes_despite_remaining_idat_errors,

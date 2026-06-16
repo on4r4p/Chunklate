@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from chunklate import deflate_header
+from chunklate import deflate_probe
 from chunklate import gpu_runtime
 from chunklate import idat
 from chunklate import idat_bruteforce
@@ -67,6 +68,93 @@ def dynamic_header_two_bit_corrupt_png(*, bits=(604, 618)):
     for bit in bits:
         compressed[bit // 8] ^= 1 << (bit % 8)
     return build_rgb_png(1, 100, filtered, idat_data=bytes(compressed)), tuple(sorted(bits)), original
+
+
+def first_symbol_length_token_corrupt_png():
+    width = 20
+    height = 100
+    filtered = bytearray()
+    for row in range(height):
+        filtered.append(row % 5)
+        for x in range(width * 3):
+            filtered.append((row * 9 + x * 7 + 9) % 256)
+    original_stream = zlib.compress(bytes(filtered), 6)
+    reader = deflate_header.BitReader(original_stream, start_byte=2)
+    reader.read(1)
+    assert reader.read(2) == 2
+    literal_table, literal_max, _distance_table, _distance_max = deflate_probe._read_dynamic_tables(reader)
+    first_symbol, bit_start, bit_end = deflate_header._decode_symbol_with_bits(reader, literal_table, literal_max)
+    assert first_symbol in (0, 1, 2, 3, 4)
+    width_bits = bit_end - bit_start
+    codes = {
+        symbol: (code, width)
+        for (code, width), symbol in literal_table.items()
+    }
+    replacement_symbol = next(
+        symbol
+        for symbol in range(257, 286)
+        if symbol in codes and codes[symbol][1] == width_bits
+    )
+    code, width_bits = codes[replacement_symbol]
+    replacement_bits = tuple((code >> index) & 1 for index in range(width_bits))
+    corrupt_stream = idat_bruteforce._replace_stream_bits_preserve_length(
+        original_stream,
+        bit_start,
+        bit_end,
+        replacement_bits,
+    )
+    assert corrupt_stream is not None
+    return build_rgb_png(width, height, bytes(filtered), idat_data=corrupt_stream), original_stream
+
+
+def early_backref_length_token_corrupt_png(*, count: int = 1):
+    width = 20
+    height = 100
+    filtered = bytearray()
+    for row in range(height):
+        filtered.append(row % 5)
+        factor = 5 if int(count) <= 1 else 10
+        for x in range(width * 3):
+            filtered.append((row * factor + x * 7 + factor) % 256)
+    original_stream = zlib.compress(bytes(filtered), 6)
+    reader = deflate_header.BitReader(original_stream, start_byte=2)
+    reader.read(1)
+    assert reader.read(2) == 2
+    literal_table, literal_max, _distance_table, _distance_max = deflate_probe._read_dynamic_tables(reader)
+    first_symbol, _first_start, _first_end = deflate_header._decode_symbol_with_bits(reader, literal_table, literal_max)
+    assert first_symbol in (0, 1, 2, 3, 4)
+    codes = {
+        symbol: (code, width)
+        for (code, width), symbol in literal_table.items()
+    }
+    replacements = []
+    for _index in range(max(1, int(count))):
+        symbol, bit_start, bit_end = deflate_header._decode_symbol_with_bits(reader, literal_table, literal_max)
+        assert 0 <= symbol <= 255
+        width_bits = bit_end - bit_start
+        replacement_symbol = next(
+            symbol
+            for symbol in range(257, 286)
+            if symbol in codes and codes[symbol][1] == width_bits
+        )
+        replacements.append((bit_start, bit_end, replacement_symbol))
+    corrupt_stream = original_stream
+    for bit_start, bit_end, replacement_symbol in replacements:
+        code, width_bits = codes[replacement_symbol]
+        replacement_bits = tuple((code >> index) & 1 for index in range(width_bits))
+        corrupt_stream = idat_bruteforce._replace_stream_bits_preserve_length(
+            corrupt_stream,
+            bit_start,
+            bit_end,
+            replacement_bits,
+        )
+        assert corrupt_stream is not None
+    corrupt = build_rgb_png(width, height, bytes(filtered), idat_data=corrupt_stream)
+    raw_prefix = idat_bruteforce.idat_partial_raw_prefix(corrupt_stream, max_output=16)
+    assert len(raw_prefix.raw) == 1
+    assert raw_prefix.raw[0] in (0, 1, 2, 3, 4)
+    assert idat_bruteforce._locate_first_invalid_distance_backref(corrupt_stream) is not None
+    return corrupt, original_stream
 
 
 def dynamic_header_extra_bit_png():
@@ -4239,6 +4327,50 @@ def test_idat_huffman_oracle_progress_same_budget_skips(tmp_path):
     assert "already exhausted" in result.reason
 
 
+def test_idat_huffman_oracle_accepts_frontier_seeds_without_restarting_from_root():
+    candidate, _stream_offset, _original = dynamic_header_corrupt_png()
+    before = idat.analyze_idat_stream(candidate)
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    seed_stream = bytes((stream[0] ^ 1,)) + stream[1:]
+    seed_data = idat_bruteforce._rebuild_with_single_idat_stream(chunks, seed_stream)
+    seed_analysis = idat.analyze_idat_stream(seed_data)
+    seed = idat_bruteforce.IdatDeepBeamCandidate(
+        data=seed_data,
+        stream=seed_stream,
+        operations=(
+            idat_bruteforce.IdatDeepBeamOperation(
+                "test-seed",
+                0,
+                stream[:1],
+                seed_stream[:1],
+            ),
+        ),
+        before=before,
+        after=seed_analysis,
+        state_id=99,
+        parent_id=0,
+        source_offsets=(0,),
+        score=idat_bruteforce._deep_beam_score(
+            seed_analysis,
+            seed_stream,
+            1,
+            data=seed_data,
+            original_idat_count=original_idat_count,
+        ),
+    )
+
+    result = idat_bruteforce.probe_idat_dynamic_huffman_png_oracle_solver(
+        candidate,
+        budget=0,
+        seed_candidates=(seed,),
+    )
+
+    assert result.seed_count == 1
+    assert result.top_candidates == (seed,)
+    assert "seeds=1" in idat_bruteforce.huffman_oracle_summary_line(result)
+
+
 def test_idat_huffman_kraft_progress_same_budget_skips(tmp_path):
     candidate, _stream_offset, _original = dynamic_header_corrupt_png()
     _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
@@ -4267,6 +4399,66 @@ def test_idat_huffman_kraft_progress_same_budget_skips(tmp_path):
     assert result.tested_candidates == 321
     assert result.budget_exhausted is True
     assert "already exhausted" in result.reason
+
+
+def test_idat_huffman_kraft_memory_guard_resume_degrades_workers_and_gpu(tmp_path):
+    candidate, _stream_offset, _original = dynamic_header_corrupt_png()
+    before = idat.analyze_idat_stream(candidate)
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    seed_stream = bytes((stream[0] ^ 1,)) + stream[1:]
+    seed_data = idat_bruteforce._rebuild_with_single_idat_stream(chunks, seed_stream)
+    seed = idat_bruteforce.IdatDeepBeamCandidate(
+        data=seed_data,
+        stream=seed_stream,
+        operations=(
+            idat_bruteforce.IdatDeepBeamOperation(
+                "test-seed",
+                0,
+                stream[:1],
+                seed_stream[:1],
+            ),
+        ),
+        before=before,
+        after=idat.analyze_idat_stream(seed_data),
+        state_id=42,
+        parent_id=0,
+        source_offsets=(0,),
+        score=(1,),
+    )
+    progress = tmp_path / "kraft.progress.json"
+    checkpoint = tmp_path / "kraft.checkpoint.jsonl"
+    progress.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "source_hash": idat_bruteforce._stream_state_key(stream),
+                "strategy": "huffman-kraft",
+                "tested_candidates": 100,
+                "budget": 1000,
+                "exhausted": False,
+                "reason": "stop=memory_guard; depth=2",
+            }
+        )
+    )
+
+    result = idat_bruteforce.probe_idat_huffman_kraft_solver(
+        candidate,
+        budget=0,
+        workers=12,
+        gpu=True,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+        seed_candidates=(seed,),
+    )
+
+    assert result.workers <= idat_bruteforce.HUFFMAN_KRAFT_THROTTLE_WORKER_LIMIT
+    assert result.gpu_status == "off"
+    assert result.memory_mode == "resume-degraded"
+    assert result.top_candidates
+    payload = json.loads(progress.read_text(encoding="utf-8"))
+    assert payload["memory_mode"] == "resume-degraded"
+    assert payload["effective_batch_size"] == idat_bruteforce.HUFFMAN_KRAFT_HARD_THROTTLE_BATCH_SIZE
 
 
 def test_idat_huffman_kraft_token_checkpoint_replays_without_full_stream(tmp_path):
@@ -4383,6 +4575,54 @@ def test_idat_huffman_kraft_resume_without_progress_infers_checkpoint_budget(tmp
     assert payload["source_hash"] == source_hash
 
 
+def test_idat_huffman_kraft_flushes_progress_on_exception(tmp_path, monkeypatch):
+    candidate, _bits, _original = dynamic_header_semantic_token_corrupt_png()
+    _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
+    checkpoint = tmp_path / "kraft.checkpoint.jsonl"
+    progress = tmp_path / "kraft.progress.json"
+    source_hash = idat_bruteforce._stream_state_key(stream)
+    checkpoint.write_text("", encoding="utf-8")
+    progress.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "source_hash": source_hash,
+                "strategy": "huffman-kraft",
+                "tested_candidates": 123,
+                "budget": 200,
+                "exhausted": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("kraft boom")
+
+    monkeypatch.setattr(idat_bruteforce, "_huffman_kraft_validate_operations", boom)
+
+    try:
+        idat_bruteforce.probe_idat_huffman_kraft_solver(
+            candidate,
+            budget=200,
+            max_depth=1,
+            beam_width=4,
+            top_candidates=2,
+            checkpoint_path=str(checkpoint),
+            progress_path=str(progress),
+        )
+    except RuntimeError as exc:
+        assert "kraft boom" in str(exc)
+    else:
+        raise AssertionError("expected kraft solver exception")
+
+    payload = json.loads(progress.read_text(encoding="utf-8"))
+    assert payload["tested_candidates"] == 123
+    assert payload["exhausted"] is False
+    assert payload["reason"] == "huffman kraft aborted: RuntimeError: kraft boom"
+    assert payload["source_hash"] == source_hash
+
+
 def test_idat_huffman_kraft_creates_worker_pool_per_run(monkeypatch):
     candidate, _stream_offset, _original = dynamic_header_corrupt_png()
     created = []
@@ -4479,6 +4719,289 @@ def test_idat_huffman_kraft_gpu_prefilter_reports_active(monkeypatch):
     assert result.gpu_hits >= 1
 
 
+def test_idat_huffman_kraft_gpu_prefilter_caps_hits(monkeypatch):
+    candidate, _bits, _original = dynamic_header_semantic_token_corrupt_png()
+    _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
+    trace = deflate_header.trace_dynamic_header(stream)
+    operations = idat_bruteforce._huffman_kraft_token_operations(stream, trace, max_tokens=96)
+    compact = tuple(
+        item
+        for item in (
+            idat_bruteforce._huffman_kraft_compact_operation(index + 1, operation)
+            for index, operation in enumerate(operations)
+        )
+        if item is not None
+    )
+    assert len(compact) > idat_bruteforce.HUFFMAN_KRAFT_GPU_HIT_LIMIT
+
+    class FakeSession:
+        def run(self, plan):
+            return idat_kraft_opengl_backend.KraftOpenGLResult(
+                hit_indices=tuple(range(plan.operation_count)),
+                tested=plan.operation_count,
+                shards=1,
+                status="opengl-active",
+                reason="fake active",
+            )
+
+    filtered, _shards, hits, status = idat_bruteforce._huffman_kraft_gpu_prefilter_compact_operations(
+        stream,
+        compact,
+        gpu_session=FakeSession(),
+    )
+
+    assert status == "opengl-active"
+    assert hits == idat_bruteforce.HUFFMAN_KRAFT_GPU_HIT_LIMIT
+    assert len(filtered) == idat_bruteforce.HUFFMAN_KRAFT_GPU_HIT_LIMIT
+
+
+def test_idat_huffman_kraft_memory_guard_keeps_progress_resumable(tmp_path, monkeypatch):
+    candidate, _bits, _original = dynamic_header_semantic_token_corrupt_png()
+    progress = tmp_path / "kraft.progress.json"
+
+    monkeypatch.setattr(idat_bruteforce, "_deep_beam_memory_guard_tripped", lambda: True)
+
+    result = idat_bruteforce.probe_idat_huffman_kraft_solver(
+        candidate,
+        budget=100,
+        max_depth=1,
+        beam_width=4,
+        top_candidates=2,
+        progress_path=str(progress),
+        workers=1,
+    )
+
+    assert "memory_mode=hard" in result.reason
+    payload = json.loads(progress.read_text(encoding="utf-8"))
+    assert payload["memory_mode"] == "hard"
+    assert payload["memory_throttle_events"] >= 1
+    assert payload["resumable"] is True
+
+
+def test_idat_first_filter_literal_solver_repairs_first_symbol(tmp_path):
+    candidate, _original_stream = first_symbol_length_token_corrupt_png()
+    checkpoint = tmp_path / "first_filter.checkpoint.jsonl"
+    progress = tmp_path / "first_filter.progress.json"
+
+    result = idat_bruteforce.probe_idat_first_filter_literal_solver(
+        candidate,
+        budget=10,
+        top_candidates=5,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+    )
+
+    assert result.first_filter_hits >= 1
+    assert result.png_plausible >= 1
+    assert result.top_candidates
+    top = result.top_candidates[0]
+    oracle = idat_bruteforce.raw_png_oracle_decision(top.stream, top.after, max_output=16)
+    assert oracle.first_filter_ok is True
+    assert top.operations[-1].kind == "first-filter-literal"
+    payload = json.loads(progress.read_text(encoding="utf-8"))
+    assert payload["strategy"] == "first-filter-literal"
+    assert payload["first_filter_hits"] >= 1
+    assert checkpoint.exists()
+
+
+def test_idat_first_filter_literal_empty_progress_does_not_block_new_seeds(tmp_path):
+    candidate, _original_stream = first_symbol_length_token_corrupt_png()
+    before = idat.analyze_idat_stream(candidate)
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
+    checkpoint = tmp_path / "first_filter.checkpoint.jsonl"
+    progress = tmp_path / "first_filter.progress.json"
+    progress.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "source_hash": idat_bruteforce._stream_state_key(stream),
+                "strategy": "first-filter-literal",
+                "tested_candidates": 5,
+                "budget": 10,
+                "exhausted": True,
+                "top_count": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    seed = idat_bruteforce._frontier_root_candidate(
+        data=candidate,
+        stream=stream,
+        before=before,
+        original_idat_count=sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT"),
+    )
+
+    result = idat_bruteforce.probe_idat_first_filter_literal_solver(
+        candidate,
+        budget=10,
+        top_candidates=5,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+        seed_candidates=(seed,),
+    )
+
+    assert result.first_filter_hits >= 1
+    assert result.top_candidates
+    payload = json.loads(progress.read_text(encoding="utf-8"))
+    assert payload["first_filter_hits"] >= 1
+    assert payload["top_count"] >= 1
+
+
+def test_idat_first_filter_literal_allows_variable_width_rewrite(monkeypatch):
+    clean = build_rgb_png(1, 1, b"\x00abc")
+    before = idat.analyze_idat_stream(clean)
+    parent = idat_bruteforce.IdatDeepBeamCandidate(
+        data=b"",
+        stream=b"\xff\xff",
+        operations=(),
+        before=before,
+        after=before,
+        state_id=0,
+        parent_id=None,
+        source_offsets=(),
+        score=(),
+    )
+
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "_dynamic_first_literal_symbol",
+        lambda _stream: (111, 0, 5, {(0, 3): 0}, 3),
+    )
+
+    def candidate_from_stream(parent, stream, operation, **kwargs):
+        return idat_bruteforce.IdatDeepBeamCandidate(
+            data=b"",
+            stream=stream,
+            operations=parent.operations + (operation,),
+            before=before,
+            after=before,
+            state_id=kwargs["state_id"],
+            parent_id=parent.state_id,
+            source_offsets=parent.source_offsets + (operation.stream_offset,),
+            score=(1,),
+        )
+
+    monkeypatch.setattr(idat_bruteforce, "_frontier_candidate_from_stream", candidate_from_stream)
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "raw_png_oracle_decision",
+        lambda *_args, **_kwargs: SimpleNamespace(first_filter_ok=True),
+    )
+
+    candidate = idat_bruteforce._first_filter_literal_candidate(
+        parent,
+        0,
+        chunks=(),
+        before=before,
+        state_id=1,
+        original_idat_count=1,
+    )
+
+    assert candidate is not None
+    assert candidate.stream != parent.stream
+    assert candidate.operations[-1].kind == "first-filter-literal"
+    assert len(candidate.operations[-1].bit_offsets) == 5
+    assert candidate.operations[-1].new_bytes == b"\x00\x00\x00"
+
+
+def test_idat_first_filter_literal_uses_kraft_closure_parent(tmp_path, monkeypatch):
+    corrupt, _original_stream = first_symbol_length_token_corrupt_png()
+    before = idat.analyze_idat_stream(corrupt)
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    root = idat_bruteforce._frontier_root_candidate(
+        data=corrupt,
+        stream=stream,
+        before=before,
+        original_idat_count=sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT"),
+    )
+    closure_operation = idat_bruteforce.IdatDeepBeamOperation(
+        "huffman-kraft-closure-distance",
+        1,
+        b"\x00",
+        b"\x01",
+        (8,),
+    )
+    closure_parent = idat_bruteforce.IdatDeepBeamCandidate(
+        data=root.data,
+        stream=stream + b"\x00",
+        operations=(closure_operation,),
+        before=before,
+        after=before,
+        state_id=1,
+        parent_id=root.state_id,
+        source_offsets=(1,),
+        score=(1,),
+    )
+    final_operation = idat_bruteforce.IdatDeepBeamOperation(
+        "first-filter-literal",
+        2,
+        b"\x00",
+        b"\x00",
+        (16,),
+    )
+    final_candidate = idat_bruteforce.IdatDeepBeamCandidate(
+        data=root.data,
+        stream=stream + b"\x01",
+        operations=(closure_operation, final_operation),
+        before=before,
+        after=before,
+        state_id=2,
+        parent_id=closure_parent.state_id,
+        source_offsets=(1, 2),
+        score=(2,),
+    )
+
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "_huffman_kraft_closure_operations",
+        lambda *_args, **_kwargs: (closure_operation,),
+    )
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "_huffman_kraft_candidate_from_operation",
+        lambda *_args, **_kwargs: closure_parent,
+    )
+    monkeypatch.setattr(
+        idat_bruteforce.deflate_header,
+        "trace_dynamic_header",
+        lambda _stream: SimpleNamespace(
+            status="ok",
+            btype=2,
+            tokens=(),
+            length_count=316,
+            header_end_bit=64,
+            literal_lengths=(1, 1),
+            distance_lengths=(1, 1),
+            literal_error="",
+            distance_error="",
+        ),
+    )
+
+    def first_filter_candidate(parent, *_args, **_kwargs):
+        if parent.stream == closure_parent.stream:
+            return final_candidate
+        return None
+
+    monkeypatch.setattr(idat_bruteforce, "_first_filter_literal_candidate", first_filter_candidate)
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "raw_png_oracle_decision",
+        lambda *_args, **_kwargs: SimpleNamespace(first_filter_ok=True),
+    )
+
+    result = idat_bruteforce.probe_idat_first_filter_literal_solver(
+        corrupt,
+        budget=10,
+        checkpoint_path=str(tmp_path / "first_filter.checkpoint.jsonl"),
+        progress_path=str(tmp_path / "first_filter.progress.json"),
+        seed_candidates=(root,),
+    )
+
+    assert result.closure_hits == 1
+    assert result.first_filter_hits == 1
+    assert result.top_candidates == (final_candidate,)
+
+
 def test_idat_kraft_backref_repair_uses_kraft_seed_and_writes_progress(tmp_path, monkeypatch):
     corrupt, _bits, _original = dynamic_header_semantic_token_corrupt_png()
     before = idat.analyze_idat_stream(corrupt)
@@ -4530,6 +5053,7 @@ def test_idat_kraft_backref_repair_uses_kraft_seed_and_writes_progress(tmp_path,
     result = idat_bruteforce.probe_idat_kraft_backref_repair(
         corrupt,
         budget=10,
+        max_depth=1,
         checkpoint_path=str(checkpoint),
         progress_path=str(progress),
         seed_candidates=(root,),
@@ -4544,6 +5068,75 @@ def test_idat_kraft_backref_repair_uses_kraft_seed_and_writes_progress(tmp_path,
     assert progress_payload["strategy"] == "kraft-backref-repair"
     assert progress_payload["tested_candidates"] == 1
     assert progress_payload["source_hash"] == idat_bruteforce._stream_state_key(stream)
+
+
+def test_idat_kraft_backref_repair_can_rewrite_early_length_token_to_literal(tmp_path):
+    corrupt, _original_stream = early_backref_length_token_corrupt_png()
+    before = idat.analyze_idat_stream(corrupt)
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    seed = idat_bruteforce._frontier_root_candidate(
+        data=corrupt,
+        stream=stream,
+        before=before,
+        original_idat_count=sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT"),
+    )
+    invalid = idat_bruteforce._locate_first_invalid_distance_backref(stream)
+    assert invalid is not None
+    literal_ops = idat_bruteforce._kraft_backref_literal_operations(stream, invalid, max_operations=64)
+    assert literal_ops
+    assert all(operation.kind == "kraft-backref-literal" for operation in literal_ops)
+
+    checkpoint = tmp_path / "kraft_backref.checkpoint.jsonl"
+    progress = tmp_path / "kraft_backref.progress.json"
+    result = idat_bruteforce.probe_idat_kraft_backref_repair(
+        corrupt,
+        budget=128,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+        seed_candidates=(seed,),
+    )
+
+    assert result.top_candidates
+    assert result.png_prefix_hits >= 1
+    assert result.top_candidates[0].operations[-1].kind == "kraft-backref-literal"
+    repaired_raw = idat_bruteforce.idat_partial_raw_prefix(result.top_candidates[0].stream, max_output=32).raw
+    assert len(repaired_raw) > 1
+    assert repaired_raw[0] in (0, 1, 2, 3, 4)
+
+
+def test_idat_kraft_backref_repair_chains_literal_repairs_by_depth(tmp_path):
+    corrupt, _original_stream = early_backref_length_token_corrupt_png(count=2)
+    before = idat.analyze_idat_stream(corrupt)
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    seed = idat_bruteforce._frontier_root_candidate(
+        data=corrupt,
+        stream=stream,
+        before=before,
+        original_idat_count=sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT"),
+    )
+
+    shallow = idat_bruteforce.probe_idat_kraft_backref_repair(
+        corrupt,
+        budget=256,
+        max_depth=1,
+        top_candidates=8,
+        seed_candidates=(seed,),
+    )
+    deep = idat_bruteforce.probe_idat_kraft_backref_repair(
+        corrupt,
+        budget=512,
+        max_depth=2,
+        top_candidates=8,
+        seed_candidates=(seed,),
+    )
+
+    assert shallow.top_candidates
+    assert deep.top_candidates
+    shallow_raw = idat_bruteforce.idat_partial_raw_prefix(shallow.top_candidates[0].stream, max_output=64).raw
+    deep_raw = idat_bruteforce.idat_partial_raw_prefix(deep.top_candidates[0].stream, max_output=64).raw
+    assert deep.reached_depth >= 2
+    assert len(deep_raw) > len(shallow_raw)
+    assert deep.top_candidates[0].operations[-1].kind == "kraft-backref-literal"
 
 
 def test_idat_kraft_backref_without_seeds_does_not_mark_exhausted(tmp_path):
@@ -4562,6 +5155,49 @@ def test_idat_kraft_backref_without_seeds_does_not_mark_exhausted(tmp_path):
     assert payload["strategy"] == "kraft-backref-repair"
     assert payload["exhausted"] is False
     assert payload["reason"] == "no Kraft seed candidates available"
+
+
+def test_idat_kraft_backref_caps_operations_per_seed(monkeypatch):
+    corrupt, _bits, _original = dynamic_header_semantic_token_corrupt_png()
+    before = idat.analyze_idat_stream(corrupt)
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    seed = idat_bruteforce._frontier_root_candidate(
+        data=corrupt,
+        stream=stream,
+        before=before,
+        original_idat_count=sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT"),
+    )
+    calls = []
+
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "_locate_first_invalid_distance_backref",
+        lambda *_args, **_kwargs: object(),
+    )
+
+    def literal_ops(_stream, _invalid, *, max_operations):
+        calls.append(("literal", max_operations))
+        return ()
+
+    def distance_ops(_stream, _invalid, *, max_operations):
+        calls.append(("distance", max_operations))
+        return ()
+
+    monkeypatch.setattr(idat_bruteforce, "_kraft_backref_literal_operations", literal_ops)
+    monkeypatch.setattr(idat_bruteforce, "_kraft_backref_distance_operations", distance_ops)
+
+    result = idat_bruteforce.probe_idat_kraft_backref_repair(
+        corrupt,
+        budget=idat_bruteforce.KRAFT_BACKREF_MAX_OPERATIONS_PER_SEED + 1000,
+        seed_candidates=(seed,),
+    )
+
+    assert calls == [
+        ("literal", idat_bruteforce.KRAFT_BACKREF_MAX_OPERATIONS_PER_SEED),
+        ("distance", idat_bruteforce.KRAFT_BACKREF_MAX_OPERATIONS_PER_SEED),
+    ]
+    assert result.tested_candidates == 0
+    assert "per_seed_limit=%s" % idat_bruteforce.KRAFT_BACKREF_MAX_OPERATIONS_PER_SEED in result.reason
 
 
 def test_idat_affine_corruption_refuses_hash_mismatch(tmp_path):
@@ -4645,8 +5281,27 @@ def test_idat_affine_corruption_gpu_prefilter_can_cover_specs(tmp_path, monkeypa
     model = tmp_path / "model.json"
     _write_matching_affine_model(model, candidate)
 
-    def fake_gpu(parent, **kwargs):
-        specs = kwargs["specs"]
+    def fake_gpu(
+        parent,
+        *,
+        before,
+        state_id_start,
+        original_idat_count,
+        depth,
+        specs,
+        budget_left,
+        checkpoint_every,
+        gpu_config,
+        gpu_done_shards,
+        workers,
+        worker_executor=None,
+        cpu_batch_size=idat_bruteforce.DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE,
+        gpu_shard_size=idat_bruteforce.DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE,
+        gpu_session=None,
+        timing=None,
+        compatible=None,
+    ):
+        assert state_id_start >= 1
         return [], len(specs), True, "opengl-active", "", set(range(len(specs)))
 
     monkeypatch.setattr(idat_bruteforce, "_deep_beam_gpu_byte_successors", fake_gpu)

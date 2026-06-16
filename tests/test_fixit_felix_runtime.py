@@ -717,7 +717,7 @@ def test_apply_repair_prompts_before_zero_scanline_blackfill_and_declines_placeh
 
     result = fixit_felix_runtime.apply_repair(runtime, repair)
 
-    assert result is None
+    assert result == (False, None)
     assert writes == []
     assert questions == [
         {
@@ -1687,7 +1687,7 @@ def test_apply_repair_rejects_invalid_ihdr_rebuild_before_clone():
 
     result = fixit_felix_runtime.apply_repair(runtime, repair)
 
-    assert result is None
+    assert result == (False, None)
     assert writes == []
     assert candy_calls == [
         (
@@ -2207,6 +2207,7 @@ def mock_frontier_routes_empty(monkeypatch):
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_periodic_model_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_affine_corruption_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_huffman_kraft_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_first_filter_literal_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_kraft_backref_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_huffman_oracle_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_global_crc_residue_runtime", lambda *_args, **_kwargs: None)
@@ -2603,7 +2604,7 @@ def test_hermesprobe_logs_dynamic_huffman_semantic_diagnostic_without_clone(monk
         fixit_felix_runtime._probe_idat_lf_route_for_diagnostics = original_lf
         fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = original_deep
 
-    assert result is None
+    assert result == (False, None)
     assert not [call for call in calls if call[0] == "write_clone"]
     assert any("strategy=dynamic-huffman-semantic" in note for note in side_notes)
     assert any(note.startswith("-IDAT deflate deep beam:") for note in side_notes)
@@ -2844,6 +2845,8 @@ def test_hermesprobe_resume_deep_beam_seeds_from_periodic_model(tmp_path, monkey
     )
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_affine_corruption_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_huffman_kraft_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_first_filter_literal_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_kraft_backref_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_huffman_oracle_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_global_crc_residue_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_crc_periodic_runtime", lambda *_args, **_kwargs: None)
@@ -2901,10 +2904,11 @@ def test_hermesprobe_resume_runs_frontier_routes_before_deep_beam(tmp_path, monk
     periodic_seed = seed("periodic", 1)
     affine_seed = seed("affine", 2)
     kraft_seed = seed("kraft", 3)
-    backref_seed = seed("kraft-backref", 4)
-    huffman_seed = seed("huffman", 5)
-    global_crc_seed = seed("global-crc", 6)
-    crc_seed = seed("crc-periodic", 7)
+    first_filter_seed = seed("first-filter", 4)
+    backref_seed = seed("kraft-backref", 5)
+    huffman_seed = seed("huffman", 6)
+    global_crc_seed = seed("global-crc", 7)
+    crc_seed = seed("crc-periodic", 8)
     order = []
 
     monkeypatch.setattr(
@@ -2943,29 +2947,62 @@ def test_hermesprobe_resume_runs_frontier_routes_before_deep_beam(tmp_path, monk
             True,
         ),
     )
+
+    def first_filter_runtime(_runtime, _data, _analysis, *, seed_candidates=()):
+        order.append("first-filter")
+        assert seed_candidates == (kraft_seed,)
+        return fixit_felix_runtime.idat_bruteforce.IdatFirstFilterLiteralResult(
+            before,
+            None,
+            (first_filter_seed,),
+            1,
+            True,
+        )
+
     monkeypatch.setattr(
         fixit_felix_runtime,
-        "_run_idat_kraft_backref_runtime",
-        lambda *_args, **_kwargs: order.append("backref")
-        or fixit_felix_runtime.idat_bruteforce.IdatKraftBackrefRepairResult(
+        "_run_idat_first_filter_literal_runtime",
+        first_filter_runtime,
+    )
+
+    def backref_runtime(_runtime, _data, _analysis, *, seed_candidates=()):
+        order.append("backref")
+        assert seed_candidates == (first_filter_seed,)
+        return fixit_felix_runtime.idat_bruteforce.IdatKraftBackrefRepairResult(
             before,
             None,
             (backref_seed,),
             1,
             True,
-        ),
-    )
+        )
+
     monkeypatch.setattr(
         fixit_felix_runtime,
-        "_run_idat_huffman_oracle_runtime",
-        lambda *_args, **_kwargs: order.append("huffman")
-        or fixit_felix_runtime.idat_bruteforce.IdatHuffmanOracleSolverResult(
+        "_run_idat_kraft_backref_runtime",
+        backref_runtime,
+    )
+
+    def huffman_runtime(_runtime, _data, _analysis, *, seed_candidates=()):
+        order.append("huffman")
+        assert seed_candidates == (
+            periodic_seed,
+            affine_seed,
+            kraft_seed,
+            first_filter_seed,
+            backref_seed,
+        )
+        return fixit_felix_runtime.idat_bruteforce.IdatHuffmanOracleSolverResult(
             before,
             None,
             (huffman_seed,),
             1,
             True,
-        ),
+        )
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_huffman_oracle_runtime",
+        huffman_runtime,
     )
     monkeypatch.setattr(
         fixit_felix_runtime,
@@ -3019,18 +3056,19 @@ def test_hermesprobe_resume_runs_frontier_routes_before_deep_beam(tmp_path, monk
     result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, before)
 
     assert result == (False, None)
-    assert order == ["periodic", "affine", "kraft", "backref", "huffman", "global-crc", "crc", "deep"]
+    assert order == ["periodic", "affine", "kraft", "first-filter", "backref", "huffman", "global-crc", "crc", "deep"]
     deep_call = next(call for call in calls if call[0] == "deep_probe_kwargs")
     assert deep_call[1]["seed_candidates"] == (
         periodic_seed,
         affine_seed,
         kraft_seed,
+        first_filter_seed,
         backref_seed,
         huffman_seed,
         global_crc_seed,
         crc_seed,
     )
-    assert "-IDAT deep beam seeded with 7 frontier candidate(s)." in side_notes
+    assert "-IDAT deep beam seeded with 8 frontier candidate(s)." in side_notes
 
 
 def test_hermesprobe_resume_mismatch_runs_short_probes(tmp_path, monkeypatch):
@@ -3090,7 +3128,7 @@ def test_hermesprobe_resume_mismatch_runs_short_probes(tmp_path, monkeypatch):
 
     result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
 
-    assert result is None
+    assert result == (False, None)
     assert [call for call in calls if call[0] == "short_probe"]
     assert any(note.startswith("-IDAT deep beam resume ignored:") for note in side_notes)
 
@@ -3455,6 +3493,60 @@ def test_hermesprobe_huffman_kraft_uses_configured_workers(tmp_path, monkeypatch
     assert kraft_call[1]["gpu_config"] == gpu_config
     assert result.workers == 6
     assert any("workers=6" in note and "gpu=opengl-active" in note for note in side_notes)
+
+
+def test_hermesprobe_huffman_kraft_memory_guard_with_seeds_continues(tmp_path, monkeypatch):
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    data = bytes.fromhex(data_hex)
+    before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+    _chunks, stream = fixit_felix_runtime.idat_bruteforce._all_chunks_and_idat_stream(data)
+    seed = fixit_felix_runtime.idat_bruteforce.IdatDeepBeamCandidate(
+        data=data,
+        stream=stream,
+        operations=(),
+        before=before,
+        after=before,
+        state_id=7,
+        parent_id=0,
+        source_offsets=(),
+        score=(1,),
+    )
+
+    def kraft_probe(probe_data, **kwargs):
+        calls.append(("kraft_probe_kwargs", kwargs, {}))
+        before_analysis = fixit_felix_runtime.idat.analyze_idat_stream(probe_data)
+        return fixit_felix_runtime.idat_bruteforce.IdatHuffmanKraftSolverResult(
+            before_analysis,
+            None,
+            (seed,),
+            123,
+            False,
+            workers=4,
+            gpu_status="disabled-memory-pressure",
+            memory_mode="hard",
+            memory_throttle_events=1,
+            reason="stop=memory_guard; top=1; memory_mode=hard",
+        )
+
+    monkeypatch.setattr(fixit_felix_runtime, "_block_deep_beam_if_chunk_names_are_stale", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_huffman_kraft_solver", kraft_probe)
+    runtime = wrong_crc_runtime(
+        calls,
+        side_notes=side_notes,
+        data_hex=data_hex,
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        deep_beam_workers="12",
+    )
+
+    result = fixit_felix_runtime._run_idat_huffman_kraft_runtime(runtime, data, before)
+
+    assert result is not None
+    assert result.top_candidates == (seed,)
+    assert any("throttled before the desktop ran out of memory" in call[1][1] for call in calls if call[0] == "candy")
+    assert any("memory=hard" in note for note in side_notes)
 
 
 def test_hermesprobe_affine_corruption_uses_global_workers_and_gpu(tmp_path, monkeypatch):

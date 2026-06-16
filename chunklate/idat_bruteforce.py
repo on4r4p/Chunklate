@@ -77,6 +77,26 @@ def _hidden_tmp_path(path: str) -> str:
     return os.path.join(directory, tmp_name) if directory else tmp_name
 
 
+def _bounded_route_stop_reason(
+    *,
+    tested: int,
+    budget: int,
+    budget_exhausted: bool,
+    candidate_pool_exhausted: bool = False,
+    frontier_exhausted: bool = False,
+    depth_limit_reached: bool = False,
+) -> str:
+    if budget_exhausted or int(tested) >= int(budget):
+        return "budget_exhausted"
+    if candidate_pool_exhausted:
+        return "candidate_pool_exhausted"
+    if frontier_exhausted:
+        return "frontier_exhausted"
+    if depth_limit_reached:
+        return "depth_limit_reached"
+    return "completed"
+
+
 @dataclass(frozen=True)
 class IdatDeflateCandidate:
     data: bytes
@@ -344,6 +364,7 @@ class IdatHuffmanOracleSolverResult:
     valid_headers: int = 0
     png_plausible: int = 0
     reached_depth: int = 0
+    seed_count: int = 0
     strategy: str = "dynamic-huffman-png-oracle"
     reason: str = ""
     source_hash: str = ""
@@ -395,7 +416,32 @@ class IdatHuffmanKraftSolverResult:
     gpu_shards: int = 0
     cpu_batches: int = 0
     kraft_prefilter_hits: int = 0
+    memory_mode: str = "normal"
+    memory_available_bytes: int | None = None
+    memory_throttle_events: int = 0
     strategy: str = "huffman-kraft"
+    reason: str = ""
+    source_hash: str = ""
+
+    @property
+    def improved(self) -> bool:
+        return self.best is not None
+
+
+@dataclass(frozen=True)
+class IdatFirstFilterLiteralResult:
+    before: idat.IdatStreamAnalysis
+    best: IdatDeepBeamCandidate | None
+    top_candidates: tuple[IdatDeepBeamCandidate, ...]
+    tested_candidates: int
+    budget_exhausted: bool
+    checkpoint_path: str = ""
+    progress_path: str = ""
+    seed_count: int = 0
+    closure_hits: int = 0
+    first_filter_hits: int = 0
+    png_plausible: int = 0
+    strategy: str = "first-filter-literal"
     reason: str = ""
     source_hash: str = ""
 
@@ -417,6 +463,7 @@ class IdatKraftBackrefRepairResult:
     repaired_backrefs: int = 0
     png_prefix_hits: int = 0
     best_prefix_rows: int = 0
+    reached_depth: int = 0
     strategy: str = "kraft-backref-repair"
     reason: str = ""
     source_hash: str = ""
@@ -7908,7 +7955,13 @@ DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE = 128
 DEEP_BEAM_SUCCESSOR_KEEP_LIMIT = 512
 DEEP_BEAM_WORKER_IN_FLIGHT_LIMIT = 16
 DEEP_BEAM_AUTO_WORKER_LIMIT = 4
-DEEP_BEAM_MIN_AVAILABLE_MEMORY_BYTES = 512 * 1024 * 1024
+DEEP_BEAM_MIN_AVAILABLE_MEMORY_BYTES = 1024 * 1024 * 1024
+HUFFMAN_KRAFT_MEMORY_SOFT_BYTES = 2 * 1024 * 1024 * 1024
+HUFFMAN_KRAFT_MEMORY_HARD_BYTES = DEEP_BEAM_MIN_AVAILABLE_MEMORY_BYTES
+HUFFMAN_KRAFT_MEMORY_EMERGENCY_BYTES = 512 * 1024 * 1024
+HUFFMAN_KRAFT_THROTTLE_WORKER_LIMIT = 4
+HUFFMAN_KRAFT_THROTTLE_BATCH_SIZE = 128
+HUFFMAN_KRAFT_HARD_THROTTLE_BATCH_SIZE = 64
 DEEP_BEAM_GPU_MAX_HITS = 128
 PERIODIC_MODEL_DEFAULT_BUDGET = 250_000
 PERIODIC_MODEL_DEFAULT_MAX_DEPTH = 3
@@ -7922,9 +7975,18 @@ HUFFMAN_KRAFT_DEFAULT_MAX_DEPTH = 4
 HUFFMAN_KRAFT_DEFAULT_WIDTH = 128
 HUFFMAN_KRAFT_DEFAULT_TOP_CANDIDATES = 25
 HUFFMAN_KRAFT_CHECKPOINT_EVERY = 25_000
-KRAFT_BACKREF_DEFAULT_BUDGET = 250_000
+HUFFMAN_KRAFT_PROGRESS_EVERY = 5_000
+HUFFMAN_KRAFT_GPU_HIT_LIMIT = DEEP_BEAM_GPU_MAX_HITS
+HUFFMAN_KRAFT_SUCCESSOR_KEEP_LIMIT = DEEP_BEAM_SUCCESSOR_KEEP_LIMIT
+FIRST_FILTER_LITERAL_DEFAULT_BUDGET = 10_000
+FIRST_FILTER_LITERAL_DEFAULT_TOP_CANDIDATES = 25
+FIRST_FILTER_LITERAL_ROUTE_VERSION = 2
+KRAFT_BACKREF_DEFAULT_BUDGET = 200_000
 KRAFT_BACKREF_DEFAULT_TOP_CANDIDATES = 25
 KRAFT_BACKREF_CHECKPOINT_EVERY = 25_000
+KRAFT_BACKREF_DEFAULT_MAX_DEPTH = 3
+KRAFT_BACKREF_MAX_OPERATIONS_PER_SEED = 25_000
+KRAFT_BACKREF_ROUTE_VERSION = 2
 HUFFMAN_ORACLE_DEFAULT_BUDGET = 750_000
 HUFFMAN_ORACLE_DEFAULT_MAX_DEPTH = 3
 HUFFMAN_ORACLE_DEFAULT_WIDTH = 96
@@ -8909,8 +8971,24 @@ def _frontier_progress_state(data: bytes, progress_path: str = "", *, label: str
         exhausted=bool(payload.get("exhausted", False)),
         tested=int(payload.get("tested_candidates", 0) or 0),
         budget=int(payload.get("budget", 0) or 0),
-        reason="%s progress %s source hash" % (label, "matches" if matches else "does not match"),
+        reason=str(payload.get("reason") or "%s progress %s source hash" % (label, "matches" if matches else "does not match")),
     )
+
+
+def frontier_progress_route_version(progress_path: str = "") -> int:
+    if not progress_path or not os.path.exists(progress_path):
+        return 0
+    try:
+        with open(progress_path, "r", encoding="utf-8") as file:
+            payload = json.load(file)
+    except (OSError, json.JSONDecodeError, TypeError):
+        return 0
+    if not isinstance(payload, dict):
+        return 0
+    try:
+        return int(payload.get("route_version", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def huffman_oracle_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
@@ -8923,6 +9001,10 @@ def crc_periodic_progress_state(data: bytes, progress_path: str = "") -> IdatFro
 
 def huffman_kraft_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
     return _frontier_progress_state(data, progress_path, label="huffman kraft")
+
+
+def first_filter_literal_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
+    return _frontier_progress_state(data, progress_path, label="first-filter-literal")
 
 
 def kraft_backref_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
@@ -9313,6 +9395,7 @@ def _load_frontier_candidates_for_progress(
     chunks, root_stream = _all_chunks_and_idat_stream(data)
     source_hash = _stream_state_key(root_stream)
     original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    load_limit = max(1, min(5000, int(top_candidates) * 64))
     checkpoint_candidates, _visited, _next_state_id, _records = _load_deep_beam_checkpoint(
         checkpoint_path,
         source_hash=source_hash,
@@ -9320,7 +9403,7 @@ def _load_frontier_candidates_for_progress(
         chunks=chunks,
         before=before,
         original_idat_count=original_idat_count,
-        candidate_limit=top_candidates,
+        candidate_limit=load_limit,
         max_operation_depth=max_operation_depth,
     )
     return (
@@ -9432,6 +9515,25 @@ def _huffman_kraft_rank(stream: bytes, analysis: idat.IdatStreamAnalysis) -> tup
         int(analysis.error_offset if analysis.error_offset is not None else -1),
         int(bit_offset),
     )
+
+
+def _huffman_kraft_ranked_unique(
+    candidates: Iterable[IdatDeepBeamCandidate],
+    *,
+    limit: int,
+) -> tuple[IdatDeepBeamCandidate, ...]:
+    unique: dict[str, IdatDeepBeamCandidate] = {}
+    for candidate in candidates:
+        key = _stream_state_key(candidate.stream)
+        current = unique.get(key)
+        if current is None or _huffman_kraft_rank(candidate.stream, candidate.after) > _huffman_kraft_rank(current.stream, current.after):
+            unique[key] = candidate
+    ranked = sorted(
+        unique.values(),
+        key=lambda item: _huffman_kraft_rank(item.stream, item.after),
+        reverse=True,
+    )
+    return tuple(ranked[: max(1, int(limit))])
 
 
 def _huffman_kraft_accepts(parent: IdatDeepBeamCandidate, candidate: IdatDeepBeamCandidate) -> bool:
@@ -9662,13 +9764,14 @@ def _huffman_kraft_operation_batches(
     compact_operations: tuple[HuffmanKraftCompactOperation, ...],
     *,
     workers: int,
+    cpu_batch_size: int | None = None,
 ) -> tuple[tuple[HuffmanKraftCompactOperation, ...], ...]:
     if not compact_operations:
         return ()
     batch_size = _deep_beam_cpu_batch_size(
         len(compact_operations),
         max(1, int(workers)),
-        DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE,
+        int(cpu_batch_size or DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE),
     )
     return tuple(
         tuple(compact_operations[index : index + batch_size])
@@ -9681,6 +9784,7 @@ def _huffman_kraft_gpu_prefilter_compact_operations(
     compact_operations: tuple[HuffmanKraftCompactOperation, ...],
     *,
     gpu_session: Any = None,
+    hit_limit: int = HUFFMAN_KRAFT_GPU_HIT_LIMIT,
 ) -> tuple[tuple[HuffmanKraftCompactOperation, ...], int, int, str]:
     if gpu_session is None or not compact_operations:
         return compact_operations, 0, 0, "off"
@@ -9703,6 +9807,7 @@ def _huffman_kraft_gpu_prefilter_compact_operations(
     if result.status != "opengl-active":
         return compact_operations, int(result.shards), 0, result.status
     indices = tuple(index for index in result.hit_indices if 0 <= int(index) < len(compact_operations))
+    indices = indices[: max(1, int(hit_limit))]
     if not indices:
         return (), int(result.shards), 0, result.status
     return tuple(compact_operations[int(index)] for index in indices), int(result.shards), len(indices), result.status
@@ -9719,6 +9824,9 @@ def _huffman_kraft_validate_operations(
     workers: int,
     worker_executor: ProcessPoolExecutor | None,
     gpu_session: Any = None,
+    cpu_batch_size: int | None = None,
+    in_flight_limit: int | None = None,
+    successor_limit: int | None = None,
 ) -> tuple[tuple[IdatDeepBeamCandidate, ...], int, int, int, int, str]:
     compact_operations = tuple(
         compact
@@ -9733,9 +9841,19 @@ def _huffman_kraft_validate_operations(
         compact_operations,
         gpu_session=gpu_session,
     )
-    batches = _huffman_kraft_operation_batches(compact_operations, workers=workers)
+    batches = _huffman_kraft_operation_batches(
+        compact_operations,
+        workers=workers,
+        cpu_batch_size=cpu_batch_size,
+    )
     if not batches:
         return (), 0, 0, gpu_shards, gpu_hits, gpu_status
+    successor_limit = max(1, int(successor_limit or HUFFMAN_KRAFT_SUCCESSOR_KEEP_LIMIT))
+
+    def prune_candidates(candidates: list[IdatDeepBeamCandidate]) -> list[IdatDeepBeamCandidate]:
+        if len(candidates) <= successor_limit * 2:
+            return candidates
+        return list(_huffman_kraft_ranked_unique(candidates, limit=successor_limit))
 
     def run_local() -> tuple[tuple[IdatDeepBeamCandidate, ...], int, int, int, int, str]:
         candidates: list[IdatDeepBeamCandidate] = []
@@ -9755,47 +9873,80 @@ def _huffman_kraft_validate_operations(
                 )
             )
             candidates.extend(batch_candidates)
+            candidates = prune_candidates(candidates)
             prefilter_hits += int(batch_hits)
             cpu_batches += 1
-        return tuple(candidates), prefilter_hits, cpu_batches, gpu_shards, gpu_hits, gpu_status
+        return _huffman_kraft_ranked_unique(candidates, limit=successor_limit), prefilter_hits, cpu_batches, gpu_shards, gpu_hits, gpu_status
 
     if worker_executor is None or len(batches) <= 1:
         return run_local()
 
-    try:
-        futures = tuple(
-            worker_executor.submit(
-                _huffman_kraft_apply_compact_operation_batch,
-                (
-                    parent.stream,
-                    parent.operations,
-                    parent.state_id,
-                    parent.source_offsets,
-                    batch,
-                    chunks,
-                    before,
-                    original_idat_count,
-                ),
-            )
-            for batch in batches
+    candidates: list[IdatDeepBeamCandidate] = []
+    prefilter_hits = 0
+    submitted = 0
+    completed = 0
+    in_flight_limit = max(
+        1,
+        min(
+            int(in_flight_limit or _deep_beam_worker_in_flight_limit(workers, len(batches))),
+            len(batches),
+        ),
+    )
+    pending: dict[Any, int] = {}
+
+    def submit_next() -> None:
+        nonlocal submitted
+        if submitted >= len(batches):
+            return
+        future = worker_executor.submit(
+            _huffman_kraft_apply_compact_operation_batch,
+            (
+                parent.stream,
+                parent.operations,
+                parent.state_id,
+                parent.source_offsets,
+                batches[submitted],
+                chunks,
+                before,
+                original_idat_count,
+            ),
         )
+        pending[future] = submitted
+        submitted += 1
+
+    try:
+        for _ in range(in_flight_limit):
+            submit_next()
     except Exception:
+        for future in pending:
+            future.cancel()
         return run_local()
 
     try:
-        candidates: list[IdatDeepBeamCandidate] = []
-        prefilter_hits = 0
-        for future in futures:
-            batch_candidates, batch_hits = future.result()
-            candidates.extend(batch_candidates)
-            prefilter_hits += int(batch_hits)
-        return tuple(candidates), prefilter_hits, len(futures), gpu_shards, gpu_hits, gpu_status
+        while pending:
+            done, _not_done = wait(tuple(pending), return_when=FIRST_COMPLETED)
+            for future in done:
+                pending.pop(future, None)
+                batch_candidates, batch_hits = future.result()
+                candidates.extend(batch_candidates)
+                candidates = prune_candidates(candidates)
+                prefilter_hits += int(batch_hits)
+                completed += 1
+                submit_next()
+        return (
+            _huffman_kraft_ranked_unique(candidates, limit=successor_limit),
+            prefilter_hits,
+            completed,
+            gpu_shards,
+            gpu_hits,
+            gpu_status,
+        )
     except KeyboardInterrupt:
-        for future in futures:
+        for future in pending:
             future.cancel()
         raise
     except Exception:
-        for future in futures:
+        for future in pending:
             future.cancel()
         return run_local()
 
@@ -9851,7 +10002,7 @@ def probe_idat_huffman_kraft_solver(
             data,
             checkpoint_path,
             top_candidates=top_candidates,
-            max_operation_depth=max_depth,
+            max_operation_depth=None,
         )
         best = _frontier_best_candidate(before, top)
         literal_debt, distance_debt, _eob, _lc, _dc, _lu, _du = _huffman_kraft_metrics(top[0].stream if top else root_stream)
@@ -9890,11 +10041,21 @@ def probe_idat_huffman_kraft_solver(
     budget_exhausted = False
     reached_depth = 0
     last_checkpoint_at = 0
+    last_progress_snapshot_at = 0
     gpu_status = "off"
     gpu_hits = 0
     gpu_shards = 0
     cpu_batches = 0
     kraft_prefilter_hits = 0
+    memory_guard_hit = False
+    memory_mode = "normal"
+    memory_available_bytes: int | None = _deep_beam_memory_available_bytes()
+    memory_throttle_events = 0
+    effective_cpu_batch_size = DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE
+    effective_in_flight_limit: int | None = None
+    effective_successor_limit = HUFFMAN_KRAFT_SUCCESSOR_KEEP_LIMIT
+    worker_executor: ProcessPoolExecutor | None = None
+    gpu_session: Any = None
 
     checkpoint_candidates: tuple[IdatDeepBeamCandidate, ...] = ()
     checkpoint_matched_records = 0
@@ -9907,7 +10068,7 @@ def probe_idat_huffman_kraft_solver(
             before=before,
             original_idat_count=original_idat_count,
             candidate_limit=max(1, int(top_candidates)),
-            max_operation_depth=max_depth,
+            max_operation_depth=None,
         )
         checkpoint_candidates = tuple(checkpoint_candidate_list)
         checkpointed_hashes = set(checkpoint_visited)
@@ -9921,6 +10082,19 @@ def probe_idat_huffman_kraft_solver(
             inferred_tested = (int(checkpoint_matched_records) // checkpoint_groups) * int(HUFFMAN_KRAFT_CHECKPOINT_EVERY)
             tested = max(tested, min(budget_int, inferred_tested))
         last_checkpoint_at = tested
+        last_progress_snapshot_at = tested
+
+    if (
+        progress_state.available
+        and progress_state.source_matches
+        and "memory_guard" in str(progress_state.reason)
+    ):
+        worker_count = min(max(1, int(worker_count)), int(HUFFMAN_KRAFT_THROTTLE_WORKER_LIMIT))
+        gpu_requested = False
+        memory_mode = "resume-degraded"
+        effective_cpu_batch_size = HUFFMAN_KRAFT_HARD_THROTTLE_BATCH_SIZE
+        effective_in_flight_limit = 1
+        effective_successor_limit = max(1, min(HUFFMAN_KRAFT_SUCCESSOR_KEEP_LIMIT, max(int(top_candidates), 64)))
 
     for seed in seed_candidates:
         if seed.stream and _stream_state_key(seed.stream) not in visited:
@@ -9996,8 +10170,25 @@ def probe_idat_huffman_kraft_solver(
                 "gpu_hits": int(gpu_hits),
                 "cpu_batches": int(cpu_batches),
                 "kraft_prefilter_hits": int(kraft_prefilter_hits),
+                "memory_mode": str(memory_mode),
+                "memory_available_bytes": memory_available_bytes,
+                "memory_throttle_events": int(memory_throttle_events),
+                "effective_batch_size": int(effective_cpu_batch_size),
+                "effective_in_flight": int(effective_in_flight_limit or 0),
+                "effective_successor_limit": int(effective_successor_limit),
+                "resumable": True,
             },
         )
+
+    def write_abort_snapshot(reason: str) -> None:
+        try:
+            write_checkpoint_items()
+        except Exception:
+            pass
+        try:
+            write_progress_snapshot(exhausted=False, reason=reason)
+        except Exception:
+            pass
 
     def remember(parent: IdatDeepBeamCandidate, candidate: IdatDeepBeamCandidate) -> bool:
         nonlocal top, valid_headers, complete_trees, first_symbol_ok
@@ -10019,20 +10210,79 @@ def probe_idat_huffman_kraft_solver(
         top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
         return True
 
+    def shutdown_worker_executor() -> None:
+        nonlocal worker_executor
+        if worker_executor is None:
+            return
+        try:
+            worker_executor.shutdown(cancel_futures=True)
+        except Exception:
+            pass
+        worker_executor = None
+
+    def ensure_worker_executor() -> None:
+        nonlocal worker_executor, worker_count
+        if int(worker_count) <= 1 or worker_executor is not None:
+            return
+        try:
+            worker_executor = ProcessPoolExecutor(max_workers=worker_count, initializer=_deep_beam_worker_init)
+        except (OSError, RuntimeError, ValueError):
+            worker_executor = None
+            worker_count = 1
+
+    def close_gpu_session(status: str = "disabled-memory-pressure") -> None:
+        nonlocal gpu_session, gpu_status
+        if gpu_session is not None:
+            try:
+                gpu_session.close()
+            except Exception:
+                pass
+        gpu_session = None
+        if gpu_requested:
+            gpu_status = status
+
+    def apply_memory_policy() -> bool:
+        nonlocal worker_count, memory_mode, memory_available_bytes, memory_throttle_events
+        nonlocal effective_cpu_batch_size, effective_in_flight_limit, effective_successor_limit
+        memory_available_bytes = _deep_beam_memory_available_bytes()
+        level = _huffman_kraft_memory_level(memory_available_bytes)
+        if level == "normal" and _deep_beam_memory_guard_tripped():
+            level = "hard"
+        if level == "normal":
+            return True
+        if level != memory_mode:
+            memory_throttle_events += 1
+        memory_mode = level
+        if level == "soft":
+            effective_cpu_batch_size = min(effective_cpu_batch_size, HUFFMAN_KRAFT_THROTTLE_BATCH_SIZE)
+            effective_in_flight_limit = 2
+            effective_successor_limit = max(1, min(effective_successor_limit, max(int(top_candidates), 128)))
+            if worker_count > HUFFMAN_KRAFT_THROTTLE_WORKER_LIMIT:
+                shutdown_worker_executor()
+                worker_count = HUFFMAN_KRAFT_THROTTLE_WORKER_LIMIT
+                ensure_worker_executor()
+            return True
+        effective_cpu_batch_size = min(effective_cpu_batch_size, HUFFMAN_KRAFT_HARD_THROTTLE_BATCH_SIZE)
+        effective_in_flight_limit = 1
+        effective_successor_limit = max(1, min(effective_successor_limit, max(int(top_candidates), 64)))
+        close_gpu_session()
+        if worker_count > 2:
+            shutdown_worker_executor()
+            worker_count = 2
+            ensure_worker_executor()
+        if level == "hard":
+            return True
+        shutdown_worker_executor()
+        worker_count = 1
+        return False
+
     if progress is not None:
         progress(strategy, min(tested, budget_int), budget_int)
     if checkpoint_candidates or (progress_state.available and progress_state.source_matches and not progress_state.exhausted):
         write_checkpoint_items()
         write_progress_snapshot(exhausted=False, reason="huffman kraft resumed from checkpoint/progress")
 
-    worker_executor: ProcessPoolExecutor | None = None
-    if worker_count > 1:
-        try:
-            worker_executor = ProcessPoolExecutor(max_workers=worker_count, initializer=_deep_beam_worker_init)
-        except (OSError, RuntimeError, ValueError):
-            worker_executor = None
-            worker_count = 1
-    gpu_session: Any = None
+    ensure_worker_executor()
     if gpu_requested:
         try:
             from . import idat_kraft_opengl_backend
@@ -10048,6 +10298,10 @@ def probe_idat_huffman_kraft_solver(
             reached_depth = depth
             next_frontier: list[IdatDeepBeamCandidate] = []
             for parent in frontier:
+                if not apply_memory_policy():
+                    memory_guard_hit = True
+                    write_abort_snapshot("huffman kraft memory guard")
+                    break
                 if tested >= budget_int:
                     budget_exhausted = True
                     break
@@ -10070,7 +10324,12 @@ def probe_idat_huffman_kraft_solver(
                     workers=worker_count,
                     worker_executor=worker_executor,
                     gpu_session=gpu_session if depth <= 2 else None,
+                    cpu_batch_size=effective_cpu_batch_size,
+                    in_flight_limit=effective_in_flight_limit,
+                    successor_limit=effective_successor_limit,
                 )
+                if not apply_memory_policy():
+                    memory_guard_hit = True
                 cpu_batches += int(batch_cpu_batches)
                 kraft_prefilter_hits += int(batch_prefilter_hits)
                 gpu_shards += int(batch_gpu_shards)
@@ -10082,15 +10341,24 @@ def probe_idat_huffman_kraft_solver(
                 for candidate in candidates:
                     if remember(parent, candidate):
                         next_frontier.append(candidate)
+                if memory_guard_hit:
+                    write_abort_snapshot("huffman kraft memory guard")
+                    break
                 if progress is not None and (tested == len(operations) or tested % 100 == 0 or len(operations) >= 100):
                     progress(strategy, min(tested, budget_int), budget_int)
                 if checkpoint_path and top and tested - last_checkpoint_at >= HUFFMAN_KRAFT_CHECKPOINT_EVERY:
                     write_checkpoint_items()
                     write_progress_snapshot(exhausted=False, reason="huffman kraft checkpoint")
                     last_checkpoint_at = tested
+                    last_progress_snapshot_at = tested
+                elif progress_path and tested - last_progress_snapshot_at >= HUFFMAN_KRAFT_PROGRESS_EVERY:
+                    write_progress_snapshot(exhausted=False, reason="huffman kraft progress")
+                    last_progress_snapshot_at = tested
                 if tested >= budget_int:
                     budget_exhausted = True
                     break
+            if memory_guard_hit:
+                break
             frontier = list(
                 sorted(
                     _deep_beam_ranked_unique(next_frontier, limit=max(1, int(beam_width))),
@@ -10100,6 +10368,12 @@ def probe_idat_huffman_kraft_solver(
             )[: max(1, int(beam_width))]
             if budget_exhausted or not frontier:
                 break
+    except KeyboardInterrupt:
+        write_abort_snapshot("huffman kraft interrupted")
+        raise
+    except BaseException as exc:
+        write_abort_snapshot("huffman kraft aborted: %s: %s" % (type(exc).__name__, exc))
+        raise
     finally:
         if gpu_session is not None:
             try:
@@ -10120,10 +10394,18 @@ def probe_idat_huffman_kraft_solver(
     )[: max(1, int(top_candidates))]
     best = _frontier_best_candidate(before, top)
     best_literal_debt, best_distance_debt, _eob, _lc, _dc, _lu, _du = _huffman_kraft_metrics(top[0].stream if top else root_stream)
+    stop_reason = "memory_guard" if memory_guard_hit else _bounded_route_stop_reason(
+        tested=tested,
+        budget=budget_int,
+        budget_exhausted=budget_exhausted or tested >= budget_int,
+        frontier_exhausted=not frontier,
+        depth_limit_reached=not (budget_exhausted or tested >= budget_int),
+    )
     reason = (
-        "depth=%s; states=%s; valid_headers=%s; complete_trees=%s; first_symbol_ok=%s; "
-        "literal_debt=%s; distance_debt=%s; top=%s"
+        "stop=%s; depth=%s; states=%s; valid_headers=%s; complete_trees=%s; first_symbol_ok=%s; "
+        "literal_debt=%s; distance_debt=%s; top=%s; memory_mode=%s; throttle_events=%s"
         % (
+            stop_reason,
             reached_depth,
             len(visited),
             valid_headers,
@@ -10132,6 +10414,8 @@ def probe_idat_huffman_kraft_solver(
             best_literal_debt,
             best_distance_debt,
             len(top),
+            memory_mode,
+            memory_throttle_events,
         )
     )
     _write_frontier_progress(
@@ -10141,7 +10425,7 @@ def probe_idat_huffman_kraft_solver(
         budget=budget_int,
         best=best,
         top_count=len(top),
-        exhausted=True,
+        exhausted=not memory_guard_hit,
         reason=reason,
         strategy=strategy,
         extra={
@@ -10157,6 +10441,13 @@ def probe_idat_huffman_kraft_solver(
             "gpu_hits": int(gpu_hits),
             "cpu_batches": int(cpu_batches),
             "kraft_prefilter_hits": int(kraft_prefilter_hits),
+            "memory_mode": str(memory_mode),
+            "memory_available_bytes": memory_available_bytes,
+            "memory_throttle_events": int(memory_throttle_events),
+            "effective_batch_size": int(effective_cpu_batch_size),
+            "effective_in_flight": int(effective_in_flight_limit or 0),
+            "effective_successor_limit": int(effective_successor_limit),
+            "resumable": True,
         },
     )
     if progress is not None:
@@ -10181,6 +10472,375 @@ def probe_idat_huffman_kraft_solver(
         gpu_shards=gpu_shards,
         cpu_batches=cpu_batches,
         kraft_prefilter_hits=kraft_prefilter_hits,
+        memory_mode=memory_mode,
+        memory_available_bytes=memory_available_bytes,
+        memory_throttle_events=memory_throttle_events,
+        strategy=strategy,
+        reason=reason,
+        source_hash=source_hash,
+    )
+
+
+def _dynamic_first_literal_symbol(
+    stream: bytes,
+) -> tuple[int, int, int, dict[tuple[int, int], int], int] | None:
+    try:
+        reader = deflate_header.BitReader(stream, start_byte=2)
+        reader.read(1)
+        btype = reader.read(2)
+        if btype != 2:
+            return None
+        literal_table, literal_max, _distance_table, _distance_max = deflate_probe._read_dynamic_tables(reader)
+        symbol, bit_start, bit_end = deflate_header._decode_symbol_with_bits(
+            reader,
+            literal_table,
+            literal_max,
+        )
+    except Exception:
+        return None
+    return int(symbol), int(bit_start), int(bit_end), literal_table, int(literal_max)
+
+
+def _huffman_symbol_codes(table: dict[tuple[int, int], int]) -> dict[int, tuple[int, int]]:
+    return {
+        int(symbol): (int(code), int(width))
+        for (code, width), symbol in table.items()
+    }
+
+
+def _single_symbol_closure_length(left: int, max_bits: int) -> int | None:
+    left = int(left)
+    max_bits = int(max_bits)
+    if left <= 0 or max_bits <= 0:
+        return None
+    if left & (left - 1):
+        return None
+    shift = left.bit_length() - 1
+    target = max_bits - shift
+    if target < 1 or target > 15:
+        return None
+    return int(target)
+
+
+def _huffman_kraft_closure_operations(
+    stream: bytes,
+    trace: deflate_header.DynamicHeaderTrace,
+    *,
+    max_operations: int = 32,
+) -> tuple[IdatDeepBeamOperation, ...]:
+    if max_operations <= 0 or trace.btype != 2 or not trace.tokens:
+        return ()
+    try:
+        symbol_codes = _dynamic_code_length_symbol_codes(trace)
+    except Exception:
+        return ()
+    try:
+        hlit = int(trace.hlit or 0)
+    except (TypeError, ValueError):
+        hlit = 0
+    if hlit <= 0:
+        return ()
+
+    operations: list[IdatDeepBeamOperation] = []
+    seen: set[tuple[int, int, tuple[int, ...]]] = set()
+
+    def token_for_length_index(global_index: int) -> deflate_header.DynamicLengthToken | None:
+        for token in trace.tokens:
+            if int(token.length_start) <= int(global_index) < int(token.length_end):
+                if int(token.length_end) - int(token.length_start) != 1:
+                    return None
+                return token
+        return None
+
+    targets = (
+        ("literal", tuple(int(value) for value in trace.literal_lengths), 0),
+        ("distance", tuple(int(value) for value in trace.distance_lengths), hlit),
+    )
+    for label, lengths, global_start in targets:
+        left, _debt, _used, max_bits = _huffman_balance(lengths)
+        target_length = _single_symbol_closure_length(left, max_bits)
+        if target_length is None:
+            continue
+        encoded = _encode_dynamic_length_token(symbol_codes, target_length)
+        if encoded is None:
+            continue
+
+        zero_indexes = tuple(index for index, value in enumerate(lengths) if int(value) == 0)
+        if label == "distance":
+            zero_indexes = tuple(sorted(zero_indexes, key=lambda index: (abs(index - 10), index)))
+        else:
+            zero_indexes = tuple(sorted(zero_indexes, key=lambda index: (abs(index - 256), index)))
+
+        for index in zero_indexes:
+            if len(operations) >= max_operations:
+                return tuple(operations)
+            token = token_for_length_index(int(global_start) + int(index))
+            if token is None:
+                continue
+            bit_start = int(token.bit_start)
+            bit_end = _dynamic_length_token_bit_end(token)
+            key = (bit_start, bit_end, tuple(int(bit) & 1 for bit in encoded))
+            if key in seen:
+                continue
+            seen.add(key)
+            operations.append(
+                IdatDeepBeamOperation(
+                    "huffman-kraft-closure-%s" % label,
+                    bit_start // 8,
+                    _stream_bit_range_to_bytes(stream, bit_start, bit_end),
+                    bytes(int(bit) & 1 for bit in encoded),
+                    tuple(range(bit_start, bit_end)),
+                )
+            )
+    return tuple(operations)
+
+
+def _first_filter_literal_candidate(
+    parent: IdatDeepBeamCandidate,
+    target_filter: int,
+    *,
+    chunks: tuple[png.PngChunk, ...],
+    before: idat.IdatStreamAnalysis,
+    state_id: int,
+    original_idat_count: int,
+) -> IdatDeepBeamCandidate | None:
+    first = _dynamic_first_literal_symbol(parent.stream)
+    if first is None:
+        return None
+    symbol, bit_start, bit_end, literal_table, _literal_max = first
+    codes = _huffman_symbol_codes(literal_table)
+    target_code = codes.get(int(target_filter))
+    if target_code is None:
+        return None
+    code, width = target_code
+    replacement_bits = tuple((int(code) >> index) & 1 for index in range(int(width)))
+    stream = _replace_stream_bits_preserve_length(parent.stream, bit_start, bit_end, replacement_bits)
+    if stream is None or stream == parent.stream:
+        return None
+    operation = IdatDeepBeamOperation(
+        "first-filter-literal",
+        int(bit_start) // 8,
+        _stream_bit_range_to_bytes(parent.stream, bit_start, bit_end),
+        bytes(int(bit) & 1 for bit in replacement_bits),
+        tuple(range(int(bit_start), int(bit_end))),
+    )
+    candidate = _frontier_candidate_from_stream(
+        parent,
+        stream,
+        operation,
+        chunks=chunks,
+        before=before,
+        state_id=int(state_id),
+        original_idat_count=original_idat_count,
+        source_kind="candidate_from_first_filter_literal",
+    )
+    if candidate is None:
+        return None
+    oracle = raw_png_oracle_decision(
+        candidate.stream,
+        candidate.after,
+        max_output=max(8192, int(getattr(before, "scanline_size", 0) or 0) * 2),
+    )
+    if not oracle.first_filter_ok:
+        return None
+    return candidate
+
+
+def probe_idat_first_filter_literal_solver(
+    data: bytes,
+    *,
+    budget: int = FIRST_FILTER_LITERAL_DEFAULT_BUDGET,
+    top_candidates: int = FIRST_FILTER_LITERAL_DEFAULT_TOP_CANDIDATES,
+    checkpoint_path: str = "",
+    progress_path: str = "",
+    seed_candidates: Iterable[IdatDeepBeamCandidate] = (),
+    progress: QueueProgressCallback | None = None,
+) -> IdatFirstFilterLiteralResult:
+    strategy = "first-filter-literal"
+    budget_int = max(0, int(budget))
+    before = idat.analyze_idat_stream(data)
+    if not before.supported or before.complete:
+        return IdatFirstFilterLiteralResult(before, None, (), 0, False, strategy=strategy, reason=before.reason)
+    try:
+        chunks, root_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatFirstFilterLiteralResult(before, None, (), 0, False, strategy=strategy, reason=str(exc))
+    source_hash = _stream_state_key(root_stream)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    seed_candidates_tuple = tuple(seed_candidates)
+    progress_state = first_filter_literal_progress_state(data, progress_path)
+    progress_route_version = frontier_progress_route_version(progress_path)
+    if (
+        progress_state.available
+        and progress_state.source_matches
+        and progress_state.exhausted
+        and progress_state.budget >= budget_int
+        and progress_route_version >= FIRST_FILTER_LITERAL_ROUTE_VERSION
+    ):
+        _before, _chunks, _stream, _source_hash, _count, top = _load_frontier_candidates_for_progress(
+            data,
+            checkpoint_path,
+            top_candidates=top_candidates,
+            max_operation_depth=None,
+        )
+        if top or not seed_candidates_tuple:
+            best = _frontier_best_candidate(before, top)
+            return IdatFirstFilterLiteralResult(
+                before,
+                best,
+                top,
+                progress_state.tested,
+                progress_state.tested >= budget_int,
+                checkpoint_path=checkpoint_path,
+                progress_path=progress_path,
+                seed_count=0,
+                closure_hits=0,
+                first_filter_hits=len(top),
+                png_plausible=len(top),
+                strategy=strategy,
+                reason="first-filter-literal already exhausted for this source/budget",
+                source_hash=source_hash,
+            )
+
+    root = _frontier_root_candidate(
+        data=data,
+        stream=root_stream,
+        before=before,
+        original_idat_count=original_idat_count,
+    )
+    parents: list[IdatDeepBeamCandidate] = [root]
+    seen_parent_hashes = {_stream_state_key(root.stream)}
+    seed_count = 0
+    for seed in seed_candidates_tuple:
+        if not getattr(seed, "stream", b""):
+            continue
+        key = _stream_state_key(seed.stream)
+        if key in seen_parent_hashes:
+            continue
+        seen_parent_hashes.add(key)
+        seed_count += 1
+        parents.append(seed)
+
+    tested = 0
+    next_state_id = 1
+    closure_hits = 0
+    top: list[IdatDeepBeamCandidate] = []
+    visited = {_stream_state_key(root.stream)}
+    first_filter_hits = 0
+    png_plausible = 0
+    budget_exhausted = False
+
+    expanded_parents = list(parents)
+    for parent in tuple(parents):
+        if tested >= budget_int:
+            budget_exhausted = True
+            break
+        trace = deflate_header.trace_dynamic_header(parent.stream)
+        for operation in _huffman_kraft_closure_operations(parent.stream, trace):
+            if tested >= budget_int:
+                budget_exhausted = True
+                break
+            tested += 1
+            candidate = _huffman_kraft_candidate_from_operation(
+                parent,
+                operation,
+                chunks=chunks,
+                before=before,
+                state_id=next_state_id,
+                original_idat_count=original_idat_count,
+            )
+            next_state_id += 1
+            if candidate is None:
+                continue
+            key = _stream_state_key(candidate.stream)
+            if key in seen_parent_hashes:
+                continue
+            closure_trace = deflate_header.trace_dynamic_header(candidate.stream)
+            if closure_trace.status != "ok":
+                continue
+            seen_parent_hashes.add(key)
+            closure_hits += 1
+            expanded_parents.append(candidate)
+    parents = expanded_parents
+
+    for parent in parents:
+        if tested >= budget_int:
+            budget_exhausted = True
+            break
+        for target_filter in (0, 1, 2, 3, 4):
+            if tested >= budget_int:
+                budget_exhausted = True
+                break
+            tested += 1
+            candidate = _first_filter_literal_candidate(
+                parent,
+                target_filter,
+                chunks=chunks,
+                before=before,
+                state_id=next_state_id,
+                original_idat_count=original_idat_count,
+            )
+            next_state_id += 1
+            if candidate is None:
+                continue
+            key = _stream_state_key(candidate.stream)
+            if key in visited:
+                continue
+            visited.add(key)
+            first_filter_hits += 1
+            oracle = raw_png_oracle_decision(candidate.stream, candidate.after)
+            if oracle.first_filter_ok:
+                png_plausible += 1
+            top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
+        if progress is not None:
+            progress(strategy, min(tested, budget_int), budget_int)
+
+    top = list(_deep_beam_ranked_unique(top, limit=max(1, int(top_candidates))))
+    best = _frontier_best_candidate(before, top)
+    if checkpoint_path:
+        for candidate in top:
+            _append_frontier_checkpoint(
+                checkpoint_path,
+                candidate,
+                source_hash=source_hash,
+                source_stream=root_stream,
+            )
+    reason = (
+        "seeds=%s; closure_hits=%s; tested=%s; first_filter_hits=%s; png_plausible=%s; top=%s"
+        % (seed_count, closure_hits, tested, first_filter_hits, png_plausible, len(top))
+    )
+    _write_frontier_progress(
+        progress_path,
+        source_hash=source_hash,
+        tested=tested,
+        budget=budget_int,
+        best=best,
+        top_count=len(top),
+        exhausted=True,
+        reason=reason,
+        strategy=strategy,
+        extra={
+            "route_version": int(FIRST_FILTER_LITERAL_ROUTE_VERSION),
+            "seed_count": int(seed_count),
+            "closure_hits": int(closure_hits),
+            "first_filter_hits": int(first_filter_hits),
+            "png_plausible": int(png_plausible),
+        },
+    )
+    if progress is not None:
+        progress(strategy, min(tested, budget_int), budget_int)
+    return IdatFirstFilterLiteralResult(
+        before,
+        best,
+        tuple(top),
+        tested,
+        budget_exhausted or tested >= budget_int,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        seed_count=seed_count,
+        closure_hits=closure_hits,
+        first_filter_hits=first_filter_hits,
+        png_plausible=png_plausible,
         strategy=strategy,
         reason=reason,
         source_hash=source_hash,
@@ -10197,6 +10857,10 @@ class _InvalidDistanceBackref:
     distance_symbol: int
     distance: int
     distance_table: dict[tuple[int, int], int]
+    length_bit_start: int = 0
+    length_bit_end: int = 0
+    length_symbol: int = 0
+    literal_table: dict[tuple[int, int], int] = field(default_factory=dict)
 
 
 def _png_valid_prefix_rows(raw: bytes, analysis: idat.IdatStreamAnalysis) -> int:
@@ -10233,7 +10897,11 @@ def _locate_first_invalid_distance_backref(
         else:
             return None
         for token_index in range(max(1, int(max_tokens))):
-            symbol = deflate_header._decode_symbol(reader, literal_table, literal_max)
+            symbol, length_bit_start, length_bit_end = deflate_header._decode_symbol_with_bits(
+                reader,
+                literal_table,
+                literal_max,
+            )
             if symbol < 256:
                 output_size += 1
                 continue
@@ -10268,6 +10936,10 @@ def _locate_first_invalid_distance_backref(
                     distance_symbol=int(distance_symbol),
                     distance=int(distance),
                     distance_table=dict(distance_table),
+                    length_bit_start=int(length_bit_start),
+                    length_bit_end=int(length_bit_end),
+                    length_symbol=int(symbol),
+                    literal_table=dict(literal_table),
                 )
             output_size += length
     except (deflate_header._NeedBits, deflate_header._InvalidHuffman, IndexError):
@@ -10331,6 +11003,52 @@ def _kraft_backref_distance_operations(
     return tuple(operations)
 
 
+def _kraft_backref_literal_operations(
+    stream: bytes,
+    invalid: _InvalidDistanceBackref,
+    *,
+    max_operations: int,
+) -> tuple[IdatDeepBeamOperation, ...]:
+    if max_operations <= 0 or not invalid.literal_table:
+        return ()
+    bit_start = int(invalid.length_bit_start)
+    bit_end = int(invalid.length_bit_end)
+    width = bit_end - bit_start
+    if width <= 0:
+        return ()
+    literal_codes = _huffman_symbol_codes(invalid.literal_table)
+    old_bytes = _stream_bit_range_to_bytes(stream, bit_start, bit_end)
+    common_literals = (0, 1, 2, 3, 4, 255, 32, 10, 13)
+    choices: list[tuple[int, int, tuple[int, ...]]] = []
+    for literal, (code, code_width) in literal_codes.items():
+        if not (0 <= int(literal) <= 255):
+            continue
+        if int(code_width) != width:
+            continue
+        priority = 0 if int(literal) in common_literals else 1
+        bits = _kraft_backref_bits_for_code(code, code_width)
+        choices.append((priority, int(literal), bits))
+    choices.sort(key=lambda item: (item[0], item[1], item[2]))
+    operations: list[IdatDeepBeamOperation] = []
+    seen: set[tuple[int, ...]] = set()
+    for _priority, _literal, replacement_bits in choices:
+        if replacement_bits in seen:
+            continue
+        seen.add(replacement_bits)
+        operations.append(
+            IdatDeepBeamOperation(
+                "kraft-backref-literal",
+                bit_start // 8,
+                old_bytes,
+                bytes(int(bit) & 1 for bit in replacement_bits),
+                tuple(range(bit_start, bit_end)),
+            )
+        )
+        if len(operations) >= int(max_operations):
+            break
+    return tuple(operations)
+
+
 def _kraft_backref_candidate_from_operation(
     parent: IdatDeepBeamCandidate,
     operation: IdatDeepBeamOperation,
@@ -10385,6 +11103,7 @@ def probe_idat_kraft_backref_repair(
     data: bytes,
     *,
     budget: int = KRAFT_BACKREF_DEFAULT_BUDGET,
+    max_depth: int = KRAFT_BACKREF_DEFAULT_MAX_DEPTH,
     top_candidates: int = KRAFT_BACKREF_DEFAULT_TOP_CANDIDATES,
     checkpoint_path: str = "",
     progress_path: str = "",
@@ -10404,12 +11123,14 @@ def probe_idat_kraft_backref_repair(
     source_hash = _stream_state_key(root_stream)
     original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
     progress_state = kraft_backref_progress_state(data, progress_path)
+    progress_route_version = frontier_progress_route_version(progress_path)
     progress_reason = str(progress_state.reason or "")
     if (
         progress_state.available
         and progress_state.source_matches
         and progress_state.exhausted
         and progress_state.budget >= budget_int
+        and progress_route_version >= KRAFT_BACKREF_ROUTE_VERSION
         and "no Kraft seed candidates" not in progress_reason
     ):
         _before, _chunks, _stream, _source_hash, _count, top = _load_frontier_candidates_for_progress(
@@ -10466,6 +11187,7 @@ def probe_idat_kraft_backref_repair(
             exhausted=False,
             reason="no Kraft seed candidates available",
             strategy=strategy,
+            extra={"route_version": int(KRAFT_BACKREF_ROUTE_VERSION)},
         )
         return IdatKraftBackrefRepairResult(
             before,
@@ -10486,79 +11208,103 @@ def probe_idat_kraft_backref_repair(
 
     top: list[IdatDeepBeamCandidate] = []
     visited: set[str] = {_stream_state_key(root_stream)}
+    visited.update(_stream_state_key(seed.stream) for seed in seeds)
     tested = 0
     repaired_backrefs = 0
     png_prefix_hits = 0
+    reached_depth = 0
     next_state_id = 1
     last_checkpoint_at = 0
     checkpointed_hashes: set[str] = set()
 
-    for seed in seeds:
-        if tested >= budget_int:
+    frontier = list(seeds)
+    for depth in range(1, max(1, int(max_depth)) + 1):
+        if tested >= budget_int or not frontier:
             break
-        invalid = _locate_first_invalid_distance_backref(seed.stream)
-        if invalid is None:
-            continue
-        operations = _kraft_backref_distance_operations(
-            seed.stream,
-            invalid,
-            max_operations=max(0, budget_int - tested),
-        )
-        if not operations:
-            continue
-        repaired_backrefs += 1
-        for operation in operations:
+        reached_depth = depth
+        next_frontier: list[IdatDeepBeamCandidate] = []
+        for seed in frontier:
             if tested >= budget_int:
                 break
-            candidate = _kraft_backref_candidate_from_operation(
-                seed,
-                operation,
-                chunks=chunks,
-                before=before,
-                state_id=next_state_id,
-                original_idat_count=original_idat_count,
-            )
-            tested += 1
-            next_state_id += 1
-            if candidate is None:
+            invalid = _locate_first_invalid_distance_backref(seed.stream)
+            if invalid is None:
                 continue
-            key = _stream_state_key(candidate.stream)
-            if key in visited:
-                continue
-            visited.add(key)
-            raw_prefix = idat_partial_raw_prefix(
-                candidate.stream,
-                max_output=max(8192, int(before.scanline_size or 0) * 64),
+            seed_operation_budget = min(
+                max(0, budget_int - tested),
+                KRAFT_BACKREF_MAX_OPERATIONS_PER_SEED,
             )
-            prefix_rows = _png_valid_prefix_rows(raw_prefix.raw, before)
-            if prefix_rows > 0:
-                png_prefix_hits += 1
-            top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
-            if progress is not None and (tested % 1000 == 0 or tested == budget_int):
-                progress(strategy, min(tested, budget_int), budget_int)
-            if checkpoint_path and top and tested - last_checkpoint_at >= KRAFT_BACKREF_CHECKPOINT_EVERY:
-                for item in top:
-                    item_key = _stream_state_key(item.stream)
-                    if item_key in checkpointed_hashes:
-                        continue
-                    _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
-                    checkpointed_hashes.add(item_key)
-                _write_frontier_progress(
-                    progress_path,
-                    source_hash=source_hash,
-                    tested=tested,
-                    budget=budget_int,
-                    best=_frontier_best_candidate(before, top),
-                    top_count=len(top),
-                    exhausted=False,
-                    reason="kraft backref checkpoint",
-                    strategy=strategy,
-                    extra={
-                        "repaired_backrefs": int(repaired_backrefs),
-                        "png_prefix_hits": int(png_prefix_hits),
-                    },
+            literal_operations = _kraft_backref_literal_operations(
+                seed.stream,
+                invalid,
+                max_operations=seed_operation_budget,
+            )
+            remaining_after_literals = max(0, seed_operation_budget - len(literal_operations))
+            distance_operations = _kraft_backref_distance_operations(
+                seed.stream,
+                invalid,
+                max_operations=remaining_after_literals,
+            )
+            operations = literal_operations + distance_operations
+            if not operations:
+                continue
+            repaired_backrefs += 1
+            for operation in operations:
+                if tested >= budget_int:
+                    break
+                candidate = _kraft_backref_candidate_from_operation(
+                    seed,
+                    operation,
+                    chunks=chunks,
+                    before=before,
+                    state_id=next_state_id,
+                    original_idat_count=original_idat_count,
                 )
-                last_checkpoint_at = tested
+                tested += 1
+                next_state_id += 1
+                if candidate is None:
+                    continue
+                key = _stream_state_key(candidate.stream)
+                if key in visited:
+                    continue
+                visited.add(key)
+                raw_prefix = idat_partial_raw_prefix(
+                    candidate.stream,
+                    max_output=max(8192, int(before.scanline_size or 0) * 64),
+                )
+                prefix_rows = _png_valid_prefix_rows(raw_prefix.raw, before)
+                if prefix_rows > 0:
+                    png_prefix_hits += 1
+                top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
+                if _locate_first_invalid_distance_backref(candidate.stream) is not None:
+                    next_frontier.append(candidate)
+                if progress is not None and (tested % 1000 == 0 or tested == budget_int):
+                    progress(strategy, min(tested, budget_int), budget_int)
+                if checkpoint_path and top and tested - last_checkpoint_at >= KRAFT_BACKREF_CHECKPOINT_EVERY:
+                    for item in top:
+                        item_key = _stream_state_key(item.stream)
+                        if item_key in checkpointed_hashes:
+                            continue
+                        _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
+                        checkpointed_hashes.add(item_key)
+                    _write_frontier_progress(
+                        progress_path,
+                        source_hash=source_hash,
+                        tested=tested,
+                        budget=budget_int,
+                        best=_frontier_best_candidate(before, top),
+                        top_count=len(top),
+                        exhausted=False,
+                        reason="kraft backref checkpoint",
+                        strategy=strategy,
+                        extra={
+                            "route_version": int(KRAFT_BACKREF_ROUTE_VERSION),
+                            "repaired_backrefs": int(repaired_backrefs),
+                            "png_prefix_hits": int(png_prefix_hits),
+                            "reached_depth": int(reached_depth),
+                        },
+                    )
+                    last_checkpoint_at = tested
+        frontier = list(_deep_beam_ranked_unique(next_frontier, limit=max(1, int(top_candidates))))
 
     top = list(_deep_beam_ranked_unique(top, limit=top_candidates))
     best = _frontier_best_candidate(before, top)
@@ -10575,8 +11321,10 @@ def probe_idat_kraft_backref_repair(
                 continue
             _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
             checkpointed_hashes.add(key)
-    reason = "seeds=%s; repaired_backrefs=%s; png_prefix_hits=%s; best_prefix_rows=%s; top=%s" % (
+    reason = "seeds=%s; depth=%s; per_seed_limit=%s; repaired_backrefs=%s; png_prefix_hits=%s; best_prefix_rows=%s; top=%s" % (
         len(seeds),
+        reached_depth,
+        KRAFT_BACKREF_MAX_OPERATIONS_PER_SEED,
         repaired_backrefs,
         png_prefix_hits,
         best_prefix_rows,
@@ -10593,10 +11341,12 @@ def probe_idat_kraft_backref_repair(
         reason=reason,
         strategy=strategy,
         extra={
+            "route_version": int(KRAFT_BACKREF_ROUTE_VERSION),
             "seed_checkpoint_path": seed_checkpoint_path,
             "repaired_backrefs": int(repaired_backrefs),
             "png_prefix_hits": int(png_prefix_hits),
             "best_prefix_rows": int(best_prefix_rows),
+            "reached_depth": int(reached_depth),
         },
     )
     if progress is not None:
@@ -10613,6 +11363,7 @@ def probe_idat_kraft_backref_repair(
         repaired_backrefs=repaired_backrefs,
         png_prefix_hits=png_prefix_hits,
         best_prefix_rows=best_prefix_rows,
+        reached_depth=reached_depth,
         strategy=strategy,
         reason=reason,
         source_hash=source_hash,
@@ -10628,6 +11379,7 @@ def probe_idat_dynamic_huffman_png_oracle_solver(
     top_candidates: int = HUFFMAN_ORACLE_DEFAULT_TOP_CANDIDATES,
     checkpoint_path: str = "",
     progress_path: str = "",
+    seed_candidates: Iterable[IdatDeepBeamCandidate] = (),
     progress: QueueProgressCallback | None = None,
 ) -> IdatHuffmanOracleSolverResult:
     strategy = "dynamic-huffman-png-oracle"
@@ -10662,6 +11414,7 @@ def probe_idat_dynamic_huffman_png_oracle_solver(
             True,
             checkpoint_path=checkpoint_path,
             progress_path=progress_path,
+            seed_count=0,
             strategy=strategy,
             reason="huffman oracle already exhausted for this source/budget",
             source_hash=source_hash,
@@ -10695,6 +11448,27 @@ def probe_idat_dynamic_huffman_png_oracle_solver(
         if _candidate_png_plausible(candidate):
             png_plausible += 1
         top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
+
+    seed_count = 0
+    for seed in seed_candidates:
+        if not getattr(seed, "stream", b""):
+            continue
+        key = _stream_state_key(seed.stream)
+        if key in visited:
+            continue
+        visited.add(key)
+        seed_count += 1
+        top = list(_deep_beam_ranked_unique(itertools.chain(top, (seed,)), limit=top_candidates))
+        if _huffman_oracle_accepts(root, seed):
+            frontier.append(seed)
+
+    frontier = list(
+        sorted(
+            _deep_beam_ranked_unique(frontier, limit=max(1, int(beam_width))),
+            key=lambda item: _huffman_oracle_rank(item.stream, item.after),
+            reverse=True,
+        )
+    )[: max(1, int(beam_width))]
 
     if progress is not None:
         progress(strategy, 0, int(budget))
@@ -10752,10 +11526,18 @@ def probe_idat_dynamic_huffman_png_oracle_solver(
                 source_stream=root_stream,
             )
     best = _frontier_best_candidate(before, top)
-    exhausted = budget_exhausted or tested >= int(budget) or not frontier
+    budget_limit_hit = budget_exhausted or tested >= int(budget)
+    frontier_exhausted = not frontier
+    stop_reason = _bounded_route_stop_reason(
+        tested=tested,
+        budget=int(budget),
+        budget_exhausted=budget_limit_hit,
+        frontier_exhausted=frontier_exhausted,
+        depth_limit_reached=not budget_limit_hit and not frontier_exhausted,
+    )
     reason = (
-        "depth=%s; states=%s; valid_headers=%s; png_plausible=%s; top=%s"
-        % (reached_depth, len(visited), valid_headers, png_plausible, len(top))
+        "stop=%s; depth=%s; states=%s; valid_headers=%s; png_plausible=%s; top=%s"
+        % (stop_reason, reached_depth, len(visited), valid_headers, png_plausible, len(top))
     )
     _write_frontier_progress(
         progress_path,
@@ -10771,6 +11553,7 @@ def probe_idat_dynamic_huffman_png_oracle_solver(
             "valid_headers": int(valid_headers),
             "png_plausible": int(png_plausible),
             "reached_depth": int(reached_depth),
+            "seed_count": int(seed_count),
         },
     )
     if progress is not None:
@@ -10780,12 +11563,13 @@ def probe_idat_dynamic_huffman_png_oracle_solver(
         best,
         tuple(top),
         tested,
-        exhausted,
+        budget_limit_hit,
         checkpoint_path=checkpoint_path,
         progress_path=progress_path,
         valid_headers=valid_headers,
         png_plausible=png_plausible,
         reached_depth=reached_depth,
+        seed_count=seed_count,
         strategy=strategy,
         reason=reason,
         source_hash=source_hash,
@@ -11118,8 +11902,16 @@ def probe_idat_crc_periodic_payload_solver(
                 source_stream=root_stream,
             )
     best = _frontier_best_candidate(before, top)
-    exhausted = budget_exhausted or tested >= int(budget) or not targets
-    reason = "targets=%s; tested=%s; crc_hits=%s; png_plausible=%s; top=%s" % (
+    budget_limit_hit = budget_exhausted or tested >= int(budget)
+    candidate_pool_exhausted = not budget_limit_hit
+    stop_reason = _bounded_route_stop_reason(
+        tested=tested,
+        budget=int(budget),
+        budget_exhausted=budget_limit_hit,
+        candidate_pool_exhausted=candidate_pool_exhausted,
+    )
+    reason = "stop=%s; targets=%s; tested=%s; crc_hits=%s; png_plausible=%s; top=%s" % (
+        stop_reason,
         len(targets),
         tested,
         crc_hits,
@@ -11149,7 +11941,7 @@ def probe_idat_crc_periodic_payload_solver(
         best,
         tuple(top),
         tested,
-        exhausted,
+        budget_limit_hit,
         checkpoint_path=checkpoint_path,
         progress_path=progress_path,
         model_path=convoy_model_path,
@@ -11408,7 +12200,16 @@ def probe_idat_global_crc_residue_solver(
         for item in top:
             _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
     best = _frontier_best_candidate(before, top)
-    reason = "rules=%s; tested=%s; crc_hits=%s; explained_chunks=%s; png_plausible=%s; top=%s" % (
+    budget_limit_hit = budget_exhausted or tested >= int(budget)
+    candidate_pool_exhausted = not budget_limit_hit
+    stop_reason = _bounded_route_stop_reason(
+        tested=tested,
+        budget=int(budget),
+        budget_exhausted=budget_limit_hit,
+        candidate_pool_exhausted=candidate_pool_exhausted,
+    )
+    reason = "stop=%s; rules=%s; tested=%s; crc_hits=%s; explained_chunks=%s; png_plausible=%s; top=%s" % (
+        stop_reason,
         len(rules),
         tested,
         crc_hits,
@@ -11441,7 +12242,7 @@ def probe_idat_global_crc_residue_solver(
         best,
         tuple(top),
         tested,
-        budget_exhausted or tested >= int(budget),
+        budget_limit_hit,
         checkpoint_path=checkpoint_path,
         progress_path=progress_path,
         model_path=convoy_model_path,
@@ -12279,7 +13080,7 @@ def probe_idat_affine_corruption_model(
             gpu_successors, gpu_tested, gpu_used, batch_gpu_status, _gpu_warning, covered_indices = _deep_beam_gpu_byte_successors(
                 root,
                 before=before,
-                state_id=next_state_id,
+                state_id_start=next_state_id,
                 original_idat_count=original_idat_count,
                 depth=1,
                 specs=tuple(specs),
@@ -12626,6 +13427,17 @@ def _deep_beam_worker_init() -> None:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
     except (OSError, ValueError):
         pass
+    if os.name == "posix":
+        try:
+            import ctypes
+
+            libc = ctypes.CDLL("libc.so.6", use_errno=True)
+            pr_set_pdeathsig = 1
+            libc.prctl(pr_set_pdeathsig, signal.SIGTERM)
+            if os.getppid() == 1:
+                os._exit(130)
+        except Exception:
+            pass
 
 
 def _deep_beam_cpu_batch_size(spec_count: int, workers: int, cpu_batch_size: int) -> int:
@@ -13248,6 +14060,20 @@ def _deep_beam_memory_available_bytes() -> int | None:
     except (OSError, ValueError):
         return None
     return None
+
+
+def _huffman_kraft_memory_level(available: int | None = None) -> str:
+    if available is None:
+        available = _deep_beam_memory_available_bytes()
+    if available is None:
+        return "normal"
+    if available < HUFFMAN_KRAFT_MEMORY_EMERGENCY_BYTES:
+        return "emergency"
+    if available < HUFFMAN_KRAFT_MEMORY_HARD_BYTES:
+        return "hard"
+    if available < HUFFMAN_KRAFT_MEMORY_SOFT_BYTES:
+        return "soft"
+    return "normal"
 
 
 def _deep_beam_memory_guard_tripped() -> bool:
@@ -16086,7 +16912,7 @@ def huffman_kraft_summary_line(result: IdatHuffmanKraftSolverResult) -> str:
     line = (
         "-IDAT huffman-kraft: tested=%s; budget_exhausted=%s; depth=%s; workers=%s; gpu=%s; "
         "cpu_batches=%s; gpu_shards=%s; gpu_hits=%s; prefilter_hits=%s; literal_debt=%s; distance_debt=%s; "
-        "complete_trees=%s; first_symbol_ok=%s; valid_headers=%s; top=%s"
+        "complete_trees=%s; first_symbol_ok=%s; valid_headers=%s; top=%s; memory=%s; throttle_events=%s"
         % (
             result.tested_candidates,
             "yes" if result.budget_exhausted else "no",
@@ -16103,6 +16929,8 @@ def huffman_kraft_summary_line(result: IdatHuffmanKraftSolverResult) -> str:
             result.first_symbol_ok,
             result.valid_headers,
             len(result.top_candidates),
+            result.memory_mode,
+            result.memory_throttle_events,
         )
     )
     if result.best is not None:
@@ -16127,13 +16955,50 @@ def huffman_kraft_candidate_summary_lines(
     )
 
 
+def first_filter_literal_summary_line(result: IdatFirstFilterLiteralResult) -> str:
+    line = (
+        "-IDAT first-filter-literal: tested=%s; budget_exhausted=%s; seeds=%s; "
+        "closure_hits=%s; first_filter_hits=%s; png_plausible=%s; top=%s"
+        % (
+            result.tested_candidates,
+            "yes" if result.budget_exhausted else "no",
+            result.seed_count,
+            result.closure_hits,
+            result.first_filter_hits,
+            result.png_plausible,
+            len(result.top_candidates),
+        )
+    )
+    if result.best is not None:
+        line += "; best_score=%s" % (result.best.score,)
+    if result.checkpoint_path:
+        line += "; checkpoint=%s" % result.checkpoint_path
+    if result.progress_path:
+        line += "; progress=%s" % result.progress_path
+    if result.reason:
+        line += "; reason=%s" % result.reason
+    return line + "."
+
+
+def first_filter_literal_candidate_summary_lines(
+    result: IdatFirstFilterLiteralResult,
+    *,
+    limit: int = 5,
+) -> tuple[str, ...]:
+    return tuple(
+        deep_beam_candidate_summary_line(candidate)
+        for candidate in result.top_candidates[: max(1, int(limit))]
+    )
+
+
 def kraft_backref_repair_summary_line(result: IdatKraftBackrefRepairResult) -> str:
     line = (
-        "-IDAT kraft-backref: tested=%s; budget_exhausted=%s; repaired_backrefs=%s; "
+        "-IDAT kraft-backref: tested=%s; budget_exhausted=%s; depth=%s; repaired_backrefs=%s; "
         "png_prefix_hits=%s; best_prefix_rows=%s; top=%s"
         % (
             result.tested_candidates,
             "yes" if result.budget_exhausted else "no",
+            result.reached_depth,
             result.repaired_backrefs,
             result.png_prefix_hits,
             result.best_prefix_rows,
@@ -16166,11 +17031,12 @@ def kraft_backref_repair_candidate_summary_lines(
 
 def huffman_oracle_summary_line(result: IdatHuffmanOracleSolverResult) -> str:
     line = (
-        "-IDAT huffman-oracle: tested=%s; budget_exhausted=%s; depth=%s; valid_headers=%s; png_plausible=%s; top=%s"
+        "-IDAT huffman-oracle: tested=%s; budget_exhausted=%s; depth=%s; seeds=%s; valid_headers=%s; png_plausible=%s; top=%s"
         % (
             result.tested_candidates,
             "yes" if result.budget_exhausted else "no",
             result.reached_depth,
+            result.seed_count,
             result.valid_headers,
             result.png_plausible,
             len(result.top_candidates),

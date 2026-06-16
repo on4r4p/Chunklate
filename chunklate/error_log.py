@@ -5,6 +5,8 @@ from datetime import datetime
 from types import TracebackType
 from typing import Any
 
+from . import output
+
 
 def error_log_path(base_path: str) -> str:
     return os.path.join(str(base_path), "Chunklate_Errors.log")
@@ -54,9 +56,32 @@ def append_error_log(message: str, base_path: str, *, now: datetime | None = Non
     return logfile
 
 
+def append_repair_folder_error_log(
+    message: str,
+    file_origin: str,
+    file_dir: str = "",
+    *,
+    now: datetime | None = None,
+) -> str:
+    folder = output.ensure_clone_folder(file_origin, file_dir)
+    return append_error_log(message, folder, now=now)
+
+
+def append_repair_folder_error_log_from_namespace(
+    namespace: dict[str, Any],
+    message: str,
+) -> str | None:
+    file_origin = str(namespace.get("FILE_Origin") or "").strip()
+    if not file_origin:
+        return None
+    file_dir = str(namespace.get("FILE_DIR") or "")
+    return append_repair_folder_error_log(message, file_origin, file_dir)
+
+
 def append_error_log_from_namespace(namespace: dict[str, Any], message: str) -> None:
     try:
         append_error_log(message, str(namespace["sys"].path[0]))
+        append_repair_folder_error_log_from_namespace(namespace, message)
         namespace["SideNotes"].append(message)
     except Exception as exc:
         namespace["Betterror"](exc, namespace["inspect"].stack()[0][3])

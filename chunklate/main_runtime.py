@@ -1604,6 +1604,7 @@ def _remaining_findings_are_idat_wrong_crc(namespace: dict[str, Any]) -> bool:
 
 
 def _try_unresolved_idat_deflate_route(namespace: dict[str, Any]) -> bool:
+    namespace.pop("IDAT_DEFLATE_ROUTE_CONSUMED", None)
     if not _remaining_findings_are_idat_wrong_crc(namespace):
         return False
     data_hex = namespace.get("DATAX")
@@ -1647,7 +1648,11 @@ def _try_unresolved_idat_deflate_route(namespace: dict[str, Any]) -> bool:
         file_dir=namespace.get("FILE_DIR") or "",
     )
     result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
-    return result is not None
+    if result is None:
+        return False
+    if isinstance(result, tuple) and result and result[0] is False:
+        namespace["IDAT_DEFLATE_ROUTE_CONSUMED"] = True
+    return True
 
 
 def _last_clone_is_valid_final(namespace: dict[str, Any]) -> bool:
@@ -1756,6 +1761,12 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
     if not clone_progress:
         if has_unresolved_findings(namespace):
             if _try_unresolved_idat_deflate_route(namespace):
+                if namespace.pop("IDAT_DEFLATE_ROUTE_CONSUMED", False):
+                    namespace["PRINT"](
+                        "-IDAT deflate route consumed without clone; stopping this sample pass."
+                    )
+                    namespace["PRINT"]("-No new clone produced, stopping main loop.")
+                    return MainLoopIterationState(should_return=True)
                 return MainLoopIterationState()
             explain_unimplemented_repair_route(namespace)
         else:

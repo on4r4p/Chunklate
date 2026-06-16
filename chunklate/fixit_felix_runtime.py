@@ -3139,6 +3139,10 @@ def _idat_huffman_kraft_paths(runtime: Any) -> tuple[str, str]:
     return _idat_frontier_paths(runtime, "huffman_kraft")
 
 
+def _idat_first_filter_literal_paths(runtime: Any) -> tuple[str, str]:
+    return _idat_frontier_paths(runtime, "first_filter_literal")
+
+
 def _idat_kraft_backref_paths(runtime: Any) -> tuple[str, str]:
     return _idat_frontier_paths(runtime, "kraft_backref")
 
@@ -3387,6 +3391,9 @@ def _runtime_deep_beam_options(runtime: Any) -> tuple[str | int, bool, gpu_runti
     return workers, gpu_requested, gpu_config, budget, gpu_shard_size, cpu_batch_size
 
 
+IDAT_DEBUG_ARTIFACT_TOP_LIMIT = 8
+
+
 def _write_idat_deep_beam_debug_artifacts(
     runtime: Any,
     result: Any,
@@ -3416,7 +3423,9 @@ def _write_idat_deep_beam_debug_artifacts(
             stale_path.unlink()
         except OSError:
             continue
-    for rank, candidate in enumerate(result.top_candidates, start=1):
+    artifact_candidates = tuple(result.top_candidates[:IDAT_DEBUG_ARTIFACT_TOP_LIMIT])
+    skipped_candidates = max(0, len(result.top_candidates) - len(artifact_candidates))
+    for rank, candidate in enumerate(artifact_candidates, start=1):
         digest = hashlib.sha1(candidate.data).hexdigest()[:8]
         base = "%s_%s_rank%02d_state%s_%s" % (
             stem,
@@ -3467,9 +3476,10 @@ def _write_idat_deep_beam_debug_artifacts(
             saved_items.append(trace_path.relative_to(folder).as_posix())
         saved.extend(saved_items)
     if saved:
-        runtime.side_notes.append(
-            "-IDAT deep beam artifacts: %s." % ", ".join(saved[: min(len(saved), 12)])
-        )
+        note = "-IDAT deep beam artifacts: %s" % ", ".join(saved[: min(len(saved), 12)])
+        if skipped_candidates:
+            note += "; skipped %s lower-ranked debug candidate(s) to keep memory and IDE image decoding bounded" % skipped_candidates
+        runtime.side_notes.append(note + ".")
     else:
         runtime.side_notes.append("-IDAT deep beam artifacts: no candidate artifacts written.")
     return tuple(saved)
@@ -3634,18 +3644,24 @@ def _run_idat_huffman_kraft_runtime(
     workers = _runtime_huffman_kraft_workers(runtime)
     gpu_config = _runtime_huffman_kraft_gpu_config(runtime)
     progress_state = idat_bruteforce.huffman_kraft_progress_state(data, progress_path)
-    if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= budget:
+    already_consumed = (
+        progress_state.available
+        and progress_state.source_matches
+        and progress_state.exhausted
+        and progress_state.budget >= budget
+    )
+    if already_consumed:
         runtime.side_notes.append(
             "-IDAT huffman-kraft already consumed for this source/budget: tested=%s; budget=%s; reason=%s."
             % (progress_state.tested, progress_state.budget, progress_state.reason)
         )
-        return None
-    runtime.candy(
-        "Cowsay",
-        "I am solving the dynamic Huffman trees by Kraft debt before the wide beam.",
-        "com",
-    )
-    runtime.candy("Title", "probe_idat_huffman_kraft_solver")
+    else:
+        runtime.candy(
+            "Cowsay",
+            "I am solving the dynamic Huffman trees by Kraft debt before the wide beam.",
+            "com",
+        )
+        runtime.candy("Title", "probe_idat_huffman_kraft_solver")
     result = idat_bruteforce.probe_idat_huffman_kraft_solver(
         data,
         budget=budget,
@@ -3659,9 +3675,26 @@ def _run_idat_huffman_kraft_runtime(
     )
     runtime.side_notes.append(idat_bruteforce.huffman_kraft_summary_line(result))
     runtime.side_notes.extend(idat_bruteforce.huffman_kraft_candidate_summary_lines(result))
-    if result.top_candidates:
+    if "stop=memory_guard" in result.reason:
+        tone = "bad" if not result.top_candidates else "com"
+        runtime.candy(
+            "Cowsay",
+            (
+                "The Kraft solver throttled before the desktop ran out of memory. "
+                "Checkpoint/progress are flushed; I am handing the saved seeds to the next IDAT routes."
+            )
+            if result.top_candidates
+            else (
+                "The Kraft solver stopped before the desktop ran out of memory. "
+                "Checkpoint/progress are flushed; resume later with fewer workers or GPU off."
+            ),
+            tone,
+        )
+        if not result.top_candidates:
+            raise SystemExit(130)
+    if result.top_candidates and not already_consumed:
         _write_idat_deep_beam_debug_artifacts(runtime, result, label="idat_huffman_kraft", include_dynamic_trace=True)
-    if result.best is None:
+    if result.best is None and not already_consumed:
         runtime.candy(
             "Cowsay",
             "The Kraft solver kept diagnostic seeds, but no usable PNG scanline yet.",
@@ -3691,6 +3724,87 @@ def _write_huffman_kraft_best_clone(
     return True, runtime.write_clone(candidate.data, summary)
 
 
+def _run_idat_first_filter_literal_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+) -> idat_bruteforce.IdatFirstFilterLiteralResult | None:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None
+    checkpoint_path, progress_path = _idat_first_filter_literal_paths(runtime)
+    budget = idat_bruteforce.FIRST_FILTER_LITERAL_DEFAULT_BUDGET
+    progress_state = idat_bruteforce.first_filter_literal_progress_state(data, progress_path)
+    already_consumed = (
+        progress_state.available
+        and progress_state.source_matches
+        and progress_state.exhausted
+        and progress_state.budget >= budget
+        and idat_bruteforce.frontier_progress_route_version(progress_path)
+        >= idat_bruteforce.FIRST_FILTER_LITERAL_ROUTE_VERSION
+    )
+    if already_consumed:
+        runtime.side_notes.append(
+            "-IDAT first-filter-literal already consumed for this source/budget: tested=%s; budget=%s; reason=%s."
+            % (progress_state.tested, progress_state.budget, progress_state.reason)
+        )
+    else:
+        runtime.candy(
+            "Cowsay",
+            "I am forcing the first dynamic-Huffman symbol to a PNG filter before backref repair.",
+            "com",
+        )
+        runtime.candy("Title", "probe_idat_first_filter_literal_solver")
+    result = idat_bruteforce.probe_idat_first_filter_literal_solver(
+        data,
+        budget=budget,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        seed_candidates=seed_candidates,
+        progress=_runtime_idat_queue_progress(runtime),
+    )
+    runtime.side_notes.append(idat_bruteforce.first_filter_literal_summary_line(result))
+    runtime.side_notes.extend(idat_bruteforce.first_filter_literal_candidate_summary_lines(result))
+    if result.top_candidates and not already_consumed:
+        _write_idat_deep_beam_debug_artifacts(runtime, result, label="idat_first_filter_literal", include_dynamic_trace=True)
+    if result.best is None and not already_consumed:
+        if result.top_candidates:
+            runtime.candy(
+                "Cowsay",
+                "The first-filter route produced PNG-plausible prefix seeds for the next repair routes.",
+                "com",
+            )
+        else:
+            runtime.candy(
+                "Cowsay",
+                "The first-filter route found no compatible first-symbol rewrite yet.",
+                "bad",
+            )
+    return result
+
+
+def _write_first_filter_literal_best_clone(
+    runtime: Any,
+    analysis: idat.IdatStreamAnalysis,
+    result: idat_bruteforce.IdatFirstFilterLiteralResult,
+) -> tuple[bool, Any]:
+    candidate = result.best
+    if candidate is None:
+        raise ValueError("first-filter literal result has no best candidate")
+    runtime.candy("Cowsay", "The first-filter literal solver found real image progress.", "good")
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: first dynamic-Huffman symbol forced to PNG filter.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.first_filter_literal_summary_line(result),
+            *idat_bruteforce.first_filter_literal_candidate_summary_lines(result),
+            idat_stream_diagnosis_note(candidate.after),
+        )
+    )
+    return True, runtime.write_clone(candidate.data, summary)
+
+
 def _run_idat_kraft_backref_runtime(
     runtime: Any,
     data: bytes,
@@ -3704,7 +3818,14 @@ def _run_idat_kraft_backref_runtime(
     kraft_checkpoint_path, _kraft_progress_path = _idat_huffman_kraft_paths(runtime)
     budget = _runtime_kraft_backref_budget(runtime)
     progress_state = idat_bruteforce.kraft_backref_progress_state(data, progress_path)
-    if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= budget:
+    if (
+        progress_state.available
+        and progress_state.source_matches
+        and progress_state.exhausted
+        and progress_state.budget >= budget
+        and idat_bruteforce.frontier_progress_route_version(progress_path)
+        >= idat_bruteforce.KRAFT_BACKREF_ROUTE_VERSION
+    ):
         runtime.side_notes.append(
             "-IDAT kraft-backref already consumed for this source/budget: tested=%s; budget=%s; reason=%s."
             % (progress_state.tested, progress_state.budget, progress_state.reason)
@@ -3770,6 +3891,8 @@ def _run_idat_huffman_oracle_runtime(
     runtime: Any,
     data: bytes,
     analysis: idat.IdatStreamAnalysis,
+    *,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
 ) -> idat_bruteforce.IdatHuffmanOracleSolverResult | None:
     if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
         return None
@@ -3799,6 +3922,7 @@ def _run_idat_huffman_oracle_runtime(
         budget=budget,
         checkpoint_path=checkpoint_path,
         progress_path=progress_path,
+        seed_candidates=seed_candidates,
         progress=_runtime_idat_queue_progress(runtime),
     )
     runtime.side_notes.append(idat_bruteforce.huffman_oracle_summary_line(result))
@@ -3806,9 +3930,20 @@ def _run_idat_huffman_oracle_runtime(
     if result.top_candidates:
         _write_idat_deep_beam_debug_artifacts(runtime, result, label="idat_huffman_oracle", include_dynamic_trace=True)
     if result.best is None:
+        message = "The Huffman oracle kept diagnostic seeds, but no usable PNG scanline yet."
+        if "stop=frontier_exhausted" in result.reason:
+            message = (
+                "The Huffman oracle exhausted its constrained frontier before the budget; "
+                "no usable PNG scanline yet."
+            )
+        elif "stop=depth_limit_reached" in result.reason:
+            message = (
+                "The Huffman oracle reached its depth limit before the budget; "
+                "no usable PNG scanline yet."
+            )
         runtime.candy(
             "Cowsay",
-            "The Huffman oracle kept diagnostic seeds, but no usable PNG scanline yet.",
+            message,
             "bad",
         )
     return result
@@ -3881,9 +4016,15 @@ def _run_idat_crc_periodic_runtime(
     if result.top_candidates:
         _write_idat_deep_beam_debug_artifacts(runtime, result, label="idat_crc_periodic", include_dynamic_trace=True)
     if result.best is None:
+        message = "The CRC-periodic route produced no clone-worthy PNG scanline yet."
+        if "stop=candidate_pool_exhausted" in result.reason:
+            message = (
+                "The CRC-periodic route exhausted its constrained candidate pool before the budget; "
+                "no clone-worthy PNG scanline yet."
+            )
         runtime.candy(
             "Cowsay",
-            "The CRC-periodic route produced no clone-worthy PNG scanline yet.",
+            message,
             "bad",
         )
     return result
@@ -3950,9 +4091,15 @@ def _run_idat_global_crc_residue_runtime(
     if result.top_candidates:
         _write_idat_deep_beam_debug_artifacts(runtime, result, label="idat_global_crc_residue", include_dynamic_trace=True)
     if result.best is None:
+        message = "The global CRC residue route produced no clone-worthy PNG scanline yet."
+        if "stop=candidate_pool_exhausted" in result.reason:
+            message = (
+                "The global CRC residue route exhausted its constrained candidate pool before the budget; "
+                "no clone-worthy PNG scanline yet."
+            )
         runtime.candy(
             "Cowsay",
-            "The global CRC residue route produced no clone-worthy PNG scanline yet.",
+            message,
             "bad",
         )
     return result
@@ -4121,10 +4268,7 @@ def _run_idat_deep_beam_runtime(
             )
         if resume_state is not None and resume_state.available and resume_state.source_matches:
             runtime.side_notes.append("-IDAT deep beam resume did not return to short probes; checkpoint/progress remain the next state.")
-            return False, None
-        if getattr(runtime, "interactive", False):
-            return False, None
-        return None
+        return False, None
 
     candidate = deep_probe.best
     runtime.candy(
@@ -4260,7 +4404,23 @@ def _run_idat_frontier_routes_runtime(
             return _write_huffman_kraft_best_clone(runtime, analysis, kraft_result), ()
         seed_groups.append(kraft_result.top_candidates)
 
-    kraft_backref_seed_candidates = kraft_result.top_candidates if kraft_result is not None else ()
+    first_filter_seed_candidates = kraft_result.top_candidates if kraft_result is not None else tuple(itertools.chain.from_iterable(seed_groups))
+    first_filter_result = _run_idat_first_filter_literal_runtime(
+        runtime,
+        data,
+        analysis,
+        seed_candidates=first_filter_seed_candidates,
+    )
+    if first_filter_result is not None:
+        if first_filter_result.best is not None:
+            return _write_first_filter_literal_best_clone(runtime, analysis, first_filter_result), ()
+        seed_groups.append(first_filter_result.top_candidates)
+
+    kraft_backref_seed_candidates = (
+        first_filter_result.top_candidates
+        if first_filter_result is not None and first_filter_result.top_candidates
+        else kraft_result.top_candidates if kraft_result is not None else ()
+    )
     kraft_backref_result = _run_idat_kraft_backref_runtime(
         runtime,
         data,
@@ -4272,7 +4432,13 @@ def _run_idat_frontier_routes_runtime(
             return _write_kraft_backref_best_clone(runtime, analysis, kraft_backref_result), ()
         seed_groups.append(kraft_backref_result.top_candidates)
 
-    huffman_result = _run_idat_huffman_oracle_runtime(runtime, data, analysis)
+    huffman_seed_candidates = tuple(itertools.chain.from_iterable(seed_groups))
+    huffman_result = _run_idat_huffman_oracle_runtime(
+        runtime,
+        data,
+        analysis,
+        seed_candidates=huffman_seed_candidates,
+    )
     if huffman_result is not None:
         if huffman_result.best is not None:
             return _write_huffman_oracle_best_clone(runtime, analysis, huffman_result), ()

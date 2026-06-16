@@ -74,10 +74,24 @@ def test_append_error_log_writes_and_appends(tmp_path):
     )
 
 
+def test_append_repair_folder_error_log_writes_inside_clone_folder(tmp_path):
+    path = error_log.append_repair_folder_error_log(
+        "boom",
+        "Flag.png",
+        str(tmp_path),
+        now=datetime(2026, 5, 22, 10, 11, 12),
+    )
+
+    assert path == str(tmp_path / "Folder_Flag" / "Chunklate_Errors.log")
+    assert Path(path).read_text(encoding="utf-8") == "2026-05-22 10:11:12\nboom\n"
+
+
 def test_append_error_log_from_namespace_writes_and_records_side_note(tmp_path):
     side_notes = []
     namespace = {
         "sys": SimpleNamespace(path=[str(tmp_path)]),
+        "FILE_Origin": "Flag.png",
+        "FILE_DIR": str(tmp_path),
         "SideNotes": side_notes,
         "Betterror": lambda error, name: None,
         "inspect": SimpleNamespace(stack=lambda: [SimpleNamespace(function="test")]),
@@ -87,6 +101,9 @@ def test_append_error_log_from_namespace_writes_and_records_side_note(tmp_path):
 
     assert side_notes == ["boom"]
     assert (tmp_path / "Chunklate_Errors.log").read_text(encoding="utf-8").endswith("boom\n")
+    assert (
+        tmp_path / "Folder_Flag" / "Chunklate_Errors.log"
+    ).read_text(encoding="utf-8").endswith("boom\n")
 
 
 def test_betterror_from_namespace_formats_prints_and_delegates_to_error_log():
@@ -121,6 +138,7 @@ def main():
         ("Exception from exc_info", test_format_exception_from_exc_info_uses_traceback_location),
         ("Exception from exc_info requires traceback", test_format_exception_from_exc_info_requires_traceback),
         ("Append log", lambda: test_append_error_log_writes_and_appends(tmpdir)),
+        ("Append repair folder log", lambda: test_append_repair_folder_error_log_writes_inside_clone_folder(tmpdir)),
         ("Append log namespace", lambda: test_append_error_log_from_namespace_writes_and_records_side_note(tmpdir)),
         ("Betterror namespace", test_betterror_from_namespace_formats_prints_and_delegates_to_error_log),
     ]
