@@ -160,6 +160,7 @@ class WrongCrcRuntime:
     crc_periodic_budget: Any = None
     huffman_kraft_budget: Any = None
     huffman_kraft_workers: Any = None
+    huffman_kraft_gpu_config: Any = None
     global_crc_residue_budget: Any = None
     affine_corruption_budget: Any = None
     deflate_salvage_budget: Any = None
@@ -201,6 +202,7 @@ class WrongChunkNameRuntime:
     crc_periodic_budget: Any = None
     huffman_kraft_budget: Any = None
     huffman_kraft_workers: Any = None
+    huffman_kraft_gpu_config: Any = None
     global_crc_residue_budget: Any = None
     affine_corruption_budget: Any = None
     deflate_salvage_budget: Any = None
@@ -259,6 +261,7 @@ class NoNextChunkRuntime:
     crc_periodic_budget: Any = None
     huffman_kraft_budget: Any = None
     huffman_kraft_workers: Any = None
+    huffman_kraft_gpu_config: Any = None
     global_crc_residue_budget: Any = None
     affine_corruption_budget: Any = None
     deflate_salvage_budget: Any = None
@@ -334,6 +337,7 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         crc_periodic_budget=namespace.get("IDAT_CRC_PERIODIC_BUDGET"),
         huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
         huffman_kraft_workers=namespace.get("IDAT_HUFFMAN_KRAFT_WORKERS", namespace.get("IDAT_DEEP_BEAM_WORKERS")),
+        huffman_kraft_gpu_config=namespace.get("GPU_CONFIG"),
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
         deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
@@ -416,6 +420,7 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         crc_periodic_budget=namespace.get("IDAT_CRC_PERIODIC_BUDGET"),
         huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
         huffman_kraft_workers=namespace.get("IDAT_HUFFMAN_KRAFT_WORKERS", namespace.get("IDAT_DEEP_BEAM_WORKERS")),
+        huffman_kraft_gpu_config=namespace.get("GPU_CONFIG"),
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
         deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
@@ -475,6 +480,7 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         crc_periodic_budget=namespace.get("IDAT_CRC_PERIODIC_BUDGET"),
         huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
         huffman_kraft_workers=namespace.get("IDAT_HUFFMAN_KRAFT_WORKERS", namespace.get("IDAT_DEEP_BEAM_WORKERS")),
+        huffman_kraft_gpu_config=namespace.get("GPU_CONFIG"),
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
         deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
@@ -3225,6 +3231,16 @@ def _runtime_huffman_kraft_workers(runtime: Any) -> Any:
     return value
 
 
+def _runtime_huffman_kraft_gpu_config(runtime: Any) -> gpu_runtime.GpuRuntimeConfig:
+    configured = getattr(runtime, "huffman_kraft_gpu_config", None)
+    if isinstance(configured, gpu_runtime.GpuRuntimeConfig):
+        return configured
+    configured = getattr(runtime, "deep_beam_gpu_config", None)
+    if isinstance(configured, gpu_runtime.GpuRuntimeConfig):
+        return configured
+    return gpu_runtime.GpuRuntimeConfig()
+
+
 def _runtime_global_crc_residue_budget(runtime: Any) -> int:
     return _deep_beam_positive_int(
         getattr(runtime, "global_crc_residue_budget", None),
@@ -3580,6 +3596,7 @@ def _run_idat_huffman_kraft_runtime(
     checkpoint_path, progress_path = _idat_huffman_kraft_paths(runtime)
     budget = _runtime_huffman_kraft_budget(runtime)
     workers = _runtime_huffman_kraft_workers(runtime)
+    gpu_config = _runtime_huffman_kraft_gpu_config(runtime)
     progress_state = idat_bruteforce.huffman_kraft_progress_state(data, progress_path)
     if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= budget:
         runtime.side_notes.append(
@@ -3597,6 +3614,8 @@ def _run_idat_huffman_kraft_runtime(
         data,
         budget=budget,
         workers=workers,
+        gpu=getattr(gpu_config, "enabled", False),
+        gpu_config=gpu_config,
         checkpoint_path=checkpoint_path,
         progress_path=progress_path,
         seed_candidates=seed_candidates,

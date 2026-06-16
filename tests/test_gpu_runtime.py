@@ -9,6 +9,7 @@ from chunklate import (
     gpu_opengl,
     gpu_runtime,
     idat,
+    idat_kraft_opengl_backend,
     png,
     smash_backend,
     smash_opengl_backend,
@@ -22,6 +23,93 @@ def test_gpu_runtime_config_from_namespace():
 
     assert disabled == gpu_runtime.GpuRuntimeConfig()
     assert enabled == gpu_runtime.GpuRuntimeConfig(enabled=True)
+
+
+def test_idat_kraft_opengl_prefilter_returns_flagged_indices():
+    calls = []
+
+    class FakeUniform:
+        value = 0
+
+    class FakeShader:
+        def __init__(self, harness):
+            self.harness = harness
+            self.uniforms = {}
+
+        def __getitem__(self, name):
+            uniform = FakeUniform()
+            self.uniforms[name] = uniform
+            return uniform
+
+        def run(self, *_groups):
+            flags = struct.unpack("<4I", self.harness.storage_buffers[0].data)
+            start = int(self.uniforms["start_rank"].value)
+            count = int(self.uniforms["batch_count"].value)
+            hits = [rank for rank in range(start, start + count) if flags[rank]]
+            words = [len(hits), *hits]
+            self.harness.storage_buffers[1].data = struct.pack("<%dI" % len(words), *words) + b"\x00" * 64
+
+    class FakeBuffer:
+        def __init__(self, harness, data=b""):
+            self.harness = harness
+            self.data = data
+
+        def bind_to_storage_buffer(self, binding):
+            self.harness.storage_buffers[int(binding)] = self
+
+        def write(self, data):
+            self.data = data
+
+        def read(self):
+            return self.data
+
+        def release(self):
+            calls.append("buffer_release")
+
+    class FakeHarness:
+        def __init__(self):
+            self.storage_buffers = {}
+
+        def compile_compute_shader(self, _source):
+            calls.append("compile")
+            return FakeShader(self)
+
+        def buffer(self, data=None, *, reserve=None):
+            return FakeBuffer(self, data or (b"\x00" * int(reserve)))
+
+        def dispatch(self, shader, *, group_x, group_y=1, group_z=1):
+            calls.append(("dispatch", group_x))
+            shader.run(group_x, group_y, group_z)
+
+        def memory_barrier(self):
+            calls.append("barrier")
+
+        def release(self):
+            calls.append("release")
+
+    plan = idat_kraft_opengl_backend.KraftOpenGLPlan((0, 1, 0, 1))
+    result = idat_kraft_opengl_backend.run_gpu(
+        plan,
+        gpu_runtime.GpuRuntimeConfig(enabled=True, install_missing=False),
+        harness_factory=lambda **_kwargs: FakeHarness(),
+    )
+
+    assert result.status == "opengl-active"
+    assert result.hit_indices == (1, 3)
+    assert result.tested == 4
+    assert calls.count("compile") == 1
+    assert any(call[0] == "dispatch" for call in calls if isinstance(call, tuple))
+
+
+def test_idat_kraft_opengl_explain_falls_back_when_unavailable():
+    decision = idat_kraft_opengl_backend.explain(
+        idat_kraft_opengl_backend.KraftOpenGLPlan((1,)),
+        gpu_runtime.GpuRuntimeConfig(enabled=True, install_missing=False),
+        availability_probe=lambda **_kwargs: gpu_opengl.GpuAvailability(False, "opengl", "no driver"),
+    )
+
+    assert decision.runnable is False
+    assert "OpenGL unavailable" in decision.reason
 
 
 def _tiny_png_with_idat_stream(stream: bytes) -> bytes:

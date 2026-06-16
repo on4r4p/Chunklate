@@ -17,6 +17,7 @@ from chunklate import deflate_header
 from chunklate import gpu_runtime
 from chunklate import idat
 from chunklate import idat_bruteforce
+from chunklate import idat_kraft_opengl_backend
 from chunklate import ultimate_opengl_backend
 from chunklate.png import (
     IEND_CHUNK,
@@ -4413,6 +4414,69 @@ def test_idat_huffman_kraft_creates_worker_pool_per_run(monkeypatch):
         }
     ]
     assert shutdowns == [{"cancel_futures": True}]
+
+
+def test_idat_huffman_kraft_workers_keep_deterministic_top_candidates():
+    candidate, _bits, _original = dynamic_header_semantic_token_corrupt_png()
+
+    single = idat_bruteforce.probe_idat_huffman_kraft_solver(
+        candidate,
+        budget=200,
+        max_depth=1,
+        beam_width=8,
+        top_candidates=4,
+        workers=1,
+    )
+    parallel = idat_bruteforce.probe_idat_huffman_kraft_solver(
+        candidate,
+        budget=200,
+        max_depth=1,
+        beam_width=8,
+        top_candidates=4,
+        workers=4,
+    )
+
+    single_hashes = [idat_bruteforce._stream_state_key(candidate.stream) for candidate in single.top_candidates]
+    parallel_hashes = [idat_bruteforce._stream_state_key(candidate.stream) for candidate in parallel.top_candidates]
+    assert parallel.workers == 4
+    assert parallel_hashes == single_hashes
+
+
+def test_idat_huffman_kraft_gpu_prefilter_reports_active(monkeypatch):
+    candidate, _bits, _original = dynamic_header_semantic_token_corrupt_png()
+
+    class FakeSession:
+        def __init__(self, config):
+            self.config = config
+
+        def run(self, plan):
+            return idat_kraft_opengl_backend.KraftOpenGLResult(
+                hit_indices=tuple(range(plan.operation_count)),
+                tested=plan.operation_count,
+                shards=1,
+                status="opengl-active",
+                reason="fake active",
+            )
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(idat_kraft_opengl_backend, "KraftOpenGLSession", FakeSession)
+
+    result = idat_bruteforce.probe_idat_huffman_kraft_solver(
+        candidate,
+        budget=100,
+        max_depth=1,
+        beam_width=4,
+        top_candidates=3,
+        workers=1,
+        gpu=True,
+        gpu_config=gpu_runtime.GpuRuntimeConfig(enabled=True, install_missing=False),
+    )
+
+    assert result.gpu_status == "opengl-active"
+    assert result.gpu_shards >= 1
+    assert result.gpu_hits >= 1
 
 
 def test_idat_affine_corruption_refuses_hash_mismatch(tmp_path):

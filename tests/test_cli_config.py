@@ -55,7 +55,7 @@ def test_configure_parser_preserves_legacy_options():
     assert "--max-saves N" in help_text
     assert "-workers min|normal|max|auto|N" in help_text
     assert "CPU workers for heavy repair routes" in help_text
-    assert "--idat-huffman-kraft-workers N|min|normal|max|auto" in help_text
+    assert "--idat-huffman-kraft-workers" not in help_text
     assert "\n\nultimate line-feed:\n" in help_text
     assert "--max-saves N    Exit successfully after writing N repaired files." in help_text
     assert "Ultimate candidate limit." not in help_text

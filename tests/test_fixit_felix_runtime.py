@@ -2116,6 +2116,7 @@ def wrong_crc_runtime(
     deep_beam_budget=None,
     huffman_kraft_budget=None,
     huffman_kraft_workers=None,
+    huffman_kraft_gpu_config=None,
     global_crc_residue_budget=None,
     affine_corruption_budget=None,
     deflate_salvage_budget=None,
@@ -2193,6 +2194,7 @@ def wrong_crc_runtime(
         deep_beam_budget=deep_beam_budget,
         huffman_kraft_budget=huffman_kraft_budget,
         huffman_kraft_workers=huffman_kraft_workers,
+        huffman_kraft_gpu_config=huffman_kraft_gpu_config,
         global_crc_residue_budget=global_crc_residue_budget,
         affine_corruption_budget=affine_corruption_budget,
         deflate_salvage_budget=deflate_salvage_budget,
@@ -3392,6 +3394,7 @@ def test_hermesprobe_huffman_kraft_uses_configured_workers(tmp_path, monkeypatch
     calls = []
     side_notes = []
     data_hex = semantic_token_corrupt_deflate_png_hex()
+    gpu_config = fixit_felix_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True, backend="opengl")
 
     def kraft_probe(probe_data, **kwargs):
         calls.append(("kraft_probe_kwargs", kwargs, {}))
@@ -3403,6 +3406,7 @@ def test_hermesprobe_huffman_kraft_uses_configured_workers(tmp_path, monkeypatch
             0,
             False,
             workers=int(kwargs["workers"]),
+            gpu_status="opengl-active" if kwargs["gpu"] else "off",
             reason="mocked",
         )
 
@@ -3416,6 +3420,7 @@ def test_hermesprobe_huffman_kraft_uses_configured_workers(tmp_path, monkeypatch
         file_dir=str(tmp_path),
         deep_beam_workers="2",
         huffman_kraft_workers="6",
+        huffman_kraft_gpu_config=gpu_config,
     )
     data = bytes.fromhex(data_hex)
     analysis = idat.analyze_idat_stream(data)
@@ -3425,8 +3430,10 @@ def test_hermesprobe_huffman_kraft_uses_configured_workers(tmp_path, monkeypatch
     assert result is not None
     kraft_call = next(call for call in calls if call[0] == "kraft_probe_kwargs")
     assert kraft_call[1]["workers"] == "6"
+    assert kraft_call[1]["gpu"] is True
+    assert kraft_call[1]["gpu_config"] == gpu_config
     assert result.workers == 6
-    assert any("workers=6" in note for note in side_notes)
+    assert any("workers=6" in note and "gpu=opengl-active" in note for note in side_notes)
 
 
 def test_hermesprobe_writes_deep_beam_candidate_after_short_probes_stall(monkeypatch):
@@ -6238,6 +6245,7 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
     assert wrong_name.deep_beam_gpu_config == gpu_config
     assert wrong_name.huffman_kraft_budget == "1000001"
     assert wrong_name.huffman_kraft_workers == "7"
+    assert wrong_name.huffman_kraft_gpu_config == gpu_config
     assert wrong_name.global_crc_residue_budget == "750001"
     assert wrong_name.affine_corruption_budget == "250001"
     assert wrong_name.deflate_salvage_budget == "250002"
@@ -6248,6 +6256,7 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
     assert no_next.deep_beam_gpu_config == gpu_config
     assert no_next.huffman_kraft_budget == "1000001"
     assert no_next.huffman_kraft_workers == "7"
+    assert no_next.huffman_kraft_gpu_config == gpu_config
     assert no_next.global_crc_residue_budget == "750001"
     assert no_next.affine_corruption_budget == "250001"
     assert no_next.deflate_salvage_budget == "250002"

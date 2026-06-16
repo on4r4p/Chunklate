@@ -390,7 +390,7 @@ def configure_parser(parser: Any) -> Any:
     idat_group.add_argument(
         "--idat-huffman-kraft-workers",
         dest="IDAT_HUFFMAN_KRAFT_WORKERS",
-        help="CPU workers for the IDAT Huffman Kraft solver: min, normal, max, auto, or exact N.",
+        help=SUPPRESS,
         default=None,
         metavar="N|min|normal|max|auto",
     )

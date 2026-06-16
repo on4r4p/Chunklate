@@ -389,6 +389,11 @@ class IdatHuffmanKraftSolverResult:
     best_distance_debt: int = 0
     reached_depth: int = 0
     workers: int = 1
+    gpu_status: str = "off"
+    gpu_hits: int = 0
+    gpu_shards: int = 0
+    cpu_batches: int = 0
+    kraft_prefilter_hits: int = 0
     strategy: str = "huffman-kraft"
     reason: str = ""
     source_hash: str = ""
@@ -9478,45 +9483,185 @@ def _huffman_kraft_candidate_from_operation(
     )
 
 
-def _huffman_kraft_apply_operation_batch(
+HuffmanKraftCompactOperation = tuple[int, int, int, tuple[int, ...], int, bytes, bytes]
+
+
+def _huffman_kraft_compact_operation(
+    state_id: int,
+    operation: IdatDeepBeamOperation,
+) -> HuffmanKraftCompactOperation | None:
+    if not operation.bit_offsets:
+        return None
+    bit_start = min(operation.bit_offsets)
+    bit_end = max(operation.bit_offsets) + 1
+    return (
+        int(state_id),
+        int(bit_start),
+        int(bit_end),
+        tuple(int(value) & 1 for value in operation.new_bytes),
+        int(operation.stream_offset),
+        bytes(operation.old_bytes),
+        bytes(operation.new_bytes),
+    )
+
+
+def _huffman_kraft_operation_from_compact(compact: HuffmanKraftCompactOperation) -> IdatDeepBeamOperation:
+    _state_id, bit_start, bit_end, _replacement_bits, stream_offset, old_bytes, new_bytes = compact
+    return IdatDeepBeamOperation(
+        "huffman-kraft-token",
+        int(stream_offset),
+        bytes(old_bytes),
+        bytes(new_bytes),
+        tuple(range(int(bit_start), int(bit_end))),
+    )
+
+
+def _huffman_kraft_apply_compact_operation(
+    stream: bytes,
+    compact: HuffmanKraftCompactOperation,
+) -> bytes | None:
+    _state_id, bit_start, bit_end, replacement_bits, _stream_offset, _old_bytes, _new_bytes = compact
+    return _replace_stream_bits_preserve_length(
+        stream,
+        int(bit_start),
+        int(bit_end),
+        tuple(int(value) & 1 for value in replacement_bits),
+    )
+
+
+def _huffman_kraft_prefilter_accepts_metrics(
+    parent_metrics: tuple[int, int, int, int, int, int, int],
+    stream: bytes,
+) -> bool:
+    literal_debt, distance_debt, has_eob, literal_complete, distance_complete, _lu, _du = _huffman_kraft_metrics(stream)
+    parent_literal_debt, parent_distance_debt, parent_eob, parent_literal_complete, parent_distance_complete, _plu, _pdu = parent_metrics
+    if literal_complete and distance_complete:
+        return True
+    if literal_debt < parent_literal_debt or distance_debt < parent_distance_debt:
+        return True
+    if has_eob and not parent_eob:
+        return True
+    if literal_complete > parent_literal_complete or distance_complete > parent_distance_complete:
+        return True
+    return False
+
+
+def _huffman_kraft_candidate_from_compact_operation(
+    parent_stream: bytes,
+    parent_operations: tuple[IdatDeepBeamOperation, ...],
+    parent_state_id: int,
+    parent_source_offsets: tuple[int, ...],
+    compact: HuffmanKraftCompactOperation,
+    *,
+    chunks: tuple[png.PngChunk, ...],
+    before: idat.IdatStreamAnalysis,
+    original_idat_count: int,
+) -> IdatDeepBeamCandidate | None:
+    state_id, _bit_start, _bit_end, _replacement_bits, _stream_offset, _old_bytes, _new_bytes = compact
+    stream = _huffman_kraft_apply_compact_operation(parent_stream, compact)
+    if stream is None:
+        return None
+    parent = IdatDeepBeamCandidate(
+        data=b"",
+        stream=parent_stream,
+        operations=parent_operations,
+        before=before,
+        after=before,
+        state_id=int(parent_state_id),
+        parent_id=None,
+        source_offsets=parent_source_offsets,
+        score=(),
+    )
+    operation = _huffman_kraft_operation_from_compact(compact)
+    return _frontier_candidate_from_stream(
+        parent,
+        stream,
+        operation,
+        chunks=chunks,
+        before=before,
+        state_id=int(state_id),
+        original_idat_count=original_idat_count,
+        source_kind="candidate_from_huffman_kraft",
+    )
+
+
+def _huffman_kraft_apply_compact_operation_batch(
     args: tuple[
-        IdatDeepBeamCandidate,
-        tuple[tuple[int, IdatDeepBeamOperation], ...],
+        bytes,
+        tuple[IdatDeepBeamOperation, ...],
+        int,
+        tuple[int, ...],
+        tuple[HuffmanKraftCompactOperation, ...],
         tuple[png.PngChunk, ...],
         idat.IdatStreamAnalysis,
         int,
     ],
-) -> tuple[IdatDeepBeamCandidate | None, ...]:
-    parent, indexed_operations, chunks, before, original_idat_count = args
-    return tuple(
-        _huffman_kraft_candidate_from_operation(
-            parent,
-            operation,
+) -> tuple[tuple[IdatDeepBeamCandidate, ...], int]:
+    parent_stream, parent_operations, parent_state_id, parent_source_offsets, compact_operations, chunks, before, original_idat_count = args
+    parent_metrics = _huffman_kraft_metrics(parent_stream)
+    candidates: list[IdatDeepBeamCandidate] = []
+    prefilter_hits = 0
+    for compact in compact_operations:
+        stream = _huffman_kraft_apply_compact_operation(parent_stream, compact)
+        if stream is None:
+            continue
+        if not _huffman_kraft_prefilter_accepts_metrics(parent_metrics, stream):
+            continue
+        prefilter_hits += 1
+        candidate = _huffman_kraft_candidate_from_compact_operation(
+            parent_stream,
+            parent_operations,
+            parent_state_id,
+            parent_source_offsets,
+            compact,
             chunks=chunks,
             before=before,
-            state_id=state_id,
             original_idat_count=original_idat_count,
         )
-        for state_id, operation in indexed_operations
-    )
+        if candidate is not None:
+            candidates.append(candidate)
+    return tuple(candidates), prefilter_hits
 
 
 def _huffman_kraft_operation_batches(
-    indexed_operations: tuple[tuple[int, IdatDeepBeamOperation], ...],
+    compact_operations: tuple[HuffmanKraftCompactOperation, ...],
     *,
     workers: int,
-) -> tuple[tuple[tuple[int, IdatDeepBeamOperation], ...], ...]:
-    if not indexed_operations:
+) -> tuple[tuple[HuffmanKraftCompactOperation, ...], ...]:
+    if not compact_operations:
         return ()
     batch_size = _deep_beam_cpu_batch_size(
-        len(indexed_operations),
+        len(compact_operations),
         max(1, int(workers)),
         DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE,
     )
     return tuple(
-        tuple(indexed_operations[index : index + batch_size])
-        for index in range(0, len(indexed_operations), batch_size)
+        tuple(compact_operations[index : index + batch_size])
+        for index in range(0, len(compact_operations), batch_size)
     )
+
+
+def _huffman_kraft_gpu_prefilter_compact_operations(
+    compact_operations: tuple[HuffmanKraftCompactOperation, ...],
+    *,
+    gpu_session: Any = None,
+) -> tuple[tuple[HuffmanKraftCompactOperation, ...], int, int, str]:
+    if gpu_session is None or not compact_operations:
+        return compact_operations, 0, 0, "off"
+    try:
+        from . import idat_kraft_opengl_backend
+
+        flags = tuple(1 for _operation in compact_operations)
+        plan = idat_kraft_opengl_backend.KraftOpenGLPlan(flags)
+        result = gpu_session.run(plan)
+    except Exception:
+        return compact_operations, 0, 0, "fallback-cpu"
+    if result.status != "opengl-active":
+        return compact_operations, int(result.shards), 0, result.status
+    indices = tuple(index for index in result.hit_indices if 0 <= int(index) < len(compact_operations))
+    if not indices:
+        return (), int(result.shards), 0, result.status
+    return tuple(compact_operations[int(index)] for index in indices), int(result.shards), len(indices), result.status
 
 
 def _huffman_kraft_validate_operations(
@@ -9529,24 +9674,45 @@ def _huffman_kraft_validate_operations(
     original_idat_count: int,
     workers: int,
     worker_executor: ProcessPoolExecutor | None,
-) -> tuple[IdatDeepBeamCandidate | None, ...]:
-    indexed_operations = tuple(
-        (int(state_id_start) + index, operation)
-        for index, operation in enumerate(operations)
+    gpu_session: Any = None,
+) -> tuple[tuple[IdatDeepBeamCandidate, ...], int, int, int, int, str]:
+    compact_operations = tuple(
+        compact
+        for compact in (
+            _huffman_kraft_compact_operation(int(state_id_start) + index, operation)
+            for index, operation in enumerate(operations)
+        )
+        if compact is not None
     )
-    batches = _huffman_kraft_operation_batches(indexed_operations, workers=workers)
+    compact_operations, gpu_shards, gpu_hits, gpu_status = _huffman_kraft_gpu_prefilter_compact_operations(
+        compact_operations,
+        gpu_session=gpu_session,
+    )
+    batches = _huffman_kraft_operation_batches(compact_operations, workers=workers)
     if not batches:
-        return ()
+        return (), 0, 0, gpu_shards, gpu_hits, gpu_status
 
-    def run_local() -> tuple[IdatDeepBeamCandidate | None, ...]:
-        results: list[IdatDeepBeamCandidate | None] = []
+    def run_local() -> tuple[tuple[IdatDeepBeamCandidate, ...], int, int, int, int, str]:
+        candidates: list[IdatDeepBeamCandidate] = []
+        prefilter_hits = 0
+        cpu_batches = 0
         for batch in batches:
-            results.extend(
-                _huffman_kraft_apply_operation_batch(
-                    (parent, batch, chunks, before, original_idat_count)
+            batch_candidates, batch_hits = _huffman_kraft_apply_compact_operation_batch(
+                (
+                    parent.stream,
+                    parent.operations,
+                    parent.state_id,
+                    parent.source_offsets,
+                    batch,
+                    chunks,
+                    before,
+                    original_idat_count,
                 )
             )
-        return tuple(results)
+            candidates.extend(batch_candidates)
+            prefilter_hits += int(batch_hits)
+            cpu_batches += 1
+        return tuple(candidates), prefilter_hits, cpu_batches, gpu_shards, gpu_hits, gpu_status
 
     if worker_executor is None or len(batches) <= 1:
         return run_local()
@@ -9554,8 +9720,17 @@ def _huffman_kraft_validate_operations(
     try:
         futures = tuple(
             worker_executor.submit(
-                _huffman_kraft_apply_operation_batch,
-                (parent, batch, chunks, before, original_idat_count),
+                _huffman_kraft_apply_compact_operation_batch,
+                (
+                    parent.stream,
+                    parent.operations,
+                    parent.state_id,
+                    parent.source_offsets,
+                    batch,
+                    chunks,
+                    before,
+                    original_idat_count,
+                ),
             )
             for batch in batches
         )
@@ -9563,10 +9738,13 @@ def _huffman_kraft_validate_operations(
         return run_local()
 
     try:
-        results: list[IdatDeepBeamCandidate | None] = []
+        candidates: list[IdatDeepBeamCandidate] = []
+        prefilter_hits = 0
         for future in futures:
-            results.extend(future.result())
-        return tuple(results)
+            batch_candidates, batch_hits = future.result()
+            candidates.extend(batch_candidates)
+            prefilter_hits += int(batch_hits)
+        return tuple(candidates), prefilter_hits, len(futures), gpu_shards, gpu_hits, gpu_status
     except KeyboardInterrupt:
         for future in futures:
             future.cancel()
@@ -9585,6 +9763,8 @@ def probe_idat_huffman_kraft_solver(
     beam_width: int = HUFFMAN_KRAFT_DEFAULT_WIDTH,
     top_candidates: int = HUFFMAN_KRAFT_DEFAULT_TOP_CANDIDATES,
     workers: str | int | None = "auto",
+    gpu: bool | str | int | None = False,
+    gpu_config: Any = None,
     checkpoint_path: str = "",
     progress_path: str = "",
     seed_candidates: Iterable[IdatDeepBeamCandidate] = (),
@@ -9593,6 +9773,13 @@ def probe_idat_huffman_kraft_solver(
     strategy = "huffman-kraft"
     budget_int = max(0, int(budget))
     worker_count = _deep_beam_workers(workers)
+    gpu_requested = _deep_beam_gpu_requested(gpu)
+    resolved_gpu_config = _deep_beam_gpu_config(gpu, gpu_config)
+    if gpu_requested and not bool(getattr(resolved_gpu_config, "enabled", False)):
+        try:
+            resolved_gpu_config = replace(resolved_gpu_config, enabled=True)
+        except Exception:
+            pass
     before = idat.analyze_idat_stream(data)
     if not before.supported or before.complete:
         return IdatHuffmanKraftSolverResult(before, None, (), 0, False, strategy=strategy, reason=before.reason)
@@ -9634,6 +9821,7 @@ def probe_idat_huffman_kraft_solver(
             best_literal_debt=literal_debt,
             best_distance_debt=distance_debt,
             workers=worker_count,
+            gpu_status="fallback-cpu" if gpu_requested else "off",
             strategy=strategy,
             reason="huffman kraft already exhausted for this source/budget",
             source_hash=source_hash,
@@ -9657,6 +9845,11 @@ def probe_idat_huffman_kraft_solver(
     budget_exhausted = False
     reached_depth = 0
     last_checkpoint_at = 0
+    gpu_status = "off"
+    gpu_hits = 0
+    gpu_shards = 0
+    cpu_batches = 0
+    kraft_prefilter_hits = 0
 
     checkpoint_candidates: tuple[IdatDeepBeamCandidate, ...] = ()
     checkpoint_matched_records = 0
@@ -9752,6 +9945,12 @@ def probe_idat_huffman_kraft_solver(
                 "distance_debt": int(snapshot_distance_debt),
                 "reached_depth": int(reached_depth),
                 "checkpoint_records": int(checkpoint_matched_records),
+                "workers": int(worker_count),
+                "gpu_status": str(gpu_status),
+                "gpu_shards": int(gpu_shards),
+                "gpu_hits": int(gpu_hits),
+                "cpu_batches": int(cpu_batches),
+                "kraft_prefilter_hits": int(kraft_prefilter_hits),
             },
         )
 
@@ -9788,6 +9987,16 @@ def probe_idat_huffman_kraft_solver(
         except (OSError, RuntimeError, ValueError):
             worker_executor = None
             worker_count = 1
+    gpu_session: Any = None
+    if gpu_requested:
+        try:
+            from . import idat_kraft_opengl_backend
+
+            gpu_session = idat_kraft_opengl_backend.KraftOpenGLSession(resolved_gpu_config)
+            gpu_status = "fallback-cpu"
+        except Exception as exc:
+            gpu_session = None
+            gpu_status = "fallback-cpu"
 
     try:
         for depth in range(1, max(1, int(max_depth)) + 1):
@@ -9806,7 +10015,7 @@ def probe_idat_huffman_kraft_solver(
                     budget_exhausted = True
                     break
                 operations = tuple(operations[:remaining])
-                candidates = _huffman_kraft_validate_operations(
+                candidates, batch_prefilter_hits, batch_cpu_batches, batch_gpu_shards, batch_gpu_hits, batch_gpu_status = _huffman_kraft_validate_operations(
                     parent,
                     operations,
                     chunks=chunks,
@@ -9815,12 +10024,17 @@ def probe_idat_huffman_kraft_solver(
                     original_idat_count=original_idat_count,
                     workers=worker_count,
                     worker_executor=worker_executor,
+                    gpu_session=gpu_session if depth <= 2 else None,
                 )
+                cpu_batches += int(batch_cpu_batches)
+                kraft_prefilter_hits += int(batch_prefilter_hits)
+                gpu_shards += int(batch_gpu_shards)
+                gpu_hits += int(batch_gpu_hits)
+                if batch_gpu_status != "off":
+                    gpu_status = batch_gpu_status
                 tested += len(operations)
                 next_state_id += len(operations)
                 for candidate in candidates:
-                    if candidate is None:
-                        continue
                     if remember(parent, candidate):
                         next_frontier.append(candidate)
                 if progress is not None and (tested == len(operations) or tested % 100 == 0 or len(operations) >= 100):
@@ -9842,6 +10056,11 @@ def probe_idat_huffman_kraft_solver(
             if budget_exhausted or not frontier:
                 break
     finally:
+        if gpu_session is not None:
+            try:
+                gpu_session.close()
+            except Exception:
+                pass
         if worker_executor is not None:
             worker_executor.shutdown(cancel_futures=True)
 
@@ -9887,6 +10106,12 @@ def probe_idat_huffman_kraft_solver(
             "literal_debt": int(best_literal_debt),
             "distance_debt": int(best_distance_debt),
             "reached_depth": int(reached_depth),
+            "workers": int(worker_count),
+            "gpu_status": str(gpu_status),
+            "gpu_shards": int(gpu_shards),
+            "gpu_hits": int(gpu_hits),
+            "cpu_batches": int(cpu_batches),
+            "kraft_prefilter_hits": int(kraft_prefilter_hits),
         },
     )
     if progress is not None:
@@ -9906,6 +10131,11 @@ def probe_idat_huffman_kraft_solver(
         best_distance_debt=best_distance_debt,
         reached_depth=reached_depth,
         workers=worker_count,
+        gpu_status=gpu_status,
+        gpu_hits=gpu_hits,
+        gpu_shards=gpu_shards,
+        cpu_batches=cpu_batches,
+        kraft_prefilter_hits=kraft_prefilter_hits,
         strategy=strategy,
         reason=reason,
         source_hash=source_hash,
@@ -15230,13 +15460,19 @@ def affine_corruption_model_candidate_summary_lines(
 
 def huffman_kraft_summary_line(result: IdatHuffmanKraftSolverResult) -> str:
     line = (
-        "-IDAT huffman-kraft: tested=%s; budget_exhausted=%s; depth=%s; workers=%s; literal_debt=%s; distance_debt=%s; "
+        "-IDAT huffman-kraft: tested=%s; budget_exhausted=%s; depth=%s; workers=%s; gpu=%s; "
+        "cpu_batches=%s; gpu_shards=%s; gpu_hits=%s; prefilter_hits=%s; literal_debt=%s; distance_debt=%s; "
         "complete_trees=%s; first_symbol_ok=%s; valid_headers=%s; top=%s"
         % (
             result.tested_candidates,
             "yes" if result.budget_exhausted else "no",
             result.reached_depth,
             result.workers,
+            result.gpu_status,
+            result.cpu_batches,
+            result.gpu_shards,
+            result.gpu_hits,
+            result.kraft_prefilter_hits,
             result.best_literal_debt,
             result.best_distance_debt,
             result.complete_trees,

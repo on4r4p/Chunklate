@@ -99,7 +99,7 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "-sbb-resume" not in result.stdout
     assert "--smashbrutebrawl-workers" not in result.stdout
     assert "-sbbw" not in result.stdout
-    assert "--idat-huffman-kraft-workers" in result.stdout
+    assert "--idat-huffman-kraft-workers" not in result.stdout
     assert "-ddll N" in result.stdout
     assert "--ddl-deflate-mitm" in result.stdout
     assert "-sbbl N" not in result.stdout
