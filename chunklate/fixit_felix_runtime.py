@@ -159,6 +159,7 @@ class WrongCrcRuntime:
     huffman_oracle_budget: Any = None
     crc_periodic_budget: Any = None
     huffman_kraft_budget: Any = None
+    huffman_kraft_workers: Any = None
     global_crc_residue_budget: Any = None
     affine_corruption_budget: Any = None
     deflate_salvage_budget: Any = None
@@ -199,6 +200,7 @@ class WrongChunkNameRuntime:
     huffman_oracle_budget: Any = None
     crc_periodic_budget: Any = None
     huffman_kraft_budget: Any = None
+    huffman_kraft_workers: Any = None
     global_crc_residue_budget: Any = None
     affine_corruption_budget: Any = None
     deflate_salvage_budget: Any = None
@@ -256,6 +258,7 @@ class NoNextChunkRuntime:
     huffman_oracle_budget: Any = None
     crc_periodic_budget: Any = None
     huffman_kraft_budget: Any = None
+    huffman_kraft_workers: Any = None
     global_crc_residue_budget: Any = None
     affine_corruption_budget: Any = None
     deflate_salvage_budget: Any = None
@@ -330,6 +333,7 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         huffman_oracle_budget=namespace.get("IDAT_HUFFMAN_ORACLE_BUDGET"),
         crc_periodic_budget=namespace.get("IDAT_CRC_PERIODIC_BUDGET"),
         huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
+        huffman_kraft_workers=namespace.get("IDAT_HUFFMAN_KRAFT_WORKERS", namespace.get("IDAT_DEEP_BEAM_WORKERS")),
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
         deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
@@ -411,6 +415,7 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         huffman_oracle_budget=namespace.get("IDAT_HUFFMAN_ORACLE_BUDGET"),
         crc_periodic_budget=namespace.get("IDAT_CRC_PERIODIC_BUDGET"),
         huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
+        huffman_kraft_workers=namespace.get("IDAT_HUFFMAN_KRAFT_WORKERS", namespace.get("IDAT_DEEP_BEAM_WORKERS")),
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
         deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
@@ -469,6 +474,7 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         huffman_oracle_budget=namespace.get("IDAT_HUFFMAN_ORACLE_BUDGET"),
         crc_periodic_budget=namespace.get("IDAT_CRC_PERIODIC_BUDGET"),
         huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
+        huffman_kraft_workers=namespace.get("IDAT_HUFFMAN_KRAFT_WORKERS", namespace.get("IDAT_DEEP_BEAM_WORKERS")),
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
         deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
@@ -3210,6 +3216,15 @@ def _runtime_huffman_kraft_budget(runtime: Any) -> int:
     )
 
 
+def _runtime_huffman_kraft_workers(runtime: Any) -> Any:
+    value = getattr(runtime, "huffman_kraft_workers", None)
+    if value is None or str(value).strip() == "":
+        value = getattr(runtime, "deep_beam_workers", None)
+    if value is None or str(value).strip() == "":
+        return "auto"
+    return value
+
+
 def _runtime_global_crc_residue_budget(runtime: Any) -> int:
     return _deep_beam_positive_int(
         getattr(runtime, "global_crc_residue_budget", None),
@@ -3564,6 +3579,7 @@ def _run_idat_huffman_kraft_runtime(
         return None
     checkpoint_path, progress_path = _idat_huffman_kraft_paths(runtime)
     budget = _runtime_huffman_kraft_budget(runtime)
+    workers = _runtime_huffman_kraft_workers(runtime)
     progress_state = idat_bruteforce.huffman_kraft_progress_state(data, progress_path)
     if progress_state.available and progress_state.source_matches and progress_state.exhausted and progress_state.budget >= budget:
         runtime.side_notes.append(
@@ -3580,6 +3596,7 @@ def _run_idat_huffman_kraft_runtime(
     result = idat_bruteforce.probe_idat_huffman_kraft_solver(
         data,
         budget=budget,
+        workers=workers,
         checkpoint_path=checkpoint_path,
         progress_path=progress_path,
         seed_candidates=seed_candidates,

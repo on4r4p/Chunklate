@@ -187,9 +187,9 @@ def configure_parser(parser: Any) -> Any:
     parser.add_argument(
         "-workers",
         dest="GLOBAL_WORKERS",
-        help="CPU workers for Ultimate and DaedalusForce: min, normal, max, or exact N.",
+        help="CPU workers for heavy repair routes: min, normal, max, auto, or exact N.",
         default=None,
-        metavar="min|normal|max|N",
+        metavar="min|normal|max|auto|N",
     )
     parser.add_argument(
         "-gpu",
@@ -385,6 +385,14 @@ def configure_parser(parser: Any) -> Any:
         help=SUPPRESS,
         default=None,
         metavar="START:END",
+    )
+    idat_group = parser.add_argument_group("idat repair")
+    idat_group.add_argument(
+        "--idat-huffman-kraft-workers",
+        dest="IDAT_HUFFMAN_KRAFT_WORKERS",
+        help="CPU workers for the IDAT Huffman Kraft solver: min, normal, max, auto, or exact N.",
+        default=None,
+        metavar="N|min|normal|max|auto",
     )
     smash.add_argument(
         "--ddl-deflate-mitm",
@@ -714,6 +722,21 @@ def smash_brute_brawl_workers_error(workers: object) -> str | None:
         return "--daedalusforce-workers must be a non-negative integer, min, normal, max, or auto."
     if value < 0:
         return "--daedalusforce-workers must be a non-negative integer, min, normal, max, or auto."
+    return None
+
+
+def idat_huffman_kraft_workers_error(workers: object) -> str | None:
+    if workers is None:
+        return None
+    text = str(workers).strip().lower()
+    if text in ("auto", "min", "normal", "max"):
+        return None
+    try:
+        value = int(text)
+    except (TypeError, ValueError):
+        return "--idat-huffman-kraft-workers must be a non-negative integer, min, normal, max, or auto."
+    if value < 0:
+        return "--idat-huffman-kraft-workers must be a non-negative integer, min, normal, max, or auto."
     return None
 
 

@@ -74,6 +74,7 @@ class MainCliOptionsRuntime:
     ultimate_linefeed_workers_error: Callable = cli.ultimate_linefeed_workers_error
     smash_brute_brawl_resume_error: Callable = cli.smash_brute_brawl_resume_error
     smash_brute_brawl_workers_error: Callable = cli.smash_brute_brawl_workers_error
+    idat_huffman_kraft_workers_error: Callable = cli.idat_huffman_kraft_workers_error
     smash_brute_brawl_level_error: Callable = cli.smash_brute_brawl_level_error
     smash_brute_brawl_crc_forge_bytes_error: Callable = cli.smash_brute_brawl_crc_forge_bytes_error
     smash_brute_brawl_crc_forge_window_error: Callable = cli.smash_brute_brawl_crc_forge_window_error
@@ -110,6 +111,7 @@ class MainCliOptionsState:
     smash_brute_brawl_crc_forge: str = "auto"
     smash_brute_brawl_crc_forge_bytes: int | None = None
     smash_brute_brawl_crc_forge_window: str | None = None
+    idat_huffman_kraft_workers: str | int | None = None
     gpu_config: gpu_runtime.GpuRuntimeConfig = gpu_runtime.GpuRuntimeConfig()
 
 
@@ -1042,6 +1044,16 @@ def apply_main_cli_options(
         runtime.print_error(smash_workers_error)
         runtime.exit_process(1)
         return None
+    idat_huffman_kraft_workers = getattr(args, "IDAT_HUFFMAN_KRAFT_WORKERS", None)
+    if idat_huffman_kraft_workers is None and global_workers is not None:
+        idat_huffman_kraft_workers = global_workers
+    idat_huffman_kraft_workers_error = runtime.idat_huffman_kraft_workers_error(
+        idat_huffman_kraft_workers
+    )
+    if idat_huffman_kraft_workers_error is not None:
+        runtime.print_error(idat_huffman_kraft_workers_error)
+        runtime.exit_process(1)
+        return None
     smash_brute_brawl_force_level_arg = getattr(args, "SMASH_BRUTE_BRAWL_FORCE_LEVEL", None)
     smash_level_error = runtime.smash_brute_brawl_level_error(
         smash_brute_brawl_force_level_arg
@@ -1157,6 +1169,7 @@ def apply_main_cli_options(
         smash_brute_brawl_crc_forge=smash_brute_brawl_crc_forge,
         smash_brute_brawl_crc_forge_bytes=smash_brute_brawl_crc_forge_bytes,
         smash_brute_brawl_crc_forge_window=smash_brute_brawl_crc_forge_window,
+        idat_huffman_kraft_workers=idat_huffman_kraft_workers,
         gpu_config=gpu_config,
     )
 
@@ -1199,6 +1212,7 @@ def legacy_globals_from_main_cli_options(options: MainCliOptionsState) -> dict[s
         "SMASH_BRUTE_BRAWL_CRC_FORGE": options.smash_brute_brawl_crc_forge,
         "SMASH_BRUTE_BRAWL_CRC_FORGE_BYTES": options.smash_brute_brawl_crc_forge_bytes,
         "SMASH_BRUTE_BRAWL_CRC_FORGE_WINDOW": options.smash_brute_brawl_crc_forge_window,
+        "IDAT_HUFFMAN_KRAFT_WORKERS": options.idat_huffman_kraft_workers,
         "GPU": options.gpu_config.enabled,
         "GPU_CONFIG": options.gpu_config,
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,

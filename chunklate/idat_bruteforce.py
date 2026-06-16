@@ -388,6 +388,7 @@ class IdatHuffmanKraftSolverResult:
     best_literal_debt: int = 0
     best_distance_debt: int = 0
     reached_depth: int = 0
+    workers: int = 1
     strategy: str = "huffman-kraft"
     reason: str = ""
     source_hash: str = ""
@@ -8204,6 +8205,11 @@ def _deep_beam_apply_byte_context_operation(stream: bytes, operation: IdatDeepBe
 
 def _deep_beam_apply_operation_to_stream(stream: bytes, operation: IdatDeepBeamOperation) -> bytes | None:
     kind = operation.kind.strip().lower()
+    if "huffman-kraft-token" in kind and operation.bit_offsets:
+        replacement_bits = tuple(int(value) & 1 for value in operation.new_bytes)
+        bit_start = min(operation.bit_offsets)
+        bit_end = max(operation.bit_offsets) + 1
+        return _replace_stream_bits_preserve_length(stream, bit_start, bit_end, replacement_bits)
     if "bit-delete" in kind and operation.bit_offsets:
         shifted = _shift_stream_delete_bit(stream, int(operation.bit_offsets[0]))
         if shifted is not None and _deep_beam_context_matches_near(shifted, operation.stream_offset, operation.new_bytes):
@@ -9472,6 +9478,105 @@ def _huffman_kraft_candidate_from_operation(
     )
 
 
+def _huffman_kraft_apply_operation_batch(
+    args: tuple[
+        IdatDeepBeamCandidate,
+        tuple[tuple[int, IdatDeepBeamOperation], ...],
+        tuple[png.PngChunk, ...],
+        idat.IdatStreamAnalysis,
+        int,
+    ],
+) -> tuple[IdatDeepBeamCandidate | None, ...]:
+    parent, indexed_operations, chunks, before, original_idat_count = args
+    return tuple(
+        _huffman_kraft_candidate_from_operation(
+            parent,
+            operation,
+            chunks=chunks,
+            before=before,
+            state_id=state_id,
+            original_idat_count=original_idat_count,
+        )
+        for state_id, operation in indexed_operations
+    )
+
+
+def _huffman_kraft_operation_batches(
+    indexed_operations: tuple[tuple[int, IdatDeepBeamOperation], ...],
+    *,
+    workers: int,
+) -> tuple[tuple[tuple[int, IdatDeepBeamOperation], ...], ...]:
+    if not indexed_operations:
+        return ()
+    batch_size = _deep_beam_cpu_batch_size(
+        len(indexed_operations),
+        max(1, int(workers)),
+        DEEP_BEAM_DEFAULT_CPU_BATCH_SIZE,
+    )
+    return tuple(
+        tuple(indexed_operations[index : index + batch_size])
+        for index in range(0, len(indexed_operations), batch_size)
+    )
+
+
+def _huffman_kraft_validate_operations(
+    parent: IdatDeepBeamCandidate,
+    operations: tuple[IdatDeepBeamOperation, ...],
+    *,
+    chunks: tuple[png.PngChunk, ...],
+    before: idat.IdatStreamAnalysis,
+    state_id_start: int,
+    original_idat_count: int,
+    workers: int,
+    worker_executor: ProcessPoolExecutor | None,
+) -> tuple[IdatDeepBeamCandidate | None, ...]:
+    indexed_operations = tuple(
+        (int(state_id_start) + index, operation)
+        for index, operation in enumerate(operations)
+    )
+    batches = _huffman_kraft_operation_batches(indexed_operations, workers=workers)
+    if not batches:
+        return ()
+
+    def run_local() -> tuple[IdatDeepBeamCandidate | None, ...]:
+        results: list[IdatDeepBeamCandidate | None] = []
+        for batch in batches:
+            results.extend(
+                _huffman_kraft_apply_operation_batch(
+                    (parent, batch, chunks, before, original_idat_count)
+                )
+            )
+        return tuple(results)
+
+    if worker_executor is None or len(batches) <= 1:
+        return run_local()
+
+    try:
+        futures = tuple(
+            worker_executor.submit(
+                _huffman_kraft_apply_operation_batch,
+                (parent, batch, chunks, before, original_idat_count),
+            )
+            for batch in batches
+        )
+    except Exception:
+        return run_local()
+
+    try:
+        results: list[IdatDeepBeamCandidate | None] = []
+        for future in futures:
+            results.extend(future.result())
+        return tuple(results)
+    except KeyboardInterrupt:
+        for future in futures:
+            future.cancel()
+        raise
+    except Exception:
+        for future in futures:
+            future.cancel()
+        return run_local()
+
+
 def probe_idat_huffman_kraft_solver(
     data: bytes,
     *,
@@ -9479,12 +9584,15 @@ def probe_idat_huffman_kraft_solver(
     max_depth: int = HUFFMAN_KRAFT_DEFAULT_MAX_DEPTH,
     beam_width: int = HUFFMAN_KRAFT_DEFAULT_WIDTH,
     top_candidates: int = HUFFMAN_KRAFT_DEFAULT_TOP_CANDIDATES,
+    workers: str | int | None = "auto",
     checkpoint_path: str = "",
     progress_path: str = "",
     seed_candidates: Iterable[IdatDeepBeamCandidate] = (),
     progress: QueueProgressCallback | None = None,
 ) -> IdatHuffmanKraftSolverResult:
     strategy = "huffman-kraft"
+    budget_int = max(0, int(budget))
+    worker_count = _deep_beam_workers(workers)
     before = idat.analyze_idat_stream(data)
     if not before.supported or before.complete:
         return IdatHuffmanKraftSolverResult(before, None, (), 0, False, strategy=strategy, reason=before.reason)
@@ -9494,12 +9602,18 @@ def probe_idat_huffman_kraft_solver(
         return IdatHuffmanKraftSolverResult(before, None, (), 0, False, strategy=strategy, reason=str(exc))
     source_hash = _stream_state_key(root_stream)
     original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    if checkpoint_path:
+        _compact_deep_beam_checkpoint_file(
+            checkpoint_path,
+            source_hash=source_hash,
+            source_stream=root_stream,
+        )
     progress_state = huffman_kraft_progress_state(data, progress_path)
     if (
         progress_state.available
         and progress_state.source_matches
         and progress_state.exhausted
-        and progress_state.budget >= int(budget)
+        and progress_state.budget >= budget_int
     ):
         _before, _chunks, _stream, _source_hash, _count, top = _load_frontier_candidates_for_progress(
             data,
@@ -9519,6 +9633,7 @@ def probe_idat_huffman_kraft_solver(
             progress_path=progress_path,
             best_literal_debt=literal_debt,
             best_distance_debt=distance_debt,
+            workers=worker_count,
             strategy=strategy,
             reason="huffman kraft already exhausted for this source/budget",
             source_hash=source_hash,
@@ -9533,6 +9648,7 @@ def probe_idat_huffman_kraft_solver(
     frontier = [root]
     top: list[IdatDeepBeamCandidate] = []
     visited = {_stream_state_key(root_stream)}
+    checkpointed_hashes: set[str] = set()
     next_state_id = 1
     tested = 0
     valid_headers = 0
@@ -9542,12 +9658,102 @@ def probe_idat_huffman_kraft_solver(
     reached_depth = 0
     last_checkpoint_at = 0
 
+    checkpoint_candidates: tuple[IdatDeepBeamCandidate, ...] = ()
+    checkpoint_matched_records = 0
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        checkpoint_candidate_list, checkpoint_visited, checkpoint_next_state_id, checkpoint_matched_records = _load_deep_beam_checkpoint(
+            checkpoint_path,
+            source_hash=source_hash,
+            source_stream=root_stream,
+            chunks=chunks,
+            before=before,
+            original_idat_count=original_idat_count,
+            candidate_limit=max(1, int(top_candidates)),
+            max_operation_depth=max_depth,
+        )
+        checkpoint_candidates = tuple(checkpoint_candidate_list)
+        checkpointed_hashes = set(checkpoint_visited)
+        visited.update(checkpoint_visited)
+        visited.add(source_hash)
+        next_state_id = max(next_state_id, int(checkpoint_next_state_id))
+        if progress_state.available and progress_state.source_matches:
+            tested = max(tested, int(progress_state.tested))
+        elif checkpoint_matched_records:
+            checkpoint_groups = max(1, int(top_candidates))
+            inferred_tested = (int(checkpoint_matched_records) // checkpoint_groups) * int(HUFFMAN_KRAFT_CHECKPOINT_EVERY)
+            tested = max(tested, min(budget_int, inferred_tested))
+        last_checkpoint_at = tested
+
     for seed in seed_candidates:
         if seed.stream and _stream_state_key(seed.stream) not in visited:
             visited.add(_stream_state_key(seed.stream))
             top.append(seed)
             if _huffman_kraft_accepts(root, seed):
                 frontier.append(seed)
+
+    for seed in checkpoint_candidates:
+        if not seed.stream:
+            continue
+        top.append(seed)
+        if _huffman_kraft_accepts(root, seed):
+            frontier.append(seed)
+
+    top = list(
+        sorted(
+            _deep_beam_ranked_unique(top, limit=max(1, int(top_candidates))),
+            key=lambda item: _huffman_kraft_rank(item.stream, item.after),
+            reverse=True,
+        )
+    )[: max(1, int(top_candidates))]
+    frontier = list(
+        sorted(
+            _deep_beam_ranked_unique(frontier, limit=max(1, int(beam_width))),
+            key=lambda item: _huffman_kraft_rank(item.stream, item.after),
+            reverse=True,
+        )
+    )[: max(1, int(beam_width))]
+
+    def write_checkpoint_items() -> None:
+        nonlocal checkpointed_hashes
+        if not checkpoint_path:
+            return
+        for item in top:
+            key = _stream_state_key(item.stream)
+            if key in checkpointed_hashes:
+                continue
+            _append_frontier_checkpoint(
+                checkpoint_path,
+                item,
+                source_hash=source_hash,
+                source_stream=root_stream,
+            )
+            checkpointed_hashes.add(key)
+
+    def write_progress_snapshot(*, exhausted: bool, reason: str) -> None:
+        snapshot_best = _frontier_best_candidate(before, top)
+        snapshot_literal_debt, snapshot_distance_debt, _eob, _lc, _dc, _lu, _du = _huffman_kraft_metrics(
+            top[0].stream if top else root_stream
+        )
+        _write_frontier_progress(
+            progress_path,
+            source_hash=source_hash,
+            tested=tested,
+            budget=budget_int,
+            best=snapshot_best,
+            top_count=len(top),
+            exhausted=exhausted,
+            reason=reason,
+            strategy=strategy,
+            extra={
+                "valid_headers": int(valid_headers),
+                "complete_trees": int(complete_trees),
+                "first_symbol_ok": int(first_symbol_ok),
+                "literal_debt": int(snapshot_literal_debt),
+                "distance_debt": int(snapshot_distance_debt),
+                "reached_depth": int(reached_depth),
+                "checkpoint_records": int(checkpoint_matched_records),
+            },
+        )
 
     def remember(parent: IdatDeepBeamCandidate, candidate: IdatDeepBeamCandidate) -> bool:
         nonlocal top, valid_headers, complete_trees, first_symbol_ok
@@ -9570,68 +9776,77 @@ def probe_idat_huffman_kraft_solver(
         return True
 
     if progress is not None:
-        progress(strategy, 0, int(budget))
+        progress(strategy, min(tested, budget_int), budget_int)
+    if checkpoint_candidates or (progress_state.available and progress_state.source_matches and not progress_state.exhausted):
+        write_checkpoint_items()
+        write_progress_snapshot(exhausted=False, reason="huffman kraft resumed from checkpoint/progress")
 
-    for depth in range(1, max(1, int(max_depth)) + 1):
-        reached_depth = depth
-        next_frontier: list[IdatDeepBeamCandidate] = []
-        for parent in frontier:
-            if tested >= int(budget):
-                budget_exhausted = True
-                break
-            trace = deflate_header.trace_dynamic_header(parent.stream)
-            if trace.btype != 2 or not trace.tokens:
-                continue
-            operations = _huffman_kraft_token_operations(parent.stream, trace, max_tokens=96 if depth == 1 else 48)
-            for operation in operations:
-                if tested >= int(budget):
+    worker_executor: ProcessPoolExecutor | None = None
+    if worker_count > 1:
+        try:
+            worker_executor = ProcessPoolExecutor(max_workers=worker_count, initializer=_deep_beam_worker_init)
+        except (OSError, RuntimeError, ValueError):
+            worker_executor = None
+            worker_count = 1
+
+    try:
+        for depth in range(1, max(1, int(max_depth)) + 1):
+            reached_depth = depth
+            next_frontier: list[IdatDeepBeamCandidate] = []
+            for parent in frontier:
+                if tested >= budget_int:
                     budget_exhausted = True
                     break
-                tested += 1
-                candidate = _huffman_kraft_candidate_from_operation(
+                trace = deflate_header.trace_dynamic_header(parent.stream)
+                if trace.btype != 2 or not trace.tokens:
+                    continue
+                operations = _huffman_kraft_token_operations(parent.stream, trace, max_tokens=96 if depth == 1 else 48)
+                remaining = max(0, budget_int - tested)
+                if remaining <= 0:
+                    budget_exhausted = True
+                    break
+                operations = tuple(operations[:remaining])
+                candidates = _huffman_kraft_validate_operations(
                     parent,
-                    operation,
+                    operations,
                     chunks=chunks,
                     before=before,
-                    state_id=next_state_id,
+                    state_id_start=next_state_id,
                     original_idat_count=original_idat_count,
+                    workers=worker_count,
+                    worker_executor=worker_executor,
                 )
-                if candidate is None:
-                    continue
-                next_state_id += 1
-                if remember(parent, candidate):
-                    next_frontier.append(candidate)
-                if progress is not None and (tested == 1 or tested % 100 == 0):
-                    progress(strategy, min(tested, int(budget)), int(budget))
+                tested += len(operations)
+                next_state_id += len(operations)
+                for candidate in candidates:
+                    if candidate is None:
+                        continue
+                    if remember(parent, candidate):
+                        next_frontier.append(candidate)
+                if progress is not None and (tested == len(operations) or tested % 100 == 0 or len(operations) >= 100):
+                    progress(strategy, min(tested, budget_int), budget_int)
                 if checkpoint_path and top and tested - last_checkpoint_at >= HUFFMAN_KRAFT_CHECKPOINT_EVERY:
-                    for item in top:
-                        _append_frontier_checkpoint(
-                            checkpoint_path,
-                            item,
-                            source_hash=source_hash,
-                            source_stream=root_stream,
-                        )
+                    write_checkpoint_items()
+                    write_progress_snapshot(exhausted=False, reason="huffman kraft checkpoint")
                     last_checkpoint_at = tested
-            if budget_exhausted:
+                if tested >= budget_int:
+                    budget_exhausted = True
+                    break
+            frontier = list(
+                sorted(
+                    _deep_beam_ranked_unique(next_frontier, limit=max(1, int(beam_width))),
+                    key=lambda item: _huffman_kraft_rank(item.stream, item.after),
+                    reverse=True,
+                )
+            )[: max(1, int(beam_width))]
+            if budget_exhausted or not frontier:
                 break
-        frontier = list(
-            sorted(
-                _deep_beam_ranked_unique(next_frontier, limit=max(1, int(beam_width))),
-                key=lambda item: _huffman_kraft_rank(item.stream, item.after),
-                reverse=True,
-            )
-        )[: max(1, int(beam_width))]
-        if budget_exhausted or not frontier:
-            break
+    finally:
+        if worker_executor is not None:
+            worker_executor.shutdown(cancel_futures=True)
 
     if checkpoint_path:
-        for item in top:
-            _append_frontier_checkpoint(
-                checkpoint_path,
-                item,
-                source_hash=source_hash,
-                source_stream=root_stream,
-            )
+        write_checkpoint_items()
     top = list(
         sorted(
             _deep_beam_ranked_unique(top, limit=top_candidates),
@@ -9659,7 +9874,7 @@ def probe_idat_huffman_kraft_solver(
         progress_path,
         source_hash=source_hash,
         tested=tested,
-        budget=budget,
+        budget=budget_int,
         best=best,
         top_count=len(top),
         exhausted=True,
@@ -9675,13 +9890,13 @@ def probe_idat_huffman_kraft_solver(
         },
     )
     if progress is not None:
-        progress(strategy, min(tested, int(budget)), int(budget))
+        progress(strategy, min(tested, budget_int), budget_int)
     return IdatHuffmanKraftSolverResult(
         before,
         best,
         tuple(top),
         tested,
-        budget_exhausted or tested >= int(budget),
+        budget_exhausted or tested >= budget_int,
         checkpoint_path=checkpoint_path,
         progress_path=progress_path,
         valid_headers=valid_headers,
@@ -9690,6 +9905,7 @@ def probe_idat_huffman_kraft_solver(
         best_literal_debt=best_literal_debt,
         best_distance_debt=best_distance_debt,
         reached_depth=reached_depth,
+        workers=worker_count,
         strategy=strategy,
         reason=reason,
         source_hash=source_hash,
@@ -15014,12 +15230,13 @@ def affine_corruption_model_candidate_summary_lines(
 
 def huffman_kraft_summary_line(result: IdatHuffmanKraftSolverResult) -> str:
     line = (
-        "-IDAT huffman-kraft: tested=%s; budget_exhausted=%s; depth=%s; literal_debt=%s; distance_debt=%s; "
+        "-IDAT huffman-kraft: tested=%s; budget_exhausted=%s; depth=%s; workers=%s; literal_debt=%s; distance_debt=%s; "
         "complete_trees=%s; first_symbol_ok=%s; valid_headers=%s; top=%s"
         % (
             result.tested_candidates,
             "yes" if result.budget_exhausted else "no",
             result.reached_depth,
+            result.workers,
             result.best_literal_debt,
             result.best_distance_debt,
             result.complete_trees,

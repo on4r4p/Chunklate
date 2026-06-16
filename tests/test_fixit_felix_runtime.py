@@ -2115,6 +2115,7 @@ def wrong_crc_runtime(
     deep_beam_gpu_config=None,
     deep_beam_budget=None,
     huffman_kraft_budget=None,
+    huffman_kraft_workers=None,
     global_crc_residue_budget=None,
     affine_corruption_budget=None,
     deflate_salvage_budget=None,
@@ -2191,6 +2192,7 @@ def wrong_crc_runtime(
         deep_beam_gpu_config=deep_beam_gpu_config,
         deep_beam_budget=deep_beam_budget,
         huffman_kraft_budget=huffman_kraft_budget,
+        huffman_kraft_workers=huffman_kraft_workers,
         global_crc_residue_budget=global_crc_residue_budget,
         affine_corruption_budget=affine_corruption_budget,
         deflate_salvage_budget=deflate_salvage_budget,
@@ -3384,6 +3386,47 @@ def test_hermesprobe_uses_explicit_deep_beam_workers_and_gpu_config_without_prom
         note.startswith("-IDAT deep beam configuration: workers=3; gpu_requested=yes; gpu_backend=opengl;")
         for note in side_notes
     )
+
+
+def test_hermesprobe_huffman_kraft_uses_configured_workers(tmp_path, monkeypatch):
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+
+    def kraft_probe(probe_data, **kwargs):
+        calls.append(("kraft_probe_kwargs", kwargs, {}))
+        before = fixit_felix_runtime.idat.analyze_idat_stream(probe_data)
+        return fixit_felix_runtime.idat_bruteforce.IdatHuffmanKraftSolverResult(
+            before,
+            None,
+            (),
+            0,
+            False,
+            workers=int(kwargs["workers"]),
+            reason="mocked",
+        )
+
+    monkeypatch.setattr(fixit_felix_runtime, "_block_deep_beam_if_chunk_names_are_stale", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_huffman_kraft_solver", kraft_probe)
+    runtime = wrong_crc_runtime(
+        calls,
+        side_notes=side_notes,
+        data_hex=data_hex,
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        deep_beam_workers="2",
+        huffman_kraft_workers="6",
+    )
+    data = bytes.fromhex(data_hex)
+    analysis = idat.analyze_idat_stream(data)
+
+    result = fixit_felix_runtime._run_idat_huffman_kraft_runtime(runtime, data, analysis)
+
+    assert result is not None
+    kraft_call = next(call for call in calls if call[0] == "kraft_probe_kwargs")
+    assert kraft_call[1]["workers"] == "6"
+    assert result.workers == 6
+    assert any("workers=6" in note for note in side_notes)
 
 
 def test_hermesprobe_writes_deep_beam_candidate_after_short_probes_stall(monkeypatch):
@@ -6178,6 +6221,7 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
         "IDAT_DEEP_BEAM_GPU": None,
         "IDAT_DEEP_BEAM_BUDGET": "123456",
         "IDAT_HUFFMAN_KRAFT_BUDGET": "1000001",
+        "IDAT_HUFFMAN_KRAFT_WORKERS": "7",
         "IDAT_GLOBAL_CRC_RESIDUE_BUDGET": "750001",
         "IDAT_AFFINE_CORRUPTION_BUDGET": "250001",
         "IDAT_DEFLATE_SALVAGE_BUDGET": "250002",
@@ -6193,6 +6237,7 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
     assert wrong_name.deep_beam_budget == "123456"
     assert wrong_name.deep_beam_gpu_config == gpu_config
     assert wrong_name.huffman_kraft_budget == "1000001"
+    assert wrong_name.huffman_kraft_workers == "7"
     assert wrong_name.global_crc_residue_budget == "750001"
     assert wrong_name.affine_corruption_budget == "250001"
     assert wrong_name.deflate_salvage_budget == "250002"
@@ -6202,6 +6247,7 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
     assert no_next.deep_beam_budget == "123456"
     assert no_next.deep_beam_gpu_config == gpu_config
     assert no_next.huffman_kraft_budget == "1000001"
+    assert no_next.huffman_kraft_workers == "7"
     assert no_next.global_crc_residue_budget == "750001"
     assert no_next.affine_corruption_budget == "250001"
     assert no_next.deflate_salvage_budget == "250002"

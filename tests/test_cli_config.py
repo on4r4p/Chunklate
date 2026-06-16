@@ -53,8 +53,9 @@ def test_configure_parser_preserves_legacy_options():
     assert "--no-color" in help_text
     assert "--output-dir DIR" in help_text
     assert "--max-saves N" in help_text
-    assert "-workers min|normal|max|N" in help_text
-    assert "CPU workers for Ultimate and DaedalusForce" in help_text
+    assert "-workers min|normal|max|auto|N" in help_text
+    assert "CPU workers for heavy repair routes" in help_text
+    assert "--idat-huffman-kraft-workers N|min|normal|max|auto" in help_text
     assert "\n\nultimate line-feed:\n" in help_text
     assert "--max-saves N    Exit successfully after writing N repaired files." in help_text
     assert "Ultimate candidate limit." not in help_text
@@ -135,6 +136,8 @@ def test_configure_parser_parses_runtime_arguments():
             "2",
             "-workers",
             "normal",
+            "--idat-huffman-kraft-workers",
+            "7",
             "-ulfb",
             "1234",
             "-ulfu",
@@ -167,6 +170,7 @@ def test_configure_parser_parses_runtime_arguments():
     assert parsed.OUTPUT_DIR == "out"
     assert parsed.MAX_SAVES == 2
     assert parsed.GLOBAL_WORKERS == "normal"
+    assert parsed.IDAT_HUFFMAN_KRAFT_WORKERS == "7"
     assert parsed.ULTIMATE_LINEFEED_BUDGET == 1234
     assert parsed.ULTIMATE_LINEFEED_UNBOUNDED is True
     assert parsed.ULTIMATE_LINEFEED_REFERENCE == "ref.png"

@@ -72,6 +72,7 @@ def args(**updates):
         "SMASH_BRUTE_BRAWL_RESUME": "ask",
         "SMASH_BRUTE_BRAWL_WORKERS": None,
         "SMASH_BRUTE_BRAWL_FORCE_LEVEL": None,
+        "IDAT_HUFFMAN_KRAFT_WORKERS": None,
     }
     values.update(updates)
     return SimpleNamespace(**values)
@@ -557,6 +558,23 @@ def test_apply_main_cli_options_exits_on_bad_smash_workers():
     assert ("exit", 1) in calls
 
 
+def test_apply_main_cli_options_exits_on_bad_idat_huffman_kraft_workers():
+    calls = []
+
+    try:
+        apply_options(calls, args(IDAT_HUFFMAN_KRAFT_WORKERS="-1"))
+    except ExitReached as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("bad IDAT Huffman Kraft workers should exit")
+
+    assert (
+        "print",
+        "--idat-huffman-kraft-workers must be a non-negative integer, min, normal, max, or auto.",
+    ) in calls
+    assert ("exit", 1) in calls
+
+
 def test_apply_main_cli_options_exits_on_bad_smash_force_level():
     calls = []
 
@@ -586,6 +604,7 @@ def test_apply_main_cli_options_global_workers_fill_ultimate_and_smash_defaults(
 
     assert state.ultimate_linefeed_workers == "normal"
     assert state.smash_brute_brawl_workers == "normal"
+    assert state.idat_huffman_kraft_workers == "normal"
 
 
 def test_apply_main_cli_options_specific_workers_override_global_workers():
@@ -597,11 +616,13 @@ def test_apply_main_cli_options_specific_workers_override_global_workers():
             GLOBAL_WORKERS="normal",
             ULTIMATE_LINEFEED_WORKERS="3",
             SMASH_BRUTE_BRAWL_WORKERS="max",
+            IDAT_HUFFMAN_KRAFT_WORKERS="7",
         ),
     )
 
     assert state.ultimate_linefeed_workers == "3"
     assert state.smash_brute_brawl_workers == "max"
+    assert state.idat_huffman_kraft_workers == "7"
 
 
 def test_apply_main_cli_options_exits_on_bad_ultimate_reference_mode():
@@ -691,6 +712,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         smash_brute_brawl_resume="auto",
         smash_brute_brawl_workers="normal",
         smash_brute_brawl_force_level=2,
+        idat_huffman_kraft_workers="8",
         gpu_config=main_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True),
     )
 
@@ -730,6 +752,7 @@ def test_legacy_globals_from_main_cli_options_maps_runtime_flags():
         "SMASH_BRUTE_BRAWL_CRC_FORGE": "auto",
         "SMASH_BRUTE_BRAWL_CRC_FORGE_BYTES": None,
         "SMASH_BRUTE_BRAWL_CRC_FORGE_WINDOW": None,
+        "IDAT_HUFFMAN_KRAFT_WORKERS": "8",
         "GPU": True,
         "GPU_CONFIG": main_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True),
         "OUTPUT_FOLDER_CLEANUP_PENDING": True,
@@ -800,6 +823,7 @@ def test_apply_main_cli_options_from_namespace_updates_legacy_globals():
     assert namespace["SMASH_BRUTE_BRAWL_RESUME"] == "ask"
     assert namespace["SMASH_BRUTE_BRAWL_WORKERS"] is None
     assert namespace["SMASH_BRUTE_BRAWL_FORCE_LEVEL"] is None
+    assert namespace["IDAT_HUFFMAN_KRAFT_WORKERS"] is None
     assert "Brute_LvL" not in namespace
     assert namespace["OUTPUT_FOLDER_CLEANUP_PENDING"] is True
     assert calls == [("makedirs", "/abs/out/", {"exist_ok": True})]

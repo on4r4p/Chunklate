@@ -4268,6 +4268,153 @@ def test_idat_huffman_kraft_progress_same_budget_skips(tmp_path):
     assert "already exhausted" in result.reason
 
 
+def test_idat_huffman_kraft_token_checkpoint_replays_without_full_stream(tmp_path):
+    candidate, _bits, _original = dynamic_header_semantic_token_corrupt_png()
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
+    before = idat.analyze_idat_stream(candidate)
+    root = idat_bruteforce._frontier_root_candidate(
+        data=candidate,
+        stream=stream,
+        before=before,
+        original_idat_count=1,
+    )
+    trace = deflate_header.trace_dynamic_header(stream)
+    operation = next(
+        op
+        for op in idat_bruteforce._huffman_kraft_token_operations(stream, trace, max_tokens=8)
+        if idat_bruteforce._huffman_kraft_candidate_from_operation(
+            root,
+            op,
+            chunks=chunks,
+            before=before,
+            state_id=1,
+            original_idat_count=1,
+        )
+        is not None
+    )
+    kraft_candidate = idat_bruteforce._huffman_kraft_candidate_from_operation(
+        root,
+        operation,
+        chunks=chunks,
+        before=before,
+        state_id=1,
+        original_idat_count=1,
+    )
+    assert kraft_candidate is not None
+
+    checkpoint = tmp_path / "kraft.checkpoint.jsonl"
+    source_hash = idat_bruteforce._stream_state_key(stream)
+    idat_bruteforce._append_frontier_checkpoint(
+        str(checkpoint),
+        kraft_candidate,
+        source_hash=source_hash,
+        source_stream=stream,
+    )
+
+    record = json.loads(checkpoint.read_text(encoding="utf-8"))
+    assert "stream" not in record
+    replayed, _operations = idat_bruteforce._deep_beam_stream_from_record(
+        record,
+        source_stream=stream,
+    )
+    assert replayed == kraft_candidate.stream
+
+
+def test_idat_huffman_kraft_resume_without_progress_infers_checkpoint_budget(tmp_path, monkeypatch):
+    candidate, _bits, _original = dynamic_header_semantic_token_corrupt_png()
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate)
+    before = idat.analyze_idat_stream(candidate)
+    root = idat_bruteforce._frontier_root_candidate(
+        data=candidate,
+        stream=stream,
+        before=before,
+        original_idat_count=1,
+    )
+    trace = deflate_header.trace_dynamic_header(stream)
+    operation = next(
+        op
+        for op in idat_bruteforce._huffman_kraft_token_operations(stream, trace, max_tokens=8)
+        if idat_bruteforce._huffman_kraft_candidate_from_operation(
+            root,
+            op,
+            chunks=chunks,
+            before=before,
+            state_id=1,
+            original_idat_count=1,
+        )
+        is not None
+    )
+    kraft_candidate = idat_bruteforce._huffman_kraft_candidate_from_operation(
+        root,
+        operation,
+        chunks=chunks,
+        before=before,
+        state_id=1,
+        original_idat_count=1,
+    )
+    assert kraft_candidate is not None
+
+    checkpoint = tmp_path / "kraft.checkpoint.jsonl"
+    progress = tmp_path / "kraft.progress.json"
+    source_hash = idat_bruteforce._stream_state_key(stream)
+    idat_bruteforce._append_frontier_checkpoint(
+        str(checkpoint),
+        kraft_candidate,
+        source_hash=source_hash,
+        source_stream=stream,
+    )
+    monkeypatch.setattr(idat_bruteforce, "HUFFMAN_KRAFT_CHECKPOINT_EVERY", 25)
+
+    result = idat_bruteforce.probe_idat_huffman_kraft_solver(
+        candidate,
+        budget=30,
+        max_depth=1,
+        beam_width=4,
+        top_candidates=1,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+    )
+
+    assert result.tested_candidates >= 25
+    assert progress.exists()
+    payload = json.loads(progress.read_text(encoding="utf-8"))
+    assert payload["tested_candidates"] >= 25
+    assert payload["source_hash"] == source_hash
+
+
+def test_idat_huffman_kraft_creates_worker_pool_per_run(monkeypatch):
+    candidate, _stream_offset, _original = dynamic_header_corrupt_png()
+    created = []
+    shutdowns = []
+
+    class FakeExecutor:
+        def __init__(self, **kwargs):
+            created.append(kwargs)
+
+        def shutdown(self, **kwargs):
+            shutdowns.append(kwargs)
+
+    monkeypatch.setattr(idat_bruteforce, "ProcessPoolExecutor", FakeExecutor)
+
+    result = idat_bruteforce.probe_idat_huffman_kraft_solver(
+        candidate,
+        budget=10,
+        max_depth=1,
+        beam_width=2,
+        top_candidates=2,
+        workers=4,
+    )
+
+    assert result.workers == 4
+    assert created == [
+        {
+            "max_workers": 4,
+            "initializer": idat_bruteforce._deep_beam_worker_init,
+        }
+    ]
+    assert shutdowns == [{"cancel_futures": True}]
+
+
 def test_idat_affine_corruption_refuses_hash_mismatch(tmp_path):
     candidate, _stream_offset, _original = dynamic_header_corrupt_png()
     model = tmp_path / "model.json"

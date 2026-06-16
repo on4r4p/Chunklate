@@ -99,6 +99,7 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "-sbb-resume" not in result.stdout
     assert "--smashbrutebrawl-workers" not in result.stdout
     assert "-sbbw" not in result.stdout
+    assert "--idat-huffman-kraft-workers" in result.stdout
     assert "-ddll N" in result.stdout
     assert "--ddl-deflate-mitm" in result.stdout
     assert "-sbbl N" not in result.stdout
@@ -219,15 +220,40 @@ def test_global_workers_cli_parses_without_exposing_specific_worker_flags():
 
     parsed = parser.parse_args(["-f", "sample.png", "-workers", "normal"])
     specific = parser.parse_args(
-        ["-f", "sample.png", "-workers", "normal", "-ulfw", "3", "-ddlw", "max"]
+        [
+            "-f",
+            "sample.png",
+            "-workers",
+            "normal",
+            "-ulfw",
+            "3",
+            "-ddlw",
+            "max",
+            "--idat-huffman-kraft-workers",
+            "7",
+        ]
     )
 
     assert parsed.GLOBAL_WORKERS == "normal"
     assert parsed.ULTIMATE_LINEFEED_WORKERS is None
     assert parsed.SMASH_BRUTE_BRAWL_WORKERS is None
+    assert parsed.IDAT_HUFFMAN_KRAFT_WORKERS is None
     assert specific.GLOBAL_WORKERS == "normal"
     assert specific.ULTIMATE_LINEFEED_WORKERS == "3"
     assert specific.SMASH_BRUTE_BRAWL_WORKERS == "max"
+    assert specific.IDAT_HUFFMAN_KRAFT_WORKERS == "7"
+
+
+def test_idat_huffman_kraft_workers_cli_parses_profiles_and_custom_count():
+    parser = Chunklate.cli.configure_parser(ArgumentParser())
+
+    profile_args = parser.parse_args(["-f", "sample.png", "--idat-huffman-kraft-workers", "normal"])
+    custom_args = parser.parse_args(["-f", "sample.png", "--idat-huffman-kraft-workers", "12"])
+    auto_args = parser.parse_args(["-f", "sample.png", "--idat-huffman-kraft-workers", "auto"])
+
+    assert profile_args.IDAT_HUFFMAN_KRAFT_WORKERS == "normal"
+    assert custom_args.IDAT_HUFFMAN_KRAFT_WORKERS == "12"
+    assert auto_args.IDAT_HUFFMAN_KRAFT_WORKERS == "auto"
 
 
 def test_gpu_cli_parses_permission_flag():
