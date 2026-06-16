@@ -295,6 +295,20 @@ def queue_existing_clone_from_namespace(namespace: dict[str, Any], path: str) ->
     return path
 
 
+def _namespace_idat_deep_beam_workers(namespace: dict[str, Any]) -> Any:
+    workers = namespace.get("IDAT_DEEP_BEAM_WORKERS")
+    if workers is None or str(workers).strip() == "":
+        workers = namespace.get("IDAT_HUFFMAN_KRAFT_WORKERS")
+    return workers
+
+
+def _namespace_idat_huffman_kraft_workers(namespace: dict[str, Any]) -> Any:
+    workers = namespace.get("IDAT_HUFFMAN_KRAFT_WORKERS")
+    if workers is None or str(workers).strip() == "":
+        workers = namespace.get("IDAT_DEEP_BEAM_WORKERS")
+    return workers
+
+
 def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCrcRuntime:
     return WrongCrcRuntime(
         emit=namespace["PRINT"],
@@ -326,7 +340,7 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         file_dir=namespace.get("FILE_DIR") or "",
         interactive=namespace_interactive_prompts(namespace),
         input_func=namespace.get("Transcript_Input") or namespace.get("input") or input,
-        deep_beam_workers=namespace.get("IDAT_DEEP_BEAM_WORKERS"),
+        deep_beam_workers=_namespace_idat_deep_beam_workers(namespace),
         deep_beam_gpu=namespace.get("IDAT_DEEP_BEAM_GPU"),
         deep_beam_gpu_config=namespace.get("GPU_CONFIG"),
         deep_beam_budget=namespace.get("IDAT_DEEP_BEAM_BUDGET"),
@@ -336,7 +350,7 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         huffman_oracle_budget=namespace.get("IDAT_HUFFMAN_ORACLE_BUDGET"),
         crc_periodic_budget=namespace.get("IDAT_CRC_PERIODIC_BUDGET"),
         huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
-        huffman_kraft_workers=namespace.get("IDAT_HUFFMAN_KRAFT_WORKERS", namespace.get("IDAT_DEEP_BEAM_WORKERS")),
+        huffman_kraft_workers=_namespace_idat_huffman_kraft_workers(namespace),
         huffman_kraft_gpu_config=namespace.get("GPU_CONFIG"),
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
@@ -409,7 +423,7 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         file_dir=namespace.get("FILE_DIR") or "",
         interactive=namespace_interactive_prompts(namespace),
         input_func=namespace.get("Transcript_Input") or namespace.get("input") or input,
-        deep_beam_workers=namespace.get("IDAT_DEEP_BEAM_WORKERS"),
+        deep_beam_workers=_namespace_idat_deep_beam_workers(namespace),
         deep_beam_gpu=namespace.get("IDAT_DEEP_BEAM_GPU"),
         deep_beam_gpu_config=namespace.get("GPU_CONFIG"),
         deep_beam_budget=namespace.get("IDAT_DEEP_BEAM_BUDGET"),
@@ -419,7 +433,7 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         huffman_oracle_budget=namespace.get("IDAT_HUFFMAN_ORACLE_BUDGET"),
         crc_periodic_budget=namespace.get("IDAT_CRC_PERIODIC_BUDGET"),
         huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
-        huffman_kraft_workers=namespace.get("IDAT_HUFFMAN_KRAFT_WORKERS", namespace.get("IDAT_DEEP_BEAM_WORKERS")),
+        huffman_kraft_workers=_namespace_idat_huffman_kraft_workers(namespace),
         huffman_kraft_gpu_config=namespace.get("GPU_CONFIG"),
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
@@ -469,7 +483,7 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         apply_deferred_linefeed_repair=namespace.get("Apply_Deferred_FindMagic_Repair"),
         interactive=namespace_interactive_prompts(namespace),
         input_func=namespace.get("Transcript_Input") or namespace.get("input") or input,
-        deep_beam_workers=namespace.get("IDAT_DEEP_BEAM_WORKERS"),
+        deep_beam_workers=_namespace_idat_deep_beam_workers(namespace),
         deep_beam_gpu=namespace.get("IDAT_DEEP_BEAM_GPU"),
         deep_beam_gpu_config=namespace.get("GPU_CONFIG"),
         deep_beam_budget=namespace.get("IDAT_DEEP_BEAM_BUDGET"),
@@ -479,7 +493,7 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         huffman_oracle_budget=namespace.get("IDAT_HUFFMAN_ORACLE_BUDGET"),
         crc_periodic_budget=namespace.get("IDAT_CRC_PERIODIC_BUDGET"),
         huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
-        huffman_kraft_workers=namespace.get("IDAT_HUFFMAN_KRAFT_WORKERS", namespace.get("IDAT_DEEP_BEAM_WORKERS")),
+        huffman_kraft_workers=_namespace_idat_huffman_kraft_workers(namespace),
         huffman_kraft_gpu_config=namespace.get("GPU_CONFIG"),
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),

@@ -6242,7 +6242,7 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
 
     assert wrong_name.interactive is True
     assert wrong_name.input_func is transcript_input
-    assert wrong_name.deep_beam_workers is None
+    assert wrong_name.deep_beam_workers == "7"
     assert wrong_name.deep_beam_budget == "123456"
     assert wrong_name.deep_beam_gpu_config == gpu_config
     assert wrong_name.huffman_kraft_budget == "1000001"
@@ -6253,7 +6253,7 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
     assert wrong_name.deflate_salvage_budget == "250002"
     assert no_next.interactive is True
     assert no_next.input_func is transcript_input
-    assert no_next.deep_beam_workers is None
+    assert no_next.deep_beam_workers == "7"
     assert no_next.deep_beam_budget == "123456"
     assert no_next.deep_beam_gpu_config == gpu_config
     assert no_next.huffman_kraft_budget == "1000001"
