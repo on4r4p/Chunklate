@@ -1826,7 +1826,7 @@ def apply_zero_scanline_blackfill_choice(
     )
     if not write_placeholder:
         runtime.side_notes.append(skipped_note)
-        return None
+        return (False, None)
 
     applied_repair = fixit_felix.applied_repair(repair)
     runtime.side_notes.append(applied_repair.note)
@@ -2403,7 +2403,7 @@ def apply_repair(runtime: AutomaticRepairRuntime, repair: Any) -> bool | None:
             "-FixItFelix:IHDR automatic repair rejected before clone write: %s."
             % "; ".join(validation_errors)
         )
-        return None
+        return (False, None)
 
     if _chrm_repair_needs_choice(repair):
         return apply_chrm_inference_choice(runtime, repair)
