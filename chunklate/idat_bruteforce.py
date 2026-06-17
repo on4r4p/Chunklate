@@ -280,6 +280,10 @@ class IdatDeepBeamResumeState:
     interrupted: bool = False
     tested: int = 0
     depth: int = 0
+    budget: int = 0
+    max_depth: int = 0
+    hard_depth_limit: int = 0
+    hard_depth_reached: bool = False
     reason: str = ""
 
 
@@ -465,6 +469,28 @@ class IdatKraftBackrefRepairResult:
     best_prefix_rows: int = 0
     reached_depth: int = 0
     strategy: str = "kraft-backref-repair"
+    reason: str = ""
+    source_hash: str = ""
+
+    @property
+    def improved(self) -> bool:
+        return self.best is not None
+
+
+@dataclass(frozen=True)
+class IdatStoredBlockLengthRepairResult:
+    before: idat.IdatStreamAnalysis
+    best: IdatDeepBeamCandidate | None
+    top_candidates: tuple[IdatDeepBeamCandidate, ...]
+    tested_candidates: int
+    budget_exhausted: bool
+    checkpoint_path: str = ""
+    progress_path: str = ""
+    seed_checkpoint_path: str = ""
+    repaired_blocks: int = 0
+    png_prefix_hits: int = 0
+    best_prefix_rows: int = 0
+    strategy: str = "stored-block-length-repair"
     reason: str = ""
     source_hash: str = ""
 
@@ -1319,6 +1345,13 @@ def is_material_improvement(before: idat.IdatStreamAnalysis, after: idat.IdatStr
     if after.complete and not before.complete:
         return True
     if after.usable_scanlines > before.usable_scanlines:
+        return True
+    if (
+        before.usable_scanlines > 0
+        and (before.height <= 0 or before.usable_scanlines < before.height)
+        and after.usable_scanlines >= before.usable_scanlines
+        and after.decompressed_size > before.decompressed_size
+    ):
         return True
     return False
 
@@ -7984,9 +8017,11 @@ FIRST_FILTER_LITERAL_ROUTE_VERSION = 2
 KRAFT_BACKREF_DEFAULT_BUDGET = 200_000
 KRAFT_BACKREF_DEFAULT_TOP_CANDIDATES = 25
 KRAFT_BACKREF_CHECKPOINT_EVERY = 25_000
-KRAFT_BACKREF_DEFAULT_MAX_DEPTH = 3
-KRAFT_BACKREF_MAX_OPERATIONS_PER_SEED = 25_000
-KRAFT_BACKREF_ROUTE_VERSION = 2
+KRAFT_BACKREF_DEFAULT_MAX_DEPTH = 6
+KRAFT_BACKREF_MAX_OPERATIONS_PER_SEED = 1_024
+KRAFT_BACKREF_MAX_PROGRESS_PER_SEED = 32
+KRAFT_BACKREF_MAX_SAME_SIGNATURE_PER_SEED = 8
+KRAFT_BACKREF_ROUTE_VERSION = 5
 HUFFMAN_ORACLE_DEFAULT_BUDGET = 750_000
 HUFFMAN_ORACLE_DEFAULT_MAX_DEPTH = 3
 HUFFMAN_ORACLE_DEFAULT_WIDTH = 96
@@ -8000,6 +8035,10 @@ CRC_PERIODIC_DEFAULT_BUDGET = 500_000
 CRC_PERIODIC_DEFAULT_MAX_EDITS = 4
 CRC_PERIODIC_DEFAULT_TOP_CANDIDATES = 25
 CRC_PERIODIC_CHECKPOINT_EVERY = 25_000
+STORED_BLOCK_DEFAULT_BUDGET = 200_000
+STORED_BLOCK_DEFAULT_TOP_CANDIDATES = 25
+STORED_BLOCK_CHECKPOINT_EVERY = 25_000
+STORED_BLOCK_ROUTE_VERSION = 1
 DEFLATE_SALVAGE_DEFAULT_BUDGET = 250_000
 DEEP_BEAM_COMMON_BYTES = (0x00, 0x0A, 0x0D, 0xFF)
 DEEP_BEAM_FOCUS_OFFSETS = (0x02, 0x56, 0x5E, 0x5F, 0x60, 0x61, 0x62, 0x63, 0x6E)
@@ -8642,12 +8681,28 @@ def deep_beam_resume_state(
             return IdatDeepBeamResumeState(True, False, reason="deep-beam progress is not a JSON object")
         record_hash = str(record.get("source_hash") or "")
         matches = record_hash == source_hash
+        tested = int(record.get("tested_candidates", 0) or 0)
+        depth = int(record.get("depth", 0) or 0)
+        budget = int(record.get("budget", 0) or 0)
+        max_depth = int(record.get("max_depth", 0) or 0)
+        hard_depth_limit = int(record.get("hard_depth_limit", 0) or 0)
+        hard_depth_reached = (
+            matches
+            and not bool(record.get("interrupted", False))
+            and hard_depth_limit > 0
+            and depth >= hard_depth_limit
+            and (budget <= 0 or tested < budget)
+        )
         return IdatDeepBeamResumeState(
             True,
             matches,
             interrupted=bool(record.get("interrupted", False)),
-            tested=int(record.get("tested_candidates", 0) or 0),
-            depth=int(record.get("depth", 0) or 0),
+            tested=tested,
+            depth=depth,
+            budget=budget,
+            max_depth=max_depth,
+            hard_depth_limit=hard_depth_limit,
+            hard_depth_reached=hard_depth_reached,
             reason="deep-beam progress %s source hash" % ("matches" if matches else "does not match"),
         )
 
@@ -9009,6 +9064,10 @@ def first_filter_literal_progress_state(data: bytes, progress_path: str = "") ->
 
 def kraft_backref_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
     return _frontier_progress_state(data, progress_path, label="kraft-backref")
+
+
+def stored_block_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
+    return _frontier_progress_state(data, progress_path, label="stored-block")
 
 
 def global_crc_residue_progress_state(data: bytes, progress_path: str = "") -> IdatFrontierProgressState:
@@ -10863,6 +10922,24 @@ class _InvalidDistanceBackref:
     literal_table: dict[tuple[int, int], int] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class _InvalidLiteralLengthSymbol:
+    token_index: int
+    bit_start: int
+    bit_end: int
+    output_before: int
+    symbol: int
+    literal_table: dict[tuple[int, int], int]
+
+
+@dataclass(frozen=True)
+class _ReservedDeflateBlockType:
+    bit_start: int
+    bit_end: int
+    byte_offset: int
+    output_before: int
+
+
 def _png_valid_prefix_rows(raw: bytes, analysis: idat.IdatStreamAnalysis) -> int:
     scanline_size = int(getattr(analysis, "scanline_size", 0) or 0)
     if not raw or scanline_size <= 0:
@@ -10885,66 +10962,198 @@ def _locate_first_invalid_distance_backref(
         return None
     reader = deflate_header.BitReader(stream, start_byte=2)
     output_size = 0
+    tokens_seen = 0
     try:
-        reader.read(1)
-        btype = reader.read(2)
-        if btype == 0:
-            return None
-        if btype == 1:
-            literal_table, literal_max, distance_table, distance_max = deflate_probe._FIXED_TABLES
-        elif btype == 2:
-            literal_table, literal_max, distance_table, distance_max = deflate_probe._read_dynamic_tables(reader)
-        else:
-            return None
-        for token_index in range(max(1, int(max_tokens))):
-            symbol, length_bit_start, length_bit_end = deflate_header._decode_symbol_with_bits(
-                reader,
-                literal_table,
-                literal_max,
-            )
-            if symbol < 256:
-                output_size += 1
+        while tokens_seen < max(1, int(max_tokens)):
+            bfinal = reader.read(1)
+            btype = reader.read(2)
+            if btype == 0:
+                deflate_probe._align_to_byte(reader)
+                if reader.byte_offset + 4 > len(stream):
+                    return None
+                len_value = stream[reader.byte_offset] | (stream[reader.byte_offset + 1] << 8)
+                nlen_value = stream[reader.byte_offset + 2] | (stream[reader.byte_offset + 3] << 8)
+                if (len_value ^ 0xFFFF) != nlen_value:
+                    return None
+                reader.bit_offset += 32
+                data_end = reader.byte_offset + len_value
+                if data_end > len(stream):
+                    return None
+                output_size += len_value
+                reader.bit_offset = data_end * 8
+                if bfinal:
+                    return None
                 continue
-            if symbol == 256:
+            if btype == 1:
+                literal_table, literal_max, distance_table, distance_max = deflate_probe._FIXED_TABLES
+            elif btype == 2:
+                literal_table, literal_max, distance_table, distance_max = deflate_probe._read_dynamic_tables(reader)
+            else:
                 return None
-            if not (257 <= symbol <= 285):
-                return None
-            length_index = symbol - 257
-            length = deflate_probe.LENGTH_BASES[length_index]
-            extra_bits = deflate_probe.LENGTH_EXTRAS[length_index]
-            if extra_bits:
-                length += reader.read(extra_bits)
-            distance_symbol, distance_bit_start, _distance_bit_end = deflate_header._decode_symbol_with_bits(
-                reader,
-                distance_table,
-                distance_max,
-            )
-            if distance_symbol >= len(deflate_probe.DISTANCE_BASES):
-                return None
-            distance = deflate_probe.DISTANCE_BASES[distance_symbol]
-            distance_extra_bits = deflate_probe.DISTANCE_EXTRAS[distance_symbol]
-            if distance_extra_bits:
-                distance += reader.read(distance_extra_bits)
-            distance_bit_end = reader.bit_offset
-            if distance > output_size:
-                return _InvalidDistanceBackref(
-                    token_index=int(token_index),
-                    bit_start=int(distance_bit_start),
-                    bit_end=int(distance_bit_end),
-                    output_before=int(output_size),
-                    length=int(length),
-                    distance_symbol=int(distance_symbol),
-                    distance=int(distance),
-                    distance_table=dict(distance_table),
-                    length_bit_start=int(length_bit_start),
-                    length_bit_end=int(length_bit_end),
-                    length_symbol=int(symbol),
-                    literal_table=dict(literal_table),
+            while tokens_seen < max(1, int(max_tokens)):
+                token_index = tokens_seen
+                tokens_seen += 1
+                symbol, length_bit_start, length_bit_end = deflate_header._decode_symbol_with_bits(
+                    reader,
+                    literal_table,
+                    literal_max,
                 )
-            output_size += length
+                if symbol < 256:
+                    output_size += 1
+                    continue
+                if symbol == 256:
+                    break
+                if not (257 <= symbol <= 285):
+                    return None
+                length_index = symbol - 257
+                length = deflate_probe.LENGTH_BASES[length_index]
+                extra_bits = deflate_probe.LENGTH_EXTRAS[length_index]
+                if extra_bits:
+                    length += reader.read(extra_bits)
+                distance_symbol, distance_bit_start, _distance_bit_end = deflate_header._decode_symbol_with_bits(
+                    reader,
+                    distance_table,
+                    distance_max,
+                )
+                distance_bit_end = reader.bit_offset
+                if distance_symbol >= len(deflate_probe.DISTANCE_BASES):
+                    return _InvalidDistanceBackref(
+                        token_index=int(token_index),
+                        bit_start=int(distance_bit_start),
+                        bit_end=int(distance_bit_end),
+                        output_before=int(output_size),
+                        length=int(length),
+                        distance_symbol=int(distance_symbol),
+                        distance=0,
+                        distance_table=dict(distance_table),
+                        length_bit_start=int(length_bit_start),
+                        length_bit_end=int(length_bit_end),
+                        length_symbol=int(symbol),
+                        literal_table=dict(literal_table),
+                    )
+                distance = deflate_probe.DISTANCE_BASES[distance_symbol]
+                distance_extra_bits = deflate_probe.DISTANCE_EXTRAS[distance_symbol]
+                if distance_extra_bits:
+                    distance += reader.read(distance_extra_bits)
+                distance_bit_end = reader.bit_offset
+                if distance > output_size:
+                    return _InvalidDistanceBackref(
+                        token_index=int(token_index),
+                        bit_start=int(distance_bit_start),
+                        bit_end=int(distance_bit_end),
+                        output_before=int(output_size),
+                        length=int(length),
+                        distance_symbol=int(distance_symbol),
+                        distance=int(distance),
+                        distance_table=dict(distance_table),
+                        length_bit_start=int(length_bit_start),
+                        length_bit_end=int(length_bit_end),
+                        length_symbol=int(symbol),
+                        literal_table=dict(literal_table),
+                    )
+                output_size += length
+            if bfinal:
+                return None
     except (deflate_header._NeedBits, deflate_header._InvalidHuffman, IndexError):
         return None
     return None
+
+
+def _locate_first_invalid_literal_length_symbol(
+    stream: bytes,
+    *,
+    max_tokens: int = 8192,
+) -> _InvalidLiteralLengthSymbol | None:
+    if not deflate_header.zlib_header_is_valid(stream):
+        return None
+    reader = deflate_header.BitReader(stream, start_byte=2)
+    output_size = 0
+    tokens_seen = 0
+    try:
+        while tokens_seen < max(1, int(max_tokens)):
+            bfinal = reader.read(1)
+            btype = reader.read(2)
+            if btype == 0:
+                deflate_probe._align_to_byte(reader)
+                if reader.byte_offset + 4 > len(stream):
+                    return None
+                len_value = stream[reader.byte_offset] | (stream[reader.byte_offset + 1] << 8)
+                nlen_value = stream[reader.byte_offset + 2] | (stream[reader.byte_offset + 3] << 8)
+                if (len_value ^ 0xFFFF) != nlen_value:
+                    return None
+                reader.bit_offset += 32
+                data_end = reader.byte_offset + len_value
+                if data_end > len(stream):
+                    return None
+                output_size += len_value
+                reader.bit_offset = data_end * 8
+                if bfinal:
+                    return None
+                continue
+            if btype == 1:
+                literal_table, literal_max, distance_table, distance_max = deflate_probe._FIXED_TABLES
+            elif btype == 2:
+                literal_table, literal_max, distance_table, distance_max = deflate_probe._read_dynamic_tables(reader)
+            else:
+                return None
+            while tokens_seen < max(1, int(max_tokens)):
+                token_index = tokens_seen
+                tokens_seen += 1
+                symbol, bit_start, bit_end = deflate_header._decode_symbol_with_bits(
+                    reader,
+                    literal_table,
+                    literal_max,
+                )
+                if symbol < 256:
+                    output_size += 1
+                    continue
+                if symbol == 256:
+                    break
+                if not (257 <= symbol <= 285):
+                    return _InvalidLiteralLengthSymbol(
+                        token_index=int(token_index),
+                        bit_start=int(bit_start),
+                        bit_end=int(bit_end),
+                        output_before=int(output_size),
+                        symbol=int(symbol),
+                        literal_table=dict(literal_table),
+                    )
+                length_index = symbol - 257
+                length = deflate_probe.LENGTH_BASES[length_index]
+                extra_bits = deflate_probe.LENGTH_EXTRAS[length_index]
+                if extra_bits:
+                    length += reader.read(extra_bits)
+                distance_symbol = deflate_header._decode_symbol(reader, distance_table, distance_max)
+                if distance_symbol >= len(deflate_probe.DISTANCE_BASES):
+                    return None
+                distance = deflate_probe.DISTANCE_BASES[distance_symbol]
+                distance_extra_bits = deflate_probe.DISTANCE_EXTRAS[distance_symbol]
+                if distance_extra_bits:
+                    distance += reader.read(distance_extra_bits)
+                if distance > output_size:
+                    return None
+                output_size += length
+            if bfinal:
+                return None
+    except (deflate_header._NeedBits, deflate_header._InvalidHuffman, IndexError):
+        return None
+    return None
+
+
+def _locate_reserved_deflate_block_type(stream: bytes) -> _ReservedDeflateBlockType | None:
+    trace = deflate_probe.analyze_deflate_stream(stream, checkpoint_stride=1024)
+    if trace.status != "reserved_block_type" or trace.error_bit_offset is None:
+        return None
+    bit_end = int(trace.error_bit_offset)
+    bit_start = bit_end - 3
+    if bit_start < 0:
+        return None
+    return _ReservedDeflateBlockType(
+        bit_start=bit_start,
+        bit_end=bit_end,
+        byte_offset=int(trace.error_byte_offset if trace.error_byte_offset is not None else bit_start // 8),
+        output_before=int(trace.decompressed_size),
+    )
 
 
 def _kraft_backref_bits_for_code(code: int, width: int) -> tuple[int, ...]:
@@ -11049,6 +11258,98 @@ def _kraft_backref_literal_operations(
     return tuple(operations)
 
 
+def _kraft_invalid_literal_symbol_operations(
+    stream: bytes,
+    invalid: _InvalidLiteralLengthSymbol,
+    *,
+    max_operations: int,
+) -> tuple[IdatDeepBeamOperation, ...]:
+    if max_operations <= 0 or not invalid.literal_table:
+        return ()
+    bit_start = int(invalid.bit_start)
+    bit_end = int(invalid.bit_end)
+    width = bit_end - bit_start
+    if width <= 0:
+        return ()
+    literal_codes = _huffman_symbol_codes(invalid.literal_table)
+    old_bytes = _stream_bit_range_to_bytes(stream, bit_start, bit_end)
+    common_literals = (
+        0,
+        1,
+        2,
+        3,
+        4,
+        255,
+        32,
+        10,
+        13,
+        0x5C,
+        0x1A,
+        0xB2,
+        0xF8,
+    )
+    choices: list[tuple[int, int, tuple[int, ...]]] = []
+    for literal, (code, code_width) in literal_codes.items():
+        if not (0 <= int(literal) <= 255):
+            continue
+        if int(code_width) != width:
+            continue
+        priority = 0 if int(literal) in common_literals else 1
+        bits = _kraft_backref_bits_for_code(code, code_width)
+        choices.append((priority, int(literal), bits))
+    choices.sort(key=lambda item: (item[0], item[1], item[2]))
+    operations: list[IdatDeepBeamOperation] = []
+    seen: set[tuple[int, ...]] = set()
+    for _priority, _literal, replacement_bits in choices:
+        if replacement_bits in seen:
+            continue
+        seen.add(replacement_bits)
+        operations.append(
+            IdatDeepBeamOperation(
+                "kraft-invalid-literal",
+                bit_start // 8,
+                old_bytes,
+                bytes(int(bit) & 1 for bit in replacement_bits),
+                tuple(range(bit_start, bit_end)),
+            )
+        )
+        if len(operations) >= int(max_operations):
+            break
+    return tuple(operations)
+
+
+def _kraft_reserved_block_type_operations(
+    stream: bytes,
+    reserved: _ReservedDeflateBlockType,
+    *,
+    max_operations: int,
+) -> tuple[IdatDeepBeamOperation, ...]:
+    if max_operations <= 0:
+        return ()
+    bit_start = int(reserved.bit_start)
+    bit_end = int(reserved.bit_end)
+    if bit_start < 0 or bit_end - bit_start != 3:
+        return ()
+    old_bytes = _stream_bit_range_to_bytes(stream, bit_start, bit_end)
+    operations: list[IdatDeepBeamOperation] = []
+    # Prefer fixed Huffman first: it does not require byte alignment or a dynamic header.
+    for btype in (1, 0, 2):
+        for bfinal in (0, 1):
+            bits = (int(bfinal), int(btype) & 1, (int(btype) >> 1) & 1)
+            operations.append(
+                IdatDeepBeamOperation(
+                    "kraft-block-header-btype",
+                    bit_start // 8,
+                    old_bytes,
+                    bytes(bits),
+                    tuple(range(bit_start, bit_end)),
+                )
+            )
+            if len(operations) >= int(max_operations):
+                return tuple(operations)
+    return tuple(operations)
+
+
 def _kraft_backref_candidate_from_operation(
     parent: IdatDeepBeamCandidate,
     operation: IdatDeepBeamOperation,
@@ -11089,9 +11390,9 @@ def _kraft_backref_candidate_from_operation(
         int(prefix_rows),
         int(raw_score.valid_filter_rows),
         int(raw_score.first_filter_rank),
-        int(raw_score.alpha_rank),
         int(raw_score.raw_size),
         int(candidate.after.decompressed_size),
+        int(raw_score.alpha_rank),
         int(candidate.after.error_offset if candidate.after.error_offset is not None else -1),
         -len(candidate.operations),
         -int(candidate.state_id),
@@ -11212,6 +11513,7 @@ def probe_idat_kraft_backref_repair(
     tested = 0
     repaired_backrefs = 0
     png_prefix_hits = 0
+    progress_candidates = 0
     reached_depth = 0
     next_state_id = 1
     last_checkpoint_at = 0
@@ -11227,27 +11529,52 @@ def probe_idat_kraft_backref_repair(
             if tested >= budget_int:
                 break
             invalid = _locate_first_invalid_distance_backref(seed.stream)
-            if invalid is None:
-                continue
+            parent_raw = idat_partial_raw_prefix(
+                seed.stream,
+                max_output=max(8192, int(before.scanline_size or 0) * 64),
+            ).raw
+            parent_raw_len = len(parent_raw)
+            parent_prefix_rows = _png_valid_prefix_rows(parent_raw, before)
             seed_operation_budget = min(
                 max(0, budget_int - tested),
                 KRAFT_BACKREF_MAX_OPERATIONS_PER_SEED,
             )
-            literal_operations = _kraft_backref_literal_operations(
-                seed.stream,
-                invalid,
-                max_operations=seed_operation_budget,
-            )
-            remaining_after_literals = max(0, seed_operation_budget - len(literal_operations))
-            distance_operations = _kraft_backref_distance_operations(
-                seed.stream,
-                invalid,
-                max_operations=remaining_after_literals,
-            )
-            operations = literal_operations + distance_operations
+            if invalid is not None:
+                literal_operations = _kraft_backref_literal_operations(
+                    seed.stream,
+                    invalid,
+                    max_operations=seed_operation_budget,
+                )
+                remaining_after_literals = max(0, seed_operation_budget - len(literal_operations))
+                distance_operations = _kraft_backref_distance_operations(
+                    seed.stream,
+                    invalid,
+                    max_operations=remaining_after_literals,
+                )
+                operations = literal_operations + distance_operations
+            else:
+                invalid_literal = _locate_first_invalid_literal_length_symbol(seed.stream)
+                if invalid_literal is not None:
+                    operations = _kraft_invalid_literal_symbol_operations(
+                        seed.stream,
+                        invalid_literal,
+                        max_operations=seed_operation_budget,
+                    )
+                else:
+                    reserved_block = _locate_reserved_deflate_block_type(seed.stream)
+                    if reserved_block is None:
+                        continue
+                    operations = _kraft_reserved_block_type_operations(
+                        seed.stream,
+                        reserved_block,
+                        max_operations=seed_operation_budget,
+                    )
             if not operations:
                 continue
             repaired_backrefs += 1
+            seed_progress = 0
+            seed_progress_attempts = 0
+            signature_counts: dict[tuple[object, ...], int] = {}
             for operation in operations:
                 if tested >= budget_int:
                     break
@@ -11266,17 +11593,34 @@ def probe_idat_kraft_backref_repair(
                 key = _stream_state_key(candidate.stream)
                 if key in visited:
                     continue
-                visited.add(key)
-                raw_prefix = idat_partial_raw_prefix(
-                    candidate.stream,
-                    max_output=max(8192, int(before.scanline_size or 0) * 64),
+                prefix_rows = int(candidate.score[1]) if len(candidate.score) > 1 else 0
+                raw_len = int(candidate.score[4]) if len(candidate.score) > 4 else int(candidate.after.decompressed_size)
+                has_material_progress = is_material_improvement(before, candidate.after)
+                has_prefix_progress = raw_len > parent_raw_len or prefix_rows > parent_prefix_rows
+                if not has_prefix_progress and not has_material_progress:
+                    continue
+                seed_progress_attempts += 1
+                signature = (
+                    int(raw_len),
+                    str(operation.kind),
+                    int(operation.stream_offset),
+                    len(operation.bit_offsets),
                 )
-                prefix_rows = _png_valid_prefix_rows(raw_prefix.raw, before)
+                if (
+                    signature_counts.get(signature, 0) >= KRAFT_BACKREF_MAX_SAME_SIGNATURE_PER_SEED
+                    and not has_material_progress
+                ):
+                    if seed_progress_attempts >= KRAFT_BACKREF_MAX_PROGRESS_PER_SEED:
+                        break
+                    continue
+                signature_counts[signature] = signature_counts.get(signature, 0) + 1
+                visited.add(key)
+                progress_candidates += 1
+                seed_progress += 1
                 if prefix_rows > 0:
                     png_prefix_hits += 1
                 top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
-                if _locate_first_invalid_distance_backref(candidate.stream) is not None:
-                    next_frontier.append(candidate)
+                next_frontier.append(candidate)
                 if progress is not None and (tested % 1000 == 0 or tested == budget_int):
                     progress(strategy, min(tested, budget_int), budget_int)
                 if checkpoint_path and top and tested - last_checkpoint_at >= KRAFT_BACKREF_CHECKPOINT_EVERY:
@@ -11300,10 +11644,16 @@ def probe_idat_kraft_backref_repair(
                             "route_version": int(KRAFT_BACKREF_ROUTE_VERSION),
                             "repaired_backrefs": int(repaired_backrefs),
                             "png_prefix_hits": int(png_prefix_hits),
+                            "progress_candidates": int(progress_candidates),
                             "reached_depth": int(reached_depth),
                         },
                     )
                     last_checkpoint_at = tested
+                if (
+                    seed_progress >= KRAFT_BACKREF_MAX_PROGRESS_PER_SEED
+                    or seed_progress_attempts >= KRAFT_BACKREF_MAX_PROGRESS_PER_SEED
+                ):
+                    break
         frontier = list(_deep_beam_ranked_unique(next_frontier, limit=max(1, int(top_candidates))))
 
     top = list(_deep_beam_ranked_unique(top, limit=top_candidates))
@@ -11321,11 +11671,13 @@ def probe_idat_kraft_backref_repair(
                 continue
             _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
             checkpointed_hashes.add(key)
-    reason = "seeds=%s; depth=%s; per_seed_limit=%s; repaired_backrefs=%s; png_prefix_hits=%s; best_prefix_rows=%s; top=%s" % (
+    reason = "seeds=%s; depth=%s; per_seed_limit=%s; progress_per_seed=%s; repaired_backrefs=%s; progress_candidates=%s; png_prefix_hits=%s; best_prefix_rows=%s; top=%s" % (
         len(seeds),
         reached_depth,
         KRAFT_BACKREF_MAX_OPERATIONS_PER_SEED,
+        KRAFT_BACKREF_MAX_PROGRESS_PER_SEED,
         repaired_backrefs,
+        progress_candidates,
         png_prefix_hits,
         best_prefix_rows,
         len(top),
@@ -11345,6 +11697,7 @@ def probe_idat_kraft_backref_repair(
             "seed_checkpoint_path": seed_checkpoint_path,
             "repaired_backrefs": int(repaired_backrefs),
             "png_prefix_hits": int(png_prefix_hits),
+            "progress_candidates": int(progress_candidates),
             "best_prefix_rows": int(best_prefix_rows),
             "reached_depth": int(reached_depth),
         },
@@ -11364,6 +11717,403 @@ def probe_idat_kraft_backref_repair(
         png_prefix_hits=png_prefix_hits,
         best_prefix_rows=best_prefix_rows,
         reached_depth=reached_depth,
+        strategy=strategy,
+        reason=reason,
+        source_hash=source_hash,
+    )
+
+
+def _stored_block_trace_offsets(trace: deflate_probe.DeflateTrace, stream_size: int) -> tuple[int, ...]:
+    offsets: list[int] = []
+
+    def add(offset: int) -> None:
+        if 0 <= int(offset) <= stream_size - 4:
+            offsets.append(int(offset))
+
+    if trace.error_byte_offset is not None:
+        for delta in range(-3, 5):
+            add(int(trace.error_byte_offset) + delta)
+    if trace.error_bit_offset is not None:
+        aligned = (int(trace.error_bit_offset) + 7) // 8
+        for delta in range(-3, 5):
+            add(aligned + delta)
+    for checkpoint in reversed(trace.checkpoints[-8:]):
+        if checkpoint.reason not in ("block-header", "end-of-block"):
+            continue
+        if trace.error_byte_offset is not None and abs(int(checkpoint.byte_offset) - int(trace.error_byte_offset)) > 64:
+            continue
+        for delta in range(-4, 6):
+            add(int(checkpoint.byte_offset) + delta)
+    return tuple(dict.fromkeys(offsets))
+
+
+def _stored_block_len_values(
+    old: bytes,
+    *,
+    parent_raw_len: int,
+    analysis: idat.IdatStreamAnalysis,
+    max_len: int,
+) -> tuple[int, ...]:
+    if len(old) != 4:
+        return ()
+    len_value = old[0] | (old[1] << 8)
+    nlen_value = old[2] | (old[3] << 8)
+    scanline_size = int(getattr(analysis, "scanline_size", 0) or 0)
+    values: list[int] = [
+        len_value,
+        nlen_value ^ 0xFFFF,
+        0,
+        1,
+        2,
+        3,
+        4,
+        8,
+        16,
+        32,
+        64,
+        128,
+        256,
+        512,
+        1024,
+        2048,
+        4096,
+        8192,
+        16384,
+    ]
+    if scanline_size > 0:
+        remainder = parent_raw_len % scanline_size
+        to_next_row = scanline_size - remainder if remainder else scanline_size
+        for rows in range(0, 4):
+            values.append(to_next_row + rows * scanline_size)
+        for rows in range(1, 5):
+            values.append(rows * scanline_size)
+    deltas = (0, -64, -32, -16, -8, -4, -3, -2, -1, 1, 2, 3, 4, 8, 16, 32, 64)
+    expanded: list[int] = []
+    for value in values:
+        for delta in deltas:
+            candidate = int(value) + int(delta)
+            if 0 <= candidate <= max_len:
+                expanded.append(candidate)
+    return tuple(dict.fromkeys(expanded))
+
+
+def _stored_block_candidate_from_patch(
+    parent: IdatDeepBeamCandidate,
+    offset: int,
+    len_value: int,
+    *,
+    chunks: tuple[png.PngChunk, ...],
+    before: idat.IdatStreamAnalysis,
+    state_id: int,
+    original_idat_count: int,
+    quick_raw_limit: int = 0,
+    parent_raw_len: int = -1,
+    parent_prefix_rows: int = -1,
+) -> IdatDeepBeamCandidate | None:
+    offset = int(offset)
+    if offset < 0 or offset + 4 > len(parent.stream):
+        return None
+    old = parent.stream[offset : offset + 4]
+    len_value = int(len_value) & 0xFFFF
+    nlen_value = len_value ^ 0xFFFF
+    new = len_value.to_bytes(2, "little") + nlen_value.to_bytes(2, "little")
+    if old == new:
+        return None
+    stream = parent.stream[:offset] + new + parent.stream[offset + 4 :]
+    if quick_raw_limit > 0:
+        raw = idat_partial_raw_prefix(stream, max_output=int(quick_raw_limit)).raw
+        raw_len = len(raw)
+        prefix_rows = _png_valid_prefix_rows(raw, before)
+        if raw_len <= int(parent_raw_len) and prefix_rows <= int(parent_prefix_rows):
+            return None
+    operation = IdatDeepBeamOperation(
+        "stored-block-len-nlen",
+        offset,
+        old,
+        new,
+    )
+    return _frontier_candidate_from_stream(
+        parent,
+        stream,
+        operation,
+        chunks=chunks,
+        before=before,
+        state_id=state_id,
+        original_idat_count=original_idat_count,
+        source_kind="candidate_from_stored_block_length_repair",
+    )
+
+
+def probe_idat_stored_block_length_repair(
+    data: bytes,
+    *,
+    budget: int = STORED_BLOCK_DEFAULT_BUDGET,
+    max_depth: int = 3,
+    top_candidates: int = STORED_BLOCK_DEFAULT_TOP_CANDIDATES,
+    checkpoint_path: str = "",
+    progress_path: str = "",
+    seed_candidates: Iterable[IdatDeepBeamCandidate] = (),
+    seed_checkpoint_path: str = "",
+    progress: QueueProgressCallback | None = None,
+) -> IdatStoredBlockLengthRepairResult:
+    strategy = "stored-block-length-repair"
+    budget_int = max(0, int(budget))
+    before = idat.analyze_idat_stream(data)
+    if not before.supported or before.complete:
+        return IdatStoredBlockLengthRepairResult(before, None, (), 0, False, strategy=strategy, reason=before.reason)
+    try:
+        chunks, root_stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError as exc:
+        return IdatStoredBlockLengthRepairResult(before, None, (), 0, False, strategy=strategy, reason=str(exc))
+    source_hash = _stream_state_key(root_stream)
+    original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    progress_state = stored_block_progress_state(data, progress_path)
+    if (
+        progress_state.available
+        and progress_state.source_matches
+        and progress_state.exhausted
+        and progress_state.budget >= budget_int
+        and frontier_progress_route_version(progress_path) >= STORED_BLOCK_ROUTE_VERSION
+    ):
+        _before, _chunks, _stream, _source_hash, _count, top = _load_frontier_candidates_for_progress(
+            data,
+            checkpoint_path,
+            top_candidates=top_candidates,
+            max_operation_depth=None,
+        )
+        best = _frontier_best_candidate(before, top)
+        best_prefix = 0
+        if top:
+            best_prefix = _png_valid_prefix_rows(
+                idat_partial_raw_prefix(top[0].stream, max_output=max(8192, int(before.scanline_size or 0) * 64)).raw,
+                before,
+            )
+        return IdatStoredBlockLengthRepairResult(
+            before,
+            best,
+            top,
+            progress_state.tested,
+            True,
+            checkpoint_path=checkpoint_path,
+            progress_path=progress_path,
+            seed_checkpoint_path=seed_checkpoint_path,
+            best_prefix_rows=best_prefix,
+            strategy=strategy,
+            reason="stored block length already exhausted for this source/budget",
+            source_hash=source_hash,
+        )
+
+    seeds: list[IdatDeepBeamCandidate] = [
+        seed for seed in seed_candidates if getattr(seed, "stream", b"")
+    ]
+    if seed_checkpoint_path:
+        try:
+            _before, _chunks, _stream, _source_hash, _count, checkpoint_seeds = _load_frontier_candidates_for_progress(
+                data,
+                seed_checkpoint_path,
+                top_candidates=max(1, int(top_candidates)),
+                max_operation_depth=None,
+            )
+            seeds.extend(checkpoint_seeds)
+        except Exception:
+            pass
+    seeds = list(_deep_beam_ranked_unique(seeds, limit=max(1, int(top_candidates))))
+    if not seeds:
+        _write_frontier_progress(
+            progress_path,
+            source_hash=source_hash,
+            tested=0,
+            budget=budget_int,
+            best=None,
+            top_count=0,
+            exhausted=False,
+            reason="no stored-block seed candidates available",
+            strategy=strategy,
+            extra={"route_version": int(STORED_BLOCK_ROUTE_VERSION)},
+        )
+        return IdatStoredBlockLengthRepairResult(
+            before,
+            None,
+            (),
+            0,
+            False,
+            checkpoint_path=checkpoint_path,
+            progress_path=progress_path,
+            seed_checkpoint_path=seed_checkpoint_path,
+            strategy=strategy,
+            reason="no stored-block seed candidates available",
+            source_hash=source_hash,
+        )
+
+    if progress is not None:
+        progress(strategy, 0, budget_int)
+
+    top: list[IdatDeepBeamCandidate] = []
+    visited: set[str] = {_stream_state_key(root_stream)}
+    visited.update(_stream_state_key(seed.stream) for seed in seeds)
+    frontier = list(seeds)
+    tested = 0
+    repaired_blocks = 0
+    png_prefix_hits = 0
+    reached_depth = 0
+    next_state_id = 1
+    last_checkpoint_at = 0
+    checkpointed_hashes: set[str] = set()
+
+    scanline_size = int(before.scanline_size or 0)
+    raw_limit = max(8192, scanline_size * 4)
+    for depth in range(1, max(1, int(max_depth)) + 1):
+        if tested >= budget_int or not frontier:
+            break
+        reached_depth = depth
+        next_frontier: list[IdatDeepBeamCandidate] = []
+        for seed in frontier:
+            if tested >= budget_int:
+                break
+            trace = deflate_probe.analyze_deflate_stream(seed.stream, checkpoint_stride=512)
+            if trace.status != "bad_stored_length":
+                continue
+            parent_raw = idat_partial_raw_prefix(seed.stream, max_output=raw_limit).raw
+            parent_raw_len = len(parent_raw)
+            parent_prefix_rows = _png_valid_prefix_rows(parent_raw, before)
+            seed_raw_limit = max(8192, scanline_size * max(2, min(8, parent_prefix_rows + 2)))
+            offsets = _stored_block_trace_offsets(trace, len(seed.stream))
+            if not offsets:
+                continue
+            repaired_blocks += 1
+            for offset in offsets:
+                if tested >= budget_int:
+                    break
+                old = seed.stream[offset : offset + 4]
+                max_len = max(0, len(seed.stream) - offset - 4)
+                for len_value in _stored_block_len_values(
+                    old,
+                    parent_raw_len=parent_raw_len,
+                    analysis=before,
+                    max_len=min(65535, max_len),
+                ):
+                    if tested >= budget_int:
+                        break
+                    candidate = _stored_block_candidate_from_patch(
+                        seed,
+                        offset,
+                        len_value,
+                        chunks=chunks,
+                        before=before,
+                        state_id=next_state_id,
+                        original_idat_count=original_idat_count,
+                        quick_raw_limit=seed_raw_limit,
+                        parent_raw_len=parent_raw_len,
+                        parent_prefix_rows=parent_prefix_rows,
+                    )
+                    tested += 1
+                    next_state_id += 1
+                    if candidate is None:
+                        continue
+                    key = _stream_state_key(candidate.stream)
+                    if key in visited:
+                        continue
+                    raw = idat_partial_raw_prefix(candidate.stream, max_output=raw_limit).raw
+                    raw_len = len(raw)
+                    prefix_rows = _png_valid_prefix_rows(raw, before)
+                    error_progress = (
+                        candidate.after.error_offset is not None
+                        and seed.after.error_offset is not None
+                        and candidate.after.error_offset > seed.after.error_offset
+                    )
+                    has_prefix_progress = raw_len > parent_raw_len or prefix_rows > parent_prefix_rows
+                    if not has_prefix_progress and not error_progress and not is_material_improvement(before, candidate.after):
+                        continue
+                    visited.add(key)
+                    if prefix_rows > 0:
+                        png_prefix_hits += 1
+                    top = list(_deep_beam_ranked_unique(itertools.chain(top, (candidate,)), limit=top_candidates))
+                    next_frontier.append(candidate)
+                    if progress is not None and (tested % 1000 == 0 or tested == budget_int):
+                        progress(strategy, min(tested, budget_int), budget_int)
+                    if checkpoint_path and top and tested - last_checkpoint_at >= STORED_BLOCK_CHECKPOINT_EVERY:
+                        for item in top:
+                            item_key = _stream_state_key(item.stream)
+                            if item_key in checkpointed_hashes:
+                                continue
+                            _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
+                            checkpointed_hashes.add(item_key)
+                        _write_frontier_progress(
+                            progress_path,
+                            source_hash=source_hash,
+                            tested=tested,
+                            budget=budget_int,
+                            best=_frontier_best_candidate(before, top),
+                            top_count=len(top),
+                            exhausted=False,
+                            reason="stored block length checkpoint",
+                            strategy=strategy,
+                            extra={
+                                "route_version": int(STORED_BLOCK_ROUTE_VERSION),
+                                "repaired_blocks": int(repaired_blocks),
+                                "png_prefix_hits": int(png_prefix_hits),
+                                "reached_depth": int(reached_depth),
+                            },
+                        )
+                        last_checkpoint_at = tested
+        frontier = list(_deep_beam_ranked_unique(next_frontier, limit=max(1, int(top_candidates))))
+
+    top = list(_deep_beam_ranked_unique(top, limit=top_candidates))
+    best = _frontier_best_candidate(before, top)
+    best_prefix_rows = 0
+    if top:
+        best_prefix_rows = _png_valid_prefix_rows(
+            idat_partial_raw_prefix(top[0].stream, max_output=raw_limit).raw,
+            before,
+        )
+    if checkpoint_path:
+        for item in top:
+            key = _stream_state_key(item.stream)
+            if key in checkpointed_hashes:
+                continue
+            _append_frontier_checkpoint(checkpoint_path, item, source_hash=source_hash, source_stream=root_stream)
+            checkpointed_hashes.add(key)
+    reason = "seeds=%s; depth=%s; repaired_blocks=%s; png_prefix_hits=%s; best_prefix_rows=%s; top=%s" % (
+        len(seeds),
+        reached_depth,
+        repaired_blocks,
+        png_prefix_hits,
+        best_prefix_rows,
+        len(top),
+    )
+    _write_frontier_progress(
+        progress_path,
+        source_hash=source_hash,
+        tested=tested,
+        budget=budget_int,
+        best=best,
+        top_count=len(top),
+        exhausted=True,
+        reason=reason,
+        strategy=strategy,
+        extra={
+            "route_version": int(STORED_BLOCK_ROUTE_VERSION),
+            "seed_checkpoint_path": seed_checkpoint_path,
+            "repaired_blocks": int(repaired_blocks),
+            "png_prefix_hits": int(png_prefix_hits),
+            "best_prefix_rows": int(best_prefix_rows),
+            "reached_depth": int(reached_depth),
+        },
+    )
+    if progress is not None:
+        progress(strategy, min(tested, budget_int), budget_int)
+    return IdatStoredBlockLengthRepairResult(
+        before,
+        best,
+        tuple(top),
+        tested,
+        tested >= budget_int,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        seed_checkpoint_path=seed_checkpoint_path,
+        repaired_blocks=repaired_blocks,
+        png_prefix_hits=png_prefix_hits,
+        best_prefix_rows=best_prefix_rows,
         strategy=strategy,
         reason=reason,
         source_hash=source_hash,
@@ -16592,6 +17342,25 @@ def probe_idat_deflate_single_pass(
     *,
     progress: QueueProgressCallback | None = None,
 ) -> IdatDeflateProbeResult:
+    before = idat.analyze_idat_stream(data)
+    results: list[IdatDeflateProbeResult] = []
+
+    def remember(result: IdatDeflateProbeResult) -> IdatDeflateProbeResult | None:
+        results.append(result)
+        if result.best is not None:
+            return result
+        return None
+
+    if before.usable_scanlines > 0:
+        bit = probe_idat_deflate_bit_candidates(
+            data,
+            strategy="post-scanline-bit",
+            progress=progress,
+        )
+        best = remember(bit)
+        if best is not None:
+            return best
+
     strict = probe_idat_deflate_byte_candidates(
         data,
         window_radius=16,
@@ -16599,12 +17368,15 @@ def probe_idat_deflate_single_pass(
         strategy="strict-byte",
         progress=progress,
     )
-    if strict.best is not None:
-        return strict
+    best = remember(strict)
+    if best is not None:
+        return best
 
-    bit = probe_idat_deflate_bit_candidates(data, progress=progress)
-    if bit.best is not None:
-        return bit
+    if before.usable_scanlines <= 0:
+        bit = probe_idat_deflate_bit_candidates(data, progress=progress)
+        best = remember(bit)
+        if best is not None:
+            return best
 
     wider = probe_idat_deflate_byte_candidates(
         data,
@@ -16613,18 +17385,21 @@ def probe_idat_deflate_single_pass(
         strategy="wide-byte",
         progress=progress,
     )
-    if wider.best is not None:
-        return wider
+    best = remember(wider)
+    if best is not None:
+        return best
 
+    if not results:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, "strategy-queue", "IDAT strategy queue did not run")
     return IdatDeflateProbeResult(
-        strict.before,
+        results[0].before,
         None,
-        min(strict.window_start, wider.window_start),
-        max(strict.window_end, wider.window_end),
-        strict.tested_candidates + bit.tested_candidates + wider.tested_candidates,
-        strict.budget_exhausted or bit.budget_exhausted or wider.budget_exhausted,
+        min(result.window_start for result in results),
+        max(result.window_end for result in results),
+        sum(result.tested_candidates for result in results),
+        any(result.budget_exhausted for result in results),
         "strategy-queue",
-        wider.reason or bit.reason or strict.reason,
+        next((result.reason for result in reversed(results) if result.reason), ""),
     )
 
 
@@ -17020,6 +17795,43 @@ def kraft_backref_repair_summary_line(result: IdatKraftBackrefRepairResult) -> s
 
 def kraft_backref_repair_candidate_summary_lines(
     result: IdatKraftBackrefRepairResult,
+    *,
+    limit: int = 5,
+) -> tuple[str, ...]:
+    return tuple(
+        deep_beam_candidate_summary_line(candidate)
+        for candidate in result.top_candidates[: max(1, int(limit))]
+    )
+
+
+def stored_block_length_repair_summary_line(result: IdatStoredBlockLengthRepairResult) -> str:
+    line = (
+        "-IDAT stored-block-length: tested=%s; budget_exhausted=%s; repaired_blocks=%s; "
+        "png_prefix_hits=%s; best_prefix_rows=%s; top=%s"
+        % (
+            result.tested_candidates,
+            "yes" if result.budget_exhausted else "no",
+            result.repaired_blocks,
+            result.png_prefix_hits,
+            result.best_prefix_rows,
+            len(result.top_candidates),
+        )
+    )
+    if result.best is not None:
+        line += "; best_score=%s" % (result.best.score,)
+    if result.seed_checkpoint_path:
+        line += "; seed_checkpoint=%s" % result.seed_checkpoint_path
+    if result.checkpoint_path:
+        line += "; checkpoint=%s" % result.checkpoint_path
+    if result.progress_path:
+        line += "; progress=%s" % result.progress_path
+    if result.reason:
+        line += "; reason=%s" % result.reason
+    return line + "."
+
+
+def stored_block_length_repair_candidate_summary_lines(
+    result: IdatStoredBlockLengthRepairResult,
     *,
     limit: int = 5,
 ) -> tuple[str, ...]:

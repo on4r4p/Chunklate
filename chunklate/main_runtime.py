@@ -1646,12 +1646,34 @@ def _try_unresolved_idat_deflate_route(namespace: dict[str, Any]) -> bool:
         preview_repair_image=namespace.get("Preview_Repair_Image"),
         file_origin=namespace.get("FILE_Origin") or namespace.get("Sample") or "",
         file_dir=namespace.get("FILE_DIR") or "",
+        interactive=fixit_felix_runtime.namespace_interactive_prompts(namespace),
+        input_func=namespace.get("Transcript_Input") or namespace.get("input") or input,
+        deep_beam_workers=fixit_felix_runtime._namespace_idat_deep_beam_workers(namespace),
+        deep_beam_gpu=namespace.get("IDAT_DEEP_BEAM_GPU"),
+        deep_beam_gpu_config=namespace.get("GPU_CONFIG"),
+        deep_beam_budget=namespace.get("IDAT_DEEP_BEAM_BUDGET"),
+        deep_beam_max_depth=namespace.get("IDAT_DEEP_BEAM_MAX_DEPTH"),
+        deep_beam_gpu_shard_size=namespace.get("IDAT_DEEP_BEAM_GPU_SHARD_SIZE"),
+        deep_beam_cpu_batch_size=namespace.get("IDAT_DEEP_BEAM_CPU_BATCH_SIZE"),
+        deep_beam_prompt_cache=namespace.setdefault("IDAT_DEEP_BEAM_PROMPT_CACHE", {}),
+        huffman_oracle_budget=namespace.get("IDAT_HUFFMAN_ORACLE_BUDGET"),
+        crc_periodic_budget=namespace.get("IDAT_CRC_PERIODIC_BUDGET"),
+        huffman_kraft_budget=namespace.get("IDAT_HUFFMAN_KRAFT_BUDGET"),
+        huffman_kraft_workers=fixit_felix_runtime._namespace_idat_huffman_kraft_workers(namespace),
+        huffman_kraft_gpu_config=namespace.get("GPU_CONFIG"),
+        kraft_backref_budget=namespace.get("IDAT_KRAFT_BACKREF_BUDGET"),
+        stored_block_budget=namespace.get("IDAT_STORED_BLOCK_BUDGET"),
+        global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
+        affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
+        deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
+        set_idat_deflate_route_consumed=lambda value: namespace.__setitem__(
+            "IDAT_DEFLATE_ROUTE_CONSUMED",
+            value,
+        ),
     )
     result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
     if result is None:
         return False
-    if isinstance(result, tuple) and result and result[0] is False:
-        namespace["IDAT_DEFLATE_ROUTE_CONSUMED"] = True
     return True
 
 
@@ -1759,6 +1781,12 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
         or bool(namespace.get("CLONE_HANDOFF_PENDING"))
     )
     if not clone_progress:
+        if namespace.pop("IDAT_DEFLATE_ROUTE_CONSUMED", False):
+            namespace["PRINT"](
+                "-IDAT deflate route consumed without clone; stopping this sample pass."
+            )
+            namespace["PRINT"]("-No new clone produced, stopping main loop.")
+            return MainLoopIterationState(should_return=True)
         if has_unresolved_findings(namespace):
             if _try_unresolved_idat_deflate_route(namespace):
                 if namespace.pop("IDAT_DEFLATE_ROUTE_CONSUMED", False):

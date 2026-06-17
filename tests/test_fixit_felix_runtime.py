@@ -2114,6 +2114,7 @@ def wrong_crc_runtime(
     deep_beam_gpu=None,
     deep_beam_gpu_config=None,
     deep_beam_budget=None,
+    deep_beam_max_depth=None,
     huffman_kraft_budget=None,
     huffman_kraft_workers=None,
     huffman_kraft_gpu_config=None,
@@ -2193,6 +2194,7 @@ def wrong_crc_runtime(
         deep_beam_gpu=deep_beam_gpu,
         deep_beam_gpu_config=deep_beam_gpu_config,
         deep_beam_budget=deep_beam_budget,
+        deep_beam_max_depth=deep_beam_max_depth,
         huffman_kraft_budget=huffman_kraft_budget,
         huffman_kraft_workers=huffman_kraft_workers,
         huffman_kraft_gpu_config=huffman_kraft_gpu_config,
@@ -2200,6 +2202,7 @@ def wrong_crc_runtime(
         global_crc_residue_budget=global_crc_residue_budget,
         affine_corruption_budget=affine_corruption_budget,
         deflate_salvage_budget=deflate_salvage_budget,
+        set_idat_deflate_route_consumed=record("set_idat_deflate_route_consumed"),
     )
 
 
@@ -2209,10 +2212,34 @@ def mock_frontier_routes_empty(monkeypatch):
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_huffman_kraft_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_first_filter_literal_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_kraft_backref_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_stored_block_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_huffman_oracle_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_global_crc_residue_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_crc_periodic_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(fixit_felix_runtime, "_run_deflate_resync_salvage_runtime", lambda *_args, **_kwargs: None)
+
+
+def idat_deep_beam_seed(data, *, state_id=1, kind="test-seed"):
+    before = idat.analyze_idat_stream(data)
+    _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    return idat_bruteforce.IdatDeepBeamCandidate(
+        data=data,
+        stream=stream,
+        operations=(
+            idat_bruteforce.IdatDeepBeamOperation(
+                kind,
+                0,
+                stream[:1],
+                stream[:1],
+            ),
+        ),
+        before=before,
+        after=before,
+        state_id=state_id,
+        parent_id=0,
+        source_offsets=(0,),
+        score=(state_id,),
+    )
 
 
 def test_apply_wrong_crc_easy_answer_saves_clone():
@@ -2611,6 +2638,118 @@ def test_hermesprobe_logs_dynamic_huffman_semantic_diagnostic_without_clone(monk
     assert any("crc-guided-diagnostic" in note for note in side_notes)
     assert "-IDAT deflate header probe found no clone-worthy scanline progress." in side_notes
     assert "-IDAT deep beam found no clone-worthy scanline progress." in side_notes
+    assert ("set_idat_deflate_route_consumed", (True,), {}) in calls
+
+
+def test_hermesprobe_runs_post_deep_routes_before_consuming_live_seed(monkeypatch):
+    calls = []
+    side_notes = []
+    data = bytes.fromhex(semantic_token_corrupt_deflate_png_hex())
+    before = idat.analyze_idat_stream(data)
+    seed = idat_deep_beam_seed(data, state_id=41, kind="deep-checkpoint-seed")
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(),
+        side_notes=side_notes,
+        data_hex=data.hex(),
+    )
+
+    def no_deep_best(probe_data, **_kwargs):
+        assert probe_data == data
+        return idat_bruteforce.IdatDeepBeamProbeResult(
+            before,
+            None,
+            (seed,),
+            0,
+            1,
+            25,
+            False,
+            19,
+            2,
+            2,
+            workers=1,
+            reason="stop=hard depth limit reached",
+        )
+
+    def post_deep_backref(_runtime, _data, _analysis, *, seed_candidates=(), path_label="kraft_backref", seed_checkpoint_path=None):
+        calls.append(("post_deep_backref", path_label, seed_candidates, seed_checkpoint_path))
+        assert path_label == "kraft_backref_deep"
+        assert seed_checkpoint_path == ""
+        assert seed_candidates == (seed,)
+        return idat_bruteforce.IdatKraftBackrefRepairResult(
+            before,
+            seed,
+            (seed,),
+            1,
+            False,
+            reason="mocked",
+        )
+
+    monkeypatch.setattr(idat_bruteforce, "probe_idat_deflate_deep_beam", no_deep_best)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_kraft_backref_runtime", post_deep_backref)
+
+    result = fixit_felix_runtime._run_idat_deep_beam_runtime(
+        runtime,
+        data,
+        before,
+        checkpoint_path="",
+        progress_path="",
+    )
+
+    assert result == (True, "written")
+    assert [call for call in calls if call[0] == "post_deep_backref"]
+    assert not [call for call in calls if call[0] == "set_idat_deflate_route_consumed"]
+    assert any(note.startswith("-IDAT post-deep frontier seeded with 1") for note in side_notes)
+
+
+def test_hermesprobe_hard_depth_with_live_seed_keeps_idat_route_open(monkeypatch):
+    calls = []
+    side_notes = []
+    data = bytes.fromhex(semantic_token_corrupt_deflate_png_hex())
+    before = idat.analyze_idat_stream(data)
+    seed = idat_deep_beam_seed(data, state_id=42, kind="deep-checkpoint-seed")
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(),
+        side_notes=side_notes,
+        data_hex=data.hex(),
+    )
+
+    def no_deep_best(probe_data, **_kwargs):
+        assert probe_data == data
+        return idat_bruteforce.IdatDeepBeamProbeResult(
+            before,
+            None,
+            (seed,),
+            0,
+            1,
+            25,
+            False,
+            19,
+            2,
+            2,
+            workers=1,
+            reason="stop=hard depth limit reached",
+        )
+
+    monkeypatch.setattr(idat_bruteforce, "probe_idat_deflate_deep_beam", no_deep_best)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_kraft_backref_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_stored_block_runtime", lambda *_args, **_kwargs: None)
+
+    result = fixit_felix_runtime._run_idat_deep_beam_runtime(
+        runtime,
+        data,
+        before,
+        checkpoint_path="",
+        progress_path="",
+    )
+
+    assert result == (False, None)
+    assert not [call for call in calls if call[0] == "set_idat_deflate_route_consumed"]
+    assert (
+        "-IDAT deep beam stopped with checkpointed candidates still available; route left open for resume/post-deep passes."
+        in side_notes
+    )
 
 
 def test_hermesprobe_interrupted_deep_beam_stops_instead_of_relaunching(monkeypatch):
@@ -2684,7 +2823,18 @@ def test_hermesprobe_interrupted_deep_beam_stops_instead_of_relaunching(monkeypa
     assert "-IDAT deep beam found no clone-worthy scanline progress." not in side_notes
 
 
-def _write_matching_deep_beam_progress(path, data: bytes, *, source_hash: str | None = None):
+def _write_matching_deep_beam_progress(
+    path,
+    data: bytes,
+    *,
+    source_hash: str | None = None,
+    tested_candidates: int = 1234,
+    depth: int = 2,
+    max_depth: int = 5,
+    hard_depth_limit: int = 6,
+    budget: int = 5000,
+    interrupted: bool = True,
+):
     if source_hash is None:
         _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(data)
         source_hash = idat_bruteforce._stream_state_key(stream)
@@ -2694,9 +2844,12 @@ def _write_matching_deep_beam_progress(path, data: bytes, *, source_hash: str | 
             {
                 "version": 2,
                 "source_hash": source_hash,
-                "tested_candidates": 1234,
-                "depth": 2,
-                "interrupted": True,
+                "tested_candidates": tested_candidates,
+                "depth": depth,
+                "max_depth": max_depth,
+                "hard_depth_limit": hard_depth_limit,
+                "budget": budget,
+                "interrupted": interrupted,
                 "gpu_shard_size": idat_bruteforce.DEEP_BEAM_DEFAULT_GPU_SHARD_SIZE,
                 "gpu_done_shards": [],
             }
@@ -2766,6 +2919,174 @@ def test_hermesprobe_resume_deep_beam_skips_short_probes(tmp_path, monkeypatch):
     assert "-IDAT deep beam resume-first: existing checkpoint/progress matches this IDAT stream." in side_notes
     assert any(note.startswith("-IDAT deep beam resume: source matched;") for note in side_notes)
     assert "-IDAT deep beam resume did not return to short probes; checkpoint/progress remain the next state." in side_notes
+
+
+def test_hermesprobe_resume_tries_checkpoint_post_deep_before_relaunching_deep(tmp_path, monkeypatch):
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    data = bytes.fromhex(data_hex)
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(),
+        side_notes=side_notes,
+        data_hex=data_hex,
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        deep_beam_budget=4321,
+    )
+    _checkpoint_path, progress_path = fixit_felix_runtime._idat_deep_beam_paths(runtime)
+    _write_matching_deep_beam_progress(progress_path, data)
+    deep_seed = idat_deep_beam_seed(data, state_id=99, kind="checkpoint-deep-seed")
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("deep beam should not relaunch before checkpoint post-deep routes")
+
+    def post_deep(probe_runtime, probe_data, probe_analysis, seed_candidates):
+        calls.append(("post_deep", probe_runtime, probe_data, probe_analysis, seed_candidates))
+        return True, "post-deep-clone"
+
+    mock_frontier_routes_empty(monkeypatch)
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_load_idat_deep_beam_seed_candidates",
+        lambda *_args, **_kwargs: (deep_seed,),
+    )
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_post_deep_frontier_routes_runtime", post_deep)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_deep_beam", forbidden)
+    analysis = idat.analyze_idat_stream(data)
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+
+    assert result == (True, "post-deep-clone")
+    post_call = next(call for call in calls if call[0] == "post_deep")
+    assert post_call[4] == (deep_seed,)
+    assert not any(call[0] == "deep_probe_kwargs" for call in calls)
+
+
+def test_hermesprobe_resume_deep_beam_auto_bumps_max_depth_after_hard_guard(tmp_path, monkeypatch):
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    data = bytes.fromhex(data_hex)
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(),
+        side_notes=side_notes,
+        data_hex=data_hex,
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        deep_beam_budget=10000000,
+    )
+    _checkpoint_path, progress_path = fixit_felix_runtime._idat_deep_beam_paths(runtime)
+    _write_matching_deep_beam_progress(
+        progress_path,
+        data,
+        tested_candidates=2828836,
+        depth=19,
+        max_depth=5,
+        hard_depth_limit=6,
+        budget=10000000,
+        interrupted=False,
+    )
+    mock_frontier_routes_empty(monkeypatch)
+
+    def deep_probe(probe_data, **kwargs):
+        calls.append(("deep_probe_kwargs", kwargs, {}))
+        before = fixit_felix_runtime.idat.analyze_idat_stream(probe_data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeepBeamProbeResult(
+            before,
+            None,
+            (),
+            0,
+            1,
+            3,
+            False,
+            19,
+            1,
+            1,
+            checkpoint_path=kwargs["checkpoint_path"],
+            progress_path=kwargs["progress_path"],
+            progress_resumed=True,
+            workers=1,
+            reason="mocked",
+        )
+
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_deep_beam", deep_probe)
+    analysis = idat.analyze_idat_stream(data)
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+
+    assert result == (False, None)
+    deep_call = next(call for call in calls if call[0] == "deep_probe_kwargs")
+    assert deep_call[1]["max_depth"] == 20
+    assert any(
+        note == "-IDAT deep beam depth configuration: max_depth=20; auto_bumped_from_resume=yes."
+        for note in side_notes
+    )
+
+
+def test_hermesprobe_explicit_deep_beam_max_depth_overrides_auto_bump(tmp_path, monkeypatch):
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    data = bytes.fromhex(data_hex)
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(),
+        side_notes=side_notes,
+        data_hex=data_hex,
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        deep_beam_budget=10000000,
+        deep_beam_max_depth=7,
+    )
+    _checkpoint_path, progress_path = fixit_felix_runtime._idat_deep_beam_paths(runtime)
+    _write_matching_deep_beam_progress(
+        progress_path,
+        data,
+        tested_candidates=2828836,
+        depth=19,
+        max_depth=5,
+        hard_depth_limit=6,
+        budget=10000000,
+        interrupted=False,
+    )
+    mock_frontier_routes_empty(monkeypatch)
+
+    def deep_probe(probe_data, **kwargs):
+        calls.append(("deep_probe_kwargs", kwargs, {}))
+        before = fixit_felix_runtime.idat.analyze_idat_stream(probe_data)
+        return fixit_felix_runtime.idat_bruteforce.IdatDeepBeamProbeResult(
+            before,
+            None,
+            (),
+            0,
+            1,
+            3,
+            False,
+            7,
+            1,
+            1,
+            checkpoint_path=kwargs["checkpoint_path"],
+            progress_path=kwargs["progress_path"],
+            progress_resumed=True,
+            workers=1,
+            reason="mocked",
+        )
+
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_deep_beam", deep_probe)
+    analysis = idat.analyze_idat_stream(data)
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+
+    assert result == (False, None)
+    deep_call = next(call for call in calls if call[0] == "deep_probe_kwargs")
+    assert deep_call[1]["max_depth"] == 7
+    assert any(
+        note == "-IDAT deep beam depth configuration: max_depth=7; auto_bumped_from_resume=no."
+        for note in side_notes
+    )
 
 
 def test_hermesprobe_resume_deep_beam_seeds_from_periodic_model(tmp_path, monkeypatch):
@@ -2906,9 +3227,12 @@ def test_hermesprobe_resume_runs_frontier_routes_before_deep_beam(tmp_path, monk
     kraft_seed = seed("kraft", 3)
     first_filter_seed = seed("first-filter", 4)
     backref_seed = seed("kraft-backref", 5)
-    huffman_seed = seed("huffman", 6)
-    global_crc_seed = seed("global-crc", 7)
-    crc_seed = seed("crc-periodic", 8)
+    stored_block_seed = seed("stored-block", 6)
+    huffman_seed = seed("huffman", 7)
+    oracle_backref_seed = seed("kraft-backref-oracle", 8)
+    oracle_stored_block_seed = seed("stored-block-oracle", 9)
+    global_crc_seed = seed("global-crc", 10)
+    crc_seed = seed("crc-periodic", 11)
     order = []
 
     monkeypatch.setattr(
@@ -2965,13 +3289,20 @@ def test_hermesprobe_resume_runs_frontier_routes_before_deep_beam(tmp_path, monk
         first_filter_runtime,
     )
 
-    def backref_runtime(_runtime, _data, _analysis, *, seed_candidates=()):
+    def backref_runtime(_runtime, _data, _analysis, *, seed_candidates=(), path_label="kraft_backref", seed_checkpoint_path=None):
         order.append("backref")
-        assert seed_candidates == (first_filter_seed,)
+        if path_label == "kraft_backref":
+            assert seed_candidates == (first_filter_seed,)
+            result_seed = backref_seed
+        else:
+            assert path_label == "kraft_backref_oracle"
+            assert seed_checkpoint_path == ""
+            assert seed_candidates == (huffman_seed,)
+            result_seed = oracle_backref_seed
         return fixit_felix_runtime.idat_bruteforce.IdatKraftBackrefRepairResult(
             before,
             None,
-            (backref_seed,),
+            (result_seed,),
             1,
             True,
         )
@@ -2982,6 +3313,30 @@ def test_hermesprobe_resume_runs_frontier_routes_before_deep_beam(tmp_path, monk
         backref_runtime,
     )
 
+    def stored_block_runtime(_runtime, _data, _analysis, *, seed_candidates=(), path_label="stored_block", seed_checkpoint_path=None):
+        order.append("stored-block")
+        if path_label == "stored_block":
+            assert seed_candidates == (backref_seed,)
+            result_seed = stored_block_seed
+        else:
+            assert path_label == "stored_block_oracle"
+            assert seed_checkpoint_path == ""
+            assert seed_candidates == (oracle_backref_seed,)
+            result_seed = oracle_stored_block_seed
+        return fixit_felix_runtime.idat_bruteforce.IdatStoredBlockLengthRepairResult(
+            before,
+            None,
+            (result_seed,),
+            1,
+            True,
+        )
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_stored_block_runtime",
+        stored_block_runtime,
+    )
+
     def huffman_runtime(_runtime, _data, _analysis, *, seed_candidates=()):
         order.append("huffman")
         assert seed_candidates == (
@@ -2990,6 +3345,7 @@ def test_hermesprobe_resume_runs_frontier_routes_before_deep_beam(tmp_path, monk
             kraft_seed,
             first_filter_seed,
             backref_seed,
+            stored_block_seed,
         )
         return fixit_felix_runtime.idat_bruteforce.IdatHuffmanOracleSolverResult(
             before,
@@ -3056,7 +3412,20 @@ def test_hermesprobe_resume_runs_frontier_routes_before_deep_beam(tmp_path, monk
     result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, before)
 
     assert result == (False, None)
-    assert order == ["periodic", "affine", "kraft", "first-filter", "backref", "huffman", "global-crc", "crc", "deep"]
+    assert order == [
+        "periodic",
+        "affine",
+        "kraft",
+        "first-filter",
+        "backref",
+        "stored-block",
+        "huffman",
+        "backref",
+        "stored-block",
+        "global-crc",
+        "crc",
+        "deep",
+    ]
     deep_call = next(call for call in calls if call[0] == "deep_probe_kwargs")
     assert deep_call[1]["seed_candidates"] == (
         periodic_seed,
@@ -3064,11 +3433,14 @@ def test_hermesprobe_resume_runs_frontier_routes_before_deep_beam(tmp_path, monk
         kraft_seed,
         first_filter_seed,
         backref_seed,
+        stored_block_seed,
         huffman_seed,
+        oracle_backref_seed,
+        oracle_stored_block_seed,
         global_crc_seed,
         crc_seed,
     )
-    assert "-IDAT deep beam seeded with 8 frontier candidate(s)." in side_notes
+    assert "-IDAT deep beam seeded with 11 frontier candidate(s)." in side_notes
 
 
 def test_hermesprobe_resume_mismatch_runs_short_probes(tmp_path, monkeypatch):
@@ -3549,6 +3921,199 @@ def test_hermesprobe_huffman_kraft_memory_guard_with_seeds_continues(tmp_path, m
     assert any("memory=hard" in note for note in side_notes)
 
 
+def test_hermesprobe_huffman_oracle_consumed_still_returns_seeds(tmp_path, monkeypatch):
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    data = bytes.fromhex(data_hex)
+    before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+    _chunks, stream = fixit_felix_runtime.idat_bruteforce._all_chunks_and_idat_stream(data)
+    seed = fixit_felix_runtime.idat_bruteforce.IdatDeepBeamCandidate(
+        data=data,
+        stream=stream,
+        operations=(),
+        before=before,
+        after=before,
+        state_id=17,
+        parent_id=0,
+        source_offsets=(),
+        score=(1,),
+    )
+
+    def progress_state(_data, _progress_path=""):
+        return fixit_felix_runtime.idat_bruteforce.IdatFrontierProgressState(
+            available=True,
+            source_matches=True,
+            exhausted=True,
+            tested=456,
+            budget=fixit_felix_runtime.idat_bruteforce.HUFFMAN_ORACLE_DEFAULT_BUDGET,
+            reason="frontier exhausted",
+        )
+
+    def oracle_probe(probe_data, **kwargs):
+        calls.append(("oracle_probe_kwargs", kwargs, {}))
+        before_analysis = fixit_felix_runtime.idat.analyze_idat_stream(probe_data)
+        return fixit_felix_runtime.idat_bruteforce.IdatHuffmanOracleSolverResult(
+            before_analysis,
+            None,
+            (seed,),
+            456,
+            True,
+            checkpoint_path=kwargs["checkpoint_path"],
+            progress_path=kwargs["progress_path"],
+            reason="huffman oracle already exhausted for this source/budget",
+        )
+
+    def forbidden_artifacts(*_args, **_kwargs):
+        raise AssertionError("consumed huffman-oracle seeds must not rewrite debug artifacts")
+
+    monkeypatch.setattr(fixit_felix_runtime, "_block_deep_beam_if_chunk_names_are_stale", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "huffman_oracle_progress_state", progress_state)
+    monkeypatch.setattr(
+        fixit_felix_runtime.idat_bruteforce,
+        "probe_idat_dynamic_huffman_png_oracle_solver",
+        oracle_probe,
+    )
+    monkeypatch.setattr(fixit_felix_runtime, "_write_idat_deep_beam_debug_artifacts", forbidden_artifacts)
+    runtime = wrong_crc_runtime(
+        calls,
+        side_notes=side_notes,
+        data_hex=data_hex,
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+    )
+
+    result = fixit_felix_runtime._run_idat_huffman_oracle_runtime(runtime, data, before)
+
+    assert result is not None
+    assert result.top_candidates == (seed,)
+    assert any(note.startswith("-IDAT huffman-oracle already consumed") for note in side_notes)
+    assert any(note.startswith("-IDAT huffman-oracle: tested=456;") for note in side_notes)
+    assert any(call[0] == "oracle_probe_kwargs" for call in calls)
+    assert not any(call[0] == "candy" and call[1][0] == "Title" for call in calls)
+
+
+def test_hermesprobe_consumed_frontier_routes_still_return_checkpoint_seeds(tmp_path, monkeypatch):
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    data = bytes.fromhex(data_hex)
+    before = fixit_felix_runtime.idat.analyze_idat_stream(data)
+    seed = idat_deep_beam_seed(data, state_id=21, kind="consumed-frontier-seed")
+
+    def frontier_state(_data, _progress_path=""):
+        return fixit_felix_runtime.idat_bruteforce.IdatFrontierProgressState(
+            available=True,
+            source_matches=True,
+            exhausted=True,
+            tested=123,
+            budget=999999,
+            reason="frontier exhausted",
+        )
+
+    def periodic_state(_data, _progress_path=""):
+        return fixit_felix_runtime.idat_bruteforce.IdatPeriodicProgressState(
+            available=True,
+            source_matches=True,
+            exhausted=True,
+            tested=123,
+            reason="frontier exhausted",
+        )
+
+    def periodic_probe(probe_data, **kwargs):
+        calls.append(("periodic_probe", kwargs))
+        return fixit_felix_runtime.idat_bruteforce.IdatPeriodicCorruptionModelResult(
+            fixit_felix_runtime.idat.analyze_idat_stream(probe_data),
+            None,
+            (seed,),
+            123,
+            True,
+            checkpoint_path=kwargs["checkpoint_path"],
+            progress_path=kwargs["progress_path"],
+            reason="periodic model already exhausted for this source",
+        )
+
+    def affine_probe(probe_data, **kwargs):
+        calls.append(("affine_probe", kwargs))
+        return fixit_felix_runtime.idat_bruteforce.IdatAffineCorruptionModelResult(
+            fixit_felix_runtime.idat.analyze_idat_stream(probe_data),
+            None,
+            (seed,),
+            123,
+            True,
+            checkpoint_path=kwargs["checkpoint_path"],
+            progress_path=kwargs["progress_path"],
+            reason="affine corruption model already exhausted for this source/budget",
+        )
+
+    def crc_periodic_probe(probe_data, **kwargs):
+        calls.append(("crc_periodic_probe", kwargs))
+        return fixit_felix_runtime.idat_bruteforce.IdatCrcPeriodicPayloadSolverResult(
+            fixit_felix_runtime.idat.analyze_idat_stream(probe_data),
+            None,
+            (seed,),
+            123,
+            True,
+            checkpoint_path=kwargs["checkpoint_path"],
+            progress_path=kwargs["progress_path"],
+            reason="crc-periodic solver already exhausted for this source/budget",
+        )
+
+    def global_crc_probe(probe_data, **kwargs):
+        calls.append(("global_crc_probe", kwargs))
+        return fixit_felix_runtime.idat_bruteforce.IdatGlobalCrcResidueSolverResult(
+            fixit_felix_runtime.idat.analyze_idat_stream(probe_data),
+            None,
+            (seed,),
+            123,
+            True,
+            checkpoint_path=kwargs["checkpoint_path"],
+            progress_path=kwargs["progress_path"],
+            reason="global CRC residue solver already exhausted for this source/budget",
+        )
+
+    def forbidden_artifacts(*_args, **_kwargs):
+        raise AssertionError("consumed frontier seeds must not rewrite debug artifacts")
+
+    monkeypatch.setattr(fixit_felix_runtime, "_block_deep_beam_if_chunk_names_are_stale", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(fixit_felix_runtime, "_write_idat_deep_beam_debug_artifacts", forbidden_artifacts)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "periodic_model_progress_state", periodic_state)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "affine_corruption_progress_state", frontier_state)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "crc_periodic_progress_state", frontier_state)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "global_crc_residue_progress_state", frontier_state)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_periodic_corruption_model", periodic_probe)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_affine_corruption_model", affine_probe)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_crc_periodic_payload_solver", crc_periodic_probe)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_global_crc_residue_solver", global_crc_probe)
+    runtime = wrong_crc_runtime(
+        calls,
+        side_notes=side_notes,
+        data_hex=data_hex,
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+    )
+
+    results = (
+        fixit_felix_runtime._run_idat_periodic_model_runtime(runtime, data, before),
+        fixit_felix_runtime._run_idat_affine_corruption_runtime(runtime, data, before),
+        fixit_felix_runtime._run_idat_crc_periodic_runtime(runtime, data, before),
+        fixit_felix_runtime._run_idat_global_crc_residue_runtime(runtime, data, before),
+    )
+
+    assert all(result is not None and result.top_candidates == (seed,) for result in results)
+    assert any(note.startswith("-IDAT periodic corruption model already consumed") for note in side_notes)
+    assert any(note.startswith("-IDAT affine-corruption already consumed") for note in side_notes)
+    assert any(note.startswith("-IDAT crc-periodic already consumed") for note in side_notes)
+    assert any(note.startswith("-IDAT global-crc-residue already consumed") for note in side_notes)
+    assert {call[0] for call in calls if call[0].endswith("_probe")} == {
+        "periodic_probe",
+        "affine_probe",
+        "crc_periodic_probe",
+        "global_crc_probe",
+    }
+    assert not any(call[0] == "candy" and call[1][0] == "Title" for call in calls)
+
+
 def test_hermesprobe_affine_corruption_uses_global_workers_and_gpu(tmp_path, monkeypatch):
     calls = []
     side_notes = []
@@ -3852,6 +4417,48 @@ def test_apply_wrong_crc_uses_heavy_probe_loadingbar_after_quick_probe_fails():
     assert any(call == ("loadingbar", (5000, 4, 0, True), {}) for call in calls)
     assert any(call[0] == "write_clone" for call in calls)
     assert any(note.startswith("-IDAT deflate probe: strategy=heavy-byte") for note in side_notes)
+
+
+def test_try_idat_deflate_uses_longer_strategy_queue_after_usable_scanline(monkeypatch):
+    calls = []
+    side_notes = []
+    data_hex = semantic_token_corrupt_deflate_png_hex()
+    analysis = fixit_felix_runtime.idat.IdatStreamAnalysis(
+        True,
+        False,
+        "corrupt_deflate",
+        decompressed_size=4925,
+        usable_scanlines=1,
+        error_offset=1011,
+    )
+
+    def strategy_probe(data, **kwargs):
+        calls.append(("strategy_probe", kwargs))
+        return fixit_felix_runtime.idat_bruteforce.IdatDeflateProbeResult(
+            analysis,
+            None,
+            0,
+            0,
+            0,
+            False,
+            "strategy-queue",
+        )
+
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_prefix_frontier_routes_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_strategy_queue", strategy_probe)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_heavy_candidates", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("heavy probe should be declined before launch")))
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(False,),
+        side_notes=side_notes,
+        data_hex=data_hex,
+    )
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+
+    assert result is None
+    strategy_call = next(call for call in calls if call[0] == "strategy_probe")
+    assert strategy_call[1]["max_steps"] == 16
 
 
 def test_apply_wrong_crc_declines_heavy_probe_without_loadingbar_or_clone():

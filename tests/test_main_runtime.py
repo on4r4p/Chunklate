@@ -2457,6 +2457,111 @@ def test_run_main_loop_once_stops_when_idat_deflate_route_is_consumed_without_cl
 
     def fake_probe(_runtime, analysis=None):
         calls.append(("idat_probe", analysis.status, analysis.error_offset))
+        calls.append(
+            (
+                "idat_runtime_options",
+                _runtime.deep_beam_workers,
+                _runtime.deep_beam_gpu,
+                _runtime.deep_beam_gpu_config,
+                _runtime.deep_beam_max_depth,
+                _runtime.huffman_kraft_workers,
+            )
+        )
+        _runtime.set_idat_deflate_route_consumed(True)
+        return False, None
+
+    def write_clone(data, summary):
+        calls.append(("write_clone", data, summary))
+        namespace["SAVE_COUNT"] += 1
+        return "clone"
+
+    monkeypatch.setattr(main_runtime, "run_main_chunk_walk", fake_chunk_walk)
+    monkeypatch.setattr(fixit_felix_runtime, "try_idat_deflate_bruteforce", fake_probe)
+
+    namespace.update(
+        {
+            "sys": SimpleNamespace(
+                stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+                exit=lambda code: calls.append(("exit", code)),
+            ),
+            "os": os,
+            "CLEAR": False,
+            "FirStart": True,
+            "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+            "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+            "Chunklate": lambda mode: calls.append(("banner", mode)),
+            "Sample": sample_path,
+            "CLONESWAR": False,
+            "SAVE_COUNT": 0,
+            "PandoraBox": {},
+            "SideNotes": [],
+            "IDAT_DEEP_BEAM_WORKERS": "12",
+            "IDAT_HUFFMAN_KRAFT_WORKERS": "12",
+            "IDAT_DEEP_BEAM_MAX_DEPTH": "9",
+            "IDAT_DEEP_BEAM_GPU": True,
+            "GPU_CONFIG": main_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True),
+            "Candy": lambda *args: calls.append(("candy", args)),
+            "PRINT": lambda message: calls.append(("emit", message)),
+            "Question": lambda **_kwargs: False,
+            "WriteClone": write_clone,
+            "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+            "FindMagic": lambda: calls.append(("find_magic",)) or 0,
+            "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+            "CheckLength": lambda *args: calls.append(("check_length", args)),
+            "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+            "GetInfo": lambda *args: calls.append(("get_info", args)),
+            "Checksum": lambda *args: calls.append(("checksum", args)),
+            "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+        }
+    )
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState(should_return=True)
+    assert ("idat_probe", "incomplete_stream", 4) in calls
+    assert (
+        "idat_runtime_options",
+        "12",
+        True,
+        main_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True),
+        "9",
+        "12",
+    ) in calls
+    assert not any(call[0] == "write_clone" for call in calls)
+    assert (
+        "emit",
+        "-IDAT deflate route consumed without clone; stopping this sample pass.",
+    ) in calls
+    assert ("emit", "-No new clone produced, stopping main loop.") in calls
+    assert ("candy", ("Cowsay", messages.UNIMPLEMENTED_REPAIR_ROUTE_MESSAGE, "bad")) not in calls
+    assert ("emit", "-No repair route implemented for remaining findings.") not in calls
+
+
+def test_run_main_loop_once_keeps_idat_route_open_when_probe_is_not_terminal(monkeypatch):
+    calls = []
+    ihdr = struct.pack("!IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    sample_bytes = (
+        png.PNG_SIGNATURE
+        + png.build_png_chunk(b"IHDR", ihdr)
+        + png.build_png_chunk(b"IDAT", b"\x78\x9c\x03\x00")
+        + png.IEND_CHUNK
+    )
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(sample_bytes)
+        sample_path = handle.name
+
+    namespace = {}
+
+    def fake_chunk_walk(_runtime, _context):
+        calls.append(("chunk_walk",))
+        namespace["PandoraBox"] = {"Checksum_Error_0:-Wrong Crc b'IDAT'": {}}
+        return main_runtime.MainChunkWalkState(offset=len(namespace["DATAX"]))
+
+    def fake_probe(_runtime, analysis=None):
+        calls.append(("idat_probe", analysis.status, analysis.error_offset))
         return False, None
 
     def write_clone(data, summary):
@@ -2504,16 +2609,88 @@ def test_run_main_loop_once_stops_when_idat_deflate_route_is_consumed_without_cl
     finally:
         os.unlink(sample_path)
 
-    assert state == main_runtime.MainLoopIterationState(should_return=True)
+    assert state == main_runtime.MainLoopIterationState()
     assert ("idat_probe", "incomplete_stream", 4) in calls
+    assert not any(call[0] == "write_clone" for call in calls)
+    assert (
+        "emit",
+        "-IDAT deflate route consumed without clone; stopping this sample pass.",
+    ) not in calls
+    assert ("emit", "-No new clone produced, stopping main loop.") not in calls
+
+
+def test_run_main_loop_once_does_not_retry_idat_route_consumed_during_chunk_walk(monkeypatch):
+    calls = []
+    ihdr = struct.pack("!IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    sample_bytes = (
+        png.PNG_SIGNATURE
+        + png.build_png_chunk(b"IHDR", ihdr)
+        + png.build_png_chunk(b"IDAT", b"\x78\x9c\x03\x00")
+        + png.IEND_CHUNK
+    )
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(sample_bytes)
+        sample_path = handle.name
+
+    namespace = {}
+
+    def fake_chunk_walk(_runtime, _context):
+        calls.append(("chunk_walk",))
+        namespace["PandoraBox"] = {"Checksum_Error_0:-Wrong Crc b'IDAT'": {}}
+        namespace["IDAT_DEFLATE_ROUTE_CONSUMED"] = True
+        return main_runtime.MainChunkWalkState(offset=len(namespace["DATAX"]))
+
+    def forbidden_unresolved(_namespace):
+        raise AssertionError("unresolved IDAT route should not run after chunk-walk consumed it")
+
+    monkeypatch.setattr(main_runtime, "run_main_chunk_walk", fake_chunk_walk)
+    monkeypatch.setattr(main_runtime, "_try_unresolved_idat_deflate_route", forbidden_unresolved)
+
+    namespace.update(
+        {
+            "sys": SimpleNamespace(
+                stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+                exit=lambda code: calls.append(("exit", code)),
+            ),
+            "os": os,
+            "CLEAR": False,
+            "FirStart": True,
+            "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+            "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+            "Chunklate": lambda mode: calls.append(("banner", mode)),
+            "Sample": sample_path,
+            "CLONESWAR": False,
+            "SAVE_COUNT": 0,
+            "PandoraBox": {},
+            "SideNotes": [],
+            "Candy": lambda *args: calls.append(("candy", args)),
+            "PRINT": lambda message: calls.append(("emit", message)),
+            "Question": lambda **_kwargs: False,
+            "WriteClone": lambda data, summary: calls.append(("write_clone", data, summary)),
+            "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+            "FindMagic": lambda: calls.append(("find_magic",)) or 0,
+            "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+            "CheckLength": lambda *args: calls.append(("check_length", args)),
+            "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+            "GetInfo": lambda *args: calls.append(("get_info", args)),
+            "Checksum": lambda *args: calls.append(("checksum", args)),
+            "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+        }
+    )
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState(should_return=True)
+    assert ("chunk_walk",) in calls
     assert not any(call[0] == "write_clone" for call in calls)
     assert (
         "emit",
         "-IDAT deflate route consumed without clone; stopping this sample pass.",
     ) in calls
     assert ("emit", "-No new clone produced, stopping main loop.") in calls
-    assert ("candy", ("Cowsay", messages.UNIMPLEMENTED_REPAIR_ROUTE_MESSAGE, "bad")) not in calls
-    assert ("emit", "-No repair route implemented for remaining findings.") not in calls
 
 
 def test_run_main_loop_once_treats_clone_handoff_as_progress(monkeypatch):

@@ -5157,6 +5157,252 @@ def test_idat_kraft_backref_without_seeds_does_not_mark_exhausted(tmp_path):
     assert payload["reason"] == "no Kraft seed candidates available"
 
 
+def test_idat_material_improvement_accepts_more_bytes_after_usable_scanline():
+    before = idat.IdatStreamAnalysis(
+        True,
+        False,
+        "bad_adler",
+        height=850,
+        decompressed_size=4925,
+        usable_scanlines=1,
+    )
+    after = idat.IdatStreamAnalysis(
+        True,
+        False,
+        "corrupt_deflate",
+        height=850,
+        decompressed_size=5203,
+        usable_scanlines=1,
+    )
+    already_full_scanlines_before = idat.IdatStreamAnalysis(
+        True,
+        False,
+        "bad_adler",
+        height=2,
+        decompressed_size=8,
+        usable_scanlines=2,
+    )
+    already_full_scanlines_after = idat.IdatStreamAnalysis(
+        True,
+        False,
+        "corrupt_deflate",
+        height=2,
+        decompressed_size=40,
+        usable_scanlines=2,
+    )
+    zero_scanline_before = idat.IdatStreamAnalysis(
+        True,
+        False,
+        "corrupt_deflate",
+        decompressed_size=3646,
+        usable_scanlines=0,
+    )
+    zero_scanline_after = idat.IdatStreamAnalysis(
+        True,
+        False,
+        "corrupt_deflate",
+        decompressed_size=4165,
+        usable_scanlines=0,
+    )
+
+    assert idat_bruteforce.is_material_improvement(before, after)
+    assert not idat_bruteforce.is_material_improvement(
+        already_full_scanlines_before,
+        already_full_scanlines_after,
+    )
+    assert not idat_bruteforce.is_material_improvement(zero_scanline_before, zero_scanline_after)
+
+
+def test_idat_single_pass_prefers_bit_probe_after_usable_scanline(monkeypatch):
+    calls = []
+    before = idat.IdatStreamAnalysis(
+        True,
+        False,
+        "corrupt_deflate",
+        decompressed_size=4925,
+        usable_scanlines=1,
+        error_offset=1011,
+    )
+    bit_result = idat_bruteforce.IdatDeflateProbeResult(
+        before,
+        object(),
+        0,
+        1,
+        1,
+        False,
+        "post-scanline-bit",
+    )
+
+    def analyze(_data):
+        calls.append(("analyze",))
+        return before
+
+    def bit_probe(_data, **kwargs):
+        calls.append(("bit", kwargs.get("strategy")))
+        return bit_result
+
+    def byte_probe(*_args, **_kwargs):
+        raise AssertionError("byte probes should not run when post-scanline bit probe improves")
+
+    monkeypatch.setattr(idat_bruteforce.idat, "analyze_idat_stream", analyze)
+    monkeypatch.setattr(idat_bruteforce, "probe_idat_deflate_bit_candidates", bit_probe)
+    monkeypatch.setattr(idat_bruteforce, "probe_idat_deflate_byte_candidates", byte_probe)
+
+    result = idat_bruteforce.probe_idat_deflate_single_pass(b"unused")
+
+    assert result is bit_result
+    assert calls == [("analyze",), ("bit", "post-scanline-bit")]
+
+
+def test_idat_stored_block_length_repair_fixes_len_nlen_pair(tmp_path):
+    raw = b"\x00\x00\x00\x00\xff"
+    stream = (
+        b"\x78\x01"
+        + b"\x01"
+        + (len(raw)).to_bytes(2, "little")
+        + (0).to_bytes(2, "little")
+        + raw
+        + zlib.adler32(raw).to_bytes(4, "big")
+    )
+    ihdr = struct.pack("!IIBBBBB", 1, 1, 8, 6, 0, 0, 0)
+    corrupt = (
+        PNG_SIGNATURE
+        + build_png_chunk(b"IHDR", ihdr)
+        + build_png_chunk(b"IDAT", stream)
+        + IEND_CHUNK
+    )
+    before = idat.analyze_idat_stream(corrupt)
+    chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    seed = idat_bruteforce._frontier_root_candidate(
+        data=corrupt,
+        stream=root_stream,
+        before=before,
+        original_idat_count=sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT"),
+    )
+    checkpoint = tmp_path / "stored_block.checkpoint.jsonl"
+    progress = tmp_path / "stored_block.progress.json"
+
+    result = idat_bruteforce.probe_idat_stored_block_length_repair(
+        corrupt,
+        budget=256,
+        checkpoint_path=str(checkpoint),
+        progress_path=str(progress),
+        seed_candidates=(seed,),
+    )
+
+    assert result.best is not None
+    assert result.best.after.complete
+    assert result.best.after.usable_scanlines == 1
+    assert result.best.operations[-1].kind == "stored-block-len-nlen"
+    assert result.best.operations[-1].new_bytes == b"\x05\x00\xfa\xff"
+    assert result.repaired_blocks >= 1
+    assert result.png_prefix_hits >= 1
+    assert checkpoint.exists()
+    payload = json.loads(progress.read_text(encoding="utf-8"))
+    assert payload["strategy"] == "stored-block-length-repair"
+    assert payload["route_version"] == idat_bruteforce.STORED_BLOCK_ROUTE_VERSION
+    assert payload["source_hash"] == idat_bruteforce._stream_state_key(root_stream)
+
+
+def test_idat_kraft_backref_locator_continues_after_stored_block():
+    literal_table, _literal_max, distance_table, _distance_max = deflate_probe._FIXED_TABLES
+
+    def symbol_bits(symbol, table):
+        code, width = idat_bruteforce._huffman_symbol_codes(table)[symbol]
+        return tuple((code >> index) & 1 for index in range(width))
+
+    raw = b"abcdefghij"
+    stored_header_bits = [0, 0, 0]
+    while len(stored_header_bits) % 8:
+        stored_header_bits.append(0)
+    stored_header = bytes(
+        sum(bit << index for index, bit in enumerate(stored_header_bits[offset : offset + 8]))
+        for offset in range(0, len(stored_header_bits), 8)
+    )
+    fixed_bits = [1, 1, 0]
+    fixed_bits.extend(symbol_bits(257, literal_table))
+    fixed_bits.extend(symbol_bits(31, distance_table))
+    while len(fixed_bits) % 8:
+        fixed_bits.append(0)
+    fixed_block = bytes(
+        sum(bit << index for index, bit in enumerate(fixed_bits[offset : offset + 8]))
+        for offset in range(0, len(fixed_bits), 8)
+    )
+    stream = (
+        b"\x78\x01"
+        + stored_header
+        + len(raw).to_bytes(2, "little")
+        + (len(raw) ^ 0xFFFF).to_bytes(2, "little")
+        + raw
+        + fixed_block
+    )
+
+    invalid = idat_bruteforce._locate_first_invalid_distance_backref(stream, max_tokens=100)
+
+    assert invalid is not None
+    assert invalid.output_before == len(raw)
+    assert invalid.length == 3
+    assert invalid.distance_symbol == 31
+    assert invalid.bit_start > 8 * (2 + 5 + len(raw))
+    assert idat_bruteforce._kraft_backref_distance_operations(stream, invalid, max_operations=4)
+
+
+def test_idat_kraft_locator_finds_invalid_literal_after_stored_block():
+    literal_table, _literal_max, _distance_table, _distance_max = deflate_probe._FIXED_TABLES
+
+    def symbol_bits(symbol, table):
+        code, width = idat_bruteforce._huffman_symbol_codes(table)[symbol]
+        return tuple((code >> index) & 1 for index in range(width))
+
+    raw = b"abcdefghij"
+    stored_header = b"\x00"
+    fixed_bits = [1, 1, 0]
+    fixed_bits.extend(symbol_bits(287, literal_table))
+    while len(fixed_bits) % 8:
+        fixed_bits.append(0)
+    fixed_block = bytes(
+        sum(bit << index for index, bit in enumerate(fixed_bits[offset : offset + 8]))
+        for offset in range(0, len(fixed_bits), 8)
+    )
+    stream = (
+        b"\x78\x01"
+        + stored_header
+        + len(raw).to_bytes(2, "little")
+        + (len(raw) ^ 0xFFFF).to_bytes(2, "little")
+        + raw
+        + fixed_block
+    )
+
+    invalid = idat_bruteforce._locate_first_invalid_literal_length_symbol(stream, max_tokens=100)
+
+    assert invalid is not None
+    assert invalid.output_before == len(raw)
+    assert invalid.symbol == 287
+    operations = idat_bruteforce._kraft_invalid_literal_symbol_operations(stream, invalid, max_operations=4)
+    assert operations
+    assert operations[0].kind == "kraft-invalid-literal"
+
+
+def test_idat_kraft_locator_finds_reserved_block_type_after_stored_block():
+    raw = b"abcdefghij"
+    stream = (
+        b"\x78\x01"
+        + b"\x00"
+        + len(raw).to_bytes(2, "little")
+        + (len(raw) ^ 0xFFFF).to_bytes(2, "little")
+        + raw
+        + b"\x07"
+    )
+
+    reserved = idat_bruteforce._locate_reserved_deflate_block_type(stream)
+
+    assert reserved is not None
+    assert reserved.output_before == len(raw)
+    operations = idat_bruteforce._kraft_reserved_block_type_operations(stream, reserved, max_operations=6)
+    assert len(operations) == 6
+    assert operations[0].kind == "kraft-block-header-btype"
+
+
 def test_idat_kraft_backref_caps_operations_per_seed(monkeypatch):
     corrupt, _bits, _original = dynamic_header_semantic_token_corrupt_png()
     before = idat.analyze_idat_stream(corrupt)
@@ -7003,6 +7249,22 @@ def main():
         (
             "IDAT dynamic Huffman bitshift repair",
             test_dynamic_huffman_bitshift_probe_repairs_extra_header_bit,
+        ),
+        (
+            "IDAT stored block length repair",
+            test_idat_stored_block_length_repair_fixes_len_nlen_pair,
+        ),
+        (
+            "IDAT Kraft backref locator multi block",
+            test_idat_kraft_backref_locator_continues_after_stored_block,
+        ),
+        (
+            "IDAT Kraft invalid literal locator",
+            test_idat_kraft_locator_finds_invalid_literal_after_stored_block,
+        ),
+        (
+            "IDAT Kraft reserved block locator",
+            test_idat_kraft_locator_finds_reserved_block_type_after_stored_block,
         ),
         (
             "IDAT deflate header dynamic phase",
