@@ -9,6 +9,7 @@ import json
 import multiprocessing
 from pathlib import Path
 import random
+import time
 from typing import Any
 from typing import Callable
 
@@ -155,6 +156,9 @@ class WrongCrcRuntime:
     deep_beam_gpu_config: Any = None
     deep_beam_budget: Any = None
     deep_beam_max_depth: Any = None
+    final_investigation_budget: Any = None
+    final_investigation_max_depth: Any = None
+    final_investigation_seed_limit: Any = None
     deep_beam_gpu_shard_size: Any = None
     deep_beam_cpu_batch_size: Any = None
     deep_beam_prompt_cache: dict[str, Any] | None = None
@@ -201,6 +205,9 @@ class WrongChunkNameRuntime:
     deep_beam_gpu_config: Any = None
     deep_beam_budget: Any = None
     deep_beam_max_depth: Any = None
+    final_investigation_budget: Any = None
+    final_investigation_max_depth: Any = None
+    final_investigation_seed_limit: Any = None
     deep_beam_gpu_shard_size: Any = None
     deep_beam_cpu_batch_size: Any = None
     deep_beam_prompt_cache: dict[str, Any] | None = None
@@ -264,6 +271,9 @@ class NoNextChunkRuntime:
     deep_beam_gpu_config: Any = None
     deep_beam_budget: Any = None
     deep_beam_max_depth: Any = None
+    final_investigation_budget: Any = None
+    final_investigation_max_depth: Any = None
+    final_investigation_seed_limit: Any = None
     deep_beam_gpu_shard_size: Any = None
     deep_beam_cpu_batch_size: Any = None
     deep_beam_prompt_cache: dict[str, Any] | None = None
@@ -358,6 +368,9 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         deep_beam_gpu_config=namespace.get("GPU_CONFIG"),
         deep_beam_budget=namespace.get("IDAT_DEEP_BEAM_BUDGET"),
         deep_beam_max_depth=namespace.get("IDAT_DEEP_BEAM_MAX_DEPTH"),
+        final_investigation_budget=namespace.get("IDAT_FINAL_INVESTIGATION_BUDGET"),
+        final_investigation_max_depth=namespace.get("IDAT_FINAL_INVESTIGATION_MAX_DEPTH"),
+        final_investigation_seed_limit=namespace.get("IDAT_FINAL_INVESTIGATION_SEED_LIMIT"),
         deep_beam_gpu_shard_size=namespace.get("IDAT_DEEP_BEAM_GPU_SHARD_SIZE"),
         deep_beam_cpu_batch_size=namespace.get("IDAT_DEEP_BEAM_CPU_BATCH_SIZE"),
         deep_beam_prompt_cache=namespace.setdefault("IDAT_DEEP_BEAM_PROMPT_CACHE", {}),
@@ -445,6 +458,9 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         deep_beam_gpu_config=namespace.get("GPU_CONFIG"),
         deep_beam_budget=namespace.get("IDAT_DEEP_BEAM_BUDGET"),
         deep_beam_max_depth=namespace.get("IDAT_DEEP_BEAM_MAX_DEPTH"),
+        final_investigation_budget=namespace.get("IDAT_FINAL_INVESTIGATION_BUDGET"),
+        final_investigation_max_depth=namespace.get("IDAT_FINAL_INVESTIGATION_MAX_DEPTH"),
+        final_investigation_seed_limit=namespace.get("IDAT_FINAL_INVESTIGATION_SEED_LIMIT"),
         deep_beam_gpu_shard_size=namespace.get("IDAT_DEEP_BEAM_GPU_SHARD_SIZE"),
         deep_beam_cpu_batch_size=namespace.get("IDAT_DEEP_BEAM_CPU_BATCH_SIZE"),
         deep_beam_prompt_cache=namespace.setdefault("IDAT_DEEP_BEAM_PROMPT_CACHE", {}),
@@ -509,6 +525,9 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         deep_beam_gpu_config=namespace.get("GPU_CONFIG"),
         deep_beam_budget=namespace.get("IDAT_DEEP_BEAM_BUDGET"),
         deep_beam_max_depth=namespace.get("IDAT_DEEP_BEAM_MAX_DEPTH"),
+        final_investigation_budget=namespace.get("IDAT_FINAL_INVESTIGATION_BUDGET"),
+        final_investigation_max_depth=namespace.get("IDAT_FINAL_INVESTIGATION_MAX_DEPTH"),
+        final_investigation_seed_limit=namespace.get("IDAT_FINAL_INVESTIGATION_SEED_LIMIT"),
         deep_beam_gpu_shard_size=namespace.get("IDAT_DEEP_BEAM_GPU_SHARD_SIZE"),
         deep_beam_cpu_batch_size=namespace.get("IDAT_DEEP_BEAM_CPU_BATCH_SIZE"),
         deep_beam_prompt_cache=namespace.setdefault("IDAT_DEEP_BEAM_PROMPT_CACHE", {}),
@@ -3374,6 +3393,39 @@ def _runtime_deflate_salvage_budget(runtime: Any) -> int:
     )
 
 
+def _runtime_final_investigation_budget(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "final_investigation_budget", None),
+        FINAL_INVESTIGATION_DEFAULT_BUDGET,
+    )
+
+
+def _runtime_final_investigation_max_depth(runtime: Any) -> int:
+    return _deep_beam_non_negative_int(
+        getattr(runtime, "final_investigation_max_depth", None),
+        FINAL_INVESTIGATION_DEFAULT_MAX_DEPTH,
+    )
+
+
+def _runtime_final_investigation_seed_limit(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "final_investigation_seed_limit", None),
+        FINAL_INVESTIGATION_DEFAULT_SEED_LIMIT,
+    )
+
+
+def _runtime_final_investigation_configured(runtime: Any) -> bool:
+    for name in (
+        "final_investigation_budget",
+        "final_investigation_max_depth",
+        "final_investigation_seed_limit",
+    ):
+        value = getattr(runtime, name, None)
+        if value is not None and str(value).strip() != "":
+            return True
+    return False
+
+
 def _runtime_deep_beam_options(runtime: Any) -> tuple[str | int, bool, gpu_runtime.GpuRuntimeConfig, int, int, int]:
     configured_workers = getattr(runtime, "deep_beam_workers", None)
     configured_gpu = getattr(runtime, "deep_beam_gpu", None)
@@ -3469,6 +3521,9 @@ def _runtime_deep_beam_options(runtime: Any) -> tuple[str | int, bool, gpu_runti
 
 
 IDAT_DEBUG_ARTIFACT_TOP_LIMIT = 8
+FINAL_INVESTIGATION_DEFAULT_BUDGET = 100_000_000
+FINAL_INVESTIGATION_DEFAULT_MAX_DEPTH = 96
+FINAL_INVESTIGATION_DEFAULT_SEED_LIMIT = 128
 
 
 def _write_idat_deep_beam_debug_artifacts(
@@ -3560,6 +3615,339 @@ def _write_idat_deep_beam_debug_artifacts(
     else:
         runtime.side_notes.append("-IDAT deep beam artifacts: no candidate artifacts written.")
     return tuple(saved)
+
+
+def _format_eta_seconds(seconds: float | None) -> str:
+    if seconds is None or seconds < 0:
+        return "--:--:--"
+    total = int(seconds)
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours > 99:
+        return "%sd %02d:%02d:%02d" % (hours // 24, hours % 24, minutes, secs)
+    return "%02d:%02d:%02d" % (hours, minutes, secs)
+
+
+def _runtime_idat_final_investigation_progress(runtime: Any):
+    minibar = getattr(runtime, "minibar", None)
+    loadingbar = getattr(runtime, "loadingbar", None)
+    started = time.monotonic()
+
+    def progress(stage: str, tested: int, budget: int) -> None:
+        elapsed = max(0.001, time.monotonic() - started)
+        rate = float(tested) / elapsed if tested > 0 else 0.0
+        remaining = max(0, int(budget) - int(tested))
+        eta = (float(remaining) / rate) if rate > 0 else None
+        message = (
+            "IDAT Final investigation %s %s eta=%s rate=%.1f/s"
+            % (
+                stage,
+                _format_idat_queue_progress_counter(stage, tested, budget),
+                _format_eta_seconds(eta),
+                rate,
+            )
+        )
+        if minibar is not None:
+            try:
+                minibar(Indication=message)
+            except TypeError:
+                minibar(message)
+            return
+        if loadingbar is not None:
+            loadingbar(budget, len(str(budget)), tested, True)
+
+    return progress if minibar is not None or loadingbar is not None else None
+
+
+def _final_investigation_payload_folder(runtime: Any, *, create: bool) -> Path | None:
+    file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
+    file_dir = str(getattr(runtime, "file_dir", "") or "")
+    if file_origin:
+        origin = Path(file_origin)
+        search_roots = [origin.parent, *origin.parents]
+        for parent in search_roots:
+            if parent.name.startswith("Folder_") and (parent / "Debug_Payloads").is_dir():
+                payload = parent / "Debug_Payloads"
+                if create:
+                    payload.mkdir(parents=True, exist_ok=True)
+                return payload
+    if not file_origin:
+        return None
+    try:
+        folder = (
+            Path(output.ensure_clone_folder(file_origin, file_dir))
+            if create
+            else Path(output.clone_folder(file_origin, file_dir))
+        )
+        payload = folder / "Debug_Payloads"
+        if create:
+            payload.mkdir(parents=True, exist_ok=True)
+        elif not payload.is_dir():
+            return None
+    except Exception:
+        return None
+    return payload
+
+
+def _final_investigation_stem(runtime: Any, payload_folder: Path) -> str:
+    parent = payload_folder.parent
+    if parent.name.startswith("Folder_"):
+        stem = parent.name[len("Folder_") :]
+        if stem:
+            return stem
+    return output.source_stem(str(getattr(runtime, "file_origin", "") or "IDAT"))
+
+
+def _idat_final_investigation_paths(runtime: Any) -> tuple[str, str]:
+    payload_folder = _final_investigation_payload_folder(runtime, create=True)
+    if payload_folder is None:
+        return "", ""
+    stem = _final_investigation_stem(runtime, payload_folder)
+    checkpoint_path = payload_folder / ("%s_final_investigation.checkpoint.jsonl" % stem)
+    progress_path = payload_folder / ("%s_final_investigation.progress.json" % stem)
+    return str(checkpoint_path), str(progress_path)
+
+
+def _final_investigation_checkpoint_paths(runtime: Any) -> tuple[Path, ...]:
+    payload_folder = _final_investigation_payload_folder(runtime, create=False)
+    if payload_folder is None:
+        return ()
+    stem = _final_investigation_stem(runtime, payload_folder)
+    return tuple(sorted(payload_folder.glob("%s_*.checkpoint.jsonl" % stem)))
+
+
+def _final_investigation_artifact_paths(runtime: Any) -> tuple[Path, ...]:
+    payload_folder = _final_investigation_payload_folder(runtime, create=False)
+    if payload_folder is None:
+        return ()
+    stem = _final_investigation_stem(runtime, payload_folder)
+    paths = tuple(sorted(payload_folder.glob("%s_idat_*_rank*.png" % stem)))
+    return tuple(path for path in paths if path.is_file())
+
+
+def _final_investigation_has_evidence(runtime: Any) -> bool:
+    return bool(
+        _final_investigation_checkpoint_paths(runtime)
+        or _final_investigation_artifact_paths(runtime)
+    )
+
+
+def _final_investigation_ready(runtime: Any) -> bool:
+    return _runtime_final_investigation_configured(runtime) or _final_investigation_has_evidence(runtime)
+
+
+def _artifact_idat_seed_candidate(
+    artifact_path: Path,
+    before: idat.IdatStreamAnalysis,
+    *,
+    original_idat_count: int,
+    state_id: int,
+) -> idat_bruteforce.IdatDeepBeamCandidate | None:
+    try:
+        artifact_data = artifact_path.read_bytes()
+        _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(artifact_data)
+    except Exception:
+        return None
+    if not stream:
+        return None
+    after = idat.analyze_idat_stream(artifact_data)
+    operation = idat_bruteforce.IdatDeepBeamOperation(
+        "final-investigation-artifact-seed",
+        0,
+        b"",
+        artifact_path.name.encode("utf-8", errors="replace")[:48],
+    )
+    return idat_bruteforce.IdatDeepBeamCandidate(
+        data=artifact_data,
+        stream=stream,
+        operations=(operation,),
+        before=before,
+        after=after,
+        state_id=state_id,
+        parent_id=None,
+        source_offsets=(),
+        score=idat_bruteforce._deep_beam_score(
+            after,
+            stream,
+            1,
+            data=artifact_data,
+            original_idat_count=original_idat_count,
+        ),
+    )
+
+
+def _load_final_investigation_seed_candidates(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+) -> tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]:
+    seed_limit = _runtime_final_investigation_seed_limit(runtime)
+    try:
+        chunks, _stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+        original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    except Exception:
+        original_idat_count = 1
+
+    candidates: list[idat_bruteforce.IdatDeepBeamCandidate] = list(seed_candidates)
+    for checkpoint_path in _final_investigation_checkpoint_paths(runtime):
+        if len(candidates) >= seed_limit * 3:
+            break
+        candidates.extend(_load_idat_deep_beam_seed_candidates(data, str(checkpoint_path)))
+
+    next_state_id = max((int(getattr(candidate, "state_id", 0)) for candidate in candidates), default=0) + 1
+    for artifact_path in _final_investigation_artifact_paths(runtime):
+        if len(candidates) >= seed_limit * 3:
+            break
+        candidate = _artifact_idat_seed_candidate(
+            artifact_path,
+            analysis,
+            original_idat_count=original_idat_count,
+            state_id=next_state_id,
+        )
+        if candidate is None:
+            continue
+        candidates.append(candidate)
+        next_state_id += 1
+
+    merged = _merge_idat_seed_candidates(tuple(candidates))
+    if not merged:
+        return ()
+    return idat_bruteforce._deep_beam_ranked_unique(merged, limit=seed_limit)
+
+
+def _should_run_final_investigation(
+    runtime: Any,
+    analysis: idat.IdatStreamAnalysis,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+    *,
+    evidence_ready: bool | None = None,
+) -> bool:
+    ready = _final_investigation_ready(runtime) if evidence_ready is None else bool(evidence_ready)
+    if not ready:
+        return False
+    if seed_candidates:
+        return True
+    if analysis.usable_scanlines > 0 or analysis.decompressed_size > 0:
+        return True
+    return _final_investigation_has_evidence(runtime)
+
+
+def _run_idat_final_investigation_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+) -> tuple[bool, Any] | None:
+    if not _should_run_final_investigation(runtime, analysis, seed_candidates):
+        return None
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None
+
+    checkpoint_path, progress_path = _idat_final_investigation_paths(runtime)
+    if not checkpoint_path:
+        runtime.side_notes.append("-IDAT Final investigation skipped: source repair folder is unavailable.")
+        return None
+
+    seeds = _load_final_investigation_seed_candidates(
+        runtime,
+        data,
+        analysis,
+        seed_candidates=seed_candidates,
+    )
+    runtime.side_notes.append(
+        "-IDAT Final investigation seed intake: %s candidate(s) from frontier/checkpoint/artifact evidence."
+        % len(seeds)
+    )
+    runtime.candy(
+        "Cowsay",
+        "Final investigation: I am switching to a long pure IDAT brute-force campaign with checkpointed progress.",
+        "com",
+    )
+    runtime.candy(
+        "Cowsay",
+        "It will reuse the strongest existing seeds, workers, and GPU prefilter; interruption keeps the checkpoint resumable.",
+        "com",
+    )
+    runtime.candy("Title", "Final investigation")
+
+    deep_workers, deep_gpu, deep_gpu_config, _deep_budget, deep_gpu_shard_size, deep_cpu_batch_size = _runtime_deep_beam_options(runtime)
+    final_budget = _runtime_final_investigation_budget(runtime)
+    final_max_depth = _runtime_final_investigation_max_depth(runtime)
+    runtime.side_notes.append(
+        "-IDAT Final investigation configuration: budget=%s; max_depth=%s; checkpoint=%s; progress=%s."
+        % (final_budget, final_max_depth, checkpoint_path, progress_path)
+    )
+    result = idat_bruteforce.probe_idat_deflate_deep_beam(
+        data,
+        budget=final_budget,
+        max_depth=final_max_depth,
+        workers=deep_workers,
+        gpu=deep_gpu,
+        gpu_config=deep_gpu_config,
+        gpu_shard_size=deep_gpu_shard_size,
+        cpu_batch_size=deep_cpu_batch_size,
+        overlap_gpu_cpu=True,
+        checkpoint_path=checkpoint_path,
+        progress_path=progress_path,
+        seed_candidates=seeds,
+        progress=_runtime_idat_final_investigation_progress(runtime),
+    )
+    result = replace(result, strategy="Final investigation")
+    runtime.side_notes.append(idat_bruteforce.deep_beam_summary_line(result))
+    runtime.side_notes.extend(idat_bruteforce.deep_beam_candidate_summary_lines(result))
+    _write_idat_deep_beam_debug_artifacts(runtime, result, label="idat_final_investigation", include_dynamic_trace=True)
+
+    if result.interrupted:
+        runtime.candy(
+            "Cowsay",
+            "Final investigation interrupted; checkpoint/progress are saved, so the next run resumes instead of restarting.",
+            "bad",
+        )
+        runtime.side_notes.append("-IDAT Final investigation interrupted; checkpoint/progress saved.")
+        raise SystemExit(130)
+
+    if result.best is None:
+        if result.budget_exhausted:
+            runtime.candy(
+                "Cowsay",
+                "Final investigation reached its current budget. The checkpoint, progress JSON, and top candidates are saved for the next pass.",
+                "bad",
+            )
+            runtime.candy(
+                "Cowsay",
+                "Increase IDAT_FINAL_INVESTIGATION_BUDGET or resume later; I am not marking the IDAT route as solved or exhausted.",
+                "com",
+            )
+        else:
+            runtime.candy(
+                "Cowsay",
+                "Final investigation saved diagnostic candidates but has not produced a clone-worthy image yet.",
+                "bad",
+            )
+        runtime.side_notes.append(
+            "-IDAT Final investigation produced no final clone; route left open with checkpointed evidence."
+        )
+        return None
+
+    candidate = result.best
+    runtime.candy(
+        "Cowsay",
+        "Final investigation found a candidate with real image progress.",
+        "good",
+    )
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: Final investigation pure IDAT brute force.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.deep_beam_summary_line(result),
+            *idat_bruteforce.deep_beam_candidate_summary_lines(result),
+            idat_stream_diagnosis_note(candidate.after),
+        )
+    )
+    return True, runtime.write_clone(candidate.data, summary)
 
 
 def _run_idat_periodic_model_runtime(
@@ -4390,6 +4778,7 @@ def _run_idat_deep_beam_runtime(
     progress_path: str,
     resume_state: idat_bruteforce.IdatDeepBeamResumeState | None = None,
     seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+    final_investigation_ready: bool | None = None,
 ) -> tuple[bool, Any] | None:
     if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
         _consume_idat_deflate_route(runtime)
@@ -4476,6 +4865,21 @@ def _run_idat_deep_beam_runtime(
         )
         if post_deep_result is not None:
             return post_deep_result
+        if _should_run_final_investigation(
+            runtime,
+            analysis,
+            deep_probe.top_candidates,
+            evidence_ready=final_investigation_ready,
+        ):
+            final_result = _run_idat_final_investigation_runtime(
+                runtime,
+                data,
+                analysis,
+                seed_candidates=deep_probe.top_candidates,
+            )
+            if final_result is not None:
+                return final_result
+            return None
         if deep_probe.budget_exhausted:
             runtime.side_notes.append(
                 "-IDAT deep beam budget exhausted for this source/budget; increase IDAT_DEEP_BEAM_BUDGET or remove checkpoint/progress to relaunch."
@@ -4952,6 +5356,7 @@ def try_idat_deflate_bruteforce(
     if analysis.error_offset is None:
         return None
 
+    final_investigation_ready = _final_investigation_ready(runtime)
     checkpoint_path, progress_path = _idat_deep_beam_paths(runtime)
     resume_state = idat_bruteforce.deep_beam_resume_state(data, checkpoint_path, progress_path)
     deep_budget = _runtime_deep_beam_budget(runtime)
@@ -4960,15 +5365,31 @@ def try_idat_deflate_bruteforce(
         if frontier_clone is not None:
             return frontier_clone
         deep_seed_candidates = _load_idat_deep_beam_seed_candidates(data, checkpoint_path)
+        resume_seed_candidates = _merge_idat_seed_candidates(seed_candidates, deep_seed_candidates)
         if deep_seed_candidates:
             post_deep_result = _run_idat_post_deep_frontier_routes_runtime(
                 runtime,
                 data,
                 analysis,
-                _merge_idat_seed_candidates(seed_candidates, deep_seed_candidates),
+                resume_seed_candidates,
             )
             if post_deep_result is not None:
                 return post_deep_result
+        if _should_run_final_investigation(
+            runtime,
+            analysis,
+            resume_seed_candidates,
+            evidence_ready=final_investigation_ready,
+        ):
+            final_result = _run_idat_final_investigation_runtime(
+                runtime,
+                data,
+                analysis,
+                seed_candidates=resume_seed_candidates,
+            )
+            if final_result is not None:
+                return final_result
+            return None
         if not resume_state.interrupted and resume_state.tested >= deep_budget:
             runtime.side_notes.append(
                 "-IDAT deep beam budget exhausted for this source/budget; not relaunching automatically."
@@ -4991,6 +5412,7 @@ def try_idat_deflate_bruteforce(
             progress_path=progress_path,
             resume_state=resume_state,
             seed_candidates=seed_candidates,
+            final_investigation_ready=final_investigation_ready,
         )
         if deep_result is None or deep_result == (False, None):
             _maybe_run_deflate_salvage_after_frontier(runtime, data, analysis)
@@ -5088,6 +5510,7 @@ def try_idat_deflate_bruteforce(
                 checkpoint_path=checkpoint_path,
                 progress_path=progress_path,
                 seed_candidates=seed_candidates,
+                final_investigation_ready=final_investigation_ready,
             )
             if deep_result is None or deep_result == (False, None):
                 _maybe_run_deflate_salvage_after_frontier(runtime, data, analysis)
@@ -5140,6 +5563,16 @@ def try_idat_deflate_bruteforce(
             "I tried the small deflate probe. Nothing got better, so I could send the fish into a wider net.",
             "bad",
         )
+        if _should_run_final_investigation(
+            runtime,
+            analysis,
+            evidence_ready=final_investigation_ready,
+        ):
+            final_result = _run_idat_final_investigation_runtime(runtime, data, analysis)
+            if final_result is not None:
+                return final_result
+            return None
+
         if not _ask_idat_heavy_probe(runtime, analysis):
             runtime.side_notes.append("-IDAT deflate heavy probe skipped: user declined.")
             return None

@@ -5343,6 +5343,189 @@ def test_idat_deep_beam_debug_artifacts_replace_previous_rank_files(tmp_path):
     assert "status" in trace
 
 
+def test_final_investigation_paths_reuse_existing_repair_folder_for_debug_artifact_origin(tmp_path):
+    payload = tmp_path / "Folder_Flag" / "Debug_Payloads"
+    payload.mkdir(parents=True)
+    artifact = payload / "Flag_idat_kraft_backref_deep2_rank01_state1_deadbeef.png"
+    artifact.write_bytes(valid_png_bytes())
+    runtime = SimpleNamespace(
+        file_origin=str(artifact),
+        file_dir=str(tmp_path),
+        side_notes=[],
+    )
+
+    checkpoint_path, progress_path = fixit_felix_runtime._idat_final_investigation_paths(runtime)
+
+    assert Path(checkpoint_path).parent == payload
+    assert Path(progress_path).parent == payload
+    assert Path(checkpoint_path).name == "Flag_final_investigation.checkpoint.jsonl"
+    assert Path(progress_path).name == "Flag_final_investigation.progress.json"
+    assert not [path for path in tmp_path.iterdir() if path.name.startswith("Folder_Flag_idat_")]
+
+
+def test_final_investigation_uses_workers_gpu_checkpoint_and_minibar_eta(tmp_path):
+    data = bytes.fromhex(one_byte_corrupt_deflate_png_hex())
+    analysis = idat.analyze_idat_stream(data)
+    chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    seed = idat_bruteforce._frontier_root_candidate(
+        data=data,
+        stream=stream,
+        before=analysis,
+        original_idat_count=sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT"),
+    )
+    calls = []
+    side_notes = []
+    captured = {}
+    gpu_config = fixit_felix_runtime.gpu_runtime.GpuRuntimeConfig(
+        enabled=True,
+        backend="opengl",
+    )
+    original_probe = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam
+
+    def fake_probe(data_arg, **kwargs):
+        captured["data"] = data_arg
+        captured.update(kwargs)
+        kwargs["progress"]("final-investigation", 50, 100)
+        return idat_bruteforce.IdatDeepBeamProbeResult(
+            before=analysis,
+            best=None,
+            top_candidates=(),
+            window_start=0,
+            window_end=len(stream),
+            tested_candidates=100,
+            budget_exhausted=True,
+            reached_depth=4,
+            state_count=5,
+            visited_count=6,
+            checkpoint_path=kwargs["checkpoint_path"],
+            progress_path=kwargs["progress_path"],
+            workers=3,
+            gpu_requested=True,
+            gpu_backend="opengl",
+            reason="budget exhausted",
+        )
+
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        data_hex=data.hex(),
+        side_notes=side_notes,
+        candy=lambda *args, **kwargs: calls.append(("candy", args, kwargs)),
+        write_clone=lambda *_args: "written",
+        minibar=lambda *args, **kwargs: calls.append(("minibar", args, kwargs)),
+        loadingbar=None,
+        preview_repair_image=None,
+        interactive=False,
+        input_func=None,
+        deep_beam_workers="3",
+        deep_beam_gpu=True,
+        deep_beam_gpu_config=gpu_config,
+        deep_beam_budget="9",
+        final_investigation_budget="77",
+        final_investigation_max_depth="11",
+        final_investigation_seed_limit="5",
+        deep_beam_gpu_shard_size="13",
+        deep_beam_cpu_batch_size="17",
+        deep_beam_prompt_cache={},
+    )
+
+    try:
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = fake_probe
+        result = fixit_felix_runtime._run_idat_final_investigation_runtime(
+            runtime,
+            data,
+            analysis,
+            seed_candidates=(seed,),
+        )
+    finally:
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_deep_beam = original_probe
+
+    assert result is None
+    assert captured["data"] == data
+    assert captured["budget"] == 77
+    assert captured["max_depth"] == 11
+    assert captured["workers"] == 3
+    assert captured["gpu"] is True
+    assert captured["gpu_config"] == gpu_config
+    assert captured["gpu_shard_size"] == 13
+    assert captured["cpu_batch_size"] == 17
+    assert captured["overlap_gpu_cpu"] is True
+    assert Path(captured["checkpoint_path"]).parent == tmp_path / "Folder_Flag" / "Debug_Payloads"
+    assert Path(captured["checkpoint_path"]).name == "Flag_final_investigation.checkpoint.jsonl"
+    minibar_calls = [call for call in calls if call[0] == "minibar"]
+    assert minibar_calls
+    assert "IDAT Final investigation" in minibar_calls[0][2]["Indication"]
+    assert "eta=" in minibar_calls[0][2]["Indication"]
+    assert any("route left open" in note for note in side_notes)
+
+
+def test_try_idat_deflate_runs_final_investigation_after_strategy_queue_stalls():
+    data = bytes.fromhex(one_byte_corrupt_deflate_png_hex())
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=2,
+        decompressed_size=12,
+        usable_scanlines=1,
+        error_offset=6,
+    )
+    calls = []
+    original_prefix = fixit_felix_runtime._run_idat_prefix_frontier_routes_runtime
+    original_queue = fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_strategy_queue
+    original_final = fixit_felix_runtime._run_idat_final_investigation_runtime
+
+    def fake_queue(*_args, **kwargs):
+        calls.append(("queue", kwargs))
+        return SimpleNamespace(
+            best=None,
+            strategy="strategy-queue",
+            window_start=0,
+            window_end=1,
+            tested_candidates=0,
+            budget_exhausted=False,
+            reason="none",
+        )
+
+    def fake_final(runtime_arg, data_arg, analysis_arg, *, seed_candidates=()):
+        calls.append(("final", data_arg, analysis_arg, seed_candidates))
+        return True, "final-written"
+
+    runtime = SimpleNamespace(
+        data_hex=data.hex(),
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+        question=lambda *_args, **_kwargs: False,
+        write_clone=lambda *_args, **_kwargs: "written",
+        remember_idat_deflate_probe=lambda _analysis: True,
+        file_origin="",
+        file_dir="",
+        loadingbar=None,
+        minibar=None,
+        deep_beam_workers=None,
+        deep_beam_gpu=None,
+        deep_beam_gpu_config=None,
+        deep_beam_budget=None,
+        final_investigation_budget="100",
+        deep_beam_prompt_cache={},
+    )
+
+    try:
+        fixit_felix_runtime._run_idat_prefix_frontier_routes_runtime = lambda *_args, **_kwargs: None
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_strategy_queue = fake_queue
+        fixit_felix_runtime._run_idat_final_investigation_runtime = fake_final
+        result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+    finally:
+        fixit_felix_runtime._run_idat_prefix_frontier_routes_runtime = original_prefix
+        fixit_felix_runtime.idat_bruteforce.probe_idat_deflate_strategy_queue = original_queue
+        fixit_felix_runtime._run_idat_final_investigation_runtime = original_final
+
+    assert result == (True, "final-written")
+    assert calls[0][0] == "queue"
+    assert calls[0][1]["max_steps"] == 16
+    assert calls[1][0] == "final"
+
+
 def test_apply_wrong_chunk_name_uses_deflate_probe_when_aligned_stream_is_bad():
     calls = []
     side_notes = []
@@ -7040,6 +7223,9 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
         "IDAT_DEEP_BEAM_WORKERS": None,
         "IDAT_DEEP_BEAM_GPU": None,
         "IDAT_DEEP_BEAM_BUDGET": "123456",
+        "IDAT_FINAL_INVESTIGATION_BUDGET": "9999999",
+        "IDAT_FINAL_INVESTIGATION_MAX_DEPTH": "41",
+        "IDAT_FINAL_INVESTIGATION_SEED_LIMIT": "23",
         "IDAT_HUFFMAN_KRAFT_BUDGET": "1000001",
         "IDAT_HUFFMAN_KRAFT_WORKERS": "7",
         "IDAT_KRAFT_BACKREF_BUDGET": "250003",
@@ -7057,6 +7243,9 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
     assert wrong_name.deep_beam_workers == "7"
     assert wrong_name.deep_beam_budget == "123456"
     assert wrong_name.deep_beam_gpu_config == gpu_config
+    assert wrong_name.final_investigation_budget == "9999999"
+    assert wrong_name.final_investigation_max_depth == "41"
+    assert wrong_name.final_investigation_seed_limit == "23"
     assert wrong_name.huffman_kraft_budget == "1000001"
     assert wrong_name.huffman_kraft_workers == "7"
     assert wrong_name.huffman_kraft_gpu_config == gpu_config
@@ -7069,6 +7258,9 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
     assert no_next.deep_beam_workers == "7"
     assert no_next.deep_beam_budget == "123456"
     assert no_next.deep_beam_gpu_config == gpu_config
+    assert no_next.final_investigation_budget == "9999999"
+    assert no_next.final_investigation_max_depth == "41"
+    assert no_next.final_investigation_seed_limit == "23"
     assert no_next.huffman_kraft_budget == "1000001"
     assert no_next.huffman_kraft_workers == "7"
     assert no_next.huffman_kraft_gpu_config == gpu_config

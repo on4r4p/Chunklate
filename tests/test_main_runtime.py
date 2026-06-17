@@ -2464,6 +2464,9 @@ def test_run_main_loop_once_stops_when_idat_deflate_route_is_consumed_without_cl
                 _runtime.deep_beam_gpu,
                 _runtime.deep_beam_gpu_config,
                 _runtime.deep_beam_max_depth,
+                _runtime.final_investigation_budget,
+                _runtime.final_investigation_max_depth,
+                _runtime.final_investigation_seed_limit,
                 _runtime.huffman_kraft_workers,
             )
         )
@@ -2498,6 +2501,9 @@ def test_run_main_loop_once_stops_when_idat_deflate_route_is_consumed_without_cl
             "IDAT_DEEP_BEAM_WORKERS": "12",
             "IDAT_HUFFMAN_KRAFT_WORKERS": "12",
             "IDAT_DEEP_BEAM_MAX_DEPTH": "9",
+            "IDAT_FINAL_INVESTIGATION_BUDGET": "123456789",
+            "IDAT_FINAL_INVESTIGATION_MAX_DEPTH": "99",
+            "IDAT_FINAL_INVESTIGATION_SEED_LIMIT": "64",
             "IDAT_DEEP_BEAM_GPU": True,
             "GPU_CONFIG": main_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True),
             "Candy": lambda *args: calls.append(("candy", args)),
@@ -2528,6 +2534,9 @@ def test_run_main_loop_once_stops_when_idat_deflate_route_is_consumed_without_cl
         True,
         main_runtime.gpu_runtime.GpuRuntimeConfig(enabled=True),
         "9",
+        "123456789",
+        "99",
+        "64",
         "12",
     ) in calls
     assert not any(call[0] == "write_clone" for call in calls)
