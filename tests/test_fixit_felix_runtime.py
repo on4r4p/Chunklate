@@ -2696,10 +2696,12 @@ def test_hermesprobe_runs_post_deep_routes_before_consuming_live_seed(monkeypatc
         progress_path="",
     )
 
-    assert result == (True, "written")
+    assert result == (False, None)
     assert [call for call in calls if call[0] == "post_deep_backref"]
+    assert not [call for call in calls if call[0] == "write_clone"]
     assert not [call for call in calls if call[0] == "set_idat_deflate_route_consumed"]
     assert any(note.startswith("-IDAT post-deep frontier seeded with 1") for note in side_notes)
+    assert any("not promoted as clone" in note for note in side_notes)
 
 
 def test_hermesprobe_hard_depth_with_live_seed_keeps_idat_route_open(monkeypatch):
@@ -5341,6 +5343,100 @@ def test_idat_deep_beam_debug_artifacts_replace_previous_rank_files(tmp_path):
     ]
     trace = json.loads((payload / "Flag_idat_deep_beam_rank01_state7_74e584d7_dynamic_trace.json").read_text())
     assert "status" in trace
+
+
+def _stored_block_candidate_result(*, complete: bool) -> idat_bruteforce.IdatStoredBlockLengthRepairResult:
+    before = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=20,
+        compressed_size=8,
+        decompressed_size=4,
+        usable_scanlines=0,
+        error_offset=6,
+    )
+    after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=complete,
+        status="ok" if complete else "incomplete_stream",
+        height=4,
+        expected_size=20,
+        compressed_size=8,
+        decompressed_size=20 if complete else 12,
+        usable_scanlines=4 if complete else 2,
+        error_offset=None if complete else 12,
+    )
+    candidate = idat_bruteforce.IdatDeepBeamCandidate(
+        data=valid_png_bytes() if complete else b"partial-idat-diagnostic",
+        stream=zlib.compress(b"\x00\x00") if complete else b"\x78\x9c\x03\x00",
+        operations=(
+            idat_bruteforce.IdatDeepBeamOperation(
+                "stored-block-length",
+                1,
+                b"\x00",
+                b"\x01",
+            ),
+        ),
+        before=before,
+        after=after,
+        state_id=42,
+        score=(1, 2, 3),
+    )
+    return idat_bruteforce.IdatStoredBlockLengthRepairResult(
+        before=before,
+        best=candidate,
+        top_candidates=(candidate,),
+        tested_candidates=1,
+        budget_exhausted=False,
+        repaired_blocks=1,
+        png_prefix_hits=1,
+        best_prefix_rows=after.usable_scanlines,
+    )
+
+
+def test_stored_block_incomplete_candidate_stays_diagnostic_not_clone():
+    calls = []
+    side_notes = []
+    result = _stored_block_candidate_result(complete=False)
+    runtime = SimpleNamespace(
+        side_notes=side_notes,
+        candy=lambda *args: calls.append(("candy", args)),
+        write_clone=lambda *args: calls.append(("write_clone", args)) or "written",
+    )
+
+    written = fixit_felix_runtime._write_stored_block_best_clone(
+        runtime,
+        result.before,
+        result,
+    )
+
+    assert written is None
+    assert not [call for call in calls if call[0] == "write_clone"]
+    assert any("not promoted as clone" in note for note in side_notes)
+    assert any("diagnostic evidence" in call[1][1] for call in calls if call[0] == "candy")
+
+
+def test_stored_block_complete_candidate_writes_final_clone():
+    calls = []
+    side_notes = []
+    result = _stored_block_candidate_result(complete=True)
+    runtime = SimpleNamespace(
+        side_notes=side_notes,
+        candy=lambda *args: calls.append(("candy", args)),
+        write_clone=lambda *args: calls.append(("write_clone", args)) or "written",
+    )
+
+    written = fixit_felix_runtime._write_stored_block_best_clone(
+        runtime,
+        result.before,
+        result,
+    )
+
+    assert written == (True, "written")
+    assert [call for call in calls if call[0] == "write_clone"]
+    assert not any("not promoted as clone" in note for note in side_notes)
 
 
 def test_final_investigation_paths_reuse_existing_repair_folder_for_debug_artifact_origin(tmp_path):

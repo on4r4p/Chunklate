@@ -3617,6 +3617,52 @@ def _write_idat_deep_beam_debug_artifacts(
     return tuple(saved)
 
 
+def _idat_candidate_is_complete_clone(candidate: Any) -> bool:
+    after = getattr(candidate, "after", None)
+    return bool(
+        after is not None
+        and getattr(after, "supported", True)
+        and getattr(after, "complete", False)
+    )
+
+
+def _idat_candidate_diagnostic_note(route_label: str, candidate: Any) -> str:
+    after = getattr(candidate, "after", None)
+    return (
+        "-IDAT %s candidate kept as diagnostic evidence; status=%s; scanlines=%s/%s; "
+        "decompressed=%s/%s; not promoted as clone."
+        % (
+            route_label,
+            getattr(after, "status", "unknown"),
+            getattr(after, "usable_scanlines", "?"),
+            getattr(after, "height", "?"),
+            getattr(after, "decompressed_size", "?"),
+            getattr(after, "expected_size", "?"),
+        )
+    )
+
+
+def _write_complete_idat_candidate_clone(
+    runtime: Any,
+    candidate: Any,
+    summary: str,
+    *,
+    route_label: str,
+    success_message: str,
+) -> tuple[bool, Any] | None:
+    if not _idat_candidate_is_complete_clone(candidate):
+        runtime.candy(
+            "Cowsay",
+            "That IDAT candidate moves the image forward, but the stream is still incomplete. I am keeping it as diagnostic evidence, not reloading it as a clone.",
+            "com",
+        )
+        runtime.side_notes.append(_idat_candidate_diagnostic_note(route_label, candidate))
+        return None
+
+    runtime.candy("Cowsay", success_message, "good")
+    return True, runtime.write_clone(candidate.data, summary)
+
+
 def _format_eta_seconds(seconds: float | None) -> str:
     if seconds is None or seconds < 0:
         return "--:--:--"
@@ -3933,11 +3979,6 @@ def _run_idat_final_investigation_runtime(
         return None
 
     candidate = result.best
-    runtime.candy(
-        "Cowsay",
-        "Final investigation found a candidate with real image progress.",
-        "good",
-    )
     summary = "\n".join(
         (
             "-Repair hypothesis tried: Final investigation pure IDAT brute force.",
@@ -3947,7 +3988,13 @@ def _run_idat_final_investigation_runtime(
             idat_stream_diagnosis_note(candidate.after),
         )
     )
-    return True, runtime.write_clone(candidate.data, summary)
+    return _write_complete_idat_candidate_clone(
+        runtime,
+        candidate,
+        summary,
+        route_label="Final investigation",
+        success_message="Final investigation found a complete IDAT candidate with validated image progress.",
+    )
 
 
 def _run_idat_periodic_model_runtime(
@@ -4008,15 +4055,10 @@ def _write_periodic_model_best_clone(
     runtime: Any,
     analysis: idat.IdatStreamAnalysis,
     result: idat_bruteforce.IdatPeriodicCorruptionModelResult,
-) -> tuple[bool, Any]:
+) -> tuple[bool, Any] | None:
     candidate = result.best
     if candidate is None:
         raise ValueError("periodic model result has no best candidate")
-    runtime.candy(
-        "Cowsay",
-        "The periodic corruption model found real image progress.",
-        "good",
-    )
     summary = "\n".join(
         (
             "-Repair hypothesis tried: periodic IDAT corruption model.",
@@ -4026,7 +4068,13 @@ def _write_periodic_model_best_clone(
             idat_stream_diagnosis_note(candidate.after),
         )
     )
-    return True, runtime.write_clone(candidate.data, summary)
+    return _write_complete_idat_candidate_clone(
+        runtime,
+        candidate,
+        summary,
+        route_label="periodic corruption model",
+        success_message="The periodic corruption model found a complete IDAT candidate with validated image progress.",
+    )
 
 
 def _run_idat_affine_corruption_runtime(
@@ -4088,11 +4136,10 @@ def _write_affine_corruption_best_clone(
     runtime: Any,
     analysis: idat.IdatStreamAnalysis,
     result: idat_bruteforce.IdatAffineCorruptionModelResult,
-) -> tuple[bool, Any]:
+) -> tuple[bool, Any] | None:
     candidate = result.best
     if candidate is None:
         raise ValueError("affine corruption result has no best candidate")
-    runtime.candy("Cowsay", "The affine corruption model found real image progress.", "good")
     summary = "\n".join(
         (
             "-Repair hypothesis tried: affine IDAT corruption model.",
@@ -4102,7 +4149,13 @@ def _write_affine_corruption_best_clone(
             idat_stream_diagnosis_note(candidate.after),
         )
     )
-    return True, runtime.write_clone(candidate.data, summary)
+    return _write_complete_idat_candidate_clone(
+        runtime,
+        candidate,
+        summary,
+        route_label="affine corruption model",
+        success_message="The affine corruption model found a complete IDAT candidate with validated image progress.",
+    )
 
 
 def _run_idat_huffman_kraft_runtime(
@@ -4182,11 +4235,10 @@ def _write_huffman_kraft_best_clone(
     runtime: Any,
     analysis: idat.IdatStreamAnalysis,
     result: idat_bruteforce.IdatHuffmanKraftSolverResult,
-) -> tuple[bool, Any]:
+) -> tuple[bool, Any] | None:
     candidate = result.best
     if candidate is None:
         raise ValueError("huffman kraft result has no best candidate")
-    runtime.candy("Cowsay", "The Kraft Huffman solver found real image progress.", "good")
     summary = "\n".join(
         (
             "-Repair hypothesis tried: Kraft-constrained dynamic Huffman solver.",
@@ -4196,7 +4248,13 @@ def _write_huffman_kraft_best_clone(
             idat_stream_diagnosis_note(candidate.after),
         )
     )
-    return True, runtime.write_clone(candidate.data, summary)
+    return _write_complete_idat_candidate_clone(
+        runtime,
+        candidate,
+        summary,
+        route_label="Kraft Huffman solver",
+        success_message="The Kraft Huffman solver found a complete IDAT candidate with validated image progress.",
+    )
 
 
 def _run_idat_first_filter_literal_runtime(
@@ -4263,11 +4321,10 @@ def _write_first_filter_literal_best_clone(
     runtime: Any,
     analysis: idat.IdatStreamAnalysis,
     result: idat_bruteforce.IdatFirstFilterLiteralResult,
-) -> tuple[bool, Any]:
+) -> tuple[bool, Any] | None:
     candidate = result.best
     if candidate is None:
         raise ValueError("first-filter literal result has no best candidate")
-    runtime.candy("Cowsay", "The first-filter literal solver found real image progress.", "good")
     summary = "\n".join(
         (
             "-Repair hypothesis tried: first dynamic-Huffman symbol forced to PNG filter.",
@@ -4277,7 +4334,13 @@ def _write_first_filter_literal_best_clone(
             idat_stream_diagnosis_note(candidate.after),
         )
     )
-    return True, runtime.write_clone(candidate.data, summary)
+    return _write_complete_idat_candidate_clone(
+        runtime,
+        candidate,
+        summary,
+        route_label="first-filter literal solver",
+        success_message="The first-filter literal solver found a complete IDAT candidate with validated image progress.",
+    )
 
 
 def _run_idat_kraft_backref_runtime(
@@ -4359,11 +4422,10 @@ def _write_kraft_backref_best_clone(
     runtime: Any,
     analysis: idat.IdatStreamAnalysis,
     result: idat_bruteforce.IdatKraftBackrefRepairResult,
-) -> tuple[bool, Any]:
+) -> tuple[bool, Any] | None:
     candidate = result.best
     if candidate is None:
         raise ValueError("kraft backref result has no best candidate")
-    runtime.candy("Cowsay", "The Kraft backref route found real image progress.", "good")
     summary = "\n".join(
         (
             "-Repair hypothesis tried: Kraft backref distance repair.",
@@ -4373,7 +4435,13 @@ def _write_kraft_backref_best_clone(
             idat_stream_diagnosis_note(candidate.after),
         )
     )
-    return True, runtime.write_clone(candidate.data, summary)
+    return _write_complete_idat_candidate_clone(
+        runtime,
+        candidate,
+        summary,
+        route_label="Kraft backref route",
+        success_message="The Kraft backref route found a complete IDAT candidate with validated image progress.",
+    )
 
 
 def _run_idat_stored_block_runtime(
@@ -4445,11 +4513,10 @@ def _write_stored_block_best_clone(
     runtime: Any,
     analysis: idat.IdatStreamAnalysis,
     result: idat_bruteforce.IdatStoredBlockLengthRepairResult,
-) -> tuple[bool, Any]:
+) -> tuple[bool, Any] | None:
     candidate = result.best
     if candidate is None:
         raise ValueError("stored block result has no best candidate")
-    runtime.candy("Cowsay", "The stored-block route produced usable PNG scanline progress.", "good")
     summary = "\n".join(
         (
             "-Repair hypothesis tried: stored deflate block LEN/NLEN repair.",
@@ -4459,7 +4526,13 @@ def _write_stored_block_best_clone(
             idat_stream_diagnosis_note(candidate.after),
         )
     )
-    return True, runtime.write_clone(candidate.data, summary)
+    return _write_complete_idat_candidate_clone(
+        runtime,
+        candidate,
+        summary,
+        route_label="stored-block route",
+        success_message="The stored-block route found a complete IDAT candidate with validated image progress.",
+    )
 
 
 def _run_idat_huffman_oracle_runtime(
@@ -4528,15 +4601,10 @@ def _write_huffman_oracle_best_clone(
     runtime: Any,
     analysis: idat.IdatStreamAnalysis,
     result: idat_bruteforce.IdatHuffmanOracleSolverResult,
-) -> tuple[bool, Any]:
+) -> tuple[bool, Any] | None:
     candidate = result.best
     if candidate is None:
         raise ValueError("huffman oracle result has no best candidate")
-    runtime.candy(
-        "Cowsay",
-        "The Huffman oracle found real image progress.",
-        "good",
-    )
     summary = "\n".join(
         (
             "-Repair hypothesis tried: constrained dynamic-Huffman PNG oracle.",
@@ -4546,7 +4614,13 @@ def _write_huffman_oracle_best_clone(
             idat_stream_diagnosis_note(candidate.after),
         )
     )
-    return True, runtime.write_clone(candidate.data, summary)
+    return _write_complete_idat_candidate_clone(
+        runtime,
+        candidate,
+        summary,
+        route_label="Huffman oracle",
+        success_message="The Huffman oracle found a complete IDAT candidate with validated image progress.",
+    )
 
 
 def _run_idat_crc_periodic_runtime(
@@ -4609,15 +4683,10 @@ def _write_crc_periodic_best_clone(
     runtime: Any,
     analysis: idat.IdatStreamAnalysis,
     result: idat_bruteforce.IdatCrcPeriodicPayloadSolverResult,
-) -> tuple[bool, Any]:
+) -> tuple[bool, Any] | None:
     candidate = result.best
     if candidate is None:
         raise ValueError("crc-periodic result has no best candidate")
-    runtime.candy(
-        "Cowsay",
-        "The CRC-periodic route found real image progress.",
-        "good",
-    )
     summary = "\n".join(
         (
             "-Repair hypothesis tried: CRC-guided periodic IDAT payload solver.",
@@ -4627,7 +4696,13 @@ def _write_crc_periodic_best_clone(
             idat_stream_diagnosis_note(candidate.after),
         )
     )
-    return True, runtime.write_clone(candidate.data, summary)
+    return _write_complete_idat_candidate_clone(
+        runtime,
+        candidate,
+        summary,
+        route_label="CRC-periodic route",
+        success_message="The CRC-periodic route found a complete IDAT candidate with validated image progress.",
+    )
 
 
 def _run_idat_global_crc_residue_runtime(
@@ -4690,11 +4765,10 @@ def _write_global_crc_residue_best_clone(
     runtime: Any,
     analysis: idat.IdatStreamAnalysis,
     result: idat_bruteforce.IdatGlobalCrcResidueSolverResult,
-) -> tuple[bool, Any]:
+) -> tuple[bool, Any] | None:
     candidate = result.best
     if candidate is None:
         raise ValueError("global CRC residue result has no best candidate")
-    runtime.candy("Cowsay", "The global CRC residue route found real image progress.", "good")
     summary = "\n".join(
         (
             "-Repair hypothesis tried: global CRC residue IDAT solver.",
@@ -4704,7 +4778,13 @@ def _write_global_crc_residue_best_clone(
             idat_stream_diagnosis_note(candidate.after),
         )
     )
-    return True, runtime.write_clone(candidate.data, summary)
+    return _write_complete_idat_candidate_clone(
+        runtime,
+        candidate,
+        summary,
+        route_label="global CRC residue route",
+        success_message="The global CRC residue route found a complete IDAT candidate with validated image progress.",
+    )
 
 
 def _run_deflate_resync_salvage_runtime(
@@ -4900,11 +4980,6 @@ def _run_idat_deep_beam_runtime(
         return False, None
 
     candidate = deep_probe.best
-    runtime.candy(
-        "Cowsay",
-        "The deep beam found a candidate with real image progress.",
-        "good",
-    )
     summary = "\n".join(
         (
             "-Repair hypothesis tried: aggressive IDAT deflate deep beam.",
@@ -4914,7 +4989,13 @@ def _run_idat_deep_beam_runtime(
             idat_stream_diagnosis_note(candidate.after),
         )
     )
-    return True, runtime.write_clone(candidate.data, summary)
+    return _write_complete_idat_candidate_clone(
+        runtime,
+        candidate,
+        summary,
+        route_label="deep beam",
+        success_message="The deep beam found a complete IDAT candidate with validated image progress.",
+    )
 
 
 def _idat_deflate_header_for_data(data: bytes) -> deflate_header.DeflateHeaderAnalysis | None:
@@ -5537,7 +5618,13 @@ def try_idat_deflate_bruteforce(
                 idat_stream_diagnosis_note(candidate.after),
             )
         )
-        return True, runtime.write_clone(candidate.data, summary)
+        return _write_complete_idat_candidate_clone(
+            runtime,
+            candidate,
+            summary,
+            route_label="deflate header probe",
+            success_message="The deflate-header probe found a complete IDAT candidate with validated image progress.",
+        )
 
     if analysis.decompressed_size > 0 or analysis.usable_scanlines > 0:
         prefix_frontier = _run_idat_prefix_frontier_routes_runtime(runtime, data, analysis)
@@ -5650,7 +5737,13 @@ def try_idat_deflate_bruteforce(
             idat_stream_diagnosis_note(candidate.after),
         )
     )
-    return True, runtime.write_clone(candidate.data, summary)
+    return _write_complete_idat_candidate_clone(
+        runtime,
+        candidate,
+        summary,
+        route_label="strategy queue",
+        success_message="The IDAT strategy queue found a complete IDAT candidate with validated image progress.",
+    )
 
 
 def validate_idat_crc_only_patch(

@@ -2549,7 +2549,7 @@ def test_run_main_loop_once_stops_when_idat_deflate_route_is_consumed_without_cl
     assert ("emit", "-No repair route implemented for remaining findings.") not in calls
 
 
-def test_run_main_loop_once_keeps_idat_route_open_when_probe_is_not_terminal(monkeypatch):
+def test_run_main_loop_once_stops_when_idat_route_produces_diagnostics_only(monkeypatch):
     calls = []
     ihdr = struct.pack("!IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
     sample_bytes = (
@@ -2571,7 +2571,7 @@ def test_run_main_loop_once_keeps_idat_route_open_when_probe_is_not_terminal(mon
 
     def fake_probe(_runtime, analysis=None):
         calls.append(("idat_probe", analysis.status, analysis.error_offset))
-        return False, None
+        return True, None
 
     def write_clone(data, summary):
         calls.append(("write_clone", data, summary))
@@ -2618,14 +2618,19 @@ def test_run_main_loop_once_keeps_idat_route_open_when_probe_is_not_terminal(mon
     finally:
         os.unlink(sample_path)
 
-    assert state == main_runtime.MainLoopIterationState()
+    assert state == main_runtime.MainLoopIterationState(should_return=True)
     assert ("idat_probe", "incomplete_stream", 4) in calls
     assert not any(call[0] == "write_clone" for call in calls)
     assert (
         "emit",
         "-IDAT deflate route consumed without clone; stopping this sample pass.",
     ) not in calls
-    assert ("emit", "-No new clone produced, stopping main loop.") not in calls
+    assert (
+        "emit",
+        "-IDAT deflate route produced diagnostics only; stopping this sample pass.",
+    ) in calls
+    assert ("emit", "-No new clone produced, stopping main loop.") in calls
+    assert not namespace.get("IDAT_DEFLATE_ROUTE_CONSUMED")
 
 
 def test_run_main_loop_once_does_not_retry_idat_route_consumed_during_chunk_walk(monkeypatch):

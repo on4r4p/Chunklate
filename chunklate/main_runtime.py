@@ -1798,7 +1798,17 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
                     )
                     namespace["PRINT"]("-No new clone produced, stopping main loop.")
                     return MainLoopIterationState(should_return=True)
-                return MainLoopIterationState()
+                clone_progress = (
+                    namespace["SAVE_COUNT"] != save_count_before
+                    or bool(namespace.get("CLONE_HANDOFF_PENDING"))
+                )
+                if clone_progress:
+                    return MainLoopIterationState()
+                namespace["PRINT"](
+                    "-IDAT deflate route produced diagnostics only; stopping this sample pass."
+                )
+                namespace["PRINT"]("-No new clone produced, stopping main loop.")
+                return MainLoopIterationState(should_return=True)
             explain_unimplemented_repair_route(namespace)
         else:
             namespace.get("Open_Current_Final_Image_If_Valid", lambda: None)()
