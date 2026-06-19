@@ -6,6 +6,7 @@ from dataclasses import replace
 import hashlib
 import itertools
 import json
+import math
 import multiprocessing
 from pathlib import Path
 import random
@@ -182,6 +183,7 @@ class WrongCrcRuntime:
     ultimate_linefeed_workers: Any = None
     ultimate_linefeed_max_depth: Any = None
     ultimate_linefeed_max_offsets: Any = None
+    groundhogday_visual_guard: Any = None
     set_idat_deflate_route_consumed: Callable[[bool], Any] | None = None
 
 
@@ -241,6 +243,7 @@ class WrongChunkNameRuntime:
     ultimate_linefeed_workers: Any = None
     ultimate_linefeed_max_depth: Any = None
     ultimate_linefeed_max_offsets: Any = None
+    groundhogday_visual_guard: Any = None
     queue_existing_clone: Callable[[str], Any] | None = None
     set_idat_deflate_route_consumed: Callable[[bool], Any] | None = None
 
@@ -317,6 +320,7 @@ class NoNextChunkRuntime:
     ultimate_linefeed_workers: Any = None
     ultimate_linefeed_max_depth: Any = None
     ultimate_linefeed_max_offsets: Any = None
+    groundhogday_visual_guard: Any = None
     queue_existing_clone: Callable[[str], Any] | None = None
     set_idat_deflate_route_consumed: Callable[[bool], Any] | None = None
 
@@ -424,6 +428,7 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         ultimate_linefeed_workers=namespace.get("ULTIMATE_LINEFEED_WORKERS"),
         ultimate_linefeed_max_depth=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH"),
         ultimate_linefeed_max_offsets=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS"),
+        groundhogday_visual_guard=namespace.get("IDAT_GROUNDHOGDAY_VISUAL_GUARD"),
         set_idat_deflate_route_consumed=lambda value: namespace.__setitem__("IDAT_DEFLATE_ROUTE_CONSUMED", value),
     )
 
@@ -524,6 +529,7 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         ultimate_linefeed_workers=namespace.get("ULTIMATE_LINEFEED_WORKERS"),
         ultimate_linefeed_max_depth=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH"),
         ultimate_linefeed_max_offsets=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS"),
+        groundhogday_visual_guard=namespace.get("IDAT_GROUNDHOGDAY_VISUAL_GUARD"),
         queue_existing_clone=lambda path: queue_existing_clone_from_namespace(namespace, path),
         set_idat_deflate_route_consumed=lambda value: namespace.__setitem__("IDAT_DEFLATE_ROUTE_CONSUMED", value),
     )
@@ -601,6 +607,7 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         ultimate_linefeed_workers=namespace.get("ULTIMATE_LINEFEED_WORKERS"),
         ultimate_linefeed_max_depth=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH"),
         ultimate_linefeed_max_offsets=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS"),
+        groundhogday_visual_guard=namespace.get("IDAT_GROUNDHOGDAY_VISUAL_GUARD"),
         queue_existing_clone=lambda path: queue_existing_clone_from_namespace(namespace, path),
         set_idat_deflate_route_consumed=lambda value: namespace.__setitem__("IDAT_DEFLATE_ROUTE_CONSUMED", value),
     )
@@ -2960,6 +2967,19 @@ def _runtime_idat_queue_progress(runtime: Any):
     return progress
 
 
+def _runtime_groundhogday_ultimate_linefeed_progress(runtime: Any):
+    progress = _runtime_idat_queue_progress(runtime)
+    if progress is None:
+        return None
+
+    def mini_progress(stage: str, tested: int, budget: int) -> None:
+        if stage == "UltimateMegaSuperLineFeedBruteForce":
+            stage = IDAT_GROUNDHOGDAY_MINI_ULTIMATE_LINEFEED_LABEL
+        progress(stage, tested, budget)
+
+    return mini_progress
+
+
 def _bad_crc_idat_chunks(data: bytes) -> tuple[png.PngChunk, ...]:
     try:
         chunks = tuple(png.iter_chunks(data))
@@ -3678,11 +3698,34 @@ IDAT_PREFINAL_REPAIR_BATCHES = 4
 IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_DEFAULT_BUDGET = 50_000
 IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH = 2
 IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS = 256
+IDAT_GROUNDHOGDAY_MINI_ULTIMATE_LINEFEED_LABEL = "MiniUltimateMegaSuperLineFeedBruteForce"
+GROUNDHOGDAY_VISUAL_GUARD_DEFAULT = "balanced"
+GROUNDHOGDAY_VISUAL_GUARD_CHOICES = {"off", "structure", "balanced", "strict"}
 FINAL_INVESTIGATION_LABEL = "Punxsutawney Phil's shadow finder"
 FINAL_INVESTIGATION_DEFAULT_BUDGET = 100_000_000
 FINAL_INVESTIGATION_DEFAULT_MAX_DEPTH = 96
 FINAL_INVESTIGATION_DEFAULT_SEED_LIMIT = 128
 GROUNDHOGDAY_SCANLINE_PREVIEW_FOLDER = "GroundHogDay_Scanline_Previews"
+
+
+@dataclass(frozen=True)
+class GroundHogDayVisualScore:
+    supported: bool
+    passed: bool
+    profile: str
+    visual_score: int
+    penalty: int
+    usable_scanlines: int
+    complete_scanlines: int
+    invalid_filter_rows: int
+    entropy: float = 0.0
+    row_delta: float = 0.0
+    repeated_row_ratio: float = 0.0
+    filter_transition_ratio: float = 0.0
+    palette_ok: bool = True
+    reasons: tuple[str, ...] = ()
+
+
 GROUNDHOGDAY_QUOTES: tuple[tuple[str, str], ...] = (
     ("good", "Okay, campers, rise and shine, and don't forget your booties 'cause it's cooooold out there today."),
     ("good", "It's coooold out there every day. What is this, Miami Beach?"),
@@ -3854,6 +3897,356 @@ def _idat_candidate_diagnostic_note(route_label: str, candidate: Any) -> str:
     )
 
 
+class _RuntimeWithOverrides:
+    def __init__(self, runtime: Any, **overrides: Any) -> None:
+        self._runtime = runtime
+        self._overrides = overrides
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self._overrides:
+            return self._overrides[name]
+        return getattr(self._runtime, name)
+
+
+def _coerce_groundhogday_visual_guard_profile(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    aliases = {
+        "": GROUNDHOGDAY_VISUAL_GUARD_DEFAULT,
+        "default": GROUNDHOGDAY_VISUAL_GUARD_DEFAULT,
+        "auto": GROUNDHOGDAY_VISUAL_GUARD_DEFAULT,
+        "balanced": "balanced",
+        "balance": "balanced",
+        "normal": "balanced",
+        "structure": "structure",
+        "structural": "structure",
+        "noise": "structure",
+        "noisy": "structure",
+        "random": "structure",
+        "strict": "strict",
+        "coherent": "strict",
+        "visual": "strict",
+        "off": "off",
+        "false": "off",
+        "no": "off",
+        "disabled": "off",
+        "0": "off",
+    }
+    return aliases.get(text, GROUNDHOGDAY_VISUAL_GUARD_DEFAULT)
+
+
+def _GroundHogDay_visual_guard_profile(runtime: Any) -> str:
+    cache = getattr(runtime, "deep_beam_prompt_cache", None)
+    if isinstance(cache, dict) and "groundhogday_visual_guard" in cache:
+        return _coerce_groundhogday_visual_guard_profile(cache["groundhogday_visual_guard"])
+
+    configured = getattr(runtime, "groundhogday_visual_guard", None)
+    if configured is not None and str(configured).strip() != "":
+        profile = _coerce_groundhogday_visual_guard_profile(configured)
+    else:
+        profile = GROUNDHOGDAY_VISUAL_GUARD_DEFAULT
+        input_func = getattr(runtime, "input_func", None)
+        if getattr(runtime, "interactive", False) and input_func is not None:
+            runtime.candy(
+                "Cowsay",
+                "\n".join(
+                    (
+                        "GroundHogDay visual guard:",
+                        "balanced. Prefer coherent scanline recovery, but allow some noisy real images.",
+                        "structure. Treat random/noisy captures as plausible; score structure and palette only.",
+                        "strict. Penalize line jumps, high entropy, odd repetition, and color incoherence hard.",
+                        "off. Do not use the visual guard.",
+                    )
+                ),
+                "com",
+            )
+            try:
+                answer = str(input_func("GroundHogDay visual profile [balanced] > ")).strip()
+            except EOFError:
+                answer = ""
+            profile = _coerce_groundhogday_visual_guard_profile(answer)
+
+    if isinstance(cache, dict):
+        cache["groundhogday_visual_guard"] = profile
+    runtime.side_notes.append("-IDAT GroundHogDay visual guard profile: %s." % profile)
+    return profile
+
+
+def _GroundHogDay_plte_entry_count(data: bytes) -> int | None:
+    try:
+        for chunk in png.iter_chunks(data):
+            if chunk.chunk_type == b"PLTE":
+                return len(chunk.data) // 3
+    except png.PngFormatError:
+        return None
+    return None
+
+
+def _GroundHogDay_entropy(data: bytes) -> float:
+    if not data:
+        return 0.0
+    counts: dict[int, int] = {}
+    for value in data:
+        counts[value] = counts.get(value, 0) + 1
+    total = float(len(data))
+    return -sum((count / total) * math.log2(count / total) for count in counts.values())
+
+
+def _GroundHogDay_row_delta(raw_rows: bytes, row_data_size: int, rows: int) -> float:
+    if row_data_size <= 0 or rows <= 1:
+        return 0.0
+    total = 0
+    compared = 0
+    previous = raw_rows[:row_data_size]
+    for row_index in range(1, rows):
+        start = row_index * row_data_size
+        row = raw_rows[start : start + row_data_size]
+        if len(row) != row_data_size:
+            break
+        total += sum(abs(int(a) - int(b)) for a, b in zip(previous, row))
+        compared += row_data_size
+        previous = row
+    if compared <= 0:
+        return 0.0
+    return float(total) / float(compared * 255)
+
+
+def _GroundHogDay_repeated_row_ratio(raw_rows: bytes, row_data_size: int, rows: int) -> float:
+    if row_data_size <= 0 or rows <= 1:
+        return 0.0
+    repeated = 0
+    previous = raw_rows[:row_data_size]
+    for row_index in range(1, rows):
+        start = row_index * row_data_size
+        row = raw_rows[start : start + row_data_size]
+        if len(row) != row_data_size:
+            break
+        if row == previous:
+            repeated += 1
+        previous = row
+    return float(repeated) / float(max(1, rows - 1))
+
+
+def _GroundHogDay_filter_transition_ratio(filtered: bytes, scanline_size: int, rows: int) -> float:
+    if scanline_size <= 0 or rows <= 1:
+        return 0.0
+    filters = [filtered[index * scanline_size] for index in range(rows)]
+    transitions = sum(1 for left, right in zip(filters, filters[1:]) if left != right)
+    return float(transitions) / float(max(1, rows - 1))
+
+
+def _GroundHogDay_visual_score(candidate: Any, profile: str) -> GroundHogDayVisualScore:
+    profile = _coerce_groundhogday_visual_guard_profile(profile)
+    after = getattr(candidate, "after", None)
+    if after is None or not getattr(after, "supported", False):
+        return GroundHogDayVisualScore(
+            False,
+            profile == "off",
+            profile,
+            -1_000_000,
+            1_000_000,
+            0,
+            0,
+            0,
+            reasons=("unsupported IDAT analysis",),
+        )
+
+    usable = int(getattr(after, "usable_scanlines", 0) or 0)
+    complete = int(getattr(after, "complete_scanlines", 0) or 0)
+    scanline_size = int(getattr(after, "scanline_size", 0) or 0)
+    height = int(getattr(after, "height", 0) or 0)
+    invalid_filter_rows = max(0, complete - usable)
+    reasons: list[str] = []
+    penalty = 0
+    if invalid_filter_rows:
+        penalty += invalid_filter_rows * 1000
+        reasons.append("invalid PNG filter rows=%s" % invalid_filter_rows)
+
+    filtered = bytes(getattr(after, "recovered_scanlines", b"") or b"")
+    rows = min(usable, len(filtered) // scanline_size) if scanline_size > 0 else 0
+    row_data_size = max(0, scanline_size - 1)
+    entropy = 0.0
+    row_delta = 0.0
+    repeated_ratio = 0.0
+    filter_transition_ratio = 0.0
+    palette_ok = True
+    raw_rows = b""
+
+    if rows <= 0:
+        if usable <= 0:
+            reasons.append("no usable scanlines")
+            penalty += 500
+    else:
+        filtered = filtered[: rows * scanline_size]
+        raw_rows = png.unfilter_scanlines(
+            filtered,
+            width=int(getattr(after, "width", 0) or 0),
+            height=rows,
+            bit_depth=int(getattr(after, "bit_depth", 0) or 0),
+            color_type=int(getattr(after, "color_type", 0) or 0),
+        ) or b""
+        if not raw_rows:
+            reasons.append("unfilter failed")
+            penalty += 1000
+        else:
+            entropy = _GroundHogDay_entropy(raw_rows)
+            row_delta = _GroundHogDay_row_delta(raw_rows, row_data_size, rows)
+            repeated_ratio = _GroundHogDay_repeated_row_ratio(raw_rows, row_data_size, rows)
+            filter_transition_ratio = _GroundHogDay_filter_transition_ratio(filtered, scanline_size, rows)
+
+            if int(getattr(after, "color_type", 0) or 0) == 3:
+                palette_count = _GroundHogDay_plte_entry_count(bytes(getattr(candidate, "data", b"") or b""))
+                indices = png.unpack_indexed_scanlines(
+                    raw_rows,
+                    width=int(getattr(after, "width", 0) or 0),
+                    height=rows,
+                    bit_depth=int(getattr(after, "bit_depth", 0) or 0),
+                )
+                palette_ok = bool(
+                    palette_count is not None
+                    and indices is not None
+                    and max(indices, default=0) < palette_count
+                )
+                if not palette_ok:
+                    reasons.append("palette index outside PLTE")
+                    penalty += 2000
+
+            if profile not in {"off", "structure"}:
+                entropy_limit = 7.75 if profile == "balanced" else 7.35
+                row_delta_limit = 0.48 if profile == "balanced" else 0.32
+                filter_transition_limit = 0.95 if profile == "balanced" else 0.78
+                repeated_limit = 0.995 if profile == "balanced" else 0.94
+                if len(raw_rows) >= 128 and entropy > entropy_limit:
+                    extra = int((entropy - entropy_limit) * (120 if profile == "balanced" else 220))
+                    penalty += max(1, extra)
+                    reasons.append("high entropy %.2f" % entropy)
+                if rows >= 3 and row_delta > row_delta_limit:
+                    extra = int((row_delta - row_delta_limit) * (300 if profile == "balanced" else 500))
+                    penalty += max(1, extra)
+                    reasons.append("weak row continuity %.3f" % row_delta)
+                if rows >= 8 and filter_transition_ratio > filter_transition_limit:
+                    extra = int((filter_transition_ratio - filter_transition_limit) * 200)
+                    penalty += max(1, extra)
+                    reasons.append("unstable filter pattern %.3f" % filter_transition_ratio)
+                if rows >= 12 and repeated_ratio > repeated_limit and entropy < 0.20:
+                    extra = int((repeated_ratio - repeated_limit) * (250 if profile == "balanced" else 400))
+                    penalty += max(1, extra)
+                    reasons.append("absurd repeated rows %.3f" % repeated_ratio)
+
+    base = (usable * 1000) + (complete * 200) + (int(getattr(after, "decompressed_size", 0) or 0) // 64)
+    if getattr(after, "complete", False):
+        base += 1000
+    threshold = {
+        "off": 1_000_000,
+        "structure": 0,
+        "balanced": 95,
+        "strict": 15,
+    }[profile]
+    passed = profile == "off" or penalty <= threshold
+    return GroundHogDayVisualScore(
+        True,
+        passed,
+        profile,
+        base - penalty,
+        penalty,
+        usable,
+        complete,
+        invalid_filter_rows,
+        entropy=entropy,
+        row_delta=row_delta,
+        repeated_row_ratio=repeated_ratio,
+        filter_transition_ratio=filter_transition_ratio,
+        palette_ok=palette_ok,
+        reasons=tuple(reasons),
+    )
+
+
+def _GroundHogDay_visual_score_line(score: GroundHogDayVisualScore) -> str:
+    details = [
+        "profile=%s" % score.profile,
+        "passed=%s" % ("yes" if score.passed else "no"),
+        "visual_score=%s" % score.visual_score,
+        "penalty=%s" % score.penalty,
+        "usable=%s" % score.usable_scanlines,
+        "complete=%s" % score.complete_scanlines,
+        "invalid_filters=%s" % score.invalid_filter_rows,
+        "entropy=%.2f" % score.entropy,
+        "row_delta=%.3f" % score.row_delta,
+        "repeat=%.3f" % score.repeated_row_ratio,
+        "filter_transition=%.3f" % score.filter_transition_ratio,
+        "palette_ok=%s" % ("yes" if score.palette_ok else "no"),
+    ]
+    if score.reasons:
+        details.append("reason=%s" % ", ".join(score.reasons[:4]))
+    return "; ".join(details)
+
+
+def _GroundHogDay_visual_guard_worse(
+    previous: GroundHogDayVisualScore,
+    candidate: GroundHogDayVisualScore,
+) -> bool:
+    if candidate.profile in {"off", "structure"}:
+        return False
+    if not previous.supported or previous.usable_scanlines < 2:
+        return False
+    margin = 40 if candidate.profile == "balanced" else 12
+    if candidate.penalty > previous.penalty + margin:
+        return True
+    return candidate.visual_score < previous.visual_score - (250 if candidate.profile == "balanced" else 50)
+
+
+def _GroundHogDay_visual_guard_candidates(
+    runtime: Any,
+    previous_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    candidate_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    *,
+    route_label: str,
+) -> tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]:
+    profile = _GroundHogDay_visual_guard_profile(runtime)
+    if profile == "off":
+        runtime.side_notes.append("-IDAT GroundHogDay visual guard disabled for %s." % route_label)
+        return candidate_seeds
+
+    previous = _GroundHogDay_idat_seed_best(previous_seeds)
+    previous_score = (
+        _GroundHogDay_visual_score(previous, profile)
+        if previous is not None
+        else GroundHogDayVisualScore(False, True, profile, -1_000_000, 0, 0, 0, 0)
+    )
+    accepted: list[idat_bruteforce.IdatDeepBeamCandidate] = []
+    rejected_complete = False
+    for candidate in _rank_idat_seed_candidates(candidate_seeds, limit=max(1, len(candidate_seeds))):
+        score = _GroundHogDay_visual_score(candidate, profile)
+        worse = _GroundHogDay_visual_guard_worse(previous_score, score)
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay visual guard %s candidate state%s: %s."
+            % (
+                route_label,
+                getattr(candidate, "state_id", "?"),
+                _GroundHogDay_visual_score_line(score),
+            )
+        )
+        if score.passed and not worse:
+            accepted.append(candidate)
+            continue
+        rejected_complete = rejected_complete or bool(getattr(getattr(candidate, "after", None), "complete", False))
+        reason = "visual score failed" if not score.passed else "visual score regressed"
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay %s seed state%s kept structural-only: %s."
+            % (route_label, getattr(candidate, "state_id", "?"), reason)
+        )
+
+    if accepted:
+        return _rank_idat_seed_candidates(tuple(accepted), limit=max(1, len(candidate_seeds)))
+
+    message = (
+        "complete stream, visual score failed; I am keeping the previous GroundHogDay seed and treating this linefeed branch as structural-only evidence."
+        if rejected_complete
+        else "GroundHogDay linefeed improved structure, but the visual guard did not accept the recovered rows. I am keeping the previous seed."
+    )
+    runtime.candy("Cowsay", message, "bad" if rejected_complete else "com")
+    return ()
+
+
 def _write_complete_idat_candidate_clone(
     runtime: Any,
     candidate: Any,
@@ -3869,6 +4262,17 @@ def _write_complete_idat_candidate_clone(
             "com",
         )
         runtime.side_notes.append(_idat_candidate_diagnostic_note(route_label, candidate))
+        return None
+    if bool(getattr(runtime, "suppress_complete_idat_clone_write", False)):
+        runtime.candy(
+            "Cowsay",
+            "That IDAT candidate is structurally complete, but this pass is running under GroundHogDay visual guard. I am keeping it as a seed first.",
+            "com",
+        )
+        runtime.side_notes.append(
+            "-IDAT %s complete candidate kept as visual-guard seed; clone write suppressed."
+            % route_label
+        )
         return None
 
     runtime.candy("Cowsay", success_message, "good")
@@ -6222,7 +6626,7 @@ def _run_idat_groundhogday_linefeed_runtime(
     )
     runtime.candy(
         "Cowsay",
-        "I am taking the linefeed corruption hypothesis seriously here: LF/CR insertion and the bounded SuperMegaLineFeed pass both get a turn on the current seeds.",
+        "I am editing compressed IDAT bytes only. The decompressed rows are the scoreboard; noisy rows count as evidence, not proof.",
         "com",
     )
     runtime.candy("Title", "probe_idat_groundhogday_linefeed_seed_repair")
@@ -6357,24 +6761,15 @@ def _run_idat_groundhogday_linefeed_runtime(
         label="idat_groundhogday_linefeed",
         include_dynamic_trace=True,
     )
-    summary = "\n".join(
-        (
-            "-Repair hypothesis tried: GroundHogDay bounded linefeed seed repair.",
-            idat_deflate_header_note(analysis),
-            idat_bruteforce.deep_beam_summary_line(result),
-            *idat_bruteforce.deep_beam_candidate_summary_lines(result),
-            idat_stream_diagnosis_note(best.after),
+    if any(_idat_candidate_is_complete_clone(candidate) for candidate in top):
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay linefeed complete stream kept structural-only pending row-filter/filter-alignment cleanup and visual guard."
         )
-    )
-    written = _write_complete_idat_candidate_clone(
-        runtime,
-        best,
-        summary,
-        route_label="GroundHogDay linefeed route",
-        success_message="The GroundHogDay linefeed route found a complete IDAT candidate with validated image progress.",
-    )
-    if written is not None:
-        return written, top
+        runtime.candy(
+            "Cowsay",
+            "Linefeed produced a structurally complete stream. I am not calling that a visual fix yet; GroundHogDay will run cleanup and the visual guard first.",
+            "com",
+        )
     return None, top
 
 
@@ -6890,7 +7285,7 @@ def _run_idat_groundhogday_ultimate_linefeed_runtime(
         "GroundHogDay is pushing the linefeed hypothesis harder now: a checkpointed UltimateLineFeed pass gets a bounded budget before I call the loop stuck.",
         "com",
     )
-    runtime.candy("Title", "probe_groundhogday_ultimate_linefeed")
+    runtime.candy("Title", "IDAT %s" % IDAT_GROUNDHOGDAY_MINI_ULTIMATE_LINEFEED_LABEL)
 
     continuations: list[idat_bruteforce.IdatDeepBeamCandidate] = []
     for seed in seeds:
@@ -6905,8 +7300,9 @@ def _run_idat_groundhogday_ultimate_linefeed_runtime(
                 budget=budget,
                 beam_width=64,
                 ultimate_workers=workers,
-                progress=_runtime_idat_queue_progress(runtime),
+                progress=_runtime_groundhogday_ultimate_linefeed_progress(runtime),
             )
+            result = replace(result, strategy=IDAT_GROUNDHOGDAY_MINI_ULTIMATE_LINEFEED_LABEL)
         except idat_bruteforce.UltimateLinefeedInterrupted as exc:
             runtime.side_notes.append(
                 "-IDAT GroundHogDay UltimateLineFeed interrupted; progress saved: %s."
@@ -6991,25 +7387,112 @@ def _run_idat_groundhogday_ultimate_linefeed_runtime(
         label="idat_groundhogday_ultimate_linefeed",
         include_dynamic_trace=True,
     )
-    summary = "\n".join(
-        (
-            "-Repair hypothesis tried: GroundHogDay UltimateLineFeed seed repair.",
-            idat_deflate_header_note(analysis),
-            idat_bruteforce.deep_beam_summary_line(result),
-            *idat_bruteforce.deep_beam_candidate_summary_lines(result),
-            idat_stream_diagnosis_note(best.after),
+    if any(_idat_candidate_is_complete_clone(candidate) for candidate in top):
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay %s complete stream kept structural-only pending row-filter/filter-alignment cleanup and visual guard."
+            % IDAT_GROUNDHOGDAY_MINI_ULTIMATE_LINEFEED_LABEL
         )
-    )
-    written = _write_complete_idat_candidate_clone(
-        runtime,
-        best,
-        summary,
-        route_label="GroundHogDay UltimateLineFeed",
-        success_message="GroundHogDay UltimateLineFeed found a complete IDAT candidate with validated image progress.",
-    )
-    if written is not None:
-        return written, top, next_state_id
+        runtime.candy(
+            "Cowsay",
+            "%s produced a structurally complete stream. I am treating it as evidence, not proof."
+            % IDAT_GROUNDHOGDAY_MINI_ULTIMATE_LINEFEED_LABEL,
+            "com",
+        )
     return None, top, next_state_id
+
+
+def _GroundHogDay_cleanup_linefeed_seeds_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    linefeed_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    title_counter: list[int],
+) -> tuple[tuple[bool, Any] | None, tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]]:
+    cleanup_runtime = _RuntimeWithOverrides(
+        runtime,
+        suppress_complete_idat_clone_write=True,
+    )
+    seed_limit = _runtime_seed_local_continuation_limit(runtime)
+    cleanup_seeds = _rank_idat_seed_candidates(linefeed_seeds, limit=seed_limit)
+    runtime.side_notes.append(
+        "-IDAT GroundHogDay linefeed cleanup: starting from structural-only seed(s), best %s."
+        % _GroundHogDay_idat_seed_progress_summary(cleanup_seeds)
+    )
+
+    row_result, row_seeds = _run_idat_row_filter_literal_repair_runtime(
+        _GroundHogDay_next_title_runtime(cleanup_runtime, title_counter),
+        data,
+        analysis,
+        cleanup_seeds,
+    )
+    if row_result is not None:
+        return row_result, row_seeds
+    if _GroundHogDay_idat_seed_candidates_make_progress(row_seeds, cleanup_seeds):
+        _GroundHogDay_emit_scanline_recovery_update(
+            runtime,
+            cleanup_seeds,
+            row_seeds,
+            "linefeed row-filter cleanup",
+        )
+        cleanup_seeds = _rank_idat_seed_candidates(row_seeds, limit=seed_limit)
+
+    filter_result, filter_seeds = _run_idat_filter_alignment_runtime(
+        _GroundHogDay_next_title_runtime(cleanup_runtime, title_counter),
+        data,
+        analysis,
+        cleanup_seeds,
+    )
+    if filter_result is not None:
+        return filter_result, filter_seeds
+    if _GroundHogDay_idat_seed_candidates_make_progress(filter_seeds, cleanup_seeds):
+        _GroundHogDay_emit_scanline_recovery_update(
+            runtime,
+            cleanup_seeds,
+            filter_seeds,
+            "linefeed filter-alignment cleanup",
+        )
+        cleanup_seeds = _rank_idat_seed_candidates(filter_seeds, limit=seed_limit)
+
+    return None, cleanup_seeds
+
+
+def _GroundHogDay_guard_linefeed_progress_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    previous_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    linefeed_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    title_counter: list[int],
+) -> tuple[tuple[bool, Any] | None, tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]]:
+    if not linefeed_seeds:
+        return None, ()
+    runtime.side_notes.append(
+        "-IDAT GroundHogDay linefeed seeds marked structural-only until cleanup and visual guard pass."
+    )
+    cleanup_result, cleanup_seeds = _GroundHogDay_cleanup_linefeed_seeds_runtime(
+        runtime,
+        data,
+        analysis,
+        linefeed_seeds,
+        title_counter,
+    )
+    if cleanup_result is not None:
+        return cleanup_result, cleanup_seeds
+    candidate_seeds = (
+        cleanup_seeds
+        if _GroundHogDay_idat_seed_candidates_make_progress(cleanup_seeds, linefeed_seeds)
+        else linefeed_seeds
+    )
+    accepted = _GroundHogDay_visual_guard_candidates(
+        runtime,
+        previous_seeds,
+        candidate_seeds,
+        route_label="linefeed",
+    )
+    if accepted:
+        return None, accepted
+    _GroundHogDay_write_resume_state(runtime, data, candidate_seeds, next_day=title_counter[0])
+    return None, ()
 
 
 def _GroundHogDay_resume_seed_candidates(
@@ -7601,20 +8084,35 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
             return linefeed_result, linefeed_seeds, False
         if _GroundHogDay_idat_seed_candidates_make_progress(linefeed_seeds, seeds):
             _GroundHogDay_emit_scanline_recovery_update(runtime, seeds, linefeed_seeds, "linefeed repair")
-            seeds = linefeed_seeds
-            progressed_seeds = linefeed_seeds
-            batch_progressed = linefeed_seeds
-            _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
-
-            if _GroundHogDay_seed_has_unusable_complete_rows(seeds):
+            guarded_result, guarded_seeds = _GroundHogDay_guard_linefeed_progress_runtime(
+                runtime,
+                data,
+                analysis,
+                seeds,
+                linefeed_seeds,
+                title_counter,
+            )
+            if guarded_result is not None:
+                return guarded_result, guarded_seeds, False
+            if not guarded_seeds:
                 runtime.side_notes.append(
-                    "-IDAT GroundHogDay postponed row-filter-after-linefeed repair: linefeed route is still producing stronger complete-row seeds."
+                    "-IDAT GroundHogDay kept previous seed after linefeed structural-only branch failed visual guard."
                 )
-                runtime.candy(
-                    "Cowsay",
-                    "Linefeed just moved the IDAT stream again. I am checkpointing it and continuing the linefeed trail before row-filter cleanup.",
-                    "com",
-                )
+            else:
+                seeds = guarded_seeds
+                progressed_seeds = guarded_seeds
+                batch_progressed = guarded_seeds
+                _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
+
+                if _GroundHogDay_seed_has_unusable_complete_rows(seeds):
+                    runtime.side_notes.append(
+                        "-IDAT GroundHogDay postponed row-filter-after-linefeed repair: linefeed route is still producing stronger complete-row seeds."
+                    )
+                    runtime.candy(
+                        "Cowsay",
+                        "Linefeed just moved the IDAT stream again. I am checkpointing it and continuing the linefeed trail before row-filter cleanup.",
+                        "com",
+                    )
 
         stored_result, stored_seeds = _run_idat_filter_seed_stored_block_runtime(
             _GroundHogDay_next_title_runtime(runtime, title_counter),

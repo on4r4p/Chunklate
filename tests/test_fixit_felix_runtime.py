@@ -2125,6 +2125,33 @@ def bad_adler_three_scanline_one_bad_filter_png_bytes():
     return PNG_SIGNATURE + ihdr + build_png_chunk(b"IDAT", bytes(compressed)) + IEND_CHUNK
 
 
+def grayscale_png_from_rows(rows):
+    height = len(rows)
+    width = len(rows[0]) if rows else 1
+    ihdr = build_png_chunk(
+        b"IHDR",
+        width.to_bytes(4, "big") + height.to_bytes(4, "big") + b"\x08\x00\x00\x00\x00",
+    )
+    filtered = b"".join(b"\x00" + bytes(row) for row in rows)
+    return PNG_SIGNATURE + ihdr + build_png_chunk(b"IDAT", zlib.compress(filtered)) + IEND_CHUNK
+
+
+def smooth_gray_png(width=32, height=16):
+    rows = [
+        bytes(min(255, (row * 3) + (column // 4)) for column in range(width))
+        for row in range(height)
+    ]
+    return grayscale_png_from_rows(rows)
+
+
+def noisy_gray_png(width=32, height=16):
+    rows = [
+        bytes(((row * 73) + (column * 151) + ((row ^ column) * 37)) & 0xFF for column in range(width))
+        for row in range(height)
+    ]
+    return grayscale_png_from_rows(rows)
+
+
 def wrong_crc_runtime(
     calls,
     *,
@@ -6442,6 +6469,101 @@ def test_GroundHogDay_scanline_recovery_update_reports_only_line_gains():
     ]
 
 
+def test_GroundHogDay_visual_guard_scores_noise_by_profile():
+    smooth_seed = idat_deep_beam_seed(smooth_gray_png(), state_id=1)
+    noisy_seed = idat_deep_beam_seed(noisy_gray_png(), state_id=2)
+
+    smooth = fixit_felix_runtime._GroundHogDay_visual_score(smooth_seed, "strict")
+    noisy_strict = fixit_felix_runtime._GroundHogDay_visual_score(noisy_seed, "strict")
+    noisy_structure = fixit_felix_runtime._GroundHogDay_visual_score(noisy_seed, "structure")
+
+    assert smooth.passed is True
+    assert noisy_strict.passed is False
+    assert any("high entropy" in reason or "weak row continuity" in reason for reason in noisy_strict.reasons)
+    assert noisy_structure.passed is True
+
+
+def test_GroundHogDay_visual_guard_prompt_can_allow_noisy_structure():
+    calls = []
+    runtime = SimpleNamespace(
+        interactive=True,
+        input_func=lambda _prompt: "structure",
+        deep_beam_prompt_cache={},
+        side_notes=[],
+        candy=lambda *args, **_kwargs: calls.append(args),
+    )
+
+    profile = fixit_felix_runtime._GroundHogDay_visual_guard_profile(runtime)
+
+    assert profile == "structure"
+    assert runtime.deep_beam_prompt_cache["groundhogday_visual_guard"] == "structure"
+    assert any("GroundHogDay visual guard:" in call[1] for call in calls)
+
+
+def test_GroundHogDay_visual_guard_rejects_noisy_linefeed_after_cleanup(monkeypatch):
+    previous = idat_deep_beam_seed(smooth_gray_png(), state_id=11, kind="groundhogday-seed")
+    noisy = idat_deep_beam_seed(noisy_gray_png(), state_id=12, kind="groundhogday-linefeed")
+    cleanup_calls = []
+
+    def fake_row_filter(_runtime, _data, _analysis, seed_candidates=()):
+        cleanup_calls.append("row")
+        return None, ()
+
+    def fake_filter_alignment(_runtime, _data, _analysis, seed_candidates=()):
+        cleanup_calls.append("filter")
+        return None, ()
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_row_filter_literal_repair_runtime",
+        fake_row_filter,
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_filter_alignment_runtime",
+        fake_filter_alignment,
+    )
+    candy_calls = []
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir="",
+        side_notes=[],
+        candy=lambda *args, **_kwargs: candy_calls.append(args),
+        seed_local_continuation_limit=1,
+        groundhogday_visual_guard="strict",
+        deep_beam_prompt_cache={},
+    )
+    analysis = idat.analyze_idat_stream(previous.data)
+    title_counter = [205]
+
+    result, accepted = fixit_felix_runtime._GroundHogDay_guard_linefeed_progress_runtime(
+        runtime,
+        previous.data,
+        analysis,
+        (previous,),
+        (noisy,),
+        title_counter,
+    )
+
+    assert result is None
+    assert accepted == ()
+    assert cleanup_calls == ["row", "filter"]
+    assert any("complete stream, visual score failed" in call[1] for call in candy_calls)
+    assert any("kept structural-only" in note for note in runtime.side_notes)
+
+
+def test_GroundHogDay_mini_ultimate_progress_label():
+    messages = []
+    runtime = SimpleNamespace(minibar=lambda message: messages.append(message))
+    progress = fixit_felix_runtime._runtime_groundhogday_ultimate_linefeed_progress(runtime)
+
+    progress("UltimateMegaSuperLineFeedBruteForce", 7, 50)
+
+    assert messages
+    assert "MiniUltimateMegaSuperLineFeedBruteForce" in messages[0]
+    assert "IDAT UltimateMegaSuperLineFeedBruteForce" not in messages[0]
+
+
 def test_GroundHogDay_linefeed_route_promotes_insert_candidate(monkeypatch):
     data = valid_png_bytes()
     initial = idat_progress_seed(
@@ -6541,7 +6663,7 @@ def test_GroundHogDay_linefeed_route_promotes_insert_candidate(monkeypatch):
     assert seeds[0].after.usable_scanlines == 3
     assert seeds[0].operations[-1].kind == "groundhogday-linefeed-insert-0a"
     assert [call[0] for call in calls] == ["lf", "cr", "super"]
-    assert any("linefeed corruption hypothesis seriously" in call[1] for call in candy_calls)
+    assert any("decompressed rows are the scoreboard" in call[1] for call in candy_calls)
     assert ("Title", "probe_idat_groundhogday_linefeed_seed_repair") in candy_calls
     assert any("GroundHogDay linefeed route" in note for note in runtime.side_notes)
 
@@ -6682,7 +6804,7 @@ def test_GroundHogDay_linefeed_route_promotes_ultimate_candidate(monkeypatch):
     assert calls[0]["max_depth"] == 2
     assert calls[0]["max_offsets"] == 64
     assert any("UltimateLineFeed" in note for note in runtime.side_notes)
-    assert ("Title", "probe_groundhogday_ultimate_linefeed") in candy_calls
+    assert ("Title", "IDAT MiniUltimateMegaSuperLineFeedBruteForce") in candy_calls
 
 
 def test_GroundHogDay_seed_routes_checkpoint_progress_then_stop_on_plateau(monkeypatch, tmp_path):
@@ -9616,6 +9738,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
         "ULTIMATE_LINEFEED_WORKERS": "2",
         "IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH": "3",
         "IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS": "70",
+        "IDAT_GROUNDHOGDAY_VISUAL_GUARD": "strict",
         "Raw_Crc": "deadbeef",
         "Bad_Missplaced": True,
         "Bad_Ancillary": False,
@@ -9646,6 +9769,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert wrong_crc.ultimate_linefeed_workers == "2"
     assert wrong_crc.ultimate_linefeed_max_depth == "3"
     assert wrong_crc.ultimate_linefeed_max_offsets == "70"
+    assert wrong_crc.groundhogday_visual_guard == "strict"
 
     libpng = fixit_felix_runtime.build_libpng_error_runtime_from_namespace(namespace)
     assert libpng.emit is namespace["PRINT"]
@@ -9685,6 +9809,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert wrong_name.ultimate_linefeed_workers == "2"
     assert wrong_name.ultimate_linefeed_max_depth == "3"
     assert wrong_name.ultimate_linefeed_max_offsets == "70"
+    assert wrong_name.groundhogday_visual_guard == "strict"
 
     no_next = fixit_felix_runtime.build_no_next_chunk_runtime_from_namespace(namespace)
     assert no_next.emit is namespace["PRINT"]
@@ -9709,6 +9834,7 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert no_next.ultimate_linefeed_workers == "2"
     assert no_next.ultimate_linefeed_max_depth == "3"
     assert no_next.ultimate_linefeed_max_offsets == "70"
+    assert no_next.groundhogday_visual_guard == "strict"
     assert no_next.bad_missplaced is True
     assert no_next.set_skip_bad_no_next_chunk is namespace["FixItFelix_Set_Skip_Bad_No_Next_Chunk"]
     assert no_next.set_eof is namespace["FixItFelix_Set_EOF"]
