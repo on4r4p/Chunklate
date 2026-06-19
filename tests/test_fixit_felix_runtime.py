@@ -31,6 +31,19 @@ def valid_png_bytes():
     )
 
 
+def test_sbb_reference_regions_path_normalizes_fixed_clone_origin(tmp_path):
+    origin = tmp_path / "Folder_Flag.3_Fixed" / "Flag.3_Fixed.png"
+    runtime = SimpleNamespace(
+        ultimate_linefeed_reference_regions=lambda: "",
+        file_origin=str(origin),
+        file_dir=str(tmp_path),
+    )
+
+    path = fixit_felix_runtime._sbb_reference_regions_path(runtime)
+
+    assert path == str(tmp_path / "Folder_Flag" / "_ULF.reference_regions.json")
+
+
 def test_idat_diagnostic_artifact_uses_runtime_clone_folder(tmp_path):
     side_notes = []
     runtime = SimpleNamespace(
@@ -73,8 +86,8 @@ def test_idat_diagnostic_artifact_uses_runtime_clone_folder(tmp_path):
 
     assert path is not None
     artifact = Path(path)
-    assert artifact.parent == tmp_path / "Folder_Flag.1_Fixed" / "Debug_Payloads"
-    assert artifact.name.startswith("Flag.1_Fixed_idat_lf_diagnostic_state6_")
+    assert artifact.parent == tmp_path / "Folder_Flag" / "Debug_Payloads"
+    assert artifact.name.startswith("Flag_idat_lf_diagnostic_state6_")
     assert artifact.read_bytes() == b"not-a-final-png"
     assert not (tmp_path / "Folder_idat_diagnostic").exists()
     assert any(
@@ -2090,6 +2103,28 @@ def bad_adler_png_hex():
     return data.hex()
 
 
+def bad_adler_three_scanline_png_bytes():
+    ihdr = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x03\x08\x00\x00\x00\x00",
+    )
+    filtered = b"\x00A\x00B\x00C"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    return PNG_SIGNATURE + ihdr + build_png_chunk(b"IDAT", bytes(compressed)) + IEND_CHUNK
+
+
+def bad_adler_three_scanline_one_bad_filter_png_bytes():
+    ihdr = build_png_chunk(
+        b"IHDR",
+        b"\x00\x00\x00\x01\x00\x00\x00\x03\x08\x00\x00\x00\x00",
+    )
+    filtered = b"\x00A\x00B\x11C"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    return PNG_SIGNATURE + ihdr + build_png_chunk(b"IDAT", bytes(compressed)) + IEND_CHUNK
+
+
 def wrong_crc_runtime(
     calls,
     *,
@@ -2238,6 +2273,57 @@ def idat_deep_beam_seed(data, *, state_id=1, kind="test-seed"):
         state_id=state_id,
         parent_id=0,
         source_offsets=(0,),
+        score=(state_id,),
+    )
+
+
+def idat_progress_seed(
+    data,
+    *,
+    state_id,
+    usable_scanlines,
+    decompressed_size,
+    kind="test-seed",
+    complete_scanlines=None,
+):
+    before = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=10,
+        expected_size=1000,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=1,
+    )
+    after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="bad_adler",
+        height=10,
+        expected_size=1000,
+        decompressed_size=decompressed_size,
+        usable_scanlines=usable_scanlines,
+        complete_scanlines=usable_scanlines if complete_scanlines is None else complete_scanlines,
+        error_offset=state_id,
+    )
+    stream = b"stream-%d" % state_id
+    return idat_bruteforce.IdatDeepBeamCandidate(
+        data=data + bytes((state_id,)),
+        stream=stream,
+        operations=(
+            idat_bruteforce.IdatDeepBeamOperation(
+                kind,
+                state_id,
+                stream[:1],
+                stream[-1:],
+            ),
+        ),
+        before=before,
+        after=after,
+        state_id=state_id,
+        parent_id=0,
+        source_offsets=(state_id,),
         score=(state_id,),
     )
 
@@ -2673,9 +2759,18 @@ def test_hermesprobe_runs_post_deep_routes_before_consuming_live_seed(monkeypatc
 
     def post_deep_backref(_runtime, _data, _analysis, *, seed_candidates=(), path_label="kraft_backref", seed_checkpoint_path=None):
         calls.append(("post_deep_backref", path_label, seed_candidates, seed_checkpoint_path))
-        assert path_label == "kraft_backref_deep"
+        assert path_label in {"kraft_backref_deep", "kraft_backref_deep2"}
         assert seed_checkpoint_path == ""
         assert seed_candidates == (seed,)
+        if path_label == "kraft_backref_deep2":
+            return idat_bruteforce.IdatKraftBackrefRepairResult(
+                before,
+                None,
+                (seed,),
+                1,
+                False,
+                reason="mocked",
+            )
         return idat_bruteforce.IdatKraftBackrefRepairResult(
             before,
             seed,
@@ -2687,6 +2782,8 @@ def test_hermesprobe_runs_post_deep_routes_before_consuming_live_seed(monkeypatc
 
     monkeypatch.setattr(idat_bruteforce, "probe_idat_deflate_deep_beam", no_deep_best)
     monkeypatch.setattr(fixit_felix_runtime, "_run_idat_kraft_backref_runtime", post_deep_backref)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_stored_block_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_seed_local_continuation_runtime", lambda *_args, **_kwargs: (None, ()))
 
     result = fixit_felix_runtime._run_idat_deep_beam_runtime(
         runtime,
@@ -5439,6 +5536,1662 @@ def test_stored_block_complete_candidate_writes_final_clone():
     assert not any("not promoted as clone" in note for note in side_notes)
 
 
+def test_seed_local_continuation_keeps_incomplete_progress_as_seed(monkeypatch):
+    data = valid_png_bytes()
+    _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    seed_after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=80,
+        usable_scanlines=1,
+        error_offset=40,
+    )
+    improved_after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="bad_adler",
+        height=4,
+        expected_size=200,
+        decompressed_size=96,
+        usable_scanlines=1,
+        error_offset=48,
+    )
+    seed = idat_bruteforce.IdatDeepBeamCandidate(
+        data=data,
+        stream=stream,
+        operations=(idat_bruteforce.IdatDeepBeamOperation("stored-block", 1, b"\x00", b"\x01"),),
+        before=analysis,
+        after=seed_after,
+        state_id=10,
+        score=(1,),
+    )
+    calls = []
+
+    def fake_local_probe(probe_data, **_kwargs):
+        calls.append(probe_data)
+        return idat_bruteforce.IdatDeflateProbeResult(
+            before=seed_after,
+            best=idat_bruteforce.IdatDeflateCandidate(
+                data=data,
+                stream_offset=2,
+                file_offset=3,
+                idat_index=1,
+                idat_offset=2,
+                old_byte=0,
+                new_byte=0,
+                before=seed_after,
+                after=improved_after,
+                edit_kind="insert",
+                new_bytes=b"\x00",
+            ),
+            window_start=40,
+            window_end=60,
+            tested_candidates=1,
+            budget_exhausted=False,
+            strategy="deflate-local",
+            reason="mocked",
+        )
+
+    monkeypatch.setattr(idat_bruteforce, "probe_idat_deflate_local_candidates", fake_local_probe)
+    monkeypatch.setattr(fixit_felix_runtime, "_write_idat_deep_beam_debug_artifacts", lambda *_args, **_kwargs: ())
+    runtime = SimpleNamespace(
+        file_origin="",
+        file_dir="",
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+        write_clone=lambda *_args, **_kwargs: "written",
+        minibar=None,
+        loadingbar=None,
+        seed_local_continuation_rounds=1,
+    )
+
+    written, seeds = fixit_felix_runtime._run_idat_seed_local_continuation_runtime(
+        runtime,
+        data,
+        analysis,
+        (seed,),
+    )
+
+    assert written is None
+    assert seeds
+    assert seeds[0].after.decompressed_size == 96
+    assert seeds[0].operations[-1].kind == "seed-local-deflate"
+    assert calls
+    assert not any(
+        fixit_felix_runtime.FINAL_INVESTIGATION_LABEL in note
+        and "produced no final clone" in note
+        for note in runtime.side_notes
+    )
+
+
+def test_seed_local_continuation_keeps_diagnostic_branch_as_seed(monkeypatch):
+    data = valid_png_bytes()
+    _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    seed_after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=80,
+        usable_scanlines=1,
+        error_offset=40,
+    )
+    best_after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=84,
+        usable_scanlines=1,
+        error_offset=42,
+    )
+    diagnostic_after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=96,
+        usable_scanlines=1,
+        error_offset=48,
+    )
+    seed = idat_bruteforce.IdatDeepBeamCandidate(
+        data=data,
+        stream=stream,
+        operations=(idat_bruteforce.IdatDeepBeamOperation("stored-block", 1, b"\x00", b"\x01"),),
+        before=analysis,
+        after=seed_after,
+        state_id=10,
+        score=(1,),
+    )
+    best_mutation = idat_bruteforce.mutate_idat_stream_byte(
+        data,
+        2,
+        stream[2] ^ 0x01,
+        before_analysis=seed_after,
+    )
+    diagnostic_mutation = idat_bruteforce.mutate_idat_stream_byte(
+        data,
+        2,
+        stream[2] ^ 0x02,
+        before_analysis=seed_after,
+    )
+    assert best_mutation is not None
+    assert diagnostic_mutation is not None
+
+    def fake_local_probe(_probe_data, **_kwargs):
+        return idat_bruteforce.IdatDeflateProbeResult(
+            before=seed_after,
+            best=idat_bruteforce.IdatDeflateCandidate(
+                data=best_mutation.data,
+                stream_offset=2,
+                file_offset=3,
+                idat_index=1,
+                idat_offset=2,
+                old_byte=stream[2],
+                new_byte=stream[2] ^ 0x01,
+                before=seed_after,
+                after=best_after,
+                edit_kind="replace",
+                old_bytes=bytes((stream[2],)),
+                new_bytes=bytes((stream[2] ^ 0x01,)),
+            ),
+            window_start=40,
+            window_end=60,
+            tested_candidates=2,
+            budget_exhausted=False,
+            strategy="deflate-local",
+            reason="mocked",
+            diagnostic_best=idat_bruteforce.IdatDeflateCandidate(
+                data=diagnostic_mutation.data,
+                stream_offset=2,
+                file_offset=3,
+                idat_index=1,
+                idat_offset=2,
+                old_byte=stream[2],
+                new_byte=stream[2] ^ 0x02,
+                before=seed_after,
+                after=diagnostic_after,
+                edit_kind="replace",
+                old_bytes=bytes((stream[2],)),
+                new_bytes=bytes((stream[2] ^ 0x02,)),
+            ),
+        )
+
+    monkeypatch.setattr(idat_bruteforce, "probe_idat_deflate_local_candidates", fake_local_probe)
+    monkeypatch.setattr(fixit_felix_runtime, "_write_idat_deep_beam_debug_artifacts", lambda *_args, **_kwargs: ())
+    runtime = SimpleNamespace(
+        file_origin="",
+        file_dir="",
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+        write_clone=lambda *_args, **_kwargs: "written",
+        minibar=None,
+        loadingbar=None,
+        seed_local_continuation_rounds=1,
+        seed_local_continuation_limit=2,
+    )
+
+    written, seeds = fixit_felix_runtime._run_idat_seed_local_continuation_runtime(
+        runtime,
+        data,
+        analysis,
+        (seed,),
+    )
+
+    assert written is None
+    assert {candidate.operations[-1].kind for candidate in seeds} == {
+        "seed-local-deflate",
+        "seed-local-deflate-diagnostic",
+    }
+    assert max(candidate.after.decompressed_size for candidate in seeds) == 96
+
+
+def test_filter_alignment_keeps_png_filter_progress_as_seed(monkeypatch):
+    data = valid_png_bytes()
+    _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    seed_after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=80,
+        usable_scanlines=1,
+        error_offset=40,
+    )
+    improved_after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=84,
+        usable_scanlines=1,
+        error_offset=42,
+    )
+    seed = idat_bruteforce.IdatDeepBeamCandidate(
+        data=data,
+        stream=stream,
+        operations=(idat_bruteforce.IdatDeepBeamOperation("stored-block", 1, b"\x00", b"\x01"),),
+        before=analysis,
+        after=seed_after,
+        state_id=10,
+        score=(1,),
+    )
+    calls = []
+
+    def fake_local_probe(probe_data, **kwargs):
+        calls.append((probe_data, kwargs))
+        return idat_bruteforce.IdatDeflateProbeResult(
+            before=seed_after,
+            best=idat_bruteforce.IdatDeflateCandidate(
+                data=data,
+                stream_offset=3,
+                file_offset=4,
+                idat_index=1,
+                idat_offset=3,
+                old_byte=0,
+                new_byte=4,
+                before=seed_after,
+                after=improved_after,
+                edit_kind="insert",
+                new_bytes=b"\x04",
+            ),
+            window_start=40,
+            window_end=60,
+            tested_candidates=1,
+            budget_exhausted=False,
+            strategy="deflate-local-png-filter",
+            reason="mocked",
+        )
+
+    artifact_labels = []
+    monkeypatch.setattr(idat_bruteforce, "probe_idat_deflate_local_candidates", fake_local_probe)
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_write_idat_deep_beam_debug_artifacts",
+        lambda *_args, **kwargs: artifact_labels.append(kwargs.get("label")) or (),
+    )
+    runtime = SimpleNamespace(
+        file_origin="",
+        file_dir="",
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+        write_clone=lambda *_args, **_kwargs: "written",
+        minibar=None,
+        loadingbar=None,
+        seed_local_continuation_budget=17,
+        seed_local_continuation_limit=1,
+    )
+
+    written, seeds = fixit_felix_runtime._run_idat_filter_alignment_runtime(
+        runtime,
+        data,
+        analysis,
+        (seed,),
+    )
+
+    assert written is None
+    assert seeds
+    assert seeds[0].operations[-1].kind == "seed-local-png-filter"
+    assert calls[0][1]["score_mode"] == "png-filter"
+    assert artifact_labels == ["idat_filter_alignment"]
+
+
+def test_filter_seed_stored_block_returns_incomplete_progress_as_seed(monkeypatch):
+    data = valid_png_bytes()
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=80,
+        usable_scanlines=1,
+        error_offset=40,
+    )
+    seed = idat_deep_beam_seed(data, state_id=12, kind="png-filter-seed")
+    stored_result = _stored_block_candidate_result(complete=False)
+    calls = []
+
+    def fake_stored(_runtime, _data, _analysis, **kwargs):
+        calls.append(kwargs)
+        return stored_result
+
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_stored_block_runtime", fake_stored)
+    runtime = SimpleNamespace(
+        file_origin="",
+        file_dir="",
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+        write_clone=lambda *_args, **_kwargs: "written",
+        minibar=None,
+        loadingbar=None,
+        seed_local_continuation_limit=1,
+    )
+
+    written, seeds = fixit_felix_runtime._run_idat_filter_seed_stored_block_runtime(
+        runtime,
+        data,
+        analysis,
+        (seed,),
+    )
+
+    assert written is None
+    assert seeds == stored_result.top_candidates
+    assert calls
+    assert calls[0]["path_label"] == "stored_block_filter_seed"
+    assert calls[0]["seed_candidates"] == (seed,)
+    assert any("stored-block filter-seed route produced" in note for note in runtime.side_notes)
+
+
+def test_seed_local_continuation_uses_runtime_round_configuration(monkeypatch):
+    data = valid_png_bytes()
+    _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    seed_after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=80,
+        usable_scanlines=1,
+        error_offset=40,
+    )
+    seed = idat_bruteforce.IdatDeepBeamCandidate(
+        data=data,
+        stream=stream,
+        operations=(idat_bruteforce.IdatDeepBeamOperation("stored-block", 1, b"\x00", b"\x01"),),
+        before=analysis,
+        after=seed_after,
+        state_id=10,
+        score=(1,),
+    )
+    calls = []
+
+    def fake_local_probe(probe_data, **_kwargs):
+        calls.append(probe_data)
+        improved_after = idat.IdatStreamAnalysis(
+            supported=True,
+            complete=False,
+            status="corrupt_deflate",
+            height=4,
+            expected_size=200,
+            decompressed_size=80 + len(calls),
+            usable_scanlines=1,
+            error_offset=40 + len(calls),
+        )
+        return idat_bruteforce.IdatDeflateProbeResult(
+            before=seed_after,
+            best=idat_bruteforce.IdatDeflateCandidate(
+                data=data,
+                stream_offset=len(calls),
+                file_offset=len(calls),
+                idat_index=1,
+                idat_offset=len(calls),
+                old_byte=0,
+                new_byte=len(calls),
+                before=seed_after,
+                after=improved_after,
+                edit_kind="insert",
+                new_bytes=bytes((len(calls),)),
+            ),
+            window_start=40,
+            window_end=60,
+            tested_candidates=1,
+            budget_exhausted=False,
+            strategy="deflate-local",
+            reason="mocked",
+        )
+
+    monkeypatch.setattr(idat_bruteforce, "probe_idat_deflate_local_candidates", fake_local_probe)
+    monkeypatch.setattr(fixit_felix_runtime, "_write_idat_deep_beam_debug_artifacts", lambda *_args, **_kwargs: ())
+    runtime = SimpleNamespace(
+        file_origin="",
+        file_dir="",
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+        write_clone=lambda *_args, **_kwargs: "written",
+        minibar=None,
+        loadingbar=None,
+        seed_local_continuation_rounds=3,
+        seed_local_continuation_budget=17,
+        seed_local_continuation_limit=1,
+    )
+
+    written, seeds = fixit_felix_runtime._run_idat_seed_local_continuation_runtime(
+        runtime,
+        data,
+        analysis,
+        (seed,),
+    )
+
+    assert written is None
+    assert len(calls) == 3
+    assert seeds
+    assert "budget=17" in runtime.side_notes[0]
+    assert "3 round" in runtime.side_notes[0]
+
+
+def test_seed_local_continuation_prefers_artifact_seeds_before_checkpoints(monkeypatch):
+    data = valid_png_bytes()
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    seed = idat_deep_beam_seed(data, state_id=7, kind="artifact-seed")
+    calls = []
+
+    def artifact_loader(_runtime, _data, _analysis, *, limit):
+        calls.append(("artifact", limit))
+        return (seed,)
+
+    def checkpoint_loader(*_args, **_kwargs):
+        raise AssertionError("checkpoint loader should not run when artifact seeds exist")
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_load_idat_artifact_seed_candidates",
+        artifact_loader,
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_load_final_investigation_seed_candidates",
+        checkpoint_loader,
+    )
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "probe_idat_deflate_local_candidates",
+        lambda *_args, **_kwargs: idat_bruteforce.IdatDeflateProbeResult(
+            seed.after,
+            None,
+            0,
+            0,
+            0,
+            False,
+            strategy="deflate-local",
+            reason="mocked",
+        ),
+    )
+    runtime = SimpleNamespace(
+        file_origin="",
+        file_dir="",
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+        write_clone=lambda *_args, **_kwargs: "written",
+        minibar=None,
+        loadingbar=None,
+        seed_local_continuation_limit=1,
+    )
+
+    result, seeds = fixit_felix_runtime._run_idat_seed_local_continuation_runtime(
+        runtime,
+        data,
+        analysis,
+    )
+
+    assert result is None
+    assert seeds == ()
+    assert calls == [("artifact", 1)]
+
+
+def test_GroundHogDay_repair_prioritizes_local_before_row_filter_unlock(monkeypatch):
+    data = valid_png_bytes()
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=10,
+        expected_size=1000,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    initial = idat_progress_seed(
+        data,
+        state_id=1,
+        usable_scanlines=0,
+        decompressed_size=100,
+        kind="initial",
+    )
+    local_one = idat_progress_seed(
+        data,
+        state_id=2,
+        usable_scanlines=1,
+        decompressed_size=200,
+        kind="seed-local",
+    )
+    local_two = idat_progress_seed(
+        data,
+        state_id=3,
+        usable_scanlines=2,
+        decompressed_size=400,
+        kind="seed-local",
+    )
+    row_unlock = idat_progress_seed(
+        data,
+        state_id=4,
+        usable_scanlines=3,
+        decompressed_size=600,
+        kind="row-filter",
+    )
+    local_after_row = idat_progress_seed(
+        data,
+        state_id=5,
+        usable_scanlines=4,
+        decompressed_size=800,
+        kind="seed-local",
+    )
+    calls = []
+    row_outputs = [(None, (row_unlock,)), (None, ())]
+    local_outputs = [
+        (None, (local_one,)),
+        (None, (local_two,)),
+        (None, ()),
+        (None, (local_after_row,)),
+        (None, ()),
+    ]
+    candy_calls = []
+
+    def fake_row_filter(_runtime, _data, _analysis, seed_candidates=()):
+        _runtime.candy("Title", "probe_idat_png_filter_literal_repair")
+        calls.append(("row", tuple(seed.state_id for seed in seed_candidates)))
+        return row_outputs.pop(0)
+
+    def fake_seed_local(_runtime, _data, _analysis, seed_candidates=()):
+        _runtime.candy("Title", "probe_idat_seed_local_continuation")
+        calls.append(
+            (
+                "local",
+                tuple(seed.state_id for seed in seed_candidates),
+                _runtime.seed_local_continuation_rounds,
+            )
+        )
+        return local_outputs.pop(0)
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_row_filter_literal_repair_runtime",
+        fake_row_filter,
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_seed_local_continuation_runtime",
+        fake_seed_local,
+    )
+    runtime = SimpleNamespace(
+        side_notes=[],
+        candy=lambda *args, **_kwargs: candy_calls.append(args),
+        prefinal_repair_cycles=4,
+        seed_local_continuation_limit=1,
+    )
+
+    result, seeds = fixit_felix_runtime._GroundHogDay_run_idat_prefinal_alternating_repair_runtime(
+        runtime,
+        data,
+        analysis,
+        (initial,),
+    )
+
+    assert result is None
+    assert seeds == (local_after_row,)
+    assert calls == [
+        ("local", (1,), 1),
+        ("local", (2,), 1),
+        ("local", (3,), 1),
+        ("row", (3,)),
+        ("local", (4,), 1),
+        ("local", (5,), 1),
+        ("row", (5,)),
+    ]
+    assert any("GroundHogDay cycle 2/4 accepted local seed" in note for note in runtime.side_notes)
+    assert any("GroundHogDay cycle 3/4 accepted row-filter seed" in note for note in runtime.side_notes)
+    assert any("GroundHogDay cycle 3/4 accepted local-after-row seed" in note for note in runtime.side_notes)
+    assert any(
+        "GroundHogDay starts before %s" % fixit_felix_runtime.FINAL_INVESTIGATION_LABEL
+        in call[1]
+        for call in candy_calls
+    )
+    assert any("not looping blindly" in call[1] for call in candy_calls)
+    assert [call for call in candy_calls if call[0] == "Title"] == [
+        ("Title", "GroundHogDay 1: probe_idat_seed_local_continuation"),
+        ("Title", "GroundHogDay 2: probe_idat_seed_local_continuation"),
+        ("Title", "GroundHogDay 3: probe_idat_seed_local_continuation"),
+        ("Title", "GroundHogDay 3: probe_idat_png_filter_literal_repair"),
+        ("Title", "GroundHogDay 3: probe_idat_seed_local_continuation"),
+        ("Title", "GroundHogDay 4: probe_idat_seed_local_continuation"),
+        ("Title", "GroundHogDay 4: probe_idat_png_filter_literal_repair"),
+    ]
+
+
+def test_GroundHogDay_row_filter_waits_until_local_stalls_with_unusable_rows(monkeypatch):
+    data = valid_png_bytes()
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=10,
+        expected_size=1000,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    initial = idat_progress_seed(
+        data,
+        state_id=1,
+        usable_scanlines=1,
+        complete_scanlines=1,
+        decompressed_size=100,
+        kind="initial",
+    )
+    local_unusable_rows = idat_progress_seed(
+        data,
+        state_id=2,
+        usable_scanlines=1,
+        complete_scanlines=3,
+        decompressed_size=300,
+        kind="seed-local",
+    )
+    row_fixed = idat_progress_seed(
+        data,
+        state_id=3,
+        usable_scanlines=3,
+        complete_scanlines=3,
+        decompressed_size=300,
+        kind="row-filter",
+    )
+    calls = []
+    local_outputs = [(None, (local_unusable_rows,)), (None, ()), (None, ())]
+    row_outputs = [(None, (row_fixed,))]
+    candy_calls = []
+
+    def fake_seed_local(_runtime, _data, _analysis, seed_candidates=()):
+        _runtime.candy("Title", "probe_idat_seed_local_continuation")
+        calls.append(
+            (
+                "local",
+                tuple(seed.state_id for seed in seed_candidates),
+                _runtime.seed_local_continuation_rounds,
+            )
+        )
+        return local_outputs.pop(0)
+
+    def fake_row_filter(_runtime, _data, _analysis, seed_candidates=()):
+        _runtime.candy("Title", "probe_idat_png_filter_literal_repair")
+        calls.append(("row", tuple(seed.state_id for seed in seed_candidates)))
+        return row_outputs.pop(0)
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_seed_local_continuation_runtime",
+        fake_seed_local,
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_row_filter_literal_repair_runtime",
+        fake_row_filter,
+    )
+    runtime = SimpleNamespace(
+        side_notes=[],
+        candy=lambda *args, **_kwargs: candy_calls.append(args),
+        prefinal_repair_cycles=2,
+        seed_local_continuation_limit=1,
+    )
+
+    result, seeds = fixit_felix_runtime._GroundHogDay_run_idat_prefinal_alternating_repair_runtime(
+        runtime,
+        data,
+        analysis,
+        (initial,),
+    )
+
+    assert result is None
+    assert seeds == (row_fixed,)
+    assert calls == [
+        ("local", (1,), 1),
+        ("local", (2,), 1),
+        ("row", (2,)),
+        ("local", (3,), 1),
+    ]
+    assert any("postponed row-filter repair" in note for note in runtime.side_notes)
+    assert any("PNG filters are still dirty" in call[1] for call in candy_calls)
+    assert [call for call in candy_calls if call[0] == "Title"] == [
+        ("Title", "GroundHogDay 1: probe_idat_seed_local_continuation"),
+        ("Title", "GroundHogDay 2: probe_idat_seed_local_continuation"),
+        ("Title", "GroundHogDay 2: probe_idat_png_filter_literal_repair"),
+        ("Title", "GroundHogDay 2: probe_idat_seed_local_continuation"),
+    ]
+
+
+def test_row_filter_literal_repair_tries_fast_pass_before_wide_fallback(monkeypatch):
+    data = valid_png_bytes()
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=10,
+        expected_size=1000,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    seed = idat_progress_seed(
+        data,
+        state_id=8,
+        usable_scanlines=1,
+        complete_scanlines=2,
+        decompressed_size=300,
+        kind="row-filter-seed",
+    )
+    calls = []
+
+    def fake_probe(_data, **kwargs):
+        calls.append(kwargs)
+        return idat_bruteforce.IdatDeflateProbeResult(
+            analysis,
+            None,
+            0,
+            0,
+            11,
+            False,
+            "png-filter-literal-repair",
+            "mocked",
+        )
+
+    monkeypatch.setattr(
+        fixit_felix_runtime.idat_bruteforce,
+        "probe_idat_png_filter_literal_repair",
+        fake_probe,
+    )
+    runtime = SimpleNamespace(
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+        seed_local_continuation_limit=1,
+        ultimate_linefeed_budget=0,
+        loadingbar=None,
+        minibar=None,
+    )
+
+    result, seeds = fixit_felix_runtime._run_idat_row_filter_literal_repair_runtime(
+        runtime,
+        data,
+        analysis,
+        (seed,),
+    )
+
+    assert result is None
+    assert seeds == ()
+    assert len(calls) == 2
+    assert calls[0]["max_rows"] == 32
+    assert calls[0]["max_repairs"] == 4
+    assert calls[0]["search_radius"] == 4
+    assert calls[0]["candidate_budget"] == 4000
+    assert calls[1]["max_rows"] == 64
+    assert calls[1]["max_repairs"] == 64
+    assert "search_radius" not in calls[1]
+    assert "candidate_budget" not in calls[1]
+    assert any("fast pass produced no stronger seed" in note for note in runtime.side_notes)
+
+
+def test_GroundHogDay_linefeed_route_promotes_insert_candidate(monkeypatch):
+    data = valid_png_bytes()
+    initial = idat_progress_seed(
+        data,
+        state_id=8,
+        usable_scanlines=1,
+        decompressed_size=100,
+        kind="groundhogday-seed",
+    )
+    candidate_data = bad_adler_three_scanline_png_bytes()
+    candidate_analysis = idat.analyze_idat_stream(candidate_data)
+    candidate = idat_bruteforce.IdatLinefeedInsertCandidate(
+        data=candidate_data,
+        stream_offset=3,
+        inserted_byte=0x0A,
+        before=initial.after,
+        after=candidate_analysis,
+    )
+    calls = []
+
+    def fake_lf(_data, **kwargs):
+        calls.append(("lf", _data, kwargs))
+        return idat_bruteforce.IdatLinefeedInsertProbeResult(
+            initial.after,
+            candidate,
+            0,
+            12,
+            1,
+            False,
+            strategy="linefeed-lf-insert",
+            reason="mocked",
+        )
+
+    def fake_cr(_data, **kwargs):
+        calls.append(("cr", _data, kwargs))
+        return idat_bruteforce.IdatLinefeedInsertProbeResult(
+            initial.after,
+            None,
+            0,
+            12,
+            1,
+            False,
+            strategy="linefeed-cr-insert",
+            reason="mocked",
+        )
+
+    def fake_super(_data, **kwargs):
+        calls.append(("super", _data, kwargs))
+        return idat_bruteforce.SuperMegaLinefeedProbeResult(
+            initial.after,
+            None,
+            None,
+            0,
+            0,
+            12,
+            1,
+            False,
+            reason="mocked",
+        )
+
+    monkeypatch.setattr(idat_bruteforce, "probe_idat_linefeed_lf_insertions", fake_lf)
+    monkeypatch.setattr(idat_bruteforce, "probe_idat_linefeed_cr_insertions", fake_cr)
+    monkeypatch.setattr(idat_bruteforce, "probe_super_mega_linefeed_force_of_death", fake_super)
+    monkeypatch.setattr(fixit_felix_runtime, "_write_idat_deep_beam_debug_artifacts", lambda *_args, **_kwargs: ())
+    candy_calls = []
+    runtime = SimpleNamespace(
+        file_origin="",
+        file_dir="",
+        side_notes=[],
+        candy=lambda *args, **_kwargs: candy_calls.append(args),
+        seed_local_continuation_limit=1,
+        loadingbar=None,
+        minibar=None,
+    )
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=10,
+        expected_size=1000,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+
+    result, seeds = fixit_felix_runtime._run_idat_groundhogday_linefeed_runtime(
+        runtime,
+        data,
+        analysis,
+        (initial,),
+    )
+
+    assert result is None
+    assert len(seeds) == 1
+    assert seeds[0].data == candidate_data
+    assert seeds[0].parent_id == 8
+    assert seeds[0].after.usable_scanlines == 3
+    assert seeds[0].operations[-1].kind == "groundhogday-linefeed-insert-0a"
+    assert [call[0] for call in calls] == ["lf", "cr", "super"]
+    assert any("linefeed corruption hypothesis seriously" in call[1] for call in candy_calls)
+    assert ("Title", "probe_idat_groundhogday_linefeed_seed_repair") in candy_calls
+    assert any("GroundHogDay linefeed route" in note for note in runtime.side_notes)
+
+
+def test_GroundHogDay_linefeed_route_promotes_ultimate_candidate(monkeypatch):
+    data = valid_png_bytes()
+    initial = idat_progress_seed(
+        data,
+        state_id=8,
+        usable_scanlines=1,
+        decompressed_size=100,
+        kind="groundhogday-seed",
+    )
+    candidate_data = bad_adler_three_scanline_png_bytes()
+    candidate_analysis = idat.analyze_idat_stream(candidate_data)
+    ultimate_candidate = idat_bruteforce.SuperMegaLinefeedCandidate(
+        data=candidate_data,
+        operations=(
+            idat_bruteforce.SuperMegaLinefeedOperation(
+                "ultimate-insert-cr-before-lf",
+                5,
+                b"",
+                b"\r",
+            ),
+        ),
+        before=initial.after,
+        after=candidate_analysis,
+        state_id=91,
+        parent_id=8,
+        source_offsets=(5,),
+        score=idat_bruteforce.super_mega_linefeed_score(candidate_analysis, 1),
+    )
+    calls = []
+
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "probe_idat_linefeed_lf_insertions",
+        lambda *_args, **_kwargs: idat_bruteforce.IdatLinefeedInsertProbeResult(
+            initial.after,
+            None,
+            0,
+            12,
+            1,
+            False,
+            strategy="linefeed-lf-insert",
+        ),
+    )
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "probe_idat_linefeed_cr_insertions",
+        lambda *_args, **_kwargs: idat_bruteforce.IdatLinefeedInsertProbeResult(
+            initial.after,
+            None,
+            0,
+            12,
+            1,
+            False,
+            strategy="linefeed-cr-insert",
+        ),
+    )
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "probe_super_mega_linefeed_force_of_death",
+        lambda *_args, **_kwargs: idat_bruteforce.SuperMegaLinefeedProbeResult(
+            initial.after,
+            None,
+            None,
+            0,
+            0,
+            12,
+            1,
+            False,
+            reason="mocked",
+        ),
+    )
+
+    def fake_ultimate(_data, **kwargs):
+        calls.append(kwargs)
+        return idat_bruteforce.UltimateLinefeedProbeResult(
+            before=initial.after,
+            best=ultimate_candidate,
+            target_adler=None,
+            start_offset=kwargs.get("start_offset"),
+            reached_depth=1,
+            max_depth=kwargs.get("max_depth"),
+            suspect_offsets=(5,),
+            tested_candidates=7,
+            state_count=2,
+            visited_count=2,
+            pruned_candidates=0,
+            resumed_states=0,
+            checkpoint_path=kwargs.get("checkpoint_path", ""),
+            budget_exhausted=False,
+            top_candidates=(ultimate_candidate,),
+            progress_path=kwargs.get("progress_path", ""),
+        )
+
+    monkeypatch.setattr(idat_bruteforce, "probe_ultimate_mega_super_linefeed_bruteforce", fake_ultimate)
+    monkeypatch.setattr(fixit_felix_runtime, "_write_idat_deep_beam_debug_artifacts", lambda *_args, **_kwargs: ())
+    candy_calls = []
+    runtime = SimpleNamespace(
+        file_origin="",
+        file_dir="",
+        side_notes=[],
+        candy=lambda *args, **_kwargs: candy_calls.append(args),
+        seed_local_continuation_limit=1,
+        ultimate_linefeed_budget=1234,
+        ultimate_linefeed_workers=0,
+        ultimate_linefeed_max_depth=2,
+        ultimate_linefeed_max_offsets=64,
+        loadingbar=None,
+        minibar=None,
+    )
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=10,
+        expected_size=1000,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+
+    result, seeds = fixit_felix_runtime._run_idat_groundhogday_linefeed_runtime(
+        runtime,
+        data,
+        analysis,
+        (initial,),
+    )
+
+    assert result is None
+    assert len(seeds) == 1
+    assert seeds[0].data == candidate_data
+    assert seeds[0].parent_id == 8
+    assert seeds[0].operations[-1].kind == "groundhogday-linefeed-ultimate-insert-cr-before-lf"
+    assert calls[0]["budget"] == 1234
+    assert calls[0]["max_depth"] == 2
+    assert calls[0]["max_offsets"] == 64
+    assert any("UltimateLineFeed" in note for note in runtime.side_notes)
+    assert ("Title", "probe_groundhogday_ultimate_linefeed") in candy_calls
+
+
+def test_GroundHogDay_seed_routes_checkpoint_progress_then_stop_on_plateau(monkeypatch, tmp_path):
+    data = valid_png_bytes()
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=10,
+        expected_size=1000,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    initial = idat_progress_seed(
+        data,
+        state_id=1,
+        usable_scanlines=0,
+        decompressed_size=100,
+        kind="initial",
+    )
+    stored_seed = idat_progress_seed(
+        data,
+        state_id=2,
+        usable_scanlines=1,
+        decompressed_size=250,
+        kind="stored-block-filter-seed",
+    )
+    calls = []
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_GroundHogDay_run_idat_prefinal_alternating_repair_runtime",
+        lambda *_args, **_kwargs: (None, ()),
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_filter_alignment_runtime",
+        lambda *_args, **_kwargs: (None, ()),
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_groundhogday_linefeed_runtime",
+        lambda *_args, **_kwargs: (None, ()),
+    )
+
+    def fake_stored(_runtime, _data, _analysis, seed_candidates=()):
+        _runtime.candy("Title", "probe_idat_stored_block_length_repair")
+        calls.append(("stored", tuple(seed.state_id for seed in seed_candidates)))
+        return None, (stored_seed,)
+
+    def fake_row_after_stored(_runtime, _data, _analysis, seed_candidates=()):
+        _runtime.candy("Title", "probe_idat_png_filter_literal_repair")
+        calls.append(("row-after-stored", tuple(seed.state_id for seed in seed_candidates)))
+        return None, ()
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_filter_seed_stored_block_runtime",
+        fake_stored,
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_row_filter_literal_repair_runtime",
+        fake_row_after_stored,
+    )
+    candy_calls = []
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        side_notes=[],
+        candy=lambda *args, **_kwargs: candy_calls.append(args),
+        prefinal_repair_batches=1,
+    )
+
+    result, seeds, deferred = fixit_felix_runtime._GroundHogDay_run_idat_prefinal_seed_routes_runtime(
+        runtime,
+        data,
+        analysis,
+        (initial,),
+    )
+
+    assert result is None
+    assert seeds == (stored_seed,)
+    assert deferred is False
+    assert calls == [("stored", (1,)), ("row-after-stored", (2,)), ("stored", (2,))]
+    assert any("checkpoint interval reached after batch 1" in note for note in runtime.side_notes)
+    assert any("stopped after batch 2: no stronger seed" in note for note in runtime.side_notes)
+    assert any("plateau checkpoint saved" in note for note in runtime.side_notes)
+    assert any("last-resort handoff" in note for note in runtime.side_notes)
+    assert not any("deferred" in note for note in runtime.side_notes)
+    resume_path = tmp_path / "Folder_Flag" / "Debug_Payloads" / "Flag_groundhogday.resume.json"
+    assert resume_path.is_file()
+    assert json.loads(resume_path.read_text(encoding="utf-8"))["best"]["state_id"] == 2
+    assert any("saved preview/resume artifacts" in call[1] for call in candy_calls)
+    assert any("last-resort handoff" in call[1] for call in candy_calls)
+    assert [call for call in candy_calls if call[0] == "Title"] == [
+        ("Title", "GroundHogDay 1: probe_idat_stored_block_length_repair"),
+        ("Title", "GroundHogDay 1: probe_idat_png_filter_literal_repair"),
+        ("Title", "GroundHogDay 2: probe_idat_stored_block_length_repair"),
+    ]
+
+
+def test_GroundHogDay_seed_routes_handoff_to_final_after_batch_plateau(monkeypatch):
+    data = valid_png_bytes()
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=10,
+        expected_size=1000,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    initial = idat_progress_seed(
+        data,
+        state_id=1,
+        usable_scanlines=0,
+        decompressed_size=100,
+        kind="initial",
+    )
+    first = idat_progress_seed(
+        data,
+        state_id=2,
+        usable_scanlines=1,
+        decompressed_size=200,
+        kind="first-batch",
+    )
+    second = idat_progress_seed(
+        data,
+        state_id=3,
+        usable_scanlines=2,
+        decompressed_size=300,
+        kind="second-batch",
+    )
+    calls = []
+    alternating_outputs = [(None, (first,)), (None, (second,)), (None, ())]
+
+    def fake_alternating(_runtime, _data, _analysis, seed_candidates=(), _title_counter=None):
+        calls.append(("alternating", tuple(seed.state_id for seed in seed_candidates)))
+        return alternating_outputs.pop(0)
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_GroundHogDay_run_idat_prefinal_alternating_repair_runtime",
+        fake_alternating,
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_filter_alignment_runtime",
+        lambda *_args, **_kwargs: (None, ()),
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_filter_seed_stored_block_runtime",
+        lambda *_args, **_kwargs: (None, ()),
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_groundhogday_linefeed_runtime",
+        lambda *_args, **_kwargs: (None, ()),
+    )
+    candy_calls = []
+    runtime = SimpleNamespace(
+        side_notes=[],
+        candy=lambda *args, **_kwargs: candy_calls.append(args),
+        prefinal_repair_batches=1,
+        prefinal_repair_cycles=2,
+    )
+
+    result, seeds, deferred = fixit_felix_runtime._GroundHogDay_run_idat_prefinal_seed_routes_runtime(
+        runtime,
+        data,
+        analysis,
+        (initial,),
+    )
+
+    assert result is None
+    assert seeds == (second,)
+    assert deferred is False
+    assert calls == [
+        ("alternating", (1,)),
+        ("alternating", (2,)),
+        ("alternating", (3,)),
+    ]
+    assert any("batch 2 continuing" in note for note in runtime.side_notes)
+    assert any("batch 3 continuing" in note for note in runtime.side_notes)
+    assert any("checkpoint interval reached after batch 1" in note for note in runtime.side_notes)
+    assert any("checkpoint interval reached after batch 2" in note for note in runtime.side_notes)
+    assert any("stopped after batch 3: no stronger seed" in note for note in runtime.side_notes)
+    assert any("last-resort handoff" in note for note in runtime.side_notes)
+    assert any(
+        call[0] == "Cowsay" and "continuing batch 2" in call[1]
+        for call in candy_calls
+    )
+    assert any(
+        call[0] == "Cowsay" and "checkpoint batch 1" in call[1]
+        for call in candy_calls
+    )
+    assert any(
+        call[0] == "Cowsay" and "last-resort handoff" in call[1]
+        for call in candy_calls
+    )
+
+
+def test_GroundHogDay_title_runtime_prefixes_and_preserves_existing_titles():
+    calls = []
+    runtime = SimpleNamespace(
+        candy=lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    title_counter = [1]
+    wrapped = fixit_felix_runtime._GroundHogDay_next_title_runtime(
+        runtime,
+        title_counter,
+        seed_local_continuation_rounds=1,
+    )
+
+    wrapped.candy("Title", "probe_one")
+    wrapped.candy("Title", "GroundHogDay 9: already_prefixed")
+    wrapped.candy("Title", "probe_two")
+    fixit_felix_runtime._GroundHogDay_advance_day(title_counter)
+    wrapped.candy("Title", "probe_three")
+
+    assert wrapped.seed_local_continuation_rounds == 1
+    quote_one_mood, quote_one_text = fixit_felix_runtime.GROUNDHOGDAY_QUOTES[0]
+    quote_two_mood, quote_two_text = fixit_felix_runtime.GROUNDHOGDAY_QUOTES[1]
+    assert calls == [
+        (("Cowsay", "GroundHog Day Quote:\n\n%s" % quote_one_text, quote_one_mood), {}),
+        (("Title", "GroundHogDay 1: probe_one"), {}),
+        (("Title", "GroundHogDay 9: already_prefixed"), {}),
+        (("Title", "GroundHogDay 1: probe_two"), {}),
+        (("Cowsay", "GroundHog Day Quote:\n\n%s" % quote_two_text, quote_two_mood), {}),
+        (("Title", "GroundHogDay 2: probe_three"), {}),
+    ]
+
+
+def test_GroundHogDay_day_quote_uses_hardcoded_table_once_per_day():
+    calls = []
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir="",
+        side_notes=[],
+        candy=lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    title_counter = [1]
+
+    fixit_felix_runtime._GroundHogDay_emit_day_quote(runtime, title_counter)
+    fixit_felix_runtime._GroundHogDay_emit_day_quote(runtime, title_counter)
+    fixit_felix_runtime._GroundHogDay_advance_day(title_counter)
+    fixit_felix_runtime._GroundHogDay_emit_day_quote(runtime, title_counter)
+    fixit_felix_runtime._GroundHogDay_advance_day(title_counter)
+    fixit_felix_runtime._GroundHogDay_emit_day_quote(runtime, title_counter)
+
+    quote_one_mood, quote_one_text = fixit_felix_runtime.GROUNDHOGDAY_QUOTES[0]
+    quote_two_mood, quote_two_text = fixit_felix_runtime.GROUNDHOGDAY_QUOTES[1]
+    quote_three_mood, quote_three_text = fixit_felix_runtime.GROUNDHOGDAY_QUOTES[2]
+    assert calls == [
+        (("Cowsay", "GroundHog Day Quote:\n\n%s" % quote_one_text, quote_one_mood), {}),
+        (("Cowsay", "GroundHog Day Quote:\n\n%s" % quote_two_text, quote_two_mood), {}),
+        (("Cowsay", "GroundHog Day Quote:\n\n%s" % quote_three_text, quote_three_mood), {}),
+    ]
+
+
+def test_GroundHogDay_day_quote_is_emitted_after_intro_before_first_title():
+    calls = []
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir="",
+        side_notes=[],
+        candy=lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    title_counter = [4]
+
+    wrapped = fixit_felix_runtime._GroundHogDay_next_title_runtime(runtime, title_counter)
+    wrapped.candy(
+        "Cowsay",
+        "I have stronger IDAT seeds now, so I am probing locally around their current deflate wound before Punxsutawney Phil's shadow finder.",
+        "bad",
+    )
+    fixit_felix_runtime._GroundHogDay_emit_quote_before_title(wrapped)
+    wrapped.candy("Title", "probe_idat_seed_local_continuation")
+
+    quote_mood, quote_text = fixit_felix_runtime.GROUNDHOGDAY_QUOTES[3]
+    assert calls == [
+        (
+            (
+                "Cowsay",
+                "I have stronger IDAT seeds now, so I am probing locally around their current deflate wound before Punxsutawney Phil's shadow finder.",
+                "bad",
+            ),
+            {},
+        ),
+        (("Cowsay", "GroundHog Day Quote:\n\n%s" % quote_text, quote_mood), {}),
+        (("Title", "GroundHogDay 4: probe_idat_seed_local_continuation"), {}),
+    ]
+
+
+def test_shadow_finder_ready_when_groundhogday_seed_exists_without_final_config():
+    data = valid_png_bytes()
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=10,
+        expected_size=1000,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    seed = idat_progress_seed(
+        data,
+        state_id=32,
+        usable_scanlines=2,
+        decompressed_size=300,
+        kind="groundhogday-seed",
+    )
+    runtime = SimpleNamespace(
+        file_origin="",
+        file_dir="",
+        side_notes=[],
+    )
+
+    assert fixit_felix_runtime._should_run_final_investigation(
+        runtime,
+        analysis,
+        (seed,),
+        evidence_ready=False,
+    )
+
+
+def test_GroundHogDay_defer_writes_resume_state(tmp_path):
+    data = bad_adler_three_scanline_png_bytes()
+    seed = idat_deep_beam_seed(
+        data,
+        state_id=17,
+        kind="groundhogday-resume",
+    )
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+    )
+
+    result = fixit_felix_runtime._GroundHogDay_defer_final_investigation_after_local_progress(
+        runtime,
+        (seed,),
+        data=data,
+    )
+
+    assert result is True
+    resume_path = tmp_path / "Folder_Flag" / "Debug_Payloads" / "Flag_groundhogday.resume.json"
+    payload = json.loads(resume_path.read_text(encoding="utf-8"))
+    assert payload["route"] == "GroundHogDay"
+    assert payload["source_hash"] == fixit_felix_runtime._GroundHogDay_source_hash(data)
+    assert payload["best"]["usable_scanlines"] == 3
+    assert payload["best"]["complete_scanlines"] == 3
+    assert any("GroundHogDay resume state saved" in note for note in runtime.side_notes)
+    payload_folder = tmp_path / "Folder_Flag" / "Debug_Payloads"
+    seed_paths = tuple(payload_folder.glob("Flag_groundhogday_seed_state17_*.png"))
+    preview_paths = tuple(payload_folder.glob("Flag_groundhogday_scanline_preview_state17_*_3_of_3.png"))
+    metadata_paths = tuple(payload_folder.glob("Flag_groundhogday_preview_state17_*.json"))
+    assert len(seed_paths) == 1
+    assert len(preview_paths) == 1
+    assert len(metadata_paths) == 1
+    assert seed_paths[0].read_bytes() == data
+    preview_data = preview_paths[0].read_bytes()
+    assert validate_png_structure(preview_data).ok
+    preview_analysis = idat.analyze_idat_stream(preview_data)
+    assert preview_analysis.complete is True
+    metadata = json.loads(metadata_paths[0].read_text(encoding="utf-8"))
+    assert metadata["route"] == "GroundHogDay"
+    assert metadata["seed_artifact"] == seed_paths[0].name
+    assert metadata["scanline_preview"] == preview_paths[0].name
+    assert metadata["best"]["usable_scanlines"] == 3
+    assert any("GroundHogDay preview artifacts" in note for note in runtime.side_notes)
+
+
+def test_GroundHogDay_preview_artifacts_include_tolerant_complete_rows(tmp_path):
+    data = bad_adler_three_scanline_one_bad_filter_png_bytes()
+    seed = idat_deep_beam_seed(
+        data,
+        state_id=19,
+        kind="groundhogday-resume",
+    )
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+    )
+
+    fixit_felix_runtime._GroundHogDay_write_resume_state(runtime, data, (seed,))
+
+    payload_folder = tmp_path / "Folder_Flag" / "Debug_Payloads"
+    preview_paths = tuple(payload_folder.glob("Flag_groundhogday_scanline_preview_state19_*_2_of_3.png"))
+    tolerant_paths = tuple(payload_folder.glob("Flag_groundhogday_tolerant_preview_state19_*_3_complete_of_3.png"))
+    metadata_paths = tuple(payload_folder.glob("Flag_groundhogday_preview_state19_*.json"))
+    assert len(preview_paths) == 1
+    assert len(tolerant_paths) == 1
+    assert len(metadata_paths) == 1
+    assert validate_png_structure(preview_paths[0].read_bytes()).ok
+    assert validate_png_structure(tolerant_paths[0].read_bytes()).ok
+    metadata = json.loads(metadata_paths[0].read_text(encoding="utf-8"))
+    assert metadata["scanline_preview"] == preview_paths[0].name
+    assert metadata["tolerant_preview"] == tolerant_paths[0].name
+    assert metadata["best"]["usable_scanlines"] == 2
+    assert metadata["best"]["complete_scanlines"] == 3
+
+
+def test_GroundHogDay_seed_artifact_is_resume_artifact_path(tmp_path):
+    data = bad_adler_three_scanline_png_bytes()
+    seed = idat_deep_beam_seed(data, state_id=18, kind="groundhogday-resume")
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+    )
+
+    fixit_felix_runtime._GroundHogDay_write_resume_state(runtime, data, (seed,))
+
+    artifact_paths = fixit_felix_runtime._final_investigation_artifact_paths(runtime)
+    names = {path.name for path in artifact_paths}
+    assert any(name.startswith("Flag_groundhogday_seed_state18_") for name in names)
+    assert not any("scanline_preview" in name for name in names)
+
+
+def test_post_deep_runs_seed_local_after_incomplete_stored_block(monkeypatch):
+    data = valid_png_bytes()
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    seed = idat_deep_beam_seed(data, state_id=7, kind="post-deep")
+    stored_result = _stored_block_candidate_result(complete=False)
+    calls = []
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_kraft_backref_runtime",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_stored_block_runtime",
+        lambda *_args, **_kwargs: stored_result,
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_row_filter_literal_repair_runtime",
+        lambda *_args, **_kwargs: (None, ()),
+    )
+
+    def fake_seed_local(_runtime, _data, _analysis, seed_candidates=()):
+        calls.append(tuple(seed_candidates))
+        return (True, "seed-local-written"), ()
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_seed_local_continuation_runtime",
+        fake_seed_local,
+    )
+    runtime = SimpleNamespace(
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+        write_clone=lambda *_args, **_kwargs: "written",
+    )
+
+    result = fixit_felix_runtime._run_idat_post_deep_frontier_routes_runtime(
+        runtime,
+        data,
+        analysis,
+        (seed,),
+    )
+
+    assert result == (True, "seed-local-written")
+    assert calls
+    assert calls[-1] == stored_result.top_candidates
+
+
+def test_post_deep_runs_seed_local_after_direct_row_filter_progress(monkeypatch):
+    data = valid_png_bytes()
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    seed = idat_progress_seed(
+        data,
+        state_id=7,
+        usable_scanlines=0,
+        decompressed_size=100,
+        kind="post-deep",
+    )
+    row_seed = idat_progress_seed(
+        data,
+        state_id=8,
+        usable_scanlines=1,
+        decompressed_size=200,
+        kind="png-filter-literal-repair",
+    )
+    calls = []
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_kraft_backref_runtime",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_stored_block_runtime",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def fake_row_filter(_runtime, _data, _analysis, seed_candidates=()):
+        calls.append(("row-filter", tuple(seed_candidates)))
+        return None, (row_seed,)
+
+    seed_local_outputs = [(None, ()), ((True, "seed-local-written"), ())]
+
+    def fake_seed_local(_runtime, _data, _analysis, seed_candidates=()):
+        calls.append(("seed-local", tuple(seed_candidates)))
+        return seed_local_outputs.pop(0)
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_row_filter_literal_repair_runtime",
+        fake_row_filter,
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_seed_local_continuation_runtime",
+        fake_seed_local,
+    )
+    runtime = SimpleNamespace(
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+        write_clone=lambda *_args, **_kwargs: "written",
+    )
+
+    result = fixit_felix_runtime._run_idat_post_deep_frontier_routes_runtime(
+        runtime,
+        data,
+        analysis,
+        (seed,),
+    )
+
+    assert result == (True, "seed-local-written")
+    assert calls[0] == ("seed-local", (seed,))
+    assert calls[1] == ("row-filter", (seed,))
+    assert calls[2] == ("seed-local", (row_seed,))
+
+
 def test_final_investigation_paths_reuse_existing_repair_folder_for_debug_artifact_origin(tmp_path):
     payload = tmp_path / "Folder_Flag" / "Debug_Payloads"
     payload.mkdir(parents=True)
@@ -5457,6 +7210,25 @@ def test_final_investigation_paths_reuse_existing_repair_folder_for_debug_artifa
     assert Path(checkpoint_path).name == "Flag_final_investigation.checkpoint.jsonl"
     assert Path(progress_path).name == "Flag_final_investigation.progress.json"
     assert not [path for path in tmp_path.iterdir() if path.name.startswith("Folder_Flag_idat_")]
+
+
+def test_final_investigation_paths_normalize_misnamed_fixed_clone_folder(tmp_path):
+    payload = tmp_path / "Folder_Flag.3_Fixed" / "Debug_Payloads"
+    payload.mkdir(parents=True)
+    artifact = payload / "Flag_idat_kraft_backref_deep2_rank01_state1_deadbeef.png"
+    artifact.write_bytes(valid_png_bytes())
+    runtime = SimpleNamespace(
+        file_origin=str(artifact),
+        file_dir=str(tmp_path),
+        side_notes=[],
+    )
+
+    checkpoint_path, progress_path = fixit_felix_runtime._idat_final_investigation_paths(runtime)
+
+    assert Path(checkpoint_path).parent == tmp_path / "Folder_Flag" / "Debug_Payloads"
+    assert Path(progress_path).parent == tmp_path / "Folder_Flag" / "Debug_Payloads"
+    assert Path(checkpoint_path).name == "Flag_final_investigation.checkpoint.jsonl"
+    assert Path(progress_path).name == "Flag_final_investigation.progress.json"
 
 
 def test_final_investigation_uses_workers_gpu_checkpoint_and_minibar_eta(tmp_path):
@@ -5550,9 +7322,85 @@ def test_final_investigation_uses_workers_gpu_checkpoint_and_minibar_eta(tmp_pat
     assert Path(captured["checkpoint_path"]).name == "Flag_final_investigation.checkpoint.jsonl"
     minibar_calls = [call for call in calls if call[0] == "minibar"]
     assert minibar_calls
-    assert "IDAT Final investigation" in minibar_calls[0][2]["Indication"]
+    assert "IDAT %s" % fixit_felix_runtime.FINAL_INVESTIGATION_LABEL in minibar_calls[0][2]["Indication"]
     assert "eta=" in minibar_calls[0][2]["Indication"]
     assert any("route left open" in note for note in side_notes)
+
+
+def test_final_investigation_hands_partial_candidates_back_to_groundhogday(tmp_path, monkeypatch):
+    data = bytes.fromhex(one_byte_corrupt_deflate_png_hex())
+    analysis = idat.analyze_idat_stream(data)
+    seed = idat_progress_seed(
+        data,
+        state_id=42,
+        usable_scanlines=1,
+        decompressed_size=30,
+        kind="final-partial",
+    )
+    calls = []
+    side_notes = []
+
+    def fake_probe(_data, **kwargs):
+        return idat_bruteforce.IdatDeepBeamProbeResult(
+            before=analysis,
+            best=None,
+            top_candidates=(seed,),
+            window_start=0,
+            window_end=1,
+            tested_candidates=10,
+            budget_exhausted=False,
+            reached_depth=1,
+            state_count=2,
+            visited_count=1,
+            checkpoint_path=kwargs["checkpoint_path"],
+            progress_path=kwargs["progress_path"],
+            reason="partial evidence",
+        )
+
+    monkeypatch.setattr(
+        fixit_felix_runtime.idat_bruteforce,
+        "probe_idat_deflate_deep_beam",
+        fake_probe,
+    )
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        data_hex=data.hex(),
+        side_notes=side_notes,
+        candy=lambda *args, **kwargs: calls.append(("candy", args, kwargs)),
+        write_clone=lambda *_args: "written",
+        minibar=None,
+        loadingbar=None,
+        preview_repair_image=None,
+        interactive=False,
+        input_func=None,
+        deep_beam_workers="1",
+        deep_beam_gpu=False,
+        deep_beam_gpu_config=None,
+        final_investigation_budget="77",
+        final_investigation_max_depth="11",
+        final_investigation_seed_limit="5",
+        deep_beam_prompt_cache={},
+    )
+
+    result = fixit_felix_runtime._run_idat_final_investigation_runtime(
+        runtime,
+        data,
+        analysis,
+        seed_candidates=(seed,),
+    )
+
+    resume_path = tmp_path / "Folder_Flag" / "Debug_Payloads" / "Flag_groundhogday.resume.json"
+    assert result is None
+    assert resume_path.is_file()
+    payload = json.loads(resume_path.read_text(encoding="utf-8"))
+    assert payload["route"] == "GroundHogDay"
+    assert payload["best"]["state_id"] == 42
+    assert any("handed checkpointed candidate" in note for note in side_notes)
+    assert any(
+        call[0] == "candy" and "GroundHogDay will use those saved seeds" in call[1][1]
+        for call in calls
+    )
 
 
 def test_try_idat_deflate_runs_final_investigation_after_strategy_queue_stalls():
@@ -5620,6 +7468,373 @@ def test_try_idat_deflate_runs_final_investigation_after_strategy_queue_stalls()
     assert calls[0][0] == "queue"
     assert calls[0][1]["max_steps"] == 16
     assert calls[1][0] == "final"
+
+
+def test_try_idat_deflate_defers_final_when_prefinal_routes_progress(monkeypatch):
+    data = bytes.fromhex(one_byte_corrupt_deflate_png_hex())
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=2,
+        decompressed_size=12,
+        usable_scanlines=1,
+        error_offset=6,
+    )
+    seed = idat_deep_beam_seed(data, state_id=9, kind="local-progress")
+    calls = []
+    side_notes = []
+
+    def fake_queue(*_args, **kwargs):
+        calls.append(("queue", kwargs))
+        return SimpleNamespace(
+            best=None,
+            strategy="strategy-queue",
+            window_start=0,
+            window_end=1,
+            tested_candidates=0,
+            budget_exhausted=False,
+            reason="none",
+        )
+
+    def fake_prefinal(*_args, **_kwargs):
+        calls.append(("prefinal",))
+        side_notes.append(
+            "-IDAT %s deferred: mocked prefinal progress."
+            % fixit_felix_runtime.FINAL_INVESTIGATION_LABEL
+        )
+        return None, (seed,), True
+
+    def fake_final(*_args, **_kwargs):
+        calls.append(("final",))
+        return True, "final-written"
+
+    runtime = SimpleNamespace(
+        data_hex=data.hex(),
+        side_notes=side_notes,
+        candy=lambda *args, **kwargs: calls.append(("candy", args, kwargs)),
+        question=lambda *_args, **_kwargs: False,
+        write_clone=lambda *_args, **_kwargs: "written",
+        remember_idat_deflate_probe=lambda _analysis: True,
+        file_origin="",
+        file_dir="",
+        loadingbar=None,
+        minibar=None,
+        deep_beam_workers=None,
+        deep_beam_gpu=None,
+        deep_beam_gpu_config=None,
+        deep_beam_budget=None,
+        final_investigation_budget="100",
+        deep_beam_prompt_cache={},
+    )
+
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_prefix_frontier_routes_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_strategy_queue", fake_queue)
+    monkeypatch.setattr(fixit_felix_runtime, "_GroundHogDay_run_idat_prefinal_seed_routes_runtime", fake_prefinal)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_final_investigation_runtime", fake_final)
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+
+    assert result is None
+    assert [call[0] for call in calls if call[0] in {"queue", "prefinal", "final"}] == ["queue", "prefinal"]
+    assert any(fixit_felix_runtime.FINAL_INVESTIGATION_LABEL in note and "deferred" in note for note in side_notes)
+
+
+def test_try_idat_deflate_resumes_groundhogday_before_replaying_idat_probes(monkeypatch):
+    data = bytes.fromhex(one_byte_corrupt_deflate_png_hex())
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=2,
+        decompressed_size=12,
+        usable_scanlines=1,
+        error_offset=6,
+    )
+    seed = idat_progress_seed(
+        data,
+        state_id=23,
+        usable_scanlines=2,
+        decompressed_size=40,
+        kind="groundhogday-resume",
+    )
+    calls = []
+    side_notes = []
+
+    def fake_resume_seeds(_runtime, _data, _analysis):
+        calls.append(("resume-seeds",))
+        return (seed,)
+
+    def fake_prefinal(_runtime, _data, _analysis, seed_candidates=()):
+        calls.append(("prefinal", tuple(candidate.state_id for candidate in seed_candidates)))
+        side_notes.append(
+            "-IDAT %s deferred: mocked GroundHogDay resume progress."
+            % fixit_felix_runtime.FINAL_INVESTIGATION_LABEL
+        )
+        return None, (seed,), True
+
+    def fail_if_replayed(*_args, **_kwargs):
+        raise AssertionError("older IDAT probes should not replay before GroundHogDay resume")
+
+    def fail_if_remembered(_analysis):
+        raise AssertionError("exact wound guard should not block GroundHogDay resume")
+
+    runtime = SimpleNamespace(
+        data_hex=data.hex(),
+        side_notes=side_notes,
+        candy=lambda *args, **kwargs: calls.append(("candy", args, kwargs)),
+        question=lambda *_args, **_kwargs: False,
+        write_clone=lambda *_args, **_kwargs: "written",
+        remember_idat_deflate_probe=fail_if_remembered,
+        file_origin="",
+        file_dir="",
+        loadingbar=None,
+        minibar=None,
+        deep_beam_workers=None,
+        deep_beam_gpu=None,
+        deep_beam_gpu_config=None,
+        deep_beam_budget=None,
+        final_investigation_budget=None,
+        deep_beam_prompt_cache={},
+    )
+
+    monkeypatch.setattr(fixit_felix_runtime, "_GroundHogDay_resume_seed_candidates", fake_resume_seeds)
+    monkeypatch.setattr(fixit_felix_runtime, "_GroundHogDay_run_idat_prefinal_seed_routes_runtime", fake_prefinal)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_frontier_routes_runtime", fail_if_replayed)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_prefix_frontier_routes_runtime", fail_if_replayed)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_strategy_queue", fail_if_replayed)
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+
+    assert result is None
+    assert [call[0] for call in calls if call[0] in {"resume-seeds", "prefinal"}] == [
+        "resume-seeds",
+        "prefinal",
+    ]
+    assert [call for call in calls if call[0] == "prefinal"] == [("prefinal", (23,))]
+    assert any("GroundHogDay resume-first" in note for note in side_notes)
+    assert any(
+        call[0] == "candy" and "jumping back to that loop" in call[1][1]
+        for call in calls
+    )
+    assert any(fixit_felix_runtime.FINAL_INVESTIGATION_LABEL in note and "deferred" in note for note in side_notes)
+
+
+def test_try_idat_deflate_groundhogday_resume_no_progress_runs_shadow_finder(monkeypatch):
+    data = bytes.fromhex(one_byte_corrupt_deflate_png_hex())
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=2,
+        decompressed_size=12,
+        usable_scanlines=1,
+        error_offset=6,
+    )
+    seed = idat_progress_seed(
+        data,
+        state_id=24,
+        usable_scanlines=2,
+        decompressed_size=40,
+        kind="groundhogday-resume",
+    )
+    calls = []
+    side_notes = []
+
+    def fake_prefinal(_runtime, _data, _analysis, seed_candidates=()):
+        calls.append(("prefinal", tuple(candidate.state_id for candidate in seed_candidates)))
+        return None, seed_candidates, False
+
+    def fake_final(_runtime, _data, _analysis, seed_candidates=()):
+        calls.append(("final", tuple(candidate.state_id for candidate in seed_candidates)))
+        return True, "shadow-written"
+
+    def fail_if_replayed(*_args, **_kwargs):
+        raise AssertionError("older IDAT probes should not replay after GroundHogDay resume stalls")
+
+    runtime = SimpleNamespace(
+        data_hex=data.hex(),
+        side_notes=side_notes,
+        candy=lambda *args, **kwargs: calls.append(("candy", args, kwargs)),
+        question=lambda *_args, **_kwargs: False,
+        write_clone=lambda *_args, **_kwargs: "written",
+        remember_idat_deflate_probe=lambda _analysis: True,
+        file_origin="",
+        file_dir="",
+        loadingbar=None,
+        minibar=None,
+        deep_beam_workers=None,
+        deep_beam_gpu=None,
+        deep_beam_gpu_config=None,
+        deep_beam_budget=None,
+        final_investigation_budget=None,
+        deep_beam_prompt_cache={},
+    )
+
+    monkeypatch.setattr(fixit_felix_runtime, "_GroundHogDay_resume_seed_candidates", lambda *_args: (seed,))
+    monkeypatch.setattr(fixit_felix_runtime, "_GroundHogDay_run_idat_prefinal_seed_routes_runtime", fake_prefinal)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_final_investigation_runtime", fake_final)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_frontier_routes_runtime", fail_if_replayed)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_prefix_frontier_routes_runtime", fail_if_replayed)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_strategy_queue", fail_if_replayed)
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+
+    assert result == (True, "shadow-written")
+    assert [call for call in calls if call[0] in {"prefinal", "final"}] == [
+        ("prefinal", (24,)),
+        ("final", (24,)),
+    ]
+    assert any("resume plateau reached" in note for note in side_notes)
+    assert any(
+        call[0] == "candy" and "last resort" in call[1][1]
+        for call in calls
+    )
+
+
+def test_try_idat_deflate_groundhogday_resume_plateau_runs_final_when_ready(monkeypatch):
+    data = bytes.fromhex(one_byte_corrupt_deflate_png_hex())
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=2,
+        decompressed_size=12,
+        usable_scanlines=1,
+        error_offset=6,
+    )
+    seed = idat_progress_seed(
+        data,
+        state_id=25,
+        usable_scanlines=2,
+        decompressed_size=40,
+        kind="groundhogday-resume",
+    )
+    calls = []
+    side_notes = []
+
+    def fake_prefinal(_runtime, _data, _analysis, seed_candidates=()):
+        calls.append(("prefinal", tuple(candidate.state_id for candidate in seed_candidates)))
+        return None, seed_candidates, False
+
+    def fake_final(_runtime, _data, _analysis, seed_candidates=()):
+        calls.append(("final", tuple(candidate.state_id for candidate in seed_candidates)))
+        return True, "final-written"
+
+    def fail_if_replayed(*_args, **_kwargs):
+        raise AssertionError("older IDAT probes should not replay after GroundHogDay resume plateau")
+
+    runtime = SimpleNamespace(
+        data_hex=data.hex(),
+        side_notes=side_notes,
+        candy=lambda *args, **kwargs: calls.append(("candy", args, kwargs)),
+        question=lambda *_args, **_kwargs: False,
+        write_clone=lambda *_args, **_kwargs: "written",
+        remember_idat_deflate_probe=lambda _analysis: True,
+        file_origin="",
+        file_dir="",
+        loadingbar=None,
+        minibar=None,
+        deep_beam_workers=None,
+        deep_beam_gpu=None,
+        deep_beam_gpu_config=None,
+        deep_beam_budget=None,
+        final_investigation_budget="100",
+        deep_beam_prompt_cache={},
+    )
+
+    monkeypatch.setattr(fixit_felix_runtime, "_GroundHogDay_resume_seed_candidates", lambda *_args: (seed,))
+    monkeypatch.setattr(fixit_felix_runtime, "_GroundHogDay_run_idat_prefinal_seed_routes_runtime", fake_prefinal)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_final_investigation_runtime", fake_final)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_frontier_routes_runtime", fail_if_replayed)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_prefix_frontier_routes_runtime", fail_if_replayed)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_strategy_queue", fail_if_replayed)
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+
+    assert result == (True, "final-written")
+    assert [call for call in calls if call[0] in {"prefinal", "final"}] == [
+        ("prefinal", (25,)),
+        ("final", (25,)),
+    ]
+    assert any("resume plateau reached" in note for note in side_notes)
+    assert any(
+        call[0] == "candy" and "last resort" in call[1][1]
+        for call in calls
+    )
+
+
+def test_try_idat_deflate_defers_final_when_prefinal_stored_progresses(monkeypatch):
+    data = bytes.fromhex(one_byte_corrupt_deflate_png_hex())
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=2,
+        decompressed_size=12,
+        usable_scanlines=1,
+        error_offset=6,
+    )
+    seed = idat_deep_beam_seed(data, state_id=11, kind="stored-block-filter-seed")
+    calls = []
+    side_notes = []
+
+    def fake_queue(*_args, **kwargs):
+        calls.append(("queue", kwargs))
+        return SimpleNamespace(
+            best=None,
+            strategy="strategy-queue",
+            window_start=0,
+            window_end=1,
+            tested_candidates=0,
+            budget_exhausted=False,
+            reason="none",
+        )
+
+    def fake_prefinal(*_args, **_kwargs):
+        calls.append(("prefinal-stored",))
+        side_notes.append(
+            "-IDAT %s deferred: mocked stored prefinal progress."
+            % fixit_felix_runtime.FINAL_INVESTIGATION_LABEL
+        )
+        return None, (seed,), True
+
+    def fake_final(*_args, **_kwargs):
+        calls.append(("final",))
+        return True, "final-written"
+
+    runtime = SimpleNamespace(
+        data_hex=data.hex(),
+        side_notes=side_notes,
+        candy=lambda *args, **kwargs: calls.append(("candy", args, kwargs)),
+        question=lambda *_args, **_kwargs: False,
+        write_clone=lambda *_args, **_kwargs: "written",
+        remember_idat_deflate_probe=lambda _analysis: True,
+        file_origin="",
+        file_dir="",
+        loadingbar=None,
+        minibar=None,
+        deep_beam_workers=None,
+        deep_beam_gpu=None,
+        deep_beam_gpu_config=None,
+        deep_beam_budget=None,
+        final_investigation_budget="100",
+        deep_beam_prompt_cache={},
+    )
+
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_prefix_frontier_routes_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_strategy_queue", fake_queue)
+    monkeypatch.setattr(fixit_felix_runtime, "_GroundHogDay_run_idat_prefinal_seed_routes_runtime", fake_prefinal)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_final_investigation_runtime", fake_final)
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+
+    assert result is None
+    assert [call[0] for call in calls if call[0] in {"queue", "prefinal-stored", "final"}] == [
+        "queue",
+        "prefinal-stored",
+    ]
+    assert any(fixit_felix_runtime.FINAL_INVESTIGATION_LABEL in note and "deferred" in note for note in side_notes)
 
 
 def test_apply_wrong_chunk_name_uses_deflate_probe_when_aligned_stream_is_bad():
@@ -7118,6 +9333,13 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
         "FILE_DIR": "/tmp/out/",
         "SMASH_BRUTE_BRAWL_FORCE_LEVEL": "2",
         "DATAX": "001122",
+        "IDAT_PREFINAL_REPAIR_CYCLES": "6",
+        "IDAT_PREFINAL_REPAIR_BATCHES": "5",
+        "ULTIMATE_LINEFEED_BUDGET": "1234",
+        "ULTIMATE_LINEFEED_UNBOUNDED": False,
+        "ULTIMATE_LINEFEED_WORKERS": "2",
+        "IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH": "3",
+        "IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS": "70",
         "Raw_Crc": "deadbeef",
         "Bad_Missplaced": True,
         "Bad_Ancillary": False,
@@ -7142,6 +9364,12 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert wrong_crc.file_origin == "source.png"
     assert wrong_crc.file_dir == "/tmp/out/"
     assert wrong_crc.preview_repair_image is namespace["Preview_Repair_Image"]
+    assert wrong_crc.prefinal_repair_cycles == "6"
+    assert wrong_crc.prefinal_repair_batches == "5"
+    assert wrong_crc.ultimate_linefeed_budget == "1234"
+    assert wrong_crc.ultimate_linefeed_workers == "2"
+    assert wrong_crc.ultimate_linefeed_max_depth == "3"
+    assert wrong_crc.ultimate_linefeed_max_offsets == "70"
 
     libpng = fixit_felix_runtime.build_libpng_error_runtime_from_namespace(namespace)
     assert libpng.emit is namespace["PRINT"]
@@ -7175,6 +9403,12 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert wrong_name.data_hex == "001122"
     assert wrong_name.file_origin == "source.png"
     assert wrong_name.file_dir == "/tmp/out/"
+    assert wrong_name.prefinal_repair_cycles == "6"
+    assert wrong_name.prefinal_repair_batches == "5"
+    assert wrong_name.ultimate_linefeed_budget == "1234"
+    assert wrong_name.ultimate_linefeed_workers == "2"
+    assert wrong_name.ultimate_linefeed_max_depth == "3"
+    assert wrong_name.ultimate_linefeed_max_offsets == "70"
 
     no_next = fixit_felix_runtime.build_no_next_chunk_runtime_from_namespace(namespace)
     assert no_next.emit is namespace["PRINT"]
@@ -7193,6 +9427,12 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert no_next.pause_error is True
     assert no_next.file_origin == "source.png"
     assert no_next.file_dir == "/tmp/out/"
+    assert no_next.prefinal_repair_cycles == "6"
+    assert no_next.prefinal_repair_batches == "5"
+    assert no_next.ultimate_linefeed_budget == "1234"
+    assert no_next.ultimate_linefeed_workers == "2"
+    assert no_next.ultimate_linefeed_max_depth == "3"
+    assert no_next.ultimate_linefeed_max_offsets == "70"
     assert no_next.bad_missplaced is True
     assert no_next.set_skip_bad_no_next_chunk is namespace["FixItFelix_Set_Skip_Bad_No_Next_Chunk"]
     assert no_next.set_eof is namespace["FixItFelix_Set_EOF"]
@@ -7328,6 +9568,8 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
         "IDAT_GLOBAL_CRC_RESIDUE_BUDGET": "750001",
         "IDAT_AFFINE_CORRUPTION_BUDGET": "250001",
         "IDAT_DEFLATE_SALVAGE_BUDGET": "250002",
+        "IDAT_PREFINAL_REPAIR_CYCLES": "9",
+        "IDAT_PREFINAL_REPAIR_BATCHES": "3",
         "GPU_CONFIG": gpu_config,
     }
 
@@ -7349,6 +9591,8 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
     assert wrong_name.global_crc_residue_budget == "750001"
     assert wrong_name.affine_corruption_budget == "250001"
     assert wrong_name.deflate_salvage_budget == "250002"
+    assert wrong_name.prefinal_repair_cycles == "9"
+    assert wrong_name.prefinal_repair_batches == "3"
     assert no_next.interactive is True
     assert no_next.input_func is transcript_input
     assert no_next.deep_beam_workers == "7"
@@ -7364,6 +9608,8 @@ def test_namespace_idat_convoy_runtimes_preserve_deep_beam_prompt_options():
     assert no_next.global_crc_residue_budget == "750001"
     assert no_next.affine_corruption_budget == "250001"
     assert no_next.deflate_salvage_budget == "250002"
+    assert no_next.prefinal_repair_cycles == "9"
+    assert no_next.prefinal_repair_batches == "3"
 
 
 def test_namespace_pipeline_builder_preserves_debug_and_repair_wiring():

@@ -3317,6 +3317,48 @@ def test_run_main_loop_once_warns_output_cleanup_when_idat_deep_beam_resume_exis
     assert ("find_magic",) in calls
 
 
+def test_idat_deep_beam_paths_reuse_original_repair_folder_for_clone_input(tmp_path):
+    calls = []
+    runtime = build_runtime(calls)
+    source = tmp_path / "Folder_Flag" / "Flag.3_Fixed.png"
+
+    folder, payload_folder, checkpoint_path, progress_path = (
+        main_runtime.idat_deep_beam_folder_paths(
+            runtime,
+            file_origin=str(source),
+            file_dir="",
+        )
+    )
+
+    assert folder == str(tmp_path / "Folder_Flag")
+    assert payload_folder == str(tmp_path / "Folder_Flag") + "/Debug_Payloads"
+    normalized_checkpoint = checkpoint_path.replace("\\", "/")
+    normalized_progress = progress_path.replace("\\", "/")
+    assert normalized_checkpoint.endswith("/Folder_Flag/Debug_Payloads/Flag_deep_beam.checkpoint.jsonl")
+    assert normalized_progress.endswith("/Folder_Flag/Debug_Payloads/Flag_deep_beam.progress.json")
+
+
+def test_idat_deep_beam_paths_normalize_misnamed_fixed_clone_folder(tmp_path):
+    calls = []
+    runtime = build_runtime(calls)
+    source = tmp_path / "Folder_Flag.3_Fixed" / "Flag.3_Fixed.png"
+
+    folder, payload_folder, checkpoint_path, progress_path = (
+        main_runtime.idat_deep_beam_folder_paths(
+            runtime,
+            file_origin=str(source),
+            file_dir="",
+        )
+    )
+
+    assert folder == str(tmp_path / "Folder_Flag")
+    assert payload_folder == str(tmp_path / "Folder_Flag") + "/Debug_Payloads"
+    normalized_checkpoint = checkpoint_path.replace("\\", "/")
+    normalized_progress = progress_path.replace("\\", "/")
+    assert normalized_checkpoint.endswith("/Folder_Flag/Debug_Payloads/Flag_deep_beam.checkpoint.jsonl")
+    assert normalized_progress.endswith("/Folder_Flag/Debug_Payloads/Flag_deep_beam.progress.json")
+
+
 def test_run_main_loop_once_directly_resumes_smash_before_find_magic():
     calls = []
     with tempfile.NamedTemporaryFile(delete=False) as handle:

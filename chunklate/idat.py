@@ -1428,6 +1428,93 @@ def rebuild_visual_idat_preview(data: bytes) -> PartialIdatBlackfillRepair | Non
     )
 
 
+def rebuild_tolerant_idat_preview(data: bytes) -> PartialIdatBlackfillRepair | None:
+    analysis = analyze_partial_idat(data)
+    if not analysis.supported or analysis.complete:
+        return None
+    if analysis.complete_scanlines <= analysis.usable_scanlines:
+        return None
+
+    try:
+        chunks = list(png.iter_chunks(data))
+    except png.PngFormatError:
+        return None
+
+    ihdr = next((chunk for chunk in chunks if chunk.chunk_type == b"IHDR"), None)
+    ihdr_values = _parse_ihdr(ihdr)
+    if ihdr_values is None:
+        return None
+    width, height, bit_depth, color_type, compression, filter_method, interlace = ihdr_values
+    if width < 1 or height < 1:
+        return None
+    if compression != 0 or filter_method != 0 or interlace != 0:
+        return None
+    if not png.valid_png_color_depth(bit_depth, color_type):
+        return None
+
+    idat_stream = b"".join(chunk.data for chunk in chunks if chunk.chunk_type == b"IDAT")
+    decompressed, _zlib_complete, _error = _decompress_until_error(idat_stream)
+    if len(decompressed) < analysis.scanline_size:
+        return None
+
+    complete_prefix_size = analysis.complete_scanlines * analysis.scanline_size
+    salvage = _tolerant_filter0_scanlines(
+        decompressed[:complete_prefix_size],
+        width=analysis.width,
+        height=analysis.height,
+        bit_depth=analysis.bit_depth,
+        color_type=analysis.color_type,
+    )
+    if salvage is None:
+        return None
+    complete_invalid_rows = tuple(
+        row
+        for row in salvage.invalid_filter_rows
+        if row < analysis.complete_scanlines
+    )
+    if not complete_invalid_rows:
+        return None
+
+    rebuilt_idat = zlib.compress(salvage.filtered_scanlines)
+    fixed = bytearray(png.PNG_SIGNATURE)
+    idat_written = False
+    for chunk in chunks:
+        if chunk.chunk_type == b"IDAT":
+            if not idat_written:
+                fixed.extend(png.build_png_chunk(b"IDAT", rebuilt_idat))
+                idat_written = True
+            continue
+        fixed.extend(png.build_png_chunk(chunk.chunk_type, chunk.data))
+
+    if not idat_written:
+        return None
+    fixed_data = bytes(fixed)
+    if not png.validate_png_structure(fixed_data).ok:
+        return None
+
+    return PartialIdatBlackfillRepair(
+        data=fixed_data,
+        strategy=(
+            "tolerant-idat-preview decoded %s/%s complete scanlines; "
+            "usable without filter repair=%s; replaced %s complete bad-filter row(s); "
+            "repeated/blackfilled %s row(s)"
+        )
+        % (
+            analysis.complete_scanlines,
+            analysis.height,
+            analysis.usable_scanlines,
+            len(complete_invalid_rows),
+            salvage.repeated_rows,
+        ),
+        recovered_scanlines=analysis.complete_scanlines,
+        total_scanlines=analysis.height,
+        width=analysis.width,
+        height=analysis.height,
+        bit_depth=analysis.bit_depth,
+        color_type=analysis.color_type,
+    )
+
+
 def rebuild_idat_from_donor(
     data: bytes,
     donor_data: bytes,

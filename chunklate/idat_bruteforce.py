@@ -7841,6 +7841,82 @@ def _local_deflate_score(analysis: idat.IdatStreamAnalysis) -> tuple[int, int, i
     )
 
 
+def _raw_prefix_score_max_output(analysis: idat.IdatStreamAnalysis) -> int:
+    scanline_size = max(0, int(getattr(analysis, "scanline_size", 0) or 0))
+    height = max(1, int(getattr(analysis, "height", 0) or 0))
+    if scanline_size <= 0:
+        return 8192
+    row_budget = min(height, 64)
+    expected_size = max(0, int(getattr(analysis, "expected_size", 0) or 0))
+    target = max(8192, scanline_size * row_budget)
+    if expected_size > 0:
+        target = min(target, expected_size)
+    return min(target, 262144)
+
+
+def _local_png_filter_score(data: bytes, analysis: idat.IdatStreamAnalysis) -> tuple[int, ...]:
+    status_rank = {
+        "complete": 6,
+        "bad_adler": 5,
+        "partial": 4,
+        "incomplete_stream": 3,
+        "corrupt_deflate": 2,
+        "bad_zlib_header": 1,
+    }.get(analysis.status, 0)
+    header = analysis.deflate_header
+    header_rank = {
+        "ok": 4,
+        "invalid_huffman_lengths": 3,
+        "bad_code_length_tree": 2,
+        "truncated_header": 1,
+    }.get(header.status if header is not None else "", 0)
+    try:
+        _chunks, stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError:
+        stream = b""
+    raw_prefix = idat_partial_raw_prefix(
+        stream,
+        max_output=_raw_prefix_score_max_output(analysis),
+    )
+    raw_score = score_png_raw_prefix(raw_prefix.raw, analysis)
+    return (
+        1 if analysis.complete else 0,
+        int(analysis.usable_scanlines),
+        int(raw_score.first_filter_rank),
+        int(raw_score.valid_filter_rows),
+        int(raw_score.alpha_rank),
+        int(raw_score.checked_filter_rows),
+        int(analysis.complete_scanlines),
+        int(raw_score.raw_size),
+        int(analysis.decompressed_size),
+        status_rank,
+        header_rank,
+        int(analysis.error_offset if analysis.error_offset is not None else -1),
+    )
+
+
+def _local_png_filter_material_improvement(
+    before_score: tuple[int, ...],
+    candidate_score: tuple[int, ...],
+    before: idat.IdatStreamAnalysis,
+    after: idat.IdatStreamAnalysis,
+) -> bool:
+    if after.complete and not before.complete:
+        return True
+    if int(after.usable_scanlines) > int(before.usable_scanlines):
+        return True
+    before_first_filter_rank = before_score[2] if len(before_score) > 2 else 0
+    before_valid_rows = before_score[3] if len(before_score) > 3 else 0
+    candidate_first_filter_rank = candidate_score[2] if len(candidate_score) > 2 else 0
+    candidate_valid_rows = candidate_score[3] if len(candidate_score) > 3 else 0
+    if candidate_valid_rows > before_valid_rows:
+        return True
+    return bool(
+        candidate_first_filter_rank > before_first_filter_rank
+        and candidate_valid_rows >= before_valid_rows
+    )
+
+
 def _local_deflate_priority_offsets(
     diagnostic: IdatLocalDeflateDiagnostic,
     *,
@@ -7874,10 +7950,13 @@ def probe_idat_deflate_local_candidates(
     budget: int = 2048,
     max_offsets: int = 96,
     max_bits: int = 160,
+    score_mode: str = "default",
     progress: QueueProgressCallback | None = None,
 ) -> IdatDeflateProbeResult:
     before = idat.analyze_idat_stream(data)
-    strategy = "deflate-local"
+    clean_score_mode = str(score_mode or "default").strip().lower()
+    filter_score_mode = clean_score_mode in {"png-filter", "filter", "raw-filter"}
+    strategy = "deflate-local-png-filter" if filter_score_mode else "deflate-local"
     diagnostic = idat_local_deflate_diagnostic(data, analysis=before)
     if diagnostic is None:
         return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "local diagnostic unavailable")
@@ -7892,9 +7971,18 @@ def probe_idat_deflate_local_candidates(
     )[: max(1, int(max_bits))]
     common_bytes = (0x00, 0x0A, 0x0D, 0xFF)
     best: IdatDeflateCandidate | None = None
-    best_score = analysis_score(before)
+    best_score = (
+        _local_png_filter_score(data, before)
+        if filter_score_mode
+        else analysis_score(before)
+    )
+    initial_filter_score = best_score if filter_score_mode else ()
     diagnostic_best: IdatDeflateCandidate | None = None
-    diagnostic_score = _local_deflate_score(before)
+    diagnostic_score = (
+        best_score
+        if filter_score_mode
+        else _local_deflate_score(before)
+    )
     tested = 0
     budget_exhausted = False
     seen_candidates: set[bytes] = set()
@@ -7914,10 +8002,28 @@ def probe_idat_deflate_local_candidates(
             return False
         seen_candidates.add(digest)
 
-        candidate_diagnostic_score = _local_deflate_score(candidate.after)
+        candidate_diagnostic_score = (
+            _local_png_filter_score(candidate.data, candidate.after)
+            if filter_score_mode
+            else _local_deflate_score(candidate.after)
+        )
         if candidate_diagnostic_score > diagnostic_score:
             diagnostic_best = candidate
             diagnostic_score = candidate_diagnostic_score
+
+        if filter_score_mode:
+            if candidate_diagnostic_score <= best_score:
+                return False
+            if not _local_png_filter_material_improvement(
+                best_score,
+                candidate_diagnostic_score,
+                before,
+                candidate.after,
+            ):
+                return False
+            best = candidate
+            best_score = candidate_diagnostic_score
+            return bool(candidate.after.complete)
 
         if not is_material_improvement(before, candidate.after):
             return False
@@ -7958,11 +8064,17 @@ def probe_idat_deflate_local_candidates(
         progress(strategy, tested, budget)
 
     reason = (
-        "offsets=%s; bits=%s; %s"
+        "offsets=%s; bits=%s; %s%s"
         % (
             len(offsets),
             len(bits),
             diagnostic.trace.summary,
+            (
+                "; score_mode=png-filter; baseline_filter_score=%s"
+                % (initial_filter_score,)
+            )
+            if filter_score_mode
+            else "",
         )
     )
     return IdatDeflateProbeResult(
@@ -8114,6 +8226,390 @@ def score_png_raw_prefix(raw: bytes, analysis: idat.IdatStreamAnalysis) -> PngRa
     )
 
 
+def _raw_position_stream_map(
+    stream: bytes,
+    raw_positions: Iterable[int],
+    *,
+    max_output: int,
+) -> dict[int, tuple[int, int, int]]:
+    targets = tuple(sorted(set(int(position) for position in raw_positions if int(position) >= 0)))
+    if not targets:
+        return {}
+
+    target_index = 0
+    mapped: dict[int, tuple[int, int, int]] = {}
+    raw_len = 0
+    limit = max(0, int(max_output))
+    decompressor = zlib.decompressobj()
+    for stream_offset, value in enumerate(stream):
+        try:
+            chunk = decompressor.decompress(bytes((value,)), max(0, limit - raw_len))
+        except zlib.error:
+            break
+        before_len = raw_len
+        raw_len += len(chunk)
+        while target_index < len(targets) and targets[target_index] < raw_len:
+            target = targets[target_index]
+            if target >= before_len:
+                mapped[target] = (stream_offset, before_len, raw_len)
+            target_index += 1
+        if raw_len >= limit or target_index >= len(targets):
+            break
+    return mapped
+
+
+def _png_filter_literal_score(
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    max_rows: int,
+) -> tuple[int, int, int, int, int, int]:
+    try:
+        _chunks, stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError:
+        return (0, 0, 0, 0, 0, 0)
+    scanline_size = int(getattr(analysis, "scanline_size", 0) or 0)
+    row_limit = max(1, min(max(1, int(max_rows)), int(getattr(analysis, "height", 0) or 1)))
+    raw_limit = max(8192, scanline_size * (row_limit + 1))
+    raw = idat_partial_raw_prefix(stream, max_output=raw_limit).raw
+    raw_score = score_png_raw_prefix(raw, analysis)
+    status_rank = {
+        "complete": 6,
+        "bad_adler": 5,
+        "partial": 4,
+        "trailing_data": 4,
+        "incomplete_stream": 3,
+        "corrupt_deflate": 2,
+        "bad_zlib_header": 1,
+    }.get(analysis.status, 0)
+    return (
+        int(analysis.usable_scanlines),
+        int(raw_score.valid_filter_rows),
+        int(analysis.complete_scanlines),
+        int(raw_score.raw_size),
+        int(analysis.decompressed_size),
+        status_rank,
+    )
+
+
+def _next_png_filter_literal_repair(
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    max_rows: int,
+    replacement_filter: int,
+) -> tuple[int, int, int, int] | None:
+    scanline_size = int(getattr(analysis, "scanline_size", 0) or 0)
+    height = int(getattr(analysis, "height", 0) or 0)
+    if scanline_size <= 0 or height <= 0:
+        return None
+    try:
+        _chunks, stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError:
+        return None
+
+    row_limit = max(1, min(max(1, int(max_rows)), height))
+    raw_limit = max(8192, scanline_size * (row_limit + 1))
+    raw = idat_partial_raw_prefix(stream, max_output=raw_limit).raw
+    if not raw:
+        return None
+
+    bad_positions: list[tuple[int, int, int]] = []
+    checked_rows = min(row_limit, (len(raw) + scanline_size - 1) // scanline_size)
+    for row in range(checked_rows):
+        raw_offset = row * scanline_size
+        if raw_offset >= len(raw):
+            break
+        old_filter = raw[raw_offset]
+        if old_filter in (0, 1, 2, 3, 4):
+            continue
+        bad_positions.append((row, raw_offset, old_filter))
+    if not bad_positions:
+        return None
+
+    mapping = _raw_position_stream_map(
+        stream,
+        (raw_offset for _row, raw_offset, _old_filter in bad_positions),
+        max_output=raw_limit,
+    )
+    for row, raw_offset, old_filter in bad_positions:
+        mapped = mapping.get(raw_offset)
+        if mapped is None:
+            continue
+        stream_offset, raw_before, raw_after = mapped
+        if raw_before != raw_offset or raw_after != raw_offset + 1:
+            continue
+        return row, raw_offset, stream_offset, old_filter
+    return None
+
+
+def _nearby_offsets(
+    center: int,
+    *,
+    radius: int,
+    upper_bound: int,
+    search_direction: str = "near",
+) -> tuple[int, ...]:
+    offsets: list[int] = []
+    clean_direction = str(search_direction or "near").strip().lower()
+    if clean_direction in {"backtrack", "backward", "before"}:
+        start = max(0, int(center) - max(0, int(radius)))
+        end = min(int(upper_bound), int(center) + max(0, int(radius)) + 1)
+        return tuple(range(start, end))
+
+    for delta in range(0, max(0, int(radius)) + 1):
+        candidates = (center,) if delta == 0 else (center - delta, center + delta)
+        for offset in candidates:
+            if 0 <= offset < upper_bound:
+                offsets.append(offset)
+    return tuple(dict.fromkeys(offsets))
+
+
+def _png_filter_literal_repair_offsets(
+    stream: bytes,
+    bad_positions: Iterable[tuple[int, int, int]],
+    *,
+    max_output: int,
+    search_radius: int,
+    search_direction: str = "near",
+) -> tuple[int, ...]:
+    positions = tuple(bad_positions)
+    mapping = _raw_position_stream_map(
+        stream,
+        (raw_offset for _row, raw_offset, _old_filter in positions),
+        max_output=max_output,
+    )
+    offsets: list[int] = []
+    for _row, raw_offset, _old_filter in positions:
+        mapped = mapping.get(raw_offset)
+        if mapped is None:
+            continue
+        stream_offset, _raw_before, _raw_after = mapped
+        offsets.extend(
+            _nearby_offsets(
+                stream_offset,
+                radius=search_radius,
+                upper_bound=len(stream),
+                search_direction=search_direction,
+            )
+        )
+    return tuple(dict.fromkeys(offsets))
+
+
+def _png_filter_literal_bad_positions(
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    max_rows: int,
+) -> tuple[tuple[int, int, int], bytes, int]:
+    scanline_size = int(getattr(analysis, "scanline_size", 0) or 0)
+    height = int(getattr(analysis, "height", 0) or 0)
+    if scanline_size <= 0 or height <= 0:
+        return (), b"", 0
+    try:
+        _chunks, stream = _all_chunks_and_idat_stream(data)
+    except png.PngFormatError:
+        return (), b"", 0
+
+    row_limit = max(1, min(max(1, int(max_rows)), height))
+    raw_limit = max(8192, scanline_size * (row_limit + 1))
+    raw = idat_partial_raw_prefix(stream, max_output=raw_limit).raw
+    if not raw:
+        return (), stream, raw_limit
+
+    bad_positions: list[tuple[int, int, int]] = []
+    checked_rows = min(row_limit, (len(raw) + scanline_size - 1) // scanline_size)
+    for row in range(checked_rows):
+        raw_offset = row * scanline_size
+        if raw_offset >= len(raw):
+            break
+        old_filter = raw[raw_offset]
+        if old_filter not in (0, 1, 2, 3, 4):
+            bad_positions.append((row, raw_offset, old_filter))
+    return tuple(bad_positions), stream, raw_limit
+
+
+def _png_filter_literal_candidate_values(old_byte: int) -> tuple[int, ...]:
+    priority = (
+        0x00,
+        0x01,
+        0x02,
+        0x03,
+        0x04,
+        0x0A,
+        0x0D,
+        0xFF,
+        old_byte ^ 0x80,
+        old_byte ^ 0x40,
+        old_byte ^ 0x20,
+        old_byte ^ 0x10,
+        old_byte ^ 0x08,
+        old_byte ^ 0x04,
+        old_byte ^ 0x02,
+        old_byte ^ 0x01,
+    )
+    values = list(priority)
+    values.extend(range(256))
+    return tuple(dict.fromkeys(value & 0xFF for value in values))
+
+
+def _best_png_filter_literal_repair(
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    max_rows: int,
+    search_radius: int,
+    candidate_budget: int,
+    search_direction: str = "near",
+) -> tuple[IdatDeflateCandidate | None, int, bool, tuple[int, ...]]:
+    bad_positions, stream, raw_limit = _png_filter_literal_bad_positions(
+        data,
+        analysis,
+        max_rows=max_rows,
+    )
+    if not bad_positions or not stream:
+        return None, 0, False, ()
+
+    offsets = _png_filter_literal_repair_offsets(
+        stream,
+        bad_positions,
+        max_output=raw_limit,
+        search_radius=search_radius,
+        search_direction=search_direction,
+    )
+    if not offsets:
+        return None, 0, False, ()
+
+    current_score = _png_filter_literal_score(data, analysis, max_rows=max_rows)
+    best: IdatDeflateCandidate | None = None
+    best_score = current_score
+    tested = 0
+    budget = max(1, int(candidate_budget))
+    budget_exhausted = False
+    seen_candidates: set[bytes] = set()
+
+    def consider(candidate: IdatDeflateCandidate | None) -> bool:
+        nonlocal best, best_score, tested, budget_exhausted
+        if tested >= budget:
+            budget_exhausted = True
+            return True
+        tested += 1
+        if candidate is None:
+            return False
+        digest = hashlib.sha1(candidate.data).digest()
+        if digest in seen_candidates:
+            return False
+        seen_candidates.add(digest)
+        candidate_score = _png_filter_literal_score(candidate.data, candidate.after, max_rows=max_rows)
+        if candidate_score <= best_score:
+            return False
+        best = candidate
+        best_score = candidate_score
+        return bool(candidate.after.complete)
+
+    for offset in offsets:
+        if not (0 <= offset < len(stream)):
+            continue
+        old_byte = stream[offset]
+        for value in _png_filter_literal_candidate_values(old_byte):
+            if consider(mutate_idat_stream_byte(data, offset, value, before_analysis=analysis)):
+                return best, tested, budget_exhausted, offsets
+        for value in (0x00, 0x01, 0x02, 0x03, 0x04, 0x0A, 0x0D, 0xFF):
+            if consider(
+                mutate_idat_stream_edit(
+                    data,
+                    offset,
+                    "insert",
+                    new_bytes=bytes((value,)),
+                    before_analysis=analysis,
+                )
+            ):
+                return best, tested, budget_exhausted, offsets
+        if consider(mutate_idat_stream_edit(data, offset, "remove", remove_count=1, before_analysis=analysis)):
+            return best, tested, budget_exhausted, offsets
+        if budget_exhausted:
+            break
+
+    return best, tested, budget_exhausted, offsets
+
+
+def probe_idat_png_filter_literal_repair(
+    data: bytes,
+    *,
+    max_rows: int = 64,
+    max_repairs: int = 32,
+    replacement_filter: int = 0,
+    search_radius: int = 16,
+    search_direction: str = "near",
+    candidate_budget: int = 20_000,
+    progress: QueueProgressCallback | None = None,
+) -> IdatDeflateProbeResult:
+    strategy = "png-filter-literal-repair"
+    before = idat.analyze_idat_stream(data)
+    if not before.supported:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, before.reason)
+    if before.complete:
+        return IdatDeflateProbeResult(before, None, 0, 0, 0, False, strategy, "IDAT stream is already complete")
+
+    clean_filter = int(replacement_filter)
+    if clean_filter not in (0, 1, 2, 3, 4):
+        clean_filter = 0
+
+    current = data
+    chain: list[IdatDeflateCandidate] = []
+    tested = 0
+    offsets: list[int] = []
+    budget = max(0, int(max_repairs))
+    candidate_limit = max(1, int(candidate_budget))
+    budget_exhausted = False
+    if progress is not None:
+        progress(strategy, 0, candidate_limit)
+
+    for _repair_index in range(budget):
+        current_analysis = idat.analyze_idat_stream(current)
+        candidate, tested_now, exhausted_now, repair_offsets = _best_png_filter_literal_repair(
+            current,
+            current_analysis,
+            max_rows=max_rows,
+            search_radius=search_radius,
+            search_direction=search_direction,
+            candidate_budget=max(1, candidate_limit - tested),
+        )
+        tested += tested_now
+        budget_exhausted = budget_exhausted or exhausted_now
+        if progress is not None:
+            progress(strategy, tested, candidate_limit)
+        if candidate is None:
+            break
+        chain.append(candidate)
+        offsets.append(candidate.stream_offset)
+        offsets.extend(repair_offsets[:1])
+        current = candidate.data
+        if candidate.after.complete or budget_exhausted or tested >= candidate_limit:
+            break
+
+    reason = "max_rows=%s; replacement_filter=%s; search_radius=%s; search_direction=%s; repairs=%s" % (
+        max_rows,
+        clean_filter,
+        search_radius,
+        str(search_direction or "near"),
+        len(chain),
+    )
+    if progress is not None:
+        progress(strategy, tested, candidate_limit)
+    return IdatDeflateProbeResult(
+        before,
+        chain[-1] if chain else None,
+        min(offsets) if offsets else 0,
+        (max(offsets) + 1) if offsets else 0,
+        tested,
+        budget_exhausted or tested >= candidate_limit,
+        strategy,
+        reason,
+        chain=tuple(chain),
+    )
+
+
 def raw_png_oracle_decision(
     stream: bytes,
     analysis: idat.IdatStreamAnalysis,
@@ -8239,10 +8735,10 @@ def _deep_beam_score(
     return (
         1 if analysis.complete else 0,
         int(analysis.usable_scanlines),
-        int(analysis.complete_scanlines),
         int(raw_score.first_filter_rank),
         int(raw_score.valid_filter_rows),
         int(raw_score.alpha_rank),
+        int(analysis.complete_scanlines),
         int(raw_score.raw_size),
         int(analysis.decompressed_size),
         status_rank,

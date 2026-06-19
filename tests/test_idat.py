@@ -1656,6 +1656,32 @@ def test_rebuild_visual_idat_preview_recompresses_full_bad_adler_candidate():
     ) == filtered
 
 
+def test_rebuild_tolerant_idat_preview_includes_complete_bad_filter_rows():
+    filtered = b"\x00abc" + b"\x00def" + b"\x11ghi"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 3, filtered, idat_data=bytes(compressed))
+
+    before = idat.analyze_idat_stream(corrupt)
+    repair = idat.rebuild_tolerant_idat_preview(corrupt)
+
+    assert before.status == "bad_adler"
+    assert before.usable_scanlines == 2
+    assert before.complete_scanlines == 3
+    assert repair is not None
+    assert repair.recovered_scanlines == 3
+    assert repair.total_scanlines == 3
+    assert "usable without filter repair=2" in repair.strategy
+    assert "replaced 1 complete bad-filter row" in repair.strategy
+    assert validate_png_structure(repair.data).ok
+    rebuilt = idat.analyze_idat_stream(repair.data)
+    assert rebuilt.complete is True
+    rebuilt_raw = zlib.decompress(
+        b"".join(chunk.data for chunk in iter_chunks(repair.data) if chunk.chunk_type == b"IDAT")
+    )
+    assert rebuilt_raw == b"\x00abc" + b"\x00def" + b"\x00def"
+
+
 def test_ultimate_visual_gallery_keeps_equal_score_distinct_operations():
     filtered = b"\x00abc" + b"\x00def"
     compressed = bytearray(zlib.compress(filtered))
@@ -4028,6 +4054,170 @@ def test_idat_local_deflate_probe_keeps_search_bounded_and_scores_progress():
     assert result.window_start == 0
     assert result.window_end <= 0x120
     assert result.best is not None or result.diagnostic_best is not None
+
+
+def test_idat_local_deflate_png_filter_mode_prefers_filter_rows(monkeypatch):
+    before_raw = b"\x00abc" + b"\xffdef" + b"\xffghi"
+    noisy_raw = before_raw + (b"x" * 80)
+    filtered_raw = b"\x00abc" + b"\x04def" + b"\xffghi"
+    before_data = build_rgb_png(1, 3, before_raw, idat_data=zlib.compress(before_raw))
+    noisy_data = build_rgb_png(1, 3, noisy_raw, idat_data=zlib.compress(noisy_raw))
+    filtered_data = build_rgb_png(1, 3, filtered_raw, idat_data=zlib.compress(filtered_raw))
+    before = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        width=1,
+        height=3,
+        bit_depth=8,
+        color_type=2,
+        scanline_size=4,
+        expected_size=12,
+        decompressed_size=len(before_raw),
+        complete_scanlines=3,
+        usable_scanlines=1,
+        error_offset=5,
+    )
+    noisy_after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        width=1,
+        height=3,
+        bit_depth=8,
+        color_type=2,
+        scanline_size=4,
+        expected_size=12,
+        decompressed_size=len(noisy_raw),
+        complete_scanlines=3,
+        usable_scanlines=1,
+        error_offset=6,
+    )
+    filtered_after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        width=1,
+        height=3,
+        bit_depth=8,
+        color_type=2,
+        scanline_size=4,
+        expected_size=12,
+        decompressed_size=len(filtered_raw),
+        complete_scanlines=3,
+        usable_scanlines=1,
+        error_offset=7,
+    )
+    diagnostic = idat_bruteforce.IdatLocalDeflateDiagnostic(
+        before=before,
+        trace=SimpleNamespace(byte_offset=0, summary="mock dynamic trace"),
+        stream_size=16,
+        stream_offset=0,
+        file_offset=0,
+        idat_index=1,
+        idat_offset=0,
+        window_start=0,
+        window_end=1,
+        context_hex="",
+    )
+
+    monkeypatch.setattr(idat_bruteforce.idat, "analyze_idat_stream", lambda _data: before)
+    monkeypatch.setattr(idat_bruteforce, "idat_local_deflate_diagnostic", lambda *_args, **_kwargs: diagnostic)
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "mutate_idat_stream_edit",
+        lambda _data, _offset, edit_kind, **_kwargs: idat_bruteforce.IdatDeflateCandidate(
+            data=filtered_data if edit_kind == "insert" else noisy_data,
+            stream_offset=0,
+            file_offset=0,
+            idat_index=1,
+            idat_offset=0,
+            old_byte=0,
+            new_byte=0,
+            before=before,
+            after=filtered_after if edit_kind == "insert" else noisy_after,
+            edit_kind=edit_kind,
+            old_bytes=b"\x00",
+            new_bytes=b"\x04" if edit_kind == "insert" else b"",
+        ),
+    )
+    monkeypatch.setattr(idat_bruteforce, "mutate_idat_stream_byte", lambda *_args, **_kwargs: None)
+
+    result = idat_bruteforce.probe_idat_deflate_local_candidates(
+        before_data,
+        budget=2,
+        score_mode="png-filter",
+    )
+
+    assert result.strategy == "deflate-local-png-filter"
+    assert result.best is not None
+    assert result.best.data == filtered_data
+    assert "score_mode=png-filter" in result.reason
+
+
+def test_idat_png_filter_literal_repair_fixes_direct_row_filter_bytes():
+    rows = (
+        b"\x00abc",
+        b"\xd1def",
+        b"\x78ghi",
+        b"\x4ejkl",
+    )
+    filtered_raw = b"".join(rows)
+    compressor = zlib.compressobj(0)
+    stored_idat = compressor.compress(filtered_raw) + compressor.flush()
+    data = build_rgb_png(1, 4, filtered_raw, idat_data=stored_idat)
+    before = idat.analyze_idat_stream(data)
+
+    result = idat_bruteforce.probe_idat_png_filter_literal_repair(
+        data,
+        max_rows=8,
+        max_repairs=8,
+    )
+
+    assert before.usable_scanlines == 1
+    assert result.strategy == "png-filter-literal-repair"
+    assert result.best is not None
+    assert len(result.chain) == 3
+    assert result.window_start > 0
+    assert result.window_end > result.window_start
+    after = idat.analyze_idat_stream(result.best.data)
+    stream = idat_bruteforce._all_chunks_and_idat_stream(result.best.data)[1]
+    raw = idat_bruteforce.idat_partial_raw_prefix(stream, max_output=64).raw
+    raw_score = idat_bruteforce.score_png_raw_prefix(raw, after)
+    assert after.usable_scanlines == 4
+    assert raw_score.valid_filter_rows == 4
+    assert all(candidate.new_bytes == b"\x00" for candidate in result.chain)
+    assert idat_bruteforce.candidate_summary_lines(result)[-1].startswith(
+        "-IDAT deflate candidate:"
+    )
+
+
+def test_idat_png_filter_literal_repair_searches_near_mapped_filter_byte():
+    filtered_raw = bytes.fromhex("018da4bb009eb5cc01afc6dd00c0d7ee")
+    corrupt_idat = bytes.fromhex(
+        "780102ec5db29b61ded6338ceb8fdd653870fd1d00428408e5"
+    )
+    data = build_rgb_png(1, 4, filtered_raw, idat_data=corrupt_idat)
+    before = idat.analyze_idat_stream(data)
+
+    result = idat_bruteforce.probe_idat_png_filter_literal_repair(
+        data,
+        max_rows=8,
+        max_repairs=3,
+        search_radius=16,
+        candidate_budget=8000,
+    )
+
+    assert before.status == "bad_adler"
+    assert before.usable_scanlines == 0
+    assert before.decompressed_size > 0
+    assert result.best is not None
+    assert len(result.chain) == 1
+    assert result.best.stream_offset == 2
+    assert result.best.old_bytes == b"\x02"
+    assert result.best.new_bytes == b"\x63"
+    assert result.best.after.complete
+    assert result.best.after.usable_scanlines == 4
 
 
 def test_idat_deep_beam_chases_depth_two_progress():
@@ -7197,6 +7387,14 @@ def main():
         (
             "IDAT local deflate probe",
             test_idat_local_deflate_probe_keeps_search_bounded_and_scores_progress,
+        ),
+        (
+            "IDAT PNG filter literal repair",
+            test_idat_png_filter_literal_repair_fixes_direct_row_filter_bytes,
+        ),
+        (
+            "IDAT PNG filter mapped byte repair",
+            test_idat_png_filter_literal_repair_searches_near_mapped_filter_byte,
         ),
         (
             "IDAT deep beam depth two",

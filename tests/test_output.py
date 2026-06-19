@@ -61,6 +61,53 @@ def test_realpng_names_use_inner_png_stem(tmp_path):
     )
 
 
+def test_fixed_clone_reuses_original_repair_folder_and_stem(tmp_path):
+    source = tmp_path / "Folder_Flag" / "Flag.3_Fixed.png"
+
+    assert output.source_stem(str(source)) == "Flag"
+    assert output.clone_folder(str(source)) == str(tmp_path / "Folder_Flag")
+    assert output.clone_basename(str(source)) == "Flag."
+    assert output.summary_path(str(source)) == str(
+        tmp_path / "Folder_Flag" / "Summary_Of_Flag"
+    )
+
+
+def test_relative_fixed_clone_reuses_repair_folder_under_output_dir(tmp_path):
+    source = "Folder_Flag/Flag.3_Fixed.png"
+
+    target = output.next_clone_target(source, str(tmp_path))
+
+    assert target.directory == str(tmp_path / "Folder_Flag")
+    assert target.name == "Flag.0_Fixed.png"
+    assert target.path == str(tmp_path / "Folder_Flag" / "Flag.0_Fixed.png")
+
+
+def test_debug_payload_input_reuses_parent_repair_folder(tmp_path):
+    source = tmp_path / "Folder_Flag" / "Debug_Payloads" / "Flag_idat_rank01.png"
+
+    assert output.clone_folder(str(source)) == str(tmp_path / "Folder_Flag")
+    assert output.clone_basename(str(source)) == "Flag."
+
+
+def test_misnamed_fixed_clone_folder_normalizes_to_original_repair_folder(tmp_path):
+    source = tmp_path / "Folder_Flag.3_Fixed" / "Debug_Payloads" / "Flag_idat_rank01.png"
+
+    assert output.clone_folder(str(source)) == str(tmp_path / "Folder_Flag")
+    assert output.clone_basename(str(source)) == "Flag."
+    assert output.summary_path(str(source)) == str(
+        tmp_path / "Folder_Flag" / "Summary_Of_Flag"
+    )
+
+
+def test_misnamed_fixed_clone_folder_with_clone_input_normalizes_to_original(tmp_path):
+    source = tmp_path / "Folder_Flag.3_Fixed" / "Flag.3_Fixed.png"
+
+    target = output.next_clone_target(str(source))
+
+    assert target.directory == str(tmp_path / "Folder_Flag")
+    assert target.name == "Flag.0_Fixed.png"
+
+
 def test_lockdown_folder_lines_preserve_legacy_printed_paths(tmp_path):
     assert output.lockdown_folder_lines("/somewhere/sample.png", str(tmp_path)) == (
         str(tmp_path / "Folder_sample"),

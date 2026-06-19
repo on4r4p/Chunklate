@@ -172,6 +172,16 @@ class WrongCrcRuntime:
     global_crc_residue_budget: Any = None
     affine_corruption_budget: Any = None
     deflate_salvage_budget: Any = None
+    seed_local_continuation_limit: Any = None
+    seed_local_continuation_budget: Any = None
+    seed_local_continuation_rounds: Any = None
+    prefinal_repair_cycles: Any = None
+    prefinal_repair_batches: Any = None
+    ultimate_linefeed_budget: Any = None
+    ultimate_linefeed_unbounded: Any = None
+    ultimate_linefeed_workers: Any = None
+    ultimate_linefeed_max_depth: Any = None
+    ultimate_linefeed_max_offsets: Any = None
     set_idat_deflate_route_consumed: Callable[[bool], Any] | None = None
 
 
@@ -221,6 +231,16 @@ class WrongChunkNameRuntime:
     global_crc_residue_budget: Any = None
     affine_corruption_budget: Any = None
     deflate_salvage_budget: Any = None
+    seed_local_continuation_limit: Any = None
+    seed_local_continuation_budget: Any = None
+    seed_local_continuation_rounds: Any = None
+    prefinal_repair_cycles: Any = None
+    prefinal_repair_batches: Any = None
+    ultimate_linefeed_budget: Any = None
+    ultimate_linefeed_unbounded: Any = None
+    ultimate_linefeed_workers: Any = None
+    ultimate_linefeed_max_depth: Any = None
+    ultimate_linefeed_max_offsets: Any = None
     queue_existing_clone: Callable[[str], Any] | None = None
     set_idat_deflate_route_consumed: Callable[[bool], Any] | None = None
 
@@ -287,6 +307,16 @@ class NoNextChunkRuntime:
     global_crc_residue_budget: Any = None
     affine_corruption_budget: Any = None
     deflate_salvage_budget: Any = None
+    seed_local_continuation_limit: Any = None
+    seed_local_continuation_budget: Any = None
+    seed_local_continuation_rounds: Any = None
+    prefinal_repair_cycles: Any = None
+    prefinal_repair_batches: Any = None
+    ultimate_linefeed_budget: Any = None
+    ultimate_linefeed_unbounded: Any = None
+    ultimate_linefeed_workers: Any = None
+    ultimate_linefeed_max_depth: Any = None
+    ultimate_linefeed_max_offsets: Any = None
     queue_existing_clone: Callable[[str], Any] | None = None
     set_idat_deflate_route_consumed: Callable[[bool], Any] | None = None
 
@@ -384,6 +414,16 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
         deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
+        seed_local_continuation_limit=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_LIMIT"),
+        seed_local_continuation_budget=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_BUDGET"),
+        seed_local_continuation_rounds=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_ROUNDS"),
+        prefinal_repair_cycles=namespace.get("IDAT_PREFINAL_REPAIR_CYCLES"),
+        prefinal_repair_batches=namespace.get("IDAT_PREFINAL_REPAIR_BATCHES"),
+        ultimate_linefeed_budget=namespace.get("ULTIMATE_LINEFEED_BUDGET"),
+        ultimate_linefeed_unbounded=namespace.get("ULTIMATE_LINEFEED_UNBOUNDED"),
+        ultimate_linefeed_workers=namespace.get("ULTIMATE_LINEFEED_WORKERS"),
+        ultimate_linefeed_max_depth=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH"),
+        ultimate_linefeed_max_offsets=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS"),
         set_idat_deflate_route_consumed=lambda value: namespace.__setitem__("IDAT_DEFLATE_ROUTE_CONSUMED", value),
     )
 
@@ -474,6 +514,16 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
         deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
+        seed_local_continuation_limit=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_LIMIT"),
+        seed_local_continuation_budget=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_BUDGET"),
+        seed_local_continuation_rounds=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_ROUNDS"),
+        prefinal_repair_cycles=namespace.get("IDAT_PREFINAL_REPAIR_CYCLES"),
+        prefinal_repair_batches=namespace.get("IDAT_PREFINAL_REPAIR_BATCHES"),
+        ultimate_linefeed_budget=namespace.get("ULTIMATE_LINEFEED_BUDGET"),
+        ultimate_linefeed_unbounded=namespace.get("ULTIMATE_LINEFEED_UNBOUNDED"),
+        ultimate_linefeed_workers=namespace.get("ULTIMATE_LINEFEED_WORKERS"),
+        ultimate_linefeed_max_depth=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH"),
+        ultimate_linefeed_max_offsets=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS"),
         queue_existing_clone=lambda path: queue_existing_clone_from_namespace(namespace, path),
         set_idat_deflate_route_consumed=lambda value: namespace.__setitem__("IDAT_DEFLATE_ROUTE_CONSUMED", value),
     )
@@ -541,6 +591,16 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
         deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
+        seed_local_continuation_limit=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_LIMIT"),
+        seed_local_continuation_budget=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_BUDGET"),
+        seed_local_continuation_rounds=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_ROUNDS"),
+        prefinal_repair_cycles=namespace.get("IDAT_PREFINAL_REPAIR_CYCLES"),
+        prefinal_repair_batches=namespace.get("IDAT_PREFINAL_REPAIR_BATCHES"),
+        ultimate_linefeed_budget=namespace.get("ULTIMATE_LINEFEED_BUDGET"),
+        ultimate_linefeed_unbounded=namespace.get("ULTIMATE_LINEFEED_UNBOUNDED"),
+        ultimate_linefeed_workers=namespace.get("ULTIMATE_LINEFEED_WORKERS"),
+        ultimate_linefeed_max_depth=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH"),
+        ultimate_linefeed_max_offsets=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS"),
         queue_existing_clone=lambda path: queue_existing_clone_from_namespace(namespace, path),
         set_idat_deflate_route_consumed=lambda value: namespace.__setitem__("IDAT_DEFLATE_ROUTE_CONSUMED", value),
     )
@@ -1083,7 +1143,7 @@ def _sbb_reference_regions_path(runtime: AutomaticRepairRuntime) -> str:
         return explicit
     origin = str(runtime.file_origin or "")
     if origin:
-        folder = "Folder_%s" % Path(origin).stem
+        folder = output.clone_folder(origin, str(runtime.file_dir or ""))
         return str(Path(folder) / idat_bruteforce.ULTIMATE_LINEFEED_REFERENCE_REGION_NAME)
     return idat_bruteforce.ULTIMATE_LINEFEED_REFERENCE_REGION_NAME
 
@@ -3078,7 +3138,7 @@ def _write_idat_diagnostic_artifact(
         path = payload_folder / (
             "%s_%s_state%s_%s.png"
             % (
-                output.source_stem(file_origin),
+                output.repair_stem(file_origin, file_dir),
                 label,
                 candidate.state_id,
                 digest,
@@ -3117,7 +3177,7 @@ def _idat_deep_beam_paths(runtime: Any) -> tuple[str, str]:
         payload_folder.mkdir(parents=True, exist_ok=True)
     except Exception:
         return "", ""
-    stem = output.source_stem(file_origin)
+    stem = output.repair_stem(file_origin, file_dir)
     checkpoint_path = payload_folder / ("%s_deep_beam.checkpoint.jsonl" % stem)
     progress_path = payload_folder / ("%s_deep_beam.progress.json" % stem)
     return str(checkpoint_path), str(progress_path)
@@ -3134,7 +3194,7 @@ def _idat_periodic_model_paths(runtime: Any) -> tuple[str, str]:
         payload_folder.mkdir(parents=True, exist_ok=True)
     except Exception:
         return "", ""
-    stem = output.source_stem(file_origin)
+    stem = output.repair_stem(file_origin, file_dir)
     checkpoint_path = payload_folder / ("%s_periodic_model.checkpoint.jsonl" % stem)
     progress_path = payload_folder / ("%s_periodic_model.progress.json" % stem)
     return str(checkpoint_path), str(progress_path)
@@ -3148,7 +3208,7 @@ def _idat_huffman_oracle_paths(runtime: Any) -> tuple[str, str]:
     folder = Path(output.ensure_clone_folder(file_origin, file_dir))
     payload_folder = folder / "Debug_Payloads"
     payload_folder.mkdir(parents=True, exist_ok=True)
-    stem = output.source_stem(file_origin)
+    stem = output.repair_stem(file_origin, file_dir)
     checkpoint_path = payload_folder / ("%s_huffman_oracle.checkpoint.jsonl" % stem)
     progress_path = payload_folder / ("%s_huffman_oracle.progress.json" % stem)
     return str(checkpoint_path), str(progress_path)
@@ -3162,7 +3222,7 @@ def _idat_crc_periodic_paths(runtime: Any) -> tuple[str, str]:
     folder = Path(output.ensure_clone_folder(file_origin, file_dir))
     payload_folder = folder / "Debug_Payloads"
     payload_folder.mkdir(parents=True, exist_ok=True)
-    stem = output.source_stem(file_origin)
+    stem = output.repair_stem(file_origin, file_dir)
     checkpoint_path = payload_folder / ("%s_crc_periodic.checkpoint.jsonl" % stem)
     progress_path = payload_folder / ("%s_crc_periodic.progress.json" % stem)
     return str(checkpoint_path), str(progress_path)
@@ -3176,7 +3236,7 @@ def _idat_frontier_paths(runtime: Any, label: str) -> tuple[str, str]:
     folder = Path(output.ensure_clone_folder(file_origin, file_dir))
     payload_folder = folder / "Debug_Payloads"
     payload_folder.mkdir(parents=True, exist_ok=True)
-    stem = output.source_stem(file_origin)
+    stem = output.repair_stem(file_origin, file_dir)
     checkpoint_path = payload_folder / ("%s_%s.checkpoint.jsonl" % (stem, label))
     progress_path = payload_folder / ("%s_%s.progress.json" % (stem, label))
     return str(checkpoint_path), str(progress_path)
@@ -3210,6 +3270,10 @@ def _idat_deflate_salvage_paths(runtime: Any) -> tuple[str, str]:
     return _idat_frontier_paths(runtime, "deflate_salvage")
 
 
+def _idat_groundhogday_ultimate_linefeed_paths(runtime: Any) -> tuple[str, str]:
+    return _idat_frontier_paths(runtime, "groundhogday_ultimate_linefeed")
+
+
 def _idat_deflate_salvage_preview_path(runtime: Any) -> str:
     file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
     file_dir = str(getattr(runtime, "file_dir", "") or "")
@@ -3221,7 +3285,7 @@ def _idat_deflate_salvage_preview_path(runtime: Any) -> str:
         payload_folder.mkdir(parents=True, exist_ok=True)
     except Exception:
         return ""
-    stem = output.source_stem(file_origin)
+    stem = output.repair_stem(file_origin, file_dir)
     return str(payload_folder / ("%s_deflate_salvage_preview.ppm" % stem))
 
 
@@ -3236,7 +3300,8 @@ def _idat_convoy_model_path(runtime: Any) -> str:
         payload_folder.mkdir(parents=True, exist_ok=True)
     except Exception:
         return ""
-    return str(payload_folder / ("%s_idat_convoy_model.json" % output.source_stem(file_origin)))
+    stem = output.repair_stem(file_origin, file_dir)
+    return str(payload_folder / ("%s_idat_convoy_model.json" % stem))
 
 
 def _deep_beam_workers_from_profile(value: Any) -> str | int:
@@ -3393,6 +3458,90 @@ def _runtime_deflate_salvage_budget(runtime: Any) -> int:
     )
 
 
+def _runtime_seed_local_continuation_limit(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "seed_local_continuation_limit", None),
+        IDAT_SEED_LOCAL_CONTINUATION_LIMIT,
+    )
+
+
+def _runtime_seed_local_continuation_budget(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "seed_local_continuation_budget", None),
+        IDAT_SEED_LOCAL_CONTINUATION_BUDGET,
+    )
+
+
+def _runtime_seed_local_continuation_rounds(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "seed_local_continuation_rounds", None),
+        IDAT_SEED_LOCAL_CONTINUATION_ROUNDS,
+    )
+
+
+def _runtime_groundhogday_ultimate_linefeed_budget(runtime: Any) -> int | None:
+    if bool(getattr(runtime, "ultimate_linefeed_unbounded", False)):
+        return None
+    value = getattr(runtime, "ultimate_linefeed_budget", None)
+    if value is not None:
+        text = str(value).strip().lower()
+        if text in ("0", "off", "false", "no", "disabled"):
+            return 0
+    return _deep_beam_positive_int(
+        value,
+        IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_DEFAULT_BUDGET,
+    )
+
+
+def _runtime_groundhogday_ultimate_linefeed_configured(runtime: Any) -> bool:
+    for name in (
+        "ultimate_linefeed_budget",
+        "ultimate_linefeed_unbounded",
+        "ultimate_linefeed_workers",
+        "ultimate_linefeed_max_depth",
+        "ultimate_linefeed_max_offsets",
+    ):
+        value = getattr(runtime, name, None)
+        if value is not None and str(value).strip() != "":
+            return True
+    return False
+
+
+def _runtime_groundhogday_ultimate_linefeed_max_depth(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "ultimate_linefeed_max_depth", None),
+        IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH,
+    )
+
+
+def _runtime_groundhogday_ultimate_linefeed_max_offsets(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "ultimate_linefeed_max_offsets", None),
+        IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS,
+    )
+
+
+def _runtime_groundhogday_ultimate_linefeed_workers(runtime: Any) -> int:
+    value = getattr(runtime, "ultimate_linefeed_workers", None)
+    if value is None or str(value).strip() == "":
+        return 0
+    return idat_bruteforce._deep_beam_workers(_deep_beam_workers_from_profile(value))
+
+
+def _GroundHogDay_runtime_repair_cycles(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "prefinal_repair_cycles", None),
+        IDAT_PREFINAL_REPAIR_CYCLES,
+    )
+
+
+def _GroundHogDay_runtime_repair_batches(runtime: Any) -> int:
+    return _deep_beam_positive_int(
+        getattr(runtime, "prefinal_repair_batches", None),
+        IDAT_PREFINAL_REPAIR_BATCHES,
+    )
+
+
 def _runtime_final_investigation_budget(runtime: Any) -> int:
     return _deep_beam_positive_int(
         getattr(runtime, "final_investigation_budget", None),
@@ -3521,9 +3670,71 @@ def _runtime_deep_beam_options(runtime: Any) -> tuple[str | int, bool, gpu_runti
 
 
 IDAT_DEBUG_ARTIFACT_TOP_LIMIT = 8
+IDAT_SEED_LOCAL_CONTINUATION_LIMIT = 1
+IDAT_SEED_LOCAL_CONTINUATION_BUDGET = 2048
+IDAT_SEED_LOCAL_CONTINUATION_ROUNDS = 16
+IDAT_PREFINAL_REPAIR_CYCLES = 16
+IDAT_PREFINAL_REPAIR_BATCHES = 4
+IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_DEFAULT_BUDGET = 50_000
+IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH = 2
+IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS = 256
+FINAL_INVESTIGATION_LABEL = "Punxsutawney Phil's shadow finder"
 FINAL_INVESTIGATION_DEFAULT_BUDGET = 100_000_000
 FINAL_INVESTIGATION_DEFAULT_MAX_DEPTH = 96
 FINAL_INVESTIGATION_DEFAULT_SEED_LIMIT = 128
+GROUNDHOGDAY_QUOTES: tuple[tuple[str, str], ...] = (
+    ("good", "Okay, campers, rise and shine, and don't forget your booties 'cause it's cooooold out there today."),
+    ("good", "It's coooold out there every day. What is this, Miami Beach?"),
+    ("com", "Not hardly. And you know, you can expect hazardous travel later today with that, you know, that, uh, that blizzard thing."),
+    ("com", "That blizzard - thing. That blizzard - thing. Oh, well, here's the report! The National Weather Service is calling for a big blizzard thing!"),
+    ("good", "Yessss, they are. But you know, there's another reason why today is especially exciting."),
+    ("good", "Especially cold!"),
+    ("good", "Especially cold, okay, but the big question on everybody's lips...    "),
+    ("good", "On their chapped lips..."),
+    ("good", "On their chapped lips, right: Do ya think Phil is gonna come out and see his shadow?"),
+    ("good", "Morning. Off to see the groundhog?"),
+    ("good", "Strike up the music, the band has begun ..The Pennsylvania Polka !"),
+    ("good", "Pick out your partner and join in the fun...The Pennsylvania Polka !"),
+    ("good", "When Chekhov saw the long winter, he saw a winter bleak and dark and bereft of hope."),
+    ("good", "But standing here among the people of Punxsutawney and basking in the warmth of their hearths and hearts, I couldn't imagine a better fate than a long and lustrous winter. From Punxsutawney, it's Phil Connors. So long."),
+    ("bad", "This is pitiful. A thousand people freezing their butts off, waiting to worship a RAT. What a hype! "),
+    ("good", "Groundhog Day used to mean something in this town. They used to pull the hog out, and they used to eat it! You're hypocrites! All of you! "),
+    ("good", "You got a problem with what I'm saying, Larry? Untie your tongue, and you come out here and talk, huh? "),
+    ("bad", "Am I upsetting you, princess? You know, you want a prediction about the weather you're asking the wrong Phil. "),
+    ("bad", "If the shadow keeps lying, the route gets stopped."),
+    ("bad", "I'll give you a winter prediction: it's gonna be cold, it's gonna be gray, and it's gonna last you for the rest of your life!"),
+    ("com", "Do you ever have déjà vu?"),
+    ("good", "Phil? Hey, Phil? Phil! Phil Connors? Phil Connors, I thought that was you!"),
+    ("good", "See, whenever I see an opportunity, I charge it like a bull. 'Ned the Bull', that's me now. "),
+    ("good", "You know, I have friends who live and die by the actuarial tables and I say, 'Hey! It's all one big crap-shoot anywho!' "),
+    ("good", "Tell me, have you ever heard of single premium life because I think that could really be the ticket for you."),
+    ("com", "Whoa-ho-ho! Watch out for that first step! It's a doozy!"),
+    ("good", "Phil? Like the groundhog Phil?"),
+    ("good", "Look out for your shadow there, buddy"),
+    ("bad", "Morrons ..your bus is leaving.."),   
+    ("good", "Hey! Phil? Phil? Hey! Phil Connors!"),
+    ("good", "Ned?"),
+    ("bad", "[Punches Ned in the face]"),
+    ("bad", "Once again, the eyes of the nation have turned here to this... tiny village in Western Pennsylvania. Blah, blah, blah, blah!"),
+    ("bad", "There is no way that this winter is *ever* going to end as long as this groundhog keeps seeing his shadow."),
+    ("good", "I don't see any other way out. He's gotta be stopped. And I have to stop him."),
+    ("com", "Don't drive angry. Don't drive angry!"),
+    ("com", "It's the same thing your whole life: 'Clean up your room. Stand up straight. Pick up your feet. Take it like a man. Be nice to your sister. Dont mix beer and wine, ever.' "),
+    ("com", "Oh yeah: 'Don't drive on the railroad track.'"),
+    ("com", "I'm betting he's going to swerve first..."),
+    ("bad", "[Phil drives the truck he steals off a cliff to kill both himself and Punxsutawney Phil the groundhog]"),
+    ("com", "Do you ever have déjà vu?"),
+    ("com", "Do you know what today is?"),
+    ("bad", "Today is yesterday again and again.."),
+    ("good", "I'm a god"),
+    ("com", "I'm *a* god, I'm not *the* God... I don't think."),
+    ("com", "I didn't just survive a wreck. I wasn't just blown up yesterday. I have been stabbed, shot, poisoned, frozen, hung, electrocuted, and burned."),
+    ("com", "Every morning, I wake up with out a scratch on me, not a dent in the fender. I am an immortal!"),
+    ("com", "I killed myself so many times I don't even exist anymore."),
+    ("com", "I wake up every day, right here, right in Punxsutawney, and it's always February 2nd, and there's nothing I can do about it."),
+    ("com", "Could I have one more of these with some booze in it please?"),
+    ("bad", "Well, it's Groundhog Day... again..."),   
+)
 
 
 def _write_idat_deep_beam_debug_artifacts(
@@ -3547,7 +3758,7 @@ def _write_idat_deep_beam_debug_artifacts(
         return ()
 
     saved: list[str] = []
-    stem = output.source_stem(file_origin)
+    stem = output.repair_stem(file_origin, file_dir)
     for stale_path in payload_folder.glob("%s_%s_rank*" % (stem, label)):
         if stale_path.suffix not in (".png", ".bin", ".json"):
             continue
@@ -3680,15 +3891,17 @@ def _runtime_idat_final_investigation_progress(runtime: Any):
     started = time.monotonic()
 
     def progress(stage: str, tested: int, budget: int) -> None:
+        stage_label = "shadow-finder" if str(stage) == "final-investigation" else str(stage)
         elapsed = max(0.001, time.monotonic() - started)
         rate = float(tested) / elapsed if tested > 0 else 0.0
         remaining = max(0, int(budget) - int(tested))
         eta = (float(remaining) / rate) if rate > 0 else None
         message = (
-            "IDAT Final investigation %s %s eta=%s rate=%.1f/s"
+            "IDAT %s %s %s eta=%s rate=%.1f/s"
             % (
-                stage,
-                _format_idat_queue_progress_counter(stage, tested, budget),
+                FINAL_INVESTIGATION_LABEL,
+                stage_label,
+                _format_idat_queue_progress_counter(stage_label, tested, budget),
                 _format_eta_seconds(eta),
                 rate,
             )
@@ -3708,15 +3921,6 @@ def _runtime_idat_final_investigation_progress(runtime: Any):
 def _final_investigation_payload_folder(runtime: Any, *, create: bool) -> Path | None:
     file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
     file_dir = str(getattr(runtime, "file_dir", "") or "")
-    if file_origin:
-        origin = Path(file_origin)
-        search_roots = [origin.parent, *origin.parents]
-        for parent in search_roots:
-            if parent.name.startswith("Folder_") and (parent / "Debug_Payloads").is_dir():
-                payload = parent / "Debug_Payloads"
-                if create:
-                    payload.mkdir(parents=True, exist_ok=True)
-                return payload
     if not file_origin:
         return None
     try:
@@ -3738,10 +3942,13 @@ def _final_investigation_payload_folder(runtime: Any, *, create: bool) -> Path |
 def _final_investigation_stem(runtime: Any, payload_folder: Path) -> str:
     parent = payload_folder.parent
     if parent.name.startswith("Folder_"):
-        stem = parent.name[len("Folder_") :]
+        stem = output.source_stem(parent.name[len("Folder_") :])
         if stem:
             return stem
-    return output.source_stem(str(getattr(runtime, "file_origin", "") or "IDAT"))
+    return output.repair_stem(
+        str(getattr(runtime, "file_origin", "") or "IDAT"),
+        str(getattr(runtime, "file_dir", "") or ""),
+    )
 
 
 def _idat_final_investigation_paths(runtime: Any) -> tuple[str, str]:
@@ -3767,8 +3974,19 @@ def _final_investigation_artifact_paths(runtime: Any) -> tuple[Path, ...]:
     if payload_folder is None:
         return ()
     stem = _final_investigation_stem(runtime, payload_folder)
-    paths = tuple(sorted(payload_folder.glob("%s_idat_*_rank*.png" % stem)))
-    return tuple(path for path in paths if path.is_file())
+    patterns = (
+        "%s_idat_*_rank*.png" % stem,
+        "%s_groundhogday_seed_state*.png" % stem,
+    )
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    for pattern in patterns:
+        for path in sorted(payload_folder.glob(pattern)):
+            if not path.is_file() or path in seen:
+                continue
+            seen.add(path)
+            paths.append(path)
+    return tuple(paths)
 
 
 def _final_investigation_has_evidence(runtime: Any) -> bool:
@@ -3798,7 +4016,7 @@ def _artifact_idat_seed_candidate(
         return None
     after = idat.analyze_idat_stream(artifact_data)
     operation = idat_bruteforce.IdatDeepBeamOperation(
-        "final-investigation-artifact-seed",
+        "shadow-finder-artifact-seed",
         0,
         b"",
         artifact_path.name.encode("utf-8", errors="replace")[:48],
@@ -3830,6 +4048,7 @@ def _load_final_investigation_seed_candidates(
     seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
 ) -> tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]:
     seed_limit = _runtime_final_investigation_seed_limit(runtime)
+    collection_limit = max(seed_limit * 3, IDAT_DEBUG_ARTIFACT_TOP_LIMIT * 64)
     try:
         chunks, _stream = idat_bruteforce._all_chunks_and_idat_stream(data)
         original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
@@ -3837,14 +4056,55 @@ def _load_final_investigation_seed_candidates(
         original_idat_count = 1
 
     candidates: list[idat_bruteforce.IdatDeepBeamCandidate] = list(seed_candidates)
+    checkpoint_count = 0
     for checkpoint_path in _final_investigation_checkpoint_paths(runtime):
-        if len(candidates) >= seed_limit * 3:
+        if checkpoint_count >= collection_limit:
             break
-        candidates.extend(_load_idat_deep_beam_seed_candidates(data, str(checkpoint_path)))
+        checkpoint_candidates = _load_idat_deep_beam_seed_candidates(data, str(checkpoint_path))
+        candidates.extend(checkpoint_candidates)
+        checkpoint_count += len(checkpoint_candidates)
 
     next_state_id = max((int(getattr(candidate, "state_id", 0)) for candidate in candidates), default=0) + 1
+    artifact_count = 0
     for artifact_path in _final_investigation_artifact_paths(runtime):
-        if len(candidates) >= seed_limit * 3:
+        if artifact_count >= collection_limit:
+            break
+        candidate = _artifact_idat_seed_candidate(
+            artifact_path,
+            analysis,
+            original_idat_count=original_idat_count,
+            state_id=next_state_id,
+        )
+        if candidate is None:
+            continue
+        candidates.append(candidate)
+        artifact_count += 1
+        next_state_id += 1
+
+    merged = _merge_idat_seed_candidates(tuple(candidates))
+    if not merged:
+        return ()
+    return idat_bruteforce._deep_beam_ranked_unique(merged, limit=seed_limit)
+
+
+def _load_idat_artifact_seed_candidates(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    *,
+    limit: int,
+) -> tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]:
+    try:
+        chunks, _stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+        original_idat_count = sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+    except Exception:
+        original_idat_count = 1
+
+    collection_limit = max(int(limit) * 64, IDAT_DEBUG_ARTIFACT_TOP_LIMIT * 64)
+    candidates: list[idat_bruteforce.IdatDeepBeamCandidate] = []
+    next_state_id = 1
+    for artifact_path in _final_investigation_artifact_paths(runtime):
+        if len(candidates) >= collection_limit:
             break
         candidate = _artifact_idat_seed_candidate(
             artifact_path,
@@ -3860,7 +4120,39 @@ def _load_final_investigation_seed_candidates(
     merged = _merge_idat_seed_candidates(tuple(candidates))
     if not merged:
         return ()
-    return idat_bruteforce._deep_beam_ranked_unique(merged, limit=seed_limit)
+    return idat_bruteforce._deep_beam_ranked_unique(merged, limit=max(1, int(limit)))
+
+
+def _idat_seed_candidates_have_material_progress(
+    analysis: idat.IdatStreamAnalysis,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+) -> bool:
+    return any(
+        getattr(candidate, "after", None) is not None
+        and idat_bruteforce.is_material_improvement(analysis, candidate.after)
+        for candidate in seed_candidates
+    )
+
+
+def _idat_seed_candidates_have_frontier_progress(
+    analysis: idat.IdatStreamAnalysis,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+) -> bool:
+    for candidate in seed_candidates:
+        after = getattr(candidate, "after", None)
+        if after is None or not getattr(after, "supported", False):
+            continue
+        if idat_bruteforce.is_material_improvement(analysis, after):
+            return True
+        if int(getattr(after, "complete_scanlines", 0) or 0) > int(
+            getattr(analysis, "complete_scanlines", 0) or 0
+        ):
+            return True
+        if int(getattr(after, "decompressed_size", 0) or 0) > int(
+            getattr(analysis, "decompressed_size", 0) or 0
+        ):
+            return True
+    return False
 
 
 def _should_run_final_investigation(
@@ -3870,11 +4162,13 @@ def _should_run_final_investigation(
     *,
     evidence_ready: bool | None = None,
 ) -> bool:
+    if _idat_seed_candidates_have_frontier_progress(analysis, seed_candidates):
+        return True
+    if seed_candidates and _runtime_final_investigation_configured(runtime):
+        return True
     ready = _final_investigation_ready(runtime) if evidence_ready is None else bool(evidence_ready)
     if not ready:
         return False
-    if seed_candidates:
-        return True
     if analysis.usable_scanlines > 0 or analysis.decompressed_size > 0:
         return True
     return _final_investigation_has_evidence(runtime)
@@ -3894,7 +4188,10 @@ def _run_idat_final_investigation_runtime(
 
     checkpoint_path, progress_path = _idat_final_investigation_paths(runtime)
     if not checkpoint_path:
-        runtime.side_notes.append("-IDAT Final investigation skipped: source repair folder is unavailable.")
+        runtime.side_notes.append(
+            "-IDAT %s skipped: source repair folder is unavailable."
+            % FINAL_INVESTIGATION_LABEL
+        )
         return None
 
     seeds = _load_final_investigation_seed_candidates(
@@ -3904,12 +4201,13 @@ def _run_idat_final_investigation_runtime(
         seed_candidates=seed_candidates,
     )
     runtime.side_notes.append(
-        "-IDAT Final investigation seed intake: %s candidate(s) from frontier/checkpoint/artifact evidence."
-        % len(seeds)
+        "-IDAT %s seed intake: %s candidate(s) from frontier/checkpoint/artifact evidence."
+        % (FINAL_INVESTIGATION_LABEL, len(seeds))
     )
     runtime.candy(
         "Cowsay",
-        "Final investigation: I am switching to a long pure IDAT brute-force campaign with checkpointed progress.",
+        "%s: I am switching to a long pure IDAT brute-force campaign with checkpointed progress."
+        % FINAL_INVESTIGATION_LABEL,
         "com",
     )
     runtime.candy(
@@ -3917,14 +4215,14 @@ def _run_idat_final_investigation_runtime(
         "It will reuse the strongest existing seeds, workers, and GPU prefilter; interruption keeps the checkpoint resumable.",
         "com",
     )
-    runtime.candy("Title", "Final investigation")
+    runtime.candy("Title", FINAL_INVESTIGATION_LABEL)
 
     deep_workers, deep_gpu, deep_gpu_config, _deep_budget, deep_gpu_shard_size, deep_cpu_batch_size = _runtime_deep_beam_options(runtime)
     final_budget = _runtime_final_investigation_budget(runtime)
     final_max_depth = _runtime_final_investigation_max_depth(runtime)
     runtime.side_notes.append(
-        "-IDAT Final investigation configuration: budget=%s; max_depth=%s; checkpoint=%s; progress=%s."
-        % (final_budget, final_max_depth, checkpoint_path, progress_path)
+        "-IDAT %s configuration: budget=%s; max_depth=%s; checkpoint=%s; progress=%s."
+        % (FINAL_INVESTIGATION_LABEL, final_budget, final_max_depth, checkpoint_path, progress_path)
     )
     result = idat_bruteforce.probe_idat_deflate_deep_beam(
         data,
@@ -3941,7 +4239,7 @@ def _run_idat_final_investigation_runtime(
         seed_candidates=seeds,
         progress=_runtime_idat_final_investigation_progress(runtime),
     )
-    result = replace(result, strategy="Final investigation")
+    result = replace(result, strategy=FINAL_INVESTIGATION_LABEL)
     runtime.side_notes.append(idat_bruteforce.deep_beam_summary_line(result))
     runtime.side_notes.extend(idat_bruteforce.deep_beam_candidate_summary_lines(result))
     _write_idat_deep_beam_debug_artifacts(runtime, result, label="idat_final_investigation", include_dynamic_trace=True)
@@ -3949,17 +4247,34 @@ def _run_idat_final_investigation_runtime(
     if result.interrupted:
         runtime.candy(
             "Cowsay",
-            "Final investigation interrupted; checkpoint/progress are saved, so the next run resumes instead of restarting.",
+            "%s interrupted; checkpoint/progress are saved, so the next run resumes instead of restarting."
+            % FINAL_INVESTIGATION_LABEL,
             "bad",
         )
-        runtime.side_notes.append("-IDAT Final investigation interrupted; checkpoint/progress saved.")
+        runtime.side_notes.append(
+            "-IDAT %s interrupted; checkpoint/progress saved."
+            % FINAL_INVESTIGATION_LABEL
+        )
         raise SystemExit(130)
 
     if result.best is None:
+        if result.top_candidates:
+            _GroundHogDay_write_resume_state(runtime, data, result.top_candidates)
+            runtime.side_notes.append(
+                "-IDAT %s handed checkpointed candidate(s) back to GroundHogDay resume."
+                % FINAL_INVESTIGATION_LABEL
+            )
+            runtime.candy(
+                "Cowsay",
+                "%s kept candidate evidence but did not finish the PNG. GroundHogDay will use those saved seeds on the next pass."
+                % FINAL_INVESTIGATION_LABEL,
+                "com",
+            )
         if result.budget_exhausted:
             runtime.candy(
                 "Cowsay",
-                "Final investigation reached its current budget. The checkpoint, progress JSON, and top candidates are saved for the next pass.",
+                "%s reached its current budget. The checkpoint, progress JSON, and top candidates are saved for the next pass."
+                % FINAL_INVESTIGATION_LABEL,
                 "bad",
             )
             runtime.candy(
@@ -3970,31 +4285,48 @@ def _run_idat_final_investigation_runtime(
         else:
             runtime.candy(
                 "Cowsay",
-                "Final investigation saved diagnostic candidates but has not produced a clone-worthy image yet.",
+                "%s saved diagnostic candidates but has not produced a clone-worthy image yet."
+                % FINAL_INVESTIGATION_LABEL,
                 "bad",
             )
         runtime.side_notes.append(
-            "-IDAT Final investigation produced no final clone; route left open with checkpointed evidence."
+            "-IDAT %s produced no final clone; route left open with checkpointed evidence."
+            % FINAL_INVESTIGATION_LABEL
         )
         return None
 
     candidate = result.best
     summary = "\n".join(
         (
-            "-Repair hypothesis tried: Final investigation pure IDAT brute force.",
+            "-Repair hypothesis tried: %s pure IDAT brute force."
+            % FINAL_INVESTIGATION_LABEL,
             idat_deflate_header_note(analysis),
             idat_bruteforce.deep_beam_summary_line(result),
             *idat_bruteforce.deep_beam_candidate_summary_lines(result),
             idat_stream_diagnosis_note(candidate.after),
         )
     )
-    return _write_complete_idat_candidate_clone(
+    written = _write_complete_idat_candidate_clone(
         runtime,
         candidate,
         summary,
-        route_label="Final investigation",
-        success_message="Final investigation found a complete IDAT candidate with validated image progress.",
+        route_label=FINAL_INVESTIGATION_LABEL,
+        success_message="%s found a complete IDAT candidate with validated image progress."
+        % FINAL_INVESTIGATION_LABEL,
     )
+    if written is None:
+        _GroundHogDay_write_resume_state(runtime, data, result.top_candidates or (candidate,))
+        runtime.side_notes.append(
+            "-IDAT %s produced incomplete progress; GroundHogDay resume is the next route."
+            % FINAL_INVESTIGATION_LABEL
+        )
+        runtime.candy(
+            "Cowsay",
+            "%s moved the IDAT stream, but not to a final PNG. I saved those candidates so GroundHogDay can keep alternating from there."
+            % FINAL_INVESTIGATION_LABEL,
+            "com",
+        )
+    return written
 
 
 def _run_idat_periodic_model_runtime(
@@ -4951,11 +5283,21 @@ def _run_idat_deep_beam_runtime(
             deep_probe.top_candidates,
             evidence_ready=final_investigation_ready,
         ):
+            prefinal_result, prefinal_seeds, prefinal_deferred = _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
+                runtime,
+                data,
+                analysis,
+                deep_probe.top_candidates,
+            )
+            if prefinal_result is not None:
+                return prefinal_result
+            if prefinal_deferred:
+                return None
             final_result = _run_idat_final_investigation_runtime(
                 runtime,
                 data,
                 analysis,
-                seed_candidates=deep_probe.top_candidates,
+                seed_candidates=prefinal_seeds or deep_probe.top_candidates,
             )
             if final_result is not None:
                 return final_result
@@ -4989,13 +5331,24 @@ def _run_idat_deep_beam_runtime(
             idat_stream_diagnosis_note(candidate.after),
         )
     )
-    return _write_complete_idat_candidate_clone(
+    written = _write_complete_idat_candidate_clone(
         runtime,
         candidate,
         summary,
         route_label="deep beam",
         success_message="The deep beam found a complete IDAT candidate with validated image progress.",
     )
+    if written is not None:
+        return written
+    post_deep_result = _run_idat_post_deep_frontier_routes_runtime(
+        runtime,
+        data,
+        analysis,
+        _merge_idat_seed_candidates((candidate,), deep_probe.top_candidates),
+    )
+    if post_deep_result is not None:
+        return post_deep_result
+    return None
 
 
 def _idat_deflate_header_for_data(data: bytes) -> deflate_header.DeflateHeaderAnalysis | None:
@@ -5093,13 +5446,17 @@ def _run_idat_frontier_routes_runtime(
     periodic_result = _run_idat_periodic_model_runtime(runtime, data, analysis)
     if periodic_result is not None:
         if periodic_result.best is not None:
-            return _write_periodic_model_best_clone(runtime, analysis, periodic_result), ()
+            written = _write_periodic_model_best_clone(runtime, analysis, periodic_result)
+            if written is not None:
+                return written, ()
         seed_groups.append(periodic_result.top_candidates)
 
     affine_result = _run_idat_affine_corruption_runtime(runtime, data, analysis)
     if affine_result is not None:
         if affine_result.best is not None:
-            return _write_affine_corruption_best_clone(runtime, analysis, affine_result), ()
+            written = _write_affine_corruption_best_clone(runtime, analysis, affine_result)
+            if written is not None:
+                return written, ()
         seed_groups.append(affine_result.top_candidates)
 
     kraft_seed_candidates = tuple(itertools.chain.from_iterable(seed_groups))
@@ -5111,7 +5468,9 @@ def _run_idat_frontier_routes_runtime(
     )
     if kraft_result is not None:
         if kraft_result.best is not None:
-            return _write_huffman_kraft_best_clone(runtime, analysis, kraft_result), ()
+            written = _write_huffman_kraft_best_clone(runtime, analysis, kraft_result)
+            if written is not None:
+                return written, ()
         seed_groups.append(kraft_result.top_candidates)
 
     first_filter_seed_candidates = kraft_result.top_candidates if kraft_result is not None else tuple(itertools.chain.from_iterable(seed_groups))
@@ -5123,7 +5482,9 @@ def _run_idat_frontier_routes_runtime(
     )
     if first_filter_result is not None:
         if first_filter_result.best is not None:
-            return _write_first_filter_literal_best_clone(runtime, analysis, first_filter_result), ()
+            written = _write_first_filter_literal_best_clone(runtime, analysis, first_filter_result)
+            if written is not None:
+                return written, ()
         seed_groups.append(first_filter_result.top_candidates)
 
     kraft_backref_seed_candidates = (
@@ -5139,7 +5500,9 @@ def _run_idat_frontier_routes_runtime(
     )
     if kraft_backref_result is not None:
         if kraft_backref_result.best is not None:
-            return _write_kraft_backref_best_clone(runtime, analysis, kraft_backref_result), ()
+            written = _write_kraft_backref_best_clone(runtime, analysis, kraft_backref_result)
+            if written is not None:
+                return written, ()
         seed_groups.append(kraft_backref_result.top_candidates)
 
     stored_block_seed_candidates = (
@@ -5156,7 +5519,9 @@ def _run_idat_frontier_routes_runtime(
         )
         if stored_block_result is not None:
             if stored_block_result.best is not None:
-                return _write_stored_block_best_clone(runtime, analysis, stored_block_result), ()
+                written = _write_stored_block_best_clone(runtime, analysis, stored_block_result)
+                if written is not None:
+                    return written, ()
             seed_groups.append(stored_block_result.top_candidates)
 
     huffman_seed_candidates = tuple(itertools.chain.from_iterable(seed_groups))
@@ -5168,7 +5533,9 @@ def _run_idat_frontier_routes_runtime(
     )
     if huffman_result is not None:
         if huffman_result.best is not None:
-            return _write_huffman_oracle_best_clone(runtime, analysis, huffman_result), ()
+            written = _write_huffman_oracle_best_clone(runtime, analysis, huffman_result)
+            if written is not None:
+                return written, ()
         seed_groups.append(huffman_result.top_candidates)
 
     oracle_backref_seed_candidates = (
@@ -5188,7 +5555,9 @@ def _run_idat_frontier_routes_runtime(
         )
         if oracle_backref_result is not None:
             if oracle_backref_result.best is not None:
-                return _write_kraft_backref_best_clone(runtime, analysis, oracle_backref_result), ()
+                written = _write_kraft_backref_best_clone(runtime, analysis, oracle_backref_result)
+                if written is not None:
+                    return written, ()
             seed_groups.append(oracle_backref_result.top_candidates)
 
     oracle_stored_block_seed_candidates = (
@@ -5208,19 +5577,25 @@ def _run_idat_frontier_routes_runtime(
         )
         if oracle_stored_block_result is not None:
             if oracle_stored_block_result.best is not None:
-                return _write_stored_block_best_clone(runtime, analysis, oracle_stored_block_result), ()
+                written = _write_stored_block_best_clone(runtime, analysis, oracle_stored_block_result)
+                if written is not None:
+                    return written, ()
             seed_groups.append(oracle_stored_block_result.top_candidates)
 
     global_crc_result = _run_idat_global_crc_residue_runtime(runtime, data, analysis)
     if global_crc_result is not None:
         if global_crc_result.best is not None:
-            return _write_global_crc_residue_best_clone(runtime, analysis, global_crc_result), ()
+            written = _write_global_crc_residue_best_clone(runtime, analysis, global_crc_result)
+            if written is not None:
+                return written, ()
         seed_groups.append(global_crc_result.top_candidates)
 
     crc_periodic_result = _run_idat_crc_periodic_runtime(runtime, data, analysis)
     if crc_periodic_result is not None:
         if crc_periodic_result.best is not None:
-            return _write_crc_periodic_best_clone(runtime, analysis, crc_periodic_result), ()
+            written = _write_crc_periodic_best_clone(runtime, analysis, crc_periodic_result)
+            if written is not None:
+                return written, ()
         seed_groups.append(crc_periodic_result.top_candidates)
 
     return None, tuple(itertools.chain.from_iterable(seed_groups))
@@ -5262,7 +5637,9 @@ def _run_idat_prefix_frontier_routes_runtime(
             seed_checkpoint_path="",
         )
         if stored_result is not None and stored_result.best is not None:
-            return _write_stored_block_best_clone(runtime, analysis, stored_result)
+            written = _write_stored_block_best_clone(runtime, analysis, stored_result)
+            if written is not None:
+                return written
         backref_seeds = stored_result.top_candidates if stored_result is not None and stored_result.top_candidates else root_seed
     else:
         backref_seeds = root_seed
@@ -5276,7 +5653,9 @@ def _run_idat_prefix_frontier_routes_runtime(
         seed_checkpoint_path="",
     )
     if backref_result is not None and backref_result.best is not None:
-        return _write_kraft_backref_best_clone(runtime, analysis, backref_result)
+        written = _write_kraft_backref_best_clone(runtime, analysis, backref_result)
+        if written is not None:
+            return written
 
     stored_seeds = (
         backref_result.top_candidates
@@ -5292,8 +5671,1849 @@ def _run_idat_prefix_frontier_routes_runtime(
         seed_checkpoint_path="",
     )
     if stored_result is not None and stored_result.best is not None:
-        return _write_stored_block_best_clone(runtime, analysis, stored_result)
+        written = _write_stored_block_best_clone(runtime, analysis, stored_result)
+        if written is not None:
+            return written
     return None
+
+
+def _idat_original_idat_count(data: bytes) -> int:
+    try:
+        chunks, _stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    except Exception:
+        return 1
+    return sum(1 for chunk in chunks if chunk.chunk_type == b"IDAT")
+
+
+def _rank_idat_seed_candidates(
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    *,
+    limit: int,
+) -> tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]:
+    merged = _merge_idat_seed_candidates(seed_candidates)
+    if not merged:
+        return ()
+    return idat_bruteforce._deep_beam_ranked_unique(merged, limit=max(1, int(limit)))
+
+
+def _idat_seed_local_continuation_candidate(
+    parent: idat_bruteforce.IdatDeepBeamCandidate,
+    candidate: idat_bruteforce.IdatDeflateCandidate,
+    *,
+    before: idat.IdatStreamAnalysis,
+    state_id: int,
+    original_idat_count: int,
+    kind: str = "seed-local-deflate",
+) -> idat_bruteforce.IdatDeepBeamCandidate | None:
+    return idat_bruteforce._deep_beam_candidate_from_deflate_candidate(
+        parent,
+        candidate,
+        before=before,
+        state_id=state_id,
+        original_idat_count=original_idat_count,
+        kind=kind,
+    )
+
+
+def _idat_deflate_probe_candidate_options(
+    probe: idat_bruteforce.IdatDeflateProbeResult,
+) -> tuple[tuple[idat_bruteforce.IdatDeflateCandidate, str], ...]:
+    options: list[tuple[idat_bruteforce.IdatDeflateCandidate, str]] = []
+    seen: set[bytes] = set()
+    for candidate, suffix in (
+        (probe.best, ""),
+        (probe.diagnostic_best, "-diagnostic"),
+    ):
+        if candidate is None:
+            continue
+        digest = hashlib.sha1(candidate.data).digest()
+        if digest in seen:
+            continue
+        seen.add(digest)
+        options.append((candidate, suffix))
+    return tuple(options)
+
+
+def _run_idat_seed_local_continuation_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+) -> tuple[tuple[bool, Any] | None, tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]]:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None, ()
+
+    seed_limit = _runtime_seed_local_continuation_limit(runtime)
+    local_budget = _runtime_seed_local_continuation_budget(runtime)
+    local_rounds = _runtime_seed_local_continuation_rounds(runtime)
+    seeds = seed_candidates
+    if not seeds:
+        seeds = _load_idat_artifact_seed_candidates(
+            runtime,
+            data,
+            analysis,
+            limit=seed_limit,
+        )
+    if not seeds:
+        seeds = _load_final_investigation_seed_candidates(
+            runtime,
+            data,
+            analysis,
+            seed_candidates=(),
+        )
+    seeds = _rank_idat_seed_candidates(seeds, limit=seed_limit)
+    if not seeds:
+        return None, ()
+
+    runtime.side_notes.append(
+        "-IDAT seed-local continuation: probing %s seed(s) with budget=%s for up to %s round(s) each before %s."
+        % (
+            len(seeds),
+            local_budget,
+            local_rounds,
+            FINAL_INVESTIGATION_LABEL,
+        )
+    )
+    runtime.candy(
+        "Cowsay",
+        "I have stronger IDAT seeds now, so I am probing locally around their current deflate wound before %s."
+        % FINAL_INVESTIGATION_LABEL,
+        "com",
+    )
+    _GroundHogDay_emit_quote_before_title(runtime)
+    runtime.candy("Title", "probe_idat_seed_local_continuation")
+
+    original_idat_count = _idat_original_idat_count(data)
+    next_state_id = max((int(getattr(seed, "state_id", 0)) for seed in seeds), default=0) + 1
+    continuations: list[idat_bruteforce.IdatDeepBeamCandidate] = []
+    tested = 0
+    window_starts: list[int] = []
+    window_ends: list[int] = []
+    progress = _runtime_idat_queue_progress(runtime)
+
+    for seed in seeds:
+        parent = seed
+        before_seed = getattr(parent, "after", None)
+        if before_seed is None or getattr(before_seed, "complete", False):
+            continue
+        for _round_index in range(local_rounds):
+            if getattr(parent.after, "complete", False):
+                break
+            probe = idat_bruteforce.probe_idat_deflate_local_candidates(
+                parent.data,
+                budget=local_budget,
+                progress=progress,
+            )
+            tested += int(probe.tested_candidates)
+            window_starts.append(int(probe.window_start))
+            window_ends.append(int(probe.window_end))
+            candidate_options = _idat_deflate_probe_candidate_options(probe)
+            if not candidate_options:
+                break
+            runtime.side_notes.append(idat_bruteforce.probe_summary_line(probe))
+            runtime.side_notes.extend(idat_bruteforce.candidate_summary_lines(probe))
+            runtime.side_notes.extend(idat_bruteforce.diagnostic_candidate_summary_lines(probe))
+            round_continuations: list[idat_bruteforce.IdatDeepBeamCandidate] = []
+            for deflate_candidate, suffix in candidate_options:
+                continuation = _idat_seed_local_continuation_candidate(
+                    parent,
+                    deflate_candidate,
+                    before=analysis,
+                    state_id=next_state_id,
+                    original_idat_count=original_idat_count,
+                    kind="seed-local-deflate%s" % suffix,
+                )
+                if continuation is None:
+                    continue
+                continuations.append(continuation)
+                round_continuations.append(continuation)
+                next_state_id += 1
+            if not round_continuations:
+                break
+            parent = _rank_idat_seed_candidates(tuple(round_continuations), limit=1)[0]
+            if _idat_candidate_is_complete_clone(parent):
+                break
+        if continuations and _idat_candidate_is_complete_clone(continuations[-1]):
+            break
+
+    top = _rank_idat_seed_candidates(tuple(continuations), limit=max(seed_limit, IDAT_DEBUG_ARTIFACT_TOP_LIMIT))
+    if not top:
+        runtime.side_notes.append("-IDAT seed-local continuation produced no stronger seed.")
+        return None, ()
+
+    best = next((candidate for candidate in top if _idat_candidate_is_complete_clone(candidate)), top[0])
+    result = idat_bruteforce.IdatDeepBeamProbeResult(
+        before=analysis,
+        best=best,
+        top_candidates=top,
+        window_start=min(window_starts) if window_starts else 0,
+        window_end=max(window_ends) if window_ends else 0,
+        tested_candidates=tested,
+        budget_exhausted=False,
+        reached_depth=max((len(candidate.operations) for candidate in top), default=0),
+        state_count=next_state_id,
+        visited_count=len(top),
+        strategy="seed-local-continuation",
+        reason="seeds=%s; continuations=%s" % (len(seeds), len(top)),
+    )
+    runtime.side_notes.append(idat_bruteforce.deep_beam_summary_line(result))
+    runtime.side_notes.extend(idat_bruteforce.deep_beam_candidate_summary_lines(result))
+    _write_idat_deep_beam_debug_artifacts(
+        runtime,
+        result,
+        label="idat_seed_local_continuation",
+        include_dynamic_trace=True,
+    )
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: seed-local IDAT deflate continuation.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.deep_beam_summary_line(result),
+            *idat_bruteforce.deep_beam_candidate_summary_lines(result),
+            idat_stream_diagnosis_note(best.after),
+        )
+    )
+    written = _write_complete_idat_candidate_clone(
+        runtime,
+        best,
+        summary,
+        route_label="seed-local continuation",
+        success_message="The seed-local continuation found a complete IDAT candidate with validated image progress.",
+    )
+    if written is not None:
+        return written, top
+    return None, top
+
+
+def _run_idat_filter_alignment_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+) -> tuple[tuple[bool, Any] | None, tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]]:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None, ()
+
+    seed_limit = _runtime_seed_local_continuation_limit(runtime)
+    local_budget = _runtime_seed_local_continuation_budget(runtime)
+    seeds = _rank_idat_seed_candidates(seed_candidates, limit=seed_limit)
+    if not seeds:
+        seeds = _load_idat_artifact_seed_candidates(
+            runtime,
+            data,
+            analysis,
+            limit=seed_limit,
+        )
+    if not seeds:
+        return None, ()
+
+    runtime.side_notes.append(
+        "-IDAT PNG-filter local alignment: probing %s seed(s) with budget=%s before %s."
+        % (len(seeds), local_budget, FINAL_INVESTIGATION_LABEL)
+    )
+    runtime.candy(
+        "Cowsay",
+        "I am checking the local IDAT wound again, this time scoring PNG row-filter markers before raw byte length.",
+        "com",
+    )
+    runtime.candy("Title", "probe_idat_deflate_local_candidates_png_filter")
+
+    original_idat_count = _idat_original_idat_count(data)
+    next_state_id = max((int(getattr(seed, "state_id", 0)) for seed in seeds), default=0) + 1
+    continuations: list[idat_bruteforce.IdatDeepBeamCandidate] = []
+    tested = 0
+    window_starts: list[int] = []
+    window_ends: list[int] = []
+    progress = _runtime_idat_queue_progress(runtime)
+
+    for parent in seeds:
+        if getattr(parent.after, "complete", False):
+            continue
+        probe = idat_bruteforce.probe_idat_deflate_local_candidates(
+            parent.data,
+            budget=local_budget,
+            score_mode="png-filter",
+            progress=progress,
+        )
+        tested += int(probe.tested_candidates)
+        window_starts.append(int(probe.window_start))
+        window_ends.append(int(probe.window_end))
+        runtime.side_notes.append(idat_bruteforce.probe_summary_line(probe))
+        runtime.side_notes.extend(idat_bruteforce.candidate_summary_lines(probe))
+        runtime.side_notes.extend(idat_bruteforce.diagnostic_candidate_summary_lines(probe))
+        candidate_options = _idat_deflate_probe_candidate_options(probe)
+        if not candidate_options:
+            continue
+        for deflate_candidate, suffix in candidate_options:
+            continuation = _idat_seed_local_continuation_candidate(
+                parent,
+                deflate_candidate,
+                before=analysis,
+                state_id=next_state_id,
+                original_idat_count=original_idat_count,
+                kind="seed-local-png-filter%s" % suffix,
+            )
+            if continuation is None:
+                continue
+            continuations.append(continuation)
+            next_state_id += 1
+            if _idat_candidate_is_complete_clone(continuation):
+                break
+        if continuations and _idat_candidate_is_complete_clone(continuations[-1]):
+            break
+
+    top = _rank_idat_seed_candidates(tuple(continuations), limit=max(seed_limit, IDAT_DEBUG_ARTIFACT_TOP_LIMIT))
+    if not top:
+        runtime.side_notes.append("-IDAT PNG-filter local alignment produced no stronger filter seed.")
+        return None, ()
+
+    best = next((candidate for candidate in top if _idat_candidate_is_complete_clone(candidate)), top[0])
+    result = idat_bruteforce.IdatDeepBeamProbeResult(
+        before=analysis,
+        best=best,
+        top_candidates=top,
+        window_start=min(window_starts) if window_starts else 0,
+        window_end=max(window_ends) if window_ends else 0,
+        tested_candidates=tested,
+        budget_exhausted=False,
+        reached_depth=max((len(candidate.operations) for candidate in top), default=0),
+        state_count=next_state_id,
+        visited_count=len(top),
+        strategy="png-filter-local-alignment",
+        reason="seeds=%s; continuations=%s" % (len(seeds), len(top)),
+    )
+    runtime.side_notes.append(idat_bruteforce.deep_beam_summary_line(result))
+    runtime.side_notes.extend(idat_bruteforce.deep_beam_candidate_summary_lines(result))
+    _write_idat_deep_beam_debug_artifacts(
+        runtime,
+        result,
+        label="idat_filter_alignment",
+        include_dynamic_trace=True,
+    )
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: PNG row-filter local IDAT alignment.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.deep_beam_summary_line(result),
+            *idat_bruteforce.deep_beam_candidate_summary_lines(result),
+            idat_stream_diagnosis_note(best.after),
+        )
+    )
+    written = _write_complete_idat_candidate_clone(
+        runtime,
+        best,
+        summary,
+        route_label="PNG-filter local alignment",
+        success_message="The PNG-filter local alignment route found a complete IDAT candidate with validated image progress.",
+    )
+    if written is not None:
+        return written, top
+    return None, top
+
+
+def _idat_deflate_probe_best_progress_score(
+    probe: idat_bruteforce.IdatDeflateProbeResult,
+) -> tuple[int, int, int, int, int, int]:
+    after = getattr(probe.best, "after", None)
+    if after is None:
+        return (-1, -1, -1, -1, -1, -1)
+    return (
+        1 if getattr(after, "complete", False) else 0,
+        int(getattr(after, "usable_scanlines", 0) or 0),
+        int(getattr(after, "complete_scanlines", 0) or 0),
+        int(getattr(after, "decompressed_size", 0) or 0),
+        int(getattr(after, "error_offset", -1) or -1),
+        -len(getattr(probe, "chain", ()) or ()),
+    )
+
+
+def _run_idat_row_filter_literal_repair_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+) -> tuple[tuple[bool, Any] | None, tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]]:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None, ()
+
+    seed_limit = _runtime_seed_local_continuation_limit(runtime)
+    seeds = _rank_idat_seed_candidates(seed_candidates, limit=seed_limit)
+    if not seeds:
+        seeds = _load_idat_artifact_seed_candidates(
+            runtime,
+            data,
+            analysis,
+            limit=seed_limit,
+        )
+    if not seeds:
+        return None, ()
+
+    runtime.side_notes.append(
+        "-IDAT row-filter literal repair: probing %s seed(s) before %s."
+        % (len(seeds), FINAL_INVESTIGATION_LABEL)
+    )
+    runtime.candy(
+        "Cowsay",
+        "I am checking whether invalid PNG row-filter bytes map directly to literal IDAT bytes.",
+        "com",
+    )
+    runtime.candy("Title", "probe_idat_png_filter_literal_repair")
+
+    original_idat_count = _idat_original_idat_count(data)
+    next_state_id = max((int(getattr(seed, "state_id", 0)) for seed in seeds), default=0) + 1
+    continuations: list[idat_bruteforce.IdatDeepBeamCandidate] = []
+    tested = 0
+    window_starts: list[int] = []
+    window_ends: list[int] = []
+    progress = _runtime_idat_queue_progress(runtime)
+
+    for seed in seeds:
+        if getattr(seed.after, "complete", False):
+            continue
+        probe = idat_bruteforce.probe_idat_png_filter_literal_repair(
+            seed.data,
+            max_rows=32,
+            max_repairs=4,
+            replacement_filter=0,
+            search_radius=4,
+            candidate_budget=4000,
+            progress=progress,
+        )
+        fast_tested = int(probe.tested_candidates)
+        selected_probe_already_counted = False
+        if probe.best is None:
+            runtime.side_notes.append(
+                "-IDAT row-filter literal repair fast pass produced no stronger seed; trying the wider row-filter pass."
+            )
+            probe = idat_bruteforce.probe_idat_png_filter_literal_repair(
+                seed.data,
+                max_rows=64,
+                max_repairs=64,
+                replacement_filter=0,
+                progress=progress,
+            )
+            tested += fast_tested
+        if (
+            probe.best is not None
+            and int(getattr(probe.best.after, "usable_scanlines", 0) or 0)
+            <= int(getattr(seed.after, "usable_scanlines", 0) or 0)
+        ):
+            runtime.side_notes.append(
+                "-IDAT row-filter literal repair did not unlock a new usable row; trying a wider backtrack search around the first bad filter byte."
+            )
+            backtrack_probe = idat_bruteforce.probe_idat_png_filter_literal_repair(
+                seed.data,
+                max_rows=64,
+                max_repairs=1,
+                replacement_filter=0,
+                search_radius=256,
+                search_direction="backtrack",
+                candidate_budget=12000,
+                progress=progress,
+            )
+            tested += int(backtrack_probe.tested_candidates)
+            if _idat_deflate_probe_best_progress_score(backtrack_probe) > _idat_deflate_probe_best_progress_score(probe):
+                probe = backtrack_probe
+                selected_probe_already_counted = True
+        if not selected_probe_already_counted:
+            tested += int(probe.tested_candidates)
+        window_starts.append(int(probe.window_start))
+        window_ends.append(int(probe.window_end))
+        runtime.side_notes.append(idat_bruteforce.probe_summary_line(probe))
+        runtime.side_notes.extend(idat_bruteforce.candidate_summary_lines(probe))
+        if probe.best is None:
+            continue
+
+        parent = seed
+        continuation = None
+        for deflate_candidate in tuple(probe.chain) or (probe.best,):
+            continuation = _idat_seed_local_continuation_candidate(
+                parent,
+                deflate_candidate,
+                before=analysis,
+                state_id=next_state_id,
+                original_idat_count=original_idat_count,
+                kind="png-filter-literal-repair",
+            )
+            if continuation is None:
+                break
+            parent = continuation
+            next_state_id += 1
+        if continuation is None:
+            continue
+        continuations.append(continuation)
+        if _idat_candidate_is_complete_clone(continuation):
+            break
+
+    top = _rank_idat_seed_candidates(tuple(continuations), limit=max(seed_limit, IDAT_DEBUG_ARTIFACT_TOP_LIMIT))
+    if not top:
+        runtime.side_notes.append("-IDAT row-filter literal repair produced no stronger seed.")
+        return None, ()
+
+    best = next((candidate for candidate in top if _idat_candidate_is_complete_clone(candidate)), top[0])
+    result = idat_bruteforce.IdatDeepBeamProbeResult(
+        before=analysis,
+        best=best,
+        top_candidates=top,
+        window_start=min(window_starts) if window_starts else 0,
+        window_end=max(window_ends) if window_ends else 0,
+        tested_candidates=tested,
+        budget_exhausted=False,
+        reached_depth=max((len(candidate.operations) for candidate in top), default=0),
+        state_count=next_state_id,
+        visited_count=len(top),
+        strategy="png-row-filter-literal-repair",
+        reason="seeds=%s; continuations=%s" % (len(seeds), len(top)),
+    )
+    runtime.side_notes.append(idat_bruteforce.deep_beam_summary_line(result))
+    runtime.side_notes.extend(idat_bruteforce.deep_beam_candidate_summary_lines(result))
+    _write_idat_deep_beam_debug_artifacts(
+        runtime,
+        result,
+        label="idat_row_filter_repair",
+        include_dynamic_trace=True,
+    )
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: PNG row-filter literal IDAT repair.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.deep_beam_summary_line(result),
+            *idat_bruteforce.deep_beam_candidate_summary_lines(result),
+            idat_stream_diagnosis_note(best.after),
+        )
+    )
+    written = _write_complete_idat_candidate_clone(
+        runtime,
+        best,
+        summary,
+        route_label="PNG row-filter literal repair",
+        success_message="The PNG row-filter literal repair route found a complete IDAT candidate with validated image progress.",
+    )
+    if written is not None:
+        return written, top
+    return None, top
+
+
+def _run_idat_groundhogday_linefeed_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+) -> tuple[tuple[bool, Any] | None, tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]]:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None, ()
+
+    seed_limit = _runtime_seed_local_continuation_limit(runtime)
+    seeds = _rank_idat_seed_candidates(seed_candidates, limit=seed_limit)
+    if not seeds:
+        seeds = _load_idat_artifact_seed_candidates(
+            runtime,
+            data,
+            analysis,
+            limit=seed_limit,
+        )
+    if not seeds:
+        return None, ()
+
+    runtime.side_notes.append(
+        "-IDAT GroundHogDay linefeed route: probing %s seed(s) before %s."
+        % (len(seeds), FINAL_INVESTIGATION_LABEL)
+    )
+    runtime.candy(
+        "Cowsay",
+        "I am taking the linefeed corruption hypothesis seriously here: LF/CR insertion and the bounded SuperMegaLineFeed pass both get a turn on the current seeds.",
+        "com",
+    )
+    runtime.candy("Title", "probe_idat_groundhogday_linefeed_seed_repair")
+
+    original_idat_count = _idat_original_idat_count(data)
+    next_state_id = max((int(getattr(seed, "state_id", 0)) for seed in seeds), default=0) + 1
+    continuations: list[idat_bruteforce.IdatDeepBeamCandidate] = []
+    tested = 0
+    window_starts: list[int] = []
+    window_ends: list[int] = []
+    progress = _runtime_idat_queue_progress(runtime)
+
+    for seed in seeds:
+        if getattr(seed.after, "complete", False):
+            continue
+
+        for insert_probe in (
+            idat_bruteforce.probe_idat_linefeed_lf_insertions(
+                seed.data,
+                window_radius=1024,
+                budget=4096,
+                progress=progress,
+            ),
+            idat_bruteforce.probe_idat_linefeed_cr_insertions(
+                seed.data,
+                window_radius=1024,
+                budget=4096,
+                progress=progress,
+            ),
+        ):
+            tested += int(insert_probe.tested_candidates)
+            window_starts.append(int(insert_probe.window_start))
+            window_ends.append(int(insert_probe.window_end))
+            runtime.side_notes.append(idat_bruteforce.linefeed_insert_probe_summary_line(insert_probe))
+            if insert_probe.best is None:
+                continue
+            continuation = _GroundHogDay_linefeed_insert_to_seed(
+                seed,
+                insert_probe.best,
+                before=analysis,
+                state_id=next_state_id,
+                original_idat_count=original_idat_count,
+            )
+            if continuation is None:
+                continue
+            continuations.append(continuation)
+            next_state_id += 1
+            if _idat_candidate_is_complete_clone(continuation):
+                break
+        if continuations and _idat_candidate_is_complete_clone(continuations[-1]):
+            break
+
+        super_probe = idat_bruteforce.probe_super_mega_linefeed_force_of_death(
+            seed.data,
+            start_offset=getattr(seed.after, "error_offset", None),
+            pre_error_backtrack=2048,
+            beam_width=8,
+            max_depth=3,
+            linefeed_budget=2048,
+            structural_budget=512,
+            local_bit_budget=512,
+            local_byte_budget=1024,
+            heavy_byte_budget=2048,
+            adler_budget=16,
+            lf_insert_budget=4096,
+            structural_forward=512,
+            progress=progress,
+        )
+        tested += int(super_probe.tested_candidates)
+        window_starts.append(int(super_probe.search_start_offset))
+        window_ends.append(int(super_probe.window_end))
+        runtime.side_notes.append(idat_bruteforce.super_mega_linefeed_probe_summary_line(super_probe))
+        runtime.side_notes.extend(idat_bruteforce.super_mega_linefeed_phase_summary_lines(super_probe))
+        if super_probe.best is None:
+            continue
+        runtime.side_notes.append(idat_bruteforce.super_mega_linefeed_candidate_summary_line(super_probe.best))
+        continuation = _GroundHogDay_super_linefeed_to_seed(
+            seed,
+            super_probe.best,
+            before=analysis,
+            state_id=next_state_id,
+            original_idat_count=original_idat_count,
+        )
+        if continuation is None:
+            continue
+        continuations.append(continuation)
+        next_state_id += 1
+        if _idat_candidate_is_complete_clone(continuation):
+            break
+
+    ultimate_parent_seeds = _rank_idat_seed_candidates(
+        _merge_idat_seed_candidates(tuple(continuations), seeds),
+        limit=seed_limit,
+    )
+    ultimate_result, ultimate_seeds, next_state_id = _run_idat_groundhogday_ultimate_linefeed_runtime(
+        runtime,
+        data,
+        analysis,
+        ultimate_parent_seeds,
+        next_state_id=next_state_id,
+        original_idat_count=original_idat_count,
+    )
+    if ultimate_result is not None:
+        return ultimate_result, ultimate_seeds
+    continuations.extend(ultimate_seeds)
+
+    top = _rank_idat_seed_candidates(tuple(continuations), limit=max(seed_limit, IDAT_DEBUG_ARTIFACT_TOP_LIMIT))
+    if not top:
+        runtime.side_notes.append("-IDAT GroundHogDay linefeed route produced no stronger seed.")
+        return None, ()
+
+    best = next((candidate for candidate in top if _idat_candidate_is_complete_clone(candidate)), top[0])
+    result = idat_bruteforce.IdatDeepBeamProbeResult(
+        before=analysis,
+        best=best,
+        top_candidates=top,
+        window_start=min(window_starts) if window_starts else 0,
+        window_end=max(window_ends) if window_ends else 0,
+        tested_candidates=tested,
+        budget_exhausted=False,
+        reached_depth=max((len(candidate.operations) for candidate in top), default=0),
+        state_count=next_state_id,
+        visited_count=len(top),
+        strategy="groundhogday-linefeed-seed-repair",
+        reason="seeds=%s; continuations=%s" % (len(seeds), len(top)),
+    )
+    runtime.side_notes.append(idat_bruteforce.deep_beam_summary_line(result))
+    runtime.side_notes.extend(idat_bruteforce.deep_beam_candidate_summary_lines(result))
+    _write_idat_deep_beam_debug_artifacts(
+        runtime,
+        result,
+        label="idat_groundhogday_linefeed",
+        include_dynamic_trace=True,
+    )
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: GroundHogDay bounded linefeed seed repair.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.deep_beam_summary_line(result),
+            *idat_bruteforce.deep_beam_candidate_summary_lines(result),
+            idat_stream_diagnosis_note(best.after),
+        )
+    )
+    written = _write_complete_idat_candidate_clone(
+        runtime,
+        best,
+        summary,
+        route_label="GroundHogDay linefeed route",
+        success_message="The GroundHogDay linefeed route found a complete IDAT candidate with validated image progress.",
+    )
+    if written is not None:
+        return written, top
+    return None, top
+
+
+def _run_idat_filter_seed_stored_block_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+) -> tuple[tuple[bool, Any] | None, tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]]:
+    if _block_deep_beam_if_chunk_names_are_stale(runtime, data):
+        return None, ()
+
+    seed_limit = _runtime_seed_local_continuation_limit(runtime)
+    seeds = _rank_idat_seed_candidates(seed_candidates, limit=seed_limit)
+    if not seeds:
+        seeds = _load_idat_artifact_seed_candidates(
+            runtime,
+            data,
+            analysis,
+            limit=seed_limit,
+        )
+    if not seeds:
+        return None, ()
+
+    runtime.side_notes.append(
+        "-IDAT stored-block filter-seed route: probing %s PNG-filter-ranked seed(s) before %s."
+        % (len(seeds), FINAL_INVESTIGATION_LABEL)
+    )
+    runtime.candy(
+        "Cowsay",
+        "I am combining the cleaner PNG-filter seed with the stored-block LEN/NLEN repair route.",
+        "com",
+    )
+    stored_result = _run_idat_stored_block_runtime(
+        runtime,
+        data,
+        analysis,
+        seed_candidates=seeds,
+        path_label="stored_block_filter_seed",
+        seed_checkpoint_path="",
+    )
+    if stored_result is None:
+        return None, ()
+    if stored_result.best is not None:
+        written = _write_stored_block_best_clone(runtime, analysis, stored_result)
+        if written is not None:
+            return written, stored_result.top_candidates
+    if stored_result.top_candidates:
+        runtime.side_notes.append(
+            "-IDAT stored-block filter-seed route produced %s follow-up seed(s)."
+            % len(stored_result.top_candidates)
+        )
+        return None, stored_result.top_candidates
+    return None, ()
+
+
+def _GroundHogDay_source_hash(data: bytes) -> str:
+    try:
+        _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    except Exception:
+        return hashlib.sha1(data).hexdigest()
+    return idat_bruteforce._stream_state_key(stream)
+
+
+def _GroundHogDay_resume_state_path(runtime: Any, *, create: bool) -> Path | None:
+    payload_folder = _final_investigation_payload_folder(runtime, create=create)
+    if payload_folder is None:
+        return None
+    stem = _final_investigation_stem(runtime, payload_folder)
+    return payload_folder / ("%s_groundhogday.resume.json" % stem)
+
+
+def _GroundHogDay_read_resume_state(runtime: Any) -> dict[str, Any]:
+    path = _GroundHogDay_resume_state_path(runtime, create=False)
+    if path is None or not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        runtime.side_notes.append("-IDAT GroundHogDay resume state ignored: %s." % exc)
+        return {}
+    if not isinstance(payload, dict):
+        runtime.side_notes.append("-IDAT GroundHogDay resume state ignored: JSON payload is not an object.")
+        return {}
+    return payload
+
+
+def _GroundHogDay_analysis_progress_score(
+    analysis: idat.IdatStreamAnalysis,
+) -> tuple[int, int, int, int, int, int, int]:
+    return (
+        1 if getattr(analysis, "complete", False) else 0,
+        int(getattr(analysis, "usable_scanlines", 0) or 0),
+        int(getattr(analysis, "complete_scanlines", 0) or 0),
+        int(getattr(analysis, "decompressed_size", 0) or 0),
+        int(getattr(analysis, "error_offset", -1) or -1),
+        int(getattr(analysis, "expected_size", 0) or 0),
+        0,
+    )
+
+
+def _GroundHogDay_seed_resume_record(
+    candidate: idat_bruteforce.IdatDeepBeamCandidate,
+) -> dict[str, Any]:
+    after = getattr(candidate, "after", None)
+    stream = getattr(candidate, "stream", b"")
+    return {
+        "state_id": int(getattr(candidate, "state_id", 0) or 0),
+        "stream_hash": idat_bruteforce._stream_state_key(stream) if stream else "",
+        "operation_count": len(getattr(candidate, "operations", ()) or ()),
+        "status": getattr(after, "status", "unknown"),
+        "complete": bool(getattr(after, "complete", False)),
+        "usable_scanlines": int(getattr(after, "usable_scanlines", 0) or 0),
+        "complete_scanlines": int(getattr(after, "complete_scanlines", 0) or 0),
+        "height": int(getattr(after, "height", 0) or 0),
+        "decompressed_size": int(getattr(after, "decompressed_size", 0) or 0),
+        "expected_size": int(getattr(after, "expected_size", 0) or 0),
+        "error_offset": getattr(after, "error_offset", None),
+    }
+
+
+def _GroundHogDay_operation_record(operation: Any) -> dict[str, Any]:
+    return {
+        "kind": str(getattr(operation, "kind", "")),
+        "stream_offset": int(getattr(operation, "stream_offset", 0) or 0),
+        "old": bytes(getattr(operation, "old_bytes", b"") or b"").hex(),
+        "new": bytes(getattr(operation, "new_bytes", b"") or b"").hex(),
+    }
+
+
+def _GroundHogDay_write_preview_artifacts(
+    runtime: Any,
+    local_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+) -> tuple[str, ...]:
+    best = _GroundHogDay_idat_seed_best(local_seeds)
+    if best is None:
+        return ()
+    payload_folder = _final_investigation_payload_folder(runtime, create=True)
+    if payload_folder is None:
+        runtime.side_notes.append("-IDAT GroundHogDay preview skipped: repair folder is unavailable.")
+        return ()
+
+    state_id = int(getattr(best, "state_id", 0) or 0)
+    digest = hashlib.sha1(getattr(best, "data", b"")).hexdigest()[:8]
+    stem = _final_investigation_stem(runtime, payload_folder)
+    saved: list[str] = []
+
+    seed_name = "%s_groundhogday_seed_state%s_%s.png" % (stem, state_id, digest)
+    seed_path = payload_folder / seed_name
+    try:
+        seed_path.write_bytes(best.data)
+        saved.append(seed_name)
+    except OSError as exc:
+        runtime.side_notes.append("-IDAT GroundHogDay seed artifact write failed: %s." % exc)
+
+    preview = idat.rebuild_visual_idat_preview(best.data)
+    preview_name = ""
+    if preview is not None:
+        preview_name = (
+            "%s_groundhogday_scanline_preview_state%s_%s_%s_of_%s.png"
+            % (
+                stem,
+                state_id,
+                digest,
+                preview.recovered_scanlines,
+                preview.total_scanlines,
+            )
+        )
+        preview_path = payload_folder / preview_name
+        try:
+            preview_path.write_bytes(preview.data)
+            saved.append(preview_name)
+        except OSError as exc:
+            runtime.side_notes.append("-IDAT GroundHogDay scanline preview write failed: %s." % exc)
+            preview_name = ""
+    else:
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay scanline preview skipped: best seed has no rebuildable usable scanlines."
+        )
+
+    tolerant_preview = idat.rebuild_tolerant_idat_preview(best.data)
+    tolerant_preview_name = ""
+    if tolerant_preview is not None and (
+        preview is None
+        or int(tolerant_preview.recovered_scanlines) > int(preview.recovered_scanlines)
+    ):
+        tolerant_preview_name = (
+            "%s_groundhogday_tolerant_preview_state%s_%s_%s_complete_of_%s.png"
+            % (
+                stem,
+                state_id,
+                digest,
+                tolerant_preview.recovered_scanlines,
+                tolerant_preview.total_scanlines,
+            )
+        )
+        tolerant_preview_path = payload_folder / tolerant_preview_name
+        try:
+            tolerant_preview_path.write_bytes(tolerant_preview.data)
+            saved.append(tolerant_preview_name)
+        except OSError as exc:
+            runtime.side_notes.append("-IDAT GroundHogDay tolerant preview write failed: %s." % exc)
+            tolerant_preview_name = ""
+
+    metadata_name = "%s_groundhogday_preview_state%s_%s.json" % (stem, state_id, digest)
+    metadata_path = payload_folder / metadata_name
+    metadata = {
+        "route": "GroundHogDay",
+        "version": 1,
+        "state_id": state_id,
+        "seed_artifact": seed_name if seed_name in saved else "",
+        "scanline_preview": preview_name,
+        "tolerant_preview": tolerant_preview_name,
+        "seed_count": len(local_seeds),
+        "best": _GroundHogDay_seed_resume_record(best),
+        "operations": [
+            _GroundHogDay_operation_record(operation)
+            for operation in tuple(getattr(best, "operations", ()) or ())[-16:]
+        ],
+    }
+    try:
+        metadata_path.write_text(json.dumps(metadata, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        saved.append(metadata_name)
+    except OSError as exc:
+        runtime.side_notes.append("-IDAT GroundHogDay preview metadata write failed: %s." % exc)
+
+    if saved:
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay preview artifacts: %s."
+            % ", ".join("Debug_Payloads/%s" % name for name in saved)
+        )
+        runtime.candy(
+            "Cowsay",
+            "I saved the best GroundHogDay seed and a scanline preview artifact in Debug_Payloads.",
+            "com",
+        )
+    return tuple(saved)
+
+
+def _GroundHogDay_write_resume_state(
+    runtime: Any,
+    data: bytes | None,
+    local_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+) -> None:
+    if data is None or not local_seeds:
+        return
+    path = _GroundHogDay_resume_state_path(runtime, create=True)
+    if path is None:
+        return
+    best = _GroundHogDay_idat_seed_best(local_seeds)
+    if best is None:
+        return
+    payload = {
+        "route": "GroundHogDay",
+        "version": 1,
+        "updated_at": int(time.time()),
+        "source_hash": _GroundHogDay_source_hash(data),
+        "seed_count": len(local_seeds),
+        "best": _GroundHogDay_seed_resume_record(best),
+    }
+    try:
+        path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        runtime.side_notes.append("-IDAT GroundHogDay resume state write failed: %s." % exc)
+        return
+    runtime.side_notes.append(
+        "-IDAT GroundHogDay resume state saved: %s." % path.name
+    )
+    _GroundHogDay_write_preview_artifacts(runtime, local_seeds)
+
+
+def _GroundHogDay_super_linefeed_to_seed(
+    parent: idat_bruteforce.IdatDeepBeamCandidate,
+    candidate: idat_bruteforce.SuperMegaLinefeedCandidate,
+    *,
+    before: idat.IdatStreamAnalysis,
+    state_id: int,
+    original_idat_count: int,
+) -> idat_bruteforce.IdatDeepBeamCandidate | None:
+    try:
+        _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate.data)
+    except png.PngFormatError:
+        return None
+    if not stream:
+        return None
+    operations = tuple(getattr(parent, "operations", ()) or ()) + tuple(
+        idat_bruteforce.IdatDeepBeamOperation(
+            "groundhogday-linefeed-%s" % operation.kind,
+            int(operation.stream_offset),
+            operation.old_bytes,
+            operation.new_bytes,
+        )
+        for operation in candidate.operations
+    )
+    return idat_bruteforce.IdatDeepBeamCandidate(
+        data=candidate.data,
+        stream=stream,
+        operations=operations,
+        before=before,
+        after=candidate.after,
+        state_id=int(state_id),
+        parent_id=getattr(parent, "state_id", None),
+        source_offsets=tuple(getattr(parent, "source_offsets", ()) or ())
+        + tuple(int(operation.stream_offset) for operation in candidate.operations),
+        score=idat_bruteforce._deep_beam_score(
+            candidate.after,
+            stream,
+            len(operations),
+            data=candidate.data,
+            original_idat_count=original_idat_count,
+        ),
+    )
+
+
+def _GroundHogDay_linefeed_insert_to_seed(
+    parent: idat_bruteforce.IdatDeepBeamCandidate,
+    candidate: idat_bruteforce.IdatLinefeedInsertCandidate,
+    *,
+    before: idat.IdatStreamAnalysis,
+    state_id: int,
+    original_idat_count: int,
+) -> idat_bruteforce.IdatDeepBeamCandidate | None:
+    try:
+        _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate.data)
+    except png.PngFormatError:
+        return None
+    if not stream:
+        return None
+    inserted = int(candidate.inserted_byte) & 0xFF
+    operations = tuple(getattr(parent, "operations", ()) or ()) + (
+        idat_bruteforce.IdatDeepBeamOperation(
+            "groundhogday-linefeed-insert-%02x" % inserted,
+            int(candidate.stream_offset),
+            b"",
+            bytes((inserted,)),
+        ),
+    )
+    return idat_bruteforce.IdatDeepBeamCandidate(
+        data=candidate.data,
+        stream=stream,
+        operations=operations,
+        before=before,
+        after=candidate.after,
+        state_id=int(state_id),
+        parent_id=getattr(parent, "state_id", None),
+        source_offsets=tuple(getattr(parent, "source_offsets", ()) or ())
+        + (int(candidate.stream_offset),),
+        score=idat_bruteforce._deep_beam_score(
+            candidate.after,
+            stream,
+            len(operations),
+            data=candidate.data,
+            original_idat_count=original_idat_count,
+        ),
+    )
+
+
+def _run_idat_groundhogday_ultimate_linefeed_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    *,
+    next_state_id: int,
+    original_idat_count: int,
+) -> tuple[tuple[bool, Any] | None, tuple[idat_bruteforce.IdatDeepBeamCandidate, ...], int]:
+    budget = _runtime_groundhogday_ultimate_linefeed_budget(runtime)
+    if budget == 0:
+        runtime.side_notes.append("-IDAT GroundHogDay UltimateLineFeed skipped: budget is disabled.")
+        return None, (), next_state_id
+    if (
+        not _runtime_groundhogday_ultimate_linefeed_configured(runtime)
+        and not str(getattr(runtime, "file_origin", "") or "").strip()
+    ):
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay UltimateLineFeed skipped: source file origin is unavailable and no UltimateLineFeed budget was configured."
+        )
+        return None, (), next_state_id
+
+    seeds = _rank_idat_seed_candidates(
+        seed_candidates,
+        limit=_runtime_seed_local_continuation_limit(runtime),
+    )
+    if not seeds:
+        return None, (), next_state_id
+
+    checkpoint_path, progress_path = _idat_groundhogday_ultimate_linefeed_paths(runtime)
+    max_depth = _runtime_groundhogday_ultimate_linefeed_max_depth(runtime)
+    max_offsets = _runtime_groundhogday_ultimate_linefeed_max_offsets(runtime)
+    workers = _runtime_groundhogday_ultimate_linefeed_workers(runtime)
+    runtime.side_notes.append(
+        "-IDAT GroundHogDay UltimateLineFeed: seeds=%s; budget=%s; max_depth=%s; max_offsets=%s; workers=%s; checkpoint=%s."
+        % (
+            len(seeds),
+            "unbounded" if budget is None else budget,
+            max_depth,
+            max_offsets,
+            workers,
+            checkpoint_path or "none",
+        )
+    )
+    runtime.candy(
+        "Cowsay",
+        "GroundHogDay is pushing the linefeed hypothesis harder now: a checkpointed UltimateLineFeed pass gets a bounded budget before I call the loop stuck.",
+        "com",
+    )
+    runtime.candy("Title", "probe_groundhogday_ultimate_linefeed")
+
+    continuations: list[idat_bruteforce.IdatDeepBeamCandidate] = []
+    for seed in seeds:
+        try:
+            result = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+                seed.data,
+                start_offset=getattr(seed.after, "error_offset", None),
+                checkpoint_path=checkpoint_path,
+                progress_path=progress_path,
+                max_depth=max_depth,
+                max_offsets=max_offsets,
+                budget=budget,
+                beam_width=64,
+                ultimate_workers=workers,
+                progress=_runtime_idat_queue_progress(runtime),
+            )
+        except idat_bruteforce.UltimateLinefeedInterrupted as exc:
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay UltimateLineFeed interrupted; progress saved: %s."
+                % exc.progress_path
+            )
+            runtime.candy(
+                "Cowsay",
+                "UltimateLineFeed was interrupted; progress/checkpoint are saved, so I am stopping this pass instead of losing the cursor.",
+                "bad",
+            )
+            raise SystemExit(130) from exc
+
+        runtime.side_notes.append(idat_bruteforce.ultimate_linefeed_probe_summary_line(result))
+        runtime.side_notes.append(idat_bruteforce.ultimate_linefeed_offsets_summary_line(result))
+        if result.best is None:
+            continue
+        runtime.side_notes.append(idat_bruteforce.ultimate_linefeed_candidate_summary_line(result.best))
+
+        seen_streams: set[str] = set()
+        linefeed_candidates: list[idat_bruteforce.SuperMegaLinefeedCandidate] = []
+        for candidate in (result.best, *tuple(result.top_candidates or ())):
+            if candidate is None:
+                continue
+            try:
+                _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(candidate.data)
+            except png.PngFormatError:
+                continue
+            key = idat_bruteforce._stream_state_key(stream)
+            if key in seen_streams:
+                continue
+            seen_streams.add(key)
+            linefeed_candidates.append(candidate)
+
+        for candidate in linefeed_candidates:
+            continuation = _GroundHogDay_super_linefeed_to_seed(
+                seed,
+                candidate,
+                before=analysis,
+                state_id=next_state_id,
+                original_idat_count=original_idat_count,
+            )
+            if continuation is None:
+                continue
+            continuations.append(continuation)
+            next_state_id += 1
+        if continuations and any(_idat_candidate_is_complete_clone(candidate) for candidate in continuations):
+            break
+
+    top = _rank_idat_seed_candidates(
+        tuple(continuations),
+        limit=max(_runtime_seed_local_continuation_limit(runtime), IDAT_DEBUG_ARTIFACT_TOP_LIMIT),
+    )
+    if not top:
+        runtime.side_notes.append("-IDAT GroundHogDay UltimateLineFeed produced no stronger seed.")
+        return None, (), next_state_id
+
+    best = next((candidate for candidate in top if _idat_candidate_is_complete_clone(candidate)), top[0])
+    source_offsets = tuple(
+        offset
+        for candidate in top
+        for offset in tuple(getattr(candidate, "source_offsets", ()) or ())
+    )
+    result = idat_bruteforce.IdatDeepBeamProbeResult(
+        before=analysis,
+        best=best,
+        top_candidates=top,
+        window_start=min(source_offsets) if source_offsets else 0,
+        window_end=max(source_offsets) if source_offsets else 0,
+        tested_candidates=0,
+        budget_exhausted=False,
+        reached_depth=max((len(candidate.operations) for candidate in top), default=0),
+        state_count=next_state_id,
+        visited_count=len(top),
+        strategy="groundhogday-ultimate-linefeed",
+        reason="seeds=%s; continuations=%s" % (len(seeds), len(top)),
+    )
+    runtime.side_notes.append(idat_bruteforce.deep_beam_summary_line(result))
+    runtime.side_notes.extend(idat_bruteforce.deep_beam_candidate_summary_lines(result))
+    _write_idat_deep_beam_debug_artifacts(
+        runtime,
+        result,
+        label="idat_groundhogday_ultimate_linefeed",
+        include_dynamic_trace=True,
+    )
+    summary = "\n".join(
+        (
+            "-Repair hypothesis tried: GroundHogDay UltimateLineFeed seed repair.",
+            idat_deflate_header_note(analysis),
+            idat_bruteforce.deep_beam_summary_line(result),
+            *idat_bruteforce.deep_beam_candidate_summary_lines(result),
+            idat_stream_diagnosis_note(best.after),
+        )
+    )
+    written = _write_complete_idat_candidate_clone(
+        runtime,
+        best,
+        summary,
+        route_label="GroundHogDay UltimateLineFeed",
+        success_message="GroundHogDay UltimateLineFeed found a complete IDAT candidate with validated image progress.",
+    )
+    if written is not None:
+        return written, top, next_state_id
+    return None, top, next_state_id
+
+
+def _GroundHogDay_resume_seed_candidates(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+) -> tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]:
+    if analysis.complete or not analysis.supported:
+        return ()
+    if analysis.status not in ("corrupt_deflate", "incomplete_stream", "bad_adler"):
+        return ()
+    if analysis.error_offset is None:
+        return ()
+    _chunks, problems, status = _chunk_name_audit(data)
+    if status != "ok" or problems:
+        return ()
+
+    seed_limit = _runtime_seed_local_continuation_limit(runtime)
+    seeds = _load_idat_artifact_seed_candidates(
+        runtime,
+        data,
+        analysis,
+        limit=seed_limit,
+    )
+    seeds = _rank_idat_seed_candidates(seeds, limit=seed_limit)
+    if not seeds:
+        return ()
+
+    best = _GroundHogDay_idat_seed_best(seeds)
+    if best is None:
+        return ()
+    state = _GroundHogDay_read_resume_state(runtime)
+    marker_matches = bool(
+        state
+        and state.get("route") == "GroundHogDay"
+        and str(state.get("source_hash") or "") == _GroundHogDay_source_hash(data)
+    )
+    if marker_matches:
+        return seeds
+    if _GroundHogDay_idat_seed_progress_score(best) > _GroundHogDay_analysis_progress_score(analysis):
+        return seeds
+    return ()
+
+
+def _GroundHogDay_defer_final_investigation_after_local_progress(
+    runtime: Any,
+    local_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    *,
+    data: bytes | None = None,
+) -> bool:
+    if not local_seeds:
+        return False
+    best = local_seeds[0]
+    after = getattr(best, "after", None)
+    _GroundHogDay_write_resume_state(runtime, data, local_seeds)
+    runtime.side_notes.append(
+        "-IDAT %s deferred by GroundHogDay: produced %s follow-up seed(s); best status=%s; decompressed=%s; scanlines=%s/%s."
+        % (
+            FINAL_INVESTIGATION_LABEL,
+            len(local_seeds),
+            getattr(after, "status", "unknown"),
+            getattr(after, "decompressed_size", "?"),
+            getattr(after, "usable_scanlines", "?"),
+            getattr(after, "height", "?"),
+        )
+    )
+    runtime.side_notes.append(
+        "-IDAT GroundHogDay stopped this pass unresolved on purpose: the file still has problems, but the pre-Final route is still producing stronger seeds."
+    )
+    runtime.candy(
+        "Cowsay",
+        "GroundHogDay is still making measurable IDAT progress, so I am not launching %s in this pass."
+        % FINAL_INVESTIGATION_LABEL,
+        "com",
+    )
+    runtime.candy(
+        "Cowsay",
+        "The new seeds are checkpointed as debug artifacts; rerun or raise IDAT_PREFINAL_REPAIR_CYCLES/IDAT_PREFINAL_REPAIR_BATCHES before using %s."
+        % FINAL_INVESTIGATION_LABEL,
+        "com",
+    )
+    _GroundHogDay_emit_unresolved_stop(
+        runtime,
+        reason="pre-Final repair routes are still producing stronger seeds, so %s is deferred"
+        % FINAL_INVESTIGATION_LABEL,
+        seeds=local_seeds,
+    )
+    return True
+
+
+class _GroundHogDayTitleRuntime:
+    def __init__(
+        self,
+        runtime: Any,
+        title_counter: list[int],
+        overrides: dict[str, Any] | None = None,
+    ) -> None:
+        self._runtime = runtime
+        self._title_counter = title_counter
+        self._overrides = dict(overrides or {})
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self._overrides:
+            return self._overrides[name]
+        return getattr(self._runtime, name)
+
+    def candy(self, *args: Any, **kwargs: Any) -> Any:
+        if len(args) >= 2 and args[0] == "Title":
+            _GroundHogDay_emit_day_quote(self._runtime, self._title_counter)
+            title = _GroundHogDay_numbered_title(self._title_counter, args[1])
+            return self._runtime.candy(args[0], title, *args[2:], **kwargs)
+        if str(kwargs.get("Type") or kwargs.get("type") or "") == "Title":
+            key = "Text" if "Text" in kwargs else "text" if "text" in kwargs else ""
+            if key:
+                _GroundHogDay_emit_day_quote(self._runtime, self._title_counter)
+                kwargs = dict(kwargs)
+                kwargs[key] = _GroundHogDay_numbered_title(self._title_counter, kwargs[key])
+        return self._runtime.candy(*args, **kwargs)
+
+
+def _GroundHogDay_emit_quote_before_title(runtime: Any) -> None:
+    if isinstance(runtime, _GroundHogDayTitleRuntime):
+        _GroundHogDay_emit_day_quote(runtime._runtime, runtime._title_counter)
+
+
+def _GroundHogDay_numbered_title(title_counter: list[int], title: Any) -> str:
+    title_text = str(title)
+    if title_text.startswith("GroundHogDay "):
+        return title_text
+    title_index = int(title_counter[0])
+    return "GroundHogDay %s: %s" % (title_index, title_text)
+
+
+def _GroundHogDay_advance_day(title_counter: list[int]) -> None:
+    title_counter[0] = int(title_counter[0]) + 1
+
+
+def _GroundHogDay_emitted_quote_days(title_counter: list[Any]) -> set[int]:
+    if len(title_counter) < 2 or not isinstance(title_counter[1], set):
+        title_counter.append(set())
+    return title_counter[1]
+
+
+def _GroundHogDay_quote_for_day(_runtime: Any, day_index: int) -> tuple[int, str, str]:
+    entries = GROUNDHOGDAY_QUOTES
+    quote_index = ((max(1, int(day_index)) - 1) % len(entries)) + 1
+    mood, text = entries[quote_index - 1]
+    try:
+        text = text.format(day=day_index, quote=quote_index)
+    except Exception:
+        pass
+    return quote_index, mood, text
+
+
+def _GroundHogDay_emit_day_quote(runtime: Any, title_counter: list[Any]) -> None:
+    day_index = int(title_counter[0])
+    emitted_days = _GroundHogDay_emitted_quote_days(title_counter)
+    if day_index in emitted_days:
+        return
+    emitted_days.add(day_index)
+    _quote_index, mood, text = _GroundHogDay_quote_for_day(runtime, day_index)
+    runtime.candy(
+        "Cowsay",
+        "GroundHog Day Quote:\n\n%s" % text,
+        mood,
+    )
+
+
+def _GroundHogDay_next_title_runtime(
+    runtime: Any,
+    title_counter: list[int],
+    **overrides: Any,
+) -> Any:
+    return _GroundHogDayTitleRuntime(runtime, title_counter, overrides)
+
+
+def _GroundHogDay_emit_unresolved_stop(
+    runtime: Any,
+    *,
+    reason: str,
+    seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+) -> None:
+    if seeds:
+        _GroundHogDay_write_preview_artifacts(runtime, seeds)
+    summary = _GroundHogDay_idat_seed_progress_summary(seeds)
+    note = "-IDAT GroundHogDay unresolved stop: %s" % reason
+    if seeds:
+        note += "; best %s" % summary
+    runtime.side_notes.append(note + ".")
+    runtime.candy(
+        "Cowsay",
+        "I know this PNG still has problems. I am stopping this pass cleanly, not pretending it is fixed.",
+        "bad",
+    )
+    runtime.candy(
+        "Cowsay",
+        "%s stays a last-resort route. The saved GroundHogDay seeds are the next resume point."
+        % FINAL_INVESTIGATION_LABEL,
+        "com",
+    )
+
+
+def _GroundHogDay_idat_seed_best(
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+) -> idat_bruteforce.IdatDeepBeamCandidate | None:
+    ranked = _rank_idat_seed_candidates(seed_candidates, limit=1)
+    return ranked[0] if ranked else None
+
+
+def _GroundHogDay_idat_seed_progress_score(
+    candidate: idat_bruteforce.IdatDeepBeamCandidate | None,
+) -> tuple[int, int, int, int, int, int, int]:
+    if candidate is None:
+        return (-1, -1, -1, -1, -1, -1, 0)
+    after = getattr(candidate, "after", None)
+    if after is None:
+        return (-1, -1, -1, -1, -1, -1, -len(getattr(candidate, "operations", ())))
+    return (
+        1 if getattr(after, "complete", False) else 0,
+        int(getattr(after, "usable_scanlines", 0) or 0),
+        int(getattr(after, "complete_scanlines", 0) or 0),
+        int(getattr(after, "decompressed_size", 0) or 0),
+        int(getattr(after, "error_offset", -1) or -1),
+        int(getattr(after, "expected_size", 0) or 0),
+        -len(getattr(candidate, "operations", ())),
+    )
+
+
+def _GroundHogDay_idat_seed_progress_summary(
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+) -> str:
+    best = _GroundHogDay_idat_seed_best(seed_candidates)
+    after = getattr(best, "after", None)
+    if best is None or after is None:
+        return "none"
+    return "status=%s; usable=%s/%s; complete=%s/%s; decompressed=%s; error_offset=%s" % (
+        getattr(after, "status", "unknown"),
+        getattr(after, "usable_scanlines", "?"),
+        getattr(after, "height", "?"),
+        getattr(after, "complete_scanlines", "?"),
+        getattr(after, "height", "?"),
+        getattr(after, "decompressed_size", "?"),
+        getattr(after, "error_offset", "?"),
+    )
+
+
+def _GroundHogDay_idat_seed_candidates_make_progress(
+    new_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    old_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+) -> bool:
+    new_best = _GroundHogDay_idat_seed_best(new_seeds)
+    if new_best is None:
+        return False
+    old_best = _GroundHogDay_idat_seed_best(old_seeds)
+    if old_best is None:
+        return True
+    new_score = _GroundHogDay_idat_seed_progress_score(new_best)
+    old_score = _GroundHogDay_idat_seed_progress_score(old_best)
+    if new_score > old_score:
+        return True
+    return new_score == old_score and new_best.data != old_best.data
+
+
+def _GroundHogDay_seed_has_unusable_complete_rows(
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+) -> bool:
+    best = _GroundHogDay_idat_seed_best(seed_candidates)
+    after = getattr(best, "after", None)
+    if after is None:
+        return False
+    return int(getattr(after, "complete_scanlines", 0) or 0) > int(
+        getattr(after, "usable_scanlines", 0) or 0
+    )
+
+
+def _GroundHogDay_run_idat_prefinal_alternating_repair_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+    title_counter: list[int] | None = None,
+) -> tuple[tuple[bool, Any] | None, tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]]:
+    if title_counter is None:
+        title_counter = [1]
+    seed_limit = _runtime_seed_local_continuation_limit(runtime)
+    cycles = _GroundHogDay_runtime_repair_cycles(runtime)
+    seeds = _rank_idat_seed_candidates(seed_candidates, limit=seed_limit)
+    if not seeds:
+        seeds = _load_idat_artifact_seed_candidates(
+            runtime,
+            data,
+            analysis,
+            limit=seed_limit,
+        )
+    if not seeds:
+        seeds = _load_final_investigation_seed_candidates(
+            runtime,
+            data,
+            analysis,
+            seed_candidates=(),
+        )
+    seeds = _rank_idat_seed_candidates(seeds, limit=seed_limit)
+    if not seeds:
+        return None, ()
+
+    runtime.side_notes.append(
+        "-IDAT GroundHogDay: starting with %s seed(s), cycles=%s, best %s."
+        % (len(seeds), cycles, _GroundHogDay_idat_seed_progress_summary(seeds))
+    )
+    runtime.candy(
+        "Cowsay",
+        "GroundHogDay starts before %s. I am not looping blindly: each lap must produce a stronger IDAT seed, or I stop."
+        % FINAL_INVESTIGATION_LABEL,
+        "com",
+    )
+    runtime.candy(
+        "Cowsay",
+        "One lap tries one local deflate continuation step first. If that keeps moving, I checkpoint and keep pushing it; row-filter repair gets a turn only after local progress stalls.",
+        "com",
+    )
+
+    progressed_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = ()
+    for cycle_index in range(cycles):
+        cycle_changed = False
+
+        local_result, local_seeds = _run_idat_seed_local_continuation_runtime(
+            _GroundHogDay_next_title_runtime(
+                runtime,
+                title_counter,
+                seed_local_continuation_rounds=1,
+            ),
+            data,
+            analysis,
+            seeds,
+        )
+        if local_result is not None:
+            return local_result, local_seeds
+        if _GroundHogDay_idat_seed_candidates_make_progress(local_seeds, seeds):
+            seeds = _rank_idat_seed_candidates(local_seeds, limit=seed_limit)
+            progressed_seeds = seeds
+            cycle_changed = True
+            _GroundHogDay_write_resume_state(runtime, data, seeds)
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay cycle %s/%s accepted local seed: %s."
+                % (cycle_index + 1, cycles, _GroundHogDay_idat_seed_progress_summary(seeds))
+            )
+            if _GroundHogDay_seed_has_unusable_complete_rows(seeds):
+                runtime.side_notes.append(
+                    "-IDAT GroundHogDay cycle %s/%s postponed row-filter repair: local deflate is still producing stronger complete-row seeds."
+                    % (cycle_index + 1, cycles)
+                )
+                runtime.candy(
+                    "Cowsay",
+                    "GroundHogDay has new complete rows, but their PNG filters are still dirty. Since local deflate is still moving, I am pushing that linefeed-shaped trail before spending time on row-filter cleanup.",
+                    "com",
+                )
+            _GroundHogDay_advance_day(title_counter)
+            continue
+
+        row_result, row_seeds = _run_idat_row_filter_literal_repair_runtime(
+            _GroundHogDay_next_title_runtime(runtime, title_counter),
+            data,
+            analysis,
+            seeds,
+        )
+        if row_result is not None:
+            return row_result, row_seeds
+        if _GroundHogDay_idat_seed_candidates_make_progress(row_seeds, seeds):
+            seeds = _rank_idat_seed_candidates(row_seeds, limit=seed_limit)
+            progressed_seeds = seeds
+            cycle_changed = True
+            _GroundHogDay_write_resume_state(runtime, data, seeds)
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay cycle %s/%s accepted row-filter seed: %s."
+                % (cycle_index + 1, cycles, _GroundHogDay_idat_seed_progress_summary(seeds))
+            )
+
+            local_after_row_result, local_after_row_seeds = _run_idat_seed_local_continuation_runtime(
+                _GroundHogDay_next_title_runtime(
+                    runtime,
+                    title_counter,
+                    seed_local_continuation_rounds=1,
+                ),
+                data,
+                analysis,
+                seeds,
+            )
+            if local_after_row_result is not None:
+                return local_after_row_result, local_after_row_seeds
+            if _GroundHogDay_idat_seed_candidates_make_progress(local_after_row_seeds, seeds):
+                seeds = _rank_idat_seed_candidates(local_after_row_seeds, limit=seed_limit)
+                progressed_seeds = seeds
+                _GroundHogDay_write_resume_state(runtime, data, seeds)
+                runtime.side_notes.append(
+                    "-IDAT GroundHogDay cycle %s/%s accepted local-after-row seed: %s."
+                    % (cycle_index + 1, cycles, _GroundHogDay_idat_seed_progress_summary(seeds))
+                )
+
+        _GroundHogDay_advance_day(title_counter)
+        if not cycle_changed:
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay stopped at cycle %s/%s: no stronger row/local seed."
+                % (cycle_index + 1, cycles)
+            )
+            runtime.candy(
+                "Cowsay",
+                "GroundHogDay stopped because this lap did not improve the best seed. That is the guard against spinning in place.",
+                "com",
+            )
+            break
+
+    if progressed_seeds:
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay produced follow-up seed(s); best %s."
+            % _GroundHogDay_idat_seed_progress_summary(progressed_seeds)
+        )
+        runtime.candy(
+            "Cowsay",
+            "GroundHogDay made measurable IDAT progress, so %s stays parked for this pass."
+            % FINAL_INVESTIGATION_LABEL,
+            "com",
+        )
+    else:
+        runtime.side_notes.append("-IDAT GroundHogDay produced no stronger seed.")
+    return None, progressed_seeds
+
+
+def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = (),
+) -> tuple[
+    tuple[bool, Any] | None,
+    tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    bool,
+    ]:
+    seeds = _merge_idat_seed_candidates(seed_candidates)
+    progressed_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = ()
+    title_counter = [1]
+    configured_batches = _GroundHogDay_runtime_repair_batches(runtime)
+    stopped_on_plateau = False
+    runtime.side_notes.append(
+        "-IDAT GroundHogDay pre-Final campaign: checkpoint interval=%s batch(es); each batch has up to %s cycle(s)."
+        % (configured_batches, _GroundHogDay_runtime_repair_cycles(runtime))
+    )
+    runtime.candy(
+        "Cowsay",
+        "GroundHogDay will not stop just because a cycle batch is spent. If the best seed improves, I checkpoint it and keep going.",
+        "com",
+    )
+
+    batch_index = 0
+    while True:
+        batch_index += 1
+        batch_label = str(batch_index)
+        if batch_index > 1:
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay batch %s continuing from best %s."
+                % (batch_label, _GroundHogDay_idat_seed_progress_summary(seeds))
+            )
+            runtime.candy(
+                "Cowsay",
+                "GroundHogDay is still finding stronger seeds. I am continuing batch %s before %s."
+                % (batch_label, FINAL_INVESTIGATION_LABEL),
+                "com",
+            )
+
+        batch_progressed: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = ()
+        alternating_result, alternating_seeds = _GroundHogDay_run_idat_prefinal_alternating_repair_runtime(
+            runtime,
+            data,
+            analysis,
+            seeds,
+            title_counter,
+        )
+        if alternating_result is not None:
+            return alternating_result, alternating_seeds, False
+        if _GroundHogDay_idat_seed_candidates_make_progress(alternating_seeds, seeds):
+            seeds = alternating_seeds
+            progressed_seeds = alternating_seeds
+            batch_progressed = alternating_seeds
+            _GroundHogDay_write_resume_state(runtime, data, seeds)
+
+        filter_result, filter_seeds = _run_idat_filter_alignment_runtime(
+            _GroundHogDay_next_title_runtime(runtime, title_counter),
+            data,
+            analysis,
+            seeds,
+        )
+        if filter_result is not None:
+            return filter_result, filter_seeds, False
+        if _GroundHogDay_idat_seed_candidates_make_progress(filter_seeds, seeds):
+            seeds = filter_seeds
+            progressed_seeds = filter_seeds
+            batch_progressed = filter_seeds
+            _GroundHogDay_write_resume_state(runtime, data, seeds)
+
+            row_filter_after_filter_result, row_filter_after_filter_seeds = _run_idat_row_filter_literal_repair_runtime(
+                _GroundHogDay_next_title_runtime(runtime, title_counter),
+                data,
+                analysis,
+                filter_seeds,
+            )
+            if row_filter_after_filter_result is not None:
+                return row_filter_after_filter_result, row_filter_after_filter_seeds, False
+            if _GroundHogDay_idat_seed_candidates_make_progress(
+                row_filter_after_filter_seeds,
+                seeds,
+            ):
+                seeds = row_filter_after_filter_seeds
+                progressed_seeds = row_filter_after_filter_seeds
+                batch_progressed = row_filter_after_filter_seeds
+                _GroundHogDay_write_resume_state(runtime, data, seeds)
+
+        linefeed_result, linefeed_seeds = _run_idat_groundhogday_linefeed_runtime(
+            _GroundHogDay_next_title_runtime(runtime, title_counter),
+            data,
+            analysis,
+            seeds,
+        )
+        if linefeed_result is not None:
+            return linefeed_result, linefeed_seeds, False
+        if _GroundHogDay_idat_seed_candidates_make_progress(linefeed_seeds, seeds):
+            seeds = linefeed_seeds
+            progressed_seeds = linefeed_seeds
+            batch_progressed = linefeed_seeds
+            _GroundHogDay_write_resume_state(runtime, data, seeds)
+
+            if _GroundHogDay_seed_has_unusable_complete_rows(seeds):
+                runtime.side_notes.append(
+                    "-IDAT GroundHogDay postponed row-filter-after-linefeed repair: linefeed route is still producing stronger complete-row seeds."
+                )
+                runtime.candy(
+                    "Cowsay",
+                    "Linefeed just moved the IDAT stream again. I am checkpointing it and continuing the linefeed trail before row-filter cleanup.",
+                    "com",
+                )
+
+        stored_result, stored_seeds = _run_idat_filter_seed_stored_block_runtime(
+            _GroundHogDay_next_title_runtime(runtime, title_counter),
+            data,
+            analysis,
+            seeds,
+        )
+        if stored_result is not None:
+            return stored_result, stored_seeds, False
+        if _GroundHogDay_idat_seed_candidates_make_progress(stored_seeds, seeds):
+            seeds = stored_seeds
+            progressed_seeds = stored_seeds
+            batch_progressed = stored_seeds
+            _GroundHogDay_write_resume_state(runtime, data, seeds)
+
+            row_filter_after_stored_result, row_filter_after_stored_seeds = _run_idat_row_filter_literal_repair_runtime(
+                _GroundHogDay_next_title_runtime(runtime, title_counter),
+                data,
+                analysis,
+                stored_seeds,
+            )
+            if row_filter_after_stored_result is not None:
+                return row_filter_after_stored_result, row_filter_after_stored_seeds, False
+            if _GroundHogDay_idat_seed_candidates_make_progress(
+                row_filter_after_stored_seeds,
+                seeds,
+            ):
+                seeds = row_filter_after_stored_seeds
+                progressed_seeds = row_filter_after_stored_seeds
+                batch_progressed = row_filter_after_stored_seeds
+                _GroundHogDay_write_resume_state(runtime, data, seeds)
+
+        if not batch_progressed:
+            stopped_on_plateau = True
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay pre-Final campaign stopped after batch %s: no stronger seed."
+                % batch_label
+            )
+            if seeds:
+                _GroundHogDay_write_resume_state(runtime, data, seeds)
+                runtime.side_notes.append(
+                    "-IDAT GroundHogDay plateau checkpoint saved: best %s."
+                    % _GroundHogDay_idat_seed_progress_summary(seeds)
+                )
+            _GroundHogDay_advance_day(title_counter)
+            break
+        _GroundHogDay_write_resume_state(runtime, data, batch_progressed)
+        if batch_index % max(1, configured_batches) == 0:
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay checkpoint interval reached after batch %s; progress still moving, continuing instead of stopping."
+                % batch_label
+            )
+            runtime.candy(
+                "Cowsay",
+                "GroundHogDay reached checkpoint batch %s with a stronger seed. I saved preview/resume artifacts and I am continuing."
+                % batch_label,
+                "com",
+            )
+        _GroundHogDay_advance_day(title_counter)
+
+    if stopped_on_plateau:
+        if progressed_seeds:
+            _GroundHogDay_write_resume_state(runtime, data, progressed_seeds)
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay reached a plateau after earlier progress; %s may now take the last-resort handoff."
+                % FINAL_INVESTIGATION_LABEL
+            )
+            runtime.candy(
+                "Cowsay",
+                "GroundHogDay reached a plateau after real progress. The best seeds are saved; %s can take the last-resort handoff now."
+                % FINAL_INVESTIGATION_LABEL,
+                "com",
+            )
+        return None, seeds, False
+
+    return None, seeds, False
 
 
 def _run_idat_post_deep_frontier_routes_runtime(
@@ -5325,7 +7545,9 @@ def _run_idat_post_deep_frontier_routes_runtime(
     )
     if backref_result is not None:
         if backref_result.best is not None:
-            return _write_kraft_backref_best_clone(runtime, analysis, backref_result)
+            written = _write_kraft_backref_best_clone(runtime, analysis, backref_result)
+            if written is not None:
+                return written
         if backref_result.top_candidates:
             seeds = backref_result.top_candidates
 
@@ -5339,7 +7561,9 @@ def _run_idat_post_deep_frontier_routes_runtime(
     )
     if stored_result is not None:
         if stored_result.best is not None:
-            return _write_stored_block_best_clone(runtime, analysis, stored_result)
+            written = _write_stored_block_best_clone(runtime, analysis, stored_result)
+            if written is not None:
+                return written
         if stored_result.top_candidates:
             seeds = stored_result.top_candidates
 
@@ -5351,8 +7575,36 @@ def _run_idat_post_deep_frontier_routes_runtime(
         path_label="kraft_backref_deep2",
         seed_checkpoint_path="",
     )
-    if backref_second_result is not None and backref_second_result.best is not None:
-        return _write_kraft_backref_best_clone(runtime, analysis, backref_second_result)
+    if backref_second_result is not None:
+        if backref_second_result.best is not None:
+            written = _write_kraft_backref_best_clone(runtime, analysis, backref_second_result)
+            if written is not None:
+                return written
+        if backref_second_result.top_candidates:
+            seeds = backref_second_result.top_candidates
+
+    if not _idat_seed_candidates_have_frontier_progress(analysis, seeds):
+        runtime.side_notes.append(
+            "-IDAT post-deep frontier kept diagnostic seed(s), but none moved the deflate frontier; GroundHogDay skipped for this post-deep pass."
+        )
+        return None
+
+    prefinal_result, _prefinal_seeds, prefinal_deferred = _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
+        runtime,
+        data,
+        analysis,
+        seeds,
+    )
+    if prefinal_result is not None:
+        return prefinal_result
+    if prefinal_deferred:
+        open_route_note = (
+            "-IDAT deep beam stopped with checkpointed candidates still available; "
+            "route left open for resume/post-deep passes."
+        )
+        if open_route_note not in runtime.side_notes:
+            runtime.side_notes.append(open_route_note)
+        return False, None
 
     return None
 
@@ -5441,6 +7693,70 @@ def try_idat_deflate_bruteforce(
     checkpoint_path, progress_path = _idat_deep_beam_paths(runtime)
     resume_state = idat_bruteforce.deep_beam_resume_state(data, checkpoint_path, progress_path)
     deep_budget = _runtime_deep_beam_budget(runtime)
+    groundhogday_resume_seeds = _GroundHogDay_resume_seed_candidates(runtime, data, analysis)
+    if groundhogday_resume_seeds:
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay resume-first: found %s artifact seed(s); best %s."
+            % (
+                len(groundhogday_resume_seeds),
+                _GroundHogDay_idat_seed_progress_summary(groundhogday_resume_seeds),
+            )
+        )
+        runtime.candy(
+            "Cowsay",
+            "I found GroundHogDay resume evidence in Debug_Payloads. I am jumping back to that loop instead of replaying the earlier IDAT probes.",
+            "com",
+        )
+        runtime.candy(
+            "Cowsay",
+            "This is a checkpoint resume: each lap still needs a stronger seed, so repeated GroundHogDay titles mean controlled alternation, not a blind restart.",
+            "com",
+        )
+        prefinal_result, prefinal_seeds, prefinal_deferred = _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
+            runtime,
+            data,
+            analysis,
+            groundhogday_resume_seeds,
+        )
+        if prefinal_result is not None:
+            return prefinal_result
+        if prefinal_deferred:
+            return None
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay resume made no new progress; earlier IDAT probes were not replayed in this pass."
+        )
+        final_seed_candidates = prefinal_seeds or groundhogday_resume_seeds
+        if _should_run_final_investigation(
+            runtime,
+            analysis,
+            final_seed_candidates,
+            evidence_ready=final_investigation_ready,
+        ):
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay resume plateau reached; handing saved seeds to %s as the last resort."
+                % FINAL_INVESTIGATION_LABEL
+            )
+            runtime.candy(
+                "Cowsay",
+                "GroundHogDay resume hit a plateau. I am handing its saved seeds to %s as the last resort."
+                % FINAL_INVESTIGATION_LABEL,
+                "com",
+            )
+            final_result = _run_idat_final_investigation_runtime(
+                runtime,
+                data,
+                analysis,
+                seed_candidates=final_seed_candidates,
+            )
+            if final_result is not None:
+                return final_result
+            return None
+        _GroundHogDay_emit_unresolved_stop(
+            runtime,
+            reason="resume seeds did not improve and older IDAT probes were intentionally not replayed",
+            seeds=groundhogday_resume_seeds,
+        )
+        return None
     if resume_state.available and resume_state.source_matches:
         frontier_clone, seed_candidates = _run_idat_frontier_routes_runtime(runtime, data, analysis)
         if frontier_clone is not None:
@@ -5462,11 +7778,21 @@ def try_idat_deflate_bruteforce(
             resume_seed_candidates,
             evidence_ready=final_investigation_ready,
         ):
+            prefinal_result, prefinal_seeds, prefinal_deferred = _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
+                runtime,
+                data,
+                analysis,
+                resume_seed_candidates,
+            )
+            if prefinal_result is not None:
+                return prefinal_result
+            if prefinal_deferred:
+                return None
             final_result = _run_idat_final_investigation_runtime(
                 runtime,
                 data,
                 analysis,
-                seed_candidates=resume_seed_candidates,
+                seed_candidates=prefinal_seeds or resume_seed_candidates,
             )
             if final_result is not None:
                 return final_result
@@ -5655,7 +7981,21 @@ def try_idat_deflate_bruteforce(
             analysis,
             evidence_ready=final_investigation_ready,
         ):
-            final_result = _run_idat_final_investigation_runtime(runtime, data, analysis)
+            prefinal_result, prefinal_seeds, prefinal_deferred = _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
+                runtime,
+                data,
+                analysis,
+            )
+            if prefinal_result is not None:
+                return prefinal_result
+            if prefinal_deferred:
+                return None
+            final_result = _run_idat_final_investigation_runtime(
+                runtime,
+                data,
+                analysis,
+                seed_candidates=prefinal_seeds,
+            )
             if final_result is not None:
                 return final_result
             return None
@@ -6156,7 +8496,7 @@ def _existing_fixed_clone_with_data(file_origin: Any, file_dir: Any, data: bytes
         return None
     if not folder.exists() or not folder.is_dir():
         return None
-    pattern = "%s.*_Fixed.png" % output.source_stem(origin)
+    pattern = "%s.*_Fixed.png" % output.repair_stem(origin, str(file_dir or ""))
     for candidate in sorted(folder.glob(pattern)):
         if not candidate.is_file():
             continue

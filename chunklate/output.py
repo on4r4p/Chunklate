@@ -9,6 +9,8 @@ from typing import Any
 
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+FIXED_CLONE_STEM_RE = re.compile(r"^(.+)\.\d+_Fixed$")
+ARTIFACT_CLONE_STEM_RE = re.compile(r"^(.+)\.\d+_Artifact(?:\.\d+)?$")
 DEBUG_LINE_PREFIXES = (
     "error:",
     "fixed:",
@@ -52,6 +54,12 @@ def source_stem(file_origin: str) -> str:
         filename = filename[: -len(".realpng")]
     if "." in filename:
         filename = os.path.splitext(filename)[0]
+    fixed_match = FIXED_CLONE_STEM_RE.match(filename)
+    if fixed_match is not None:
+        return fixed_match.group(1)
+    artifact_match = ARTIFACT_CLONE_STEM_RE.match(filename)
+    if artifact_match is not None:
+        return artifact_match.group(1)
     return filename
 
 
@@ -66,8 +74,56 @@ def _namespace_file_origin(namespace: Mapping[str, Any]) -> str:
     return str(namespace.get("FILE_Origin") or "").strip()
 
 
+def _origin_path(file_origin: str, file_dir: str = "") -> str:
+    path = os.path.normpath(_require_file_origin(file_origin))
+    if os.path.isabs(path) or not file_dir:
+        return path
+    return os.path.normpath(os.path.join(str(file_dir), path))
+
+
+def _clone_like_origin(file_origin: str) -> bool:
+    filename = os.path.basename(str(file_origin or "").strip())
+    if filename.lower().endswith(".realpng"):
+        filename = filename[: -len(".realpng")]
+    stem = os.path.splitext(filename)[0]
+    return (
+        FIXED_CLONE_STEM_RE.match(stem) is not None
+        or ARTIFACT_CLONE_STEM_RE.match(stem) is not None
+    )
+
+
+def _existing_repair_folder(file_origin: str, file_dir: str = "") -> str | None:
+    path = _origin_path(file_origin, file_dir)
+    clone_like = _clone_like_origin(file_origin)
+    inside_debug_payloads = False
+    current = os.path.dirname(path)
+    while current and current != os.path.dirname(current):
+        name = os.path.basename(current)
+        if name == "Debug_Payloads":
+            inside_debug_payloads = True
+        if name.startswith("Folder_") and (clone_like or inside_debug_payloads):
+            stem = source_stem(name[len("Folder_") :])
+            if stem:
+                return os.path.join(os.path.dirname(current), "Folder_" + stem)
+            return current
+        current = os.path.dirname(current)
+    return None
+
+
+def repair_stem(file_origin: str, file_dir: str = "") -> str:
+    folder = _existing_repair_folder(file_origin, file_dir)
+    if folder is not None:
+        folder_name = os.path.basename(folder)
+        if folder_name.startswith("Folder_") and len(folder_name) > len("Folder_"):
+            return folder_name[len("Folder_") :]
+    return source_stem(file_origin)
+
+
 def clone_folder(file_origin: str, file_dir: str = "") -> str:
     file_origin = _require_file_origin(file_origin)
+    existing = _existing_repair_folder(file_origin, file_dir)
+    if existing is not None:
+        return existing
     return os.path.join(file_dir, "Folder_" + source_stem(file_origin))
 
 
@@ -82,14 +138,14 @@ def ensure_clone_folder(file_origin: str, file_dir: str = "") -> str:
     return folder
 
 
-def clone_basename(file_origin: str) -> str:
+def clone_basename(file_origin: str, file_dir: str = "") -> str:
     file_origin = _require_file_origin(file_origin)
-    return source_stem(file_origin) + "."
+    return repair_stem(file_origin, file_dir) + "."
 
 
 def next_clone_target(file_origin: str, file_dir: str = "") -> CloneTarget:
     directory = ensure_clone_folder(file_origin, file_dir)
-    filename = clone_basename(file_origin)
+    filename = clone_basename(file_origin, file_dir)
     fileid = 0
     name = filename + str(fileid) + "_Fixed.png"
     path = os.path.join(directory, name)
@@ -147,7 +203,7 @@ def summary_path(file_origin: str, file_dir: str = "") -> str:
     folder = ensure_clone_folder(file_origin, file_dir)
     return os.path.join(
         folder,
-        "Summary_Of_" + source_stem(file_origin),
+        "Summary_Of_" + repair_stem(file_origin, file_dir),
     )
 
 

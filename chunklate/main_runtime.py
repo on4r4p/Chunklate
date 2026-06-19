@@ -866,7 +866,7 @@ def idat_deep_beam_folder_paths(
     file_dir: str,
 ) -> tuple[str, str, str, str]:
     folder = runtime.clone_folder(file_origin, file_dir)
-    source_stem = output.source_stem(file_origin)
+    source_stem = output.repair_stem(file_origin, file_dir)
     payload_folder = runtime.join(folder, IDAT_DEEP_BEAM_DEBUG_FOLDER_NAME)
     return (
         folder,
@@ -1669,6 +1669,16 @@ def _try_unresolved_idat_deflate_route(namespace: dict[str, Any]) -> bool:
         global_crc_residue_budget=namespace.get("IDAT_GLOBAL_CRC_RESIDUE_BUDGET"),
         affine_corruption_budget=namespace.get("IDAT_AFFINE_CORRUPTION_BUDGET"),
         deflate_salvage_budget=namespace.get("IDAT_DEFLATE_SALVAGE_BUDGET"),
+        seed_local_continuation_limit=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_LIMIT"),
+        seed_local_continuation_budget=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_BUDGET"),
+        seed_local_continuation_rounds=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_ROUNDS"),
+        prefinal_repair_cycles=namespace.get("IDAT_PREFINAL_REPAIR_CYCLES"),
+        prefinal_repair_batches=namespace.get("IDAT_PREFINAL_REPAIR_BATCHES"),
+        ultimate_linefeed_budget=namespace.get("ULTIMATE_LINEFEED_BUDGET"),
+        ultimate_linefeed_unbounded=namespace.get("ULTIMATE_LINEFEED_UNBOUNDED"),
+        ultimate_linefeed_workers=namespace.get("ULTIMATE_LINEFEED_WORKERS"),
+        ultimate_linefeed_max_depth=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH"),
+        ultimate_linefeed_max_offsets=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS"),
         set_idat_deflate_route_consumed=lambda value: namespace.__setitem__(
             "IDAT_DEFLATE_ROUTE_CONSUMED",
             value,

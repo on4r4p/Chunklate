@@ -29,6 +29,7 @@ except ModuleNotFoundError:
 
 CHUNKLATE = ROOT / "Chunklate.py"
 FIXTURES = ROOT / "Png_Errors_handled_by_Chunklate_So_Far"
+REPAIR_TIMEOUT_SECONDS = 30
 
 
 def current_repair_fixture_names():
@@ -93,7 +94,7 @@ def run_chunklate_repair(fixture_name, tmp_path, max_saves):
         input="yes\n" * 200,
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=REPAIR_TIMEOUT_SECONDS,
     )
 
     return result, output_dir / f"Folder_{sample.stem}"

@@ -36,7 +36,7 @@ def existing_clone_target_with_sha(
     sha256: str,
 ) -> output.CloneTarget | None:
     directory = output.ensure_clone_folder(file_origin, file_dir)
-    prefix = output.clone_basename(file_origin)
+    prefix = output.clone_basename(file_origin, file_dir)
     suffix = "_Fixed.png"
     candidates: list[tuple[int, output.CloneTarget]] = []
 
