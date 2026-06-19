@@ -7058,6 +7058,7 @@ def test_GroundHogDay_defer_writes_resume_state(tmp_path):
     payload = json.loads(resume_path.read_text(encoding="utf-8"))
     assert payload["route"] == "GroundHogDay"
     assert payload["source_hash"] == fixit_felix_runtime._GroundHogDay_source_hash(data)
+    assert payload["next_day"] == 1
     assert payload["best"]["usable_scanlines"] == 3
     assert payload["best"]["complete_scanlines"] == 3
     assert any("GroundHogDay resume state saved" in note for note in runtime.side_notes)
@@ -7140,6 +7141,194 @@ def test_GroundHogDay_seed_artifact_is_resume_artifact_path(tmp_path):
     names = {path.name for path in artifact_paths}
     assert any(name.startswith("Flag_groundhogday_seed_state18_") for name in names)
     assert not any("scanline_preview" in name for name in names)
+
+
+def test_GroundHogDay_resume_state_next_day_keeps_title_counter(monkeypatch, tmp_path):
+    data = valid_png_bytes()
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=10,
+        expected_size=1000,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    seed = idat_progress_seed(
+        data,
+        state_id=68,
+        usable_scanlines=3,
+        decompressed_size=400,
+        kind="groundhogday-resume",
+    )
+    payload_folder = tmp_path / "Folder_Flag" / "Debug_Payloads"
+    payload_folder.mkdir(parents=True)
+    resume_path = payload_folder / "Flag_groundhogday.resume.json"
+    resume_path.write_text(
+        json.dumps(
+            {
+                "route": "GroundHogDay",
+                "version": 1,
+                "source_hash": fixit_felix_runtime._GroundHogDay_source_hash(data),
+                "next_day": 68,
+                "seed_count": 1,
+                "best": {},
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    calls = []
+
+    def fake_seed_local(_runtime, _data, _analysis, seed_candidates=()):
+        _runtime.candy("Title", "probe_idat_seed_local_continuation")
+        return None, ()
+
+    def fake_row_filter(_runtime, _data, _analysis, seed_candidates=()):
+        _runtime.candy("Title", "probe_idat_png_filter_literal_repair")
+        return None, ()
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_seed_local_continuation_runtime",
+        fake_seed_local,
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_row_filter_literal_repair_runtime",
+        fake_row_filter,
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_filter_alignment_runtime",
+        lambda *_args, **_kwargs: (None, ()),
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_groundhogday_linefeed_runtime",
+        lambda *_args, **_kwargs: (None, ()),
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_filter_seed_stored_block_runtime",
+        lambda *_args, **_kwargs: (None, ()),
+    )
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        side_notes=[],
+        candy=lambda *args, **_kwargs: calls.append(args),
+        prefinal_repair_cycles=1,
+        prefinal_repair_batches=1,
+        seed_local_continuation_limit=1,
+    )
+
+    result, seeds, deferred = fixit_felix_runtime._GroundHogDay_run_idat_prefinal_seed_routes_runtime(
+        runtime,
+        data,
+        analysis,
+        (seed,),
+    )
+
+    assert result is None
+    assert seeds == (seed,)
+    assert deferred is False
+    assert [call for call in calls if call[0] == "Title"][:2] == [
+        ("Title", "GroundHogDay 68: probe_idat_seed_local_continuation"),
+        ("Title", "GroundHogDay 68: probe_idat_png_filter_literal_repair"),
+    ]
+    updated = json.loads(resume_path.read_text(encoding="utf-8"))
+    assert updated["next_day"] >= 68
+
+
+def test_GroundHogDay_resume_next_day_infers_from_debug_payloads(tmp_path):
+    data = valid_png_bytes()
+    payload_folder = tmp_path / "Folder_Flag" / "Debug_Payloads"
+    payload_folder.mkdir(parents=True)
+    resume_path = payload_folder / "Flag_groundhogday.resume.json"
+    resume_path.write_text(
+        json.dumps(
+            {
+                "route": "GroundHogDay",
+                "version": 1,
+                "source_hash": fixit_felix_runtime._GroundHogDay_source_hash(data),
+                "seed_count": 1,
+                "best": {},
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    for index in range(3):
+        (payload_folder / ("Flag_groundhogday_preview_state%s_deadbeef.json" % index)).write_text(
+            "{}\n",
+            encoding="utf-8",
+        )
+    for index in range(5):
+        (payload_folder / ("Flag_groundhogday_state99_linefeed_chain_round%s.png" % index)).write_bytes(
+            b""
+        )
+    preview_folder = payload_folder / fixit_felix_runtime.GROUNDHOGDAY_SCANLINE_PREVIEW_FOLDER
+    preview_folder.mkdir()
+    for index in range(2):
+        (
+            preview_folder
+            / (
+                "Flag_groundhogday_scanline_preview_state%s_deadbeef_%s_of_850.png"
+                % (index, index)
+            )
+        ).write_bytes(b"")
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        side_notes=[],
+    )
+
+    assert fixit_felix_runtime._GroundHogDay_resume_next_day(runtime, data) == 6
+    assert any(
+        "linefeed_chain_artifacts=5" in note and "next_day=6" in note
+        for note in runtime.side_notes
+    )
+
+
+def test_GroundHogDay_resume_next_day_raises_stale_saved_counter(tmp_path):
+    data = valid_png_bytes()
+    payload_folder = tmp_path / "Folder_Flag" / "Debug_Payloads"
+    payload_folder.mkdir(parents=True)
+    resume_path = payload_folder / "Flag_groundhogday.resume.json"
+    resume_path.write_text(
+        json.dumps(
+            {
+                "route": "GroundHogDay",
+                "version": 1,
+                "source_hash": fixit_felix_runtime._GroundHogDay_source_hash(data),
+                "next_day": 2,
+                "seed_count": 1,
+                "best": {},
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    for index in range(5):
+        (payload_folder / ("Flag_groundhogday_seed_state%s_deadbeef.png" % index)).write_bytes(
+            b""
+        )
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        side_notes=[],
+    )
+
+    assert fixit_felix_runtime._GroundHogDay_resume_next_day(runtime, data) == 6
+    assert any(
+        "raised from saved next_day=2 to inferred next_day=6" in note
+        for note in runtime.side_notes
+    )
 
 
 def test_post_deep_runs_seed_local_after_incomplete_stored_block(monkeypatch):

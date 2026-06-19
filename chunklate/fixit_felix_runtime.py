@@ -6462,6 +6462,89 @@ def _GroundHogDay_read_resume_state(runtime: Any) -> dict[str, Any]:
     return payload
 
 
+def _GroundHogDay_source_marker_matches(state: dict[str, Any], data: bytes) -> bool:
+    return bool(
+        state
+        and state.get("route") == "GroundHogDay"
+        and str(state.get("source_hash") or "") == _GroundHogDay_source_hash(data)
+    )
+
+
+def _GroundHogDay_day_index(value: Any, *, default: int = 1) -> int:
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return max(1, int(default))
+
+
+def _GroundHogDay_debug_payload_day_evidence(runtime: Any) -> dict[str, int]:
+    payload_folder = _final_investigation_payload_folder(runtime, create=False)
+    if payload_folder is None:
+        return {}
+    stem = _final_investigation_stem(runtime, payload_folder)
+    preview_folder = payload_folder / GROUNDHOGDAY_SCANLINE_PREVIEW_FOLDER
+
+    def count(pattern: str) -> int:
+        return len(tuple(payload_folder.glob(pattern)))
+
+    def preview_count(pattern: str) -> int:
+        if not preview_folder.is_dir():
+            return 0
+        return len(tuple(preview_folder.glob(pattern)))
+
+    return {
+        "preview_metadata": count("%s_groundhogday_preview_state*.json" % stem),
+        "seed_artifacts": count("%s_groundhogday_seed_state*.png" % stem),
+        "scanline_previews": count("%s_groundhogday_scanline_preview_state*.png" % stem)
+        + preview_count("%s_groundhogday_scanline_preview_state*.png" % stem),
+        "tolerant_previews": count("%s_groundhogday_tolerant_preview_state*.png" % stem)
+        + preview_count("%s_groundhogday_tolerant_preview_state*.png" % stem),
+        "linefeed_chain_artifacts": count("%s_groundhogday_state*_linefeed_chain_round*.png" % stem),
+    }
+
+
+def _GroundHogDay_inferred_next_day_from_debug_payloads(
+    runtime: Any,
+) -> tuple[int, str]:
+    evidence = _GroundHogDay_debug_payload_day_evidence(runtime)
+    if not evidence:
+        return 1, ""
+    best_label, best_count = max(evidence.items(), key=lambda item: item[1])
+    if best_count <= 0:
+        return 1, ""
+    details = ", ".join("%s=%s" % item for item in sorted(evidence.items()))
+    return best_count + 1, "%s; %s" % (best_label, details)
+
+
+def _GroundHogDay_resume_next_day(
+    runtime: Any,
+    data: bytes,
+    *,
+    default: int = 1,
+) -> int:
+    state = _GroundHogDay_read_resume_state(runtime)
+    if not _GroundHogDay_source_marker_matches(state, data):
+        return _GroundHogDay_day_index(default)
+    inferred, inferred_details = _GroundHogDay_inferred_next_day_from_debug_payloads(runtime)
+    if "next_day" in state:
+        saved = _GroundHogDay_day_index(state.get("next_day"), default=default)
+        if inferred > saved:
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay resume day raised from saved next_day=%s to inferred next_day=%s from Debug_Payloads: %s."
+                % (saved, inferred, inferred_details)
+            )
+            return inferred
+        return saved
+
+    if inferred > 1:
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay resume day inferred from Debug_Payloads: next_day=%s; %s."
+            % (inferred, inferred_details)
+        )
+        return inferred
+    return _GroundHogDay_day_index(default)
+
+
 def _GroundHogDay_analysis_progress_score(
     analysis: idat.IdatStreamAnalysis,
 ) -> tuple[int, int, int, int, int, int, int]:
@@ -6636,6 +6719,8 @@ def _GroundHogDay_write_resume_state(
     runtime: Any,
     data: bytes | None,
     local_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    *,
+    next_day: Any = None,
 ) -> None:
     if data is None or not local_seeds:
         return
@@ -6645,11 +6730,17 @@ def _GroundHogDay_write_resume_state(
     best = _GroundHogDay_idat_seed_best(local_seeds)
     if best is None:
         return
+    next_day_value = (
+        _GroundHogDay_day_index(next_day)
+        if next_day is not None
+        else _GroundHogDay_resume_next_day(runtime, data)
+    )
     payload = {
         "route": "GroundHogDay",
         "version": 1,
         "updated_at": int(time.time()),
         "source_hash": _GroundHogDay_source_hash(data),
+        "next_day": next_day_value,
         "seed_count": len(local_seeds),
         "best": _GroundHogDay_seed_resume_record(best),
     }
@@ -6951,12 +7042,7 @@ def _GroundHogDay_resume_seed_candidates(
     if best is None:
         return ()
     state = _GroundHogDay_read_resume_state(runtime)
-    marker_matches = bool(
-        state
-        and state.get("route") == "GroundHogDay"
-        and str(state.get("source_hash") or "") == _GroundHogDay_source_hash(data)
-    )
-    if marker_matches:
+    if _GroundHogDay_source_marker_matches(state, data):
         return seeds
     if _GroundHogDay_idat_seed_progress_score(best) > _GroundHogDay_analysis_progress_score(analysis):
         return seeds
@@ -7320,7 +7406,7 @@ def _GroundHogDay_run_idat_prefinal_alternating_repair_runtime(
             seeds = new_seeds
             progressed_seeds = seeds
             cycle_changed = True
-            _GroundHogDay_write_resume_state(runtime, data, seeds)
+            _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
             runtime.side_notes.append(
                 "-IDAT GroundHogDay cycle %s/%s accepted local seed: %s."
                 % (cycle_index + 1, cycles, _GroundHogDay_idat_seed_progress_summary(seeds))
@@ -7352,7 +7438,7 @@ def _GroundHogDay_run_idat_prefinal_alternating_repair_runtime(
             seeds = new_seeds
             progressed_seeds = seeds
             cycle_changed = True
-            _GroundHogDay_write_resume_state(runtime, data, seeds)
+            _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
             runtime.side_notes.append(
                 "-IDAT GroundHogDay cycle %s/%s accepted row-filter seed: %s."
                 % (cycle_index + 1, cycles, _GroundHogDay_idat_seed_progress_summary(seeds))
@@ -7375,7 +7461,7 @@ def _GroundHogDay_run_idat_prefinal_alternating_repair_runtime(
                 _GroundHogDay_emit_scanline_recovery_update(runtime, seeds, new_seeds, "local-after-row deflate")
                 seeds = new_seeds
                 progressed_seeds = seeds
-                _GroundHogDay_write_resume_state(runtime, data, seeds)
+                _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
                 runtime.side_notes.append(
                     "-IDAT GroundHogDay cycle %s/%s accepted local-after-row seed: %s."
                     % (cycle_index + 1, cycles, _GroundHogDay_idat_seed_progress_summary(seeds))
@@ -7422,7 +7508,7 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
     ]:
     seeds = _merge_idat_seed_candidates(seed_candidates)
     progressed_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = ()
-    title_counter = [1]
+    title_counter = [_GroundHogDay_resume_next_day(runtime, data)]
     configured_batches = _GroundHogDay_runtime_repair_batches(runtime)
     stopped_on_plateau = False
     runtime.side_notes.append(
@@ -7465,7 +7551,7 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
             seeds = alternating_seeds
             progressed_seeds = alternating_seeds
             batch_progressed = alternating_seeds
-            _GroundHogDay_write_resume_state(runtime, data, seeds)
+            _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
 
         filter_result, filter_seeds = _run_idat_filter_alignment_runtime(
             _GroundHogDay_next_title_runtime(runtime, title_counter),
@@ -7480,7 +7566,7 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
             seeds = filter_seeds
             progressed_seeds = filter_seeds
             batch_progressed = filter_seeds
-            _GroundHogDay_write_resume_state(runtime, data, seeds)
+            _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
 
             row_filter_after_filter_result, row_filter_after_filter_seeds = _run_idat_row_filter_literal_repair_runtime(
                 _GroundHogDay_next_title_runtime(runtime, title_counter),
@@ -7503,7 +7589,7 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
                 seeds = row_filter_after_filter_seeds
                 progressed_seeds = row_filter_after_filter_seeds
                 batch_progressed = row_filter_after_filter_seeds
-                _GroundHogDay_write_resume_state(runtime, data, seeds)
+                _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
 
         linefeed_result, linefeed_seeds = _run_idat_groundhogday_linefeed_runtime(
             _GroundHogDay_next_title_runtime(runtime, title_counter),
@@ -7518,7 +7604,7 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
             seeds = linefeed_seeds
             progressed_seeds = linefeed_seeds
             batch_progressed = linefeed_seeds
-            _GroundHogDay_write_resume_state(runtime, data, seeds)
+            _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
 
             if _GroundHogDay_seed_has_unusable_complete_rows(seeds):
                 runtime.side_notes.append(
@@ -7543,7 +7629,7 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
             seeds = stored_seeds
             progressed_seeds = stored_seeds
             batch_progressed = stored_seeds
-            _GroundHogDay_write_resume_state(runtime, data, seeds)
+            _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
 
             row_filter_after_stored_result, row_filter_after_stored_seeds = _run_idat_row_filter_literal_repair_runtime(
                 _GroundHogDay_next_title_runtime(runtime, title_counter),
@@ -7566,7 +7652,7 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
                 seeds = row_filter_after_stored_seeds
                 progressed_seeds = row_filter_after_stored_seeds
                 batch_progressed = row_filter_after_stored_seeds
-                _GroundHogDay_write_resume_state(runtime, data, seeds)
+                _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
 
         if not batch_progressed:
             stopped_on_plateau = True
@@ -7575,14 +7661,14 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
                 % batch_label
             )
             if seeds:
-                _GroundHogDay_write_resume_state(runtime, data, seeds)
+                _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
                 runtime.side_notes.append(
                     "-IDAT GroundHogDay plateau checkpoint saved: best %s."
                     % _GroundHogDay_idat_seed_progress_summary(seeds)
                 )
             _GroundHogDay_advance_day(title_counter)
             break
-        _GroundHogDay_write_resume_state(runtime, data, batch_progressed)
+        _GroundHogDay_write_resume_state(runtime, data, batch_progressed, next_day=title_counter[0])
         if batch_index % max(1, configured_batches) == 0:
             runtime.side_notes.append(
                 "-IDAT GroundHogDay checkpoint interval reached after batch %s; progress still moving, continuing instead of stopping."
@@ -7595,10 +7681,12 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
                 "com",
             )
         _GroundHogDay_advance_day(title_counter)
+        if batch_progressed:
+            _GroundHogDay_write_resume_state(runtime, data, batch_progressed, next_day=title_counter[0])
 
     if stopped_on_plateau:
         if progressed_seeds:
-            _GroundHogDay_write_resume_state(runtime, data, progressed_seeds)
+            _GroundHogDay_write_resume_state(runtime, data, progressed_seeds, next_day=title_counter[0])
             runtime.side_notes.append(
                 "-IDAT GroundHogDay reached a plateau after earlier progress; %s may now take the last-resort handoff."
                 % FINAL_INVESTIGATION_LABEL
@@ -7793,10 +7881,12 @@ def try_idat_deflate_bruteforce(
     deep_budget = _runtime_deep_beam_budget(runtime)
     groundhogday_resume_seeds = _GroundHogDay_resume_seed_candidates(runtime, data, analysis)
     if groundhogday_resume_seeds:
+        groundhogday_resume_next_day = _GroundHogDay_resume_next_day(runtime, data)
         runtime.side_notes.append(
-            "-IDAT GroundHogDay resume-first: found %s artifact seed(s); best %s."
+            "-IDAT GroundHogDay resume-first: found %s artifact seed(s); next_day=%s; best %s."
             % (
                 len(groundhogday_resume_seeds),
+                groundhogday_resume_next_day,
                 _GroundHogDay_idat_seed_progress_summary(groundhogday_resume_seeds),
             )
         )
@@ -7809,6 +7899,12 @@ def try_idat_deflate_bruteforce(
             "Cowsay",
             "This is a checkpoint resume: each lap still needs a stronger seed, so repeated GroundHogDay titles mean controlled alternation, not a blind restart.",
             "com",
+        )
+        runtime.candy(
+            "Cowsay",
+            "GroundHogDay will resume at part %s, using the saved checkpoint instead of pretending this is day 1 again."
+            % groundhogday_resume_next_day,
+            "good",
         )
         prefinal_result, prefinal_seeds, prefinal_deferred = _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
             runtime,
