@@ -6385,6 +6385,63 @@ def test_row_filter_literal_repair_tries_fast_pass_before_wide_fallback(monkeypa
     assert any("fast pass produced no stronger seed" in note for note in runtime.side_notes)
 
 
+def test_GroundHogDay_scanline_recovery_update_reports_only_line_gains():
+    data = valid_png_bytes()
+    old_seed = idat_progress_seed(
+        data,
+        state_id=1,
+        usable_scanlines=2,
+        decompressed_size=200,
+        kind="old",
+    )
+    same_line_seed = idat_progress_seed(
+        data,
+        state_id=2,
+        usable_scanlines=2,
+        decompressed_size=260,
+        kind="same-line",
+    )
+    new_seed = idat_progress_seed(
+        data,
+        state_id=3,
+        usable_scanlines=4,
+        decompressed_size=420,
+        kind="line-gain",
+    )
+    calls = []
+    runtime = SimpleNamespace(
+        side_notes=[],
+        candy=lambda *args, **_kwargs: calls.append(args),
+    )
+
+    fixit_felix_runtime._GroundHogDay_emit_scanline_recovery_update(
+        runtime,
+        (old_seed,),
+        (same_line_seed,),
+        "local deflate",
+    )
+    assert calls == []
+    assert runtime.side_notes == []
+
+    fixit_felix_runtime._GroundHogDay_emit_scanline_recovery_update(
+        runtime,
+        (old_seed,),
+        (new_seed,),
+        "local deflate",
+    )
+
+    assert calls == [
+        (
+            "Cowsay",
+            "GroundHogDay local deflate recovered more scanlines: usable 4/10 (was 2/10), complete rows 4/10 (was 2/10).",
+            "good",
+        )
+    ]
+    assert runtime.side_notes == [
+        "-IDAT GroundHogDay scanline gain via local deflate: usable 2->4/10; complete 2->4/10."
+    ]
+
+
 def test_GroundHogDay_linefeed_route_promotes_insert_candidate(monkeypatch):
     data = valid_png_bytes()
     initial = idat_progress_seed(

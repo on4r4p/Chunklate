@@ -7182,6 +7182,64 @@ def _GroundHogDay_idat_seed_candidates_make_progress(
     return new_score == old_score and new_best.data != old_best.data
 
 
+def _GroundHogDay_seed_scanline_counts(
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+) -> tuple[int, int, int]:
+    best = _GroundHogDay_idat_seed_best(seed_candidates)
+    after = getattr(best, "after", None)
+    if after is None:
+        return 0, 0, 0
+    return (
+        int(getattr(after, "usable_scanlines", 0) or 0),
+        int(getattr(after, "complete_scanlines", 0) or 0),
+        int(getattr(after, "height", 0) or 0),
+    )
+
+
+def _GroundHogDay_emit_scanline_recovery_update(
+    runtime: Any,
+    old_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    new_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    route_label: str,
+) -> None:
+    old_usable, old_complete, old_height = _GroundHogDay_seed_scanline_counts(old_seeds)
+    new_usable, new_complete, new_height = _GroundHogDay_seed_scanline_counts(new_seeds)
+    if new_usable <= old_usable and new_complete <= old_complete:
+        return
+    height = max(old_height, new_height)
+    runtime.side_notes.append(
+        "-IDAT GroundHogDay scanline gain via %s: usable %s->%s/%s; complete %s->%s/%s."
+        % (
+            route_label,
+            old_usable,
+            new_usable,
+            height,
+            old_complete,
+            new_complete,
+            height,
+        )
+    )
+    runtime.candy(
+        "Cowsay",
+        (
+            "GroundHogDay %s recovered more scanlines: usable %s/%s "
+            "(was %s/%s), complete rows %s/%s (was %s/%s)."
+        )
+        % (
+            route_label,
+            new_usable,
+            height,
+            old_usable,
+            height,
+            new_complete,
+            height,
+            old_complete,
+            height,
+        ),
+        "good",
+    )
+
+
 def _GroundHogDay_seed_has_unusable_complete_rows(
     seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
 ) -> bool:
@@ -7257,7 +7315,9 @@ def _GroundHogDay_run_idat_prefinal_alternating_repair_runtime(
         if local_result is not None:
             return local_result, local_seeds
         if _GroundHogDay_idat_seed_candidates_make_progress(local_seeds, seeds):
-            seeds = _rank_idat_seed_candidates(local_seeds, limit=seed_limit)
+            new_seeds = _rank_idat_seed_candidates(local_seeds, limit=seed_limit)
+            _GroundHogDay_emit_scanline_recovery_update(runtime, seeds, new_seeds, "local deflate")
+            seeds = new_seeds
             progressed_seeds = seeds
             cycle_changed = True
             _GroundHogDay_write_resume_state(runtime, data, seeds)
@@ -7287,7 +7347,9 @@ def _GroundHogDay_run_idat_prefinal_alternating_repair_runtime(
         if row_result is not None:
             return row_result, row_seeds
         if _GroundHogDay_idat_seed_candidates_make_progress(row_seeds, seeds):
-            seeds = _rank_idat_seed_candidates(row_seeds, limit=seed_limit)
+            new_seeds = _rank_idat_seed_candidates(row_seeds, limit=seed_limit)
+            _GroundHogDay_emit_scanline_recovery_update(runtime, seeds, new_seeds, "row-filter repair")
+            seeds = new_seeds
             progressed_seeds = seeds
             cycle_changed = True
             _GroundHogDay_write_resume_state(runtime, data, seeds)
@@ -7309,7 +7371,9 @@ def _GroundHogDay_run_idat_prefinal_alternating_repair_runtime(
             if local_after_row_result is not None:
                 return local_after_row_result, local_after_row_seeds
             if _GroundHogDay_idat_seed_candidates_make_progress(local_after_row_seeds, seeds):
-                seeds = _rank_idat_seed_candidates(local_after_row_seeds, limit=seed_limit)
+                new_seeds = _rank_idat_seed_candidates(local_after_row_seeds, limit=seed_limit)
+                _GroundHogDay_emit_scanline_recovery_update(runtime, seeds, new_seeds, "local-after-row deflate")
+                seeds = new_seeds
                 progressed_seeds = seeds
                 _GroundHogDay_write_resume_state(runtime, data, seeds)
                 runtime.side_notes.append(
@@ -7412,6 +7476,7 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
         if filter_result is not None:
             return filter_result, filter_seeds, False
         if _GroundHogDay_idat_seed_candidates_make_progress(filter_seeds, seeds):
+            _GroundHogDay_emit_scanline_recovery_update(runtime, seeds, filter_seeds, "filter alignment")
             seeds = filter_seeds
             progressed_seeds = filter_seeds
             batch_progressed = filter_seeds
@@ -7429,6 +7494,12 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
                 row_filter_after_filter_seeds,
                 seeds,
             ):
+                _GroundHogDay_emit_scanline_recovery_update(
+                    runtime,
+                    seeds,
+                    row_filter_after_filter_seeds,
+                    "row-filter-after-alignment repair",
+                )
                 seeds = row_filter_after_filter_seeds
                 progressed_seeds = row_filter_after_filter_seeds
                 batch_progressed = row_filter_after_filter_seeds
@@ -7443,6 +7514,7 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
         if linefeed_result is not None:
             return linefeed_result, linefeed_seeds, False
         if _GroundHogDay_idat_seed_candidates_make_progress(linefeed_seeds, seeds):
+            _GroundHogDay_emit_scanline_recovery_update(runtime, seeds, linefeed_seeds, "linefeed repair")
             seeds = linefeed_seeds
             progressed_seeds = linefeed_seeds
             batch_progressed = linefeed_seeds
@@ -7467,6 +7539,7 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
         if stored_result is not None:
             return stored_result, stored_seeds, False
         if _GroundHogDay_idat_seed_candidates_make_progress(stored_seeds, seeds):
+            _GroundHogDay_emit_scanline_recovery_update(runtime, seeds, stored_seeds, "stored-block repair")
             seeds = stored_seeds
             progressed_seeds = stored_seeds
             batch_progressed = stored_seeds
@@ -7484,6 +7557,12 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
                 row_filter_after_stored_seeds,
                 seeds,
             ):
+                _GroundHogDay_emit_scanline_recovery_update(
+                    runtime,
+                    seeds,
+                    row_filter_after_stored_seeds,
+                    "row-filter-after-stored repair",
+                )
                 seeds = row_filter_after_stored_seeds
                 progressed_seeds = row_filter_after_stored_seeds
                 batch_progressed = row_filter_after_stored_seeds
