@@ -3641,12 +3641,12 @@ def test_runtime_idat_queue_progress_pads_counter_to_budget_width():
     progress("kraft-backref", 123, 250000)
     progress("phase2-lf-insert", 298, 298)
 
-    assert calls == [
-        "IDAT deep-beam 00208670/50000000",
-        "IDAT huffman-kraft 0548314/1000000",
-        "IDAT kraft-backref 000123/250000",
-        "IDAT phase2-lf-insert 298/298",
-    ]
+    assert calls
+    assert calls[0].startswith("IDAT deep-beam 00208670/50000000 eta=")
+    assert calls[1].startswith("IDAT huffman-kraft 0548314/1000000 eta=")
+    assert calls[2].startswith("IDAT kraft-backref 000123/250000 eta=")
+    assert calls[3].startswith("IDAT phase2-lf-insert 298/298 eta=")
+    assert all(" rate=" in call for call in calls)
 
 
 def test_hermesprobe_prompts_deep_beam_workers_and_gpu_when_unconfigured(monkeypatch):
@@ -6500,7 +6500,7 @@ def test_GroundHogDay_visual_guard_prompt_can_allow_noisy_structure():
     assert any("GroundHogDay visual guard:" in call[1] for call in calls)
 
 
-def test_GroundHogDay_visual_guard_rejects_noisy_linefeed_after_cleanup(monkeypatch):
+def test_GroundHogDay_visual_guard_rejects_noisy_linefeed_after_cleanup(monkeypatch, tmp_path):
     previous = idat_deep_beam_seed(smooth_gray_png(), state_id=11, kind="groundhogday-seed")
     noisy = idat_deep_beam_seed(noisy_gray_png(), state_id=12, kind="groundhogday-linefeed")
     cleanup_calls = []
@@ -6526,7 +6526,7 @@ def test_GroundHogDay_visual_guard_rejects_noisy_linefeed_after_cleanup(monkeypa
     candy_calls = []
     runtime = SimpleNamespace(
         file_origin="Flag.png",
-        file_dir="",
+        file_dir=str(tmp_path),
         side_notes=[],
         candy=lambda *args, **_kwargs: candy_calls.append(args),
         seed_local_continuation_limit=1,
@@ -6562,6 +6562,226 @@ def test_GroundHogDay_mini_ultimate_progress_label():
     assert messages
     assert "MiniUltimateMegaSuperLineFeedBruteForce" in messages[0]
     assert "IDAT UltimateMegaSuperLineFeedBruteForce" not in messages[0]
+
+
+def test_GroundHogDay_resume_uses_seed_pool_limit(monkeypatch):
+    data = bytes.fromhex(one_byte_corrupt_deflate_png_hex())
+    analysis = idat.analyze_idat_stream(data)
+    seed_a = idat_progress_seed(
+        data,
+        state_id=57,
+        usable_scanlines=4,
+        decompressed_size=100,
+        kind="groundhogday-best",
+    )
+    seed_b = idat_progress_seed(
+        data,
+        state_id=36,
+        usable_scanlines=3,
+        decompressed_size=90,
+        kind="groundhogday-side-branch",
+    )
+    calls = []
+
+    def fake_artifact_loader(_runtime, _data, _analysis, *, limit):
+        calls.append(limit)
+        return (seed_a, seed_b)
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_load_idat_artifact_seed_candidates",
+        fake_artifact_loader,
+    )
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir="",
+        side_notes=[],
+        seed_local_continuation_limit=1,
+        groundhogday_seed_pool_limit=7,
+    )
+
+    seeds = fixit_felix_runtime._GroundHogDay_resume_seed_candidates(
+        runtime,
+        data,
+        analysis,
+    )
+
+    assert calls == [7]
+    assert {seed.state_id for seed in seeds} == {57, 36}
+
+
+def test_GroundHogDay_mini_ultimate_auto_budget_keeps_route_open(tmp_path, monkeypatch):
+    data = bytes.fromhex(one_byte_corrupt_deflate_png_hex())
+    seed = idat_progress_seed(
+        data,
+        state_id=36,
+        usable_scanlines=3,
+        decompressed_size=90,
+        kind="groundhogday-linefeed",
+    )
+    progress_path = tmp_path / "Flag_groundhogday_ultimate_linefeed.progress.json"
+    progress_path.write_text("{}\n", encoding="utf-8")
+    calls = []
+    side_notes = []
+    progress = idat_bruteforce.UltimateLinefeedProgress(
+        path=str(progress_path),
+        source_hash="seed",
+        target_adler=None,
+        start_offset=12,
+        max_depth=2,
+        max_offsets=256,
+        operation_pool_hash="pool",
+        focused_operation_pool_hash="focused",
+        broad_operation_pool_hash="broad",
+        phase="complete",
+        depth=2,
+        pool_index=0,
+        combination_rank=0,
+        combination_indices=None,
+        tested_candidates=50_000,
+        pruned_candidates=0,
+        state_count=50_001,
+        budget=50_000,
+        timestamp=0.0,
+        attempted_candidates=50_000,
+    )
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_idat_groundhogday_ultimate_linefeed_paths",
+        lambda _runtime: ("", str(progress_path)),
+    )
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "load_ultimate_progress_for_source",
+        lambda *_args, **_kwargs: (progress, ""),
+    )
+    runtime = SimpleNamespace(
+        side_notes=side_notes,
+        candy=lambda *args, **kwargs: calls.append((args, kwargs)),
+        seed_local_continuation_limit=1,
+        groundhogday_seed_pool_limit=4,
+        ultimate_linefeed_budget=None,
+        ultimate_linefeed_unbounded=False,
+        ultimate_linefeed_max_depth=None,
+        ultimate_linefeed_max_offsets=None,
+    )
+
+    open_route = fixit_felix_runtime._GroundHogDay_ultimate_linefeed_route_open(
+        runtime,
+        (seed,),
+    )
+
+    assert open_route is True
+    assert any("next budget=100000" in note for note in side_notes)
+    assert any("attempted=50000; budget=100000" in note for note in side_notes)
+    assert any("raising that checkpointed budget to 100000" in call[0][1] for call in calls)
+
+
+def test_GroundHogDay_mini_ultimate_prioritizes_matching_resume_seed(tmp_path, monkeypatch):
+    data = bytes.fromhex(one_byte_corrupt_deflate_png_hex())
+    analysis = idat.analyze_idat_stream(data)
+    best_seed = idat_progress_seed(
+        data,
+        state_id=57,
+        usable_scanlines=47,
+        decompressed_size=771658,
+        kind="groundhogday-best",
+    )
+    resume_seed = idat_progress_seed(
+        data,
+        state_id=36,
+        usable_scanlines=47,
+        decompressed_size=757362,
+        kind="groundhogday-linefeed-resume",
+    )
+    progress_path = tmp_path / "Flag_groundhogday_ultimate_linefeed.progress.json"
+    progress_path.write_text("{}\n", encoding="utf-8")
+    progress = idat_bruteforce.UltimateLinefeedProgress(
+        path=str(progress_path),
+        source_hash="resume-seed",
+        target_adler=None,
+        start_offset=12,
+        max_depth=2,
+        max_offsets=256,
+        operation_pool_hash="pool",
+        focused_operation_pool_hash="focused",
+        broad_operation_pool_hash="broad",
+        phase="complete",
+        depth=2,
+        pool_index=0,
+        combination_rank=0,
+        combination_indices=None,
+        tested_candidates=50_000,
+        pruned_candidates=0,
+        state_count=50_001,
+        budget=50_000,
+        timestamp=0.0,
+        attempted_candidates=50_000,
+    )
+    probed: list[bytes] = []
+    side_notes: list[str] = []
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_idat_groundhogday_ultimate_linefeed_paths",
+        lambda _runtime: (str(tmp_path / "Flag_groundhogday_ultimate_linefeed.checkpoint.jsonl"), str(progress_path)),
+    )
+
+    def fake_load(progress_data, *_args, **_kwargs):
+        if progress_data == resume_seed.data:
+            return progress, ""
+        return None, "source_hash mismatch"
+
+    def fake_probe(probe_data, **kwargs):
+        probed.append(probe_data)
+        before = resume_seed.after if probe_data == resume_seed.data else best_seed.after
+        return idat_bruteforce.UltimateLinefeedProbeResult(
+            before=before,
+            best=None,
+            target_adler=None,
+            start_offset=kwargs.get("start_offset"),
+            reached_depth=0,
+            max_depth=kwargs["max_depth"],
+            suspect_offsets=(),
+            tested_candidates=0,
+            state_count=0,
+            visited_count=0,
+            pruned_candidates=0,
+            resumed_states=0,
+            checkpoint_path=kwargs.get("checkpoint_path", ""),
+            budget_exhausted=False,
+            progress_path=kwargs.get("progress_path", ""),
+            reason="mocked",
+        )
+
+    monkeypatch.setattr(idat_bruteforce, "load_ultimate_progress_for_source", fake_load)
+    monkeypatch.setattr(idat_bruteforce, "probe_ultimate_mega_super_linefeed_bruteforce", fake_probe)
+    runtime = SimpleNamespace(
+        side_notes=side_notes,
+        candy=lambda *_args, **_kwargs: None,
+        seed_local_continuation_limit=1,
+        groundhogday_seed_pool_limit=4,
+        ultimate_linefeed_budget=None,
+        ultimate_linefeed_unbounded=False,
+        ultimate_linefeed_workers=None,
+        ultimate_linefeed_max_depth=None,
+        ultimate_linefeed_max_offsets=None,
+        file_origin="Flag.png",
+    )
+
+    _result, seeds, _next_state = fixit_felix_runtime._run_idat_groundhogday_ultimate_linefeed_runtime(
+        runtime,
+        data,
+        analysis,
+        (best_seed, resume_seed),
+        next_state_id=58,
+        original_idat_count=1,
+    )
+
+    assert seeds == ()
+    assert probed == [resume_seed.data]
+    assert any("resume priority: 1 seed" in note for note in side_notes)
 
 
 def test_GroundHogDay_linefeed_route_promotes_insert_candidate(monkeypatch):
@@ -6894,8 +7114,7 @@ def test_GroundHogDay_seed_routes_checkpoint_progress_then_stop_on_plateau(monke
     assert any("checkpoint interval reached after batch 1" in note for note in runtime.side_notes)
     assert any("stopped after batch 2: no stronger seed" in note for note in runtime.side_notes)
     assert any("plateau checkpoint saved" in note for note in runtime.side_notes)
-    assert any("last-resort handoff" in note for note in runtime.side_notes)
-    assert not any("deferred" in note for note in runtime.side_notes)
+    assert any("true plateau" in note for note in runtime.side_notes)
     resume_path = tmp_path / "Folder_Flag" / "Debug_Payloads" / "Flag_groundhogday.resume.json"
     assert resume_path.is_file()
     assert json.loads(resume_path.read_text(encoding="utf-8"))["best"]["state_id"] == 2
@@ -6996,7 +7215,7 @@ def test_GroundHogDay_seed_routes_handoff_to_final_after_batch_plateau(monkeypat
     assert any("checkpoint interval reached after batch 1" in note for note in runtime.side_notes)
     assert any("checkpoint interval reached after batch 2" in note for note in runtime.side_notes)
     assert any("stopped after batch 3: no stronger seed" in note for note in runtime.side_notes)
-    assert any("last-resort handoff" in note for note in runtime.side_notes)
+    assert any("true plateau" in note for note in runtime.side_notes)
     assert any(
         call[0] == "Cowsay" and "continuing batch 2" in call[1]
         for call in candy_calls
@@ -7007,6 +7226,92 @@ def test_GroundHogDay_seed_routes_handoff_to_final_after_batch_plateau(monkeypat
     )
     assert any(
         call[0] == "Cowsay" and "last-resort handoff" in call[1]
+        for call in candy_calls
+    )
+
+
+def test_GroundHogDay_seed_routes_continue_while_checkpointed_route_is_open(monkeypatch):
+    data = valid_png_bytes()
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=10,
+        expected_size=1000,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    initial = idat_progress_seed(
+        data,
+        state_id=1,
+        usable_scanlines=0,
+        decompressed_size=100,
+        kind="initial",
+    )
+    calls = []
+
+    def fake_alternating(_runtime, _data, _analysis, seed_candidates=(), _title_counter=None):
+        calls.append(("alternating", tuple(seed.state_id for seed in seed_candidates)))
+        return None, ()
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_GroundHogDay_run_idat_prefinal_alternating_repair_runtime",
+        fake_alternating,
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_filter_alignment_runtime",
+        lambda *_args, **_kwargs: (None, ()),
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_filter_seed_stored_block_runtime",
+        lambda *_args, **_kwargs: (None, ()),
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_run_idat_groundhogday_linefeed_runtime",
+        lambda *_args, **_kwargs: (None, ()),
+    )
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_GroundHogDay_open_route_reasons",
+        lambda *_args, **_kwargs: ("MiniUltimate linefeed checkpoint",),
+    )
+    candy_calls = []
+    runtime = SimpleNamespace(
+        side_notes=[],
+        candy=lambda *args, **_kwargs: candy_calls.append(args),
+        prefinal_repair_batches=2,
+        prefinal_repair_cycles=1,
+        deep_beam_prompt_cache={},
+    )
+
+    result, seeds, deferred = fixit_felix_runtime._GroundHogDay_run_idat_prefinal_seed_routes_runtime(
+        runtime,
+        data,
+        analysis,
+        (initial,),
+    )
+
+    assert result is None
+    assert seeds == (initial,)
+    assert deferred is True
+    assert calls == [
+        ("alternating", (1,)),
+        ("alternating", (1,)),
+        ("alternating", (1,)),
+    ]
+    assert any("route(s) remain open" in note for note in runtime.side_notes)
+    assert any("paused with open route" in note for note in runtime.side_notes)
+    assert any(
+        call[0] == "Cowsay" and "continuing instead of handing off" in call[1]
+        for call in candy_calls
+    )
+    assert any(
+        call[0] == "Cowsay" and "leaving the checkpoint active" in call[1]
         for call in candy_calls
     )
 
@@ -7416,6 +7721,43 @@ def test_GroundHogDay_resume_next_day_infers_from_debug_payloads(tmp_path):
     )
 
 
+def test_GroundHogDay_resume_next_day_infers_from_debug_payloads_when_resume_source_is_stale(tmp_path):
+    data = valid_png_bytes()
+    payload_folder = tmp_path / "Folder_Flag" / "Debug_Payloads"
+    payload_folder.mkdir(parents=True)
+    resume_path = payload_folder / "Flag_groundhogday.resume.json"
+    resume_path.write_text(
+        json.dumps(
+            {
+                "route": "GroundHogDay",
+                "version": 1,
+                "source_hash": "stale-source",
+                "next_day": 1,
+                "seed_count": 1,
+                "best": {},
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    for index in range(8):
+        (payload_folder / ("Flag_groundhogday_seed_state%s_deadbeef.png" % index)).write_bytes(
+            b""
+        )
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        side_notes=[],
+    )
+
+    assert fixit_felix_runtime._GroundHogDay_resume_next_day(runtime, data) == 9
+    assert any(
+        "despite missing/stale resume source marker" in note and "next_day=9" in note
+        for note in runtime.side_notes
+    )
+
+
 def test_GroundHogDay_resume_next_day_raises_stale_saved_counter(tmp_path):
     data = valid_png_bytes()
     payload_folder = tmp_path / "Folder_Flag" / "Debug_Payloads"
@@ -7610,6 +7952,33 @@ def test_final_investigation_paths_reuse_existing_repair_folder_for_debug_artifa
     assert not [path for path in tmp_path.iterdir() if path.name.startswith("Folder_Flag_idat_")]
 
 
+def test_artifact_seed_candidate_rejects_incompatible_png_geometry(tmp_path):
+    artifact = tmp_path / "Flag_groundhogday_seed_state12_deadbeef.png"
+    artifact.write_bytes(smooth_gray_png(width=32, height=16))
+    before = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        width=640,
+        height=850,
+        bit_depth=8,
+        color_type=0,
+        expected_size=640 * 850 + 850,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=110,
+    )
+
+    candidate = fixit_felix_runtime._artifact_idat_seed_candidate(
+        artifact,
+        before,
+        original_idat_count=25,
+        state_id=12,
+    )
+
+    assert candidate is None
+
+
 def test_final_investigation_paths_normalize_misnamed_fixed_clone_folder(tmp_path):
     payload = tmp_path / "Folder_Flag.3_Fixed" / "Debug_Payloads"
     payload.mkdir(parents=True)
@@ -7723,6 +8092,12 @@ def test_final_investigation_uses_workers_gpu_checkpoint_and_minibar_eta(tmp_pat
     assert "IDAT %s" % fixit_felix_runtime.FINAL_INVESTIGATION_LABEL in minibar_calls[0][2]["Indication"]
     assert "eta=" in minibar_calls[0][2]["Indication"]
     assert any("route left open" in note for note in side_notes)
+
+
+def test_final_investigation_eta_formats_days_hours_minutes_seconds():
+    assert fixit_felix_runtime._format_eta_seconds(None) == "--j --h --m --s"
+    assert fixit_felix_runtime._format_eta_seconds(5) == "0j 00h 00m 05s"
+    assert fixit_felix_runtime._format_eta_seconds(90061) == "1j 01h 01m 01s"
 
 
 def test_final_investigation_hands_partial_candidates_back_to_groundhogday(tmp_path, monkeypatch):

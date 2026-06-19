@@ -176,6 +176,7 @@ class WrongCrcRuntime:
     seed_local_continuation_limit: Any = None
     seed_local_continuation_budget: Any = None
     seed_local_continuation_rounds: Any = None
+    groundhogday_seed_pool_limit: Any = None
     prefinal_repair_cycles: Any = None
     prefinal_repair_batches: Any = None
     ultimate_linefeed_budget: Any = None
@@ -236,6 +237,7 @@ class WrongChunkNameRuntime:
     seed_local_continuation_limit: Any = None
     seed_local_continuation_budget: Any = None
     seed_local_continuation_rounds: Any = None
+    groundhogday_seed_pool_limit: Any = None
     prefinal_repair_cycles: Any = None
     prefinal_repair_batches: Any = None
     ultimate_linefeed_budget: Any = None
@@ -313,6 +315,7 @@ class NoNextChunkRuntime:
     seed_local_continuation_limit: Any = None
     seed_local_continuation_budget: Any = None
     seed_local_continuation_rounds: Any = None
+    groundhogday_seed_pool_limit: Any = None
     prefinal_repair_cycles: Any = None
     prefinal_repair_batches: Any = None
     ultimate_linefeed_budget: Any = None
@@ -421,6 +424,7 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         seed_local_continuation_limit=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_LIMIT"),
         seed_local_continuation_budget=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_BUDGET"),
         seed_local_continuation_rounds=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_ROUNDS"),
+        groundhogday_seed_pool_limit=namespace.get("IDAT_GROUNDHOGDAY_SEED_POOL_LIMIT"),
         prefinal_repair_cycles=namespace.get("IDAT_PREFINAL_REPAIR_CYCLES"),
         prefinal_repair_batches=namespace.get("IDAT_PREFINAL_REPAIR_BATCHES"),
         ultimate_linefeed_budget=namespace.get("ULTIMATE_LINEFEED_BUDGET"),
@@ -522,6 +526,7 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         seed_local_continuation_limit=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_LIMIT"),
         seed_local_continuation_budget=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_BUDGET"),
         seed_local_continuation_rounds=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_ROUNDS"),
+        groundhogday_seed_pool_limit=namespace.get("IDAT_GROUNDHOGDAY_SEED_POOL_LIMIT"),
         prefinal_repair_cycles=namespace.get("IDAT_PREFINAL_REPAIR_CYCLES"),
         prefinal_repair_batches=namespace.get("IDAT_PREFINAL_REPAIR_BATCHES"),
         ultimate_linefeed_budget=namespace.get("ULTIMATE_LINEFEED_BUDGET"),
@@ -600,6 +605,7 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         seed_local_continuation_limit=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_LIMIT"),
         seed_local_continuation_budget=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_BUDGET"),
         seed_local_continuation_rounds=namespace.get("IDAT_SEED_LOCAL_CONTINUATION_ROUNDS"),
+        groundhogday_seed_pool_limit=namespace.get("IDAT_GROUNDHOGDAY_SEED_POOL_LIMIT"),
         prefinal_repair_cycles=namespace.get("IDAT_PREFINAL_REPAIR_CYCLES"),
         prefinal_repair_batches=namespace.get("IDAT_PREFINAL_REPAIR_BATCHES"),
         ultimate_linefeed_budget=namespace.get("ULTIMATE_LINEFEED_BUDGET"),
@@ -2960,9 +2966,22 @@ def _runtime_idat_queue_progress(runtime: Any):
     minibar = getattr(runtime, "minibar", None)
     if minibar is None:
         return None
+    started = time.monotonic()
 
     def progress(stage: str, tested: int, budget: int) -> None:
-        minibar("IDAT %s %s" % (stage, _format_idat_queue_progress_counter(stage, tested, budget)))
+        elapsed = max(0.001, time.monotonic() - started)
+        rate = float(tested) / elapsed if tested > 0 else 0.0
+        remaining = max(0, int(budget) - int(tested))
+        eta = (float(remaining) / rate) if rate > 0 else None
+        minibar(
+            "IDAT %s %s eta=%s rate=%.1f/s"
+            % (
+                stage,
+                _format_idat_queue_progress_counter(stage, tested, budget),
+                _format_eta_seconds(eta),
+                rate,
+            )
+        )
 
     return progress
 
@@ -3513,6 +3532,13 @@ def _runtime_groundhogday_ultimate_linefeed_budget(runtime: Any) -> int | None:
     )
 
 
+def _runtime_groundhogday_ultimate_linefeed_budget_explicit(runtime: Any) -> bool:
+    if bool(getattr(runtime, "ultimate_linefeed_unbounded", False)):
+        return True
+    value = getattr(runtime, "ultimate_linefeed_budget", None)
+    return value is not None and str(value).strip() != ""
+
+
 def _runtime_groundhogday_ultimate_linefeed_configured(runtime: Any) -> bool:
     for name in (
         "ultimate_linefeed_budget",
@@ -3546,6 +3572,16 @@ def _runtime_groundhogday_ultimate_linefeed_workers(runtime: Any) -> int:
     if value is None or str(value).strip() == "":
         return 0
     return idat_bruteforce._deep_beam_workers(_deep_beam_workers_from_profile(value))
+
+
+def _runtime_groundhogday_seed_pool_limit(runtime: Any) -> int:
+    return max(
+        _runtime_seed_local_continuation_limit(runtime),
+        _deep_beam_positive_int(
+            getattr(runtime, "groundhogday_seed_pool_limit", None),
+            IDAT_GROUNDHOGDAY_SEED_POOL_LIMIT,
+        ),
+    )
 
 
 def _GroundHogDay_runtime_repair_cycles(runtime: Any) -> int:
@@ -3695,7 +3731,9 @@ IDAT_SEED_LOCAL_CONTINUATION_BUDGET = 2048
 IDAT_SEED_LOCAL_CONTINUATION_ROUNDS = 16
 IDAT_PREFINAL_REPAIR_CYCLES = 16
 IDAT_PREFINAL_REPAIR_BATCHES = 4
+IDAT_GROUNDHOGDAY_SEED_POOL_LIMIT = 32
 IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_DEFAULT_BUDGET = 50_000
+IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_AUTO_BUDGET_CAP = 2_000_000
 IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH = 2
 IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS = 256
 IDAT_GROUNDHOGDAY_MINI_ULTIMATE_LINEFEED_LABEL = "MiniUltimateMegaSuperLineFeedBruteForce"
@@ -3934,36 +3972,58 @@ def _coerce_groundhogday_visual_guard_profile(value: Any) -> str:
     return aliases.get(text, GROUNDHOGDAY_VISUAL_GUARD_DEFAULT)
 
 
+def _GroundHogDay_visual_guard_menu() -> str:
+    return "\n".join(
+        (
+            "GroundHogDay visual guard:",
+            "balanced. Prefer coherent scanline recovery, but allow some noisy real images.",
+            "structure. Treat random/noisy captures as plausible; score structure and palette only.",
+            "strict. Penalize line jumps, high entropy, odd repetition, and color incoherence hard.",
+            "off. Do not use the visual guard.",
+        )
+    )
+
+
 def _GroundHogDay_visual_guard_profile(runtime: Any) -> str:
     cache = getattr(runtime, "deep_beam_prompt_cache", None)
     if isinstance(cache, dict) and "groundhogday_visual_guard" in cache:
         return _coerce_groundhogday_visual_guard_profile(cache["groundhogday_visual_guard"])
 
     configured = getattr(runtime, "groundhogday_visual_guard", None)
+    configured_text = str(configured or "").strip().lower()
+    input_func = getattr(runtime, "input_func", None)
+    force_prompt = configured_text in {"ask", "prompt", "choose", "choice"}
     if configured is not None and str(configured).strip() != "":
-        profile = _coerce_groundhogday_visual_guard_profile(configured)
+        profile = (
+            GROUNDHOGDAY_VISUAL_GUARD_DEFAULT
+            if force_prompt
+            else _coerce_groundhogday_visual_guard_profile(configured)
+        )
     else:
         profile = GROUNDHOGDAY_VISUAL_GUARD_DEFAULT
-        input_func = getattr(runtime, "input_func", None)
-        if getattr(runtime, "interactive", False) and input_func is not None:
-            runtime.candy(
-                "Cowsay",
-                "\n".join(
-                    (
-                        "GroundHogDay visual guard:",
-                        "balanced. Prefer coherent scanline recovery, but allow some noisy real images.",
-                        "structure. Treat random/noisy captures as plausible; score structure and palette only.",
-                        "strict. Penalize line jumps, high entropy, odd repetition, and color incoherence hard.",
-                        "off. Do not use the visual guard.",
-                    )
-                ),
-                "com",
-            )
+
+    if configured is None or str(configured).strip() == "" or force_prompt:
+        runtime.candy("Cowsay", _GroundHogDay_visual_guard_menu(), "com")
+        if (getattr(runtime, "interactive", False) or force_prompt) and input_func is not None:
             try:
                 answer = str(input_func("GroundHogDay visual profile [balanced] > ")).strip()
             except EOFError:
                 answer = ""
             profile = _coerce_groundhogday_visual_guard_profile(answer)
+        else:
+            runtime.candy(
+                "Cowsay",
+                "No interactive visual-guard choice is available in this run, so I am using %s. Set IDAT_GROUNDHOGDAY_VISUAL_GUARD=balanced, structure, strict, off, or ask to change it."
+                % profile,
+                "com",
+            )
+    else:
+        runtime.candy(
+            "Cowsay",
+            "GroundHogDay visual guard profile is configured as %s."
+            % profile,
+            "com",
+        )
 
     if isinstance(cache, dict):
         cache["groundhogday_visual_guard"] = profile
@@ -4281,13 +4341,12 @@ def _write_complete_idat_candidate_clone(
 
 def _format_eta_seconds(seconds: float | None) -> str:
     if seconds is None or seconds < 0:
-        return "--:--:--"
+        return "--j --h --m --s"
     total = int(seconds)
-    hours, remainder = divmod(total, 3600)
+    days, remainder = divmod(total, 86400)
+    hours, remainder = divmod(remainder, 3600)
     minutes, secs = divmod(remainder, 60)
-    if hours > 99:
-        return "%sd %02d:%02d:%02d" % (hours // 24, hours % 24, minutes, secs)
-    return "%02d:%02d:%02d" % (hours, minutes, secs)
+    return "%sj %02dh %02dm %02ds" % (days, hours, minutes, secs)
 
 
 def _runtime_idat_final_investigation_progress(runtime: Any):
@@ -4382,6 +4441,7 @@ def _final_investigation_artifact_paths(runtime: Any) -> tuple[Path, ...]:
     patterns = (
         "%s_idat_*_rank*.png" % stem,
         "%s_groundhogday_seed_state*.png" % stem,
+        "%s_groundhogday_state*_linefeed_chain_round*.png" % stem,
     )
     paths: list[Path] = []
     seen: set[Path] = set()
@@ -4420,6 +4480,12 @@ def _artifact_idat_seed_candidate(
     if not stream:
         return None
     after = idat.analyze_idat_stream(artifact_data)
+    if before.supported and after.supported:
+        for name in ("width", "height", "bit_depth", "color_type", "expected_size"):
+            before_value = int(getattr(before, name, 0) or 0)
+            after_value = int(getattr(after, name, 0) or 0)
+            if before_value > 0 and after_value > 0 and before_value != after_value:
+                return None
     operation = idat_bruteforce.IdatDeepBeamOperation(
         "shadow-finder-artifact-seed",
         0,
@@ -6918,9 +6984,15 @@ def _GroundHogDay_resume_next_day(
     default: int = 1,
 ) -> int:
     state = _GroundHogDay_read_resume_state(runtime)
-    if not _GroundHogDay_source_marker_matches(state, data):
-        return _GroundHogDay_day_index(default)
     inferred, inferred_details = _GroundHogDay_inferred_next_day_from_debug_payloads(runtime)
+    if not _GroundHogDay_source_marker_matches(state, data):
+        if inferred > 1:
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay resume day inferred from Debug_Payloads despite missing/stale resume source marker: next_day=%s; %s."
+                % (inferred, inferred_details)
+            )
+            return inferred
+        return _GroundHogDay_day_index(default)
     if "next_day" in state:
         saved = _GroundHogDay_day_index(state.get("next_day"), default=default)
         if inferred > saved:
@@ -7245,7 +7317,8 @@ def _run_idat_groundhogday_ultimate_linefeed_runtime(
     next_state_id: int,
     original_idat_count: int,
 ) -> tuple[tuple[bool, Any] | None, tuple[idat_bruteforce.IdatDeepBeamCandidate, ...], int]:
-    budget = _runtime_groundhogday_ultimate_linefeed_budget(runtime)
+    base_budget = _runtime_groundhogday_ultimate_linefeed_budget(runtime)
+    budget = _GroundHogDay_ultimate_linefeed_auto_budget(runtime, seed_candidates, base_budget)
     if budget == 0:
         runtime.side_notes.append("-IDAT GroundHogDay UltimateLineFeed skipped: budget is disabled.")
         return None, (), next_state_id
@@ -7260,7 +7333,7 @@ def _run_idat_groundhogday_ultimate_linefeed_runtime(
 
     seeds = _rank_idat_seed_candidates(
         seed_candidates,
-        limit=_runtime_seed_local_continuation_limit(runtime),
+        limit=_runtime_groundhogday_seed_pool_limit(runtime),
     )
     if not seeds:
         return None, (), next_state_id
@@ -7269,6 +7342,15 @@ def _run_idat_groundhogday_ultimate_linefeed_runtime(
     max_depth = _runtime_groundhogday_ultimate_linefeed_max_depth(runtime)
     max_offsets = _runtime_groundhogday_ultimate_linefeed_max_offsets(runtime)
     workers = _runtime_groundhogday_ultimate_linefeed_workers(runtime)
+    resume_seeds = _GroundHogDay_ultimate_linefeed_resume_seeds(
+        runtime,
+        seeds,
+        progress_path=progress_path,
+        max_depth=max_depth,
+        max_offsets=max_offsets,
+    )
+    if resume_seeds:
+        seeds = resume_seeds
     runtime.side_notes.append(
         "-IDAT GroundHogDay UltimateLineFeed: seeds=%s; budget=%s; max_depth=%s; max_offsets=%s; workers=%s; checkpoint=%s."
         % (
@@ -7353,7 +7435,7 @@ def _run_idat_groundhogday_ultimate_linefeed_runtime(
 
     top = _rank_idat_seed_candidates(
         tuple(continuations),
-        limit=max(_runtime_seed_local_continuation_limit(runtime), IDAT_DEBUG_ARTIFACT_TOP_LIMIT),
+        limit=max(_runtime_groundhogday_seed_pool_limit(runtime), IDAT_DEBUG_ARTIFACT_TOP_LIMIT),
     )
     if not top:
         runtime.side_notes.append("-IDAT GroundHogDay UltimateLineFeed produced no stronger seed.")
@@ -7412,7 +7494,7 @@ def _GroundHogDay_cleanup_linefeed_seeds_runtime(
         runtime,
         suppress_complete_idat_clone_write=True,
     )
-    seed_limit = _runtime_seed_local_continuation_limit(runtime)
+    seed_limit = _runtime_groundhogday_seed_pool_limit(runtime)
     cleanup_seeds = _rank_idat_seed_candidates(linefeed_seeds, limit=seed_limit)
     runtime.side_notes.append(
         "-IDAT GroundHogDay linefeed cleanup: starting from structural-only seed(s), best %s."
@@ -7420,7 +7502,11 @@ def _GroundHogDay_cleanup_linefeed_seeds_runtime(
     )
 
     row_result, row_seeds = _run_idat_row_filter_literal_repair_runtime(
-        _GroundHogDay_next_title_runtime(cleanup_runtime, title_counter),
+        _GroundHogDay_next_title_runtime(
+            cleanup_runtime,
+            title_counter,
+            seed_local_continuation_limit=seed_limit,
+        ),
         data,
         analysis,
         cleanup_seeds,
@@ -7437,7 +7523,11 @@ def _GroundHogDay_cleanup_linefeed_seeds_runtime(
         cleanup_seeds = _rank_idat_seed_candidates(row_seeds, limit=seed_limit)
 
     filter_result, filter_seeds = _run_idat_filter_alignment_runtime(
-        _GroundHogDay_next_title_runtime(cleanup_runtime, title_counter),
+        _GroundHogDay_next_title_runtime(
+            cleanup_runtime,
+            title_counter,
+            seed_local_continuation_limit=seed_limit,
+        ),
         data,
         analysis,
         cleanup_seeds,
@@ -7510,7 +7600,7 @@ def _GroundHogDay_resume_seed_candidates(
     if status != "ok" or problems:
         return ()
 
-    seed_limit = _runtime_seed_local_continuation_limit(runtime)
+    seed_limit = _runtime_groundhogday_seed_pool_limit(runtime)
     seeds = _load_idat_artifact_seed_candidates(
         runtime,
         data,
@@ -7576,6 +7666,187 @@ def _GroundHogDay_defer_final_investigation_after_local_progress(
         seeds=local_seeds,
     )
     return True
+
+
+def _GroundHogDay_ultimate_linefeed_auto_budget(
+    runtime: Any,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    base_budget: int | None,
+) -> int | None:
+    if base_budget is None or base_budget == 0:
+        return base_budget
+    if _runtime_groundhogday_ultimate_linefeed_budget_explicit(runtime):
+        return base_budget
+    _checkpoint_path, progress_path = _idat_groundhogday_ultimate_linefeed_paths(runtime)
+    if not progress_path or not Path(progress_path).is_file():
+        return base_budget
+    max_depth = _runtime_groundhogday_ultimate_linefeed_max_depth(runtime)
+    max_offsets = _runtime_groundhogday_ultimate_linefeed_max_offsets(runtime)
+    boosted_budget = int(base_budget)
+    first_warning = ""
+    for seed in _rank_idat_seed_candidates(
+        seed_candidates,
+        limit=_runtime_groundhogday_seed_pool_limit(runtime),
+    ):
+        after = getattr(seed, "after", None)
+        progress, warning = idat_bruteforce.load_ultimate_progress_for_source(
+            seed.data,
+            progress_path,
+            start_offset=getattr(after, "error_offset", None),
+            max_depth=max_depth,
+            max_offsets=max_offsets,
+        )
+        if progress is None:
+            if warning and not first_warning:
+                first_warning = warning
+            continue
+        attempted = idat_bruteforce.ultimate_progress_attempted_floor(progress)
+        saved_budget = int(progress.budget or base_budget)
+        if attempted < max(int(base_budget), saved_budget):
+            continue
+        next_budget = min(
+            IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_AUTO_BUDGET_CAP,
+            max(int(base_budget) * 2, saved_budget * 2, attempted * 2),
+        )
+        if next_budget > boosted_budget:
+            boosted_budget = next_budget
+    if first_warning:
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay MiniUltimate budget probe ignored at least one seed: %s."
+            % first_warning
+        )
+    if boosted_budget > int(base_budget):
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay MiniUltimate auto-budget: previous checkpoint reached %s; next budget=%s."
+            % (base_budget, boosted_budget)
+        )
+        runtime.candy(
+            "Cowsay",
+            "MiniUltimate hit its automatic budget, not a real dead end. I am raising that checkpointed budget to %s before handing off."
+            % boosted_budget,
+            "com",
+        )
+    return boosted_budget
+
+
+def _GroundHogDay_ultimate_linefeed_route_open(
+    runtime: Any,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+) -> bool:
+    _checkpoint_path, progress_path = _idat_groundhogday_ultimate_linefeed_paths(runtime)
+    if not progress_path or not Path(progress_path).is_file():
+        return False
+    current_budget = _GroundHogDay_ultimate_linefeed_auto_budget(
+        runtime,
+        seed_candidates,
+        _runtime_groundhogday_ultimate_linefeed_budget(runtime),
+    )
+    max_depth = _runtime_groundhogday_ultimate_linefeed_max_depth(runtime)
+    max_offsets = _runtime_groundhogday_ultimate_linefeed_max_offsets(runtime)
+    first_warning = ""
+    for seed in _rank_idat_seed_candidates(
+        seed_candidates,
+        limit=_runtime_groundhogday_seed_pool_limit(runtime),
+    ):
+        after = getattr(seed, "after", None)
+        progress, warning = idat_bruteforce.load_ultimate_progress_for_source(
+            seed.data,
+            progress_path,
+            start_offset=getattr(after, "error_offset", None),
+            max_depth=max_depth,
+            max_offsets=max_offsets,
+        )
+        if progress is None:
+            if warning and not first_warning:
+                first_warning = warning
+            continue
+        attempted = idat_bruteforce.ultimate_progress_attempted_floor(progress)
+        budget = current_budget if current_budget is not None else progress.budget
+        if current_budget is None or budget is None or attempted < int(budget):
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay MiniUltimate route still open: attempted=%s; budget=%s; progress=%s."
+                % (attempted, "unbounded" if budget is None else budget, Path(progress_path).name)
+            )
+            return True
+    if first_warning:
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay MiniUltimate route progress ignored at least one seed: %s."
+            % first_warning
+        )
+    return False
+
+
+def _GroundHogDay_ultimate_linefeed_resume_seeds(
+    runtime: Any,
+    seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+    *,
+    progress_path: str,
+    max_depth: int,
+    max_offsets: int,
+) -> tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]:
+    if not progress_path or not Path(progress_path).is_file():
+        return ()
+    matching: list[idat_bruteforce.IdatDeepBeamCandidate] = []
+    first_warning = ""
+    for seed in seeds:
+        after = getattr(seed, "after", None)
+        progress, warning = idat_bruteforce.load_ultimate_progress_for_source(
+            seed.data,
+            progress_path,
+            start_offset=getattr(after, "error_offset", None),
+            max_depth=max_depth,
+            max_offsets=max_offsets,
+        )
+        if progress is not None:
+            matching.append(seed)
+        elif warning and not first_warning:
+            first_warning = warning
+    if matching:
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay MiniUltimate resume priority: %s seed(s) match %s; probing them before other seeds to preserve the checkpoint cursor."
+            % (len(matching), Path(progress_path).name)
+        )
+        return tuple(matching)
+    if first_warning:
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay MiniUltimate resume priority found no matching seed: %s."
+            % first_warning
+        )
+    return ()
+
+
+def _GroundHogDay_stored_block_route_open(runtime: Any, data: bytes) -> bool:
+    _checkpoint_path, progress_path = _idat_frontier_paths(runtime, "stored_block_filter_seed")
+    if not progress_path or not Path(progress_path).is_file():
+        return False
+    progress_state = idat_bruteforce.stored_block_progress_state(data, progress_path)
+    if not (progress_state.available and progress_state.source_matches):
+        return False
+    budget = _runtime_stored_block_budget(runtime)
+    if progress_state.exhausted and progress_state.budget >= budget:
+        return False
+    runtime.side_notes.append(
+        "-IDAT GroundHogDay stored-block route still open: tested=%s; budget=%s; exhausted=%s."
+        % (
+            progress_state.tested,
+            progress_state.budget,
+            "yes" if progress_state.exhausted else "no",
+        )
+    )
+    return True
+
+
+def _GroundHogDay_open_route_reasons(
+    runtime: Any,
+    data: bytes,
+    seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
+) -> tuple[str, ...]:
+    reasons: list[str] = []
+    if _GroundHogDay_ultimate_linefeed_route_open(runtime, seed_candidates):
+        reasons.append("MiniUltimate linefeed checkpoint")
+    if _GroundHogDay_stored_block_route_open(runtime, data):
+        reasons.append("stored-block filter-seed checkpoint")
+    return tuple(reasons)
 
 
 class _GroundHogDayTitleRuntime:
@@ -7830,7 +8101,7 @@ def _GroundHogDay_run_idat_prefinal_alternating_repair_runtime(
 ) -> tuple[tuple[bool, Any] | None, tuple[idat_bruteforce.IdatDeepBeamCandidate, ...]]:
     if title_counter is None:
         title_counter = [1]
-    seed_limit = _runtime_seed_local_continuation_limit(runtime)
+    seed_limit = _runtime_groundhogday_seed_pool_limit(runtime)
     cycles = _GroundHogDay_runtime_repair_cycles(runtime)
     seeds = _rank_idat_seed_candidates(seed_candidates, limit=seed_limit)
     if not seeds:
@@ -7876,6 +8147,7 @@ def _GroundHogDay_run_idat_prefinal_alternating_repair_runtime(
                 runtime,
                 title_counter,
                 seed_local_continuation_rounds=1,
+                seed_local_continuation_limit=seed_limit,
             ),
             data,
             analysis,
@@ -7908,7 +8180,11 @@ def _GroundHogDay_run_idat_prefinal_alternating_repair_runtime(
             continue
 
         row_result, row_seeds = _run_idat_row_filter_literal_repair_runtime(
-            _GroundHogDay_next_title_runtime(runtime, title_counter),
+            _GroundHogDay_next_title_runtime(
+                runtime,
+                title_counter,
+                seed_local_continuation_limit=seed_limit,
+            ),
             data,
             analysis,
             seeds,
@@ -7932,6 +8208,7 @@ def _GroundHogDay_run_idat_prefinal_alternating_repair_runtime(
                     runtime,
                     title_counter,
                     seed_local_continuation_rounds=1,
+                    seed_local_continuation_limit=seed_limit,
                 ),
                 data,
                 analysis,
@@ -7993,7 +8270,11 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
     progressed_seeds: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...] = ()
     title_counter = [_GroundHogDay_resume_next_day(runtime, data)]
     configured_batches = _GroundHogDay_runtime_repair_batches(runtime)
+    seed_pool_limit = _runtime_groundhogday_seed_pool_limit(runtime)
     stopped_on_plateau = False
+    structural_only_progress = False
+    open_route_plateaus = 0
+    open_route_reasons_at_stop: tuple[str, ...] = ()
     runtime.side_notes.append(
         "-IDAT GroundHogDay pre-Final campaign: checkpoint interval=%s batch(es); each batch has up to %s cycle(s)."
         % (configured_batches, _GroundHogDay_runtime_repair_cycles(runtime))
@@ -8003,6 +8284,7 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
         "GroundHogDay will not stop just because a cycle batch is spent. If the best seed improves, I checkpoint it and keep going.",
         "com",
     )
+    _GroundHogDay_visual_guard_profile(runtime)
 
     batch_index = 0
     while True:
@@ -8034,10 +8316,15 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
             seeds = alternating_seeds
             progressed_seeds = alternating_seeds
             batch_progressed = alternating_seeds
+            open_route_plateaus = 0
             _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
 
         filter_result, filter_seeds = _run_idat_filter_alignment_runtime(
-            _GroundHogDay_next_title_runtime(runtime, title_counter),
+            _GroundHogDay_next_title_runtime(
+                runtime,
+                title_counter,
+                seed_local_continuation_limit=seed_pool_limit,
+            ),
             data,
             analysis,
             seeds,
@@ -8049,10 +8336,15 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
             seeds = filter_seeds
             progressed_seeds = filter_seeds
             batch_progressed = filter_seeds
+            open_route_plateaus = 0
             _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
 
             row_filter_after_filter_result, row_filter_after_filter_seeds = _run_idat_row_filter_literal_repair_runtime(
-                _GroundHogDay_next_title_runtime(runtime, title_counter),
+                _GroundHogDay_next_title_runtime(
+                    runtime,
+                    title_counter,
+                    seed_local_continuation_limit=seed_pool_limit,
+                ),
                 data,
                 analysis,
                 filter_seeds,
@@ -8072,10 +8364,15 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
                 seeds = row_filter_after_filter_seeds
                 progressed_seeds = row_filter_after_filter_seeds
                 batch_progressed = row_filter_after_filter_seeds
+                open_route_plateaus = 0
                 _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
 
         linefeed_result, linefeed_seeds = _run_idat_groundhogday_linefeed_runtime(
-            _GroundHogDay_next_title_runtime(runtime, title_counter),
+            _GroundHogDay_next_title_runtime(
+                runtime,
+                title_counter,
+                seed_local_continuation_limit=seed_pool_limit,
+            ),
             data,
             analysis,
             seeds,
@@ -8095,6 +8392,7 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
             if guarded_result is not None:
                 return guarded_result, guarded_seeds, False
             if not guarded_seeds:
+                structural_only_progress = True
                 runtime.side_notes.append(
                     "-IDAT GroundHogDay kept previous seed after linefeed structural-only branch failed visual guard."
                 )
@@ -8102,6 +8400,7 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
                 seeds = guarded_seeds
                 progressed_seeds = guarded_seeds
                 batch_progressed = guarded_seeds
+                open_route_plateaus = 0
                 _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
 
                 if _GroundHogDay_seed_has_unusable_complete_rows(seeds):
@@ -8115,7 +8414,11 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
                     )
 
         stored_result, stored_seeds = _run_idat_filter_seed_stored_block_runtime(
-            _GroundHogDay_next_title_runtime(runtime, title_counter),
+            _GroundHogDay_next_title_runtime(
+                runtime,
+                title_counter,
+                seed_local_continuation_limit=seed_pool_limit,
+            ),
             data,
             analysis,
             seeds,
@@ -8127,10 +8430,15 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
             seeds = stored_seeds
             progressed_seeds = stored_seeds
             batch_progressed = stored_seeds
+            open_route_plateaus = 0
             _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
 
             row_filter_after_stored_result, row_filter_after_stored_seeds = _run_idat_row_filter_literal_repair_runtime(
-                _GroundHogDay_next_title_runtime(runtime, title_counter),
+                _GroundHogDay_next_title_runtime(
+                    runtime,
+                    title_counter,
+                    seed_local_continuation_limit=seed_pool_limit,
+                ),
                 data,
                 analysis,
                 stored_seeds,
@@ -8150,9 +8458,28 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
                 seeds = row_filter_after_stored_seeds
                 progressed_seeds = row_filter_after_stored_seeds
                 batch_progressed = row_filter_after_stored_seeds
+                open_route_plateaus = 0
                 _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
 
         if not batch_progressed:
+            open_reasons = _GroundHogDay_open_route_reasons(runtime, data, seeds)
+            if open_reasons:
+                open_route_plateaus += 1
+                open_route_reasons_at_stop = open_reasons
+                runtime.side_notes.append(
+                    "-IDAT GroundHogDay batch %s found no stronger seed, but route(s) remain open: %s."
+                    % (batch_label, ", ".join(open_reasons))
+                )
+                if open_route_plateaus <= max(1, configured_batches):
+                    _GroundHogDay_write_resume_state(runtime, data, seeds, next_day=title_counter[0])
+                    runtime.candy(
+                        "Cowsay",
+                        "GroundHogDay did not improve this lap, but %s still has checkpointed work. I am continuing instead of handing off."
+                        % ", ".join(open_reasons),
+                        "com",
+                    )
+                    _GroundHogDay_advance_day(title_counter)
+                    continue
             stopped_on_plateau = True
             runtime.side_notes.append(
                 "-IDAT GroundHogDay pre-Final campaign stopped after batch %s: no stronger seed."
@@ -8183,15 +8510,44 @@ def _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
             _GroundHogDay_write_resume_state(runtime, data, batch_progressed, next_day=title_counter[0])
 
     if stopped_on_plateau:
-        if progressed_seeds:
-            _GroundHogDay_write_resume_state(runtime, data, progressed_seeds, next_day=title_counter[0])
+        if open_route_reasons_at_stop:
             runtime.side_notes.append(
-                "-IDAT GroundHogDay reached a plateau after earlier progress; %s may now take the last-resort handoff."
+                "-IDAT GroundHogDay paused with open route(s): %s; %s is deferred."
+                % (", ".join(open_route_reasons_at_stop), FINAL_INVESTIGATION_LABEL)
+            )
+            runtime.candy(
+                "Cowsay",
+                "GroundHogDay still has open route work (%s). I am leaving the checkpoint active instead of launching %s."
+                % (", ".join(open_route_reasons_at_stop), FINAL_INVESTIGATION_LABEL),
+                "com",
+            )
+            _GroundHogDay_emit_unresolved_stop(
+                runtime,
+                reason="GroundHogDay route still open: %s" % ", ".join(open_route_reasons_at_stop),
+                seeds=seeds,
+            )
+            return None, seeds, True
+        if structural_only_progress:
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay stopped with structural-only linefeed evidence; %s is not launched automatically from this plateau."
                 % FINAL_INVESTIGATION_LABEL
             )
             runtime.candy(
                 "Cowsay",
-                "GroundHogDay reached a plateau after real progress. The best seeds are saved; %s can take the last-resort handoff now."
+                "GroundHogDay found linefeed structure, but the visual guard did not accept it. I am stopping with the checkpoint instead of jumping straight to %s."
+                % FINAL_INVESTIGATION_LABEL,
+                "com",
+            )
+            return None, seeds, True
+        if progressed_seeds:
+            _GroundHogDay_write_resume_state(runtime, data, progressed_seeds, next_day=title_counter[0])
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay reached a true plateau after earlier progress; no open GroundHogDay route remains, so %s may take the last-resort handoff."
+                % FINAL_INVESTIGATION_LABEL
+            )
+            runtime.candy(
+                "Cowsay",
+                "GroundHogDay reached a true plateau after real progress. The best seeds are saved; %s can take the last-resort handoff now."
                 % FINAL_INVESTIGATION_LABEL,
                 "com",
             )
