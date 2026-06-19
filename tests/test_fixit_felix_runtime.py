@@ -6854,11 +6854,11 @@ def test_GroundHogDay_title_runtime_prefixes_and_preserves_existing_titles():
     quote_one_mood, quote_one_text = fixit_felix_runtime.GROUNDHOGDAY_QUOTES[0]
     quote_two_mood, quote_two_text = fixit_felix_runtime.GROUNDHOGDAY_QUOTES[1]
     assert calls == [
-        (("Cowsay", "GroundHog Day Quote:\n\n%s" % quote_one_text, quote_one_mood), {}),
+        (("Cowsay", "GroundHog Day part 1:\n\n%s" % quote_one_text, quote_one_mood), {}),
         (("Title", "GroundHogDay 1: probe_one"), {}),
         (("Title", "GroundHogDay 9: already_prefixed"), {}),
         (("Title", "GroundHogDay 1: probe_two"), {}),
-        (("Cowsay", "GroundHog Day Quote:\n\n%s" % quote_two_text, quote_two_mood), {}),
+        (("Cowsay", "GroundHog Day part 2:\n\n%s" % quote_two_text, quote_two_mood), {}),
         (("Title", "GroundHogDay 2: probe_three"), {}),
     ]
 
@@ -6884,9 +6884,28 @@ def test_GroundHogDay_day_quote_uses_hardcoded_table_once_per_day():
     quote_two_mood, quote_two_text = fixit_felix_runtime.GROUNDHOGDAY_QUOTES[1]
     quote_three_mood, quote_three_text = fixit_felix_runtime.GROUNDHOGDAY_QUOTES[2]
     assert calls == [
-        (("Cowsay", "GroundHog Day Quote:\n\n%s" % quote_one_text, quote_one_mood), {}),
-        (("Cowsay", "GroundHog Day Quote:\n\n%s" % quote_two_text, quote_two_mood), {}),
-        (("Cowsay", "GroundHog Day Quote:\n\n%s" % quote_three_text, quote_three_mood), {}),
+        (("Cowsay", "GroundHog Day part 1:\n\n%s" % quote_one_text, quote_one_mood), {}),
+        (("Cowsay", "GroundHog Day part 2:\n\n%s" % quote_two_text, quote_two_mood), {}),
+        (("Cowsay", "GroundHog Day part 3:\n\n%s" % quote_three_text, quote_three_mood), {}),
+    ]
+
+
+def test_GroundHogDay_day_quote_label_uses_day_number_after_quote_wrap():
+    calls = []
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir="",
+        side_notes=[],
+        candy=lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    title_counter = [68]
+
+    fixit_felix_runtime._GroundHogDay_emit_day_quote(runtime, title_counter)
+
+    quote_index = ((68 - 1) % len(fixit_felix_runtime.GROUNDHOGDAY_QUOTES))
+    quote_mood, quote_text = fixit_felix_runtime.GROUNDHOGDAY_QUOTES[quote_index]
+    assert calls == [
+        (("Cowsay", "GroundHog Day part 68:\n\n%s" % quote_text, quote_mood), {}),
     ]
 
 
@@ -6919,7 +6938,7 @@ def test_GroundHogDay_day_quote_is_emitted_after_intro_before_first_title():
             ),
             {},
         ),
-        (("Cowsay", "GroundHog Day Quote:\n\n%s" % quote_text, quote_mood), {}),
+        (("Cowsay", "GroundHog Day part 4:\n\n%s" % quote_text, quote_mood), {}),
         (("Title", "GroundHogDay 4: probe_idat_seed_local_continuation"), {}),
     ]
 
@@ -6986,8 +7005,9 @@ def test_GroundHogDay_defer_writes_resume_state(tmp_path):
     assert payload["best"]["complete_scanlines"] == 3
     assert any("GroundHogDay resume state saved" in note for note in runtime.side_notes)
     payload_folder = tmp_path / "Folder_Flag" / "Debug_Payloads"
+    preview_folder = payload_folder / fixit_felix_runtime.GROUNDHOGDAY_SCANLINE_PREVIEW_FOLDER
     seed_paths = tuple(payload_folder.glob("Flag_groundhogday_seed_state17_*.png"))
-    preview_paths = tuple(payload_folder.glob("Flag_groundhogday_scanline_preview_state17_*_3_of_3.png"))
+    preview_paths = tuple(preview_folder.glob("Flag_groundhogday_scanline_preview_state17_*_3_of_3.png"))
     metadata_paths = tuple(payload_folder.glob("Flag_groundhogday_preview_state17_*.json"))
     assert len(seed_paths) == 1
     assert len(preview_paths) == 1
@@ -7000,7 +7020,10 @@ def test_GroundHogDay_defer_writes_resume_state(tmp_path):
     metadata = json.loads(metadata_paths[0].read_text(encoding="utf-8"))
     assert metadata["route"] == "GroundHogDay"
     assert metadata["seed_artifact"] == seed_paths[0].name
-    assert metadata["scanline_preview"] == preview_paths[0].name
+    assert metadata["scanline_preview"] == "%s/%s" % (
+        fixit_felix_runtime.GROUNDHOGDAY_SCANLINE_PREVIEW_FOLDER,
+        preview_paths[0].name,
+    )
     assert metadata["best"]["usable_scanlines"] == 3
     assert any("GroundHogDay preview artifacts" in note for note in runtime.side_notes)
 
@@ -7022,8 +7045,9 @@ def test_GroundHogDay_preview_artifacts_include_tolerant_complete_rows(tmp_path)
     fixit_felix_runtime._GroundHogDay_write_resume_state(runtime, data, (seed,))
 
     payload_folder = tmp_path / "Folder_Flag" / "Debug_Payloads"
-    preview_paths = tuple(payload_folder.glob("Flag_groundhogday_scanline_preview_state19_*_2_of_3.png"))
-    tolerant_paths = tuple(payload_folder.glob("Flag_groundhogday_tolerant_preview_state19_*_3_complete_of_3.png"))
+    preview_folder = payload_folder / fixit_felix_runtime.GROUNDHOGDAY_SCANLINE_PREVIEW_FOLDER
+    preview_paths = tuple(preview_folder.glob("Flag_groundhogday_scanline_preview_state19_*_2_of_3.png"))
+    tolerant_paths = tuple(preview_folder.glob("Flag_groundhogday_tolerant_preview_state19_*_3_complete_of_3.png"))
     metadata_paths = tuple(payload_folder.glob("Flag_groundhogday_preview_state19_*.json"))
     assert len(preview_paths) == 1
     assert len(tolerant_paths) == 1
@@ -7031,8 +7055,14 @@ def test_GroundHogDay_preview_artifacts_include_tolerant_complete_rows(tmp_path)
     assert validate_png_structure(preview_paths[0].read_bytes()).ok
     assert validate_png_structure(tolerant_paths[0].read_bytes()).ok
     metadata = json.loads(metadata_paths[0].read_text(encoding="utf-8"))
-    assert metadata["scanline_preview"] == preview_paths[0].name
-    assert metadata["tolerant_preview"] == tolerant_paths[0].name
+    assert metadata["scanline_preview"] == "%s/%s" % (
+        fixit_felix_runtime.GROUNDHOGDAY_SCANLINE_PREVIEW_FOLDER,
+        preview_paths[0].name,
+    )
+    assert metadata["tolerant_preview"] == "%s/%s" % (
+        fixit_felix_runtime.GROUNDHOGDAY_SCANLINE_PREVIEW_FOLDER,
+        tolerant_paths[0].name,
+    )
     assert metadata["best"]["usable_scanlines"] == 2
     assert metadata["best"]["complete_scanlines"] == 3
 

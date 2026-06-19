@@ -3682,6 +3682,7 @@ FINAL_INVESTIGATION_LABEL = "Punxsutawney Phil's shadow finder"
 FINAL_INVESTIGATION_DEFAULT_BUDGET = 100_000_000
 FINAL_INVESTIGATION_DEFAULT_MAX_DEPTH = 96
 FINAL_INVESTIGATION_DEFAULT_SEED_LIMIT = 128
+GROUNDHOGDAY_SCANLINE_PREVIEW_FOLDER = "GroundHogDay_Scanline_Previews"
 GROUNDHOGDAY_QUOTES: tuple[tuple[str, str], ...] = (
     ("good", "Okay, campers, rise and shine, and don't forget your booties 'cause it's cooooold out there today."),
     ("good", "It's coooold out there every day. What is this, Miami Beach?"),
@@ -6520,6 +6521,11 @@ def _GroundHogDay_write_preview_artifacts(
     digest = hashlib.sha1(getattr(best, "data", b"")).hexdigest()[:8]
     stem = _final_investigation_stem(runtime, payload_folder)
     saved: list[str] = []
+    preview_folder = payload_folder / GROUNDHOGDAY_SCANLINE_PREVIEW_FOLDER
+    try:
+        preview_folder.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        runtime.side_notes.append("-IDAT GroundHogDay scanline preview folder create failed: %s." % exc)
 
     seed_name = "%s_groundhogday_seed_state%s_%s.png" % (stem, state_id, digest)
     seed_path = payload_folder / seed_name
@@ -6531,6 +6537,7 @@ def _GroundHogDay_write_preview_artifacts(
 
     preview = idat.rebuild_visual_idat_preview(best.data)
     preview_name = ""
+    preview_relative = ""
     if preview is not None:
         preview_name = (
             "%s_groundhogday_scanline_preview_state%s_%s_%s_of_%s.png"
@@ -6542,13 +6549,18 @@ def _GroundHogDay_write_preview_artifacts(
                 preview.total_scanlines,
             )
         )
-        preview_path = payload_folder / preview_name
+        preview_path = preview_folder / preview_name
         try:
             preview_path.write_bytes(preview.data)
-            saved.append(preview_name)
+            preview_relative = "%s/%s" % (
+                GROUNDHOGDAY_SCANLINE_PREVIEW_FOLDER,
+                preview_name,
+            )
+            saved.append(preview_relative)
         except OSError as exc:
             runtime.side_notes.append("-IDAT GroundHogDay scanline preview write failed: %s." % exc)
             preview_name = ""
+            preview_relative = ""
     else:
         runtime.side_notes.append(
             "-IDAT GroundHogDay scanline preview skipped: best seed has no rebuildable usable scanlines."
@@ -6556,6 +6568,7 @@ def _GroundHogDay_write_preview_artifacts(
 
     tolerant_preview = idat.rebuild_tolerant_idat_preview(best.data)
     tolerant_preview_name = ""
+    tolerant_preview_relative = ""
     if tolerant_preview is not None and (
         preview is None
         or int(tolerant_preview.recovered_scanlines) > int(preview.recovered_scanlines)
@@ -6570,13 +6583,18 @@ def _GroundHogDay_write_preview_artifacts(
                 tolerant_preview.total_scanlines,
             )
         )
-        tolerant_preview_path = payload_folder / tolerant_preview_name
+        tolerant_preview_path = preview_folder / tolerant_preview_name
         try:
             tolerant_preview_path.write_bytes(tolerant_preview.data)
-            saved.append(tolerant_preview_name)
+            tolerant_preview_relative = "%s/%s" % (
+                GROUNDHOGDAY_SCANLINE_PREVIEW_FOLDER,
+                tolerant_preview_name,
+            )
+            saved.append(tolerant_preview_relative)
         except OSError as exc:
             runtime.side_notes.append("-IDAT GroundHogDay tolerant preview write failed: %s." % exc)
             tolerant_preview_name = ""
+            tolerant_preview_relative = ""
 
     metadata_name = "%s_groundhogday_preview_state%s_%s.json" % (stem, state_id, digest)
     metadata_path = payload_folder / metadata_name
@@ -6585,8 +6603,8 @@ def _GroundHogDay_write_preview_artifacts(
         "version": 1,
         "state_id": state_id,
         "seed_artifact": seed_name if seed_name in saved else "",
-        "scanline_preview": preview_name,
-        "tolerant_preview": tolerant_preview_name,
+        "scanline_preview": preview_relative,
+        "tolerant_preview": tolerant_preview_relative,
         "seed_count": len(local_seeds),
         "best": _GroundHogDay_seed_resume_record(best),
         "operations": [
@@ -6607,7 +6625,8 @@ def _GroundHogDay_write_preview_artifacts(
         )
         runtime.candy(
             "Cowsay",
-            "I saved the best GroundHogDay seed and a scanline preview artifact in Debug_Payloads.",
+            "I saved the best GroundHogDay seed and scanline preview artifacts in Debug_Payloads/%s."
+            % GROUNDHOGDAY_SCANLINE_PREVIEW_FOLDER,
             "com",
         )
     return tuple(saved)
@@ -7063,7 +7082,7 @@ def _GroundHogDay_emit_day_quote(runtime: Any, title_counter: list[Any]) -> None
     _quote_index, mood, text = _GroundHogDay_quote_for_day(runtime, day_index)
     runtime.candy(
         "Cowsay",
-        "GroundHog Day Quote:\n\n%s" % text,
+        "GroundHog Day part %s:\n\n%s" % (day_index, text),
         mood,
     )
 
