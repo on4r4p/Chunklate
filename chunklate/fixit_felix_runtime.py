@@ -2967,20 +2967,61 @@ def _runtime_idat_queue_progress(runtime: Any):
     if minibar is None:
         return None
     started = time.monotonic()
+    eta_emitted = False
 
     def progress(stage: str, tested: int, budget: int) -> None:
-        elapsed = max(0.001, time.monotonic() - started)
-        rate = float(tested) / elapsed if tested > 0 else 0.0
-        remaining = max(0, int(budget) - int(tested))
-        eta = (float(remaining) / rate) if rate > 0 else None
-        minibar(
-            "IDAT %s %s eta=%s rate=%.1f/s"
-            % (
-                stage,
-                _format_idat_queue_progress_counter(stage, tested, budget),
-                _format_eta_seconds(eta),
-                rate,
-            )
+        nonlocal eta_emitted
+        message = "IDAT %s %s" % (
+            stage,
+            _format_idat_queue_progress_counter(stage, tested, budget),
+        )
+        if not eta_emitted and int(tested) > 0:
+            elapsed = max(0.001, time.monotonic() - started)
+            rate = float(tested) / elapsed
+            remaining = max(0, int(budget) - int(tested))
+            eta = float(remaining) / rate if rate > 0 else None
+            message += " eta=%s rate=%.1f/s" % (_format_eta_seconds(eta), rate)
+            eta_emitted = True
+        minibar(message)
+
+    return progress
+
+
+def _runtime_idat_seed_batch_progress(
+    runtime: Any,
+    *,
+    base_progress: Callable[[str, int, int], Any] | None,
+    seed_index: int,
+    seed_count: int,
+    tested_offset: int,
+    total_budget: int,
+    round_index: int | None = None,
+    round_count: int | None = None,
+):
+    if base_progress is None:
+        return None
+
+    seed_width = max(1, len(str(max(1, int(seed_count)))))
+    seed_label = "seed %s/%s" % (
+        str(max(1, int(seed_index))).zfill(seed_width),
+        max(1, int(seed_count)),
+    )
+    if round_index is not None and round_count is not None and int(round_count) > 1:
+        round_width = max(1, len(str(max(1, int(round_count)))))
+        seed_label += " round %s/%s" % (
+            str(max(1, int(round_index))).zfill(round_width),
+            max(1, int(round_count)),
+        )
+
+    def progress(stage: str, tested: int, _budget: int) -> None:
+        displayed_tested = min(
+            max(1, int(total_budget)),
+            max(0, int(tested_offset)) + max(0, int(tested)),
+        )
+        base_progress(
+            "%s %s" % (stage, seed_label),
+            displayed_tested,
+            max(1, int(total_budget)),
         )
 
     return progress
@@ -6261,19 +6302,30 @@ def _run_idat_seed_local_continuation_runtime(
     window_starts: list[int] = []
     window_ends: list[int] = []
     progress = _runtime_idat_queue_progress(runtime)
+    total_progress_budget = max(1, int(local_budget) * max(1, len(seeds)) * max(1, int(local_rounds)))
 
-    for seed in seeds:
+    for seed_index, seed in enumerate(seeds, start=1):
         parent = seed
         before_seed = getattr(parent, "after", None)
         if before_seed is None or getattr(before_seed, "complete", False):
             continue
-        for _round_index in range(local_rounds):
+        for round_index in range(local_rounds):
             if getattr(parent.after, "complete", False):
                 break
+            tested_before_probe = tested
             probe = idat_bruteforce.probe_idat_deflate_local_candidates(
                 parent.data,
                 budget=local_budget,
-                progress=progress,
+                progress=_runtime_idat_seed_batch_progress(
+                    runtime,
+                    base_progress=progress,
+                    seed_index=seed_index,
+                    seed_count=len(seeds),
+                    tested_offset=tested_before_probe,
+                    total_budget=total_progress_budget,
+                    round_index=round_index + 1,
+                    round_count=local_rounds,
+                ),
             )
             tested += int(probe.tested_candidates)
             window_starts.append(int(probe.window_start))
@@ -6396,15 +6448,24 @@ def _run_idat_filter_alignment_runtime(
     window_starts: list[int] = []
     window_ends: list[int] = []
     progress = _runtime_idat_queue_progress(runtime)
+    total_progress_budget = max(1, int(local_budget) * max(1, len(seeds)))
 
-    for parent in seeds:
+    for seed_index, parent in enumerate(seeds, start=1):
         if getattr(parent.after, "complete", False):
             continue
+        tested_before_probe = tested
         probe = idat_bruteforce.probe_idat_deflate_local_candidates(
             parent.data,
             budget=local_budget,
             score_mode="png-filter",
-            progress=progress,
+            progress=_runtime_idat_seed_batch_progress(
+                runtime,
+                base_progress=progress,
+                seed_index=seed_index,
+                seed_count=len(seeds),
+                tested_offset=tested_before_probe,
+                total_budget=total_progress_budget,
+            ),
         )
         tested += int(probe.tested_candidates)
         window_starts.append(int(probe.window_start))

@@ -3643,10 +3643,11 @@ def test_runtime_idat_queue_progress_pads_counter_to_budget_width():
 
     assert calls
     assert calls[0].startswith("IDAT deep-beam 00208670/50000000 eta=")
-    assert calls[1].startswith("IDAT huffman-kraft 0548314/1000000 eta=")
-    assert calls[2].startswith("IDAT kraft-backref 000123/250000 eta=")
-    assert calls[3].startswith("IDAT phase2-lf-insert 298/298 eta=")
-    assert all(" rate=" in call for call in calls)
+    assert calls[1] == "IDAT huffman-kraft 0548314/1000000"
+    assert calls[2] == "IDAT kraft-backref 000123/250000"
+    assert calls[3] == "IDAT phase2-lf-insert 298/298"
+    assert sum(" eta=" in call for call in calls) == 1
+    assert sum(" rate=" in call for call in calls) == 1
 
 
 def test_hermesprobe_prompts_deep_beam_workers_and_gpu_when_unconfigured(monkeypatch):
@@ -5797,6 +5798,90 @@ def test_seed_local_continuation_keeps_diagnostic_branch_as_seed(monkeypatch):
         "seed-local-deflate-diagnostic",
     }
     assert max(candidate.after.decompressed_size for candidate in seeds) == 96
+
+
+def test_seed_local_progress_counts_across_seed_batch(monkeypatch):
+    data = valid_png_bytes()
+    _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    analysis = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=0,
+        usable_scanlines=0,
+        error_offset=5,
+    )
+    seed_after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=4,
+        expected_size=200,
+        decompressed_size=80,
+        usable_scanlines=1,
+        error_offset=40,
+    )
+    seeds = tuple(
+        idat_bruteforce.IdatDeepBeamCandidate(
+            data=data + (bytes((index,)) if index else b""),
+            stream=stream + (bytes((index,)) if index else b""),
+            operations=(idat_bruteforce.IdatDeepBeamOperation("stored-block", 1, b"\x00", b"\x01"),),
+            before=analysis,
+            after=seed_after,
+            state_id=state_id,
+            score=(1,),
+        )
+        for index, state_id in enumerate((10, 11))
+    )
+
+    def fake_local_probe(_probe_data, **kwargs):
+        progress = kwargs.get("progress")
+        if progress is not None:
+            progress("deflate-local", 0, 10)
+            progress("deflate-local", 5, 10)
+        return idat_bruteforce.IdatDeflateProbeResult(
+            before=seed_after,
+            best=None,
+            window_start=40,
+            window_end=60,
+            tested_candidates=5,
+            budget_exhausted=False,
+            strategy="deflate-local",
+            reason="mocked",
+        )
+
+    minibar_calls = []
+    monkeypatch.setattr(idat_bruteforce, "probe_idat_deflate_local_candidates", fake_local_probe)
+    runtime = SimpleNamespace(
+        file_origin="",
+        file_dir="",
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+        write_clone=lambda *_args, **_kwargs: "written",
+        minibar=lambda text: minibar_calls.append(text),
+        loadingbar=None,
+        seed_local_continuation_budget=10,
+        seed_local_continuation_limit=2,
+        seed_local_continuation_rounds=1,
+    )
+
+    written, result_seeds = fixit_felix_runtime._run_idat_seed_local_continuation_runtime(
+        runtime,
+        data,
+        analysis,
+        seeds,
+    )
+
+    assert written is None
+    assert result_seeds == ()
+    assert any("deflate-local seed 1/2 00/20" in call for call in minibar_calls)
+    assert any("deflate-local seed 1/2 05/20" in call for call in minibar_calls)
+    assert any("deflate-local seed 2/2 05/20" in call for call in minibar_calls)
+    assert any("deflate-local seed 2/2 10/20" in call for call in minibar_calls)
+    assert not any("deflate-local seed 2/2 00/20" in call for call in minibar_calls)
+    assert sum(" eta=" in call for call in minibar_calls) == 1
 
 
 def test_filter_alignment_keeps_png_filter_progress_as_seed(monkeypatch):
