@@ -95,13 +95,6 @@ python -m build
 python -m twine check dist/*
 ```
 
-Before publishing, bump the version in both `pyproject.toml` and
-`chunklate/__init__.py`, run the test suite, then upload:
-
-```bash
-python -m twine upload dist/*
-```
-
 ## Arguments
 
 ```text
