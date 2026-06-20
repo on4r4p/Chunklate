@@ -966,6 +966,26 @@ for _fixture in _YOU_IDAT_AUDIT_FIXTURES:
         "kept for manual and targeted runtime validation, not strict repair matrix"
     )
 
+_PERIODIC_YOU_REPAIR_FIXTURES = (
+    "periodic_you_add_legacy_counter.png",
+    "periodic_you_add_one_based_be.png",
+    "periodic_you_bit_not.png",
+    "periodic_you_nibble_swap.png",
+    "periodic_you_rol1.png",
+    "periodic_you_ror1.png",
+    "periodic_you_sub_legacy_counter.png",
+    "periodic_you_swap_pair.png",
+    "periodic_you_width4_sub_block_index_be.png",
+    "periodic_you_xor_block_index_le.png",
+    "periodic_you_xor_legacy_counter.png",
+)
+
+for _fixture in _PERIODIC_YOU_REPAIR_FIXTURES:
+    UNCOVERED_REPAIR_CASES[_fixture] = (
+        "Periodic byte-corruption fixture generated from you.png; "
+        "covered by targeted periodic repair tests, not strict repair matrix"
+    )
+
 UNCOVERED_REPAIR_CASES.update(
     {
         "One_IDAT_Missing.png": "single-IDAT missing stream fixture kept for manual IDAT salvage testing",
