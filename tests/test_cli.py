@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 from argparse import ArgumentParser
 import builtins
+import io
 import os
 import subprocess
 import sys
@@ -17,7 +18,7 @@ VALID_FIXTURE = ROOT / "schaik-javapng-samples" / "basn0g01.png"
 PLTE_EMPTY_FIXTURE = ROOT / "schaik-javapng-samples" / "brokenjavapngsuite" / "plte_empty.png"
 
 import Chunklate
-from chunklate import cli
+from chunklate import cli, package_update
 from chunklate.png import iter_chunks, validate_png_structure
 
 
@@ -69,6 +70,8 @@ def test_help_starts_without_optional_runtime_dependencies():
     assert "--output-dir" in result.stdout
     assert "--max-saves" in result.stdout
     assert "--no-color" in result.stdout
+    assert "--no-update-check" in result.stdout
+    assert ("--check" + "-update") not in result.stdout
     assert "-workers" in result.stdout
     assert "-gpu" in result.stdout
     assert "--ultimate-linefeed-budget" not in result.stdout
@@ -286,6 +289,7 @@ def test_valid_png_exits_successfully_with_optional_libpng_fallback():
                 "-f",
                 sample.name,
                 "-stfu",
+                "--no-update-check",
                 "--output-dir",
                 str(tmp_path / "out"),
             ],
@@ -314,6 +318,7 @@ def test_plte_empty_repairs_in_default_interactive_mode():
                 "--output-dir",
                 str(output_dir),
                 "--no-color",
+                "--no-update-check",
             ],
             cwd=tmp_path,
             input="yes\n" * 20,
@@ -457,6 +462,97 @@ def test_should_reexec_local_venv_uses_venv_path_not_realpath(tmp_path):
     )
 
 
+def test_package_update_check_reports_newer_pypi_version():
+    status = Chunklate.Check_Package_Update(
+        current_version="0.1.0",
+        fetch_latest=lambda _package, timeout: "0.2.0",
+    )
+    text = Chunklate.Format_Package_Update_Message(status)
+
+    assert status.update_available is True
+    assert status.current_version == "0.1.0"
+    assert status.latest_version == "0.2.0"
+    assert "chunklate update available" in text
+    assert "pip install --upgrade chunklate" in text
+    assert "pip install --upgrade chunklate[gpu]" in text
+
+
+def test_package_update_check_treats_network_failure_as_non_blocking():
+    def fail(_package, timeout):
+        raise OSError("offline")
+
+    status = Chunklate.Check_Package_Update(
+        current_version="0.1.0",
+        fetch_latest=fail,
+    )
+
+    assert status.up_to_date is None
+    assert status.error == "offline"
+
+
+def test_package_update_prompt_can_continue_or_abort():
+    status = package_update.PackageUpdateStatus("chunklate", "0.1.0", "0.2.0", False)
+    stream = io.StringIO()
+
+    with patched_attrs(Chunklate, NODIALOGUE=False, AUTO=False):
+        continued = Chunklate.Prompt_Package_Update_Continue(
+            status,
+            input_func=lambda _prompt: "yes",
+            stdin=FakeStdin(True),
+            stream=stream,
+        )
+        aborted = Chunklate.Prompt_Package_Update_Continue(
+            status,
+            input_func=lambda _prompt: "no",
+            stdin=FakeStdin(True),
+            stream=stream,
+        )
+
+    assert continued is True
+    assert aborted is False
+    assert "chunklate update available" in stream.getvalue()
+
+
+def test_package_update_prompt_continues_noninteractive():
+    status = package_update.PackageUpdateStatus("chunklate", "0.1.0", "0.2.0", False)
+    stream = io.StringIO()
+
+    with patched_attrs(Chunklate, NODIALOGUE=False, AUTO=False):
+        result = Chunklate.Prompt_Package_Update_Continue(
+            status,
+            input_func=lambda _prompt: "no",
+            stdin=FakeStdin(False),
+            stream=stream,
+        )
+
+    assert result is True
+    assert "Continuing with the installed version." in stream.getvalue()
+
+
+def test_default_package_update_check_can_be_disabled():
+    parser = Chunklate.cli.configure_parser(ArgumentParser())
+
+    default_args = parser.parse_args(["-f", "sample.png"])
+    disabled_args = parser.parse_args(["-f", "sample.png", "--no-update-check"])
+
+    assert Chunklate.Should_Run_Package_Update_Check(default_args)
+    assert not Chunklate.Should_Run_Package_Update_Check(disabled_args)
+
+
+def test_ensure_package_current_exits_when_user_declines_update():
+    status = package_update.PackageUpdateStatus("chunklate", "0.1.0", "0.2.0", False)
+    exits = []
+
+    result = Chunklate.Ensure_Package_Current_Or_Continue(
+        checker=lambda: status,
+        prompt_continue=lambda _status: False,
+        exit_process=lambda code: exits.append(code),
+    )
+
+    assert result is False
+    assert exits == [1]
+
+
 def main():
     checks = [
         ("CLI help starts without optional runtime dependencies", test_help_starts_without_optional_runtime_dependencies),
@@ -471,6 +567,12 @@ def main():
         ("Dependency prompt skips noninteractive", test_dependency_install_prompt_does_not_run_in_noninteractive_mode),
         ("Ensure dependencies reexecs after install", test_ensure_runtime_dependencies_reexecs_after_successful_install),
         ("Venv reexec uses venv path", test_should_reexec_local_venv_uses_venv_path_not_realpath),
+        ("Package update detects newer version", test_package_update_check_reports_newer_pypi_version),
+        ("Package update failure is non-blocking", test_package_update_check_treats_network_failure_as_non_blocking),
+        ("Package update prompt", test_package_update_prompt_can_continue_or_abort),
+        ("Package update prompt noninteractive", test_package_update_prompt_continues_noninteractive),
+        ("Package update default toggle", test_default_package_update_check_can_be_disabled),
+        ("Package update decline exits", test_ensure_package_current_exits_when_user_declines_update),
     ]
 
     print("Running CLI smoke tests")

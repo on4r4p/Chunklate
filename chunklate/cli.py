@@ -170,6 +170,12 @@ def configure_parser(parser: Any) -> Any:
         action="store_true",
     )
     parser.add_argument(
+        "--no-update-check",
+        dest="NO_UPDATE_CHECK",
+        help="Skip the startup PyPI version check.",
+        action="store_true",
+    )
+    parser.add_argument(
         "--output-dir",
         dest="OUTPUT_DIR",
         help="Directory where Folder_* repair outputs are written.",

@@ -18,13 +18,20 @@ dependencies = [
     "psutil>=5.9",
 ]
 
+[project.urls]
+Homepage = "https://github.com/on4r4p/Chunklate"
+Repository = "https://github.com/on4r4p/Chunklate"
+Issues = "https://github.com/on4r4p/Chunklate/issues"
+
 [project.optional-dependencies]
 gpu = [
     "moderngl>=5.10",
 ]
 dev = [
+    "build>=1.2",
     "pytest>=8.0",
     "ruff>=0.4",
+    "twine>=5.0",
 ]
 
 [project.scripts]

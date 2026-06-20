@@ -24,6 +24,7 @@ def args(**overrides):
         "DEBUGFILE": False,
         "AUTO": False,
         "NO_COLOR": False,
+        "NO_UPDATE_CHECK": False,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -51,6 +52,8 @@ def test_configure_parser_preserves_legacy_options():
     assert "--shut-the-fuck-up" in help_text
     assert "--auto" in help_text
     assert "--no-color" in help_text
+    assert "--no-update-check" in help_text
+    assert ("--check" + "-update") not in help_text
     assert "--output-dir DIR" in help_text
     assert "--max-saves N" in help_text
     assert "-workers min|normal|max|auto|N" in help_text
@@ -130,6 +133,7 @@ def test_configure_parser_parses_runtime_arguments():
             "-stfu",
             "-a",
             "--no-color",
+            "--no-update-check",
             "--output-dir",
             "out",
             "--max-saves",
@@ -167,6 +171,7 @@ def test_configure_parser_parses_runtime_arguments():
     assert parsed.NODIALOGUE is True
     assert parsed.AUTO is True
     assert parsed.NO_COLOR is True
+    assert parsed.NO_UPDATE_CHECK is True
     assert parsed.OUTPUT_DIR == "out"
     assert parsed.MAX_SAVES == 2
     assert parsed.GLOBAL_WORKERS == "normal"

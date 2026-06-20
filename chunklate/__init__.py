@@ -1,5 +1,7 @@
 """Core helpers for Chunklate."""
 
+__version__ = "0.1.0"
+
 from . import (
     bruteforce_result,
     bruteforce_runtime,
@@ -32,6 +34,7 @@ from . import (
     nearby,
     nearby_runtime,
     output,
+    package_update,
     palette_runtime,
     platform_runtime,
     prompts,
@@ -87,6 +90,7 @@ __all__ = [
     "nearby",
     "nearby_runtime",
     "output",
+    "package_update",
     "palette_runtime",
     "platform_runtime",
     "prompts",

@@ -64,12 +64,51 @@ or:
 python -m pip install "moderngl>=5.10"
 ```
 
+## PyPI Package
+
+Install from PyPI:
+
+```bash
+python -m pip install chunklate
+```
+
+Install the optional GPU extra:
+
+```bash
+python -m pip install "chunklate[gpu]"
+```
+
+Update an installed package:
+
+```bash
+python -m pip install --upgrade chunklate
+```
+
+Chunklate checks PyPI at startup by default. If a newer package exists, it prints
+the update command and asks whether to continue with the installed version. Use
+`--no-update-check` only when you need a fully offline or deterministic run.
+
+Build the package locally:
+
+```bash
+python -m build
+python -m twine check dist/*
+```
+
+Before publishing, bump the version in both `pyproject.toml` and
+`chunklate/__init__.py`, run the test suite, then upload:
+
+```bash
+python -m twine upload dist/*
+```
+
 ## Arguments
 
 ```text
 usage: Chunklate.py [-h] [-f FILE] [-c] [-p] [-d] [-df] [-dp] [-ep] [-sp]
-                    [-stfu] [-a] [--no-color] [--output-dir DIR]
-                    [--max-saves N] [-workers min|normal|max|N] [-gpu]
+                    [-stfu] [-a] [--no-color] [--no-update-check]
+                    [--output-dir DIR] [--max-saves N]
+                    [-workers min|normal|max|N] [-gpu]
                     [-ddll N] [--ddl-crc-forge auto|off|force]
                     [--ddl-forge-bytes N] [--ddl-forge-window START:END]
                     [--ddl-deflate-mitm auto|off|force]
@@ -94,6 +133,7 @@ General options:
 | `--no-color` | Disable terminal colors. |
 | `--output-dir DIR` | Write `Folder_*` outputs under this directory. |
 | `--max-saves N` | Stop after writing `N` repaired files. |
+| `--no-update-check` | Skip the default startup check against PyPI. |
 
 Performance and brute force:
 

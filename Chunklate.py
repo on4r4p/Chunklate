@@ -91,7 +91,7 @@ except ImportError as exc:
     MISSING_IMPORT_ERRORS["colorama"] = exc
     colorama = None
 
-from chunklate import ancillary, ancillary_runtime, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, image_viewer, libpng_check, libpng_runtime, magic_runtime, main_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, palette, palette_runtime, palette_ui, platform_runtime, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, ultimate_reference_ui, writer, writer_runtime, youshallpass_runtime
+from chunklate import ancillary, ancillary_runtime, bruteforce, checkpoint, checkpoint_actions_runtime, checkpoint_runtime, chunk_info, chunk_name_runtime, chunk_order, chunk_order_runtime, chunk_report, chunk_scanner, chunk_state, chunk_state_runtime, chunk_story, chunk_validation_runtime, cli, decisions, dummy_chunk, dummy_chunk_runtime, error_log, fixit_felix, fixit_felix_runtime, full_chunk_forcer, getinfo_runtime, getspec_runtime, history, image_viewer, libpng_check, libpng_runtime, magic_runtime, main_runtime, name_shift, name_shift_runtime, nearby, nearby_runtime, output, package_update, palette, palette_runtime, palette_ui, platform_runtime, prompts, question_runtime, relics, relics_runtime, relics_ui, runtime_state, smash_bruteforce, sorting, spec_length_runtime, specs, stdio, ui, ui_runtime, ultimate_reference_ui, writer, writer_runtime, youshallpass_runtime
 from chunklate.png import (
     chunk_type_crc_matches,
     detect_png_signature_recovery,
@@ -245,6 +245,65 @@ def Ensure_Runtime_Dependencies(*, prompt_installer=Prompt_Dependency_Install, r
             return True
         sys.exit(1)
     return True
+
+
+def Check_Package_Update(*, current_version=None, fetch_latest=package_update.latest_pypi_version):
+    return package_update.check_package_update(
+        current_version=current_version,
+        fetch_latest=fetch_latest,
+    )
+
+
+def Format_Package_Update_Message(status):
+    return package_update.format_update_message(status, python_executable=sys.executable)
+
+
+def Should_Run_Package_Update_Check(args, *, argv0=None):
+    if bool(getattr(args, "NO_UPDATE_CHECK", False)):
+        return False
+    return True
+
+
+def Can_Prompt_Package_Update(stdin=None):
+    stream = stdin or sys.stdin
+    return (
+        not NODIALOGUE
+        and not AUTO
+        and hasattr(stream, "isatty")
+        and stream.isatty()
+    )
+
+
+def Prompt_Package_Update_Continue(status, *, input_func=input, stdin=None, stream=None):
+    if not status.update_available:
+        return True
+    out = stream or sys.stderr
+    print(Format_Package_Update_Message(status), file=out)
+    if not Can_Prompt_Package_Update(stdin):
+        print("Continuing with the installed version.", file=out)
+        return True
+    while True:
+        answer = input_func("Continue with this older Chunklate anyway? (yes/no): ").strip().lower()
+        if answer in ("y", "yes"):
+            return True
+        if answer in ("n", "no"):
+            return False
+        print("I need yes or no before continuing with an older package.", file=out)
+
+
+def Ensure_Package_Current_Or_Continue(
+    *,
+    checker=Check_Package_Update,
+    prompt_continue=Prompt_Package_Update_Continue,
+    exit_process=sys.exit,
+):
+    status = checker()
+    if status.up_to_date is None:
+        return True
+    if prompt_continue(status):
+        return True
+    exit_process(1)
+    return False
 
 
 def Betterror(error_msg, def_name): ##useless since 3.11
@@ -1977,6 +2036,8 @@ def main():
         return
     Ensure_Runtime_Dependencies()
     Configure_Terminal_Color()
+    if Should_Run_Package_Update_Check(Args):
+        Ensure_Package_Current_Or_Continue()
 
     while True:
         MainLoopState = main_runtime.run_main_loop_once_from_namespace(globals())
