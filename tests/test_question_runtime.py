@@ -202,8 +202,8 @@ def test_question_runtime_names_plte_palette_editor_prompt():
         "candy",
         (
             "Cowsay",
-            "Question: Chunky built a grayscale PLTE. Happy with the preview? Say no. "
-            "Want the palette steering wheel in Tkinter? Say yes.",
+            "Question: Chunky built a grayscale PLTE. Happy with the preview? Say yes. "
+            "Want the palette steering wheel in Tkinter? Say no.",
             "com",
         ),
         {},

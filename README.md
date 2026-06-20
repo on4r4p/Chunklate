@@ -155,6 +155,34 @@ Important distinction:
   kept for compatibility with existing runs. `_ULF.progress.json` is the
   Ultimate resume checkpoint.
 
+## Tkinter Visual Helpers
+
+Some repair routes need human visual judgement. When Chunklate cannot prove the
+right pixels from PNG structure alone, it can open small Tkinter tools instead
+of forcing a blind automatic choice.
+
+### PLTE Palette Editor
+
+When an indexed PNG has a missing, malformed, empty, or suspicious `PLTE`,
+Chunklate may build a grayscale emergency palette first. If the preview is not
+good enough, answer `no` at the palette prompt to open the Tkinter palette
+editor. The editor lets you try preset palettes, randomize entries, adjust
+individual palette sliders, then save the selected `PLTE` back through the
+normal clone/checkpoint path.
+
+![PLTE Tkinter palette editor](https://i.ibb.co/Vc4G7ZCP/Screenshot-From-2026-06-20-11-15-14.png)
+
+### Ultimate Reference ROI Editor
+
+For visually guided `IDAT` recovery, especially `UltimateMegaSuperLineFeedBruteForce`,
+Chunklate can use a reference PNG. With `-ulfr similar PATH -ulfroi-edit`, the
+Tkinter ROI editor lets you mark source/reference regions, same-position
+regions, search regions, or negative regions. Those saved ROI mappings help the
+visual scorer prefer candidates that look coherent instead of merely producing
+more decompressed bytes.
+
+![Ultimate reference ROI editor](https://i.ibb.co/tpnGjqYJ/Screenshot-From-2026-06-20-10-24-07.png)
+
 ## What Chunklate Repairs
 
 Chunklate currently handles many structural PNG problems:
@@ -176,12 +204,14 @@ Chunklate currently handles many structural PNG problems:
 - Known bad sRGB/iCCP profile chunks and zero-value `gAMA`.
 - Some text metadata damage, including `tEXt` null bytes, `iTXt` field damage,
   and `zTXt` compression method or zlib data-format byte errors.
+- Periodic byte corruption in PNG/IDAT-shaped files when a bounded periodic
+  transform can be reversed and the whole PNG validates afterward.
 
 ## IDAT Salvage And Brute Force
 
 `IDAT` is the compressed image data. This is the hard part.
 
-Chunklate has three main IDAT paths:
+Chunklate has four main IDAT paths:
 
 - `partial-idat-blackfill`: salvage complete decompressed scanlines, fill the
   missing area with black/transparent bytes, rebuild a valid PNG. This is a
@@ -191,6 +221,21 @@ Chunklate has three main IDAT paths:
 - `UltimateMegaSuperLineFeedBruteForce`: deeper line-feed conversion recovery
   with checkpoints, visual candidate galleries, optional reference scoring, and
   optional CPU workers.
+- `periodic_tail_xor_counter`: despite the compatibility name, this is now a
+  bounded periodic byte repair campaign. It tests XOR, add/sub counter families,
+  little/big-endian counters, pair swaps, bit-not, nibble swaps, and one-bit
+  rotations over likely periods/phases.
+
+Periodic repair is intentionally conservative. It is triggered by periodic
+damage symptoms such as `IDAT` CRC failure, `No NextChunk`, corrupt deflate, or
+`BadCodeLengthHuffmanTree`, but it only accepts a candidate when the repaired
+file has valid PNG structure, rebuilt CRC consistency, and a complete IDAT
+decode. It does not use file names, challenge side files, or external container
+context as proof.
+
+GroundHogDay still tries the cheaper LF/CR and bounded SuperLineFeed probes, but
+it does not launch MiniUltimate/UltimateLineFeed automatically from that loop.
+Ultimate remains a separate heavier route with explicit checkpoints/options.
 
 HermesProbe runs before broad DaedalusForce when the stored original `IDAT` CRC is useful.
 For small edits it can solve the CRC directly. For larger edits it now also has
@@ -288,6 +333,12 @@ docs/repair_matrix.md
 The readable repair matrix lives in `docs/repair_matrix.md`. The strict
 regression source of truth is `tests/repair_matrix.py`, plus focused unit and
 runtime tests.
+
+`Png_Errors_handled_by_Chunklate_So_Far/periodic_you_*.png` contains corruption fixtures .
+They cover the new periodic families: legacy counter XOR, counter add/sub, endian counter
+variants, pair swap, bit-not, nibble swap, one-bit rotations, and a four-byte
+periodic counter case. Each fixture is expected to repair back to the original
+bytes through the periodic route.
 
 ## In Memory Of Glenn Randers-Pehrson
 

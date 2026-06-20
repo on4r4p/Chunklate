@@ -379,6 +379,7 @@ def test_automatic_repair_order_keeps_legacy_priority():
         "known_chunk_type_case",
         "unknown_private_critical_removal",
         "missing_chunk_data_byte",
+        "periodic_tail_xor_counter",
         "focused_idat_crc_forge",
         "partial_idat_blackfill",
     )
@@ -467,7 +468,177 @@ def test_automatic_repair_intent_describes_matching_route():
     )
     assert time_value_message is not None
     assert "tIME timestamp contains impossible values" in time_value_message
+    periodic_message = fixit_felix.automatic_repair_intent(
+        "periodic_tail_xor_counter",
+        ["Checksum_Error_0:-Wrong Crc b'IDAT'"],
+    )
+    assert periodic_message is not None
+    assert "periodic byte pattern" in periodic_message
+    assert "XOR, arithmetic, swap" in periodic_message
     assert fixit_felix.automatic_repair_intent("plte_cleanup", ["Wrong Crc"]) is None
+
+
+def _periodic_repair_fixture() -> bytes:
+    width = 96
+    height = 96
+    scanlines = bytearray()
+    for y in range(height):
+        scanlines.append(0)
+        for x in range(width * 3):
+            scanlines.append((x * 17 + y * 31 + (x >> 1)) & 0xFF)
+    return build_rgb_png(width, height, bytes(scanlines))
+
+
+def test_periodic_tail_xor_counter_repairs_png_without_external_context():
+    original = _periodic_repair_fixture()
+    end_block = original.rfind(b"IEND") // fixit_felix.PERIODIC_TAIL_XOR_PERIOD
+    corrupted = fixit_felix._apply_periodic_tail_xor_counter(
+        original,
+        start_block=3,
+        end_block=end_block,
+    )
+
+    assert corrupted is not None
+    assert corrupted != original
+    assert not validate_png_structure(corrupted).ok
+
+    repair = fixit_felix.periodic_tail_xor_counter(
+        corrupted,
+        ["Checksum_Error_0:-Wrong Crc b'IDAT'", "CheckLength_Error_0:-No NextChunk"],
+    )
+    automatic_repair = fixit_felix.automatic_repair(
+        "periodic_tail_xor_counter",
+        corrupted,
+        ["Checksum_Error_0:-Wrong Crc b'IDAT'", "CheckLength_Error_0:-No NextChunk"],
+        known_chunk_types=(),
+        auto=True,
+        nodialogue=True,
+        max_saves=None,
+    )
+
+    assert repair is not None
+    assert repair.data == original
+    assert automatic_repair is not None
+    assert automatic_repair.data == original
+    assert validate_png_structure(repair.data).ok
+    assert repair.period == 32
+    assert repair.phase == 30
+    assert repair.start_block == 3
+    assert repair.end_block == end_block
+
+
+def test_periodic_repair_skips_plain_missing_iend_when_idat_is_complete():
+    data = read_fixture("IEND_Missing.png")
+
+    repair = fixit_felix.periodic_tail_xor_counter(
+        data,
+        ["CheckLength_Error_0:-No NextChunk"],
+    )
+
+    assert repair is None
+    assert idat.analyze_idat_stream(data).complete
+
+
+def test_periodic_repair_tries_arithmetic_counter_family():
+    original = _periodic_repair_fixture()
+    period = 16
+    phase = 14
+    end_block = original.rfind(b"IEND") // period
+    corrupted = fixit_felix._apply_periodic_corruption_transform(
+        original,
+        start_block=3,
+        end_block=end_block,
+        period=period,
+        phase=phase,
+        width=2,
+        operation="add",
+        mask_name="legacy-counter",
+    )
+
+    assert corrupted is not None
+    assert corrupted != original
+    assert not validate_png_structure(corrupted).ok
+
+    repair = fixit_felix.periodic_tail_xor_counter(
+        corrupted,
+        ["Checksum_Error_0:-Wrong Crc b'IDAT'", "CheckLength_Error_0:-No NextChunk"],
+    )
+
+    assert repair is not None
+    assert repair.data == original
+    assert repair.mechanism == "sub legacy-counter"
+    assert repair.period == period
+    assert repair.phase == phase
+    assert repair.start_block == 3
+    assert repair.end_block == end_block
+
+
+def test_periodic_repair_tries_swap_family():
+    original = _periodic_repair_fixture()
+    period = 32
+    phase = 30
+    end_block = original.rfind(b"IEND") // period
+    corrupted = fixit_felix._apply_periodic_corruption_transform(
+        original,
+        start_block=3,
+        end_block=end_block,
+        period=period,
+        phase=phase,
+        width=2,
+        operation="swap",
+        mask_name="",
+    )
+
+    assert corrupted is not None
+    assert corrupted != original
+    assert not validate_png_structure(corrupted).ok
+
+    repair = fixit_felix.periodic_tail_xor_counter(
+        corrupted,
+        ["Checksum_Error_0:-Wrong Crc b'IDAT'", "CheckLength_Error_0:-No NextChunk"],
+    )
+
+    assert repair is not None
+    assert repair.data == original
+    assert repair.mechanism == "swap periodic pair"
+    assert repair.period == period
+    assert repair.phase == phase
+    assert repair.start_block == 3
+    assert repair.end_block == end_block
+
+
+def test_periodic_repair_tries_bit_level_family():
+    original = _periodic_repair_fixture()
+    period = 32
+    phase = 30
+    end_block = original.rfind(b"IEND") // period
+    corrupted = fixit_felix._apply_periodic_corruption_transform(
+        original,
+        start_block=3,
+        end_block=end_block,
+        period=period,
+        phase=phase,
+        width=2,
+        operation="not",
+        mask_name="",
+    )
+
+    assert corrupted is not None
+    assert corrupted != original
+    assert not validate_png_structure(corrupted).ok
+
+    repair = fixit_felix.periodic_tail_xor_counter(
+        corrupted,
+        ["Checksum_Error_0:-Wrong Crc b'IDAT'", "CheckLength_Error_0:-No NextChunk"],
+    )
+
+    assert repair is not None
+    assert repair.data == original
+    assert repair.mechanism == "bit-not periodic bytes"
+    assert repair.period == period
+    assert repair.phase == phase
+    assert repair.start_block == 3
+    assert repair.end_block == end_block
 
 
 def test_automatic_repair_failure_explains_private_compression_false_positive():

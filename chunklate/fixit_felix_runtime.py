@@ -2395,11 +2395,11 @@ def maybe_offer_manual_plte_editor(runtime: AutomaticRepairRuntime, repair: Any)
     )
     runtime.candy(
         "Cowsay",
-        "If the preview makes your eyes file a complaint, say yes and I hand you the Tkinter palette controls.",
+        "If the preview is acceptable, say yes and I keep it. If your eyes file a complaint, say no and I hand you the Tkinter palette controls.",
         "com",
     )
 
-    if not runtime.question(
+    if runtime.question(
         id="PLTE Palette Editor:-Open Tkinter to tune this reconstructed PLTE?",
         idhash=("PLTE", start, end, route_label),
         skipauto=True,
@@ -2431,6 +2431,14 @@ def automatic_repair_success_message(repair: Any) -> str:
             "The IDAT stream decompresses cleanly, but some scanline filter bytes "
             "are outside PNG's 0..4 range. I am changing only those row filters to "
             "0, then recompressing IDAT."
+        )
+    if strategy.startswith("repaired periodic byte corruption") or strategy.startswith(
+        "repaired periodic two-byte counter-XOR corruption"
+    ):
+        return (
+            "This PNG has a periodic byte corruption pattern. I tried bounded periodic "
+            "XOR, arithmetic, swap, and bit-level repair families, and I am applying "
+            "this one only because the full PNG structure, CRCs, and IDAT stream validate after it."
         )
     if strategy.startswith("focused 4-byte IDAT CRC repair"):
         if "PLTE" in strategy:
@@ -3778,6 +3786,7 @@ IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_AUTO_BUDGET_CAP = 2_000_000
 IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH = 2
 IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS = 256
 IDAT_GROUNDHOGDAY_MINI_ULTIMATE_LINEFEED_LABEL = "MiniUltimateMegaSuperLineFeedBruteForce"
+AUTO_GROUNDHOGDAY_ULTIMATE_LINEFEED_ENABLED = False
 GROUNDHOGDAY_VISUAL_GUARD_DEFAULT = "balanced"
 GROUNDHOGDAY_VISUAL_GUARD_CHOICES = {"off", "structure", "balanced", "strict"}
 FINAL_INVESTIGATION_LABEL = "Punxsutawney Phil's shadow finder"
@@ -4279,6 +4288,50 @@ def _GroundHogDay_visual_score_line(score: GroundHogDayVisualScore) -> str:
     if score.reasons:
         details.append("reason=%s" % ", ".join(score.reasons[:4]))
     return "; ".join(details)
+
+
+def _GroundHogDay_candidate_before_deflate_header(candidate: Any) -> deflate_header.DeflateHeaderAnalysis | None:
+    before = getattr(candidate, "before", None)
+    header = getattr(before, "deflate_header", None)
+    return header if isinstance(header, deflate_header.DeflateHeaderAnalysis) else None
+
+
+def _GroundHogDay_candidate_after_deflate_header(candidate: Any) -> deflate_header.DeflateHeaderAnalysis | None:
+    after = getattr(candidate, "after", None)
+    header = getattr(after, "deflate_header", None)
+    if isinstance(header, deflate_header.DeflateHeaderAnalysis):
+        return header
+    data = getattr(candidate, "data", None)
+    if not isinstance(data, bytes):
+        return None
+    try:
+        _chunks, stream = idat_bruteforce._all_chunks_and_idat_stream(data)
+    except Exception:
+        return None
+    if not stream:
+        return None
+    try:
+        return deflate_header.analyze_deflate_header(stream)
+    except Exception:
+        return None
+
+
+def _GroundHogDay_candidate_changes_dynamic_to_fixed(candidate: Any) -> bool:
+    before_header = _GroundHogDay_candidate_before_deflate_header(candidate)
+    after_header = _GroundHogDay_candidate_after_deflate_header(candidate)
+    return bool(
+        before_header is not None
+        and before_header.btype == 2
+        and after_header is not None
+        and after_header.ok
+        and after_header.btype == 1
+    )
+
+
+def _GroundHogDay_candidate_is_noisy_fixed_huffman_progress(candidate: Any) -> bool:
+    if not _GroundHogDay_candidate_changes_dynamic_to_fixed(candidate):
+        return False
+    return not _GroundHogDay_visual_score(candidate, "balanced").passed
 
 
 def _GroundHogDay_visual_guard_worse(
@@ -6844,21 +6897,26 @@ def _run_idat_groundhogday_linefeed_runtime(
         if _idat_candidate_is_complete_clone(continuation):
             break
 
-    ultimate_parent_seeds = _rank_idat_seed_candidates(
-        _merge_idat_seed_candidates(tuple(continuations), seeds),
-        limit=seed_limit,
-    )
-    ultimate_result, ultimate_seeds, next_state_id = _run_idat_groundhogday_ultimate_linefeed_runtime(
-        runtime,
-        data,
-        analysis,
-        ultimate_parent_seeds,
-        next_state_id=next_state_id,
-        original_idat_count=original_idat_count,
-    )
-    if ultimate_result is not None:
-        return ultimate_result, ultimate_seeds
-    continuations.extend(ultimate_seeds)
+    if AUTO_GROUNDHOGDAY_ULTIMATE_LINEFEED_ENABLED:
+        ultimate_parent_seeds = _rank_idat_seed_candidates(
+            _merge_idat_seed_candidates(tuple(continuations), seeds),
+            limit=seed_limit,
+        )
+        ultimate_result, ultimate_seeds, next_state_id = _run_idat_groundhogday_ultimate_linefeed_runtime(
+            runtime,
+            data,
+            analysis,
+            ultimate_parent_seeds,
+            next_state_id=next_state_id,
+            original_idat_count=original_idat_count,
+        )
+        if ultimate_result is not None:
+            return ultimate_result, ultimate_seeds
+        continuations.extend(ultimate_seeds)
+    else:
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay UltimateLineFeed skipped: automatic MiniUltimate launch is disabled."
+        )
 
     top = _rank_idat_seed_candidates(tuple(continuations), limit=max(seed_limit, IDAT_DEBUG_ARTIFACT_TOP_LIMIT))
     if not top:
@@ -7092,6 +7150,8 @@ def _GroundHogDay_seed_resume_record(
 ) -> dict[str, Any]:
     after = getattr(candidate, "after", None)
     stream = getattr(candidate, "stream", b"")
+    before_header = _GroundHogDay_candidate_before_deflate_header(candidate)
+    after_header = _GroundHogDay_candidate_after_deflate_header(candidate)
     return {
         "state_id": int(getattr(candidate, "state_id", 0) or 0),
         "stream_hash": idat_bruteforce._stream_state_key(stream) if stream else "",
@@ -7104,6 +7164,10 @@ def _GroundHogDay_seed_resume_record(
         "decompressed_size": int(getattr(after, "decompressed_size", 0) or 0),
         "expected_size": int(getattr(after, "expected_size", 0) or 0),
         "error_offset": getattr(after, "error_offset", None),
+        "before_deflate_btype": getattr(before_header, "btype", None),
+        "after_deflate_btype": getattr(after_header, "btype", None),
+        "dynamic_to_fixed_huffman": _GroundHogDay_candidate_changes_dynamic_to_fixed(candidate),
+        "noisy_fixed_huffman_progress": _GroundHogDay_candidate_is_noisy_fixed_huffman_progress(candidate),
     }
 
 
@@ -7378,6 +7442,12 @@ def _run_idat_groundhogday_ultimate_linefeed_runtime(
     next_state_id: int,
     original_idat_count: int,
 ) -> tuple[tuple[bool, Any] | None, tuple[idat_bruteforce.IdatDeepBeamCandidate, ...], int]:
+    if not AUTO_GROUNDHOGDAY_ULTIMATE_LINEFEED_ENABLED:
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay UltimateLineFeed skipped: automatic MiniUltimate launch is disabled."
+        )
+        return None, (), next_state_id
+
     base_budget = _runtime_groundhogday_ultimate_linefeed_budget(runtime)
     budget = _GroundHogDay_ultimate_linefeed_auto_budget(runtime, seed_candidates, base_budget)
     if budget == 0:
@@ -7675,6 +7745,17 @@ def _GroundHogDay_resume_seed_candidates(
     best = _GroundHogDay_idat_seed_best(seeds)
     if best is None:
         return ()
+    if _GroundHogDay_candidate_is_noisy_fixed_huffman_progress(best):
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay resume ignored noisy fixed-Huffman seed state%s: original deflate block was dynamic, candidate decodes as fixed Huffman, and the visual guard rejects the rows."
+            % getattr(best, "state_id", "?")
+        )
+        runtime.candy(
+            "Cowsay",
+            "GroundHogDay has a saved seed that moves zlib by switching dynamic Huffman to fixed Huffman, but the preview is noise. I am not resuming from that false lead.",
+            "com",
+        )
+        return ()
     state = _GroundHogDay_read_resume_state(runtime)
     if _GroundHogDay_source_marker_matches(state, data):
         return seeds
@@ -7794,6 +7875,14 @@ def _GroundHogDay_ultimate_linefeed_route_open(
     runtime: Any,
     seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
 ) -> bool:
+    if not AUTO_GROUNDHOGDAY_ULTIMATE_LINEFEED_ENABLED:
+        _checkpoint_path, progress_path = _idat_groundhogday_ultimate_linefeed_paths(runtime)
+        if progress_path and Path(progress_path).is_file():
+            runtime.side_notes.append(
+                "-IDAT GroundHogDay MiniUltimate checkpoint ignored: automatic UltimateLineFeed launch is disabled."
+            )
+        return False
+
     _checkpoint_path, progress_path = _idat_groundhogday_ultimate_linefeed_paths(runtime)
     if not progress_path or not Path(progress_path).is_file():
         return False
@@ -8025,8 +8114,14 @@ def _GroundHogDay_emit_unresolved_stop(
 def _GroundHogDay_idat_seed_best(
     seed_candidates: tuple[idat_bruteforce.IdatDeepBeamCandidate, ...],
 ) -> idat_bruteforce.IdatDeepBeamCandidate | None:
-    ranked = _rank_idat_seed_candidates(seed_candidates, limit=1)
-    return ranked[0] if ranked else None
+    pool = _rank_idat_seed_candidates(seed_candidates, limit=max(1, len(seed_candidates)))
+    if not pool:
+        return None
+    _index, best = max(
+        enumerate(pool),
+        key=lambda item: (_GroundHogDay_idat_seed_progress_score(item[1]), -item[0]),
+    )
+    return best
 
 
 def _GroundHogDay_idat_seed_progress_score(
@@ -8037,6 +8132,16 @@ def _GroundHogDay_idat_seed_progress_score(
     after = getattr(candidate, "after", None)
     if after is None:
         return (-1, -1, -1, -1, -1, -1, -len(getattr(candidate, "operations", ())))
+    if _GroundHogDay_candidate_is_noisy_fixed_huffman_progress(candidate):
+        return (
+            -1,
+            0,
+            0,
+            0,
+            0,
+            int(getattr(after, "expected_size", 0) or 0),
+            -len(getattr(candidate, "operations", ())),
+        )
     return (
         1 if getattr(after, "complete", False) else 0,
         int(getattr(after, "usable_scanlines", 0) or 0),
@@ -9340,6 +9445,37 @@ def final_wrong_crc_question(
     return defer_wrong_crc(runtime, tools)
 
 
+def _is_valid_png_chunk_name(chunk: Any) -> bool:
+    if not isinstance(chunk, bytes):
+        return False
+    return len(chunk) == 4 and all(
+        (65 <= byte <= 90) or (97 <= byte <= 122)
+        for byte in chunk
+    )
+
+
+def _wrong_crc_is_probable_idat_payload_drift(
+    runtime: WrongCrcRuntime,
+    tools: relics.WrongCrcTools,
+) -> bool:
+    if tools.chunk == b"IDAT":
+        return False
+    if _is_valid_png_chunk_name(tools.chunk):
+        return False
+
+    findings = "\n".join(str(finding) for finding in runtime.pandora_box)
+    lower_findings = findings.lower()
+    wrong_next_after_idat = (
+        "wrong chunk name after chunk[b'idat']" in lower_findings
+        or 'wrong chunk name after chunk[b"idat"]' in lower_findings
+    )
+    terminal_damage = (
+        "no nextchunk" in lower_findings
+        or "iend" in lower_findings and "missing" in lower_findings
+    )
+    return wrong_next_after_idat and terminal_damage
+
+
 def apply_wrong_crc(
     runtime: WrongCrcRuntime,
     decision: fixit_felix.WrongCrcDecision,
@@ -9355,6 +9491,19 @@ def apply_wrong_crc(
 
     if tools is None:
         raise ValueError("FixItFelix wrong-CRC action needs CRC tools: %s" % decision.action)
+
+    if _wrong_crc_is_probable_idat_payload_drift(runtime, tools):
+        runtime.candy(
+            "Cowsay",
+            "That CRC belongs to bytes that already look like an IDAT payload drift, not a real PNG chunk.",
+            "bad",
+        )
+        runtime.candy(
+            "Cowsay",
+            "I am treating the cheap CRC yes as a dead end and trying the deferred IDAT/line-feed branch instead.",
+            "com",
+        )
+        return defer_wrong_crc(runtime, tools)
 
     if decision.action == "ask_easy_crc_fix":
         if tools.chunk == b"IDAT" and runtime.is_deferred_idat_crc_route(decision.finding, tools):

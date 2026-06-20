@@ -236,7 +236,7 @@ def create_palette_editor_frames(
     )
     frame_action.columnconfigure(0, weight=1)
     frame_action.rowconfigure(0, weight=1)
-    frame_action.grid(row=1, column=0, padx=10, pady=5)
+    frame_action.grid(row=1, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
 
     return PaletteEditorFrames(img=frame_img, slider=frame_slider, action=frame_action)
 
@@ -543,13 +543,13 @@ def build_palette_action_button_specs(
     cancel: Any,
 ) -> tuple[PaletteActionButtonSpec, ...]:
     return (
-        PaletteActionButtonSpec("x216_btn", "Web Safe Color", web_safe, 0, 0),
-        PaletteActionButtonSpec("random_web_btn", "Web Random", web_random, 0, 1),
-        PaletteActionButtonSpec("x11_btn", "X11 Colors", x11, 0, 2),
-        PaletteActionButtonSpec("random_classic_btn", "X11 Random", x11_random, 0, 3),
-        PaletteActionButtonSpec("random_btn", "Randomize", randomize, 1, 0),
-        PaletteActionButtonSpec("save_btn", "Save", save, 1, 2),
-        PaletteActionButtonSpec("cancel_btn", "Cancel", cancel, 1, 3),
+        PaletteActionButtonSpec("x216_btn", "Web Safe Color", web_safe, 0, 1),
+        PaletteActionButtonSpec("random_web_btn", "Web Random", web_random, 0, 2),
+        PaletteActionButtonSpec("x11_btn", "X11 Colors", x11, 0, 3),
+        PaletteActionButtonSpec("random_classic_btn", "X11 Random", x11_random, 0, 4),
+        PaletteActionButtonSpec("random_btn", "Randomize", randomize, 0, 5),
+        PaletteActionButtonSpec("save_btn", "Save", save, 0, 6),
+        PaletteActionButtonSpec("cancel_btn", "Cancel", cancel, 0, 7),
     )
 
 

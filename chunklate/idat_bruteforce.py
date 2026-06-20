@@ -63,8 +63,9 @@ KNOWN_UNIVERSE_ATOM_ESTIMATE = 10**80
 KNOWN_UNIVERSE_ATOM_ESTIMATE_LABEL = "10^80"
 ULTIMATE_LINEFEED_PROGRESS_VERSION = 2
 ULTIMATE_LINEFEED_LEGACY_PROGRESS_VERSION = 1
-ULTIMATE_LINEFEED_PARALLEL_SHARD_SIZE = 50_000
-ULTIMATE_LINEFEED_PARALLEL_SHUTDOWN_GRACE_SECONDS = 5.0
+ULTIMATE_LINEFEED_PARALLEL_SHARD_SIZE = 5_000
+ULTIMATE_LINEFEED_PARALLEL_SHUTDOWN_GRACE_SECONDS = 0.25
+ULTIMATE_LINEFEED_OPENGL_PREFILTER_ENABLED = False
 
 
 def _hidden_tmp_path(path: str) -> str:
@@ -1007,6 +1008,22 @@ _ULTIMATE_PARALLEL_WORKER_CONTEXT: dict[str, Any] = {}
 
 def _ultimate_parallel_worker_init(context: dict[str, Any]) -> None:
     global _ULTIMATE_PARALLEL_WORKER_CONTEXT
+    if multiprocessing.current_process().name != "MainProcess":
+        try:
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+        except (OSError, ValueError):
+            pass
+        if os.name == "posix":
+            try:
+                import ctypes
+
+                libc = ctypes.CDLL("libc.so.6", use_errno=True)
+                pr_set_pdeathsig = 1
+                libc.prctl(pr_set_pdeathsig, signal.SIGTERM)
+                if os.getppid() == 1:
+                    os._exit(130)
+            except Exception:
+                pass
     _ULTIMATE_PARALLEL_WORKER_CONTEXT = dict(context)
 
 
@@ -1281,6 +1298,26 @@ def _ultimate_shutdown_parallel_executor(
             if callable(join):
                 try:
                     join(max(0.0, deadline - time.monotonic()))
+                except (OSError, RuntimeError, ValueError):
+                    pass
+        for process in tuple(processes.values()):
+            is_alive = getattr(process, "is_alive", None)
+            if callable(is_alive):
+                try:
+                    if not bool(is_alive()):
+                        continue
+                except (OSError, RuntimeError, ValueError):
+                    pass
+            kill = getattr(process, "kill", None)
+            if callable(kill):
+                try:
+                    kill()
+                except (OSError, RuntimeError, ValueError):
+                    pass
+            join = getattr(process, "join", None)
+            if callable(join):
+                try:
+                    join(0.05)
                 except (OSError, RuntimeError, ValueError):
                     pass
     _ultimate_close_parallel_progress_queue(progress_queue)
@@ -5927,6 +5964,8 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
     def repeat_interrupt_warning(signum, frame):
         nonlocal repeated_interrupts
         repeated_interrupts += 1
+        request_parallel_stop()
+        raise KeyboardInterrupt
 
     def report_pending_interrupt_warning() -> None:
         nonlocal reported_repeated_interrupts
@@ -6072,7 +6111,11 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                 return True
         return False
 
-    if not terminal(best) and not fast_resume_complete:
+    if (
+        not terminal(best)
+        and not fast_resume_complete
+        and ULTIMATE_LINEFEED_OPENGL_PREFILTER_ENABLED
+    ):
         gpu_candidates, gpu_analysis_warning = _ultimate_gpu_analysis_candidates(
             chunks=chunks,
             root_stream=root_stream,
@@ -6118,6 +6161,10 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
                 )
             if terminal(best):
                 break
+    elif bool(getattr(gpu_config, "enabled", False)) and not fast_resume_complete:
+        gpu_analysis_warning = (
+            "Ultimate OpenGL pre-analysis skipped to keep checkpoint progress and Ctrl+C responsive"
+        )
 
     if progress is not None and tested > 0:
         emit_ultimate_progress(tested)
@@ -6379,10 +6426,19 @@ def probe_ultimate_mega_super_linefeed_bruteforce(
         parallel_progress_floor = ultimate_progress_attempted_floor(progress_resume)
 
         def parallel_display_total() -> int:
+            shard_attempted = 0
+            for key, shard in current_shards.items():
+                current_attempted = _ultimate_progress_shard_attempted(
+                    _normalize_ultimate_progress_shard(shard)
+                )
+                live = inflight_progress.get(key)
+                if live is not None:
+                    current_attempted = max(current_attempted, int(live[3]))
+                shard_attempted += current_attempted
             return max(
                 tested,
                 parallel_progress_floor,
-                _ultimate_progress_shards_attempted(current_shards.values()),
+                shard_attempted,
             )
 
         def remaining_budget() -> int | None:

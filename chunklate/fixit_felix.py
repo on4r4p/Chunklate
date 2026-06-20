@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from collections.abc import Mapping
 from dataclasses import dataclass
+import re
 from typing import Any
 from typing import Callable
 from typing import Literal
@@ -126,6 +127,7 @@ AutomaticRepairHandler = Literal[
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
     "ihdr_rebuild",
+    "periodic_tail_xor_counter",
     "focused_idat_crc_forge",
     "partial_idat_blackfill",
 ]
@@ -169,10 +171,12 @@ AUTOMATIC_REPAIR_ORDER: tuple[AutomaticRepairHandler, ...] = (
     "known_chunk_type_case",
     "unknown_private_critical_removal",
     "missing_chunk_data_byte",
+    "periodic_tail_xor_counter",
     "focused_idat_crc_forge",
     "partial_idat_blackfill",
 )
 IDAT_PAYLOAD_AUTOMATIC_REPAIRS: tuple[AutomaticRepairHandler, ...] = (
+    "periodic_tail_xor_counter",
     "focused_idat_crc_forge",
     "partial_idat_blackfill",
 )
@@ -383,6 +387,10 @@ AUTOMATIC_REPAIR_INTENTS: dict[
         "HermesProbe localized a deflate error near a single bad IDAT CRC. I am trying the tight 4-byte repair before the blackfill fallback.",
         (("Wrong Crc", "IDAT"),),
     ),
+    "periodic_tail_xor_counter": (
+        "The PNG damage has a periodic byte pattern. I am going to test bounded XOR, arithmetic, swap, and bit-level periodic repairs, then keep one only if the whole PNG validates.",
+        (("Wrong Crc", "IDAT"), ("No NextChunk",), ("corrupt deflate",), ("BadCodeLengthHuffmanTree",)),
+    ),
     "partial_idat_blackfill": (
         "The image data is damaged. I am going to salvage complete scanlines and rebuild the IDAT stream.",
         (
@@ -525,6 +533,18 @@ class IdatCrcForgeRepair:
     window_end: int
 
 
+@dataclass(frozen=True)
+class PeriodicByteCorruptionRepair:
+    data: bytes
+    strategy: str
+    mechanism: str
+    period: int
+    phase: int
+    width: int
+    start_block: int
+    end_block: int
+
+
 def repair_metadata_note(repair: Any) -> str:
     width = getattr(repair, "width", None)
     height = getattr(repair, "height", None)
@@ -554,6 +574,25 @@ def repair_metadata_note(repair: Any) -> str:
     synthetic_pattern = getattr(repair, "synthetic_pattern", "")
     if synthetic_pattern:
         parts.append("synthetic IDAT pattern: %s; original pixels were not recoverable" % synthetic_pattern)
+
+    mechanism = getattr(repair, "mechanism", "")
+    period = getattr(repair, "period", None)
+    phase = getattr(repair, "phase", None)
+    periodic_width = getattr(repair, "width", None)
+    start_block = getattr(repair, "start_block", None)
+    end_block = getattr(repair, "end_block", None)
+    if None not in (period, phase, periodic_width, start_block, end_block):
+        parts.append(
+            "periodic byte repair: mechanism=%s; period=%s; phase=%s; width=%s; blocks=%s..%s"
+            % (
+                mechanism or "unknown",
+                period,
+                phase,
+                periodic_width,
+                start_block,
+                max(int(start_block), int(end_block) - 1),
+            )
+        )
 
     if not parts:
         return ""
@@ -1328,6 +1367,356 @@ def ihdr_rebuild(data: bytes, findings: Iterable[object]) -> Any | None:
     return repair_ihdr(data)
 
 
+PERIODIC_TAIL_XOR_PERIOD = 32
+PERIODIC_TAIL_XOR_PHASE = 30
+PERIODIC_TAIL_XOR_WIDTH = 2
+PERIODIC_CORRUPTION_PERIODS = (32, 16, 64, 24, 8, 12, 20, 28, 40, 48, 56, 96, 128)
+PERIODIC_CORRUPTION_WIDTHS = (2, 1, 4)
+PERIODIC_CORRUPTION_START_BLOCK_LIMIT = 8
+PERIODIC_CORRUPTION_PHASE_HINT_RADIUS = 2
+
+
+def _periodic_tail_xor_counter_mask(block_delta: int) -> tuple[int, int]:
+    q, r = divmod(max(0, int(block_delta)), 256)
+    first = ((q & ~3) + (7 - (q & 3))) & 0xFF
+    second = (r ^ ((r + q + 1) & 0xFF)) & 0xFF
+    if r + q + 1 >= 256:
+        overflow_index = r - (256 - (q + 1))
+        second ^= (overflow_index ^ (overflow_index + 1)) & 0xFF
+    return first, second
+
+
+def _periodic_counter_mask(block_delta: int, width: int, mask_name: str) -> tuple[int, ...] | None:
+    block_delta = max(0, int(block_delta))
+    if mask_name == "legacy-counter":
+        if width != 2:
+            return None
+        return _periodic_tail_xor_counter_mask(block_delta)
+
+    value = block_delta
+    if mask_name.startswith("one-based-"):
+        value += 1
+
+    if mask_name.endswith("-le"):
+        return tuple((value >> (8 * lane)) & 0xFF for lane in range(width))
+    if mask_name.endswith("-be"):
+        return tuple((value >> (8 * (width - lane - 1))) & 0xFF for lane in range(width))
+    return None
+
+
+def _periodic_transform_byte(value: int, operation: str, mask: int = 0) -> int:
+    if operation == "xor":
+        return value ^ mask
+    if operation == "add":
+        return (value + mask) & 0xFF
+    if operation == "sub":
+        return (value - mask) & 0xFF
+    if operation == "not":
+        return value ^ 0xFF
+    if operation == "nibble-swap":
+        return ((value << 4) | (value >> 4)) & 0xFF
+    if operation == "rol1":
+        return ((value << 1) | (value >> 7)) & 0xFF
+    if operation == "ror1":
+        return ((value >> 1) | ((value & 1) << 7)) & 0xFF
+    raise ValueError("unknown periodic transform operation: %s" % operation)
+
+
+def _periodic_mechanisms(width: int) -> tuple[tuple[str, str, str], ...]:
+    mechanisms: list[tuple[str, str, str]] = []
+    if width == 2:
+        mechanisms.extend(
+            (
+                ("xor legacy-counter", "xor", "legacy-counter"),
+                ("sub legacy-counter", "sub", "legacy-counter"),
+                ("add legacy-counter", "add", "legacy-counter"),
+            )
+        )
+
+    for mask_name in ("block-index-le", "block-index-be", "one-based-le", "one-based-be"):
+        mechanisms.extend(
+            (
+                ("xor %s" % mask_name, "xor", mask_name),
+                ("sub %s" % mask_name, "sub", mask_name),
+                ("add %s" % mask_name, "add", mask_name),
+            )
+        )
+
+    if width == 2:
+        mechanisms.append(("swap periodic pair", "swap", ""))
+    mechanisms.extend(
+        (
+            ("bit-not periodic bytes", "not", ""),
+            ("nibble-swap periodic bytes", "nibble-swap", ""),
+            ("rotate-left periodic bytes", "rol1", ""),
+            ("rotate-right periodic bytes", "ror1", ""),
+        )
+    )
+    return tuple(mechanisms)
+
+
+def _apply_periodic_corruption_transform(
+    data: bytes,
+    *,
+    start_block: int,
+    end_block: int,
+    period: int,
+    phase: int,
+    width: int,
+    operation: str,
+    mask_name: str,
+) -> bytes | None:
+    if start_block < 0 or end_block <= start_block or period <= 0 or width <= 0:
+        return None
+    if phase < 0 or phase + width > period:
+        return None
+
+    candidate = bytearray(data)
+    for block in range(start_block, end_block):
+        offset = block * period + phase
+        if offset + width > len(candidate):
+            return None
+        if operation == "swap":
+            if width != 2:
+                return None
+            candidate[offset], candidate[offset + 1] = candidate[offset + 1], candidate[offset]
+            continue
+
+        mask = _periodic_counter_mask(block - start_block, width, mask_name) if mask_name else (0,) * width
+        if mask is None:
+            return None
+        for lane in range(width):
+            candidate[offset + lane] = _periodic_transform_byte(
+                candidate[offset + lane],
+                operation,
+                mask[lane],
+            )
+    return bytes(candidate)
+
+
+def _apply_periodic_tail_xor_counter(
+    data: bytes,
+    *,
+    start_block: int,
+    end_block: int,
+    period: int = PERIODIC_TAIL_XOR_PERIOD,
+    phase: int = PERIODIC_TAIL_XOR_PHASE,
+) -> bytes | None:
+    return _apply_periodic_corruption_transform(
+        data,
+        start_block=start_block,
+        end_block=end_block,
+        period=period,
+        phase=phase,
+        width=PERIODIC_TAIL_XOR_WIDTH,
+        operation="xor",
+        mask_name="legacy-counter",
+    )
+
+
+def _periodic_end_blocks(data: bytes, *, period: int, phase: int, width: int) -> tuple[int, ...]:
+    if period <= 0 or width <= 0 or phase < 0 or phase + width > period:
+        return ()
+    max_end = max(0, ((len(data) - width - phase) // period) + 1)
+    candidates = {max_end}
+
+    iend_offset = data.rfind(b"IEND")
+    if iend_offset >= 0:
+        candidates.add(iend_offset // period)
+        candidates.add(max(0, iend_offset // period - 1))
+
+    for tail_blocks in range(1, 5):
+        candidates.add(max(0, max_end - tail_blocks))
+
+    return tuple(sorted(candidate for candidate in candidates if candidate > 0))
+
+
+def _periodic_hint_offsets(data: bytes) -> tuple[int, ...]:
+    offsets: list[int] = []
+    validation = png.validate_png_structure(data)
+    for error in validation.errors:
+        for match in re.finditer(r"0x[0-9a-fA-F]+|\b\d{2,}\b", str(error)):
+            try:
+                offset = int(match.group(0), 0)
+            except ValueError:
+                continue
+            if 0 <= offset < len(data):
+                offsets.append(offset)
+
+    try:
+        analysis = idat.analyze_idat_stream(data)
+    except Exception:
+        analysis = None
+    if analysis is not None:
+        for value in (
+            getattr(analysis, "error_file_offset", None),
+            getattr(analysis, "error_idat_offset", None),
+            getattr(analysis, "error_offset", None),
+        ):
+            if value is None:
+                continue
+            try:
+                offset = int(value)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= offset < len(data):
+                offsets.append(offset)
+
+    try:
+        chunks = tuple(png.iter_chunks(data))
+    except Exception:
+        chunks = ()
+    for chunk in chunks:
+        if chunk.crc == chunk.computed_crc:
+            continue
+        offsets.extend(
+            (
+                int(chunk.offset),
+                int(chunk.offset) + 4,
+                int(chunk.offset) + 8,
+                int(chunk.offset) + 8 + max(0, int(chunk.length) - 1),
+                int(chunk.offset) + 8 + int(chunk.length),
+            )
+        )
+
+    unique: list[int] = []
+    seen: set[int] = set()
+    for offset in offsets:
+        if not 0 <= offset < len(data):
+            continue
+        if offset in seen:
+            continue
+        seen.add(offset)
+        unique.append(offset)
+    return tuple(unique)
+
+
+def _periodic_phase_candidates(
+    hint_offsets: tuple[int, ...],
+    *,
+    period: int,
+    width: int,
+) -> tuple[int, ...]:
+    candidates = {max(0, period - width)}
+    for offset in hint_offsets:
+        for lane in range(width):
+            phase = (offset - lane) % period
+            for delta in range(-PERIODIC_CORRUPTION_PHASE_HINT_RADIUS, PERIODIC_CORRUPTION_PHASE_HINT_RADIUS + 1):
+                candidate = phase + delta
+                if 0 <= candidate and candidate + width <= period:
+                    candidates.add(candidate)
+    return tuple(sorted(candidates))
+
+
+def _periodic_transform_specs(data: bytes) -> tuple[tuple[int, int, int, str, str, str], ...]:
+    specs: list[tuple[int, int, int, str, str, str]] = []
+    seen: set[tuple[int, int, int, str, str, str]] = set()
+    hint_offsets = _periodic_hint_offsets(data)
+
+    def add_spec(
+        period: int,
+        width: int,
+        phase: int,
+        mechanism: str,
+        operation: str,
+        mask_name: str,
+    ) -> None:
+        spec = (period, width, phase, mechanism, operation, mask_name)
+        if spec in seen:
+            return
+        seen.add(spec)
+        specs.append(spec)
+
+    for mechanism, operation, mask_name in _periodic_mechanisms(PERIODIC_TAIL_XOR_WIDTH):
+        add_spec(
+            PERIODIC_TAIL_XOR_PERIOD,
+            PERIODIC_TAIL_XOR_WIDTH,
+            PERIODIC_TAIL_XOR_PHASE,
+            mechanism,
+            operation,
+            mask_name,
+        )
+
+    for period in PERIODIC_CORRUPTION_PERIODS:
+        for width in PERIODIC_CORRUPTION_WIDTHS:
+            if width > period:
+                continue
+            for phase in _periodic_phase_candidates(hint_offsets, period=period, width=width):
+                for mechanism, operation, mask_name in _periodic_mechanisms(width):
+                    add_spec(period, width, phase, mechanism, operation, mask_name)
+    return tuple(specs)
+
+
+def _periodic_byte_repair_candidate(data: bytes) -> PeriodicByteCorruptionRepair | None:
+    if not data.startswith(png.PNG_SIGNATURE):
+        return None
+    if png.validate_png_structure(data).ok:
+        return None
+
+    for period, width, phase, mechanism, operation, mask_name in _periodic_transform_specs(data):
+        end_blocks = _periodic_end_blocks(data, period=period, phase=phase, width=width)
+        for start_block in range(0, PERIODIC_CORRUPTION_START_BLOCK_LIMIT):
+            for end_block in end_blocks:
+                repaired = _apply_periodic_corruption_transform(
+                    data,
+                    start_block=start_block,
+                    end_block=end_block,
+                    period=period,
+                    phase=phase,
+                    width=width,
+                    operation=operation,
+                    mask_name=mask_name,
+                )
+                if repaired is None:
+                    continue
+                validation = png.validate_png_structure(repaired)
+                if not validation.ok:
+                    continue
+                try:
+                    analysis = idat.analyze_idat_stream(repaired)
+                except Exception:
+                    continue
+                if not analysis.complete:
+                    continue
+                return PeriodicByteCorruptionRepair(
+                    data=repaired,
+                    strategy="repaired periodic byte corruption via %s" % mechanism,
+                    mechanism=mechanism,
+                    period=period,
+                    phase=phase,
+                    width=width,
+                    start_block=start_block,
+                    end_block=end_block,
+                )
+    return None
+
+
+def _no_next_points_at_damaged_idat_stream(data: bytes, findings: Iterable[object]) -> bool:
+    if not has_finding(findings, "No NextChunk"):
+        return False
+    try:
+        analysis = idat.analyze_idat_stream(data)
+    except Exception:
+        return False
+    return bool(
+        analysis.supported
+        and not analysis.complete
+        and analysis.status in {"corrupt_deflate", "incomplete_stream", "bad_adler"}
+    )
+
+
+def periodic_tail_xor_counter(data: bytes, findings: Iterable[object]) -> Any | None:
+    direct_idat_signal = (
+        has_finding(findings, "Wrong Crc", "IDAT")
+        or has_finding(findings, "No NextChunk", "IDAT")
+        or has_finding(findings, "corrupt deflate")
+        or has_finding(findings, "BadCodeLengthHuffmanTree")
+    )
+    if not (direct_idat_signal or _no_next_points_at_damaged_idat_stream(data, findings)):
+        return None
+    return _periodic_byte_repair_candidate(data)
+
+
 def partial_idat_blackfill(data: bytes, findings: Iterable[object]) -> Any | None:
     if not (
         has_finding(findings, "IDAT")
@@ -1568,6 +1957,8 @@ def automatic_repair(
         return missing_chunk_data_byte(data, findings)
     if name == "ihdr_rebuild":
         return ihdr_rebuild(data, findings)
+    if name == "periodic_tail_xor_counter":
+        return periodic_tail_xor_counter(data, findings)
     if name == "focused_idat_crc_forge":
         return focused_idat_crc_forge(data, findings)
     if name == "partial_idat_blackfill":

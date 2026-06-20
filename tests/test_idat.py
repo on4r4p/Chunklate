@@ -2452,6 +2452,75 @@ def test_ultimate_gpu_analysis_resumes_done_opengl_shards(monkeypatch):
     assert callbacks[-1]["backend"] == "opengl"
 
 
+def test_ultimate_linefeed_skips_opengl_prefilter_by_default(monkeypatch, tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row % 256)) for row in range(8))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    del compressed[crlf_offsets[0]]
+    corrupt = build_rgb_png(1, 8, filtered, idat_data=bytes(compressed))
+
+    def fail_gpu_prefilter(**_kwargs):
+        raise AssertionError("Ultimate OpenGL pre-analysis should be skipped by default")
+
+    monkeypatch.setattr(idat_bruteforce, "_ultimate_gpu_analysis_candidates", fail_gpu_prefilter)
+
+    probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        corrupt,
+        start_offset=idat_bruteforce.first_idat_problem_stream_offset(corrupt),
+        checkpoint_path=str(tmp_path / "_ULF.checkpoint.jsonl"),
+        progress_path=str(tmp_path / "_ULF.progress.json"),
+        max_depth=1,
+        max_offsets=16,
+        budget=50,
+        beam_width=1,
+        gpu_config=gpu_runtime.GpuRuntimeConfig(enabled=True, install_missing=False),
+    )
+
+    assert "OpenGL pre-analysis skipped" in probe.progress_warning
+
+
+def test_ultimate_shutdown_parallel_executor_kills_stubborn_process():
+    class FakeProcess:
+        def __init__(self):
+            self.terminated = False
+            self.killed = False
+            self.joins = []
+
+        def is_alive(self):
+            return not self.killed
+
+        def terminate(self):
+            self.terminated = True
+
+        def kill(self):
+            self.killed = True
+
+        def join(self, timeout=None):
+            self.joins.append(timeout)
+
+    class FakeExecutor:
+        def __init__(self):
+            self.process = FakeProcess()
+            self._processes = {1: self.process}
+            self.shutdown_calls = []
+
+        def shutdown(self, **kwargs):
+            self.shutdown_calls.append(kwargs)
+
+    executor = FakeExecutor()
+
+    idat_bruteforce._ultimate_shutdown_parallel_executor(executor, grace_seconds=0.0)
+
+    assert executor.shutdown_calls == [{"wait": False, "cancel_futures": True}]
+    assert executor.process.terminated is True
+    assert executor.process.killed is True
+    assert executor.process.joins
+
+
 def test_ultimate_linefeed_bruteforce_resumes_progress_checkpoint(tmp_path):
     filtered = b"".join(b"\x00" + bytes((13, 10, row % 256)) for row in range(120))
     compressed = bytearray(zlib.compress(filtered, level=0))

@@ -11,10 +11,14 @@ class ChunkOrderContext:
     excluded_chunks: tuple[bytes, ...]
 
 
-def as_chunk_bytes(chunk: bytes | str) -> bytes:
+def as_chunk_bytes(chunk: Any) -> bytes:
     if isinstance(chunk, bytes):
         return chunk
-    return chunk.encode(errors="ignore")
+    if isinstance(chunk, str):
+        return chunk.encode(errors="ignore")
+    if isinstance(chunk, bool):
+        raise AttributeError("chunk name must be bytes or text, not bool")
+    return str(chunk).encode(errors="ignore")
 
 
 def decode_chunk_name(chunk: bytes) -> str:

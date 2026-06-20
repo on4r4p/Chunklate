@@ -1724,6 +1724,27 @@ def _apply_deferred_after_weak_clone(namespace: dict[str, Any]) -> bool:
     return True
 
 
+def _try_deferred_linefeed_before_unimplemented(namespace: dict[str, Any]) -> bool:
+    if not namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR"):
+        maybe_seed_internal_idat_linefeed_repair(namespace)
+    if not namespace.get("DEFERRED_LINEFEED_SIGNATURE_REPAIR"):
+        return False
+
+    namespace["DEFERRED_REPAIR_STILL_REQUIRED"] = True
+    namespace.setdefault("SideNotes", []).append(
+        "-FindMagic: deferred line-feed repair retried before declaring the remaining findings unimplemented."
+    )
+    candy = namespace.get("Candy")
+    if callable(candy):
+        candy(
+            "Cowsay",
+            "The cheap CRC path still leaves the IDAT structure broken. I am trying the deferred line-feed branch before giving up.",
+            "com",
+        )
+    namespace.get("Apply_Deferred_FindMagic_Repair", lambda: None)()
+    return True
+
+
 def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIterationState:
     clear_screen_state = run_main_clear_screen(
         build_clear_screen_runtime_from_namespace(namespace),
@@ -1801,6 +1822,18 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
             namespace["PRINT"]("-No new clone produced, stopping main loop.")
             return MainLoopIterationState(should_return=True)
         if has_unresolved_findings(namespace):
+            if _try_deferred_linefeed_before_unimplemented(namespace):
+                clone_progress = (
+                    namespace["SAVE_COUNT"] != save_count_before
+                    or bool(namespace.get("CLONE_HANDOFF_PENDING"))
+                )
+                if clone_progress:
+                    return MainLoopIterationState()
+                namespace["PRINT"](
+                    "-Deferred line-feed route produced diagnostics only; stopping this sample pass."
+                )
+                namespace["PRINT"]("-No new clone produced, stopping main loop.")
+                return MainLoopIterationState(should_return=True)
             if _try_unresolved_idat_deflate_route(namespace):
                 if namespace.pop("IDAT_DEFLATE_ROUTE_CONSUMED", False):
                     namespace["PRINT"](

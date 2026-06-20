@@ -2358,6 +2358,30 @@ def test_run_main_loop_once_keeps_unresolved_file_closed_when_no_clone_written()
     assert not any(call[0] == "chunk_by_chunk" for call in calls)
 
 
+def test_deferred_linefeed_runs_before_unimplemented_message():
+    calls = []
+    namespace = chunk_namespace(
+        PandoraBox={"CheckChunkOrder_Error_0:-Critical Chunk b'IEND' is Missing": {}},
+        DEFERRED_LINEFEED_SIGNATURE_REPAIR={"data_bytes": b"png"},
+        SideNotes=[],
+        SAVE_COUNT=0,
+        CLONE_HANDOFF_PENDING=False,
+        Candy=lambda *args: calls.append(("candy", args)),
+        PRINT=lambda message: calls.append(("emit", message)),
+        Apply_Deferred_FindMagic_Repair=lambda: calls.append(("apply_deferred",)),
+    )
+
+    result = main_runtime._try_deferred_linefeed_before_unimplemented(namespace)
+
+    assert result is True
+    assert ("apply_deferred",) in calls
+    assert (
+        "-FindMagic: deferred line-feed repair retried before declaring the remaining findings unimplemented."
+        in namespace["SideNotes"]
+    )
+    assert ("emit", "-No repair route implemented for remaining findings.") not in calls
+
+
 def test_run_main_loop_once_routes_deferred_idat_crc_to_deflate_probe(monkeypatch):
     calls = []
     ihdr = struct.pack("!IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
@@ -3663,6 +3687,10 @@ def main():
         (
             "main loop deferred survives invalid NearbyChunk clone",
             test_run_main_loop_once_applies_deferred_after_invalid_nearby_clone,
+        ),
+        (
+            "main loop deferred before unimplemented",
+            test_deferred_linefeed_runs_before_unimplemented_message,
         ),
         (
             "main loop deferred clears after valid clone",

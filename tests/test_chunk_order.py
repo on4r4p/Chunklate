@@ -14,6 +14,7 @@ from chunklate import nearby
 def test_as_chunk_bytes_preserves_bytes_and_encodes_text():
     assert chunk_order.as_chunk_bytes(b"IHDR") == b"IHDR"
     assert chunk_order.as_chunk_bytes("IHDR") == b"IHDR"
+    assert chunk_order.as_chunk_bytes(1234) == b"1234"
 
 
 def test_chunk_name_decoding_helpers_preserve_legacy_decode_errors_ignore():

@@ -386,7 +386,7 @@ def test_apply_repair_offers_tkinter_controls_after_empty_plte_preview():
         side_notes=side_notes,
         candy=lambda *args: calls.append(("candy", args)),
         write_clone=lambda *args: calls.append(("write", args)),
-        question=lambda **kwargs: calls.append(("question", kwargs)) or True,
+        question=lambda **kwargs: (calls.append(("question", kwargs)), False)[1],
         preview_repair_image=lambda *args: calls.append(("preview", args)),
         tk_manual_plte=lambda *args: calls.append(("manual", args)),
         data_hex=original.hex(),
@@ -453,7 +453,7 @@ def test_apply_repair_offers_tkinter_controls_after_malformed_plte_preview():
         side_notes=[],
         candy=lambda *args: calls.append(("candy", args)),
         write_clone=lambda *args: calls.append(("write", args)),
-        question=lambda **kwargs: calls.append(("question", kwargs)) or True,
+        question=lambda **kwargs: (calls.append(("question", kwargs)), False)[1],
         preview_repair_image=lambda *args: calls.append(("preview", args)),
         tk_manual_plte=lambda *args: calls.append(("manual", args)),
         data_hex=original.hex(),
@@ -492,7 +492,7 @@ def test_apply_repair_offers_tkinter_controls_after_oversized_black_plte_preview
         side_notes=[],
         candy=lambda *args: calls.append(("candy", args)),
         write_clone=lambda *args: calls.append(("write", args)),
-        question=lambda **kwargs: calls.append(("question", kwargs)) or True,
+        question=lambda **kwargs: (calls.append(("question", kwargs)), False)[1],
         preview_repair_image=lambda *args: calls.append(("preview", args)),
         tk_manual_plte=lambda *args: calls.append(("manual", args)),
         data_hex=original.hex(),
@@ -2355,6 +2355,119 @@ def idat_progress_seed(
     )
 
 
+def groundhogday_btype_seed(
+    *,
+    state_id,
+    before_btype,
+    after_btype,
+    usable_scanlines,
+    complete_scanlines,
+    decompressed_size,
+):
+    before = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=850,
+        expected_size=3740850,
+        decompressed_size=0,
+        usable_scanlines=0,
+        complete_scanlines=0,
+        error_offset=110,
+        deflate_header=fixit_felix_runtime.deflate_header.DeflateHeaderAnalysis(
+            status="invalid_huffman_lengths" if before_btype == 2 else "ok",
+            btype=before_btype,
+        ),
+    )
+    after = idat.IdatStreamAnalysis(
+        supported=True,
+        complete=False,
+        status="corrupt_deflate",
+        height=850,
+        expected_size=3740850,
+        decompressed_size=decompressed_size,
+        usable_scanlines=usable_scanlines,
+        complete_scanlines=complete_scanlines,
+        scanline_size=4401,
+        error_offset=69632,
+        recovered_scanlines=b"\x00" * (max(0, usable_scanlines) * 4401),
+        deflate_header=fixit_felix_runtime.deflate_header.DeflateHeaderAnalysis(
+            status="ok",
+            btype=after_btype,
+        ),
+    )
+    stream = b"stream-%d" % state_id
+    return idat_bruteforce.IdatDeepBeamCandidate(
+        data=b"png-%d" % state_id,
+        stream=stream,
+        operations=(
+            idat_bruteforce.IdatDeepBeamOperation(
+                "test-groundhogday",
+                state_id,
+                stream[:1],
+                stream[-1:],
+            ),
+        ),
+        before=before,
+        after=after,
+        state_id=state_id,
+        parent_id=0,
+        source_offsets=(state_id,),
+        score=(state_id,),
+    )
+
+
+def test_groundhogday_progress_score_penalizes_noisy_dynamic_to_fixed_seed():
+    old_seed = groundhogday_btype_seed(
+        state_id=1,
+        before_btype=2,
+        after_btype=2,
+        usable_scanlines=0,
+        complete_scanlines=0,
+        decompressed_size=0,
+    )
+    noisy_fixed_seed = groundhogday_btype_seed(
+        state_id=2,
+        before_btype=2,
+        after_btype=1,
+        usable_scanlines=49,
+        complete_scanlines=179,
+        decompressed_size=787943,
+    )
+
+    assert fixit_felix_runtime._GroundHogDay_candidate_changes_dynamic_to_fixed(noisy_fixed_seed)
+    assert fixit_felix_runtime._GroundHogDay_candidate_is_noisy_fixed_huffman_progress(noisy_fixed_seed)
+    assert not fixit_felix_runtime._GroundHogDay_idat_seed_candidates_make_progress(
+        (noisy_fixed_seed,),
+        (old_seed,),
+    )
+
+
+def test_groundhogday_progress_score_accepts_dynamic_seed_without_fixed_huffman_flip():
+    old_seed = groundhogday_btype_seed(
+        state_id=1,
+        before_btype=2,
+        after_btype=2,
+        usable_scanlines=0,
+        complete_scanlines=0,
+        decompressed_size=0,
+    )
+    dynamic_seed = groundhogday_btype_seed(
+        state_id=2,
+        before_btype=2,
+        after_btype=2,
+        usable_scanlines=49,
+        complete_scanlines=179,
+        decompressed_size=787943,
+    )
+
+    assert not fixit_felix_runtime._GroundHogDay_candidate_changes_dynamic_to_fixed(dynamic_seed)
+    assert fixit_felix_runtime._GroundHogDay_idat_seed_candidates_make_progress(
+        (dynamic_seed,),
+        (old_seed,),
+    )
+
+
 def test_apply_wrong_crc_easy_answer_saves_clone():
     calls = []
     finding = "Checksum_Error_0:Wrong Crc b'gAMA'"
@@ -2402,6 +2515,46 @@ def test_apply_wrong_crc_easy_answer_saves_clone():
         ),
         {},
     )
+
+
+def test_apply_wrong_crc_easy_answer_defers_invalid_chunk_inside_idat_drift():
+    calls = []
+    finding = "Checksum_Error_1:Wrong Crc b'XBt\\xd3'"
+    chkd = "XBt_Tool_"
+    runtime = wrong_crc_runtime(
+        calls,
+        answers=(True,),
+        pandora_box={
+            "CheckChunkName_Error_0:-Found Next Chunk[b'XBt\\xd3'] has Wrong Chunk name after Chunk[b'IDAT']": {},
+            "CheckLength_Error_0:-No NextChunk": {},
+            finding: {chkd + "0": "fixed-crc-data"},
+        },
+    )
+
+    result = fixit_felix_runtime.apply_wrong_crc(
+        runtime,
+        fixit_felix.WrongCrcDecision("ask_easy_crc_fix", finding, 2),
+        chkd,
+        wrong_crc_tools(chunk=b"XBt\xd3"),
+    )
+
+    assert result == (False, None)
+    assert not any(call[0] == "question" for call in calls)
+    assert not any(call[0] == "save_clone" for call in calls)
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "I am treating the cheap CRC yes as a dead end and trying the deferred IDAT/line-feed branch instead.",
+            "com",
+        ),
+        {},
+    ) in calls
+    assert calls[-3:] == [
+        ("chunk_story", ("add", b"XBt\xd3", 33, 109, 13), {}),
+        ("set_old_bad_crc", ("old-crc",), {}),
+        ("set_skip_bad_crc", (True,), {}),
+    ]
 
 
 def test_apply_wrong_crc_easy_decline_then_final_decline_keeps_skip_none_and_saves():
@@ -6695,7 +6848,7 @@ def test_GroundHogDay_resume_uses_seed_pool_limit(monkeypatch):
     assert {seed.state_id for seed in seeds} == {57, 36}
 
 
-def test_GroundHogDay_mini_ultimate_auto_budget_keeps_route_open(tmp_path, monkeypatch):
+def test_GroundHogDay_mini_ultimate_checkpoint_is_ignored_when_disabled(tmp_path, monkeypatch):
     data = bytes.fromhex(one_byte_corrupt_deflate_png_hex())
     seed = idat_progress_seed(
         data,
@@ -6757,13 +6910,12 @@ def test_GroundHogDay_mini_ultimate_auto_budget_keeps_route_open(tmp_path, monke
         (seed,),
     )
 
-    assert open_route is True
-    assert any("next budget=100000" in note for note in side_notes)
-    assert any("attempted=50000; budget=100000" in note for note in side_notes)
-    assert any("raising that checkpointed budget to 100000" in call[0][1] for call in calls)
+    assert open_route is False
+    assert calls == []
+    assert any("checkpoint ignored" in note for note in side_notes)
 
 
-def test_GroundHogDay_mini_ultimate_prioritizes_matching_resume_seed(tmp_path, monkeypatch):
+def test_GroundHogDay_mini_ultimate_resume_seed_is_ignored_when_disabled(tmp_path, monkeypatch):
     data = bytes.fromhex(one_byte_corrupt_deflate_png_hex())
     analysis = idat.analyze_idat_stream(data)
     best_seed = idat_progress_seed(
@@ -6865,8 +7017,8 @@ def test_GroundHogDay_mini_ultimate_prioritizes_matching_resume_seed(tmp_path, m
     )
 
     assert seeds == ()
-    assert probed == [resume_seed.data]
-    assert any("resume priority: 1 seed" in note for note in side_notes)
+    assert probed == []
+    assert any("UltimateLineFeed skipped" in note for note in side_notes)
 
 
 def test_GroundHogDay_linefeed_route_promotes_insert_candidate(monkeypatch):
@@ -6973,7 +7125,7 @@ def test_GroundHogDay_linefeed_route_promotes_insert_candidate(monkeypatch):
     assert any("GroundHogDay linefeed route" in note for note in runtime.side_notes)
 
 
-def test_GroundHogDay_linefeed_route_promotes_ultimate_candidate(monkeypatch):
+def test_GroundHogDay_linefeed_route_does_not_launch_ultimate(monkeypatch):
     data = valid_png_bytes()
     initial = idat_progress_seed(
         data,
@@ -7047,24 +7199,7 @@ def test_GroundHogDay_linefeed_route_promotes_ultimate_candidate(monkeypatch):
 
     def fake_ultimate(_data, **kwargs):
         calls.append(kwargs)
-        return idat_bruteforce.UltimateLinefeedProbeResult(
-            before=initial.after,
-            best=ultimate_candidate,
-            target_adler=None,
-            start_offset=kwargs.get("start_offset"),
-            reached_depth=1,
-            max_depth=kwargs.get("max_depth"),
-            suspect_offsets=(5,),
-            tested_candidates=7,
-            state_count=2,
-            visited_count=2,
-            pruned_candidates=0,
-            resumed_states=0,
-            checkpoint_path=kwargs.get("checkpoint_path", ""),
-            budget_exhausted=False,
-            top_candidates=(ultimate_candidate,),
-            progress_path=kwargs.get("progress_path", ""),
-        )
+        raise AssertionError("GroundHogDay should not launch UltimateLineFeed automatically")
 
     monkeypatch.setattr(idat_bruteforce, "probe_ultimate_mega_super_linefeed_bruteforce", fake_ultimate)
     monkeypatch.setattr(fixit_felix_runtime, "_write_idat_deep_beam_debug_artifacts", lambda *_args, **_kwargs: ())
@@ -7101,15 +7236,10 @@ def test_GroundHogDay_linefeed_route_promotes_ultimate_candidate(monkeypatch):
     )
 
     assert result is None
-    assert len(seeds) == 1
-    assert seeds[0].data == candidate_data
-    assert seeds[0].parent_id == 8
-    assert seeds[0].operations[-1].kind == "groundhogday-linefeed-ultimate-insert-cr-before-lf"
-    assert calls[0]["budget"] == 1234
-    assert calls[0]["max_depth"] == 2
-    assert calls[0]["max_offsets"] == 64
-    assert any("UltimateLineFeed" in note for note in runtime.side_notes)
-    assert ("Title", "IDAT MiniUltimateMegaSuperLineFeedBruteForce") in candy_calls
+    assert seeds == ()
+    assert calls == []
+    assert any("UltimateLineFeed skipped" in note for note in runtime.side_notes)
+    assert ("Title", "IDAT MiniUltimateMegaSuperLineFeedBruteForce") not in candy_calls
 
 
 def test_GroundHogDay_seed_routes_checkpoint_progress_then_stop_on_plateau(monkeypatch, tmp_path):
@@ -10706,6 +10836,10 @@ def main():
             test_repeated_deferred_repair_message_templates_are_adaptable,
         ),
         ("Apply wrong CRC easy answer saves clone", test_apply_wrong_crc_easy_answer_saves_clone),
+        (
+            "Apply wrong CRC defers invalid IDAT drift chunk",
+            test_apply_wrong_crc_easy_answer_defers_invalid_chunk_inside_idat_drift,
+        ),
         (
             "Apply wrong CRC easy decline keeps skip none",
             test_apply_wrong_crc_easy_decline_then_final_decline_keeps_skip_none_and_saves,

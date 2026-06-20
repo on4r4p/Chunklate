@@ -477,7 +477,14 @@ def test_create_palette_editor_frames_preserves_legacy_frame_wiring():
 
     assert frames.action.parent == "window"
     assert frames.action.kwargs == {"width": 2000, "height": 50, "bg": "orange"}
-    assert frames.action.grid_call == {"row": 1, "column": 0, "padx": 10, "pady": 5}
+    assert frames.action.grid_call == {
+        "row": 1,
+        "column": 0,
+        "columnspan": 2,
+        "padx": 10,
+        "pady": 5,
+        "sticky": "ew",
+    }
     assert frames.action.columnconfigure_calls == [((0,), {"weight": 1})]
     assert frames.action.rowconfigure_calls == [((0,), {"weight": 1})]
 
@@ -720,19 +727,19 @@ def test_build_palette_action_button_specs_preserves_legacy_actions():
     specs = palette_ui.build_palette_action_button_specs(**callbacks)
 
     assert specs == (
-        palette_ui.PaletteActionButtonSpec("x216_btn", "Web Safe Color", callbacks["web_safe"], 0, 0),
-        palette_ui.PaletteActionButtonSpec("random_web_btn", "Web Random", callbacks["web_random"], 0, 1),
-        palette_ui.PaletteActionButtonSpec("x11_btn", "X11 Colors", callbacks["x11"], 0, 2),
+        palette_ui.PaletteActionButtonSpec("x216_btn", "Web Safe Color", callbacks["web_safe"], 0, 1),
+        palette_ui.PaletteActionButtonSpec("random_web_btn", "Web Random", callbacks["web_random"], 0, 2),
+        palette_ui.PaletteActionButtonSpec("x11_btn", "X11 Colors", callbacks["x11"], 0, 3),
         palette_ui.PaletteActionButtonSpec(
             "random_classic_btn",
             "X11 Random",
             callbacks["x11_random"],
             0,
-            3,
+            4,
         ),
-        palette_ui.PaletteActionButtonSpec("random_btn", "Randomize", callbacks["randomize"], 1, 0),
-        palette_ui.PaletteActionButtonSpec("save_btn", "Save", callbacks["save"], 1, 2),
-        palette_ui.PaletteActionButtonSpec("cancel_btn", "Cancel", callbacks["cancel"], 1, 3),
+        palette_ui.PaletteActionButtonSpec("random_btn", "Randomize", callbacks["randomize"], 0, 5),
+        palette_ui.PaletteActionButtonSpec("save_btn", "Save", callbacks["save"], 0, 6),
+        palette_ui.PaletteActionButtonSpec("cancel_btn", "Cancel", callbacks["cancel"], 0, 7),
     )
 
 
