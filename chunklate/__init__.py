@@ -1,6 +1,6 @@
 """Core helpers for Chunklate."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from . import (
     bruteforce_result,
