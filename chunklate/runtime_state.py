@@ -136,6 +136,7 @@ def main_loop_history_reset_values() -> dict[str, object]:
         "LAST_CLONE_VALIDATION": None,
         "DEFERRED_REPAIR_STILL_REQUIRED": False,
         "DEFERRED_INTERNAL_LINEFEED_CHECKED": False,
+        "ULTIMATE_FINAL_CLONE_PENDING": False,
     }
 
 

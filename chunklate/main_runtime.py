@@ -1603,9 +1603,14 @@ def _remaining_findings_are_idat_wrong_crc(namespace: dict[str, Any]) -> bool:
     return True
 
 
-def _try_unresolved_idat_deflate_route(namespace: dict[str, Any]) -> bool:
+def _try_unresolved_idat_deflate_route(
+    namespace: dict[str, Any],
+    *,
+    force: bool = False,
+    force_groundhogday_artifacts: bool = False,
+) -> bool:
     namespace.pop("IDAT_DEFLATE_ROUTE_CONSUMED", None)
-    if not _remaining_findings_are_idat_wrong_crc(namespace):
+    if not force and not _remaining_findings_are_idat_wrong_crc(namespace):
         return False
     data_hex = namespace.get("DATAX")
     if not isinstance(data_hex, str) or not data_hex:
@@ -1622,10 +1627,11 @@ def _try_unresolved_idat_deflate_route(namespace: dict[str, Any]) -> bool:
     from . import fixit_felix_runtime, idat
 
     analysis = idat.analyze_idat_stream(data)
-    if analysis.complete or not analysis.supported:
-        return False
-    if analysis.status not in ("corrupt_deflate", "incomplete_stream", "bad_adler"):
-        return False
+    if not force_groundhogday_artifacts:
+        if analysis.complete or not analysis.supported:
+            return False
+        if analysis.status not in ("corrupt_deflate", "incomplete_stream", "bad_adler"):
+            return False
 
     candy = namespace.get("Candy")
     emit = namespace.get("PRINT")
@@ -1679,6 +1685,8 @@ def _try_unresolved_idat_deflate_route(namespace: dict[str, Any]) -> bool:
         ultimate_linefeed_workers=namespace.get("ULTIMATE_LINEFEED_WORKERS"),
         ultimate_linefeed_max_depth=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH"),
         ultimate_linefeed_max_offsets=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS"),
+        force_groundhogday_artifact_seeds=force_groundhogday_artifacts,
+        ultimate_groundhogday_selection=namespace.get("ULTIMATE_GROUNDHOGDAY_SELECTION"),
         set_idat_deflate_route_consumed=lambda value: namespace.__setitem__(
             "IDAT_DEFLATE_ROUTE_CONSUMED",
             value,
@@ -1695,6 +1703,22 @@ def _last_clone_is_valid_final(namespace: dict[str, Any]) -> bool:
     if not isinstance(validation, dict):
         return True
     return bool(validation.get("png_ok") and validation.get("idat_complete"))
+
+
+def _stop_after_ultimate_final_clone(namespace: dict[str, Any]) -> bool:
+    if not namespace.pop("ULTIMATE_FINAL_CLONE_PENDING", False):
+        return False
+    validation = namespace.get("LAST_CLONE_VALIDATION")
+    if not isinstance(validation, dict) or not (
+        validation.get("png_ok") and validation.get("idat_complete")
+    ):
+        return False
+    namespace["PandoraBox"] = {}
+    namespace.setdefault("SideNotes", []).append(
+        "-UltimateMegaSuperLineFeedBruteForce: final clone validated in-process; clone relaunch skipped."
+    )
+    namespace.get("Open_Current_Final_Image_If_Valid", lambda: None)()
+    return True
 
 
 def _apply_deferred_after_weak_clone(namespace: dict[str, Any]) -> bool:
@@ -1778,6 +1802,8 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
         direct_resume = namespace.get("Run_Ultimate_Linefeed_Direct_Resume", lambda: None)
         direct_resume_result = direct_resume()
         if direct_resume_result is not None:
+            if _stop_after_ultimate_final_clone(namespace):
+                return MainLoopIterationState(should_return=True)
             return MainLoopIterationState()
     if namespace.get("SMASH_BRUTE_BRAWL_RESUME_DECISION") == "resume":
         direct_resume = namespace.get("Run_Smash_Brute_Brawl_Direct_Resume", lambda: None)
@@ -1814,7 +1840,32 @@ def run_main_loop_once_from_namespace(namespace: dict[str, Any]) -> MainLoopIter
         namespace["SAVE_COUNT"] != save_count_before
         or bool(namespace.get("CLONE_HANDOFF_PENDING"))
     )
+    if clone_progress and _stop_after_ultimate_final_clone(namespace):
+        return MainLoopIterationState(should_return=True)
     if not clone_progress:
+        if namespace.pop("ULTIMATE_GROUNDHOGDAY_RETRY_REQUESTED", False):
+            if _try_unresolved_idat_deflate_route(
+                namespace,
+                force=True,
+                force_groundhogday_artifacts=True,
+            ):
+                if namespace.pop("IDAT_DEFLATE_ROUTE_CONSUMED", False):
+                    namespace["PRINT"](
+                        "-Ultimate GroundHogDay route consumed without clone; stopping this sample pass."
+                    )
+                    namespace["PRINT"]("-No new clone produced, stopping main loop.")
+                    return MainLoopIterationState(should_return=True)
+                clone_progress = (
+                    namespace["SAVE_COUNT"] != save_count_before
+                    or bool(namespace.get("CLONE_HANDOFF_PENDING"))
+                )
+                if clone_progress:
+                    return MainLoopIterationState()
+                namespace["PRINT"](
+                    "-Ultimate GroundHogDay route produced diagnostics only; stopping this sample pass."
+                )
+                namespace["PRINT"]("-No new clone produced, stopping main loop.")
+                return MainLoopIterationState(should_return=True)
         if namespace.pop("IDAT_DEFLATE_ROUTE_CONSUMED", False):
             namespace["PRINT"](
                 "-IDAT deflate route consumed without clone; stopping this sample pass."

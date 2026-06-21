@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import json
 import os
 import time
+from types import SimpleNamespace
 import uuid
 from typing import Any
 
@@ -13,6 +14,7 @@ from . import idat
 from . import idat_bruteforce
 from . import platform_runtime
 from . import ultimate_reference_ui
+from . import ultimate_visual_ui
 from . import ultimate_opengl_backend
 from . import chunk_scanner
 from .png import (
@@ -33,6 +35,16 @@ _ULTIMATE_FLUSH_RUNTIME_STATE: dict[int, dict[str, Any]] = {}
 _ULTIMATE_INTERRUPT_WARNING_STATE: dict[int, dict[str, Any]] = {}
 SUPER_MEGA_LINEFEED_FORCE = "SuperMegaLineFeedForceOfDeath"
 ULTIMATE_LINEFEED_FORCE = "UltimateMegaSuperLineFeedBruteForce"
+ULTIMATE_LINEFEED_BUDGET_LADDER = (
+    "quick",
+    "normal",
+    "deep",
+    "very_deep",
+    "deeeeeeep",
+    "abyssal",
+    "inception",
+    "unbounded",
+)
 
 
 def _hidden_tmp_path(path: str) -> str:
@@ -107,14 +119,23 @@ class FindMagicRuntime:
     )
     gpu_config: gpu_runtime.GpuRuntimeConfig = gpu_runtime.GpuRuntimeConfig()
     ultimate_candidate_preview: LegacyCall | None = None
+    ultimate_visual_candidate_selector: LegacyCall = (
+        lambda *args, **kwargs: ultimate_visual_ui.open_ultimate_visual_candidate_selector(
+            *args,
+            **kwargs,
+        )
+    )
+    request_ultimate_groundhogday_retry: LegacyCall = lambda *args, **kwargs: None
     ultimate_interrupt_cleanup: LegacyCall = lambda *args, **kwargs: None
     defer_linefeed_signature_repair: LegacyCall = lambda *args, **kwargs: False
+    mark_ultimate_final_clone: LegacyCall = lambda *args, **kwargs: None
 
 
 @dataclass(frozen=True)
 class LinefeedAlternative:
     repair: Any
     summary: str
+    write_clone: bool = True
 
 
 @dataclass(frozen=True)
@@ -207,6 +228,22 @@ def _linefeed_reused_row_count(strategy: str) -> int:
     return int("".join(digits))
 
 
+def _linefeed_skipped_raw_byte_count(strategy: str) -> int:
+    marker = "skipped "
+    suffix = " raw byte"
+    if marker not in strategy or suffix not in strategy:
+        return 0
+    tail = strategy.split(marker, 1)[1]
+    digits = []
+    for char in tail:
+        if not char.isdigit():
+            break
+        digits.append(char)
+    if not digits:
+        return 0
+    return int("".join(digits))
+
+
 def _linefeed_marker_chain_structural_repair(marker_repair):
     analysis = idat.analyze_idat_stream(
         marker_repair.data,
@@ -246,12 +283,14 @@ def _linefeed_marker_chain_visual_repair(marker_repair):
 
 def _linefeed_marker_chain_score(marker_repair, analysis, repair) -> tuple[int, ...]:
     reused_rows = _linefeed_reused_row_count(getattr(repair, "strategy", ""))
+    skipped_raw_bytes = _linefeed_skipped_raw_byte_count(getattr(repair, "strategy", ""))
     extra_bytes = max(0, int(analysis.decompressed_size) - int(analysis.expected_size))
     return (
         1 if analysis.adler_status == "adler_match" else 0,
         int(repair.recovered_scanlines),
         1 if analysis.complete else 0,
         -reused_rows,
+        -skipped_raw_bytes,
         -extra_bytes,
         -int(marker_repair.changed_chunk_count),
         len(marker_repair.preserved_chunks),
@@ -359,6 +398,7 @@ def _linefeed_marker_chain_alternative(
         return LinefeedAlternative(
             alternative.repair,
             "\n".join((base_summary, alternative.summary)),
+            write_clone=alternative.write_clone,
         )
     return LinefeedAlternative(
         visual_repair,
@@ -447,16 +487,17 @@ def _should_offer_linefeed_supermega_probe(salvage) -> bool:
     return "reused previous row" in salvage.strategy
 
 
-def _preview_ultimate_linefeed_candidate(runtime: FindMagicRuntime, repair) -> None:
+def _preview_ultimate_linefeed_candidate(runtime: FindMagicRuntime, repair) -> str:
     _cowsay(
         runtime,
         "Ultimate preview: this is the best visible reconstruction before I open the forbidden line-feed combinatorics vault no jutsu.",
         "com",
     )
-    runtime.preview_image(
+    preview = runtime.preview_image(
         repair.data,
         "UltimateMegaSuperLineFeedBruteForce_Before",
     )
+    return str(getattr(preview, "path", "") or "")
 
 
 def _linefeed_repair_is_stronger(current_repair, repair, candidate) -> bool:
@@ -700,6 +741,26 @@ def _prime_ultimate_linefeed_minibar(runtime: FindMagicRuntime, budget: int | No
         return
 
 
+def _resume_ultimate_linefeed_minibar(
+    runtime: FindMagicRuntime,
+    budget: int | None,
+    tested: int,
+) -> None:
+    total = _ultimate_linefeed_progress_total(budget)
+    try:
+        current = min(total, max(0, int(tested)))
+    except (TypeError, ValueError):
+        current = 0
+    try:
+        finish_progress_line = getattr(runtime, "finish_progress_line", None)
+        if callable(finish_progress_line):
+            finish_progress_line(clear=True)
+        runtime.loadingbar(total, len(str(total)), 0, True)
+        runtime.loadingbar(total, len(str(total)), current, False)
+    except (OSError, IndexError):
+        return
+
+
 def _ultimate_linefeed_interrupt_flush_progress(runtime: FindMagicRuntime):
     state = _ULTIMATE_FLUSH_RUNTIME_STATE.setdefault(
         id(runtime),
@@ -776,6 +837,7 @@ def _ultimate_linefeed_interrupt_repeat_warning(runtime: FindMagicRuntime):
 
 def _ultimate_linefeed_resume_message(progress_path: str, checkpoint_path: str) -> str:
     phase = ""
+    completion_reason = ""
     version = 1
     tested = 0
     attempted = 0
@@ -787,6 +849,7 @@ def _ultimate_linefeed_resume_message(progress_path: str, checkpoint_path: str) 
                 record = json.load(file)
             if isinstance(record, dict):
                 phase = str(record.get("phase", "")).strip().lower()
+                completion_reason = str(record.get("completion_reason", "") or "")
                 version = int(record.get("version", 1) or 1)
                 tested = int(record.get("tested_candidates", 0) or 0)
                 shards = tuple(
@@ -820,8 +883,10 @@ def _ultimate_linefeed_resume_message(progress_path: str, checkpoint_path: str) 
                 % (attempted, tested, pending_shards, workers)
             )
         return "Resume checkpoint found. I am jumping back into the exhaustive vault from the saved cursor."
-    if phase == "complete":
+    if phase == "complete" and completion_reason in ("target_adler_match", "search_exhausted"):
         return "Resume checkpoint found. The previous Ultimate run already marked this search complete."
+    if phase == "complete":
+        return "Resume checkpoint found with an old complete marker. I will verify it from checkpoint candidates instead of trusting it."
     if checkpoint_path and os.path.exists(checkpoint_path):
         return "Resume checkpoint found. I am rebuilding the useful candidates before the fish counter starts moving."
     return ""
@@ -1128,6 +1193,37 @@ def _ultimate_linefeed_budget_with_resume_guard(
         )
 
 
+def _next_ultimate_budget_after_keep_searching(
+    decision: idat_bruteforce.UltimateLinefeedBudgetDecision,
+    estimate: idat_bruteforce.UltimateLinefeedSearchEstimate,
+) -> idat_bruteforce.UltimateLinefeedBudgetDecision | None:
+    total = max(0, int(getattr(estimate, "total_combinations", 0) or 0))
+    mode = str(getattr(decision, "mode", "") or "").strip().lower().replace(" ", "_")
+    budget = getattr(decision, "budget", None)
+    if budget is None or mode == "unbounded":
+        return None
+    if mode in {"manual", "override"}:
+        doubled = max(1, int(budget) * 2)
+        if total > 0 and doubled > total:
+            return None
+        return idat_bruteforce.UltimateLinefeedBudgetDecision(
+            mode,
+            doubled,
+            divisor=getattr(decision, "divisor", None),
+            coverage=idat_bruteforce.ultimate_linefeed_budget_coverage(total, doubled),
+        )
+    try:
+        index = ULTIMATE_LINEFEED_BUDGET_LADDER.index(mode)
+    except ValueError:
+        return None
+    current_budget = int(budget)
+    for next_mode in ULTIMATE_LINEFEED_BUDGET_LADDER[index + 1 :]:
+        next_decision = idat_bruteforce.ultimate_linefeed_budget_decision(total, next_mode)
+        if next_decision.budget is None or int(next_decision.budget) > current_budget:
+            return next_decision
+    return None
+
+
 def _ultimate_linefeed_reference(runtime: FindMagicRuntime) -> str:
     try:
         return str(runtime.ultimate_linefeed_reference() or "")
@@ -1197,6 +1293,48 @@ def _ultimate_linefeed_reference_regions_path(
     return explicit or _ultimate_linefeed_default_reference_regions_path(checkpoint_path)
 
 
+def _ultimate_linefeed_before_preview_path(source_path: str, preview_path: str = "") -> str:
+    if preview_path and os.path.exists(preview_path):
+        return preview_path
+    if not source_path:
+        return ""
+    inferred = os.path.join(
+        os.path.dirname(source_path),
+        "Bruteforce_Previews",
+        "_Preview_UltimateMegaSuperLineFeedBruteForce_Before.png",
+    )
+    return inferred if os.path.exists(inferred) else ""
+
+
+def _ultimate_roi_editor_source_snapshot_path(
+    runtime: FindMagicRuntime,
+    *,
+    source_path: str,
+    preview_path: str = "",
+) -> str:
+    visible_preview_path = _ultimate_linefeed_before_preview_path(source_path, preview_path)
+    if (
+        not visible_preview_path
+        or os.path.abspath(visible_preview_path) == os.path.abspath(source_path)
+        or runtime.ask is None
+        or not _ultimate_linefeed_is_interactive(runtime)
+    ):
+        return source_path
+
+    _cowsay(
+        runtime,
+        "For the ROI editor source pane: yes uses the visible Ultimate preview, no keeps _ULF.Source.png. Ultimate keeps working from the same source bytes either way.",
+        "com",
+    )
+    use_preview = _ask_runtime_question(
+        runtime,
+        "Ultimate Visual ROI Snapshot:-Use the visible Ultimate preview instead of _ULF.Source.png?",
+        "ultimate-visual-roi-source-snapshot-%s" % os.path.abspath(visible_preview_path),
+        skipauto=True,
+    )
+    return visible_preview_path if use_preview else source_path
+
+
 def _ultimate_linefeed_regions_file_is_valid(path: str) -> bool:
     if not path or not os.path.exists(path):
         return False
@@ -1210,6 +1348,7 @@ def _prepare_ultimate_reference_regions(
     source_data: bytes,
     source_path: str,
     checkpoint_path: str,
+    roi_source_preview_path: str = "",
 ) -> str:
     reference_path = _ultimate_linefeed_reference(runtime)
     reference_mode = _ultimate_linefeed_reference_mode(runtime)
@@ -1234,8 +1373,13 @@ def _prepare_ultimate_reference_regions(
         "I need matching reference regions before similar scoring can be trusted.",
         "com",
     )
+    editor_source_path = _ultimate_roi_editor_source_snapshot_path(
+        runtime,
+        source_path=source_path,
+        preview_path=roi_source_preview_path,
+    )
     result = runtime.ultimate_linefeed_reference_region_editor_run(
-        source_path,
+        editor_source_path,
         reference_path,
         regions_path,
         source_data=source_data,
@@ -1266,6 +1410,7 @@ def _maybe_prepare_ultimate_reference_from_prompt(
     source_path: str,
     checkpoint_path: str,
     start_offset: int | None,
+    roi_source_preview_path: str = "",
 ) -> tuple[bool, str, str, str]:
     if _ultimate_linefeed_reference(runtime):
         return (False, "", "", "")
@@ -1289,8 +1434,13 @@ def _maybe_prepare_ultimate_reference_from_prompt(
         return (True, "", "exact", "")
 
     regions_path = _ultimate_linefeed_reference_regions_path(runtime, checkpoint_path)
+    editor_source_path = _ultimate_roi_editor_source_snapshot_path(
+        runtime,
+        source_path=source_path,
+        preview_path=roi_source_preview_path,
+    )
     result = runtime.ultimate_linefeed_reference_region_editor_run(
-        source_path,
+        editor_source_path,
         "",
         regions_path,
         source_data=source_data,
@@ -1444,6 +1594,216 @@ def _preview_ultimate_top_candidates(
         )
 
 
+def _ultimate_preview_path_key(path: str) -> str:
+    if not path:
+        return ""
+    try:
+        return os.path.abspath(path)
+    except (TypeError, ValueError):
+        return str(path)
+
+
+def _ultimate_visual_candidates_from_selection(
+    probe,
+    selection,
+) -> tuple[idat_bruteforce.UltimateVisualCandidate, ...]:
+    selected_paths = tuple(str(path) for path in getattr(selection, "selected_preview_paths", ()) or ())
+    if not selected_paths:
+        return ()
+    selected_by_key = {
+        _ultimate_preview_path_key(path): index
+        for index, path in enumerate(selected_paths)
+        if path
+    }
+    if not selected_by_key:
+        return ()
+    selected: list[tuple[int, idat_bruteforce.UltimateVisualCandidate]] = []
+    for visual_candidate in tuple(getattr(probe, "visual_candidates", ()) or ()):
+        key = _ultimate_preview_path_key(getattr(visual_candidate, "preview_path", ""))
+        index = selected_by_key.get(key)
+        if index is not None:
+            selected.append((index, visual_candidate))
+    return tuple(candidate for _index, candidate in sorted(selected, key=lambda item: item[0]))
+
+
+def _select_ultimate_visual_candidates_after_probe(
+    runtime: FindMagicRuntime,
+    probe,
+) -> tuple[tuple[idat_bruteforce.UltimateVisualCandidate, ...], Any | None]:
+    gallery_path = str(getattr(probe, "visual_gallery_path", "") or "")
+    if not gallery_path or not getattr(probe, "visual_candidates", ()):
+        return (), None
+    review_decision = _ultimate_visual_selection_decision(
+        SimpleNamespace(decision=getattr(probe, "visual_review_decision", ""))
+    )
+    if review_decision == "perfect":
+        selection = ultimate_visual_ui.UltimateVisualSelectionResult(
+            selected_preview_paths=tuple(getattr(probe, "visual_review_selected_paths", ()) or ()),
+            final_preview_dir=str(getattr(probe, "visual_review_final_preview_dir", "") or ""),
+            final_preview_paths=tuple(getattr(probe, "visual_review_final_preview_paths", ()) or ()),
+            decision=review_decision,
+        )
+        selected = _ultimate_visual_candidates_from_selection(probe, selection)
+        if not selected and getattr(selection, "selected_preview_paths", ()):
+            selected = tuple(getattr(probe, "visual_candidates", ()) or ())[:3]
+        return selected, selection
+    selector = runtime.ultimate_visual_candidate_selector
+    if selector is None:
+        return (), None
+    allow_keep_searching = bool(getattr(probe, "budget_exhausted", False))
+    instruction = ""
+    if allow_keep_searching:
+        instruction = (
+            "Ultimate reached the selected budget and these are the best visual previews so far. "
+            "Select a preview to guide the next pass, accept it as the final visual repair, or Keep searching without guidance. "
+            "Keep searching raises the Ultimate budget and resumes from the existing checkpoint in this same Chunklate run."
+        )
+    try:
+        selection = selector(
+            gallery_path,
+            interactive=_ultimate_linefeed_is_interactive(runtime),
+            allow_keep_searching=allow_keep_searching,
+            timeout_seconds=60 if allow_keep_searching else None,
+            title=(
+                "Chunklate Ultimate budget review"
+                if allow_keep_searching
+                else "Chunklate Ultimate visual candidates"
+            ),
+            instruction=instruction,
+        )
+    except Exception as exc:
+        selection = ultimate_visual_ui.UltimateVisualSelectionResult(
+            warning="Ultimate visual selector failed: %s" % exc,
+        )
+    selected = _ultimate_visual_candidates_from_selection(probe, selection)
+    if not selected and getattr(selection, "selected_preview_paths", ()):
+        selected = tuple(getattr(probe, "visual_candidates", ()) or ())[:3]
+    return selected, selection
+
+
+def _ultimate_visual_selection_decision(selection) -> str:
+    decision = str(getattr(selection, "decision", "") or "").strip().lower()
+    if decision in {"perfect", "visual_guidance", "keep_searching", "timeout", "undecided"}:
+        return decision
+    return "undecided"
+
+
+def _ultimate_visual_review_callback(runtime: FindMagicRuntime):
+    if runtime.ultimate_visual_candidate_selector is None:
+        return None
+    if not _ultimate_linefeed_is_interactive(runtime):
+        return None
+
+    def review(gallery_path, _visual_candidates, metadata):
+        tested = int(metadata.get("tested_candidates", 0) or 0) if isinstance(metadata, dict) else 0
+        budget = metadata.get("budget") if isinstance(metadata, dict) else None
+        interval = int(metadata.get("interval", 0) or 0) if isinstance(metadata, dict) else 0
+        budget_label = "unbounded" if budget is None else _format_count(int(budget or 0))
+        instruction = (
+            "Ultimate found better visual previews during the same brute-force run. "
+            "Inspect the list, select the preview that looks closest to the original, then choose an action. "
+            "Use selected preview keeps Ultimate searching and adds the selection as visual guidance. "
+            "Accept this as final repair stops Ultimate and accepts it visually. "
+            "Keep searching resumes this exact run without writing a final choice. "
+            "If you do not move the mouse or interact with this window for 60 seconds, Chunklate keeps searching."
+        )
+        try:
+            selection = runtime.ultimate_visual_candidate_selector(
+                gallery_path,
+                interactive=True,
+                allow_keep_searching=True,
+                timeout_seconds=60,
+                default_count=3,
+                title="Chunklate Ultimate review",
+                instruction=instruction,
+            )
+        except Exception as exc:
+            selection = ultimate_visual_ui.UltimateVisualSelectionResult(
+                decision="keep_searching",
+                warning="Ultimate visual review failed: %s" % exc,
+            )
+        decision = _ultimate_visual_selection_decision(selection)
+        if decision == "timeout":
+            _cowsay(
+                runtime,
+                "Ultimate visual review timed out after 60s of window inactivity; continuing the same run.",
+                "com",
+            )
+        elif decision == "keep_searching":
+            _cowsay(
+                runtime,
+                "Ultimate visual review: Keep searching selected after %s/%s candidates; next review waits for another improvement%s."
+                % (
+                    _format_count(tested),
+                    budget_label,
+                    "" if interval <= 0 else " and about %s more candidates" % _format_count(interval),
+                ),
+                "com",
+            )
+        if decision in {"keep_searching", "timeout", "undecided"}:
+            _resume_ultimate_linefeed_minibar(runtime, budget, tested)
+        return selection
+
+    return review
+
+
+def _emit_ultimate_visual_selection(
+    runtime: FindMagicRuntime,
+    summary_lines: list[str],
+    selected: tuple[idat_bruteforce.UltimateVisualCandidate, ...],
+    selection,
+) -> None:
+    if selection is None:
+        return
+    warning = str(getattr(selection, "warning", "") or "")
+    if warning:
+        _cowsay(runtime, warning, "com")
+    final_dir = str(getattr(selection, "final_preview_dir", "") or "")
+    final_paths = tuple(getattr(selection, "final_preview_paths", ()) or ())
+    if selected:
+        defaulted = bool(getattr(selection, "defaulted", False))
+        verb = "defaulted to" if defaulted else "selected"
+        decision = _ultimate_visual_selection_decision(selection)
+        _cowsay(
+            runtime,
+            "Ultimate visual picker %s %s candidate(s). Final previews are in %s."
+            % (verb, len(selected), final_dir or "Final_Previews"),
+            "good" if final_paths else "com",
+        )
+        summary_lines.append(
+            "-%s visual picker %s %s candidate(s); Final previews: %s."
+            % (
+                ULTIMATE_LINEFEED_FORCE,
+                verb,
+                len(selected),
+                final_dir or "unavailable",
+            )
+        )
+        if decision == "perfect":
+            _cowsay(
+                runtime,
+                "You marked the selected Final preview as perfect. I will accept that visual repair even without the original Adler.",
+                "good",
+            )
+            summary_lines.append(
+                "-%s visual picker decision: selected preview marked perfect by user."
+                % ULTIMATE_LINEFEED_FORCE
+            )
+        elif decision == "visual_guidance":
+            _cowsay(
+                runtime,
+                "I will use the selected Final preview as visual guidance for the next Ultimate candidates, alongside the ROI reference.",
+                "com",
+            )
+            summary_lines.append(
+                "-%s visual picker decision: selected preview added as visual guidance."
+                % ULTIMATE_LINEFEED_FORCE
+            )
+        return
+    if final_dir:
+        summary_lines.append("-%s visual picker wrote no selected Final previews." % ULTIMATE_LINEFEED_FORCE)
+
+
 def _ultimate_keep_current_lines(current_repair, probe) -> tuple[str, ...]:
     current_line = "Current reconstruction already has %s/%s scanlines." % (
         current_repair.recovered_scanlines,
@@ -1482,7 +1842,7 @@ def _linefeed_ultimate_alternative(
     if getattr(super_probe, "target_adler", None) is None:
         return LinefeedAlternative(current_repair, "\n".join(summary_lines))
 
-    _preview_ultimate_linefeed_candidate(runtime, current_repair)
+    roi_source_preview_path = _preview_ultimate_linefeed_candidate(runtime, current_repair)
     if not _ask_ultimate_linefeed_bruteforce(runtime, current_repair, start_offset):
         summary_lines.append("-%s: user declined the final combinatorics vault." % ULTIMATE_LINEFEED_FORCE)
         return LinefeedAlternative(current_repair, "\n".join(summary_lines))
@@ -1495,6 +1855,7 @@ def _linefeed_ultimate_alternative(
         start_offset,
         super_probe.target_adler,
         super_probe=super_probe,
+        roi_source_preview_path=roi_source_preview_path,
     )
 
 
@@ -1506,6 +1867,7 @@ def _linefeed_run_ultimate_probe(
     start_offset: int | None,
     target_adler: int | None,
     super_probe=None,
+    roi_source_preview_path: str = "",
 ) -> LinefeedAlternative:
     gpu_suspect_offsets = _ultimate_gpu_preflight_offsets_if_requested(
         runtime,
@@ -1568,6 +1930,7 @@ def _linefeed_run_ultimate_probe(
         source_path=source_path,
         checkpoint_path=checkpoint_path,
         start_offset=start_offset,
+        roi_source_preview_path=roi_source_preview_path,
     )
     if reference_prompt_handled:
         reference_path = prompted_reference_path
@@ -1579,103 +1942,237 @@ def _linefeed_run_ultimate_probe(
             source_data=source_data,
             source_path=source_path,
             checkpoint_path=checkpoint_path,
+            roi_source_preview_path=roi_source_preview_path,
         )
         reference_path = _ultimate_linefeed_reference(runtime)
         reference_mode = _ultimate_linefeed_reference_mode(runtime)
     visual_gallery_limit = _ultimate_visual_gallery_limit(runtime)
     ultimate_workers = _ultimate_linefeed_workers(runtime)
-    _emit_ultimate_budget_plan(
-        runtime,
-        estimate,
-        budget_decision,
-        checkpoint_path,
-        progress_path,
-        visual_gallery_limit,
-    )
-    if ultimate_workers >= 2:
+    visual_review_callback = _ultimate_visual_review_callback(runtime)
+    visual_guidance_paths: tuple[str, ...] = ()
+
+    def run_ultimate_once(
+        current_budget_decision: idat_bruteforce.UltimateLinefeedBudgetDecision,
+    ):
+        _emit_ultimate_budget_plan(
+            runtime,
+            estimate,
+            current_budget_decision,
+            checkpoint_path,
+            progress_path,
+            visual_gallery_limit,
+        )
+        if ultimate_workers >= 2:
+            _cowsay(
+                runtime,
+                "Ultimate will use %s CPU workers once the exhaustive vault opens." % ultimate_workers,
+                "com",
+            )
+            runtime.clear_dialogue_pause()
+        runtime.candy("Title", ULTIMATE_LINEFEED_FORCE)
         _cowsay(
             runtime,
-            "Ultimate will use %s CPU workers once the exhaustive vault opens." % ultimate_workers,
+            "Opening the forbidden line-feed combinatorics vault no jutsu. I brought a checkpoint, because hope is not a persistence format.",
             "com",
         )
+        _prime_ultimate_linefeed_minibar(runtime, current_budget_decision.budget)
         runtime.clear_dialogue_pause()
-    runtime.candy("Title", ULTIMATE_LINEFEED_FORCE)
-    _cowsay(
-        runtime,
-        "Opening the forbidden line-feed combinatorics vault no jutsu. I brought a checkpoint, because hope is not a persistence format.",
-        "com",
-    )
-    _prime_ultimate_linefeed_minibar(runtime, budget_decision.budget)
-    runtime.clear_dialogue_pause()
-    try:
-        probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
-            source_data,
-            start_offset=start_offset,
-            target_adler=target_adler,
-            super_result=super_probe,
-            checkpoint_path=checkpoint_path,
-            budget=budget_decision.budget,
-            reference_path=reference_path,
-            reference_mode=reference_mode,
-            reference_regions_path=reference_regions_path,
-            progress=_linefeed_queue_progress(runtime),
-            candidate_preview=runtime.ultimate_candidate_preview,
-            interrupt_flush_progress=_ultimate_linefeed_interrupt_flush_progress(runtime),
-            interrupt_repeat_warning=_ultimate_linefeed_interrupt_repeat_warning(runtime),
-            resume_status=_ultimate_linefeed_resume_status(runtime),
-            progress_path=progress_path,
-            resume_progress=_ultimate_linefeed_should_resume(runtime),
-            visual_gallery_limit=visual_gallery_limit,
-            visual_min_coverage=_ultimate_visual_min_coverage(runtime),
-            ultimate_workers=ultimate_workers,
-            gpu_suspect_offsets=gpu_suspect_offsets,
-            gpu_config=runtime.gpu_config,
+        try:
+            current_probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+                source_data,
+                start_offset=start_offset,
+                target_adler=target_adler,
+                super_result=super_probe,
+                checkpoint_path=checkpoint_path,
+                budget=current_budget_decision.budget,
+                reference_path=reference_path,
+                reference_mode=reference_mode,
+                reference_regions_path=reference_regions_path,
+                progress=_linefeed_queue_progress(runtime),
+                candidate_preview=runtime.ultimate_candidate_preview,
+                interrupt_flush_progress=_ultimate_linefeed_interrupt_flush_progress(runtime),
+                interrupt_repeat_warning=_ultimate_linefeed_interrupt_repeat_warning(runtime),
+                resume_status=_ultimate_linefeed_resume_status(runtime),
+                progress_path=progress_path,
+                resume_progress=_ultimate_linefeed_should_resume(runtime),
+                visual_gallery_limit=visual_gallery_limit,
+                visual_min_coverage=_ultimate_visual_min_coverage(runtime),
+                visual_review=visual_review_callback,
+                visual_guidance_paths=visual_guidance_paths,
+                ultimate_workers=ultimate_workers,
+                gpu_suspect_offsets=gpu_suspect_offsets,
+                gpu_config=runtime.gpu_config,
+            )
+        except (KeyboardInterrupt, idat_bruteforce.UltimateLinefeedInterrupted):
+            runtime.ultimate_interrupt_cleanup()
+            _cowsay(
+                runtime,
+                "%s stopped. I kept the progress checkpoint so the next run can resume: %s"
+                % (ULTIMATE_LINEFEED_FORCE, progress_path),
+                "com",
+            )
+            raise SystemExit(130)
+        if current_probe.reference_warning:
+            _cowsay(runtime, current_probe.reference_warning, "com")
+        if current_probe.progress_warning:
+            _cowsay(runtime, current_probe.progress_warning, "com")
+        summary_lines.extend(_ultimate_linefeed_probe_summary(current_probe))
+        current_selected, current_selection = _select_ultimate_visual_candidates_after_probe(
+            runtime,
+            current_probe,
         )
-    except (KeyboardInterrupt, idat_bruteforce.UltimateLinefeedInterrupted):
-        runtime.ultimate_interrupt_cleanup()
+        _emit_ultimate_visual_selection(runtime, summary_lines, current_selected, current_selection)
+        return (
+            current_probe,
+            current_selected,
+            current_selection,
+            _ultimate_visual_selection_decision(current_selection),
+        )
+
+    while True:
+        probe, selected_visual_candidates, visual_selection, visual_selection_decision = run_ultimate_once(
+            budget_decision
+        )
+        if visual_selection_decision == "visual_guidance" and probe.budget_exhausted:
+            selected_paths = tuple(
+                str(path)
+                for path in getattr(visual_selection, "selected_preview_paths", ()) or ()
+                if str(path or "")
+            )
+            visual_guidance_paths = tuple(dict.fromkeys((*visual_guidance_paths, *selected_paths)))
+        elif visual_selection_decision != "keep_searching" or not probe.budget_exhausted:
+            break
+        next_budget_decision = _next_ultimate_budget_after_keep_searching(
+            budget_decision,
+            estimate,
+        )
+        if next_budget_decision is None:
+            action_label = (
+                "visual guidance"
+                if visual_selection_decision == "visual_guidance"
+                else "Keep searching"
+            )
+            _cowsay(
+                runtime,
+                "%s reached the top of its budget ladder after %s. I am leaving Ultimate and handing the file back to the next repair route."
+                % (ULTIMATE_LINEFEED_FORCE, action_label),
+                "com",
+            )
+            summary_lines.append(
+                "-%s: %s requested after exhausted max budget; switching away from Ultimate."
+                % (ULTIMATE_LINEFEED_FORCE, action_label)
+            )
+            return LinefeedAlternative(current_repair, "\n".join(summary_lines), write_clone=False)
         _cowsay(
             runtime,
-            "%s stopped. I kept the progress checkpoint so the next run can resume: %s"
-            % (ULTIMATE_LINEFEED_FORCE, progress_path),
+            "%s %s after budget exhaustion; raising budget from %s to %s and resuming the same checkpoint."
+            % (
+                ULTIMATE_LINEFEED_FORCE,
+                (
+                    "visual guidance accepted"
+                    if visual_selection_decision == "visual_guidance"
+                    else "Keep searching accepted"
+                ),
+                "unbounded" if budget_decision.budget is None else _format_count(budget_decision.budget),
+                "unbounded" if next_budget_decision.budget is None else _format_count(next_budget_decision.budget),
+            ),
             "com",
         )
-        raise SystemExit(130)
-    if probe.reference_warning:
-        _cowsay(runtime, probe.reference_warning, "com")
-    if probe.progress_warning:
-        _cowsay(runtime, probe.progress_warning, "com")
-    summary_lines.extend(_ultimate_linefeed_probe_summary(probe))
-    if probe.best is None:
-        _preview_ultimate_top_candidates(runtime, probe.top_candidates)
+        summary_lines.append(
+            "-%s: %s raised budget from %s to %s."
+            % (
+                ULTIMATE_LINEFEED_FORCE,
+                "visual guidance" if visual_selection_decision == "visual_guidance" else "Keep searching",
+                "unbounded" if budget_decision.budget is None else _format_count(budget_decision.budget),
+                "unbounded" if next_budget_decision.budget is None else _format_count(next_budget_decision.budget),
+            )
+        )
+        budget_decision = next_budget_decision
+
+    selected_candidate = (
+        selected_visual_candidates[0].candidate
+        if selected_visual_candidates
+        else None
+    )
+    candidate_for_repair = selected_candidate or probe.best
+
+    if candidate_for_repair is None:
+        preview_candidates = tuple(candidate.candidate for candidate in selected_visual_candidates) or probe.top_candidates
+        _preview_ultimate_top_candidates(runtime, preview_candidates)
         _cowsay(runtime, "%s found no candidate that survived pruning." % ULTIMATE_LINEFEED_FORCE, "com")
         summary_lines.append("-%s: no candidate survived pruning." % ULTIMATE_LINEFEED_FORCE)
-        return LinefeedAlternative(current_repair, "\n".join(summary_lines))
+        return LinefeedAlternative(current_repair, "\n".join(summary_lines), write_clone=False)
+    if selected_candidate is not None:
+        summary_lines.append(
+            "-%s: using visual-picker candidate tested=%s score=%s as the visible repair seed."
+            % (
+                ULTIMATE_LINEFEED_FORCE,
+                getattr(selected_visual_candidates[0], "tested_candidates", 0),
+                getattr(selected_candidate, "visual_score", None),
+            )
+        )
 
     final_salvage = _linefeed_final_candidate_salvage(
         runtime,
         summary_lines,
         ULTIMATE_LINEFEED_FORCE,
-        probe.best,
+        candidate_for_repair,
         current_repair,
     )
-    repair = final_salvage or _linefeed_bruteforce_repair(probe.best)
+    repair = final_salvage or _linefeed_bruteforce_repair(candidate_for_repair)
+    manual_visual_acceptance = visual_selection_decision == "perfect" and selected_candidate is not None
     if repair is None or (
-        final_salvage is None
-        and not _linefeed_repair_is_ultimate_stronger(current_repair, repair, probe.best)
+        not manual_visual_acceptance
+        and final_salvage is None
+        and not _linefeed_repair_is_ultimate_stronger(current_repair, repair, candidate_for_repair)
     ):
-        _preview_ultimate_top_candidates(runtime, probe.top_candidates)
+        preview_candidates = tuple(candidate.candidate for candidate in selected_visual_candidates) or probe.top_candidates
+        _preview_ultimate_top_candidates(runtime, preview_candidates)
         for line in _ultimate_keep_current_lines(current_repair, probe):
             _cowsay(runtime, line, "com")
         summary_lines.append("-%s: kept current reconstruction." % ULTIMATE_LINEFEED_FORCE)
         summary_lines.extend("-%s: %s" % (ULTIMATE_LINEFEED_FORCE, line) for line in _ultimate_keep_current_lines(current_repair, probe))
-        return LinefeedAlternative(current_repair, "\n".join(summary_lines))
+        return LinefeedAlternative(current_repair, "\n".join(summary_lines), write_clone=False)
 
-    if probe.best.after.adler_status == "adler_match":
+    if visual_selection_decision == "perfect":
+        _cowsay(
+            runtime,
+            "%s accepted the selected Final preview as the manual visual repair."
+            % ULTIMATE_LINEFEED_FORCE,
+            "good",
+        )
+        runtime.mark_ultimate_final_clone()
+        summary_lines.append("-Line feed conversion repair: %s." % repair.strategy)
+        summary_lines.append(
+            "-%s: user accepted selected Final preview as perfect; original Adler mismatch treated as manual visual acceptance."
+            % ULTIMATE_LINEFEED_FORCE
+        )
+        return LinefeedAlternative(repair, "\n".join(summary_lines))
+
+    if candidate_for_repair.after.adler_status == "adler_match":
         _cowsay(runtime, "%s recovered the original Adler target." % ULTIMATE_LINEFEED_FORCE, "good")
+        runtime.mark_ultimate_final_clone()
+        summary_lines.append("-Line feed conversion repair: %s." % repair.strategy)
+        return LinefeedAlternative(repair, "\n".join(summary_lines))
     else:
-        _cowsay(runtime, "%s found a stronger visible reconstruction." % ULTIMATE_LINEFEED_FORCE, "good")
-    summary_lines.append("-Line feed conversion repair: %s." % repair.strategy)
-    return LinefeedAlternative(repair, "\n".join(summary_lines))
+        _cowsay(
+            runtime,
+            "%s found a stronger visible reconstruction, but not the original Adler. I am keeping it in previews/checkpoint instead of relaunching Chunklate on a rebuilt clone."
+            % ULTIMATE_LINEFEED_FORCE,
+            "com",
+        )
+        summary_lines.append("-Line feed conversion repair: %s." % repair.strategy)
+        summary_lines.append(
+            "-%s: stronger visible reconstruction kept as evidence; clone relaunch skipped until original Adler is recovered."
+            % ULTIMATE_LINEFEED_FORCE
+        )
+        preview_candidates = (
+            tuple(candidate.candidate for candidate in selected_visual_candidates)
+            or probe.top_candidates
+            or (candidate_for_repair,)
+        )
+        _preview_ultimate_top_candidates(runtime, preview_candidates)
+        return LinefeedAlternative(repair, "\n".join(summary_lines), write_clone=False)
 
 
 def _linefeed_full_bruteforce_alternative(
@@ -1875,6 +2372,8 @@ def _handle_linefeed_signature_repair(
             )
             if marker_alternative is not None:
                 runtime.side_notes.append(marker_alternative.summary)
+                if not marker_alternative.write_clone:
+                    return None
                 return runtime.write_clone(
                     marker_alternative.repair.data.hex(),
                     marker_alternative.summary,
@@ -1941,6 +2440,9 @@ def _handle_linefeed_signature_repair(
                         realignment=realignment,
                     )
                     if alternative is not None:
+                        if not alternative.write_clone:
+                            runtime.side_notes.append(alternative.summary)
+                            return None
                         salvage = alternative.repair
                         salvage_summary = alternative.summary
                 else:
@@ -2041,6 +2543,8 @@ def run_deferred_internal_idat_marker_chain_repair(runtime: FindMagicRuntime, co
     )
     if alternative is not None:
         runtime.side_notes.append(alternative.summary)
+        if not alternative.write_clone:
+            return None
         return runtime.write_clone(alternative.repair.data.hex(), alternative.summary)
 
     runtime.side_notes.append(marker_summary)
@@ -2122,6 +2626,8 @@ def run_ultimate_linefeed_direct_resume(runtime: FindMagicRuntime, context: Find
         super_probe=None,
     )
     runtime.side_notes.append(alternative.summary)
+    if not alternative.write_clone:
+        return None
     return runtime.write_clone(alternative.repair.data.hex(), alternative.summary)
 
 
@@ -2561,10 +3067,19 @@ def build_find_magic_runtime_from_namespace(
         ),
         gpu_config=namespace.get("GPU_CONFIG", gpu_runtime.build_gpu_config(namespace)),
         ultimate_candidate_preview=namespace.get("Ultimate_Linefeed_Candidate_Preview"),
+        ultimate_visual_candidate_selector=namespace.get(
+            "Ultimate_Linefeed_Visual_Candidate_Selector",
+            ultimate_visual_ui.open_ultimate_visual_candidate_selector,
+        ),
+        request_ultimate_groundhogday_retry=lambda selection=None, *args, **kwargs: None,
         ultimate_interrupt_cleanup=namespace.get("Close_Preview_Image", lambda *args, **kwargs: None),
         defer_linefeed_signature_repair=namespace.get(
             "Deferred_Linefeed_Signature_Repair",
             lambda *args, **kwargs: False,
+        ),
+        mark_ultimate_final_clone=lambda *args, **kwargs: namespace.__setitem__(
+            "ULTIMATE_FINAL_CLONE_PENDING",
+            True,
         ),
         **kwargs,
     )

@@ -8,6 +8,8 @@ import math
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -726,9 +728,10 @@ def test_rebuild_tolerant_idat_salvage_keeps_rows_after_bad_filters():
     assert blackfill is not None
     assert blackfill.recovered_scanlines == 145
     assert repair is not None
-    assert repair.recovered_scanlines == 495
+    assert repair.recovered_scanlines == 503
     assert repair.total_scanlines == 503
-    assert "reused previous row for 8 bad filter rows" in repair.strategy
+    assert "partial-idat-raw-resync-salvage" in repair.strategy
+    assert "reused previous row for 0 bad filter rows" in repair.strategy
     assert validate_png_structure(repair.data).ok
 
     chunks = list(iter_chunks(repair.data))
@@ -737,7 +740,23 @@ def test_rebuild_tolerant_idat_salvage_keeps_rows_after_bad_filters():
 
     assert len(rebuilt_filtered) == 503 * 2401
     assert {rebuilt_filtered[row * 2401] for row in range(503)} == {0}
-    assert rebuilt_filtered[145 * 2401 : 146 * 2401] == rebuilt_filtered[144 * 2401 : 145 * 2401]
+
+
+def test_rebuild_tolerant_idat_salvage_resyncs_extra_raw_byte():
+    filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
+    too_long = b"\x00abc" + b"\x00def" + b"X" + b"\x00ghi"
+    corrupt = build_rgb_png(1, 3, filtered, idat_data=zlib.compress(too_long))
+
+    before = idat.analyze_partial_idat(corrupt)
+    repair = idat.rebuild_tolerant_idat_salvage(corrupt)
+
+    assert before.usable_scanlines == 2
+    assert repair is not None
+    assert repair.recovered_scanlines == 3
+    assert "skipped 1 raw byte" in repair.strategy
+    assert validate_png_structure(repair.data).ok
+    rebuilt_stream = b"".join(chunk.data for chunk in iter_chunks(repair.data) if chunk.chunk_type == b"IDAT")
+    assert zlib.decompress(rebuilt_stream) == filtered
 
 
 def test_idat_marker_chain_repair_preserves_valid_idat_chunks_byte_for_byte():
@@ -797,8 +816,10 @@ def test_idat_marker_chain_fixture_prefers_declared_payload_visual_salvage():
 
     assert declared_salvage is not None
     assert shortened_salvage is not None
-    assert declared_salvage.recovered_scanlines == 498
-    assert shortened_salvage.recovered_scanlines == 495
+    assert declared_salvage.recovered_scanlines == 503
+    assert shortened_salvage.recovered_scanlines == 503
+    assert "partial-idat-raw-resync-salvage" in declared_salvage.strategy
+    assert "partial-idat-raw-resync-salvage" in shortened_salvage.strategy
 
 
 def test_idat_linefeed_cr_insert_probe_improves_salvage_candidate():
@@ -948,6 +969,69 @@ def test_ultimate_operation_pool_includes_direct_lf_insertions():
     )
 
     assert idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-lf", 2, b"", b"\n") in operations
+
+
+def test_ultimate_replay_operations_uses_one_pass_for_distinct_offsets(monkeypatch):
+    stream = b"abcdefghij"
+    operations = idat_bruteforce._normalize_ultimate_operation_sequence(
+        (
+            idat_bruteforce.SuperMegaLinefeedOperation("replace-b", 1, b"b", b"B"),
+            idat_bruteforce.SuperMegaLinefeedOperation("insert-lf", 4, b"", b"\n"),
+            idat_bruteforce.SuperMegaLinefeedOperation("replace-h", 7, b"h", b"H"),
+        )
+    )
+
+    def fail_sequential_apply(*_args, **_kwargs):
+        raise AssertionError("distinct-offset replay should use one-pass reconstruction")
+
+    monkeypatch.setattr(idat_bruteforce, "_apply_linefeed_operation", fail_sequential_apply)
+
+    assert idat_bruteforce._replay_operations(stream, operations) == b"aBcd\nefgHij"
+
+
+def test_ultimate_replay_operations_one_pass_falls_back_for_same_offset():
+    operations = idat_bruteforce._normalize_ultimate_operation_sequence(
+        (
+            idat_bruteforce.SuperMegaLinefeedOperation("insert-cr", 2, b"", b"\r"),
+            idat_bruteforce.SuperMegaLinefeedOperation("insert-lf", 2, b"", b"\n"),
+        )
+    )
+
+    assert (
+        idat_bruteforce._replay_operations_one_pass(b"abcdef", operations)
+        is idat_bruteforce._ULTIMATE_REPLAY_FALLBACK
+    )
+
+
+def test_ultimate_normalize_operation_sequence_keeps_ordered_tuple():
+    operations = (
+        idat_bruteforce.SuperMegaLinefeedOperation("replace-h", 7, b"h", b"H"),
+        idat_bruteforce.SuperMegaLinefeedOperation("insert-lf", 4, b"", b"\n"),
+        idat_bruteforce.SuperMegaLinefeedOperation("replace-b", 1, b"b", b"B"),
+    )
+    unordered = (operations[2], operations[0], operations[1])
+
+    assert idat_bruteforce._normalize_ultimate_operation_sequence(operations) is operations
+    assert idat_bruteforce._normalize_ultimate_operation_sequence(unordered) == operations
+
+
+def test_ultimate_replay_operations_one_pass_skips_normalize(monkeypatch):
+    stream = b"abcdefghij"
+    operations = (
+        idat_bruteforce.SuperMegaLinefeedOperation("replace-h", 7, b"h", b"H"),
+        idat_bruteforce.SuperMegaLinefeedOperation("insert-lf", 4, b"", b"\n"),
+        idat_bruteforce.SuperMegaLinefeedOperation("replace-b", 1, b"b", b"B"),
+    )
+
+    def fail_normalize(*_args, **_kwargs):
+        raise AssertionError("one-pass replay should not normalize a second time")
+
+    monkeypatch.setattr(idat_bruteforce, "_normalize_ultimate_operation_sequence", fail_normalize)
+
+    assert (
+        idat_bruteforce._replay_operations_one_pass(stream, operations)
+        == b"aBcd\nefgHij"
+    )
 
 
 def test_idat_crc_evidence_summary_reports_stored_crc_mismatches():
@@ -1363,6 +1447,184 @@ def test_ultimate_parallel_worker_runs_shard_without_rank_holes():
     assert result.shard["end_rank"] == 3
 
 
+def test_ultimate_parallel_worker_keeps_backfill_inplace(monkeypatch):
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+    chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    before = idat.analyze_idat_stream(corrupt)
+    operation_pool = (
+        idat_bruteforce.SuperMegaLinefeedOperation("test-no-op", 0, b"", b""),
+    )
+
+    def fail_tuple_backfill(*args, **kwargs):
+        raise AssertionError("worker backfill should stay in the in-place pool")
+
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "_remember_ultimate_visual_backfill_candidate",
+        fail_tuple_backfill,
+    )
+    context = {
+        "chunks": chunks,
+        "root_stream": root_stream,
+        "before": before,
+        "operation_pools": (operation_pool,),
+        "target_adler": before.stored_adler,
+        "root_parent_score": idat_bruteforce.super_mega_linefeed_score(before, 0),
+        "visual_min_coverage": 0.0,
+        "visual_gallery_limit": 5,
+    }
+    idat_bruteforce._ultimate_parallel_worker_init(context)
+
+    result = idat_bruteforce._ultimate_parallel_worker_run(
+        {
+            "pool_index": 0,
+            "depth": 1,
+            "start_rank": 0,
+            "end_rank": 1,
+            "next_rank": 0,
+            "tested": 0,
+            "pruned": 0,
+            "status": "pending",
+        }
+    )
+
+    assert result.error == ""
+    assert result.tested == 1
+
+
+def test_ultimate_parallel_worker_limits_full_backfill_visual_scoring(monkeypatch):
+    clean = build_rgb_png(1, 1, b"\x00abc")
+    chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(clean)
+    before = idat.analyze_idat_stream(clean)
+    operation_pool = tuple(
+        idat_bruteforce.SuperMegaLinefeedOperation(
+            "test-insert-%s" % index,
+            0,
+            b"",
+            bytes((index + 1,)),
+        )
+        for index in range(8)
+    )
+    visual_calls = []
+
+    def fake_basic_coverage(*args, **kwargs):
+        return 1.0
+
+    def fake_visual_candidate(candidate, **kwargs):
+        visual_calls.append(candidate)
+        key = candidate.data.hex()[:48]
+        return idat_bruteforce.UltimateVisualCandidate(
+            candidate=candidate,
+            preview_data=clean,
+            preview_strategy="worker-test",
+            visual_hash=key,
+            scanline_hash=key,
+            operation_hash=key,
+            diversity_key=key,
+            rank=(len(visual_calls),),
+            coverage=1.0,
+            tested_candidates=int(kwargs.get("tested", 0) or 0),
+        )
+
+    monkeypatch.setattr(idat_bruteforce, "ULTIMATE_LINEFEED_WORKER_VISUAL_BACKFILL_SCORE_LIMIT", 1)
+    monkeypatch.setattr(idat_bruteforce, "_ultimate_visual_candidate_basic_coverage", fake_basic_coverage)
+    monkeypatch.setattr(idat_bruteforce, "_ultimate_visual_candidate_from_candidate", fake_visual_candidate)
+    context = {
+        "chunks": chunks,
+        "root_stream": root_stream,
+        "before": before,
+        "operation_pools": (operation_pool,),
+        "target_adler": before.stored_adler,
+        "root_parent_score": idat_bruteforce.super_mega_linefeed_score(before, 0),
+        "visual_min_coverage": 0.0,
+        "visual_gallery_limit": 8,
+        "reference_context": object(),
+        "reference_mode": "exact",
+    }
+    idat_bruteforce._ultimate_parallel_worker_init(context)
+
+    result = idat_bruteforce._ultimate_parallel_worker_run(
+        {
+            "pool_index": 0,
+            "depth": 1,
+            "start_rank": 0,
+            "end_rank": 8,
+            "next_rank": 0,
+            "tested": 0,
+            "pruned": 0,
+            "status": "pending",
+        }
+    )
+
+    assert result.error == ""
+    assert result.tested == 8
+    assert len(visual_calls) <= 6
+
+
+def test_ultimate_parallel_worker_attaches_visual_scores_before_return(monkeypatch):
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+    chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    before = idat.analyze_idat_stream(corrupt)
+    operation_pool = (
+        idat_bruteforce.SuperMegaLinefeedOperation("test-no-op", 0, b"", b""),
+    )
+    score_calls = []
+
+    def fake_visual_score(*args, **kwargs):
+        score_calls.append((args, kwargs))
+        return idat_bruteforce.UltimateVisualScore(
+            5.0,
+            "worker-test",
+            1,
+            raw_score=5.0,
+            confidence=1.0,
+            effective_score=5.0,
+        )
+
+    monkeypatch.setattr(idat_bruteforce, "_ultimate_visual_score", fake_visual_score)
+    context = {
+        "chunks": chunks,
+        "root_stream": root_stream,
+        "before": before,
+        "operation_pools": (operation_pool,),
+        "target_adler": before.stored_adler,
+        "root_parent_score": idat_bruteforce.super_mega_linefeed_score(before, 0),
+        "visual_min_coverage": 0.0,
+        "visual_gallery_limit": 5,
+        "reference_context": object(),
+        "reference_mode": "exact",
+    }
+    idat_bruteforce._ultimate_parallel_worker_init(context)
+
+    result = idat_bruteforce._ultimate_parallel_worker_run(
+        {
+            "pool_index": 0,
+            "depth": 1,
+            "start_rank": 0,
+            "end_rank": 1,
+            "next_rank": 0,
+            "tested": 0,
+            "pruned": 0,
+            "status": "pending",
+        }
+    )
+
+    assert result.error == ""
+    assert score_calls
+    assert result.candidates
+    assert result.candidates[0].visual_score == 5.0
+    assert result.candidates[0].visual_score_kind == "worker-test"
+    assert result.visual_candidates
+    assert result.visual_candidates[0].candidate.visual_score == 5.0
+    assert validate_png_structure(result.visual_candidates[0].preview_data).ok
+
+
 def test_ultimate_parallel_worker_stops_from_shared_event_before_more_work():
     class FakeProgressQueue:
         def __init__(self):
@@ -1682,7 +1944,7 @@ def test_rebuild_tolerant_idat_preview_includes_complete_bad_filter_rows():
     assert rebuilt_raw == b"\x00abc" + b"\x00def" + b"\x00def"
 
 
-def test_ultimate_visual_gallery_keeps_equal_score_distinct_operations():
+def test_ultimate_visual_gallery_dedupes_identical_rendered_preview_across_operations():
     filtered = b"\x00abc" + b"\x00def"
     compressed = bytearray(zlib.compress(filtered))
     compressed[-1] ^= 0xFF
@@ -1722,11 +1984,173 @@ def test_ultimate_visual_gallery_keeps_equal_score_distinct_operations():
         limit=100,
     )
 
-    assert len(gallery) == 2
-    assert {item.operation_hash for item in gallery} == {
-        idat_bruteforce._ultimate_operation_hash(first.operations),
-        idat_bruteforce._ultimate_operation_hash(second.operations),
-    }
+    assert len(gallery) == 1
+    assert gallery[0].visual_hash == gallery[0].diversity_key
+    assert gallery[0].operation_hash == idat_bruteforce._ultimate_operation_hash(first.operations)
+
+
+def test_ultimate_visual_gallery_reuses_preview_score_cache_for_duplicates(monkeypatch):
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+    analysis = idat.analyze_idat_stream(corrupt)
+    first = idat_bruteforce.SuperMegaLinefeedCandidate(
+        corrupt,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        analysis,
+        analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(analysis, 1),
+    )
+    second = idat_bruteforce.SuperMegaLinefeedCandidate(
+        corrupt,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-remove-cr", 8, b"\r", b""),),
+        analysis,
+        analysis,
+        state_id=2,
+        score=idat_bruteforce.super_mega_linefeed_score(analysis, 1),
+    )
+    score_calls = []
+
+    def fake_visual_score(*args, **kwargs):
+        score_calls.append((args, kwargs))
+        return idat_bruteforce.UltimateVisualScore(
+            7.0,
+            "cached-test",
+            1,
+            raw_score=7.0,
+            confidence=1.0,
+            effective_score=7.0,
+        )
+
+    monkeypatch.setattr(idat_bruteforce, "_ultimate_visual_score", fake_visual_score)
+    visual_score_cache = {}
+
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        (),
+        first,
+        tested=10,
+        reference_image=object(),
+        min_coverage=0.0,
+        limit=100,
+        visual_score_cache=visual_score_cache,
+    )
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        gallery,
+        second,
+        tested=11,
+        reference_image=object(),
+        min_coverage=0.0,
+        limit=100,
+        visual_score_cache=visual_score_cache,
+    )
+
+    assert len(score_calls) == 1
+    assert len(visual_score_cache) == 1
+    assert len(gallery) == 1
+    assert gallery[0].candidate.visual_score == 7.0
+
+
+def test_ultimate_visual_score_cache_is_bounded(monkeypatch):
+    monkeypatch.setattr(idat_bruteforce, "ULTIMATE_LINEFEED_VISUAL_SCORE_CACHE_LIMIT", 1)
+    cache = {}
+    first_score = idat_bruteforce.UltimateVisualScore(3.0, "cached-test")
+    second_score = idat_bruteforce.UltimateVisualScore(2.0, "cached-test")
+
+    idat_bruteforce._remember_ultimate_visual_score_cache(cache, "first", first_score)
+    idat_bruteforce._remember_ultimate_visual_score_cache(cache, "second", second_score)
+
+    assert cache == {"second": second_score}
+
+
+def test_ultimate_visual_gallery_uses_attached_score_without_rescoring(monkeypatch):
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+    analysis = idat.analyze_idat_stream(corrupt)
+    candidate = idat_bruteforce.SuperMegaLinefeedCandidate(
+        corrupt,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        analysis,
+        analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(analysis, 1),
+        visual_score=4.0,
+        visual_score_kind="worker-test",
+        matched_patch_count=1,
+        visual_raw_score=4.0,
+        visual_confidence=1.0,
+        visual_effective_score=4.0,
+    )
+
+    def fail_visual_score(*args, **kwargs):
+        raise AssertionError("attached worker visual score should be reused")
+
+    monkeypatch.setattr(idat_bruteforce, "_ultimate_visual_score", fail_visual_score)
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        (),
+        candidate,
+        tested=10,
+        reference_image=object(),
+        min_coverage=0.0,
+        limit=100,
+        visual_score_cache={},
+    )
+
+    assert len(gallery) == 1
+    assert gallery[0].candidate.visual_score == 4.0
+    assert gallery[0].candidate.visual_score_kind == "worker-test"
+
+
+def test_ultimate_visual_gallery_accepts_prebuilt_worker_candidate(monkeypatch):
+    filtered = b"\x00abc" + b"\x00def"
+    compressed = bytearray(zlib.compress(filtered))
+    compressed[-1] ^= 0xFF
+    corrupt = build_rgb_png(1, 2, filtered, idat_data=bytes(compressed))
+    analysis = idat.analyze_idat_stream(corrupt)
+    candidate = idat_bruteforce.SuperMegaLinefeedCandidate(
+        corrupt,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        analysis,
+        analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(analysis, 1),
+        visual_score=4.0,
+        visual_score_kind="worker-test",
+    )
+    preview = idat.rebuild_visual_idat_preview(candidate.data)
+    assert preview is not None
+    visual_candidate = idat_bruteforce.UltimateVisualCandidate(
+        candidate=candidate,
+        preview_data=preview.data,
+        preview_strategy=preview.strategy,
+        visual_hash="visual",
+        scanline_hash="scanline",
+        operation_hash="operation",
+        diversity_key="visual",
+        rank=idat_bruteforce._ultimate_visual_candidate_rank(
+            candidate,
+            coverage=1.0,
+            visual_score=4.0,
+        ),
+        coverage=1.0,
+        tested_candidates=10,
+    )
+
+    def fail_preview_rebuild(*args, **kwargs):
+        raise AssertionError("prebuilt worker preview should be merged directly")
+
+    monkeypatch.setattr(idat, "rebuild_visual_idat_preview", fail_preview_rebuild)
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate_object(
+        (),
+        visual_candidate,
+        limit=100,
+    )
+
+    assert gallery == (visual_candidate,)
+    assert gallery[0].preview_data == preview.data
 
 
 def test_ultimate_visual_gallery_limit_evicts_worst_candidate():
@@ -1895,7 +2319,146 @@ def test_ultimate_visual_gallery_backfills_lower_tier_on_forced_flush():
     assert [candidate.candidate.state_id for candidate in filled] == [2, 1]
 
 
-def test_ultimate_visual_gallery_structure_beats_reference_rank():
+def test_ultimate_visual_backfill_full_pool_skips_worse_candidate_without_churn(monkeypatch):
+    clean = build_rgb_png(1, 1, b"\x00abc")
+    analysis = idat.analyze_idat_stream(clean)
+
+    def candidate(state_id):
+        return idat_bruteforce.SuperMegaLinefeedCandidate(
+            clean + bytes((state_id,)),
+            (),
+            analysis,
+            analysis,
+            state_id=state_id,
+            score=idat_bruteforce.super_mega_linefeed_score(analysis, 0),
+        )
+
+    pool = {}
+    for state_id in (10, 11, 12, 13):
+        assert idat_bruteforce._remember_ultimate_visual_backfill_candidate_inplace(
+            pool,
+            candidate(state_id),
+            tested=state_id,
+            min_coverage=0.0,
+            limit=1,
+        )
+
+    before = dict(pool)
+    worse = candidate(99)
+    worse_key = idat_bruteforce._ultimate_visual_backfill_key(worse)
+
+    def fail_hash_for_rejected_candidate(_candidate):
+        raise AssertionError("worse full-pool backfill candidate should be rejected before hashing")
+
+    monkeypatch.setattr(idat_bruteforce, "_ultimate_visual_backfill_key", fail_hash_for_rejected_candidate)
+
+    assert idat_bruteforce._remember_ultimate_visual_backfill_candidate_inplace(
+        pool,
+        worse,
+        tested=99,
+        min_coverage=0.0,
+        limit=1,
+    ) is False
+
+    assert pool == before
+    assert worse_key not in pool
+
+
+def test_ultimate_visual_backfill_full_pool_replaces_worst_candidate():
+    clean = build_rgb_png(1, 1, b"\x00abc")
+    analysis = idat.analyze_idat_stream(clean)
+
+    def candidate(state_id):
+        return idat_bruteforce.SuperMegaLinefeedCandidate(
+            clean + bytes((state_id,)),
+            (),
+            analysis,
+            analysis,
+            state_id=state_id,
+            score=idat_bruteforce.super_mega_linefeed_score(analysis, 0),
+        )
+
+    pool = {}
+    for state_id in (10, 11, 12, 13):
+        idat_bruteforce._remember_ultimate_visual_backfill_candidate_inplace(
+            pool,
+            candidate(state_id),
+            tested=state_id,
+            min_coverage=0.0,
+            limit=1,
+        )
+    better = candidate(1)
+
+    assert idat_bruteforce._remember_ultimate_visual_backfill_candidate_inplace(
+        pool,
+        better,
+        tested=1,
+        min_coverage=0.0,
+        limit=1,
+    ) is True
+
+    assert len(pool) == 4
+    assert idat_bruteforce._ultimate_visual_backfill_key(better) in pool
+    assert max(item.candidate.state_id for item in pool.values()) == 12
+
+
+def test_ultimate_visual_gallery_backfill_replaces_worst_when_full():
+    filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
+    partial = build_rgb_png(1, 3, filtered, idat_data=zlib.compress(filtered[:8]))
+    partial_analysis = idat.analyze_idat_stream(partial)
+    bad_filtered = b"\x00xyz" + b"\x00xyz" + b"\x00xyz"
+    full = build_rgb_png(1, 3, bad_filtered)
+    full_analysis = idat.analyze_idat_stream(full)
+    partial_preview = idat.rebuild_visual_idat_preview(partial)
+    assert partial_preview is not None
+    reference_image = idat_bruteforce._decode_ultimate_rgba_image(partial_preview.data)
+    existing = idat_bruteforce.SuperMegaLinefeedCandidate(
+        full,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 8, b"", b"\r"),),
+        full_analysis,
+        full_analysis,
+        state_id=2,
+        score=idat_bruteforce.super_mega_linefeed_score(full_analysis, 1),
+    )
+    replacement = idat_bruteforce.SuperMegaLinefeedCandidate(
+        partial,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        partial_analysis,
+        partial_analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(partial_analysis, 1),
+    )
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        (),
+        existing,
+        tested=10,
+        reference_image=reference_image,
+        min_coverage=0.0,
+        limit=1,
+    )
+    backfill = idat_bruteforce._remember_ultimate_visual_backfill_candidate(
+        (),
+        replacement,
+        tested=11,
+        min_coverage=0.0,
+        limit=1,
+    )
+
+    filled = idat_bruteforce._fill_ultimate_visual_gallery_from_backfill(
+        gallery,
+        backfill,
+        reference_image=reference_image,
+        reference_mode="exact",
+        min_coverage=0.0,
+        limit=1,
+    )
+
+    assert len(filled) == 1
+    assert filled[0].candidate.state_id == 1
+    assert filled[0].candidate.visual_score == 0.0
+
+
+def test_ultimate_visual_gallery_reference_rank_beats_structure():
     filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
     partial = build_rgb_png(1, 3, filtered, idat_data=zlib.compress(filtered[:8]))
     partial_analysis = idat.analyze_idat_stream(partial)
@@ -1933,7 +2496,56 @@ def test_ultimate_visual_gallery_structure_beats_reference_rank():
         visual_score=visually_bad_full.visual_score,
     )
 
-    assert bad_full_rank < close_rank
+    assert close_rank < bad_full_rank
+
+
+def test_ultimate_visual_gallery_reference_can_replace_structural_winner():
+    filtered = b"\x00abc" + b"\x00def" + b"\x00ghi"
+    partial = build_rgb_png(1, 3, filtered, idat_data=zlib.compress(filtered[:8]))
+    partial_analysis = idat.analyze_idat_stream(partial)
+    bad_filtered = b"\x00xyz" + b"\x00xyz" + b"\x00xyz"
+    full = build_rgb_png(1, 3, bad_filtered)
+    full_analysis = idat.analyze_idat_stream(full)
+    partial_preview = idat.rebuild_visual_idat_preview(partial)
+    assert partial_preview is not None
+    reference_image = idat_bruteforce._decode_ultimate_rgba_image(partial_preview.data)
+    structurally_better = idat_bruteforce.SuperMegaLinefeedCandidate(
+        full,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 8, b"", b"\r"),),
+        full_analysis,
+        full_analysis,
+        state_id=2,
+        score=idat_bruteforce.super_mega_linefeed_score(full_analysis, 1),
+    )
+    visually_closer = idat_bruteforce.SuperMegaLinefeedCandidate(
+        partial,
+        (idat_bruteforce.SuperMegaLinefeedOperation("ultimate-insert-cr-before-lf", 4, b"", b"\r"),),
+        partial_analysis,
+        partial_analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(partial_analysis, 1),
+    )
+
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        (),
+        structurally_better,
+        tested=10,
+        reference_image=reference_image,
+        min_coverage=0.0,
+        limit=1,
+    )
+    gallery = idat_bruteforce._remember_ultimate_visual_candidate(
+        gallery,
+        visually_closer,
+        tested=11,
+        reference_image=reference_image,
+        min_coverage=0.0,
+        limit=1,
+    )
+
+    assert len(gallery) == 1
+    assert gallery[0].candidate.state_id == 1
+    assert gallery[0].candidate.visual_score == 0.0
 
 
 def test_ultimate_top_candidates_structure_beats_reference_rank():
@@ -2078,6 +2690,7 @@ def test_ultimate_visual_gallery_write_removes_obsolete_previews(tmp_path):
     assert validate_png_structure(previews[0].read_bytes()).ok
     record = json.loads(gallery_path.read_text(encoding="utf-8"))
     assert record["preview_count"] == 1
+    assert record["unique_visual_hash_count"] == 1
     assert record["reference_mode"] == "similar"
     assert record["limit"] == 1
     assert record["visual_gallery_limit"] == 1
@@ -2130,6 +2743,19 @@ def test_ultimate_visual_gallery_load_preserves_existing_resume_previews(tmp_pat
     )
     assert len(restored) == 1
     assert restored[0].preview_data == written[0].preview_data
+    legacy = json.loads(gallery_path.read_text(encoding="utf-8"))
+    duplicate = dict(legacy["candidates"][0])
+    duplicate["state_id"] = 2
+    duplicate["diversity_key"] = "legacy-operation-specific-key"
+    legacy["candidates"].append(duplicate)
+    legacy["preview_count"] = 2
+    gallery_path.write_text(json.dumps(legacy, sort_keys=True) + "\n", encoding="utf-8")
+    restored = idat_bruteforce._load_ultimate_visual_gallery(
+        str(gallery_path),
+        source_hash="source",
+        limit=10,
+    )
+    assert len(restored) == 1
     assert idat_bruteforce._load_ultimate_visual_gallery(
         str(gallery_path),
         source_hash="other-source",
@@ -2223,6 +2849,21 @@ def test_ultimate_visual_gallery_touch_updates_progress_without_cleaning_preview
         tested_candidates=1000,
     ) is False
     assert json.loads(gallery_path.read_text(encoding="utf-8"))["tested_candidates"] == 99
+
+
+def test_ultimate_visual_review_interval_uses_sparse_live_popup_cadence():
+    assert idat_bruteforce._ultimate_visual_review_interval(23_323) == 10_000
+    assert idat_bruteforce._ultimate_visual_review_interval(100_000) == 25_000
+    assert idat_bruteforce._ultimate_visual_review_interval(10_000_000) == 1_000_000
+    assert idat_bruteforce._ultimate_visual_review_interval(1_000_000_000) == 1_000_000
+    assert idat_bruteforce._ultimate_visual_review_interval(10_000_000_000) == 10_000_000
+    assert idat_bruteforce._ultimate_visual_review_interval(None) == 1_000_000
+    assert idat_bruteforce._ultimate_visual_review_interval(23_323, floor=123) == 123
+
+
+def test_ultimate_visual_guidance_review_cooldown_is_much_sparser_than_normal_review():
+    assert idat_bruteforce._ultimate_visual_guidance_review_cooldown(10_000) == 250_000
+    assert idat_bruteforce._ultimate_visual_guidance_review_cooldown(100_000) == 400_000
 
 
 def test_ultimate_linefeed_progress_checkpoint_round_trips(tmp_path):
@@ -2481,6 +3122,45 @@ def test_ultimate_linefeed_skips_opengl_prefilter_by_default(monkeypatch, tmp_pa
     )
 
     assert "OpenGL pre-analysis skipped" in probe.progress_warning
+
+
+def test_ultimate_linefeed_writes_initial_progress_before_opengl_prefilter(monkeypatch, tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row % 256)) for row in range(8))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    del compressed[crlf_offsets[0]]
+    corrupt = build_rgb_png(1, 8, filtered, idat_data=bytes(compressed))
+    progress_path = tmp_path / "_ULF.progress.json"
+    observed_records = []
+
+    def fake_gpu_prefilter(**_kwargs):
+        assert progress_path.exists()
+        observed_records.append(json.loads(progress_path.read_text(encoding="utf-8")))
+        return (), "gpu skipped by test"
+
+    monkeypatch.setattr(idat_bruteforce, "ULTIMATE_LINEFEED_OPENGL_PREFILTER_ENABLED", True)
+    monkeypatch.setattr(idat_bruteforce, "_ultimate_gpu_analysis_candidates", fake_gpu_prefilter)
+
+    probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+        corrupt,
+        start_offset=idat_bruteforce.first_idat_problem_stream_offset(corrupt),
+        checkpoint_path=str(tmp_path / "_ULF.checkpoint.jsonl"),
+        progress_path=str(progress_path),
+        max_depth=1,
+        max_offsets=16,
+        budget=1,
+        beam_width=1,
+        gpu_config=gpu_runtime.GpuRuntimeConfig(enabled=True, install_missing=False),
+    )
+
+    assert observed_records
+    assert observed_records[0]["phase"] == "frontier"
+    assert observed_records[0]["tested_candidates"] == 0
+    assert probe.progress_path == str(progress_path)
 
 
 def test_ultimate_shutdown_parallel_executor_kills_stubborn_process():
@@ -2809,7 +3489,7 @@ def test_ultimate_linefeed_rejects_incompatible_fast_resume_shards(tmp_path):
     assert progress_calls[0] == ("UltimateMegaSuperLineFeedBruteForce", 0, 1)
 
 
-def test_ultimate_linefeed_complete_progress_does_not_scan_or_relaunch(tmp_path):
+def test_ultimate_linefeed_untrusted_complete_progress_resumes_from_checkpoint(tmp_path):
     filtered = b"".join(b"\x00" + bytes((13, 10, row % 256)) for row in range(120))
     compressed = bytearray(zlib.compress(filtered, level=0))
     crlf_offsets = [
@@ -2870,10 +3550,101 @@ def test_ultimate_linefeed_complete_progress_does_not_scan_or_relaunch(tmp_path)
         state_count=7,
         budget=None,
     )
+    checkpoint_loads = []
+    original_load = idat_bruteforce._load_ultimate_checkpoint
+
+    def fake_checkpoint_load(*args, **kwargs):
+        checkpoint_loads.append((args, kwargs))
+        return [], set(), 1, 0
+
+    try:
+        idat_bruteforce._load_ultimate_checkpoint = fake_checkpoint_load
+        probe = idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce(
+            corrupt,
+            start_offset=start_offset,
+            checkpoint_path=str(checkpoint),
+            progress_path=str(progress),
+            max_depth=2,
+            max_offsets=64,
+            budget=5,
+            beam_width=1,
+            ultimate_workers=2,
+        )
+    finally:
+        idat_bruteforce._load_ultimate_checkpoint = original_load
+
+    assert checkpoint_loads
+    assert probe.progress_resumed is False
+    assert "untrusted complete marker" in probe.progress_warning
+    assert probe.tested_candidates == 5
+    assert probe.reason == "budget exhausted"
+
+
+def test_ultimate_linefeed_trusted_complete_progress_still_skips_checkpoint_scan(tmp_path):
+    filtered = b"".join(b"\x00" + bytes((13, 10, row % 256)) for row in range(12))
+    compressed = bytearray(zlib.compress(filtered, level=0))
+    crlf_offsets = [
+        offset
+        for offset in range(2, len(compressed) - 1)
+        if compressed[offset] == 0x0D and compressed[offset + 1] == 0x0A
+    ]
+    del compressed[crlf_offsets[0]]
+
+    corrupt = build_rgb_png(1, 12, filtered, idat_data=bytes(compressed))
+    start_offset = idat_bruteforce.first_idat_problem_stream_offset(corrupt)
+    checkpoint = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.checkpoint.jsonl"
+    progress = tmp_path / "_UltimateMegaSuperLineFeedBruteForce.progress.json"
+    before = idat.analyze_idat_stream(corrupt)
+    _chunks, root_stream = idat_bruteforce._all_chunks_and_idat_stream(corrupt)
+    suspect_offsets = idat_bruteforce.ultimate_linefeed_suspect_offsets(
+        corrupt,
+        start_offset=start_offset,
+        max_offsets=8,
+    )
+    focused_pool = idat_bruteforce._ultimate_operation_pool(
+        root_stream,
+        suspect_offsets,
+        target_adler=before.stored_adler,
+        computed_adler=before.computed_adler,
+    )
+    broad_offsets = idat_bruteforce._ultimate_exhaustive_linefeed_offsets(
+        root_stream,
+        suspect_offsets=suspect_offsets,
+        anchor=start_offset,
+        max_offsets=max(8, min(len(root_stream), 8 * 8, 2048)),
+    )
+    broad_pool = idat_bruteforce._ultimate_operation_pool(
+        root_stream,
+        broad_offsets,
+        target_adler=before.stored_adler,
+        computed_adler=before.computed_adler,
+    )
+    merged_pool = idat_bruteforce._merge_ultimate_operations(focused_pool, broad_pool)
+    idat_bruteforce._write_ultimate_progress(
+        str(progress),
+        source_hash=idat_bruteforce._stream_state_key(root_stream),
+        target_adler=before.stored_adler,
+        start_offset=start_offset,
+        max_depth=1,
+        max_offsets=8,
+        operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(merged_pool),
+        focused_operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(focused_pool),
+        broad_operation_pool_hash=idat_bruteforce._ultimate_operation_pool_hash(broad_pool),
+        phase="complete",
+        depth=1,
+        pool_index=1,
+        combination_rank=0,
+        combination_indices=None,
+        tested_candidates=50,
+        pruned_candidates=5,
+        state_count=7,
+        budget=None,
+        completion_reason="search_exhausted",
+    )
     original_load = idat_bruteforce._load_ultimate_checkpoint
 
     def fail_checkpoint_load(*args, **kwargs):
-        raise AssertionError("complete progress should not scan the checkpoint archive")
+        raise AssertionError("trusted complete progress should not scan the checkpoint archive")
 
     try:
         idat_bruteforce._load_ultimate_checkpoint = fail_checkpoint_load
@@ -2882,11 +3653,10 @@ def test_ultimate_linefeed_complete_progress_does_not_scan_or_relaunch(tmp_path)
             start_offset=start_offset,
             checkpoint_path=str(checkpoint),
             progress_path=str(progress),
-            max_depth=2,
-            max_offsets=64,
+            max_depth=1,
+            max_offsets=8,
             budget=None,
             beam_width=1,
-            ultimate_workers=2,
         )
     finally:
         idat_bruteforce._load_ultimate_checkpoint = original_load
@@ -3650,6 +4420,187 @@ def test_ultimate_linefeed_paired_roi_local_search_handles_small_shift():
     assert shifted_score < exact_score
 
 
+def test_ultimate_roi_gray_image_reuses_existing_luminance_image():
+    from PIL import Image
+
+    gray = Image.new("L", (12, 10), 128)
+    rgba = Image.new("RGBA", (12, 10), (128, 64, 32, 255))
+
+    assert idat_bruteforce._ultimate_gray_image(gray) is gray
+    assert idat_bruteforce._ultimate_gray_image(rgba).mode == "L"
+
+
+def test_ultimate_projection_score_numpy_matches_python_fallback(monkeypatch):
+    from PIL import Image, ImageDraw
+
+    left = Image.new("L", (90, 70), 0)
+    right = Image.new("L", (90, 70), 0)
+    ImageDraw.Draw(left).rectangle((12, 18, 58, 44), fill=220)
+    ImageDraw.Draw(right).rectangle((20, 16, 66, 42), fill=210)
+
+    original_optional_numpy = idat_bruteforce._ultimate_optional_numpy
+    try:
+        monkeypatch.setattr(idat_bruteforce, "_ultimate_optional_numpy", lambda: None)
+        fallback = idat_bruteforce._ultimate_projection_score(left, right)
+        monkeypatch.setattr(idat_bruteforce, "_ultimate_optional_numpy", original_optional_numpy)
+        accelerated = idat_bruteforce._ultimate_projection_score(left, right)
+    finally:
+        monkeypatch.setattr(idat_bruteforce, "_ultimate_optional_numpy", original_optional_numpy)
+
+    assert accelerated == pytest.approx(fallback, abs=1e-5)
+
+
+def test_ultimate_linefeed_paired_roi_prefilters_local_descriptors(monkeypatch):
+    from PIL import Image, ImageDraw
+
+    reference = Image.new("RGBA", (80, 60), (0, 0, 0, 255))
+    candidate = Image.new("RGBA", (80, 60), (0, 0, 0, 255))
+    ImageDraw.Draw(reference).rectangle((28, 20, 44, 36), fill=(230, 230, 0, 255))
+    ImageDraw.Draw(candidate).rectangle((34, 20, 50, 36), fill=(230, 230, 0, 255))
+    region = (0.30, 0.25, 0.60, 0.70)
+    reference_crop = idat_bruteforce._ultimate_crop_region(reference, region)
+    real_descriptor = idat_bruteforce._ultimate_roi_descriptor
+    reference_feature = real_descriptor(reference_crop)
+    reference_quick_feature = idat_bruteforce._ultimate_roi_quick_feature(reference_crop)
+    descriptor_calls = 0
+
+    def counting_descriptor(*args, **kwargs):
+        nonlocal descriptor_calls
+        descriptor_calls += 1
+        return real_descriptor(*args, **kwargs)
+
+    monkeypatch.setattr(idat_bruteforce, "_ultimate_roi_descriptor", counting_descriptor)
+
+    score = idat_bruteforce._ultimate_paired_region_score(
+        candidate,
+        region,
+        reference_crop,
+        reference_feature=reference_feature,
+        reference_quick_feature=reference_quick_feature,
+    )
+
+    assert score < 100.0
+    assert descriptor_calls <= idat_bruteforce.ULTIMATE_LINEFEED_ROI_LOCAL_REFINE_LIMIT
+
+
+def test_ultimate_linefeed_roi_shift_grid_is_cached(monkeypatch):
+    from PIL import Image
+
+    image = Image.new("RGBA", (80, 60), (0, 0, 0, 255))
+    region = (0.30, 0.25, 0.60, 0.70)
+    real_shift = idat_bruteforce._ultimate_shift_region_pixels
+    calls = 0
+
+    def counting_shift(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return real_shift(*args, **kwargs)
+
+    idat_bruteforce._ULTIMATE_SHIFTED_REGION_CACHE.clear()
+    monkeypatch.setattr(idat_bruteforce, "_ultimate_shift_region_pixels", counting_shift)
+    try:
+        first = idat_bruteforce._ultimate_refined_search_regions(image, region)
+        first_calls = calls
+        second = idat_bruteforce._ultimate_refined_search_regions(image, region)
+    finally:
+        idat_bruteforce._ULTIMATE_SHIFTED_REGION_CACHE.clear()
+
+    assert first
+    assert first == second
+    assert first_calls > 0
+    assert calls == first_calls
+
+
+def test_ultimate_linefeed_manual_roi_quick_gate_skips_bad_full_score(monkeypatch, tmp_path):
+    reference = visual_scope_png(96, 64, variant="scope")
+    similar = visual_scope_png(96, 64, variant="scope")
+    unrelated = visual_scope_png(96, 64, variant="unrelated")
+    reference_path = tmp_path / "reference.png"
+    reference_path.write_bytes(reference)
+    reference_image, _warning = idat_bruteforce._load_ultimate_reference_image(str(reference_path))
+    regions = idat_bruteforce.UltimateReferenceRegions(
+        path=str(tmp_path / "_ULF.reference_regions.json"),
+        regions=(
+            idat_bruteforce.UltimateReferenceRegion(
+                candidate_region=(0.0, 0.0, 1.0, 1.0),
+                reference_region=(0.0, 0.0, 1.0, 1.0),
+                weight=1.0,
+                label="scope",
+                match_mode="paired",
+            ),
+        ),
+    )
+    context = idat_bruteforce._ultimate_visual_reference(
+        reference_image,
+        reference_mode="similar",
+        reference_regions=regions,
+    )
+    similar_analysis = idat.analyze_idat_stream(similar)
+    similar_score = idat_bruteforce._ultimate_visual_score(
+        similar,
+        context,
+        reference_mode="similar",
+    )
+    kept_candidate = idat_bruteforce.SuperMegaLinefeedCandidate(
+        similar,
+        (),
+        similar_analysis,
+        similar_analysis,
+        state_id=1,
+        score=idat_bruteforce.super_mega_linefeed_score(similar_analysis, 0),
+        visual_score=similar_score.score,
+        visual_score_kind=similar_score.kind,
+        matched_patch_count=similar_score.matched_patch_count,
+        visual_raw_score=similar_score.raw_score,
+        visual_confidence=similar_score.confidence,
+        visual_effective_score=similar_score.effective_score,
+    )
+    gallery = (
+        idat_bruteforce.UltimateVisualCandidate(
+            candidate=kept_candidate,
+            preview_data=similar,
+            preview_strategy="kept",
+            visual_hash="kept",
+            scanline_hash="kept",
+            operation_hash="",
+            diversity_key="kept",
+            rank=idat_bruteforce._ultimate_visual_candidate_rank(
+                kept_candidate,
+                coverage=1.0,
+                visual_score=similar_score.score,
+            ),
+            coverage=1.0,
+            tested_candidates=1,
+        ),
+    )
+    unrelated_analysis = idat.analyze_idat_stream(unrelated)
+    unrelated_candidate = idat_bruteforce.SuperMegaLinefeedCandidate(
+        unrelated,
+        (),
+        unrelated_analysis,
+        unrelated_analysis,
+        state_id=2,
+        score=idat_bruteforce.super_mega_linefeed_score(unrelated_analysis, 0),
+    )
+
+    def fail_full_visual_score(*_args, **_kwargs):
+        raise AssertionError("full visual scoring should be skipped by the quick ROI gate")
+
+    monkeypatch.setattr(idat_bruteforce, "_ultimate_visual_score", fail_full_visual_score)
+
+    updated = idat_bruteforce._remember_ultimate_visual_candidate(
+        gallery,
+        unrelated_candidate,
+        tested=2,
+        reference_image=context,
+        min_coverage=0.95,
+        limit=1,
+        reference_mode="similar",
+    )
+
+    assert updated == gallery
+
+
 def test_ultimate_linefeed_single_roi_uses_source_snapshot(tmp_path):
     reference = visual_scope_png(96, 64, variant="scope")
     source = visual_scope_png(96, 64, variant="scope")
@@ -3727,6 +4678,54 @@ def test_ultimate_linefeed_negative_roi_penalizes_noisy_candidate(tmp_path):
     assert clean_score.score is not None
     assert noisy_score.score is not None
     assert clean_score.score < noisy_score.score
+
+
+def test_ultimate_linefeed_manual_roi_prepares_static_descriptors(tmp_path):
+    reference = visual_scope_png(96, 64, variant="scope")
+    source = visual_scope_png(96, 64, variant="scope")
+    reference_path = tmp_path / "reference.png"
+    reference_path.write_bytes(reference)
+    reference_image, _warning = idat_bruteforce._load_ultimate_reference_image(str(reference_path))
+    regions = idat_bruteforce.UltimateReferenceRegions(
+        path=str(tmp_path / "_ULF.reference_regions.json"),
+        regions=(
+            idat_bruteforce.UltimateReferenceRegion(
+                candidate_region=(0.0, 0.0, 1.0, 1.0),
+                reference_region=(0.0, 0.0, 1.0, 1.0),
+                label="paired",
+                match_mode="paired",
+            ),
+            idat_bruteforce.UltimateReferenceRegion(
+                candidate_region=(0.0, 0.0, 1.0, 1.0),
+                reference_region=(0.0, 0.0, 1.0, 1.0),
+                label="single",
+                match_mode="single",
+            ),
+            idat_bruteforce.UltimateReferenceRegion(
+                candidate_region=(0.0, 0.0, 1.0, 1.0),
+                reference_region=(0.1, 0.1, 0.8, 0.8),
+                label="search",
+                match_mode="search",
+            ),
+        ),
+    )
+
+    context = idat_bruteforce._ultimate_visual_reference(
+        reference_image,
+        reference_mode="similar",
+        reference_regions=regions,
+        source_data=source,
+    )
+
+    assert len(context.prepared_regions) == 3
+    paired, single, search = context.prepared_regions
+    assert paired.reference_descriptor is not None
+    assert paired.reference_descriptor.edge_ahash
+    assert paired.reference_descriptor.projection_rows
+    assert single.source_descriptor is not None
+    assert single.source_quick_feature is not None
+    assert search.reference_descriptor is not None
+    assert search.reference_quick_feature is not None
 
 
 def test_ultimate_linefeed_bruteforce_spends_budget_when_no_terminal_match(tmp_path):
@@ -3822,12 +4821,16 @@ def test_ultimate_linefeed_bruteforce_broadens_small_focused_space(tmp_path):
         max_offsets=8,
         budget=250,
         beam_width=1,
+        visual_gallery_limit=1,
+        visual_min_coverage=0.0,
+        visual_plateau_limit=1,
     )
 
     assert probe.tested_candidates == 250
     assert probe.budget_exhausted is True
     assert probe.best is not None
     assert probe.best.after.adler_status != "adler_match"
+    assert "visual plateau" not in probe.reason.lower()
 
 
 def test_ultimate_linefeed_bruteforce_skips_clean_complete_idat(tmp_path):
@@ -7358,6 +8361,10 @@ def main():
             test_rebuild_tolerant_idat_salvage_keeps_rows_after_bad_filters,
         ),
         (
+            "Partial IDAT raw resync salvage",
+            test_rebuild_tolerant_idat_salvage_resyncs_extra_raw_byte,
+        ),
+        (
             "IDAT marker-chain preserves chunks",
             test_idat_marker_chain_repair_preserves_valid_idat_chunks_byte_for_byte,
         ),
@@ -7394,6 +8401,15 @@ def main():
             test_ultimate_linefeed_suspect_offsets_prioritize_error_and_linefeeds,
         ),
         (
+            "Ultimate replay one-pass",
+            test_ultimate_replay_operations_uses_one_pass_for_distinct_offsets,
+            test_ultimate_replay_operations_one_pass_falls_back_for_same_offset,
+        ),
+        (
+            "Ultimate parallel worker visual score",
+            test_ultimate_parallel_worker_attaches_visual_scores_before_return,
+        ),
+        (
             "Ultimate live preview callback",
             test_ultimate_linefeed_preview_callback_only_receives_valid_complete_candidates,
         ),
@@ -7410,6 +8426,10 @@ def main():
             test_ultimate_linefeed_bruteforce_resumes_progress_checkpoint,
         ),
         (
+            "Ultimate initial progress before OpenGL",
+            test_ultimate_linefeed_writes_initial_progress_before_opengl_prefilter,
+        ),
+        (
             "Ultimate sigint visual flush",
             test_ultimate_linefeed_sigint_flushes_visual_gallery,
         ),
@@ -7419,7 +8439,18 @@ def main():
         ),
         (
             "Ultimate visual reference rank",
-            test_ultimate_visual_gallery_structure_beats_reference_rank,
+            test_ultimate_visual_gallery_reference_rank_beats_structure,
+        ),
+        (
+            "Ultimate visual score cache",
+            test_ultimate_visual_gallery_reuses_preview_score_cache_for_duplicates,
+            test_ultimate_visual_score_cache_is_bounded,
+            test_ultimate_visual_gallery_uses_attached_score_without_rescoring,
+            test_ultimate_visual_gallery_accepts_prebuilt_worker_candidate,
+        ),
+        (
+            "Ultimate manual ROI prepares descriptors",
+            test_ultimate_linefeed_manual_roi_prepares_static_descriptors,
         ),
         (
             "Ultimate top reference rank",

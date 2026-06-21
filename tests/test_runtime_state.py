@@ -65,6 +65,7 @@ def test_main_loop_history_reset_values_preserve_fresh_containers():
         "LAST_CLONE_VALIDATION": None,
         "DEFERRED_REPAIR_STILL_REQUIRED": False,
         "DEFERRED_INTERNAL_LINEFEED_CHECKED": False,
+        "ULTIMATE_FINAL_CLONE_PENDING": False,
     }
     assert first["PandoraBox"] is not second["PandoraBox"]
     assert first["Chunks_History"] is not second["Chunks_History"]

@@ -103,6 +103,8 @@ def _question_prompt_text(question_id: Any, skipauto: bool) -> str:
         return "Question: Option 3, write an all-zero placeholder PNG?"
     if "DaedalusForce Visual Reference ROI" in str(question_id) or "SBB Visual Reference ROI" in str(question_id):
         return "Question: Do you have any similare png by any chance ?"
+    if "Ultimate Visual ROI Snapshot" in str(question_id):
+        return "Question: Use the visible Ultimate preview in the ROI editor? yes=preview, no=_ULF.Source.png"
     if "Ultimate Visual Reference ROI" in str(question_id):
         return "Question: Do you have any similare png by any chance ?"
     if "IDAT partial blackfill" in str(question_id):

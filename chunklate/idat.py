@@ -174,6 +174,8 @@ class TolerantScanlineSalvage:
     total_scanlines: int
     invalid_filter_rows: tuple[int, ...]
     repeated_rows: int
+    skipped_bytes: int = 0
+    resynced_rows: int = 0
 
 
 def dummy_scanline(bit_depth: str | int, samples: int = 3) -> tuple[bytes, bytes, bytes]:
@@ -593,6 +595,98 @@ def _tolerant_filter0_scanlines(
         total_scanlines=height,
         invalid_filter_rows=tuple(invalid_filter_rows),
         repeated_rows=repeated_rows,
+    )
+
+
+def _resync_too_long_filtered_scanlines(
+    decompressed: bytes,
+    *,
+    width: int,
+    height: int,
+    bit_depth: int,
+    color_type: int,
+) -> TolerantScanlineSalvage | None:
+    scanline_size = png.png_scanline_size(width, bit_depth, color_type)
+    if scanline_size is None or height <= 0:
+        return None
+
+    expected_size = scanline_size * height
+    extra = len(decompressed) - expected_size
+    if extra <= 0:
+        return None
+    if extra > max(4096, scanline_size * 2):
+        return None
+
+    # Dynamic programming over the cumulative number of skipped bytes before
+    # each scanline. This handles IDAT streams that inflate to a valid image
+    # plus a small number of stray bytes before or inside the scanline region.
+    invalid_penalty = 1000
+    unreachable = 10**12
+    costs = [unreachable] * (extra + 1)
+    costs[0] = 0
+    parents: list[list[int]] = []
+
+    for row in range(height):
+        row_costs = [unreachable] * (extra + 1)
+        row_parents = [-1] * (extra + 1)
+        best_cost = unreachable
+        best_skip = 0
+        row_base = row * scanline_size
+        for skip in range(extra + 1):
+            if costs[skip] < best_cost:
+                best_cost = costs[skip]
+                best_skip = skip
+            offset = row_base + skip
+            if offset + scanline_size > len(decompressed):
+                continue
+            filter_byte = decompressed[offset]
+            penalty = 0 if filter_byte in range(5) else invalid_penalty
+            jump = skip - best_skip
+            value = best_cost + penalty + jump
+            if value < row_costs[skip]:
+                row_costs[skip] = value
+                row_parents[skip] = best_skip
+        parents.append(row_parents)
+        costs = row_costs
+
+    end_skip = min(range(extra + 1), key=lambda skip: costs[skip])
+    if costs[end_skip] >= unreachable:
+        return None
+
+    skips: list[int] = []
+    skip = end_skip
+    for row in range(height - 1, -1, -1):
+        skips.append(skip)
+        parent = parents[row][skip]
+        if parent < 0:
+            return None
+        skip = parent
+    skips.reverse()
+
+    resynced_rows = sum(1 for left, right in zip((0, *skips[:-1]), skips) if right != left)
+    selected = b"".join(
+        decompressed[row * scanline_size + skips[row] : row * scanline_size + skips[row] + scanline_size]
+        for row in range(height)
+    )
+    salvage = _tolerant_filter0_scanlines(
+        selected,
+        width=width,
+        height=height,
+        bit_depth=bit_depth,
+        color_type=color_type,
+    )
+    if salvage is None:
+        return None
+    if salvage.recovered_scanlines <= 0:
+        return None
+    return TolerantScanlineSalvage(
+        filtered_scanlines=salvage.filtered_scanlines,
+        recovered_scanlines=salvage.recovered_scanlines,
+        total_scanlines=salvage.total_scanlines,
+        invalid_filter_rows=salvage.invalid_filter_rows,
+        repeated_rows=salvage.repeated_rows,
+        skipped_bytes=end_skip,
+        resynced_rows=resynced_rows,
     )
 
 
@@ -1792,18 +1886,26 @@ def rebuild_tolerant_idat_salvage(data: bytes) -> PartialIdatBlackfillRepair | N
     decompressed, zlib_complete, _error = _decompress_until_error(idat_stream)
     if len(decompressed) < analysis.expected_size:
         return None
-    salvage = _tolerant_filter0_scanlines(
+    salvage = _resync_too_long_filtered_scanlines(
         decompressed,
         width=analysis.width,
         height=analysis.height,
         bit_depth=analysis.bit_depth,
         color_type=analysis.color_type,
     )
+    if salvage is None or salvage.recovered_scanlines <= analysis.usable_scanlines:
+        salvage = _tolerant_filter0_scanlines(
+            decompressed,
+            width=analysis.width,
+            height=analysis.height,
+            bit_depth=analysis.bit_depth,
+            color_type=analysis.color_type,
+        )
     if salvage is None:
         return None
-    if not salvage.invalid_filter_rows:
+    if not salvage.invalid_filter_rows and salvage.skipped_bytes <= 0:
         return None
-    if salvage.recovered_scanlines <= analysis.usable_scanlines:
+    if salvage.recovered_scanlines <= analysis.usable_scanlines and salvage.skipped_bytes <= 0:
         return None
 
     rebuilt_idat = zlib.compress(salvage.filtered_scanlines)
@@ -1817,17 +1919,34 @@ def rebuild_tolerant_idat_salvage(data: bytes) -> PartialIdatBlackfillRepair | N
             continue
         fixed.extend(png.build_png_chunk(chunk.chunk_type, chunk.data))
 
-    return PartialIdatBlackfillRepair(
-        data=bytes(fixed),
-        strategy=(
+    strategy = (
+        "partial-idat-raw-resync-salvage decoded %s/%s scanlines; "
+        "skipped %s raw byte(s) across %s row start(s); reused previous row for %s bad filter rows"
+        if salvage.skipped_bytes > 0
+        else (
             "partial-idat-tolerant-row-salvage decoded %s/%s scanlines; "
             "reused previous row for %s bad filter rows"
         )
-        % (
+    )
+    values = (
+        (
+            salvage.recovered_scanlines,
+            salvage.total_scanlines,
+            salvage.skipped_bytes,
+            salvage.resynced_rows,
+            salvage.repeated_rows,
+        )
+        if salvage.skipped_bytes > 0
+        else (
             salvage.recovered_scanlines,
             salvage.total_scanlines,
             salvage.repeated_rows,
-        ),
+        )
+    )
+
+    return PartialIdatBlackfillRepair(
+        data=bytes(fixed),
+        strategy=strategy % values,
         recovered_scanlines=salvage.recovered_scanlines,
         total_scanlines=salvage.total_scanlines,
         width=analysis.width,

@@ -443,10 +443,15 @@ class FixItFelixWorkItem:
     finding: object | None = None
 
 
+def _noop_progress(_indication: str) -> None:
+    return None
+
+
 @dataclass(frozen=True)
 class FixItFelixRuntime:
     try_automatic_repair: Callable[[AutomaticRepairHandler], Any]
     apply_finding_work_item: Callable[[FixItFelixWorkItem, str, int, Any], tuple[bool, Any]]
+    progress: Callable[[str], Any] = _noop_progress
 
 
 @dataclass(frozen=True)
@@ -732,6 +737,14 @@ def emit_debug_report(
         emit(line)
 
 
+def _work_item_progress_indication(index: int, total: int) -> str:
+    width = max(2, len(str(total)))
+    return "FixItFelix %s/%s" % (
+        str(index).zfill(width),
+        str(total).zfill(width),
+    )
+
+
 def run_repair_work_items(
     runtime: FixItFelixRuntime,
     work_items: Iterable[FixItFelixWorkItem],
@@ -740,7 +753,11 @@ def run_repair_work_items(
     pandora_box_len: int,
     chunk: Any,
 ) -> FixItFelixRunResult:
-    for work_item in work_items:
+    ordered_work_items = tuple(work_items)
+    total_work_items = len(ordered_work_items)
+    for index, work_item in enumerate(ordered_work_items, start=1):
+        runtime.progress(_work_item_progress_indication(index, total_work_items))
+
         if work_item.kind == "automatic_repair":
             repair_result = runtime.try_automatic_repair(work_item.handler)
             if repair_result is not None:

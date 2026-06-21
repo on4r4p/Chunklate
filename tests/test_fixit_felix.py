@@ -873,6 +873,44 @@ def test_run_repair_work_items_dispatches_findings_after_empty_automatic_repairs
     ]
 
 
+def test_run_repair_work_items_reports_progress_before_each_attempt():
+    calls = []
+
+    def apply_finding(work_item, chkd, pandora_box_len, chunk):
+        calls.append(("finding", work_item.handler, chkd, pandora_box_len, chunk))
+        return False, None
+
+    runtime = fixit_felix.FixItFelixRuntime(
+        try_automatic_repair=lambda handler: calls.append(("auto", handler)) or None,
+        apply_finding_work_item=apply_finding,
+        progress=lambda indication: calls.append(("progress", indication)),
+    )
+    work_item = fixit_felix.FixItFelixWorkItem(
+        "finding",
+        "wrong_crc",
+        "Checksum_Error_0:Wrong Crc",
+    )
+
+    result = fixit_felix.run_repair_work_items(
+        runtime,
+        (
+            fixit_felix.FixItFelixWorkItem("automatic_repair", "color_profile_cleanup"),
+            work_item,
+        ),
+        chkd="IDAT_Tool_",
+        pandora_box_len=2,
+        chunk=b"IDAT",
+    )
+
+    assert result == fixit_felix.FixItFelixRunResult(False)
+    assert calls == [
+        ("progress", "FixItFelix 01/02"),
+        ("auto", "color_profile_cleanup"),
+        ("progress", "FixItFelix 02/02"),
+        ("finding", "wrong_crc", "IDAT_Tool_", 2, b"IDAT"),
+    ]
+
+
 def test_run_repair_work_items_reports_no_result_when_nothing_handles():
     runtime = fixit_felix.FixItFelixRuntime(
         try_automatic_repair=lambda handler: None,
@@ -2280,6 +2318,7 @@ def main():
         ("Emit debug report sends legacy lines", test_emit_debug_report_sends_legacy_lines_to_emit_callback),
         ("Run work items returns automatic repair", test_run_repair_work_items_returns_first_automatic_repair_result),
         ("Run work items dispatches findings", test_run_repair_work_items_dispatches_findings_after_empty_automatic_repairs),
+        ("Run work items reports progress", test_run_repair_work_items_reports_progress_before_each_attempt),
         ("Run work items reports no result", test_run_repair_work_items_reports_no_result_when_nothing_handles),
         ("Run repair pipeline builds adjusted work items", test_run_repair_pipeline_builds_work_items_and_adjusted_pandora_len),
         ("Dispatch action calls matching handler", test_dispatch_action_calls_matching_handler_with_args),

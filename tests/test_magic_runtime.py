@@ -41,10 +41,14 @@ def build_runtime(
     ultimate_visual_gallery_limit=None,
     ultimate_visual_min_coverage=None,
     ultimate_candidate_preview=None,
+    ultimate_visual_candidate_selector=None,
+    request_ultimate_groundhogday_retry=None,
+    mark_ultimate_final_clone=None,
     gpu_config=None,
     defer_linefeed_signature_repair=None,
     prompt_candy=None,
     clear_dialogue_pause=None,
+    finish_progress_line=None,
 ):
     if side_notes is None:
         side_notes = []
@@ -77,6 +81,7 @@ def build_runtime(
         preview_image=preview_image or (lambda *args: calls.append(("preview", args))),
         prompt_candy=prompt_candy,
         clear_dialogue_pause=clear_dialogue_pause or (lambda *args: None),
+        finish_progress_line=finish_progress_line or (lambda *args, **kwargs: None),
         ultimate_linefeed_budget=ultimate_linefeed_budget
         or (
             lambda estimate=None: magic_runtime.idat_bruteforce.ultimate_linefeed_budget_decision(
@@ -105,7 +110,11 @@ def build_runtime(
         or (lambda: magic_runtime.idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE),
         gpu_config=gpu_config or magic_runtime.gpu_runtime.GpuRuntimeConfig(),
         ultimate_candidate_preview=ultimate_candidate_preview,
+        ultimate_visual_candidate_selector=ultimate_visual_candidate_selector
+        or magic_runtime.ultimate_visual_ui.open_ultimate_visual_candidate_selector,
+        request_ultimate_groundhogday_retry=request_ultimate_groundhogday_retry or (lambda *args, **kwargs: None),
         defer_linefeed_signature_repair=defer_linefeed_signature_repair or (lambda *args: False),
+        mark_ultimate_final_clone=mark_ultimate_final_clone or (lambda *args, **kwargs: None),
     )
 
 
@@ -176,6 +185,198 @@ def tiny_rgb_png():
 
 def linefeed_salvage_fixture():
     return (ROOT / "Png_Errors_handled_by_Chunklate_So_Far" / "linefeedcorruption3.png").read_bytes()
+
+
+def _visual_candidate_for_magic_runtime(path, *, state_id):
+    data = tiny_rgb_png()
+    analysis = magic_runtime.idat.analyze_idat_stream(data)
+    candidate = magic_runtime.idat_bruteforce.SuperMegaLinefeedCandidate(
+        data,
+        (),
+        analysis,
+        analysis,
+        state_id=state_id,
+        score=magic_runtime.idat_bruteforce.super_mega_linefeed_score(analysis, 0),
+    )
+    return magic_runtime.idat_bruteforce.UltimateVisualCandidate(
+        candidate=candidate,
+        preview_data=data,
+        preview_strategy="test-preview",
+        visual_hash="visual-%s" % state_id,
+        scanline_hash="scanline-%s" % state_id,
+        operation_hash="operation-%s" % state_id,
+        diversity_key="visual-%s" % state_id,
+        rank=(state_id,),
+        coverage=1.0,
+        tested_candidates=state_id * 10,
+        preview_path=str(path),
+    )
+
+
+def test_ultimate_visual_selection_maps_paths_in_picker_order(tmp_path):
+    first_path = tmp_path / "first.png"
+    second_path = tmp_path / "second.png"
+    first_path.write_bytes(tiny_rgb_png())
+    second_path.write_bytes(tiny_rgb_png())
+    first = _visual_candidate_for_magic_runtime(first_path, state_id=1)
+    second = _visual_candidate_for_magic_runtime(second_path, state_id=2)
+    probe = SimpleNamespace(
+        visual_gallery_path=str(tmp_path / "_ULF.visual.json"),
+        visual_candidates=(first, second),
+    )
+    selection = magic_runtime.ultimate_visual_ui.UltimateVisualSelectionResult(
+        selected_preview_paths=(str(second_path), str(first_path)),
+    )
+
+    selected = magic_runtime._ultimate_visual_candidates_from_selection(probe, selection)
+
+    assert [item.candidate.state_id for item in selected] == [2, 1]
+
+
+def test_ultimate_visual_selection_after_probe_calls_selector(tmp_path):
+    calls = []
+    preview_path = tmp_path / "first.png"
+    preview_path.write_bytes(tiny_rgb_png())
+    visual = _visual_candidate_for_magic_runtime(preview_path, state_id=1)
+    probe = SimpleNamespace(
+        visual_gallery_path=str(tmp_path / "_ULF.visual.json"),
+        visual_candidates=(visual,),
+    )
+
+    def selector(path, **kwargs):
+        calls.append((path, kwargs))
+        return magic_runtime.ultimate_visual_ui.UltimateVisualSelectionResult(
+            selected_preview_paths=(str(preview_path),),
+        )
+
+    runtime = build_runtime(calls, ultimate_visual_candidate_selector=selector)
+
+    selected, _selection = magic_runtime._select_ultimate_visual_candidates_after_probe(runtime, probe)
+
+    assert [item.candidate.state_id for item in selected] == [1]
+    assert calls[0][0] == str(tmp_path / "_ULF.visual.json")
+    assert calls[0][1]["interactive"] is True
+
+
+def test_ultimate_visual_selection_legacy_groundhogday_decision_is_ignored(tmp_path):
+    calls = []
+    summary = []
+    preview_path = tmp_path / "first.png"
+    preview_path.write_bytes(tiny_rgb_png())
+    visual = _visual_candidate_for_magic_runtime(preview_path, state_id=1)
+    selection = magic_runtime.ultimate_visual_ui.UltimateVisualSelectionResult(
+        selected_preview_paths=(str(preview_path),),
+        final_preview_dir=str(tmp_path / "Final_Previews"),
+        final_preview_paths=(str(preview_path),),
+        decision="groundhogday",
+    )
+    runtime = build_runtime(
+        calls,
+        request_ultimate_groundhogday_retry=lambda value: calls.append(("groundhogday_retry", value)),
+    )
+
+    magic_runtime._emit_ultimate_visual_selection(runtime, summary, (visual,), selection)
+
+    assert not any(call[0] == "groundhogday_retry" for call in calls)
+    assert not any("queued for GroundHogDay" in line for line in summary)
+    assert magic_runtime._ultimate_visual_selection_decision(selection) == "undecided"
+
+
+def test_ultimate_visual_selection_after_budget_exhaustion_allows_keep_searching(tmp_path):
+    calls = []
+    preview_path = tmp_path / "first.png"
+    preview_path.write_bytes(tiny_rgb_png())
+    visual = _visual_candidate_for_magic_runtime(preview_path, state_id=1)
+    probe = SimpleNamespace(
+        visual_gallery_path=str(tmp_path / "_ULF.visual.json"),
+        visual_candidates=(visual,),
+        budget_exhausted=True,
+    )
+
+    def selector(path, **kwargs):
+        calls.append((path, kwargs))
+        return magic_runtime.ultimate_visual_ui.UltimateVisualSelectionResult(
+            decision="keep_searching",
+        )
+
+    runtime = build_runtime(calls, ultimate_visual_candidate_selector=selector)
+
+    selected, selection = magic_runtime._select_ultimate_visual_candidates_after_probe(runtime, probe)
+
+    assert selected == ()
+    assert selection.decision == "keep_searching"
+    assert calls[0][1]["allow_keep_searching"] is True
+    assert calls[0][1]["timeout_seconds"] == 60
+    assert "Keep searching" in calls[0][1]["instruction"]
+
+
+def test_ultimate_visual_review_keep_searching_resumes_fish_counter(tmp_path):
+    calls = []
+
+    def selector(path, **kwargs):
+        calls.append(("selector", path, kwargs))
+        return magic_runtime.ultimate_visual_ui.UltimateVisualSelectionResult(
+            decision="keep_searching",
+        )
+
+    runtime = build_runtime(
+        calls,
+        ultimate_visual_candidate_selector=selector,
+        finish_progress_line=lambda **kwargs: calls.append(("finish_progress_line", kwargs)),
+    )
+
+    review = magic_runtime._ultimate_visual_review_callback(runtime)
+    selection = review(
+        str(tmp_path / "_ULF.visual.json"),
+        (),
+        {"tested_candidates": 11775, "budget": 23323, "interval": 10000},
+    )
+
+    assert selection.decision == "keep_searching"
+    assert ("finish_progress_line", {"clear": True}) in calls
+    assert ("loadingbar", (23323, 5, 0, True)) in calls
+    assert ("loadingbar", (23323, 5, 11775, False)) in calls
+
+
+def test_next_ultimate_budget_keep_searching_advances_ladder():
+    estimate = SimpleNamespace(total_combinations=7_012_540_641)
+    normal = magic_runtime.idat_bruteforce.ultimate_linefeed_budget_decision(
+        estimate.total_combinations,
+        "normal",
+    )
+    inception = magic_runtime.idat_bruteforce.ultimate_linefeed_budget_decision(
+        estimate.total_combinations,
+        "inception",
+    )
+
+    deep = magic_runtime._next_ultimate_budget_after_keep_searching(normal, estimate)
+    unbounded = magic_runtime._next_ultimate_budget_after_keep_searching(inception, estimate)
+
+    assert deep.mode == "deep"
+    assert deep.budget > normal.budget
+    assert unbounded.mode == "unbounded"
+    assert unbounded.budget is None
+    assert magic_runtime._next_ultimate_budget_after_keep_searching(unbounded, estimate) is None
+
+
+def test_next_ultimate_budget_keep_searching_doubles_custom_until_no_limit_cap():
+    estimate = SimpleNamespace(total_combinations=100)
+    custom = magic_runtime.idat_bruteforce.UltimateLinefeedBudgetDecision(
+        "override",
+        20,
+        coverage=20.0,
+    )
+    capped = magic_runtime.idat_bruteforce.UltimateLinefeedBudgetDecision(
+        "override",
+        60,
+        coverage=60.0,
+    )
+
+    doubled = magic_runtime._next_ultimate_budget_after_keep_searching(custom, estimate)
+
+    assert doubled.mode == "override"
+    assert doubled.budget == 40
+    assert magic_runtime._next_ultimate_budget_after_keep_searching(capped, estimate) is None
 
 
 def test_ultimate_source_snapshot_writes_decodable_preview_and_raw_bytes(tmp_path):
@@ -341,8 +542,10 @@ def test_find_header_magic_runtime_writes_linefeed_salvage_clone():
     assert "marker-chain reconstructed visible IHDR/IDAT/IEND headers" in write_calls[0][2]
     assert "IDAT chunk preserved byte-for-byte where CRC already matched" in write_calls[0][2]
     assert "IDAT CRC rebuilt for marker-chain chunk(s): IDAT@0x202d" in write_calls[0][2]
-    assert "partial-idat-tolerant-row-salvage decoded 498/503 scanlines" in write_calls[0][2]
-    assert "reused previous row for 5 bad filter rows" in write_calls[0][2]
+    assert "kept declared IDAT payload bytes before rebuilding CRC: IDAT@0x202d" in write_calls[0][2]
+    assert "partial-idat-raw-resync-salvage decoded 503/503 scanlines" in write_calls[0][2]
+    assert "skipped 8 raw byte(s)" in write_calls[0][2]
+    assert "reused previous row for 0 bad filter rows" in write_calls[0][2]
     assert "original Adler not recovered after marker-chain" in write_calls[0][2]
     assert side_notes == [write_calls[0][2]]
     assert ("end",) not in calls
@@ -415,7 +618,7 @@ def test_deferred_linefeed_signature_repair_writes_after_tour():
     assert cowsay_moods[:4] == ["bad", "good", "good", "com"]
     assert any(
         "I rebuilt the visible IDAT marker chain before brute force" in message
-        and "498/503 scanlines" in message
+        and "503/503 scanlines" in message
         for message in cowsay_messages
     )
     assert any(
@@ -553,7 +756,8 @@ def test_linefeed_full_bruteforce_checks_length_realign_before_prompt():
         source_data=linefeed.data,
     )
 
-    assert alternative.repair.recovered_scanlines == 495
+    assert alternative.repair.recovered_scanlines == 503
+    assert "partial-idat-raw-resync-salvage decoded 503/503 scanlines" in alternative.summary
     assert "pre-bruteforce length check" not in alternative.summary
     assert "IDAT chunk length overran the next chunk by 4 bytes" in alternative.summary
     assert not [call for call in calls if call[0] == "ask"]
@@ -701,7 +905,7 @@ def test_find_header_magic_runtime_can_launch_supermega_directly_after_salvage()
     assert result == "write-result"
     assert (
         "ask",
-        ("SuperMegaLineFeedForceOfDeath", "super-mega-linefeed-force-of-death-0x3ee9-498"),
+        ("SuperMegaLineFeedForceOfDeath", "super-mega-linefeed-force-of-death-0x3ee9-503"),
     ) in calls
     ultimate_ask = next(
         call
@@ -719,7 +923,7 @@ def test_find_header_magic_runtime_can_launch_supermega_directly_after_salvage()
     assert "phase4-heavy-byte-window phase" in write_calls[0][2]
     assert "UltimateMegaSuperLineFeedBruteForce: user declined" in write_calls[0][2]
     assert "final IDAT salvage after SuperMegaLineFeedForceOfDeath" in write_calls[0][2]
-    assert "partial-idat-tolerant-row-salvage decoded 498/503 scanlines" in write_calls[0][2]
+    assert "partial-idat-raw-resync-salvage decoded 503/503 scanlines" in write_calls[0][2]
     assert "partial-idat-blackfill recovered 503/503 scanlines" in write_calls[0][2]
     assert "SuperMegaLineFeedForceOfDeath" in write_calls[0][2]
     assert [call for call in calls if call[0] == "loadingbar"]
@@ -867,7 +1071,8 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
         for call in calls
         if call[0] == "ask" and call[1][0] == "UltimateMegaSuperLineFeedBruteForce"
     ]
-    assert result == "write-result"
+    assert result is None
+    assert write_calls == []
     assert ultimate_asks
     assert ultimate_asks[0][2] == {"skipauto": True}
     assert ("candy", ("Title", "UltimateMegaSuperLineFeedBruteForce")) in calls
@@ -935,9 +1140,10 @@ def test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe():
         if call[0] == "clear_dialogue_pause"
     )
     assert [call for call in calls if call[0] == "ultimate_kwargs"][0][1]["budget"] == 1234
-    assert "UltimateMegaSuperLineFeedBruteForce: start=0x3ee9" in write_calls[0][2]
-    assert "test budget" in write_calls[0][2]
-    assert side_notes == [write_calls[0][2]]
+    assert side_notes
+    assert "UltimateMegaSuperLineFeedBruteForce: start=0x3ee9" in side_notes[0]
+    assert "test budget" in side_notes[0]
+    assert "no candidate survived pruning" in side_notes[0]
 
 
 def test_linefeed_queue_progress_draws_zero_state_after_build():
@@ -1066,6 +1272,19 @@ def test_ultimate_linefeed_resume_message_uses_fast_v2_exhaustive_phase(tmp_path
 def test_ultimate_linefeed_resume_message_handles_complete_phase(tmp_path):
     progress_path = tmp_path / "_ULF.progress.json"
     progress_path.write_text(json.dumps({"phase": "complete"}), encoding="utf-8")
+
+    message = magic_runtime._ultimate_linefeed_resume_message(str(progress_path), "")
+
+    assert "old complete marker" in message
+    assert "verify it from checkpoint candidates" in message
+
+
+def test_ultimate_linefeed_resume_message_handles_trusted_complete_phase(tmp_path):
+    progress_path = tmp_path / "_ULF.progress.json"
+    progress_path.write_text(
+        json.dumps({"phase": "complete", "completion_reason": "search_exhausted"}),
+        encoding="utf-8",
+    )
 
     message = magic_runtime._ultimate_linefeed_resume_message(str(progress_path), "")
 
@@ -1228,6 +1447,116 @@ def test_ultimate_reference_prompt_opens_roi_selector_when_reference_missing(tmp
     assert [call for call in calls if call[0] == "editor"]
 
 
+def test_ultimate_reference_prompt_can_use_visible_preview_for_roi_source(tmp_path):
+    calls = []
+    answers = [True, True]
+    source_data = tiny_rgb_png()
+    source_path = tmp_path / "_ULF.Source.png"
+    preview_path = tmp_path / "Bruteforce_Previews" / "_Preview_UltimateMegaSuperLineFeedBruteForce_Before.png"
+    reference_path = tmp_path / "reference.png"
+    regions_path = tmp_path / "_ULF.reference_regions.json"
+    preview_path.parent.mkdir()
+    source_path.write_bytes(source_data)
+    preview_path.write_bytes(source_data)
+    reference_path.write_bytes(source_data)
+
+    def ask(*args, **kwargs):
+        calls.append(("ask", args, kwargs))
+        return answers.pop(0)
+
+    def editor(source, reference, output, **kwargs):
+        calls.append(("editor", source, reference, output, kwargs.get("source_data")))
+        assert source == str(preview_path)
+        assert reference == ""
+        _write_roi_mapping(Path(output), source_data, reference_path)
+        return magic_runtime.ultimate_reference_ui.ReferenceRegionEditorResult(
+            True,
+            output,
+            region_count=1,
+            reference_path=str(reference_path),
+        )
+
+    runtime = build_runtime(
+        calls,
+        ask=ask,
+        ultimate_linefeed_reference=lambda: "",
+        ultimate_linefeed_reference_regions=lambda: str(regions_path),
+        ultimate_linefeed_reference_region_editor_run=editor,
+    )
+
+    handled, reference, mode, regions = magic_runtime._maybe_prepare_ultimate_reference_from_prompt(
+        runtime,
+        source_data=source_data,
+        source_path=str(source_path),
+        checkpoint_path=str(tmp_path / "_ULF.checkpoint.jsonl"),
+        start_offset=0x1234,
+        roi_source_preview_path=str(preview_path),
+    )
+
+    assert (handled, reference, mode, regions) == (True, str(reference_path), "similar", str(regions_path))
+    assert any(
+        call[0] == "ask"
+        and call[1][0] == "Ultimate Visual Reference ROI:-Do you have any similar png by any chance?"
+        for call in calls
+    )
+    assert any(
+        call[0] == "ask"
+        and call[1][0] == "Ultimate Visual ROI Snapshot:-Use the visible Ultimate preview instead of _ULF.Source.png?"
+        for call in calls
+    )
+
+
+def test_ultimate_reference_regions_prompt_keeps_source_snapshot_when_preview_declined(tmp_path):
+    calls = []
+    source_data = tiny_rgb_png()
+    source_path = tmp_path / "_ULF.Source.png"
+    preview_path = tmp_path / "Bruteforce_Previews" / "_Preview_UltimateMegaSuperLineFeedBruteForce_Before.png"
+    reference_path = tmp_path / "reference.png"
+    regions_path = tmp_path / "_ULF.reference_regions.json"
+    preview_path.parent.mkdir()
+    source_path.write_bytes(source_data)
+    preview_path.write_bytes(source_data)
+    reference_path.write_bytes(source_data)
+
+    def ask(*args, **kwargs):
+        calls.append(("ask", args, kwargs))
+        return False
+
+    def editor(source, reference, output, **kwargs):
+        calls.append(("editor", source, reference, output, kwargs.get("source_data")))
+        assert source == str(source_path)
+        assert reference == str(reference_path)
+        _write_roi_mapping(Path(output), source_data, reference_path)
+        return magic_runtime.ultimate_reference_ui.ReferenceRegionEditorResult(
+            True,
+            output,
+            region_count=1,
+        )
+
+    runtime = build_runtime(
+        calls,
+        ask=ask,
+        ultimate_linefeed_reference=lambda: str(reference_path),
+        ultimate_linefeed_reference_mode=lambda: "similar",
+        ultimate_linefeed_reference_regions=lambda: str(regions_path),
+        ultimate_linefeed_reference_region_editor_run=editor,
+    )
+
+    result = magic_runtime._prepare_ultimate_reference_regions(
+        runtime,
+        source_data=source_data,
+        source_path=str(source_path),
+        checkpoint_path=str(tmp_path / "_ULF.checkpoint.jsonl"),
+    )
+
+    assert result == str(regions_path)
+    assert any(
+        call[0] == "ask"
+        and call[1][0] == "Ultimate Visual ROI Snapshot:-Use the visible Ultimate preview instead of _ULF.Source.png?"
+        for call in calls
+    )
+
+
 def test_ultimate_reference_prompt_skips_when_reference_already_configured(tmp_path):
     calls = []
     runtime = build_runtime(
@@ -1281,7 +1610,7 @@ def test_ultimate_reference_regions_noninteractive_falls_back_to_auto_patch(tmp_
     )
 
 
-def test_ultimate_linefeed_direct_resume_skips_find_magic_tour():
+def test_ultimate_linefeed_direct_resume_without_adler_match_skips_clone_relaunch():
     calls = []
     side_notes = []
     original_ultimate = magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce
@@ -1330,16 +1659,378 @@ def test_ultimate_linefeed_direct_resume_skips_find_magic_tour():
             magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce = original_ultimate
 
     write_calls = [call for call in calls if call[0] == "write_clone"]
-    assert result == "write-result"
-    assert write_calls
-    assert validate_png_structure(bytes.fromhex(write_calls[0][1])).ok
+    assert result is None
+    assert not write_calls
     assert ("candy", ("Title", "Ultimate line-feed resume:")) in calls
     assert ("candy", ("Title", "Looking for magic header:")) not in calls
     ultimate_kwargs = [call[1] for call in calls if call[0] == "ultimate_kwargs"][0]
     assert ultimate_kwargs["super_result"] is None
     assert ultimate_kwargs["resume_progress"] is True
     assert ultimate_kwargs["start_offset"] is not None
-    assert side_notes == [write_calls[0][2]]
+    assert side_notes
+    assert "no candidate survived pruning" in side_notes[0]
+
+
+def test_ultimate_linefeed_direct_resume_keeps_non_adler_candidate_as_evidence():
+    calls = []
+    side_notes = []
+    final_marks = []
+    original_ultimate = magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce
+
+    def fake_ultimate(data, **kwargs):
+        calls.append(("ultimate_kwargs", kwargs))
+        before = magic_runtime.idat.analyze_idat_stream(data)
+        current_repair = magic_runtime.idat.rebuild_tolerant_idat_salvage(data)
+        assert current_repair is not None
+        after = magic_runtime.idat.analyze_idat_stream(
+            current_repair.data,
+            target_adler=kwargs.get("target_adler"),
+        )
+        assert after.complete is True
+        assert after.adler_status != "adler_match"
+        candidate = magic_runtime.idat_bruteforce.SuperMegaLinefeedCandidate(
+            current_repair.data,
+            (),
+            before,
+            after,
+            state_id=7,
+            score=magic_runtime.idat_bruteforce.super_mega_linefeed_score(after, 0),
+        )
+        return magic_runtime.idat_bruteforce.UltimateLinefeedProbeResult(
+            before,
+            candidate,
+            kwargs.get("target_adler"),
+            kwargs.get("start_offset"),
+            1,
+            4,
+            (kwargs.get("start_offset") or 0,),
+            10,
+            11,
+            11,
+            0,
+            1,
+            kwargs.get("checkpoint_path", ""),
+            False,
+            reason="original Adler target was not recovered",
+            top_candidates=(candidate,),
+        )
+
+    corrupted = linefeed_salvage_fixture()
+    linefeed = repair_linefeed_conversion(corrupted, allow_partial=True)
+    realignment = magic_runtime.repair_overlong_chunk_length_to_next_header(linefeed.data)
+    with tempfile.TemporaryDirectory() as directory:
+        source_path = Path(directory) / "_ULF.Source.png"
+        source_path.write_bytes(realignment.data)
+        runtime = build_runtime(
+            calls,
+            side_notes,
+            ultimate_linefeed_budget=lambda estimate=None: 10,
+            ultimate_linefeed_source=lambda: str(source_path),
+            mark_ultimate_final_clone=lambda: final_marks.append("marked"),
+        )
+
+        magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce = fake_ultimate
+        try:
+            result = magic_runtime.run_ultimate_linefeed_direct_resume(
+                runtime,
+                base_context(corrupted.hex(), sample_name="6.bad.png"),
+            )
+        finally:
+            magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce = original_ultimate
+
+    assert result is None
+    assert not [call for call in calls if call[0] == "write_clone"]
+    assert final_marks == []
+    assert side_notes
+    assert "clone relaunch skipped until original Adler is recovered" in side_notes[0]
+
+
+def test_ultimate_linefeed_perfect_visual_selection_overrides_current_reconstruction(tmp_path):
+    calls = []
+    side_notes = []
+    final_marks = []
+    original_ultimate = magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce
+
+    preview_path = tmp_path / "selected.png"
+    selected_data = tiny_rgb_png()
+    preview_path.write_bytes(selected_data)
+
+    def fake_ultimate(data, **kwargs):
+        calls.append(("ultimate_kwargs", kwargs))
+        before = magic_runtime.idat.analyze_idat_stream(data)
+        current_repair = magic_runtime.idat.rebuild_tolerant_idat_salvage(data)
+        assert current_repair is not None
+        after = magic_runtime.idat.analyze_idat_stream(
+            current_repair.data,
+            target_adler=kwargs.get("target_adler"),
+        )
+        candidate = magic_runtime.idat_bruteforce.SuperMegaLinefeedCandidate(
+            current_repair.data,
+            (),
+            before,
+            after,
+            state_id=7,
+            score=magic_runtime.idat_bruteforce.super_mega_linefeed_score(after, 0),
+            visual_score=22.0,
+            visual_score_kind="similar_manual_roi",
+            matched_patch_count=3,
+        )
+        visual = magic_runtime.idat_bruteforce.UltimateVisualCandidate(
+            candidate=candidate,
+            preview_data=selected_data,
+            preview_strategy="test-preview",
+            visual_hash="visual-selected",
+            scanline_hash="scanline-selected",
+            operation_hash="operation-selected",
+            diversity_key="visual-selected",
+            rank=magic_runtime.idat_bruteforce._ultimate_visual_candidate_rank(
+                candidate,
+                coverage=1.0,
+                visual_score=22.0,
+            ),
+            coverage=1.0,
+            tested_candidates=10749,
+            preview_path=str(preview_path),
+        )
+        return magic_runtime.idat_bruteforce.UltimateLinefeedProbeResult(
+            before,
+            candidate,
+            kwargs.get("target_adler"),
+            kwargs.get("start_offset"),
+            1,
+            4,
+            (kwargs.get("start_offset") or 0,),
+            10,
+            11,
+            11,
+            0,
+            1,
+            kwargs.get("checkpoint_path", ""),
+            False,
+            reason="user selected visual candidate during Ultimate review",
+            top_candidates=(candidate,),
+            visual_candidates=(visual,),
+            visual_gallery_path=str(tmp_path / "_ULF.visual.json"),
+            visual_review_decision="perfect",
+            visual_review_selected_paths=(str(preview_path),),
+        )
+
+    def selector(_gallery_path, **kwargs):
+        calls.append(("selector", kwargs))
+        return magic_runtime.ultimate_visual_ui.UltimateVisualSelectionResult(
+            selected_preview_paths=(str(preview_path),),
+            final_preview_dir=str(tmp_path / "Final_Previews"),
+            final_preview_paths=(str(preview_path),),
+            decision="perfect",
+        )
+
+    corrupted = linefeed_salvage_fixture()
+    linefeed = repair_linefeed_conversion(corrupted, allow_partial=True)
+    realignment = magic_runtime.repair_overlong_chunk_length_to_next_header(linefeed.data)
+    source_path = tmp_path / "_ULF.Source.png"
+    source_path.write_bytes(realignment.data)
+    runtime = build_runtime(
+        calls,
+        side_notes,
+        ultimate_linefeed_budget=lambda estimate=None: 10,
+        ultimate_linefeed_source=lambda: str(source_path),
+        ultimate_visual_candidate_selector=selector,
+        mark_ultimate_final_clone=lambda: final_marks.append("marked"),
+    )
+
+    magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce = fake_ultimate
+    try:
+        result = magic_runtime.run_ultimate_linefeed_direct_resume(
+            runtime,
+            base_context(corrupted.hex(), sample_name="6.bad.png"),
+        )
+    finally:
+        magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce = original_ultimate
+
+    assert result == "write-result"
+    assert final_marks == ["marked"]
+    assert [call for call in calls if call[0] == "write_clone"]
+    assert side_notes
+    assert "user accepted selected Final preview as perfect" in side_notes[0]
+    assert "kept current reconstruction" not in side_notes[0]
+
+
+def test_ultimate_linefeed_keep_searching_after_exhausted_budget_doubles_custom_budget(tmp_path):
+    calls = []
+    side_notes = []
+    budgets = []
+    original_ultimate = magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce
+
+    preview_path = tmp_path / "first.png"
+    preview_path.write_bytes(tiny_rgb_png())
+
+    def fake_ultimate(data, **kwargs):
+        budgets.append(kwargs.get("budget"))
+        calls.append(("ultimate_kwargs", kwargs))
+        before = magic_runtime.idat.analyze_idat_stream(data)
+        if len(budgets) == 1:
+            visual = _visual_candidate_for_magic_runtime(preview_path, state_id=1)
+            return magic_runtime.idat_bruteforce.UltimateLinefeedProbeResult(
+                before,
+                None,
+                kwargs.get("target_adler"),
+                kwargs.get("start_offset"),
+                1,
+                4,
+                (kwargs.get("start_offset") or 0,),
+                10,
+                11,
+                11,
+                0,
+                1,
+                kwargs.get("checkpoint_path", ""),
+                True,
+                reason="budget exhausted",
+                visual_candidates=(visual,),
+                visual_gallery_path=str(tmp_path / "_ULF.visual.json"),
+            )
+        return magic_runtime.idat_bruteforce.UltimateLinefeedProbeResult(
+            before,
+            None,
+            kwargs.get("target_adler"),
+            kwargs.get("start_offset"),
+            1,
+            4,
+            (kwargs.get("start_offset") or 0,),
+            20,
+            12,
+            12,
+            0,
+            1,
+            kwargs.get("checkpoint_path", ""),
+            False,
+            reason="second pass",
+        )
+
+    def selector(_gallery_path, **kwargs):
+        calls.append(("selector", kwargs))
+        return magic_runtime.ultimate_visual_ui.UltimateVisualSelectionResult(
+            decision="keep_searching",
+        )
+
+    corrupted = linefeed_salvage_fixture()
+    linefeed = repair_linefeed_conversion(corrupted, allow_partial=True)
+    realignment = magic_runtime.repair_overlong_chunk_length_to_next_header(linefeed.data)
+    source_path = tmp_path / "_ULF.Source.png"
+    source_path.write_bytes(realignment.data)
+    runtime = build_runtime(
+        calls,
+        side_notes,
+        ultimate_linefeed_budget=lambda estimate=None: 10,
+        ultimate_linefeed_source=lambda: str(source_path),
+        ultimate_visual_candidate_selector=selector,
+    )
+
+    magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce = fake_ultimate
+    try:
+        result = magic_runtime.run_ultimate_linefeed_direct_resume(
+            runtime,
+            base_context(corrupted.hex(), sample_name="6.bad.png"),
+        )
+    finally:
+        magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce = original_ultimate
+
+    assert result is None
+    assert budgets == [10, 20]
+    assert calls[0][0] != "write_clone"
+    assert any(call[0] == "selector" and call[1]["allow_keep_searching"] is True for call in calls)
+    assert any("Keep searching raised budget from 10 to 20" in note for note in side_notes)
+
+
+def test_ultimate_linefeed_visual_guidance_after_exhausted_budget_resumes_with_selected_preview(tmp_path):
+    calls = []
+    side_notes = []
+    budgets = []
+    guidance_paths = []
+    original_ultimate = magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce
+
+    preview_path = tmp_path / "first.png"
+    preview_path.write_bytes(tiny_rgb_png())
+
+    def fake_ultimate(data, **kwargs):
+        budgets.append(kwargs.get("budget"))
+        guidance_paths.append(tuple(kwargs.get("visual_guidance_paths") or ()))
+        calls.append(("ultimate_kwargs", kwargs))
+        before = magic_runtime.idat.analyze_idat_stream(data)
+        if len(budgets) == 1:
+            visual = _visual_candidate_for_magic_runtime(preview_path, state_id=1)
+            return magic_runtime.idat_bruteforce.UltimateLinefeedProbeResult(
+                before,
+                None,
+                kwargs.get("target_adler"),
+                kwargs.get("start_offset"),
+                1,
+                4,
+                (kwargs.get("start_offset") or 0,),
+                10,
+                11,
+                11,
+                0,
+                1,
+                kwargs.get("checkpoint_path", ""),
+                True,
+                reason="budget exhausted",
+                visual_candidates=(visual,),
+                visual_gallery_path=str(tmp_path / "_ULF.visual.json"),
+            )
+        return magic_runtime.idat_bruteforce.UltimateLinefeedProbeResult(
+            before,
+            None,
+            kwargs.get("target_adler"),
+            kwargs.get("start_offset"),
+            1,
+            4,
+            (kwargs.get("start_offset") or 0,),
+            20,
+            12,
+            12,
+            0,
+            1,
+            kwargs.get("checkpoint_path", ""),
+            False,
+            reason="second pass",
+        )
+
+    def selector(_gallery_path, **kwargs):
+        calls.append(("selector", kwargs))
+        return magic_runtime.ultimate_visual_ui.UltimateVisualSelectionResult(
+            selected_preview_paths=(str(preview_path),),
+            final_preview_dir=str(tmp_path / "Final_Previews"),
+            final_preview_paths=(str(preview_path),),
+            decision="visual_guidance",
+        )
+
+    corrupted = linefeed_salvage_fixture()
+    linefeed = repair_linefeed_conversion(corrupted, allow_partial=True)
+    realignment = magic_runtime.repair_overlong_chunk_length_to_next_header(linefeed.data)
+    source_path = tmp_path / "_ULF.Source.png"
+    source_path.write_bytes(realignment.data)
+    runtime = build_runtime(
+        calls,
+        side_notes,
+        ultimate_linefeed_budget=lambda estimate=None: 10,
+        ultimate_linefeed_source=lambda: str(source_path),
+        ultimate_visual_candidate_selector=selector,
+    )
+
+    magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce = fake_ultimate
+    try:
+        result = magic_runtime.run_ultimate_linefeed_direct_resume(
+            runtime,
+            base_context(corrupted.hex(), sample_name="6.bad.png"),
+        )
+    finally:
+        magic_runtime.idat_bruteforce.probe_ultimate_mega_super_linefeed_bruteforce = original_ultimate
+
+    assert result is None
+    assert budgets == [10, 20]
+    assert guidance_paths == [(), (str(preview_path),)]
+    assert any("visual guidance raised budget from 10 to 20" in note for note in side_notes)
 
 
 def test_ultimate_linefeed_direct_resume_without_source_snapshot_falls_back():
@@ -1771,10 +2462,30 @@ def main():
             test_find_header_magic_runtime_can_decline_direct_supermega,
         ),
         ("Header linefeed ultimate probe", test_find_header_magic_runtime_can_launch_ultimate_linefeed_probe),
+        (
+            "Ultimate ROI uses visible preview",
+            test_ultimate_reference_prompt_can_use_visible_preview_for_roi_source,
+        ),
+        (
+            "Ultimate ROI source decline keeps snapshot",
+            test_ultimate_reference_regions_prompt_keeps_source_snapshot_when_preview_declined,
+        ),
         ("Ultimate progress zero draw", test_linefeed_queue_progress_draws_zero_state_after_build),
         (
             "Header linefeed ultimate direct resume",
-            test_ultimate_linefeed_direct_resume_skips_find_magic_tour,
+            test_ultimate_linefeed_direct_resume_without_adler_match_skips_clone_relaunch,
+        ),
+        (
+            "Header linefeed ultimate non-Adler evidence",
+            test_ultimate_linefeed_direct_resume_keeps_non_adler_candidate_as_evidence,
+        ),
+        (
+            "Header linefeed ultimate keep searching budget bump",
+            test_ultimate_linefeed_keep_searching_after_exhausted_budget_doubles_custom_budget,
+        ),
+        (
+            "Header linefeed ultimate visual guidance budget bump",
+            test_ultimate_linefeed_visual_guidance_after_exhausted_budget_resumes_with_selected_preview,
         ),
         (
             "Header linefeed ultimate direct resume fallback",

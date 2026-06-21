@@ -4585,6 +4585,7 @@ def test_apply_wrong_crc_uses_focused_idat_crc_forge_before_blackfill():
         if chunk.chunk_type == b"IDAT" and chunk.crc != chunk.computed_crc
     )
     calls = []
+    probe_calls = []
     side_notes = []
     finding = "Checksum_Error_0:Wrong Crc b'IDAT'"
     chkd = "IDAT_Tool_"
@@ -5715,6 +5716,35 @@ def test_stored_block_complete_candidate_writes_final_clone():
     assert written == (True, "written")
     assert [call for call in calls if call[0] == "write_clone"]
     assert not any("not promoted as clone" in note for note in side_notes)
+
+
+def test_complete_bad_adler_candidate_is_promoted_to_rebuilt_clone():
+    calls = []
+    side_notes = []
+    data = bad_adler_three_scanline_png_bytes()
+    analysis = idat.analyze_idat_stream(data)
+    candidate = SimpleNamespace(data=data, after=analysis, state_id=9)
+    runtime = SimpleNamespace(
+        side_notes=side_notes,
+        candy=lambda *args: calls.append(("candy", args)),
+        write_clone=lambda *args: calls.append(("write_clone", args)) or "written",
+    )
+
+    written = fixit_felix_runtime._write_complete_idat_candidate_clone(
+        runtime,
+        candidate,
+        "summary",
+        route_label="unit-route",
+        success_message="success",
+    )
+
+    assert written == (True, "written")
+    write_call = next(call for call in calls if call[0] == "write_clone")
+    clone_data, summary = write_call[1]
+    assert validate_png_structure(clone_data).ok
+    assert idat.analyze_idat_stream(clone_data).complete is True
+    assert "promoted from full bad-Adler stream" in summary
+    assert any("promoted from full bad-Adler stream" in note for note in side_notes)
 
 
 def test_seed_local_continuation_keeps_incomplete_progress_as_seed(monkeypatch):
@@ -7785,6 +7815,104 @@ def test_GroundHogDay_seed_artifact_is_resume_artifact_path(tmp_path):
     assert not any("scanline_preview" in name for name in names)
 
 
+def test_ultimate_final_previews_are_groundhogday_artifact_paths(tmp_path):
+    data = valid_png_bytes()
+    runtime = SimpleNamespace(
+        file_origin="Flag.png",
+        file_dir=str(tmp_path),
+        side_notes=[],
+        candy=lambda *_args, **_kwargs: None,
+    )
+    final_dir = tmp_path / "Folder_Flag" / "Bruteforce_Previews" / "Final_Previews"
+    final_dir.mkdir(parents=True)
+    final_preview = final_dir / "_FinalPreview_001_from_visual.png"
+    final_preview.write_bytes(data)
+
+    artifact_paths = fixit_felix_runtime._final_investigation_artifact_paths(runtime)
+    candidates = fixit_felix_runtime._load_idat_artifact_seed_candidates(
+        runtime,
+        data,
+        idat.analyze_idat_stream(data),
+        limit=3,
+    )
+
+    assert final_preview in artifact_paths
+    assert candidates
+    assert candidates[0].operations[0].kind == "shadow-finder-artifact-seed"
+
+
+def test_try_idat_deflate_forced_ultimate_final_previews_bypasses_complete_guard(monkeypatch):
+    data = valid_png_bytes()
+    analysis = idat.analyze_idat_stream(data)
+    assert analysis.complete is True
+    seed = idat_deep_beam_seed(
+        data,
+        state_id=31,
+        kind="shadow-finder-artifact-seed",
+    )
+    calls = []
+    consumed = []
+    side_notes = []
+
+    def fake_load(_runtime, _data, _analysis, *, limit):
+        calls.append(("load", _analysis.complete, limit))
+        return (seed,)
+
+    def fake_prefinal(_runtime, _data, _analysis, seed_candidates=()):
+        calls.append(("prefinal", tuple(candidate.state_id for candidate in seed_candidates)))
+        return None, seed_candidates, False
+
+    def fake_final(_runtime, _data, _analysis, *, seed_candidates=()):
+        calls.append(("final", tuple(candidate.state_id for candidate in seed_candidates)))
+        return None
+
+    def fail_if_replayed(*_args, **_kwargs):
+        raise AssertionError("forced Ultimate GroundHogDay should not replay older IDAT probes")
+
+    runtime = SimpleNamespace(
+        data_hex=data.hex(),
+        side_notes=side_notes,
+        candy=lambda *args, **kwargs: calls.append(("candy", args, kwargs)),
+        question=lambda *_args, **_kwargs: False,
+        write_clone=lambda *_args, **_kwargs: "written",
+        remember_idat_deflate_probe=fail_if_replayed,
+        force_groundhogday_artifact_seeds=True,
+        set_idat_deflate_route_consumed=lambda value: consumed.append(value),
+        file_origin="",
+        file_dir="",
+        loadingbar=None,
+        minibar=None,
+        deep_beam_workers=None,
+        deep_beam_gpu=None,
+        deep_beam_gpu_config=None,
+        deep_beam_budget=None,
+        final_investigation_budget="100",
+        deep_beam_prompt_cache={},
+    )
+
+    monkeypatch.setattr(fixit_felix_runtime, "_load_idat_artifact_seed_candidates", fake_load)
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_GroundHogDay_run_idat_prefinal_seed_routes_runtime",
+        fake_prefinal,
+    )
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_final_investigation_runtime", fake_final)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_frontier_routes_runtime", fail_if_replayed)
+    monkeypatch.setattr(fixit_felix_runtime, "_run_idat_prefix_frontier_routes_runtime", fail_if_replayed)
+    monkeypatch.setattr(fixit_felix_runtime.idat_bruteforce, "probe_idat_deflate_strategy_queue", fail_if_replayed)
+
+    result = fixit_felix_runtime.try_idat_deflate_bruteforce(runtime, analysis)
+
+    assert result == (False, None)
+    assert [call[0] for call in calls if call[0] in {"load", "prefinal", "final"}] == [
+        "load",
+        "prefinal",
+        "final",
+    ]
+    assert consumed == [True]
+    assert any("Ultimate Final_Previews" in note for note in side_notes)
+
+
 def test_GroundHogDay_resume_state_next_day_keeps_title_counter(monkeypatch, tmp_path):
     data = valid_png_bytes()
     analysis = idat.IdatStreamAnalysis(
@@ -8008,6 +8136,171 @@ def test_GroundHogDay_resume_next_day_raises_stale_saved_counter(tmp_path):
         "raised from saved next_day=2 to inferred next_day=6" in note
         for note in runtime.side_notes
     )
+
+
+def test_GroundHogDay_miniultimate_repeated_preview_does_not_block_auto_budget(monkeypatch, tmp_path):
+    data = valid_png_bytes()
+    seed = idat_progress_seed(
+        data,
+        state_id=12,
+        usable_scanlines=3,
+        decompressed_size=300,
+        kind="groundhogday-seed",
+    )
+    progress_path = tmp_path / "sample_groundhogday_ultimate_linefeed.progress.json"
+    gallery_path = Path(
+        idat_bruteforce.ultimate_linefeed_visual_gallery_path_from_progress(str(progress_path))
+    )
+    progress_path.write_text("{}", encoding="utf-8")
+    gallery_path.parent.mkdir(parents=True, exist_ok=True)
+    gallery_path.write_text(
+        json.dumps(
+            {
+                "source_hash": "source-a",
+                "preview_count": 3,
+                "candidates": [
+                    {"visual_hash": "same-rendered-preview", "diversity_key": "old-a"},
+                    {"visual_hash": "same-rendered-preview", "diversity_key": "old-b"},
+                    {"visual_hash": "same-rendered-preview", "diversity_key": "old-c"},
+                ],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    calls = []
+    runtime = SimpleNamespace(
+        side_notes=[],
+        candy=lambda *args, **_kwargs: calls.append(args),
+        groundhogday_seed_pool_limit=4,
+        ultimate_linefeed_max_depth=2,
+        ultimate_linefeed_max_offsets=64,
+    )
+    progress = idat_bruteforce.UltimateLinefeedProgress(
+        path=str(progress_path),
+        source_hash="source-a",
+        target_adler=None,
+        start_offset=None,
+        max_depth=2,
+        max_offsets=64,
+        operation_pool_hash="",
+        focused_operation_pool_hash="",
+        broad_operation_pool_hash="",
+        phase="exhaustive",
+        depth=2,
+        pool_index=0,
+        combination_rank=0,
+        combination_indices=None,
+        tested_candidates=50_000,
+        pruned_candidates=0,
+        state_count=0,
+        budget=50_000,
+        timestamp=0.0,
+        attempted_candidates=50_000,
+    )
+
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_idat_groundhogday_ultimate_linefeed_paths",
+        lambda _runtime: (str(tmp_path / "_ULF.checkpoint.jsonl"), str(progress_path)),
+    )
+    monkeypatch.setattr(
+        idat_bruteforce,
+        "load_ultimate_progress_for_source",
+        lambda *_args, **_kwargs: (progress, ""),
+    )
+
+    boosted = fixit_felix_runtime._GroundHogDay_ultimate_linefeed_auto_budget(
+        runtime,
+        (seed,),
+        50_000,
+    )
+
+    assert boosted is not None and boosted > 50_000
+    assert any("MiniUltimate auto-budget" in note for note in runtime.side_notes)
+    assert not any("visual plateau" in note for note in runtime.side_notes)
+    assert any("raising that checkpointed budget" in call[1] for call in calls if call[0] == "Cowsay")
+
+
+def test_GroundHogDay_miniultimate_visual_plateau_reason_does_not_force_cheaper_route(monkeypatch, tmp_path):
+    data = valid_png_bytes()
+    analysis = idat.analyze_idat_stream(data)
+    seed = idat_progress_seed(
+        data,
+        state_id=12,
+        usable_scanlines=3,
+        decompressed_size=300,
+        kind="groundhogday-seed",
+    )
+    calls = []
+    probe_calls = []
+
+    monkeypatch.setattr(fixit_felix_runtime, "AUTO_GROUNDHOGDAY_ULTIMATE_LINEFEED_ENABLED", True)
+    monkeypatch.setattr(
+        fixit_felix_runtime,
+        "_idat_groundhogday_ultimate_linefeed_paths",
+        lambda _runtime: (str(tmp_path / "_ULF.checkpoint.jsonl"), str(tmp_path / "_ULF.progress.json")),
+    )
+
+    def fake_probe(_data, **kwargs):
+        probe_calls.append(kwargs)
+        return idat_bruteforce.UltimateLinefeedProbeResult(
+            before=seed.after,
+            best=None,
+            target_adler=None,
+            start_offset=kwargs.get("start_offset"),
+            reached_depth=0,
+            max_depth=kwargs["max_depth"],
+            suspect_offsets=(),
+            tested_candidates=4096,
+            state_count=0,
+            visited_count=4096,
+            pruned_candidates=0,
+            resumed_states=0,
+            checkpoint_path=kwargs.get("checkpoint_path", ""),
+            budget_exhausted=False,
+            progress_path=kwargs.get("progress_path", ""),
+            reason="visual plateau: no new scanlines, better score, or rendered preview for 4096 candidate(s)",
+        )
+
+    monkeypatch.setattr(idat_bruteforce, "probe_ultimate_mega_super_linefeed_bruteforce", fake_probe)
+    runtime = SimpleNamespace(
+        file_origin="",
+        file_dir="",
+        side_notes=[],
+        candy=lambda *args, **_kwargs: calls.append(args),
+        groundhogday_seed_pool_limit=4,
+        ultimate_linefeed_budget=100,
+        ultimate_linefeed_workers=0,
+        ultimate_linefeed_max_depth=2,
+        ultimate_linefeed_max_offsets=64,
+        ultimate_linefeed_reference=lambda: "reference.png",
+        ultimate_linefeed_reference_mode=lambda: "similar",
+        ultimate_linefeed_reference_regions=lambda: "regions.json",
+        ultimate_linefeed_visual_min_coverage=lambda: "0.42",
+        loadingbar=None,
+        minibar=None,
+    )
+
+    result, seeds, next_state = fixit_felix_runtime._run_idat_groundhogday_ultimate_linefeed_runtime(
+        runtime,
+        data,
+        analysis,
+        (seed,),
+        next_state_id=40,
+        original_idat_count=1,
+    )
+
+    assert result is None
+    assert seeds == ()
+    assert next_state == 40
+    assert probe_calls[0]["reference_path"] == "reference.png"
+    assert probe_calls[0]["reference_mode"] == "similar"
+    assert probe_calls[0]["reference_regions_path"] == "regions.json"
+    assert probe_calls[0]["visual_min_coverage"] == 0.42
+    assert not any("stopped on visual plateau" in note for note in runtime.side_notes)
+    assert not any("cheaper GroundHogDay routes" in call[1] for call in calls if call[0] == "Cowsay")
 
 
 def test_post_deep_runs_seed_local_after_incomplete_stored_block(monkeypatch):
@@ -10326,6 +10619,10 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
         "ULTIMATE_LINEFEED_BUDGET": "1234",
         "ULTIMATE_LINEFEED_UNBOUNDED": False,
         "ULTIMATE_LINEFEED_WORKERS": "2",
+        "Ultimate_Linefeed_Reference": lambda: "ref.png",
+        "Ultimate_Linefeed_Reference_Mode": lambda: "similar",
+        "Ultimate_Linefeed_Reference_Regions": lambda: "regions.json",
+        "Ultimate_Linefeed_Visual_Min_Coverage": lambda: 0.42,
         "IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH": "3",
         "IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS": "70",
         "IDAT_GROUNDHOGDAY_VISUAL_GUARD": "strict",
@@ -10359,6 +10656,10 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert wrong_crc.ultimate_linefeed_workers == "2"
     assert wrong_crc.ultimate_linefeed_max_depth == "3"
     assert wrong_crc.ultimate_linefeed_max_offsets == "70"
+    assert wrong_crc.ultimate_linefeed_reference() == "ref.png"
+    assert wrong_crc.ultimate_linefeed_reference_mode() == "similar"
+    assert wrong_crc.ultimate_linefeed_reference_regions() == "regions.json"
+    assert wrong_crc.ultimate_linefeed_visual_min_coverage() == 0.42
     assert wrong_crc.groundhogday_visual_guard == "strict"
 
     libpng = fixit_felix_runtime.build_libpng_error_runtime_from_namespace(namespace)
@@ -10399,6 +10700,10 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert wrong_name.ultimate_linefeed_workers == "2"
     assert wrong_name.ultimate_linefeed_max_depth == "3"
     assert wrong_name.ultimate_linefeed_max_offsets == "70"
+    assert wrong_name.ultimate_linefeed_reference() == "ref.png"
+    assert wrong_name.ultimate_linefeed_reference_mode() == "similar"
+    assert wrong_name.ultimate_linefeed_reference_regions() == "regions.json"
+    assert wrong_name.ultimate_linefeed_visual_min_coverage() == 0.42
     assert wrong_name.groundhogday_visual_guard == "strict"
 
     no_next = fixit_felix_runtime.build_no_next_chunk_runtime_from_namespace(namespace)
@@ -10424,6 +10729,10 @@ def test_namespace_runtime_builders_preserve_legacy_wiring():
     assert no_next.ultimate_linefeed_workers == "2"
     assert no_next.ultimate_linefeed_max_depth == "3"
     assert no_next.ultimate_linefeed_max_offsets == "70"
+    assert no_next.ultimate_linefeed_reference() == "ref.png"
+    assert no_next.ultimate_linefeed_reference_mode() == "similar"
+    assert no_next.ultimate_linefeed_reference_regions() == "regions.json"
+    assert no_next.ultimate_linefeed_visual_min_coverage() == 0.42
     assert no_next.groundhogday_visual_guard == "strict"
     assert no_next.bad_missplaced is True
     assert no_next.set_skip_bad_no_next_chunk is namespace["FixItFelix_Set_Skip_Bad_No_Next_Chunk"]
@@ -10618,6 +10927,7 @@ def test_namespace_pipeline_builder_preserves_debug_and_repair_wiring():
 
     namespace = {
         "PRINT": callback("PRINT"),
+        "Minibar": callback("Minibar"),
         "Pause": callback("Pause"),
         "FixItFelix_Try_Automatic_Repair": callback("automatic_repair"),
         "FixItFelix_Wrong_Crc": callback("wrong_crc"),
@@ -10645,6 +10955,7 @@ def test_namespace_pipeline_builder_preserves_debug_and_repair_wiring():
     assert handlers.critical_miss is namespace["FixItFelix_Critical_Miss"]
 
     fix_runtime = fixit_felix_runtime.build_fixit_felix_runtime_from_namespace(namespace)
+    assert fix_runtime.progress("FixItFelix 01/02") == "Minibar"
     assert fix_runtime.try_automatic_repair("plte_cleanup") == "automatic_repair"
     assert fix_runtime.apply_finding_work_item(
         fixit_felix.FixItFelixWorkItem("finding", "wrong_crc", "finding"),
@@ -10678,6 +10989,8 @@ def test_namespace_pipeline_builder_preserves_debug_and_repair_wiring():
     )
 
     assert result == fixit_felix.FixItFelixRunResult(True, "pipeline-result")
+    assert ("Minibar", ("FixItFelix 01/02",), {}) in calls
+    assert ("Minibar", ("FixItFelix",), {}) in calls
     assert ("Pause", ("FixItFelix Debug Pause:",), {}) in calls
     assert (
         "runner",

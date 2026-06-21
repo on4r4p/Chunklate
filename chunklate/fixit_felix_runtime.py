@@ -184,6 +184,10 @@ class WrongCrcRuntime:
     ultimate_linefeed_workers: Any = None
     ultimate_linefeed_max_depth: Any = None
     ultimate_linefeed_max_offsets: Any = None
+    ultimate_linefeed_reference: Callable[[], str] = lambda: ""
+    ultimate_linefeed_reference_mode: Callable[[], str] = lambda: "exact"
+    ultimate_linefeed_reference_regions: Callable[[], str] = lambda: ""
+    ultimate_linefeed_visual_min_coverage: Callable[[], Any] = lambda: idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE
     groundhogday_visual_guard: Any = None
     set_idat_deflate_route_consumed: Callable[[bool], Any] | None = None
 
@@ -245,6 +249,10 @@ class WrongChunkNameRuntime:
     ultimate_linefeed_workers: Any = None
     ultimate_linefeed_max_depth: Any = None
     ultimate_linefeed_max_offsets: Any = None
+    ultimate_linefeed_reference: Callable[[], str] = lambda: ""
+    ultimate_linefeed_reference_mode: Callable[[], str] = lambda: "exact"
+    ultimate_linefeed_reference_regions: Callable[[], str] = lambda: ""
+    ultimate_linefeed_visual_min_coverage: Callable[[], Any] = lambda: idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE
     groundhogday_visual_guard: Any = None
     queue_existing_clone: Callable[[str], Any] | None = None
     set_idat_deflate_route_consumed: Callable[[bool], Any] | None = None
@@ -323,6 +331,10 @@ class NoNextChunkRuntime:
     ultimate_linefeed_workers: Any = None
     ultimate_linefeed_max_depth: Any = None
     ultimate_linefeed_max_offsets: Any = None
+    ultimate_linefeed_reference: Callable[[], str] = lambda: ""
+    ultimate_linefeed_reference_mode: Callable[[], str] = lambda: "exact"
+    ultimate_linefeed_reference_regions: Callable[[], str] = lambda: ""
+    ultimate_linefeed_visual_min_coverage: Callable[[], Any] = lambda: idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE
     groundhogday_visual_guard: Any = None
     queue_existing_clone: Callable[[str], Any] | None = None
     set_idat_deflate_route_consumed: Callable[[bool], Any] | None = None
@@ -432,6 +444,13 @@ def build_wrong_crc_runtime_from_namespace(namespace: dict[str, Any]) -> WrongCr
         ultimate_linefeed_workers=namespace.get("ULTIMATE_LINEFEED_WORKERS"),
         ultimate_linefeed_max_depth=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH"),
         ultimate_linefeed_max_offsets=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS"),
+        ultimate_linefeed_reference=namespace.get("Ultimate_Linefeed_Reference", lambda: ""),
+        ultimate_linefeed_reference_mode=namespace.get("Ultimate_Linefeed_Reference_Mode", lambda: "exact"),
+        ultimate_linefeed_reference_regions=namespace.get("Ultimate_Linefeed_Reference_Regions", lambda: ""),
+        ultimate_linefeed_visual_min_coverage=namespace.get(
+            "Ultimate_Linefeed_Visual_Min_Coverage",
+            lambda: idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE,
+        ),
         groundhogday_visual_guard=namespace.get("IDAT_GROUNDHOGDAY_VISUAL_GUARD"),
         set_idat_deflate_route_consumed=lambda value: namespace.__setitem__("IDAT_DEFLATE_ROUTE_CONSUMED", value),
     )
@@ -534,6 +553,13 @@ def build_wrong_chunk_name_runtime_from_namespace(namespace: dict[str, Any]) -> 
         ultimate_linefeed_workers=namespace.get("ULTIMATE_LINEFEED_WORKERS"),
         ultimate_linefeed_max_depth=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH"),
         ultimate_linefeed_max_offsets=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS"),
+        ultimate_linefeed_reference=namespace.get("Ultimate_Linefeed_Reference", lambda: ""),
+        ultimate_linefeed_reference_mode=namespace.get("Ultimate_Linefeed_Reference_Mode", lambda: "exact"),
+        ultimate_linefeed_reference_regions=namespace.get("Ultimate_Linefeed_Reference_Regions", lambda: ""),
+        ultimate_linefeed_visual_min_coverage=namespace.get(
+            "Ultimate_Linefeed_Visual_Min_Coverage",
+            lambda: idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE,
+        ),
         groundhogday_visual_guard=namespace.get("IDAT_GROUNDHOGDAY_VISUAL_GUARD"),
         queue_existing_clone=lambda path: queue_existing_clone_from_namespace(namespace, path),
         set_idat_deflate_route_consumed=lambda value: namespace.__setitem__("IDAT_DEFLATE_ROUTE_CONSUMED", value),
@@ -613,6 +639,13 @@ def build_no_next_chunk_runtime_from_namespace(namespace: dict[str, Any]) -> NoN
         ultimate_linefeed_workers=namespace.get("ULTIMATE_LINEFEED_WORKERS"),
         ultimate_linefeed_max_depth=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_DEPTH"),
         ultimate_linefeed_max_offsets=namespace.get("IDAT_GROUNDHOGDAY_ULTIMATE_LINEFEED_MAX_OFFSETS"),
+        ultimate_linefeed_reference=namespace.get("Ultimate_Linefeed_Reference", lambda: ""),
+        ultimate_linefeed_reference_mode=namespace.get("Ultimate_Linefeed_Reference_Mode", lambda: "exact"),
+        ultimate_linefeed_reference_regions=namespace.get("Ultimate_Linefeed_Reference_Regions", lambda: ""),
+        ultimate_linefeed_visual_min_coverage=namespace.get(
+            "Ultimate_Linefeed_Visual_Min_Coverage",
+            lambda: idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE,
+        ),
         groundhogday_visual_guard=namespace.get("IDAT_GROUNDHOGDAY_VISUAL_GUARD"),
         queue_existing_clone=lambda path: queue_existing_clone_from_namespace(namespace, path),
         set_idat_deflate_route_consumed=lambda value: namespace.__setitem__("IDAT_DEFLATE_ROUTE_CONSUMED", value),
@@ -3623,6 +3656,43 @@ def _runtime_groundhogday_ultimate_linefeed_workers(runtime: Any) -> int:
     return idat_bruteforce._deep_beam_workers(_deep_beam_workers_from_profile(value))
 
 
+def _runtime_getter_value(runtime: Any, name: str, default: Any = "") -> Any:
+    value = getattr(runtime, name, None)
+    if value is None:
+        return default
+    if callable(value):
+        try:
+            return value()
+        except TypeError:
+            return default
+    return value
+
+
+def _runtime_groundhogday_ultimate_reference_path(runtime: Any) -> str:
+    return str(_runtime_getter_value(runtime, "ultimate_linefeed_reference", "") or "")
+
+
+def _runtime_groundhogday_ultimate_reference_mode(runtime: Any) -> str:
+    return str(_runtime_getter_value(runtime, "ultimate_linefeed_reference_mode", "exact") or "exact")
+
+
+def _runtime_groundhogday_ultimate_reference_regions_path(runtime: Any) -> str:
+    return str(_runtime_getter_value(runtime, "ultimate_linefeed_reference_regions", "") or "")
+
+
+def _runtime_groundhogday_ultimate_visual_min_coverage(runtime: Any) -> float:
+    value = _runtime_getter_value(
+        runtime,
+        "ultimate_linefeed_visual_min_coverage",
+        idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE,
+    )
+    try:
+        coverage = float(value)
+    except (TypeError, ValueError):
+        return idat_bruteforce.ULTIMATE_LINEFEED_VISUAL_MIN_COVERAGE
+    return min(1.0, max(0.0, coverage))
+
+
 def _runtime_groundhogday_seed_pool_limit(runtime: Any) -> int:
     return max(
         _runtime_seed_local_continuation_limit(runtime),
@@ -3967,6 +4037,18 @@ def _idat_candidate_is_complete_clone(candidate: Any) -> bool:
         and getattr(after, "supported", True)
         and getattr(after, "complete", False)
     )
+
+
+def _idat_candidate_is_full_bad_adler(candidate: Any) -> bool:
+    after = getattr(candidate, "after", None)
+    if after is None or str(getattr(after, "status", "") or "").lower() != "bad_adler":
+        return False
+    try:
+        usable_scanlines = int(getattr(after, "usable_scanlines", -1))
+        height = int(getattr(after, "height", -2))
+    except (TypeError, ValueError):
+        return False
+    return height >= 0 and usable_scanlines == height
 
 
 def _idat_candidate_diagnostic_note(route_label: str, candidate: Any) -> str:
@@ -4409,14 +4491,30 @@ def _write_complete_idat_candidate_clone(
     route_label: str,
     success_message: str,
 ) -> tuple[bool, Any] | None:
+    clone_data = bytes(getattr(candidate, "data", b"") or b"")
+    promotion_note = ""
     if not _idat_candidate_is_complete_clone(candidate):
-        runtime.candy(
-            "Cowsay",
-            "That IDAT candidate moves the image forward, but the stream is still incomplete. I am keeping it as diagnostic evidence, not reloading it as a clone.",
-            "com",
-        )
-        runtime.side_notes.append(_idat_candidate_diagnostic_note(route_label, candidate))
-        return None
+        preview_repair = idat.rebuild_visual_idat_preview(clone_data) if _idat_candidate_is_full_bad_adler(candidate) else None
+        if (
+            preview_repair is not None
+            and int(preview_repair.recovered_scanlines) == int(preview_repair.total_scanlines)
+            and png.validate_png_structure(preview_repair.data).ok
+        ):
+            clone_data = preview_repair.data
+            promotion_note = (
+                "-IDAT %s candidate promoted from full bad-Adler stream via %s."
+                % (route_label, preview_repair.strategy)
+            )
+        else:
+            runtime.candy(
+                "Cowsay",
+                "That IDAT candidate moves the image forward, but the stream is still incomplete. I am keeping it as diagnostic evidence, not reloading it as a clone.",
+                "com",
+            )
+            runtime.side_notes.append(_idat_candidate_diagnostic_note(route_label, candidate))
+            return None
+    if promotion_note:
+        runtime.side_notes.append(promotion_note)
     if bool(getattr(runtime, "suppress_complete_idat_clone_write", False)):
         runtime.candy(
             "Cowsay",
@@ -4430,7 +4528,9 @@ def _write_complete_idat_candidate_clone(
         return None
 
     runtime.candy("Cowsay", success_message, "good")
-    return True, runtime.write_clone(candidate.data, summary)
+    if promotion_note:
+        summary = "\n".join((summary, promotion_note))
+    return True, runtime.write_clone(clone_data, summary)
 
 
 def _format_eta_seconds(seconds: float | None) -> str:
@@ -4476,18 +4576,32 @@ def _runtime_idat_final_investigation_progress(runtime: Any):
     return progress if minibar is not None or loadingbar is not None else None
 
 
-def _final_investigation_payload_folder(runtime: Any, *, create: bool) -> Path | None:
+def _final_investigation_repair_folder(runtime: Any, *, create: bool) -> Path | None:
     file_origin = str(getattr(runtime, "file_origin", "") or "").strip()
     file_dir = str(getattr(runtime, "file_dir", "") or "")
     if not file_origin:
         return None
     try:
-        folder = (
+        repair_folder = (
             Path(output.ensure_clone_folder(file_origin, file_dir))
             if create
             else Path(output.clone_folder(file_origin, file_dir))
         )
-        payload = folder / "Debug_Payloads"
+        if create:
+            repair_folder.mkdir(parents=True, exist_ok=True)
+        elif not repair_folder.is_dir():
+            return None
+    except Exception:
+        return None
+    return repair_folder
+
+
+def _final_investigation_payload_folder(runtime: Any, *, create: bool) -> Path | None:
+    repair_folder = _final_investigation_repair_folder(runtime, create=create)
+    if repair_folder is None:
+        return None
+    try:
+        payload = repair_folder / "Debug_Payloads"
         if create:
             payload.mkdir(parents=True, exist_ok=True)
         elif not payload.is_dir():
@@ -4529,18 +4643,27 @@ def _final_investigation_checkpoint_paths(runtime: Any) -> tuple[Path, ...]:
 
 def _final_investigation_artifact_paths(runtime: Any) -> tuple[Path, ...]:
     payload_folder = _final_investigation_payload_folder(runtime, create=False)
-    if payload_folder is None:
+    repair_folder = _final_investigation_repair_folder(runtime, create=False)
+    if payload_folder is None and repair_folder is None:
         return ()
-    stem = _final_investigation_stem(runtime, payload_folder)
-    patterns = (
-        "%s_idat_*_rank*.png" % stem,
-        "%s_groundhogday_seed_state*.png" % stem,
-        "%s_groundhogday_state*_linefeed_chain_round*.png" % stem,
-    )
     paths: list[Path] = []
     seen: set[Path] = set()
-    for pattern in patterns:
-        for path in sorted(payload_folder.glob(pattern)):
+    if payload_folder is not None:
+        stem = _final_investigation_stem(runtime, payload_folder)
+        patterns = (
+            "%s_idat_*_rank*.png" % stem,
+            "%s_groundhogday_seed_state*.png" % stem,
+            "%s_groundhogday_state*_linefeed_chain_round*.png" % stem,
+        )
+        for pattern in patterns:
+            for path in sorted(payload_folder.glob(pattern)):
+                if not path.is_file() or path in seen:
+                    continue
+                seen.add(path)
+                paths.append(path)
+    if repair_folder is not None:
+        final_preview_dir = repair_folder / "Bruteforce_Previews" / "Final_Previews"
+        for path in sorted(final_preview_dir.glob("_FinalPreview_*.png")):
             if not path.is_file() or path in seen:
                 continue
             seen.add(path)
@@ -7512,6 +7635,10 @@ def _run_idat_groundhogday_ultimate_linefeed_runtime(
                 max_offsets=max_offsets,
                 budget=budget,
                 beam_width=64,
+                reference_path=_runtime_groundhogday_ultimate_reference_path(runtime),
+                reference_mode=_runtime_groundhogday_ultimate_reference_mode(runtime),
+                reference_regions_path=_runtime_groundhogday_ultimate_reference_regions_path(runtime),
+                visual_min_coverage=_runtime_groundhogday_ultimate_visual_min_coverage(runtime),
                 ultimate_workers=workers,
                 progress=_runtime_groundhogday_ultimate_linefeed_progress(runtime),
             )
@@ -8875,6 +9002,76 @@ def _idat_strategy_queue_max_steps(analysis: idat.IdatStreamAnalysis) -> int:
     return 4
 
 
+def _run_ultimate_groundhogday_artifact_seeds_runtime(
+    runtime: Any,
+    data: bytes,
+    analysis: idat.IdatStreamAnalysis,
+) -> tuple[bool, Any] | None:
+    seed_limit = _runtime_groundhogday_seed_pool_limit(runtime)
+    seeds = _load_idat_artifact_seed_candidates(
+        runtime,
+        data,
+        analysis,
+        limit=seed_limit,
+    )
+    if not seeds:
+        runtime.side_notes.append(
+            "-IDAT GroundHogDay from Ultimate Final_Previews skipped: no usable artifact seed found."
+        )
+        runtime.candy(
+            "Cowsay",
+            "Ultimate asked for GroundHogDay from the selected preview, but I could not load any usable Final_Previews seed.",
+            "bad",
+        )
+        _consume_idat_deflate_route(runtime)
+        return False, None
+
+    runtime.side_notes.append(
+        "-IDAT GroundHogDay from Ultimate Final_Previews: starting with %s selected artifact seed(s); best %s."
+        % (len(seeds), _GroundHogDay_idat_seed_progress_summary(seeds))
+    )
+    runtime.candy(
+        "Cowsay",
+        "Ultimate visual review selected Final_Previews for GroundHogDay. I am starting from those previews instead of replaying the earlier IDAT probes.",
+        "com",
+    )
+    prefinal_result, prefinal_seeds, prefinal_deferred = _GroundHogDay_run_idat_prefinal_seed_routes_runtime(
+        runtime,
+        data,
+        analysis,
+        seeds,
+    )
+    if prefinal_result is not None:
+        _mark_idat_deflate_route_consumed_if_needed(runtime, prefinal_result)
+        return prefinal_result
+    if prefinal_deferred:
+        _consume_idat_deflate_route(runtime)
+        return False, None
+
+    final_seed_candidates = prefinal_seeds or seeds
+    if _should_run_final_investigation(
+        runtime,
+        analysis,
+        final_seed_candidates,
+        evidence_ready=True,
+    ):
+        final_result = _run_idat_final_investigation_runtime(
+            runtime,
+            data,
+            analysis,
+            seed_candidates=final_seed_candidates,
+        )
+        if final_result is not None:
+            _mark_idat_deflate_route_consumed_if_needed(runtime, final_result)
+            return final_result
+
+    _consume_idat_deflate_route(runtime)
+    runtime.side_notes.append(
+        "-IDAT GroundHogDay from Ultimate Final_Previews finished without a clone-worthy candidate."
+    )
+    return False, None
+
+
 def try_idat_deflate_bruteforce(
     runtime: Any,
     analysis: idat.IdatStreamAnalysis | None = None,
@@ -8888,6 +9085,8 @@ def try_idat_deflate_bruteforce(
         return None
 
     analysis = analysis or idat.analyze_idat_stream(data)
+    if bool(getattr(runtime, "force_groundhogday_artifact_seeds", False)):
+        return _run_ultimate_groundhogday_artifact_seeds_runtime(runtime, data, analysis)
     if analysis.complete or not analysis.supported:
         return None
     if analysis.status not in ("corrupt_deflate", "incomplete_stream", "bad_adler"):
@@ -11023,6 +11222,7 @@ def runtime(
     *,
     try_automatic_repair: Callable[[fixit_felix.AutomaticRepairHandler], Any],
     callbacks: LegacyFixItFelixHandlers,
+    progress: Callable[[str], Any] | None = None,
 ) -> fixit_felix.FixItFelixRuntime:
     return fixit_felix.FixItFelixRuntime(
         try_automatic_repair=try_automatic_repair,
@@ -11033,13 +11233,29 @@ def runtime(
             pandora_box_len,
             chunk,
         ),
+        progress=progress or fixit_felix._noop_progress,
     )
+
+
+def _fixit_felix_progress_from_namespace(namespace: dict[str, Any]) -> Callable[[str], Any] | None:
+    minibar = namespace.get("Minibar")
+    if not callable(minibar):
+        return None
+
+    def progress(indication: str) -> Any:
+        try:
+            return minibar(indication)
+        except TypeError:
+            return minibar()
+
+    return progress
 
 
 def build_fixit_felix_runtime_from_namespace(namespace: dict[str, Any]) -> fixit_felix.FixItFelixRuntime:
     return runtime(
         try_automatic_repair=namespace["FixItFelix_Try_Automatic_Repair"],
         callbacks=build_legacy_fixit_felix_handlers_from_namespace(namespace),
+        progress=_fixit_felix_progress_from_namespace(namespace),
     )
 
 
@@ -11061,8 +11277,11 @@ def run_fixit_felix_pipeline_from_namespace(
         if namespace["PAUSEDEBUG"] is True:
             namespace["Pause"]("FixItFelix Debug Pause:")
 
+    runtime = build_fixit_felix_runtime_from_namespace(namespace)
+    runtime.progress("FixItFelix")
+
     return runner(
-        build_fixit_felix_runtime_from_namespace(namespace),
+        runtime,
         namespace["PandoraBox"],
         skip_bad_crc=namespace["Skip_Bad_Crc"],
         bad_next_name=namespace["Bad_Next_Name"],

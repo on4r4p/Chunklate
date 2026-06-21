@@ -146,6 +146,27 @@ def test_question_runtime_names_sbb_visual_reference_roi_prompt():
     ) in calls
 
 
+def test_question_runtime_names_ultimate_visual_roi_snapshot_prompt():
+    runtime, calls = runtime_from(answers=["yes"])
+
+    assert question_runtime.ask_question(
+        runtime,
+        "Ultimate Visual ROI Snapshot:-Use the visible Ultimate preview instead of _ULF.Source.png?",
+        ("roi-source", 1),
+        skipauto=True,
+    ) is True
+
+    assert (
+        "candy",
+        (
+            "Cowsay",
+            "Question: Use the visible Ultimate preview in the ROI editor? yes=preview, no=_ULF.Source.png",
+            "com",
+        ),
+        {},
+    ) in calls
+
+
 def test_question_runtime_names_ihdr_crc_bruteforce_prompt():
     runtime, calls = runtime_from(answers=["yes"])
 
@@ -498,6 +519,10 @@ def main():
         (
             "SBB visual reference ROI prompt",
             test_question_runtime_names_sbb_visual_reference_roi_prompt,
+        ),
+        (
+            "Ultimate visual ROI snapshot prompt",
+            test_question_runtime_names_ultimate_visual_roi_snapshot_prompt,
         ),
         ("IHDR CRC brute force prompt", test_question_runtime_names_ihdr_crc_bruteforce_prompt),
         ("cHRM inference prompt", test_question_runtime_names_chrm_inference_prompt),

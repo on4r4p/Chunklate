@@ -6,6 +6,7 @@ import os
 import struct
 import sys
 import tempfile
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -2254,6 +2255,68 @@ def test_run_main_loop_once_counts_clone_written_by_find_magic():
     assert namespace["SAVE_COUNT"] == 1
 
 
+def test_run_main_loop_once_stops_after_valid_ultimate_final_clone():
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    def find_magic():
+        calls.append(("find_magic",))
+        namespace["SAVE_COUNT"] += 1
+        namespace["Sample"] = "ultimate-final-clone.png"
+        namespace["ULTIMATE_FINAL_CLONE_PENDING"] = True
+        namespace["LAST_CLONE_VALIDATION"] = {
+            "png_ok": True,
+            "idat_complete": True,
+        }
+        namespace["PandoraBox"] = {"old-error-from-source": {}}
+        return None
+
+    namespace = {
+        "sys": SimpleNamespace(
+            stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+            exit=lambda code: calls.append(("exit", code)),
+        ),
+        "os": os,
+        "CLEAR": False,
+        "FirStart": True,
+        "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+        "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+        "Chunklate": lambda mode: calls.append(("banner", mode)),
+        "Sample": sample_path,
+        "CLONESWAR": False,
+        "SAVE_COUNT": 0,
+        "PandoraBox": {},
+        "SideNotes": [],
+        "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Clear_Terminal_Dialogue_Pause": lambda: calls.append(("clear_dialogue_pause",)),
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "FindMagic": find_magic,
+        "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+        "CheckLength": lambda *args: calls.append(("check_length", args)),
+        "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+        "GetInfo": lambda *args: calls.append(("get_info", args)),
+        "Checksum": lambda *args: calls.append(("checksum", args)),
+        "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+        "Open_Current_Final_Image_If_Valid": lambda: calls.append(("open_final",)),
+    }
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState(should_return=True)
+    assert ("find_magic",) in calls
+    assert ("open_final",) in calls
+    assert not any(call[0] == "chunk_by_chunk" for call in calls)
+    assert ("emit", "-No new clone produced, stopping main loop.") not in calls
+    assert namespace["PandoraBox"] == {}
+    assert any("clone relaunch skipped" in note for note in namespace["SideNotes"])
+
+
 def test_run_main_loop_once_opens_valid_final_image_when_no_clone_written():
     calls = []
     with tempfile.NamedTemporaryFile(delete=False) as handle:
@@ -2380,6 +2443,63 @@ def test_deferred_linefeed_runs_before_unimplemented_message():
         in namespace["SideNotes"]
     )
     assert ("emit", "-No repair route implemented for remaining findings.") not in calls
+
+
+def test_try_unresolved_idat_deflate_route_forces_ultimate_groundhogday_artifacts_on_complete_stream(
+    monkeypatch,
+    tmp_path,
+):
+    calls = []
+    ihdr = struct.pack("!IIBBBBB", 1, 1, 8, 0, 0, 0, 0)
+    sample_bytes = (
+        png.PNG_SIGNATURE
+        + png.build_png_chunk(b"IHDR", ihdr)
+        + png.build_png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + png.IEND_CHUNK
+    )
+
+    def fake_probe(runtime, analysis=None):
+        calls.append(
+            (
+                "idat_probe",
+                bool(getattr(analysis, "complete", False)),
+                bool(getattr(runtime, "force_groundhogday_artifact_seeds", False)),
+                getattr(runtime, "ultimate_groundhogday_selection", None),
+            )
+        )
+        runtime.set_idat_deflate_route_consumed(True)
+        return False, None
+
+    monkeypatch.setattr(fixit_felix_runtime, "try_idat_deflate_bruteforce", fake_probe)
+
+    namespace = {
+        "DATAX": sample_bytes.hex(),
+        "WriteClone": lambda *_args, **_kwargs: "clone",
+        "Candy": lambda *_args, **_kwargs: None,
+        "PRINT": lambda *_args, **_kwargs: None,
+        "Question": lambda *_args, **_kwargs: False,
+        "SideNotes": [],
+        "FILE_Origin": "Flag.png",
+        "FILE_DIR": str(tmp_path),
+        "ULTIMATE_GROUNDHOGDAY_SELECTION": {"decision": "groundhogday"},
+    }
+
+    handled = main_runtime._try_unresolved_idat_deflate_route(
+        namespace,
+        force=True,
+        force_groundhogday_artifacts=True,
+    )
+
+    assert handled is True
+    assert calls == [
+        (
+            "idat_probe",
+            True,
+            True,
+            {"decision": "groundhogday"},
+        )
+    ]
+    assert namespace["IDAT_DEFLATE_ROUTE_CONSUMED"] is True
 
 
 def test_run_main_loop_once_routes_deferred_idat_crc_to_deflate_probe(monkeypatch):
@@ -3156,6 +3276,89 @@ def test_run_main_loop_once_directly_resumes_ultimate_before_find_magic():
     assert not [call for call in calls if call[0] == "chunk_by_chunk"]
 
 
+def test_run_main_loop_once_direct_ultimate_final_clone_skips_relaunch():
+    calls = []
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"\x89PNG")
+        sample_path = handle.name
+
+    checkpoint_name = main_runtime.ULTIMATE_LINEFEED_CHECKPOINT_NAME
+    fake_os = SimpleNamespace(
+        name="posix",
+        system=lambda command: calls.append(("system", command)),
+        makedirs=lambda path, **kwargs: calls.append(("makedirs", path, kwargs)),
+        listdir=lambda path: calls.append(("listdir", path)) or [checkpoint_name],
+        path=SimpleNamespace(
+            basename=os.path.basename,
+            exists=lambda path: calls.append(("exists", path)) or True,
+            isdir=lambda path: calls.append(("isdir", path)) or True,
+            abspath=lambda path: "/abs/" + path,
+            join=lambda *parts: "/".join(parts),
+        ),
+        remove=lambda path: calls.append(("remove_file", path)),
+    )
+
+    def direct_resume():
+        calls.append(("direct_resume",))
+        namespace["SAVE_COUNT"] += 1
+        namespace["Sample"] = "ultimate-resume-final.png"
+        namespace["ULTIMATE_FINAL_CLONE_PENDING"] = True
+        namespace["LAST_CLONE_VALIDATION"] = {
+            "png_ok": True,
+            "idat_complete": True,
+        }
+        return "direct-result"
+
+    namespace = {
+        "sys": SimpleNamespace(
+            stderr=SimpleNamespace(write=lambda value: calls.append(("stderr", value))),
+            exit=lambda code: calls.append(("exit", code)),
+        ),
+        "os": fake_os,
+        "shutil": SimpleNamespace(rmtree=lambda path: calls.append(("remove_tree", path))),
+        "CLEAR": False,
+        "FirStart": True,
+        "CHUNK_INFO_STATE": SimpleNamespace(reset_idat=lambda: calls.append(("reset_idat",))),
+        "Sync_Chunk_Info_Legacy_State": lambda section: calls.append(("sync", section)),
+        "Chunklate": lambda mode: calls.append(("banner", mode)),
+        "FILE_Origin": sample_path,
+        "FILE_DIR": "/out/",
+        "OUTPUT_FOLDER_CLEANUP_PENDING": True,
+        "ULTIMATE_LINEFEED_RESUME": "auto",
+        "Sample": sample_path,
+        "CLONESWAR": False,
+        "SAVE_COUNT": 0,
+        "PandoraBox": {},
+        "SideNotes": [],
+        "Candy": lambda *args: "<%s:%s>" % (args[1], args[2]) if args[0] == "Color" else calls.append(("candy", args)),
+        "PRINT": lambda message: calls.append(("emit", message)),
+        "Clear_Terminal_Dialogue_Pause": lambda: calls.append(("clear_dialogue_pause",)),
+        "Betterror": lambda error, name: calls.append(("betterror", str(error), name)),
+        "Prepare_Immediate_Summary": lambda: calls.append(("prepare_summary",)),
+        "Run_Ultimate_Linefeed_Direct_Resume": direct_resume,
+        "FindMagic": lambda: calls.append(("find_magic",)) or 0,
+        "ChunkbyChunk": lambda offset: calls.append(("chunk_by_chunk", offset)),
+        "CheckLength": lambda *args: calls.append(("check_length", args)),
+        "CheckChunkName": lambda *args: calls.append(("check_chunk_name", args)),
+        "GetInfo": lambda *args: calls.append(("get_info", args)),
+        "Checksum": lambda *args: calls.append(("checksum", args)),
+        "FixItFelix": lambda chunk: calls.append(("fix_it_felix", chunk)),
+        "Open_Current_Final_Image_If_Valid": lambda: calls.append(("open_final",)),
+    }
+
+    try:
+        state = main_runtime.run_main_loop_once_from_namespace(namespace)
+    finally:
+        os.unlink(sample_path)
+
+    assert state == main_runtime.MainLoopIterationState(should_return=True)
+    assert ("direct_resume",) in calls
+    assert ("find_magic",) not in calls
+    assert not [call for call in calls if call[0] == "chunk_by_chunk"]
+    assert ("open_final",) in calls
+    assert any("clone relaunch skipped" in note for note in namespace["SideNotes"])
+
+
 def test_run_main_loop_once_skips_output_cleanup_when_smash_resume_is_accepted():
     calls = []
     with tempfile.NamedTemporaryFile(delete=False) as handle:
@@ -3697,6 +3900,10 @@ def main():
             test_run_main_loop_once_clears_deferred_after_valid_clone,
         ),
         ("main loop counts FindMagic clone", test_run_main_loop_once_counts_clone_written_by_find_magic),
+        (
+            "main loop stops after valid Ultimate final clone",
+            test_run_main_loop_once_stops_after_valid_ultimate_final_clone,
+        ),
         ("main loop opens final image on clean no-clone exit", test_run_main_loop_once_opens_valid_final_image_when_no_clone_written),
         (
             "main loop clone handoff counts as progress",
@@ -3714,6 +3921,10 @@ def main():
         (
             "main loop ultimate direct resume",
             test_run_main_loop_once_directly_resumes_ultimate_before_find_magic,
+        ),
+        (
+            "main loop ultimate direct final clone skips relaunch",
+            test_run_main_loop_once_direct_ultimate_final_clone_skips_relaunch,
         ),
         (
             "main loop SmashBruteBrawl resume skips cleanup",
